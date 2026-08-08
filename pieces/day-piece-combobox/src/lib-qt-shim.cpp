@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The combo piece's OWN Qt shim behind a flat C ABI: an EDITABLE QComboBox — Qt's real combo
 // box (free text + a dropdown of items). editTextChanged fires on typing AND when picking an
 // item (the pick writes the edit text), so it is the single change path back to Rust (UTF-8,

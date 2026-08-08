@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Layout containers that arrange child pieces: `column`, `row`, `grid`/`grid_row`, `scroll`,
 //! and `zstack`, together with the `HAlign`/`VAlign` alignment enums.
 

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The part↔Java payload convention (docs/extending.md, "The Android bridging contract"): ONE
 // byte[] crosses JNI per call, laid out as
 //   [0..4)  status i32 BE (NEGATIVE = the part's transport-error sentinel)

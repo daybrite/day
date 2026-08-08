@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: NSComboBox — the platform's real combo box (a text field with a dropdown button and
 // item list). One delegate serves both halves: typing arrives per keystroke through

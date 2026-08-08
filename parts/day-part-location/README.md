@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-part-location
 
 Where the device is — once, or as a live stream — through the platform's own location service.

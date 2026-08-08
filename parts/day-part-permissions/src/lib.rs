@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-permissions — a HEADLESS portable API for the OS PERMISSION system. No UI; any Rust
 //! code can depend on this crate to ask what the OS will do, and to ask the OS itself.
 //!

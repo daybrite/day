@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day patch` — build a standalone app against a LOCAL day checkout instead of the git dependency.
 //!
 //! An app outside this repository declares its framework dependencies from git:

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Pre-flight lint — run CI's whole fmt + clippy gate locally, BEFORE pushing, so a fmt drift or a
 # clippy warning can't reach CI. It exists because the gate is a matrix, not one command: toolkit
 # and part crates are NOT in default-members and each compiles only under its own backend feature

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-xaml-sys — raw `extern "C"` declarations for the C++/WinRT XAML-Islands shim
 //! (src/shim.cpp) compiled by build.rs. Handles are opaque `Windows.UI.Xaml.UIElement*`
 //! heap-boxed by the shim; `day_xaml_delete` releases the WinRT reference.

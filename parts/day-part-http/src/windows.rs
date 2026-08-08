@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Windows: WinHTTP (winhttp.dll) — the system HTTP stack: automatic proxy/PAC
 // (WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY), schannel TLS + the Windows certificate stores

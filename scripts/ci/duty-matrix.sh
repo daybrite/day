@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Regenerate docs/duty-matrix.md — the Toolkit-duty conformance table (which backend implements
 # which trait method vs inheriting the day-spec default). CI runs this and fails on drift
 # (`git diff --exit-code docs/duty-matrix.md`), so the table can never rot: adding a duty or an

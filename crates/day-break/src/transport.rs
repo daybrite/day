@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Pluggable upload transports (docs/break.md). A [`Reporter`] is the ONLY path a report takes off
 //! the device, and it is always driven by app code from a user action — day-break never uploads on
 //! its own. Three built-ins cover the common shapes; an app can implement its own.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Scaffold a project the way a new user's first command does, then check it end to end.
 #
 #     scripts/ci/scaffold-check.sh [path/to/day] [<platform-toolkit>]

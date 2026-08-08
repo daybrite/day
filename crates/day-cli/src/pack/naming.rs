@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! What a packaged artifact is called (§16.5, §20.4).
 //!
 //! Every format lands on ONE pattern:

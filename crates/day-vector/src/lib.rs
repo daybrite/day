@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-vector — Day's vector-graphics engine (docs/vectors.md, docs/icons.md).
 //!
 //! One crate, two consumers:

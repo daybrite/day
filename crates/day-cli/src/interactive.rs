@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Interactive terminal prompts for `day new` (DESIGN.md §8). These are the *fallback* branch of the
 //! `day new` flag resolvers: when a value is not supplied on the command line and a terminal is
 //! present, the corresponding question below fills it in. That is the whole flag↔dialog link — there

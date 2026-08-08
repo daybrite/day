@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Agentic development
 
 How coding agents (VS Code agent mode, Claude Code, any MCP client) build, run, and (uniquely)

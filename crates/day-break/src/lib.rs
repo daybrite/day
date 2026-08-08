@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-break — consent-first crash reporting for Day apps (docs/break.md, DESIGN.md §8.5).
 //!
 //! An OPTIONAL crate. An app opts in with one call, as early as possible in startup:

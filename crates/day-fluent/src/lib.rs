@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-fluent — the piece-facing localization layer over the [`day_l10n`] engine (DESIGN.md §12).
 //!
 //! The engine (bundles, the current-locale [`Signal`], `format_in`, and the built-in core catalog of

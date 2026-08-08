@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! macos-appkit → .app assembly → codesign (inside-out, never `--deep`) → .dmg (UDZO) →
 //! notarytool submit (ASC API key) → stapler → verify. Stage order is normative (hoppack lineage,
 //! DESIGN.md §16.5). Ad-hoc signing remains the default when no identity is configured.

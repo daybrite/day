@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-combobox — an EXTERNAL Day Piece (DESIGN.md §15 tier 1, Appendix B.1): one Rust
 //! API, per-toolkit native renderers registered link-time into each backend's slice, with no
 //! edits to Day or its toolkit crates. The Qt and XAML renderers carry their own C++ shims;

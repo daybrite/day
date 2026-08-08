@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Compiles this tweak's OWN native shims when their feature is on — the bring-your-own-native
 //! recipe for tweaks (docs/tweaks.md), mirroring day-piece-picker's build.rs exactly:
 //! Qt via `cc` + pkg-config; XAML via `cc` (MSVC) + the Windows SDK cppwinrt projection;

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Frame clock / continuous-animation driver (§8.4, docs/animation.md).
 //!
 //! Backends deliver a single vsync-aligned callback through [`day_spec::Platform::request_frame`];

@@ -5,6 +5,11 @@ order: 51
 section: Under the hood
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 [Architecture](/docs/architecture) covered the structure; this page follows a widget through the
 running system. It traces a
 widget from `build` to pixels, a click from the native event to your closure, and a signal write

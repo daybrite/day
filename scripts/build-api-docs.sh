@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Generate the Rust API reference (rustdoc) for the public-facing Day crates.
 #
 #   scripts/build-api-docs.sh                     # → target/doc

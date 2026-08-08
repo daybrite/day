@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — a QLineEdit with setClearButtonEnabled(true) and
 // a leading magnifier action, behind a flat C ABI. textChanged dispatches Event::TextChanged;

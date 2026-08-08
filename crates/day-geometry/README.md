@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-geometry
 
 The small geometry types the rest of Day shares: `Point`, `Size`, `Rect`, `Insets`,

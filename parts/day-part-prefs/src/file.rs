@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // File-backed persistent store for platforms with no in-reach system preferences API: desktop Linux,
 // Windows, and (best-effort) HarmonyOS/OpenHarmony. The store is a flat String->String map under
 // `<config-dir>/day/day-part-prefs.store`, serialized one entry per line as

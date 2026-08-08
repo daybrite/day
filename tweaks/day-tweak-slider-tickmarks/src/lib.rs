@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-tweak-slider-tickmarks — the full-range packaged-tweak example (docs/tweaks.md): native
 //! tick marks (and, where the platform supports it, snap-to-tick) on Day's `slider(…)`, across
 //! six toolkits, exercising every tweak access tier:

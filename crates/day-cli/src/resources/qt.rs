@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Qt resource staging (§18.3) — native Qt Resource System packing.
 //!
 //! Generates a `.qrc` and compiles it with `rcc -binary` into `app.rcc` under `build/day/qt/`.

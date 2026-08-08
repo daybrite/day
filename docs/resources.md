@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Resources (§18.3, §18.4, §18.5)
 
 Day apps bundle three kinds of resource, all looked up by name, all routed through each platform's

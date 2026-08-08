@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: AVPlayerView (AVKit) fronting an AVPlayer (AVFoundation) — native transport chrome for
 // free via `controlsStyle`. Looping has no AVPlayer flag, so a small NSObject observer watches

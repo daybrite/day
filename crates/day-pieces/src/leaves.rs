@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Leaf pieces — the childless primitives: `label`, `link`, `button` (plus the `ButtonStyle`
 //! hook), `toggle`, `slider`, `text_field`, `progress`/`spinner`, `divider`, and `spacer`.
 

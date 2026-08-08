@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The `day lite test` core (docs/lite.md §11): run a miniapp's `tests/*.test.ts` headlessly.
 //! Tests get the full `day.*` API against a throwaway store (fresh sqlite + fs sandbox per
 //! run); the network bridge is installed UNGRANTED, so `day.net.fetch` always rejects —

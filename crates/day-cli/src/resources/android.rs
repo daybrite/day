@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Android resource staging (§18.3).
 //!
 //! Images → `build/day/android/res/drawable*/<name>.<ext>` (density bucket from any `@Nx` suffix) so

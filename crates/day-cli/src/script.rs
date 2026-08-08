@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The dayscript runner (DESIGN.md §14, §16.5): launches the app with the engine invited
 //! (token + runner-chosen port — the port-0 handshake-file refinement is post-MVP), connects
 //! over TCP (adb-forwarded on Android), executes the YAML flow, saves screenshots, prints

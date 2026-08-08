@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: GtkDropDown (menu) / `.linked` grouped ToggleButtons (segmented) / grouped
 // CheckButton radios (inline). Echo-guarded so programmatic selection doesn't loop.

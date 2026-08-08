@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The day-piece-lottie crate's OWN Android backend — a Java shim over airbnb/lottie-android. It is
 // bundled with THIS crate and folded into the app's Gradle build via [package.metadata.day.android]
 // (which also declares the com.airbnb.android:lottie dependency), with ZERO edits to day-android. It

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Files: native open & save pickers
 
 Day opens and saves files through each platform's native file-interaction UI, using the same

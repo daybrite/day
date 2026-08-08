@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Every non-wasm target: std::fs under the per-app data root. The root resolves once per call
 // (cheap, and env-driven so tests and hosts can redirect it):

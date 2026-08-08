@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! A minimal timer future for `setTimeout` (docs/lite.md §7): a helper thread parks for
 //! the duration and wakes the waker; `day_core::task` then resumes the future on the main
 //! thread, so the JS callback always runs there.

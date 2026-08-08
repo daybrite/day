@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day localize` — one locale set, every surface (DESIGN.md §16.5). A conventional Day project
 //! spells its locales in FOUR places: `resource/locales/<tag>/` (the app's own Fluent
 //! translations), `store/<tag>/` (the listing text, docs/store.md), the Xcode project's

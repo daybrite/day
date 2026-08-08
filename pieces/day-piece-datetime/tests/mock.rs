@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Mock e2e for the date/time pickers (the day-pieces mock_e2e pattern): both pieces realize
 //! their kind, native picks (`Event::Custom` — ISO text in-process, epoch numbers across a
 //! JNI/C-ABI boundary) and dayscript's `input:` step (`Event::TextChanged`) drive the bound

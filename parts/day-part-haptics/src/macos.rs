@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // macOS: AppKit's NSHapticFeedbackManager drives the Force Touch trackpad. It offers only three
 // patterns — Generic, Alignment, LevelChange — so the seven `Haptic` styles fold onto them
 // sensibly:

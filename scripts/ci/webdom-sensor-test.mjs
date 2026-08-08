@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
 // webdom-sensor-test.mjs <url> — verify day-part-sensors' browser arm end to end.
 //
 // Headless WebKit has no motion hardware, so the walkthrough alone can only ever prove the

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Native input pieces: `picker` (a bound one-of-N selector — menu, segmented, or inline) and
 //! `text_area` (a multi-line, auto-growing editor bound two-way to a `Signal<String>`).
 

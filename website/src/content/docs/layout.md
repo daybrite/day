@@ -5,6 +5,11 @@ order: 13
 section: Concepts
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day owns layout. Native toolkits each have their own layout system (Auto Layout, GTK's size
 groups, Android's measure/layout passes), and they don't agree with each other, so Day bypasses
 them, computes every widget's frame itself, and positions widgets absolutely inside their native

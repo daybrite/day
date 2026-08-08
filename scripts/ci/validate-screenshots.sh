@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # validate-screenshots.sh <screenshots-root> — content-validate walkthrough screenshots (§20).
 #
 # A capture that decodes but is blank (transparent snapshot, unpainted window) compresses to a

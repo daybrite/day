@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Grid acceptance (docs/grid.md) on the mock toolkit: column inference, spans, alignment
 //! precedence, height-for-width, reactive reflow — and the performance contract (two measure
 //! proposals per cell, bounded re-measures on update) as golden assertions, per §7.4.

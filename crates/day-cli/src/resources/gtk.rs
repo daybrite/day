@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! GTK resource staging (§18.3) — native GResource packing.
 //!
 //! Generates a `.gresource.xml` and compiles it with `glib-compile-resources` into a binary

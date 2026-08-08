@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Best-effort "is there a newer day-cli on crates.io?" check.
 //!
 //! [`spawn`] kicks off the crates.io query on a background thread the moment the CLI starts, so it

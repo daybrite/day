@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: the real thing — UIRefreshControl. The piece's realized node is a passthrough host
 // `UIView` subclass (DayRefreshHost): when day-core mounts the wrapped scrollable into it

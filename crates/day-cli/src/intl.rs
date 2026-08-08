@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! ICU locale-data thinning (docs/localization.md "Locale data"; docs/environment.md).
 //!
 //! day-l10n's icu4x components default to `compiled_data` — correct for every locale on Earth,

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Combo box (external piece)
 
 > **Status: implemented** as `day-piece-combobox`, an external Day Piece (like

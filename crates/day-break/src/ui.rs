@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The ready-made consent surface (feature `ui`): a banner an app embeds to disclose a pending
 //! crash report and let the user view, send, or discard it. Everything the user reads is localized
 //! (en/fr/ar/zh-CN, [`crate::i18n`]); the destination disclosure comes from the configured

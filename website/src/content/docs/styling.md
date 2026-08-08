@@ -5,6 +5,11 @@ order: 14
 section: Concepts
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 In Day the platform draws the widgets: a Day button on macOS is an `NSButton` with AppKit's
 chrome; on Android it's a Material button. So styling works differently than in a renderer,
 where you control every pixel.

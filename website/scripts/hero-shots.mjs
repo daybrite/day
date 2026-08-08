@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Assemble the front-page hero carousel's screenshot pool.
 //
 // The hero shows real Day Showcase UI, one native rendering per platform, cross-fading with an

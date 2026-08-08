@@ -5,6 +5,11 @@ order: 28
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A timer that finished, a download that completed, a reminder that should fire after the app has
 exited: `day-part-local-notify` posts and schedules the platform's own notifications from Rust.
 It needs no server and no push transport; the call site is:

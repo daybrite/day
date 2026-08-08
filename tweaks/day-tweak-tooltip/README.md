@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-tweak-tooltip
 
 Give any Day piece a native help tooltip: `.tooltip("Save your changes (⌘S)")` on any

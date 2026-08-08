@@ -5,6 +5,11 @@ order: 34
 section: Build & ship
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A build is reproducible when the same source, built twice, produces the same bytes. Day builds the
 compiled code of every app reproducibly: rebuild a commit in a different directory, on a different
 day, and the machine code that comes out is identical. The containers those binaries ship in

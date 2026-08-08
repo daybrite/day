@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Day — the command-line tool (DESIGN.md §16). v0: new / build / launch / doctor for the
 //! desktop targets, Day.toml manifest, per-target cargo dirs, `--format json` result events.
 //! Mobile pipelines (xcodebuild/gradle callbacks) land with the M5 scaffolds.

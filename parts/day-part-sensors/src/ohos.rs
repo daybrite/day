@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // HarmonyOS / OpenHarmony: the native SensorServiceKit C API (`libohsensor.so`, `oh_sensor.h`,
 // API 11+). Pure FFI, like iOS — no ArkTS bridge or Day runtime needed (unlike Android's
 // SensorManager, which rides day-android's JVM/Context). The API is push-only: the first `read` for

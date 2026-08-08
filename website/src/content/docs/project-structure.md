@@ -5,6 +5,11 @@ order: 31
 section: Build & ship
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A Day app is a normal Cargo package plus a small `Day.toml` manifest and a few conventional
 directories. The `day` CLI reads that layout to build every target: the same Rust code becomes a
 plain desktop binary, a static library inside an Xcode app, a JNI `.so` inside a Gradle APK, or a

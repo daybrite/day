@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day doctor — development-environment diagnosis, grouped by toolkit (DESIGN.md §16.5).
 //!
 //! Default (`day doctor`): checks the core toolchain plus every toolkit buildable on this host. A

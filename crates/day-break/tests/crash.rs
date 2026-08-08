@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Subprocess crash harness: the real end-to-end path. A real crash needs a real process — you
 //! cannot segfault the test runner and survive — so each crash runs in a CHILD spawned as
 //! `current_exe()` filtered to the single [`child_entry`] test. The child reads `DAY_BREAK_TEST_MODE`,

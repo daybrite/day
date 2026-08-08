@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — a QWidget that paints a QPixmap decoded from the
 // bytes (aspect fit/fill) under a circle / rounded / rect clip, over the placeholder color, behind a

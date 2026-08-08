@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: a GtkTextView inside a GtkScrolledWindow (vertical scrolling only), wrapped in a GtkOverlay that
 // carries a dim placeholder GtkLabel pinned top-left (GtkTextView has no native placeholder). The

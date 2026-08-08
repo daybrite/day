@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-swiftui — custom SwiftUI views inside a Day app, on macos-appkit + ios-uikit only.
 //!
 //! The native half resolves a provider class named `@objc(DayView_<name>)` (dots in `name` become

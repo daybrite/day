@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: an editable UITextView (which is itself a scroll view). A per-node delegate implements
 // UITextViewDelegate::textViewDidChange: and dispatches Event::TextChanged; programmatic setText does

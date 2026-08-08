@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-dom — the `web-dom` backend (DESIGN.md §9): the DOM is the toolkit. A `<button>` is
 //! the web's native button, `<input type="range">` its slider, `<dialog>` its modal surface —
 //! semantic HTML plus ARIA, never a canvas-painted imitation (§0.3).

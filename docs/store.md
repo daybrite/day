@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Store listings (App Store, Google Play)
 
 > **Status: implemented** as `store/` in a project, `day store init` / `day store stage`, the

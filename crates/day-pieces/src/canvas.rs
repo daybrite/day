@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The `canvas` immediate-mode drawing surface — record a `Draw` display list that backends
 //! replay natively, with `frame_clock` for per-frame animation — plus the general `Reactive<T>`
 //! (value / `Signal` / closure) abstraction that pieces accept for animatable inputs.

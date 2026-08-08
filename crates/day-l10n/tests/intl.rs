@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! icu4x-backed formatting + collation (docs/localization.md "Formatted values"/"Sorting").
 //! These run under bare `cargo` — full compiled data, no thinning pipeline involved — and pin the
 //! locale per assertion via `format_in`, so they are independent of DAY_LOCALE and each other.

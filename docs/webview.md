@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Web view (external piece)
 
 > **Status: implemented** as `day-piece-webview`, an external Day Piece (like `day-piece-combobox`)

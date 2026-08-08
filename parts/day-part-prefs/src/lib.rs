@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-prefs — a HEADLESS cross-platform persistent key/value store. No UI; any Rust code can
 //! depend on this crate and call [`set`] / [`get`] / [`remove`] / [`contains`] to persist small
 //! strings across launches through the platform's NATIVE preferences facility.

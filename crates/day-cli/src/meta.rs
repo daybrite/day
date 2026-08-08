@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Day.toml — the project manifest (DESIGN.md §17.3).
 //!
 //! Follows the Tauri / Dioxus model: a dedicated manifest file that doubles as the project

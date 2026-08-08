@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: an NSHostingView created by this crate's Swift shim (apple/swift/DaySwiftUI.swift → the
 // generated DayPieces SwiftPM package, statically linked into the cargo binary by `day build`).

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Astro integration: assemble the screenshots gallery before Astro reads any modules.
 //
 // Running in `astro:config:setup` (the earliest hook, fired for both `dev` and `build`) guarantees

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: WKWebView (WebKit). A custom navigation delegate reports the committed URL back via
 // `Event::custom("webview:url", …)` so a bound text field follows navigation. WKWebView keeps its

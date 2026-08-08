@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Fires a scheduled notification. Declared in the app manifest through the crate's
 // android/components.xml ([package.metadata.day.android].manifest-components) — without that
 // declaration Android never instantiates this class, and the APK installs, runs, and silently

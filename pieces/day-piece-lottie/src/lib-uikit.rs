@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: a LottieAnimationView from airbnb/lottie-ios, created by this crate's Swift shim
 // (ios/swift/DayLottie.swift → the generated DayPieces SwiftPM package). Rust calls the shim's flat

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Navigation. Imperative helpers (`navigate`, `nav_back`, `current_route`, `nav_link`); typed
 //! routes (the `Route` trait, the `routes!` macro, `RoutePath`); and the host pieces that project
 //! an app-owned `Signal` into native navigation — `selector` (tabs/sidebar), `stack` (push/pop),

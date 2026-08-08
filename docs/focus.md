@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Focus
 
 > Status: **implemented** on every backend (AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and

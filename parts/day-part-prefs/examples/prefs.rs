@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `cargo run -p day-part-prefs --example prefs [key] [value]` — a tiny persistent store from the
 //! command line. `prefs greeting` reads the value stored under `greeting`; `prefs greeting hello`
 //! stores `hello` under `greeting`, then reads it back.

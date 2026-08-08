@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Standalone pieces (front-end and backend, no core changes)
 
 A **piece** is a reusable Day widget. Day ships built-in pieces (`button`, `slider`, `list`, …), but

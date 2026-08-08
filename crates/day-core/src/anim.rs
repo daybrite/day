@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Ambient animation intent (§8.4). [`with_animation`] sets a thread-local `AnimSpec` for the
 //! duration of a state mutation; the tree's `patch` / layout's `set_frame` read it (via
 //! `Tree::resolve_anim`) and hand it to the backend as *backend-executed* animation intent — Day

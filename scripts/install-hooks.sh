@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Point this clone's git hooks at the tracked .githooks/ directory.
 #
 # Git does not version .git/hooks, so a hook only exists in the clone that created it. `core.hooksPath`

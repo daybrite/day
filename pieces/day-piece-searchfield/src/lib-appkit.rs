@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: NSSearchField (a rounded search NSTextField with a magnifier + clear button for free). A
 // per-node delegate implements NSControlTextEditingDelegate::controlTextDidChange: and dispatches

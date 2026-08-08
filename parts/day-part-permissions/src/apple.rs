@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! iOS and macOS: the per-framework authorization APIs.
 //!
 //! Apple has no permission *system* to query — each capability is gated by its own framework, with

@@ -5,6 +5,11 @@ order: 30
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day apps fetch through each platform's own networking stack: `NSURLSession` on macOS and iOS,
 OkHttp on Android, WinHTTP on Windows, the browser's `fetch()` on the web, and a bundled
 ureq + rustls client on Linux and HarmonyOS. The request inherits what the OS already knows

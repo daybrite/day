@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-piece-pullrefresh's OWN ArkUI shim (docs/extending.md): create an ARKUI_NODE_REFRESH (API
 // 12+) that Day mounts the wrapped scrollable into (the generic day_ark_insert_child accepts it —
 // Refresh hosts exactly one child). Pull-begins arrive via NODE_REFRESH_ON_REFRESH; the indicator

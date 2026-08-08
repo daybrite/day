@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Progress indicators (`progress`, `spinner`)
 
 A progress indicator reports the state of ongoing work. Day exposes the two SwiftUI

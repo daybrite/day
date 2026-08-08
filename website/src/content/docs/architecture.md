@@ -5,6 +5,11 @@ order: 50
 section: Under the hood
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 This page is the map: which crates exist, why the boundaries sit where they do, and how a build
 actually happens on each platform. The companion page, [How rendering works](/docs/rendering),
 follows a widget through the running system.

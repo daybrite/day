@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: AndroidX SwipeRefreshLayout — the real thing. The Java factory
 // (`dev.daybrite.day.piece.pullrefresh.DayPullRefresh`) is bundled with THIS crate under

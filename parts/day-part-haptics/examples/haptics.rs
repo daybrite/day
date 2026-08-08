@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `cargo run -p day-part-haptics --example haptics` — fire one haptic of each style.
 //! Demonstrates that any Rust code can depend on this crate and use the API with no Day framework at
 //! all. On a platform/host without a haptic engine this prints the (lack of) support and the calls

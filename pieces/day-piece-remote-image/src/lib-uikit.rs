@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: a UIImageView subclass. UIImageView has real aspect-fill/-fit via `contentMode`, and
 // `clipsToBounds` + `layer.cornerRadius` gives the rounded/circle clip; `backgroundColor` is the

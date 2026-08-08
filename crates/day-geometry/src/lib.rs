@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-geometry — plain `Copy` value types shared by layout, canvas, and the toolkit spec.
 //! Everything is in points (density-independent); backends convert to device pixels (§7.9).
 

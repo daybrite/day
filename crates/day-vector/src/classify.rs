@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Source classification + SF Symbol template variant extraction (docs/vectors.md).
 //!
 //! An SF Symbol template (the SF Symbols app's export format, matched by third-party

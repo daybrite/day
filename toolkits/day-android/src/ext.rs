@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): JNI access to the `android.view.View` behind a Day-created piece.
 //!
 //! `with_native` hands `f` the View's global reference, the concrete native **class name**, and an

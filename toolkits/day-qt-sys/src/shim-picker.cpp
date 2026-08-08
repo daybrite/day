@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The picker piece's own Qt shim: three stylings behind a flat C ABI. Options cross joined by '\n'.
 // style: 0 = menu (QComboBox), 1 = segmented (checkable QPushButtons), 2 = inline (QRadioButtons).
 // Segmented/inline share an exclusive QButtonGroup; `idClicked` fires on USER clicks only, so

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The dayscript **recorder** (DESIGN.md §14.6): the inverse of playback. Where the engine turns a
 //! script into synthesized Day events, the recorder turns the events an app actually receives back
 //! into a script. It rides one seam — [`day_core::set_event_observer`], the single point EVERY

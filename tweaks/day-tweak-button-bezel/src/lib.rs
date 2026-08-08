@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-tweak-button-bezel — the smallest possible packaged tweak (docs/tweaks.md): symbolic
 //! constants for AppKit's `NSButton` bezel styles, applied through `day_appkit::with_native`.
 //!

@@ -5,6 +5,11 @@ order: 33
 section: Build & ship
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Not all twelve targets are equally mature, and this page exists so you don't have to infer the
 differences from bug trackers. It reflects what runs in CI on every push and what has been
 exercised by real applications, and it gets updated when reality changes.

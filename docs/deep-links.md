@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Deep links (OS integration)
 
 How a URL outside the app becomes a `navigate` inside it. This document covers the OS side:

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-mock
 
 A pretend backend for testing Day code: instead of creating widgets, it writes down every

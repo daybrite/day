@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // iOS: UIPasteboard.generalPasteboard — string/setString:/hasStrings. Unlike UIDevice this class
 // is not MainThreadOnly, so the calls work from any thread. On iOS 14+ reading the pasteboard shows
 // the system "app pasted from …" banner; hasStrings does not (it's the sanctioned pre-check).

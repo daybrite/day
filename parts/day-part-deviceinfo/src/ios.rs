@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // iOS: UIDevice.currentDevice exposes model ("iPhone"/"iPad" marketing class), systemName
 // ("iOS"/"iPadOS") and systemVersion ("17.5"). UIDevice is MainThreadOnly, so this reads on the main
 // thread; called off it, the OS fields fall back to "Unknown" (the simulator flag is still reported,

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-lottie
 
 Play Lottie animations in Day apps on iOS and Android.

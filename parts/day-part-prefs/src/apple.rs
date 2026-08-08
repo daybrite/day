@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // macOS + iOS (one shared file): NSUserDefaults.standard — the system's per-application preferences
 // store (a plist under ~/Library/Preferences on macOS, the app container on iOS). It is
 // toolkit-independent (no NSApplication / UIApplication, run loop, or window needed), so this works

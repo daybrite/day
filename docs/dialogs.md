@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Dialogs, modals & imperative presentation (`present`)
 
 Alerts, confirmations, action sheets, text prompts (and later native pickers) are

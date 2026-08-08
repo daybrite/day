@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `Decorate` — the chainable modifiers every piece inherits: padding and sizing, background and
 //! corner radius, gestures (`on_tap`, drag), accessibility (`A11yBuilder`), and native-handle
 //! capture (`NativeRef`) — plus the `Modifier` / `IntoInsets` supporting traits.

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! High-level vector shapes atop the canvas display list: `rectangle`, `circle`, `ellipse`,
 //! `capsule`, `rounded_rectangle`, `arc`, `line`, and `polygon`, combined with `shape_group`.
 //! Reactive fill/stroke, rotate/scale/offset transforms, and tap/drag gestures.

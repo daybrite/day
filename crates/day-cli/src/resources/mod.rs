@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Build-time resource staging (DESIGN §18.3).
 //!
 //! Two declared buckets in a project:

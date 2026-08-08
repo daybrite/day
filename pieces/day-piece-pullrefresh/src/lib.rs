@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-pullrefresh — pull-to-refresh for any Day scrollable, modeled on SwiftUI's
 //! `refreshable(action:)` (DESIGN.md §15; docs/extending.md).
 //!

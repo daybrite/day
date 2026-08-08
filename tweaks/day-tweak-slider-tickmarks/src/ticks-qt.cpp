@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The Qt half of day-tweak-slider-tickmarks — the canonical bring-your-own-C++ tweak recipe
 // (docs/tweaks.md): a tweak crate compiles its own few lines of Qt against the raw `QWidget*`
 // that `day_qt::with_native_raw` hands out. Qt itself is already linked by day-qt-sys.

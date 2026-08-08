@@ -5,6 +5,11 @@ order: 26
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Sometimes the widget Day gives you is exactly right except for one platform-specific detail: you
 want the standard button, but with AppKit's toolbar bezel; the standard slider, but with XAML's
 tick marks. Writing a whole custom piece for two method calls is disproportionate, so Day has

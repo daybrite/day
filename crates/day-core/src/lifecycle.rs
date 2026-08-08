@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! App-lifecycle callbacks (docs/lifecycle.md). An app registers closures for [`day_spec::Lifecycle`]
 //! phases with [`on_lifecycle`]; each backend, at the matching moment in its native app/activity
 //! delegate, emits `Event::Lifecycle(phase)` (or day-core dispatches the launch phases uniformly),

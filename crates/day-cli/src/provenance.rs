@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Build provenance: what an artifact was built from, and what it was built with (DESIGN.md §20.4).
 //!
 //! Two documents, deliberately separate, because they have opposite requirements.

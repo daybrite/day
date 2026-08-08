@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The remote-image piece's OWN Qt shim behind a flat C ABI: a QWidget that paints a QPixmap decoded
 // from encoded bytes (PNG/JPEG/…), aspect fit/fill, under a centered-circle / rounded / rectangular
 // clip, over the placeholder color. Painting in paintEvent (rather than a QLabel + setPixmap) makes

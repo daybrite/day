@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-uikit — the ios-uikit backend (DESIGN.md §9). objc2, pure Rust, no shim.
 //!
 //! `Handle = Retained<UIView>`; UIKit is top-left/y-down so Day frames apply directly. The app

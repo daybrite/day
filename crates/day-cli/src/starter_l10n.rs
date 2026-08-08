@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Starter translations for the keys `day new app` scaffolds (docs/localization.md).
 //!
 //! `day localize add <tag>` copies the default locale verbatim under a translate-me header,

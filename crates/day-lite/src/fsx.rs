@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The sandboxed per-app filesystem (docs/lite.md §7): an OPFS-shaped surface rooted at the
 //! app's `fs/` directory. Path validation is defense-in-depth: names may not be absolute,
 //! contain `..`, backslashes, or NULs, and every resolved path must stay under the root.

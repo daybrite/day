@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // macOS: NSPasteboard (AppKit). The general pasteboard is toolkit-independent — it needs no
 // NSApplication, run loop, or window — so this works in day-qt binaries and plain `cargo test`
 // processes just as well as under day-appkit. Write is the standard clearContents() +

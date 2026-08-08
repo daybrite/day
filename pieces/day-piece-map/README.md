@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-map
 
 A native map view for Day apps on Apple platforms, backed by MapKit's `MKMapView`.

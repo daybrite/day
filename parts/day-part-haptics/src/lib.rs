@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-haptics — a HEADLESS cross-platform haptic-feedback API. No UI; any Rust code can depend
 //! on this crate and call [`play`] to fire a haptic through the platform's NATIVE API.
 //!

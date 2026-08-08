@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day rebuild <artifact>` — rebuild a shipped artifact from its own provenance and compare
 //! (DESIGN.md §20.4).
 //!

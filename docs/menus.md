@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Menus (§ menus)
 
 Day renders menus with each toolkit's native menu machinery: `NSMenu`, `GtkPopoverMenu` /

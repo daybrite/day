@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # App-local file storage (headless capability crate)
 
 > **Status: implemented** as `day-part-fs` (in `parts/`), a headless day-ecosystem crate with no

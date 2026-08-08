@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Assemble the screenshots gallery from CI artifacts into a static manifest + copied images.
 //
 // Inputs  : `<artifactsDir>/screenshots-<platform>/<variant>/<shot>.png` (from `download-artifact

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-appkit — the macos-appkit backend (DESIGN.md §9). objc2, pure Rust, no shim.
 //!
 //! `Handle = Retained<NSView>`. Containers are flipped `NSView`s (top-left origin, so Day's

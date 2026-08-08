@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // ArkUI (HarmonyOS): the real thing — ARKUI_NODE_REFRESH, created by this crate's OWN NDK shim
 // (src/refresh-arkui.cpp, compiled by build.rs against OHOS_NDK_HOME — the tickmarks pattern).

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-piece-datetime's OWN ArkUI shim (docs/extending.md, the pullrefresh recipe): the NDK picker
 // nodes, API 12+ — ARKUI_NODE_CALENDAR_PICKER (compact date: entry field → calendar popup),
 // ARKUI_NODE_DATE_PICKER (inline date wheels; carries native START/END bounds), and

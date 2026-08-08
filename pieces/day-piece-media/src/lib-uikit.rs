@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: AVPlayerViewController (AVKit) fronting an AVPlayer (AVFoundation) — the same player as
 // AppKit, but objc2-av-kit 0.3 only generates the macOS (AVPlayerView) binding, so here we

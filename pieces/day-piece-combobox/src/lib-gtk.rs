@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: GtkComboBoxText WITH an entry — GTK's real combo box (free text + a dropdown of items).
 // The internal GtkEntry's "changed" signal is the single change path: it fires on typing AND

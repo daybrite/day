@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-network — a HEADLESS cross-platform network-connectivity API. No UI; any Rust code can
 //! depend on this crate and call [`status`] for a snapshot of the device's connectivity through the
 //! platform's NATIVE API.

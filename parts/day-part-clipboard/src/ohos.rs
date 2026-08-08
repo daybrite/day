@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // HarmonyOS / OpenHarmony: the native Pasteboard C API (`libpasteboard.so`, oh_pasteboard.h,
 // API 13+) with content typed through UDMF (`libudmf.so`): a plain-text write is an
 // OH_UdsPlainText inside an OH_UdmfRecord inside an OH_UdmfData handed to OH_Pasteboard_SetData;

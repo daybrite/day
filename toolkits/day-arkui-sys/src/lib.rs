@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-arkui-sys — raw `extern "C"` declarations for the ArkUI/NAPI C++ shim (src/shim.cpp),
 //! compiled by build.rs against the OpenHarmony NDK. Handles are opaque `ArkUI_NodeHandle`s; the
 //! ArkTS host owns the window, and day mounts its native tree into a `NodeContent` slot.

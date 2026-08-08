@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) wrapping a
 // Windows.UI.Xaml.Controls.ProgressRing — the native UWP-XAML indeterminate spinner — boxed into a

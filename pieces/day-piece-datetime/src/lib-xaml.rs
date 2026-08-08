@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — Compact date =
 // CalendarDatePicker (button → calendar flyout), Inline date = CalendarView, time = TimePicker

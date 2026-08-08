@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # assert-pristine.sh [dir] — fail unless the checkout has no uncommitted changes (§20.4).
 #
 # `day pack` records HEAD and a `dirty` flag in the SBOM, and `day rebuild` refuses an artifact

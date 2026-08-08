@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-datetime — native date & time pickers for every Day backend (docs/datepicker.md;
 //! DESIGN.md §15 tier 1+shim).
 //!

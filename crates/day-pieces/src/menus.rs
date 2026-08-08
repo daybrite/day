@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The app menu builder: `menu_item`, `sub_menu`, `menu_separator`, and `menu_role`, assembled
 //! with `app_menu`. Lowers to day_spec's toolkit-neutral `MenuItem` model and registers each
 //! item's action closure.

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The search-field piece's OWN Qt shim behind a flat C ABI: a QLineEdit dressed as a search box —
 // a built-in clear button (setClearButtonEnabled) and a leading magnifier action. textChanged
 // reports edits back to Rust as a UTF-8 C string (valid only during the callback; Rust copies it);

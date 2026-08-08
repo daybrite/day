@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+  "license": "CC-BY-SA-4.0",
   "engines": {
     "node": ">=22.12.0"
   },

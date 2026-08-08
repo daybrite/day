@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The layout engine (DESIGN.md §7): parent-proposes/child-chooses with a proposal-keyed
 //! measure cache. Layout impls are ours or user-provided; they never run reactive user code,
 //! so the engine holds the single tree borrow for the whole pass.

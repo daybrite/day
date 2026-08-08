@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: GtkSearchEntry — a native search entry (magnifier + clear icon). Its "search-changed" signal
 // fires on user input AND on programmatic set_text, so a per-node `suppress` cell guards the

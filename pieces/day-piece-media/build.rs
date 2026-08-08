@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Compiles this piece's OWN native shim per feature — a standalone Day Piece carrying native C++
 //! without touching Day's toolkit crates (like day-piece-webview). Qt uses `cc` + pkg-config and
 //! (unlike day-qt-sys) links Qt6MultimediaWidgets when the host ships it. XAML uses `cc` (MSVC) +

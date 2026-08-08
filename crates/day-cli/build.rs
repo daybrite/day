@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Bake a rich version string into the `day` binary: `<version>[*] (<profile>[, <git ref>])`, where the
 //! trailing `*` marks a debug build and the git ref is the branch/tag/commit HEAD was on at build time.
 //!

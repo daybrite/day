@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Windows: the Win32 clipboard — OpenClipboard/EmptyClipboard/SetClipboardData with
 // CF_UNICODETEXT (UTF-16, NUL-terminated, in a GMEM_MOVEABLE global that the clipboard takes
 // ownership of) and GetClipboardData/GlobalLock to read. Raw FFI — no dependencies. Written blind

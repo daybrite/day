@@ -5,6 +5,11 @@ order: 27
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day renders native widgets from Rust, but sometimes the view you want already exists in SwiftUI,
 or is easiest to build there: a custom chart, a control from an in-house Swift package, a screen
 you're migrating incrementally. On `macos-appkit` and `ios-uikit`, Day hosts your own SwiftUI

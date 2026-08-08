@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day new` — scaffold Day extension crates and apps (DESIGN.md §8/§15). Three shapes:
 //!
 //! * `day new piece <name>` — a COMPOSITE piece (pure composition, every backend for free, no

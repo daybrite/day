@@ -5,6 +5,11 @@ order: 30
 section: Build & ship
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 The `day` CLI (modeled on the architecture of `flutter_tools`) creates, builds, launches, packs,
 lints, and scripts projects. It works the same driven by hand, from CI, or from an IDE.
 

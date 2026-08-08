@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Android-only glue: the persistent files dir (for the store root) and the uncaught-exception
 //! handler install. The handler itself lives in Java (`android/java/.../crash/DayBreak.java`) so
 //! that no JNI transition happens during a crash — it writes a `java-<sid>.kv` artifact directly,

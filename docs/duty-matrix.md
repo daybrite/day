@@ -55,6 +55,7 @@ implement them, and this table proves it.
 | `adopt` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `open_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `close_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `quit_app` | · | · | · | · | · | ✓ | · | · | · | ✓ |
 | `focus_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `set_window_title` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `snapshot_window_of` | · | ✓ | · | ✓ | ✓ | · | · | · | · | ✓ |

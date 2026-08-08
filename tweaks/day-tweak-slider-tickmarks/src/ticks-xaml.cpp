@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The XAML half of day-tweak-slider-tickmarks — the bring-your-own-C++/WinRT tweak recipe
 // (docs/tweaks.md): the borrowed IUIElement* from `day_xaml::with_native_raw` is copied into a
 // C++/WinRT reference (AddRef for the duration of the call), cast to the concrete Slider, and

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: a multi-line EditText (inputType textMultiLine|textCapSentences, gravity top) that grows
 // between minLines and maxLines and scrolls internally past maxLines. The Java factory

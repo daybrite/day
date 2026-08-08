@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! web-dom build + launch (DESIGN.md §9, docs/web.md). Build compiles the app's lib crate as a
 //! wasm32 cdylib and assembles a self-contained `dist/` — host page + shim + stylesheet
 //! (embedded from `resources/web/` at CLI compile time), the wasm module, bundled

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-rating
 
 A tappable star-rating control for Day apps, with a card surface and a numbered badge as

@@ -5,6 +5,11 @@ order: 2
 section: Start here
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Choosing a cross-platform stack means choosing what to give up. This page lays out what Day
 trades away and what it gets back, and names the situations where you should pick something
 else. We'd rather lose you on this page than after three months of investment.

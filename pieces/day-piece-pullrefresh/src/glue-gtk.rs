@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK emulated-gesture glue: GtkScrolledWindow has a purpose-built `edge-overshot` signal — emitted
 // when user-initiated (kinetic/gesture) scrolling firmly surpasses a content edge. A Top overshoot

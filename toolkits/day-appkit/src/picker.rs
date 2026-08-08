@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: NSPopUpButton (menu) / NSSegmentedControl (segmented) / NSButton radio group (inline)
 // ---------------------------------------------------------------------------

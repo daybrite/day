@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Tabs (`selector` with `SelectorStyle::Tabs`)
 
 > **Note (migration):** tabs are now `selector(sel).style(SelectorStyle::Tabs)`, a one-of-N

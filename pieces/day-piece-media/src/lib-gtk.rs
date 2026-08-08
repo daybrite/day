@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: gtk4::Video — a core GTK widget (compiles everywhere) backed by GtkMediaFile, which needs a
 // gstreamer media backend in the gtk4 BUILD for actual playback. Linux distro packages ship one

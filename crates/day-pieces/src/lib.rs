@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-pieces — the built-in piece library (DESIGN.md §5.3).
 //!
 //! Every constructor is a plain function returning a piece value; builder methods configure;

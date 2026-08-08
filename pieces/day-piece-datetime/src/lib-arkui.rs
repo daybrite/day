@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // ArkUI (HarmonyOS): the NDK picker nodes via this crate's OWN shim (src/datetime-arkui.cpp,
 // compiled by build.rs against OHOS_NDK_HOME — the pullrefresh pattern). Compact date =

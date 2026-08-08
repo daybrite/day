@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Windows: Windows.Devices.Sensors (WinRT) via the `windows` crate. `GetDefault()` +
 // `GetCurrentReading()` is a synchronous poll — no XAML, no event subscription — so this arm is
 // pull-only: the crate's subscription loop samples it (docs/sensors.md). Most desktops / CI runners have no motion hardware, so `GetDefault`

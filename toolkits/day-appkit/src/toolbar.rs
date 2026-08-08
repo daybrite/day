@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: NSToolbar (docs/toolbars.md). The window's real title-bar toolbar in the macOS 11
 // unified style — not a strip of buttons drawn under the title bar. Items are real

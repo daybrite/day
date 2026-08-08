@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The combo-box piece's OWN Android factory — bundled with the day-piece-combobox crate and
 // pulled into the app's Gradle build automatically (via [package.metadata.day.android] →
 // day-pieces.json), with ZERO edits to day-android. It uses only day-android's PUBLIC Java

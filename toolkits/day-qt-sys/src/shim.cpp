@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // A flat C ABI over Qt 6 Widgets for day-qt (hop's CQt / pane's shim, extended for day):
 // node-id-carrying callbacks, height-for-width labels, scroll areas, snapshots, main-thread
 // posting. Only connects to existing Qt signals via lambdas — no moc required.

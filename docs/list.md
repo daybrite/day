@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Native `list` (§10)
 
 `list` drives the platform's recycling list (`NSTableView` / `UITableView` /

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: UIActivityIndicatorView — the native iOS activity indicator. `.large` selects the Large
 // style (vs Medium); `startAnimating`/`stopAnimating` run/stop it. `hidesWhenStopped = false` keeps

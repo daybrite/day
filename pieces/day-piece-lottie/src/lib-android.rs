@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: a LottieAnimationView from com.airbnb.android:lottie, created by this crate's OWN Java
 // (android/java/…/DayLottie.java) — folded into the app's Gradle build via

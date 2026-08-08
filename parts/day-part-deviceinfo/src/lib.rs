@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-deviceinfo — a HEADLESS cross-platform device-identity API. No UI; any Rust code can
 //! depend on this crate and call [`get`] for a snapshot of the device model, OS name/version, and
 //! whether it is running on a simulator/emulator, through each platform's NATIVE API.

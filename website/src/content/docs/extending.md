@@ -5,6 +5,11 @@ order: 40
 section: Extend
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day's core widget vocabulary is small on purpose, and the framework expects to be extended. The
 extension model has one organizing idea: **an extension is an ordinary Cargo crate**. You depend
 on it, it registers itself, and the build tooling aggregates whatever native baggage it brings.

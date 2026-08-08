@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Locale-aware string comparison and sorting (docs/localization.md "Sorting"), backed by
 //! icu4x's collator. `zh` sorts by pinyin (the CLDR default); `-u-co-` locale extensions select
 //! tailorings explicitly (`"zh-u-co-stroke"`). Collators are cached per full locale string in a

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-l10n — the core localization engine (DESIGN.md §12), low enough in the crate graph that even
 //! the central crates (day-pieces' dialogs, menu-role labels) can localize their own UI strings.
 //!

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // HarmonyOS: the ArkTS `Web` component. Unlike every other backend here, there is no native widget
 // to construct — the ArkUI C node API has no Web node kind — so this crate ships its OWN ArkTS

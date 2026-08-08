@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Android: BatteryManager, read via this crate's OWN Java shim (android/java/…/DayBattery.java) —
 // staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
 // like the UI pieces, but registering NO renderer. The Java uses day-android's cached Context

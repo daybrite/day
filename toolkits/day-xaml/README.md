@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-xaml
 
 Day's Windows backend: the interface is built from Windows' own XAML controls.

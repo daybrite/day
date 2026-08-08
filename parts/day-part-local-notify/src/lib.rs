@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-local-notify — a HEADLESS cross-platform local-notification API. No UI; any Rust code
 //! can depend on this crate and post or schedule a notification through the platform's NATIVE API.
 //!

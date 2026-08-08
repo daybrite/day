@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Android: ClipboardManager, reached via this crate's OWN Java shim (android/java/…/
 // DayClipboard.java) — staged into the app's Gradle build by `day build` through
 // [package.metadata.day.android], exactly like the UI pieces, but registering NO renderer. The Java

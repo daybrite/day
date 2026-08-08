@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // The web (web-dom): the browser's own fetch() through the day-dom shim — the platform stack
 // of this target (the browser supplies proxies, TLS, the certificate store, HTTP/2/3), so the

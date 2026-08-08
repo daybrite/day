@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: android.webkit.WebView. The Java factory (`dev.daybrite.day.piece.webview.DayWebView`)
 // is bundled with THIS crate under `android/java` and pulled into the app's Gradle build via

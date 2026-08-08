@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Command tree (DESIGN.md §16.5). v0: new / build / launch / doctor; the remaining
 //! porcelain (sign / pack / lint / script) lands with M6–M8.
 

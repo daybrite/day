@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Forms (form / section / labeled)
 
 > **Status: implemented** in `day-pieces` (portable: no per-backend renderer code beyond the

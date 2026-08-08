@@ -5,6 +5,11 @@ order: 43
 section: Extend
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day apps are more than pixels. Sooner or later you want to read the battery, check network
 connectivity, fire a haptic tap, or reach some other device capability, and every platform
 exposes it through a different native API, often in a different language. A **part** is Day's answer:

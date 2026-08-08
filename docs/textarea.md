@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Text area (built-in)
 
 > **Status: implemented** as a built-in piece (`kinds::TEXT_AREA`; moved in from the satellite

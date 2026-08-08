@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Apple (iOS/UIKit) resource staging (§18.3).
 //!
 //! Images → a generated `Media.xcassets` inside the `DayPieces` SwiftPM package (the local package

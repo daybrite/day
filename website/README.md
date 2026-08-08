@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Day website
 
 The marketing + documentation site for **Day**, built with [Astro](https://astro.build). Deployed

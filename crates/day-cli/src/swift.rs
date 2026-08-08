@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The macos-appkit Swift prepass (docs/swiftui.md). When any dependency contributes macOS Swift
 //! (`[package.metadata.day.macos]` — the day-piece-swiftui shim, an app's local SwiftPM package),
 //! `day build` compiles the generated `build/day/macos/DayPieces` package with `swift build` and

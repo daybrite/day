@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! POSIX signal handlers for native faults (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT/SIGTRAP).
 //!
 //! A signal handler runs in an async-signal-safe context: no allocation, no locks, no `libc`

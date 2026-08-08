@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-lottie — an EXTERNAL Day Piece rendering a Lottie animation, on iOS + Android only. It is
 //! the reference for a piece that pulls an EXTERNAL native package: the lottie-ios SwiftPM package on
 //! iOS (via the `[package.metadata.day.ios]` mechanism this piece introduces) and

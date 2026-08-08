@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // macOS: the OS version comes from Foundation's ProcessInfo.operatingSystemVersion (an
 // NSOperatingSystemVersion struct of major/minor/patch — the honest running version, unlike the
 // deprecated Gestalt/sw_vers paths), read through objc2-foundation. The hardware model identifier

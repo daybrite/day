@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Window toolbars (docs/toolbars.md). The MODEL ([`day_spec::ToolbarItem`]) is toolkit-neutral
 //! and carries only ids for its commands; the real closures live here, keyed by id — the same
 //! shape as [`crate::menu`], and deliberately the same id space, so one closure can back both a

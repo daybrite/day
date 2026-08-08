@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! ios-uikit → App Store .ipa via `xcodebuild archive` + `-exportArchive` (arm64-only device
 //! build; automatic signing with an App Store Connect API key — the Tauri/Flutter CI path).
 //! Without `signing.ios` config this degrades LOUDLY to an UNSIGNED device .ipa

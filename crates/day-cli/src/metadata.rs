@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day metadata` — the machine-readable project interface (docs/cli.md).
 //!
 //! IDE tooling (day-vscode) shells out to `day metadata --json` instead of parsing Day.toml

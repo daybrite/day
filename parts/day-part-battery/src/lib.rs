@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-battery — a HEADLESS cross-platform battery-status API. No UI; any Rust code can depend on this
 //! crate and call [`status`] to read the device battery through the platform's NATIVE API.
 //!

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! linux-gtk / linux-qt → single-file .flatpak bundle. The runtime supplies the toolkit
 //! (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform — no toolkit bundling, which also keeps
 //! Qt-LGPL obligations satisfied by the runtime's relinkable shared libs). Day stages the prebuilt

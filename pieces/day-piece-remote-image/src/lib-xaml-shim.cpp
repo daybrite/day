@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The remote-image piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. day-xaml hosts the
 // UWP system XAML (winrt::Windows::UI::Xaml, from the base Windows SDK — no WinAppSDK). A circle clip
 // uses an Ellipse filled with an ImageBrush (a true circular avatar); a rounded/plain image uses a

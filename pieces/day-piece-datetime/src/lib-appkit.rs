@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: NSDatePicker for both pieces — Compact → textFieldAndStepper, Inline → clockAndCalendar
 // (the graphical month grid / analog clock); date-only resp. time-only element flags (seconds adds

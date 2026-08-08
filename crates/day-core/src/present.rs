@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Imperative presentation (docs/dialogs.md): a minimal single-threaded async executor
 //! (`task`) plus the pending-request registry that routes a `present(spec).await` through
 //! the tree to the backend and its `Event::PresentResult` answer back to the future.

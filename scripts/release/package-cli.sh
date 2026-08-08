@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # package-cli.sh — turn the CI's raw day-CLI artifacts into release archives named by Rust
 # target triple (the cargo-dist convention: day-<triple>.tar.gz / .zip, binary at archive root).
 #

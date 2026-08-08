@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-qt-sys — raw `extern "C"` declarations for the Qt 6 shim compiled by build.rs.
 //! Handles are opaque `QWidget*`; ownership stays with Qt's parent/child tree (Day's release
 //! calls `day_qt_delete` = deleteLater, per §4.3's deferred-destruction allowance).

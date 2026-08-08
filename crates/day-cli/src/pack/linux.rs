@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The payload tree the Linux packages share.
 //!
 //! `.flatpak` and `.appimage` differ in how they are sealed and where they get their toolkit, but

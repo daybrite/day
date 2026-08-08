@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Bundled custom fonts (DESIGN §18.4).
 //!
 //! A project ships font files under a top-level `fonts/` directory. `day build` stages them into

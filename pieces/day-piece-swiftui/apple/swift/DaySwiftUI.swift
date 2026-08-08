@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-piece-swiftui — the Swift half (docs/swiftui.md). Staged by `day build` into the generated
 // DayPieces package on both Apple legs (`#if os(...)` selects the host toolkit), alongside any
 // generated provider glue and the app's own Swift sources.

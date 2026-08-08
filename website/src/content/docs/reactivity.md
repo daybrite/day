@@ -5,6 +5,11 @@ order: 12
 section: Concepts
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day's reactive system is the reason a [Piece tree built once](/docs/pieces) can keep moving. It's
 a fine-grained signal graph in the SolidJS and floem tradition: state lives in **signals**,
 derived values in **memos**, and side effects (including every native-widget update) in

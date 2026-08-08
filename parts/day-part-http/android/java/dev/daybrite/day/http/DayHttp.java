@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-part-http's Android shim — OkHttp riding the platform's policy rails: the system
 // ProxySelector (per-network proxy/PAC), VPN routing, network security config + the user CA
 // store all still apply (OkHttp uses the platform TrustManager and NetworkSecurityPolicy).

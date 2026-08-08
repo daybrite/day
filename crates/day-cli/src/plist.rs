@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! A narrow XML-plist editor: read and rewrite a MANAGED SET of top-level `<key>`/`<string>` pairs,
 //! preserving every other byte of the file.
 //!

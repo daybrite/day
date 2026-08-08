@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-spec — the toolkit specification (DESIGN.md §8).
 //!
 //! Backends depend ONLY on this crate (never on day-core). One backend is linked per binary;

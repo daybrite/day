@@ -5,6 +5,11 @@ order: 33
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Icons come up twice in an app: the launcher icon the OS shows, and the glyphs your own UI
 draws. Day covers both from files in `resource/`. One master image becomes every platform's
 app-icon set with one command, and every SVG in `resource/vectors/` becomes a typed constant

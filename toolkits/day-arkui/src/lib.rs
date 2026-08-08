@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-arkui — the HarmonyOS Next **ArkUI** backend (target `harmony-arkui`; DESIGN.md §9).
 //!
 //! HarmonyOS has no AOSP layer; its UI framework is ArkUI. Day drives it through the **ArkUI Native

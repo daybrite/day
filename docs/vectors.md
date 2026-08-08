@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Vector images (`resource/vectors/`, the `vector` piece)
 
 Like `resource/images/` but resolution-independent: SVG glyphs staged per backend into whatever

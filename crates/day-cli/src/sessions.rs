@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Live launch sessions (`build/day/sessions.json`): target → dayscript-engine coordinates.
 //!
 //! Every `day launch` records where the app's engine listens (loopback port + token), so a LATER

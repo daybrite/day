@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! iOS and macOS: `UNUserNotificationCenter`, one framework covering both OSes and both immediate
 //! and scheduled delivery.
 //!

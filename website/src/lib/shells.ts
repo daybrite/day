@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Which presentational shell a platform's screenshot wears — used by the gallery tiles and the
 // front-page carousel, so the two always dress the same capture the same way.
 //

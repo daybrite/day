@@ -5,6 +5,11 @@ order: 32
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A Day app on the desktop should behave like it was written for the desktop: a menu bar with
 keyboard shortcuts, commands on the window chrome, and a Settings window under ⌘,. Day builds
 all three from small Rust builders and hands them to the platform's real machinery (`NSMenu`

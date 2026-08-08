@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Child-process cleanup on Ctrl-C. `day launch` streams logs from helper processes
 //! (the desktop app itself, `simctl launch --console`, `adb logcat`); if the user
 //! interrupts, those must not be left running. We register each child's PID and kill them

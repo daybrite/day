@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // The Rust fallback tier — Linux desktop and HarmonyOS (neither has an OS-level HTTP API this
 // crate can front): ureq + rustls, the tree's blessed minimal synchronous client (day-cli's

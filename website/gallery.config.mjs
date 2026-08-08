@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // The gallery's extensibility surface. Adding a sample app, a platform, or a curated shot is a
 // data change here — the assembly (scripts/assemble-gallery.mjs) and the gallery page consume
 // this config; neither needs editing to add a new app or component-snapshot set.

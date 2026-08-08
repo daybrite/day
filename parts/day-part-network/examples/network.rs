@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `cargo run -p day-part-network --example network` — print the current connectivity snapshot.
 //! Demonstrates that any Rust code can depend on this crate and use the API with no Day framework at all.
 

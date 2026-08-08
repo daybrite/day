@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: this crate's OWN shim (src/lib-qt-shim.cpp) wrapping QWebEngineView behind a flat C ABI.
 // build.rs compiles it AND links Qt6WebEngineWidgets (which day-qt-sys does not). The shim reports

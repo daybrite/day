@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Assemble the /showcase/ downloads: point each primary target at the showcase package attached
 // to the latest GitHub release, and write the manifest the page renders (file name, byte size,
 // download URL).

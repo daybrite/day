@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Day — the umbrella crate apps depend on. One backend feature per binary (§3.2).
 
 #[cfg(any(

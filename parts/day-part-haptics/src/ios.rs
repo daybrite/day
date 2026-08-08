@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // iOS: UIKit's feedback generators. The three impact intensities go through
 // UIImpactFeedbackGenerator, the three notification outcomes through UINotificationFeedbackGenerator,
 // and a selection tick through UISelectionFeedbackGenerator — the standard Apple mapping (see the

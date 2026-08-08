@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Rehype plugin — give platform-target names their accent color in docs prose.
 //
 // Wherever markdown writes a target name as inline code (`macos-appkit`, `web-dom`, …), stamp

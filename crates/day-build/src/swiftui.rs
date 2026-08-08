@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! SwiftUI view scanning + codegen for embedded SwiftPM packages (docs/swiftui.md).
 //!
 //! An app (or piece crate) can point `[package.metadata.day.ios/macos] swift-packages` at a

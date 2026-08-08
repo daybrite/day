@@ -5,6 +5,11 @@ order: 25
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A **part** is Day's name for a headless platform capability: no UI, just functions whose
 implementation differs per operating system. Battery level, the clipboard, preference storage,
 sensors: the things every cross-platform app eventually needs and every platform spells

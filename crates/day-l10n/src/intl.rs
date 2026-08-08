@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! icu4x-backed Fluent formatting (docs/localization.md "Formatted values"): registers `NUMBER()`
 //! and `DATETIME()` on every bundle and installs a bundle-wide value formatter, so plain `{ $n }`
 //! interpolations AND explicit function calls render locale-correctly (grouping separators,

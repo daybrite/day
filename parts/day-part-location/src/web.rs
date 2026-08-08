@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The browser (`web-dom`): `navigator.geolocation.watchPosition` through the day-dom shim's
 //! `day_dom_geo_*` imports (`crates/day-cli/resources/web/shim.js`).
 //!

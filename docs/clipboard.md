@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Clipboard (headless capability crate)
 
 > **Status: implemented** as `day-part-clipboard` (in `parts/`, the headless counterpart of

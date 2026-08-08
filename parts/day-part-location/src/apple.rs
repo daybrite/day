@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! iOS and macOS: CoreLocation's `CLLocationManager` with a delegate.
 //!
 //! Unlike an authorization READ — which `day-part-permissions` polls, because a delegate needs a

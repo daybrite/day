@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day pack` (DESIGN.md §16.5): build → sign → installable artifact, per target, with the
 //! hoppack-lineage stage order (build → assemble → sign → package → notarize → verify). Every
 //! artifact lands in `build/day/dist/` with a sha256 and a signing tier; the tier degrades

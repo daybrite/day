@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 """render-installers.py — render the installer templates for one CLI release.
 
 Fills the placeholders in scripts/release/templates/ (shell + PowerShell installers and the

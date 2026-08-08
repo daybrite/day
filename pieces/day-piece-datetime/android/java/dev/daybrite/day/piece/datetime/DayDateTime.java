@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The datetime piece's OWN Android factory — bundled with the day-piece-datetime crate and pulled
 // into the app's Gradle build automatically (via [package.metadata.day.android]), with ZERO edits
 // to day-android. Compact = the Material idiom: a value button that launches the modal

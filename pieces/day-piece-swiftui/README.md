@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-swiftui
 
 Host your own SwiftUI views inside a Day app, on macOS and iOS.

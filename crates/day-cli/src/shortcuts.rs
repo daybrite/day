@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `[[shortcuts]]` conveyance — launcher shortcuts as saved deep links (docs/deep-links.md).
 //!
 //! Each Day.toml `[[shortcuts]]` entry is a route plus a Fluent label id. `day build` resolves

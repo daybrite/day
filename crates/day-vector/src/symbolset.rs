@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Plain SVG → generated SF Symbol template + `.symbolset` Contents.json (the plan's
 //! "auto-symbolset on Apple" decision): a monochrome glyph gains native symbol behavior
 //! (tinting, baseline alignment) by being wrapped into the template form Xcode accepts.

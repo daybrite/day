@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Android: `LocationManager.requestLocationUpdates` through this crate's OWN Java shim
 //! (`android/java/…/DayLocation.java`), staged into the app's Gradle build by `day build`.
 //!

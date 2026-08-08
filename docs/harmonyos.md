@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # HarmonyOS Next: the ArkUI backend (§9)
 
 HarmonyOS Next dropped the AOSP layer; its UI framework is **ArkUI**. Day targets it with a native

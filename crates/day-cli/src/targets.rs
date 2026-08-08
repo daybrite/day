@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Target definitions: `<os>-<toolkit>` pairs (DESIGN.md §1) and their build/launch shapes.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

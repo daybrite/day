@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Android: ConnectivityManager, read via this crate's OWN Java shim (android/java/…/DayNetwork.java) —
 // staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
 // like the UI pieces, but registering NO renderer (and contributing the ACCESS_NETWORK_STATE manifest

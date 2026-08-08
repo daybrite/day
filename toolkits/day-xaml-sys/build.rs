@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Compile the C++/WinRT XAML-Islands shim with `cc` (MSVC) and link the WinRT umbrella
 //! library. The Windows SDK ships the cppwinrt projection headers under
 //! `Include\<ver>\cppwinrt`, which is NOT on the default INCLUDE path — we locate the newest

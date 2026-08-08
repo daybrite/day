@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # App icons (`day icon`)
 
 One master, every platform's icon set, kept in sync. `day icon` renders the master into the

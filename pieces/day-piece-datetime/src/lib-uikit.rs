@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: UIDatePicker for both pieces — Compact → .compact (field → calendar popover / time
 // keypad, the modern iOS idiom), Inline → .inline for dates (embedded calendar) and .wheels for

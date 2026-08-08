@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Windows: GetNetworkConnectivityHint (iphlpapi, Windows 10 2004+) fills an
 // NL_NETWORK_CONNECTIVITY_HINT with a connectivity level and a cost. The symbol is resolved
 // dynamically (LoadLibrary/GetProcAddress) so apps still start on older Windows — status() just

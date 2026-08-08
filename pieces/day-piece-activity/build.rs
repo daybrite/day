@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Compiles this piece's OWN native shim per feature — a standalone Day Piece carrying native C++
 //! without touching Day's toolkit crates (like day-piece-media). The Qt shim needs only
 //! Qt6Widgets (already linked by day-qt-sys), so we pull its --cflags and emit no extra link flags.

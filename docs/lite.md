@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-lite: dynamic miniapps on day (normative)
 
 `day-lite` runs **miniapps** (apps written in JavaScript or TypeScript, distributed as plain

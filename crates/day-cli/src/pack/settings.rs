@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Pack settings: CLI options + `${ENV}` interpolation for Day.toml `signing:` values (§17.3).
 //! Interpolation happens at USE time, never at parse time, and missing variables are reported by
 //! NAME only — secret values must never appear in output or errors (§16.5).

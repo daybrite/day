@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: a UIHostingController's view created by this crate's Swift shim
 // (apple/swift/DaySwiftUI.swift → the generated DayPieces SwiftPM package). Rust calls the shim's

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: NSProgressIndicator in the Spinning style — the native macOS activity indicator.
 // `setIndeterminate(true)` + `startAnimation:`/`stopAnimation:` run/stop the spin; `.large` maps to

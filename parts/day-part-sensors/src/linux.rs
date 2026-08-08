@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Linux: the kernel's Industrial I/O subsystem exposes sensors under /sys/bus/iio/devices/ with
 // per-channel `in_<chan>_{x,y,z}_raw` files plus `_scale`/`_offset` — value = (raw + offset) × scale
 // (accelerometer m/s², gyroscope rad/s, magnetometer Gauss → ×100 for µT). Pure std, truly

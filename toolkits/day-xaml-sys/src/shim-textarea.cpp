@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The textarea piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. A multi-line TextBox
 // (AcceptsReturn = true, TextWrapping = Wrap, a native PlaceholderText), boxed into a Day handle via the
 // day_xaml_box/day_xaml_unbox seam that day-xaml-sys exports, so this piece carries its own XAML

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): typed access to the `UIView` behind a Day-created piece.
 //!
 //! Same shape as day-appkit's ext: `with_native` clones the retained handle (a retain, not a

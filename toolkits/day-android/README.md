@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-android
 
 Day's Android backend: real Android views over JNI, with a small Java bridge.

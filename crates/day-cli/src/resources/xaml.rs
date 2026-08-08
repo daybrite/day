@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! XAML resource staging (§18.3).
 //!
 //! Day builds XAML apps **unpackaged** (no MSIX), where the native + recommended path is loose

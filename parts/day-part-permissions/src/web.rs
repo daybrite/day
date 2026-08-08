@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The browser: `navigator.permissions` plus the per-API request calls.
 //!
 //! **This arm is not implemented yet.** Every query reports [`Gate::Absent`] /

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // The web (web-dom): the browser's Origin Private File System through the day-dom shim — an
 // origin-scoped real file hierarchy, surviving reloads like localStorage but sized for data.

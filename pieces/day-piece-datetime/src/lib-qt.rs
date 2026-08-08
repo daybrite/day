@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — Compact date = QDateEdit with calendar popup,
 // Inline date = QCalendarWidget, time = QTimeEdit (with a seconds field when asked; Qt has no

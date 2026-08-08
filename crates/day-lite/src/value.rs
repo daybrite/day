@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! DynValue ⇄ JS conversion (docs/lite.md §5): typed object graphs across the boundary —
 //! never stringified eval. Pieces and signals cross as integer handles carried by small
 //! marker objects the bootstrap script wraps in classes (`__p` / `__s` keys); JS functions

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The datetime piece's own Qt shim (the day-piece-picker recipe): date and time controls behind a
 // flat C ABI. Compact date = QDateEdit with a QCalendarWidget popup (the Qt idiom); inline date =
 // QCalendarWidget; time = QTimeEdit (Qt has no inline clock — the sectioned field IS its time UI).

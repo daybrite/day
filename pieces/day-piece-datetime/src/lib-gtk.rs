@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: COMPOSED from native primitives — GTK4/libadwaita have no stock date or time picker
 // (support() reports Emulated). Compact date = GtkMenuButton (label = the locale-formatted date,

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Mock e2e for the swiftui piece's front-end plumbing. The mock toolkit registers no renderer for
 //! `day.piece.swiftui` (it realizes as an extension leaf), so these tests cover exactly what the
 //! front-end owns: the leaf mounts with its props, a reactive params source patches the node, a

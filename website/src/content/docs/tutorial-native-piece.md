@@ -5,6 +5,11 @@ order: 42
 section: Extend
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Some Pieces cannot be composed from `label`, `button`, and `stack`. A map, an embedded web view, or
 a native search field with its magnifier and clear button is a platform control with input
 handling, assistive-technology behavior, and pixels that only the toolkit can produce. To ship

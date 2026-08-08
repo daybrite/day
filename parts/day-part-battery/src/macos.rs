@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // macOS: IOKit's IOPowerSources API. IOPSCopyPowerSourcesInfo() returns an opaque blob;
 // IOPSCopyPowerSourcesList(blob) is an array of power sources; IOPSGetPowerSourceDescription(blob, ps)
 // is a CFDictionary with the keys we read ("Current Capacity", "Max Capacity", "Is Charging",

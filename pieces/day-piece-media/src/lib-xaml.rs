@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN shim (src/lib-xaml-shim.cpp) wrapping a Windows.UI.Xaml.Controls
 // MediaPlayerElement, boxed into a day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox`

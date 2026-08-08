@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! TypeScript → JavaScript at module-load time (docs/lite.md §1): the oxc pipeline strips
 //! types (and compiles TS-only syntax like enums) so `.ts` miniapp sources run directly.
 //! No decorators, no JSX — those are load errors, reported with the file name.

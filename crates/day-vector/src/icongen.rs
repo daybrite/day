@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Seeded app-icon generator (docs/icons.md): one `u64` seed → a deterministic layered SVG
 //! master (`day:background` / `day:foreground` / `day:monochrome`, the contract `day icon`
 //! consumes), designed to read well through every downstream form — iOS squircle, Android

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // imgstat.swift — print "<width> <height> <distinct-color-count>" for a PNG (macOS CI has no
 // ImageMagick; Linux uses `identify -format '%w %h %k'` instead). Used by
 // scripts/ci/validate-screenshots.sh to reject blank/transparent captures (§20).

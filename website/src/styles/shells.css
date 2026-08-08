@@ -1,3 +1,8 @@
+/*
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+*/
+
 /* Presentational device shells — the window chrome and phone bezels drawn around a screenshot.
    Global (not component-scoped) because the shell wraps SLOTTED content: the selectors below
    have to reach an <img> that belongs to the calling page's scope. Every class is `sh-`

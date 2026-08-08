@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Self-contained localization for the consent surface (feature `ui`). The four catalogs are
 //! embedded (a library crate must not touch the app-owned `day_l10n::install`), formatted through
 //! a per-locale `FluentBundle`, and resolved off the live locale — the day-lite i18n pattern

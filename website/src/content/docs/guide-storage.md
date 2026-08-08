@@ -5,6 +5,11 @@ order: 29
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Apps remember two kinds of things: small settings (a theme choice, a volume, the last-open tab)
 and real data (documents, exports, caches). Day splits them across two parts. `day::prefs` is a
 string key/value store backed by each platform's own preferences facility; `day-part-fs` is

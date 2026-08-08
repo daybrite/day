@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The build layer (DESIGN.md §5.1–§5.2): pieces are descriptions consumed exactly once.
 //! `BuildCx` holds no tree borrow — every operation goes through `with_tree`, so bindings
 //! and structural effects created during build can re-enter safely.

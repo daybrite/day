@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `cargo run -p day-part-clipboard --example clipboard [text]` — read the clipboard, or place
 //! `text` on it first when given. Demonstrates that any Rust code can depend on this crate and use
 //! the API with no Day framework at all. (Verify against the OS: `pbpaste` on macOS.)

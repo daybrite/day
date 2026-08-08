@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! End-to-end tests against a local std::net server — no external network. On macOS CI hosts this
 //! exercises the REAL NSURLSession half; on Linux the ureq fallback: two production halves under
 //! one suite. (Android/Windows/HarmonyOS are covered by cross-compiles + the showcase device

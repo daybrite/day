@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-remote-image — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE image view that decodes
 //! encoded bytes (PNG/JPEG) supplied **reactively** and draws them, with a placeholder rectangle
 //! while the source is empty. This is the image primitive a Matrix client needs — avatars and inline

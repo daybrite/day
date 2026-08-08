@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Input adapters that let a constructor accept a plain value, a `Signal`, or a closure
 //! interchangeably: `IntoText`/`TextSource` (text), `IntoFraction`/`FractionSource` (0–1 numbers),
 //! `SignalRw` (two-way bindings), and `IntoFocusBinding` (focus state).

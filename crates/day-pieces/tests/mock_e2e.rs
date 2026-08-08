@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! M1 acceptance (DESIGN.md §21.2): end-to-end on the mock toolkit. The op log IS the
 //! fine-grained-invalidation contract — "exactly one mutation op per state change" and
 //! "bounded measure calls" are assertions, not aspirations.
@@ -3640,7 +3643,11 @@ fn last_primary_close_quits_even_with_a_secondary_window_open() {
         || label("prefs body").any(),
     );
     flush_sync();
-    assert_eq!(day_core::windows::primary_window_count(), 1, "one extra primary");
+    assert_eq!(
+        day_core::windows::primary_window_count(),
+        1,
+        "one extra primary"
+    );
 
     // The initial window goes first: the app must NOT end here — another primary is open.
     day_core::windows::note_initial_window_closed();
@@ -3654,7 +3661,11 @@ fn last_primary_close_quits_even_with_a_secondary_window_open() {
     let quit = probe.log_since(mark).iter().any(|l| l == "quit_app");
     // macOS keeps a windowless app alive on purpose (its menu bar stays live), so the policy
     // is platform-conditional and the assertion follows it.
-    assert_eq!(quit, !cfg!(target_os = "macos"), "quit_app reached the toolkit");
+    assert_eq!(
+        quit,
+        !cfg!(target_os = "macos"),
+        "quit_app reached the toolkit"
+    );
 }
 
 /// The other half: closing a SECONDARY window never ends the app, however few windows remain.

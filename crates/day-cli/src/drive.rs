@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day drive` — execute dayscript steps against an ALREADY-RUNNING app (docs/agent.md).
 //!
 //! The session registry (sessions.rs) holds the engine coordinates a previous `day launch`

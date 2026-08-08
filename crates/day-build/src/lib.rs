@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-build — resource-constant codegen for a Day app's `build.rs` (DESIGN.md §18.5).
 //!
 //! An app's `build.rs` calls [`generate_resources`], which scans the project's

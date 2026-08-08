@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Build and launch the Day showcase on one or more targets.
 #
 #     scripts/launch-showcase.py macos-appkit

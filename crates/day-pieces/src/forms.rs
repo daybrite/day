@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Grouped, label-aligned settings UI: `form` and its `section` cards, with `labeled` rows that
 //! share one aligned label column across the whole form.
 

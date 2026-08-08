@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Secondary windows (§8.1)
 
 > **Status: implemented** on every backend. Desktop: AppKit, GTK, Qt native (runtime-

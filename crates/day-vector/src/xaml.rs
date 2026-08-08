@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! SVG → XAML geometry (docs/vectors.md §per-backend emission).
 //!
 //! Windows' `Path`/`PathIcon` take a `Geometry`, and XAML's geometry mini-language IS the SVG

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // iOS: UIDevice exposes batteryLevel (0.0–1.0, or -1 if unknown) and batteryState once
 // batteryMonitoring is enabled. UIDevice is MainThreadOnly, so this reads on the main thread; called
 // off it, it returns None. (The Simulator has no battery → level -1, state Unknown.)

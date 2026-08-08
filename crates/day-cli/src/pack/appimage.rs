@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! linux-gtk / linux-qt → a single-file `.appimage`: one executable that runs on any glibc Linux
 //! with no installer, no package manager, and no root.
 //!

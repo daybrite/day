@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The `image` piece — loads a named asset (resolved from the dev asset root, the app bundle, or
 //! Android's `AssetManager`) with content-mode and aspect-ratio fitting.
 

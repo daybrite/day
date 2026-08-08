@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-http — HEADLESS cross-platform HTTP(S) through each platform's NATIVE networking
 //! stack (docs/http.md). No UI; any Rust code can depend on this crate and [`fetch`].
 //!

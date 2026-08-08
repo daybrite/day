@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // macOS + iOS: NSURLSession — the system networking stack (proxies + PAC, VPN, Low Data Mode,
 // the platform TLS + keychain trust store). ONE shared session with an EPHEMERAL configuration

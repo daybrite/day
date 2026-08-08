@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Secondary windows (docs/windows.md): the app-facing `open_window` API, the per-window
 //! registry, and the fallback that presents window content as a fullscreen cover where the
 //! toolkit cannot open windows (`Cap::MultiWindow` = `Unsupported`).

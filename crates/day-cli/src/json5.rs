@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Managed-region editing for HarmonyOS's `module.json5`.
 //!
 //! # Why regions instead of parsing

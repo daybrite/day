@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Localized search matching (docs/localization.md "Searching"): does a piece of text match what
 //! the user typed into a search field?
 //!

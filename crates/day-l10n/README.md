@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-l10n
 
 The localization engine underneath Day's `tr()` and its generated string functions.

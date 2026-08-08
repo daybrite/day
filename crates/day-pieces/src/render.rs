@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! External-piece registration surface (DESIGN.md §8.2). The `renderer!` macro registers a piece's
 //! per-toolkit native renderer into a backend's `RENDERERS` slice with **typed** `make`/`update` (the
 //! macro inserts the `&dyn Any` downcast) and no hand-written linkme boilerplate. `fill_measure` is the

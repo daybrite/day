@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Picker (built-in)
 
 > **Status: implemented** as a built-in piece (`kinds::PICKER`; moved in from the satellite

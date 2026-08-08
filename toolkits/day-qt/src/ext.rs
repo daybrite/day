@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): RAW access to the `QWidget*` behind a Day-created piece.
 //!
 //! Qt is a C++ toolkit behind a C shim, so there is no typed Rust widget to hand out — the tweak

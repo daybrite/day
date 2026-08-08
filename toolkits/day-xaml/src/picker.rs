@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — ComboBox / RadioButton StackPanels,
 // boxed into Day handles via the `day_xaml_box`/`day_xaml_unbox` seam day-xaml-sys exports. This

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — an AutoSuggestBox (the XAML
 // search control, with a query magnifier) boxed into a Day handle via the day_xaml_box/unbox seam

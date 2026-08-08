@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The miniapp runtime (docs/lite.md §1, §5–§7): one QuickJS context on the main thread,
 //! the `day.*` API installed over the dyn registry, and the module loader that strips
 //! TypeScript on the way in. Everything here is single-threaded; async work (net, timers)

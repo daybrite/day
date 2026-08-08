@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The macOS half of the Apple arm: no CoreMotion, and a different settings deep link.
 
 use objc2::msg_send;

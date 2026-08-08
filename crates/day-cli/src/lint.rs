@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day lint v0 (DESIGN.md §16.5): fluent coverage (missing/unused/unknown keys), duplicate
 //! element ids, unknown navigation routes, Day.toml schema (validated by parsing). Fast —
 //! sources + locales + scripts only.

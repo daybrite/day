@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-settings — the shared appearance + language settings rows every app's
 //! preferences surface needs (docs/windows.md), persisted through `day-part-prefs` and
 //! applied live through day-core's appearance/locale seams. A COMPOSE piece: pure

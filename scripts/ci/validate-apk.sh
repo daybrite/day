@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # validate-apk.sh <dir> — install the shipped .apk on a running emulator and prove it starts (§20.3).
 #
 # Stage 1 of the android-mdc shipped-artifact validation: an APK cannot be installed without a

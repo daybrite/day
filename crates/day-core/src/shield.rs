@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The system-gesture / interactive-dismiss shield (docs/cover.md): the registries behind the
 //! `defers_system_gestures` and `interactive_dismiss_disabled` modifiers. Each mounted modifier
 //! pushes an entry while its subtree is alive; the union of entries is the app's current request.

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day mcp-server` — a Model Context Protocol server over stdio (docs/agent.md).
 //!
 //! Gives ANY MCP-capable coding agent (VS Code agent mode, Claude Code, Cursor, CI bots) the

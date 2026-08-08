@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: android.widget.VideoView + android.widget.MediaController — framework widgets, so this
 // piece adds ZERO Gradle dependencies (androidx.media3/ExoPlayer is the later upgrade). The Java

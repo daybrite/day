@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Standalone-piece backend discovery (docs/extending.md). External piece crates (e.g.
 //! `day-piece-searchfield`) declare their per-toolkit backend contributions in `Cargo.toml` under
 //! `[package.metadata.day.<toolkit>]`; the Day CLI reads them from `cargo metadata` and folds them

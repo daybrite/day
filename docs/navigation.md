@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Navigation (`selector`, `stack`)
 
 Day models navigation the way it models everything else: as a projection of an app-owned

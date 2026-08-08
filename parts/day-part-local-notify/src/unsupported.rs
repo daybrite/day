@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Targets with no local-notification implementation wired: Windows and HarmonyOS.
 //!
 //! Both platforms HAVE a notification system — Windows `ToastNotification`, HarmonyOS Notification

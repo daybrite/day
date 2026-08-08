@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Pull-to-refresh (external piece)
 
 > **Status: implemented** as `day-piece-pullrefresh`, an external Day Piece registered link-time

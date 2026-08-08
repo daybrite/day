@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — an EDITABLE ComboBox
 // (IsEditable, Windows 10 1809+), the platform's real combo box, boxed into a Day handle via

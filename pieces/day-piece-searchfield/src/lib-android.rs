@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: an EditText styled for search (single line, IME_ACTION_SEARCH). The Java factory
 // (`dev.daybrite.day.piece.searchfield.DaySearch`) is bundled with THIS crate under `android/java`

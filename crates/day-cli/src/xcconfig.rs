@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The `DayApp.xcconfig` split (§17.4): user-adjustable Xcode build settings live in a
 //! committed `DayApp.xcconfig` beside each `DayApp.xcodeproj`, and the Day.toml-derived
 //! identity (bundle id, version, build number) is written to a gitignored

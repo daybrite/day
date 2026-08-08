@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Mock-backend e2e for the consent banner (feature `ui`, on by default). Seeds a finalized report
 //! on disk, arms day-break, mounts `consent_banner` under the mock toolkit, and asserts it discloses
 //! the report and that Discard removes it. The full cross-platform drive is the showcase page's

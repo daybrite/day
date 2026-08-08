@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Notifications (proposed: two parts + a sending tool)
 
 > [!NOTE]

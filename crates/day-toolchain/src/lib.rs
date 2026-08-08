@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-toolchain — ONE place that knows where host toolchains and SDKs live, shared by the
 //! `day` CLI and by crate build scripts (day-xaml-sys, every `day-piece-*`/`day-tweak-*` that
 //! compiles its own native shim, and the scaffolds `day new` generates).

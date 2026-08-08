@@ -5,6 +5,11 @@ order: 31
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Every mobile OS gates the camera, location, notifications, and their kin behind user consent, and
 each one asks differently. Day splits the job in two: a build-time declaration in `Day.toml` that
 `day build` turns into each platform's manifest entries, and a runtime request through

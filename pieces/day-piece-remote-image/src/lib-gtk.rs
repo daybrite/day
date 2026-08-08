@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: a small GtkWidget subclass that draws in `snapshot()` — a GdkTexture decoded from the bytes,
 // aspect fit/fill, under a rounded/circle/rect clip, over the placeholder color. Doing it in

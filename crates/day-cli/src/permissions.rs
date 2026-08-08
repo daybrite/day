@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Resolve `[permissions]` (plus any library contributions) into what each platform must declare.
 //!
 //! One [`Plan`] feeds every writer — the Android manifest overlay, the Apple `Info.plist` keys, and

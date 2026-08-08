@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Grid: design & implementation
 
 > **Status: implemented.** `grid()`/`grid_row()` (`day_pieces`), the `.grid_span`/`.grid_align`

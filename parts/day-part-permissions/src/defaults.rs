@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Desktop Linux and Windows: no consent database, so nothing to ask.
 //!
 //! Both platforms let a normal desktop process open the camera, the microphone and the network

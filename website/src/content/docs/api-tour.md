@@ -5,6 +5,11 @@ order: 10
 section: Concepts
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 The whole authoring surface in one pass, for people who learn from code. Everything below is real
 Day API. The snippets are lifted from the showcase app that produces the [gallery](/gallery),
 and `use day::prelude::*;` brings all of it in. The pages after this one

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Accessibility (§13)
 
 > **Status: implemented (annotation pillar).** `A11yProps` (label/hint/value/role/hidden/

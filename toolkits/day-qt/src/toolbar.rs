@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: a QToolBar under the menu bar (docs/toolbars.md). Items are QActions, so the toolbar
 // takes its icon size and its icon/text style from the user's Qt settings the way every other

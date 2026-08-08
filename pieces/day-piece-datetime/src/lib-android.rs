@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: this crate's OWN Java factory (`dev.daybrite.day.piece.datetime.DayDateTime`, bundled
 // under android/java and folded into the app's Gradle build via [package.metadata.day.android]).

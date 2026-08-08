@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: Qt has no native spinner widget, so this crate's OWN shim (src/lib-qt-shim.cpp) wraps a
 // QProgressBar in **busy mode** (range 0..0), the idiomatic Qt indeterminate indicator — the same

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-build
 
 Build-script codegen for Day apps: every bundled resource becomes a typed Rust constant.

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Rehype plugin — fix links in the INTERNAL reference docs only.
 //
 // The internal docs (src/content/internal/*.md) are symlinks to the repo's top-level `docs/*.md`,

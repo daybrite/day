@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Post-build HTML link checker for the built site (dist/).
 //
 // Validates every internal link on EVERY generated page — not just pages reachable by crawling from

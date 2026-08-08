@@ -5,6 +5,11 @@ order: 34
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 When a Day app dies (a Rust panic, a segfault, an abort), day-break writes a report, and on
 the next launch your app shows the user what was recorded and asks whether to send it. It
 registers a chained panic hook and native signal handlers, and uploads through a transport you

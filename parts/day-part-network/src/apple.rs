@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // macOS + iOS (one shared file): SystemConfiguration's SCNetworkReachability. A target created with
 // CreateWithAddress on 0.0.0.0 asks "could traffic to the default route flow right now?"; GetFlags
 // answers synchronously from the routing table (no packets are sent, so this cannot detect a captive

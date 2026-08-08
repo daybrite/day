@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Recycling-list driver (docs/list.md, §10). The native list host owns scrolling + cell reuse;
 //! Day owns row *content*. day-core injects a [`day_spec::ListSource`] into the backend; when the
 //! native data-source pulls a cell, `bind_row` builds it once (per physical cell) and thereafter

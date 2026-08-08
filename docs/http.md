@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # HTTP through the platform stack (headless capability crate)
 
 > **Status: implemented** as `day-part-http` (in `parts/`), a headless day-ecosystem crate with no

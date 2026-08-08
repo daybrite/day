@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-pullrefresh
 
 Pull-to-refresh for any Day scrollable — `scroll(...)` or `list(...)` — modeled on SwiftUI's

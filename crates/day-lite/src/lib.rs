@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-lite: dynamic JS/TS miniapps on day (docs/lite.md).
 //!
 //! A **superapp** (a compiled day app) embeds a [`Host`], which owns the package [`Store`]

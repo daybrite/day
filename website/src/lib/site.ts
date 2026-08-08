@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // Small helpers for base-path-aware URLs. Astro sets `import.meta.env.BASE_URL` to the configured
 // `base` (with a trailing slash), so every internal link / static asset must be built through here.
 

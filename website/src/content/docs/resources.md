@@ -5,6 +5,11 @@ order: 24
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A Day project keeps its resources under one conventional `resource/` directory, with five
 subdirectories, each staged differently at build time:
 

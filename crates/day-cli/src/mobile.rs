@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Mobile pipelines (DESIGN.md §16.5, §17.4): ios-uikit via xcodebuild + simctl (the Xcode
 //! project's script phase calls back into `day xcode-backend build` for the Rust staticlib);
 //! android-mdc via gradle + adb (the gradle scaffold calls `day gradle-backend build`).

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: MKMapView (MapKit) — objc2-map-kit binds it as an NSView subclass for macOS. `setRegion`
 // takes an MKCoordinateRegion (center + span) built from the props; a marker is an MKPointAnnotation

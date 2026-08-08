@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-part-location's OWN Android backend — a headless capability shim (no UI). Bundled with the
 // crate and folded into the app's Gradle build via [package.metadata.day.android], with ZERO edits
 // to day-android; it registers no view. The Android twin of parts/day-part-location/src/*.rs's

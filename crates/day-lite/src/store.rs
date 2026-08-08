@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The package store (docs/lite.md §8): manifests, install/update plans, permission grants,
 //! and the on-disk cache. An origin is either `https://…` (any static host — a raw git
 //! branch URL works) or a local directory path (the dev loop: files re-read every launch,

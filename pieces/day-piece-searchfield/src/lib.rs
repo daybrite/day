@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-searchfield — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE search input realized as a
 //! distinct search control per toolkit (NSSearchField / UISearchTextField / GtkSearchEntry / a
 //! QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox), registered

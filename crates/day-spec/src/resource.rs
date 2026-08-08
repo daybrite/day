@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Bundled resources — efficient random read-only access to app-declared data, backed by each
 //! toolkit's native resource mechanism (DESIGN §18.3).
 //!

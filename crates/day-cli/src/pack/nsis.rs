@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! windows-xaml → NSIS `-setup.exe`: the classic direct-download installer (cross-compilable —
 //! makensis runs on Linux/macOS too, which is why NSIS won the DP-6 "optional" slot over WiX MSI).
 //! The .nsi is rendered from a minimal template: per-user install (no elevation → no UAC wall,

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-datetime
 
 Native date and time pickers: `date_picker(date)` and `time_picker(time)`, each bound

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Compile the ArkUI/NAPI C++ shim (src/shim.cpp) with the OpenHarmony NDK's clang and link the
 //! ArkUI native runtime libs. Only runs when building for a `*-linux-ohos` target; a no-op elsewhere
 //! (so a host `cargo check` of the workspace passes). The NDK path comes from `OHOS_NDK_HOME`

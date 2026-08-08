@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: OkHttp via this crate's own Java shim (DayHttp.java, staged by `day build` through
 // [package.metadata.day.android], with the okhttp Gradle dependency riding the same metadata) —

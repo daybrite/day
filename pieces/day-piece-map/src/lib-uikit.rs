@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: MKMapView (MapKit) as a UIView. objc2-map-kit binds the MKMapView STRUCT for macOS only
 // (the AppKit NSView subclass), so on iOS we hand-roll the class via `extern_class!` + `msg_send!`

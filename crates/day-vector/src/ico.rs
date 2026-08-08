@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Windows `.ico` writer — the modern PNG-compressed form: an ICONDIR header, one 16-byte
 //! entry per size, then the PNG blobs verbatim. ~60 lines is exactly why this is hand-rolled
 //! rather than a dependency (minimal-dependencies policy).

@@ -5,6 +5,11 @@ order: 11
 section: Concepts
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A **Piece** is Day's unit of UI composition: the thing SwiftUI calls a View and Flutter calls a
 Widget. You compose your interface as a tree of Pieces, and Day realizes each one as a real
 native widget: a `label` becomes an `NSTextField` on macOS, a `TextView` on Android, a `GtkLabel`

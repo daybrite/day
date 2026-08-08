@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: a custom NSView subclass that draws the decoded NSImage (aspect fit/fill) inside a
 // centered-circle / rounded / rectangular clip, on top of the placeholder color. Drawing it in

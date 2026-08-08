@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — an EDITABLE QComboBox, Qt's real combo box
 // (free text + a dropdown of items), behind a flat C ABI. editTextChanged is the single change

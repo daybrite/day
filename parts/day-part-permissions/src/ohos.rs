@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! HarmonyOS: `OH_AT_CheckSelfPermission`, and an ArkTS seam for the request.
 //!
 //! **This arm is not implemented yet.** Every query reports [`Gate::Absent`] /

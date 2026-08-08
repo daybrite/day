@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # SwiftUI embedding (macos-appkit + ios-uikit)
 
 > **Status: implemented** as `day-piece-swiftui` plus build support in day-cli and day-build.

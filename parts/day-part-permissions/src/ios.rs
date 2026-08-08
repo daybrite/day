@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The iOS half of the Apple arm: CoreMotion activity, and the app's own Settings page.
 
 use objc2::rc::Retained;

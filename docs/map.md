@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Map view (external piece)
 
 > **Status: implemented** as `day-piece-map`, an external Day Piece (like `day-piece-media`),

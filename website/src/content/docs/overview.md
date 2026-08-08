@@ -5,6 +5,11 @@ order: 1
 section: Start here
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 **Day** is a Rust framework for building applications that look and behave like native
 applications on every platform, because they are native applications.
 

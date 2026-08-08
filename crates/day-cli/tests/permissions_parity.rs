@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The declaration table in `day_build::permissions` names each permission's Rust variant so
 //! `day lint` can map `Permission::Camera` in an app's source back to a `Day.toml` declaration.
 //! That spelling is a duplicate of the real enum in `day-part-permissions`, and a rename on either

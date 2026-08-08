@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-fs — app-local file storage with one API on every target (docs/fs.md). No UI; any
 //! Rust code can depend on this crate and call [`read`]/[`write`]/[`list`]/[`remove`].
 //!

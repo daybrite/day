@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Compile the Qt C++ shim and link Qt 6. On macOS Qt ships as frameworks, so pkg-config's
 //! `--cflags` feeds `cc` directly and `--libs` translates into framework link directives plus
 //! an rpath (pane's proven build recipe).

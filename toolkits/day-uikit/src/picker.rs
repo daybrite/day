@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: UIButton+UIMenu pull-down (menu) / UISegmentedControl (segmented) /
 // checkmark-row UIStackView (inline).

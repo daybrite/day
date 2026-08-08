@@ -5,6 +5,11 @@ order: 61
 section: Reference
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 The pages linked here are the framework's internal reference documentation, published as-is from
 the repository's `docs/` directory. They're terser than the guides (per-API detail, per-platform
 support tables, edge cases), and they're the same files Day's own developers keep current, so

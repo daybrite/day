@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 """Repoint rustdoc's "Source" links at GitHub instead of the local `src/*.html` pages.
 
 Rustdoc renders every documented crate's source into `<doc-dir>/src/<crate>/<file>.rs.html` and links

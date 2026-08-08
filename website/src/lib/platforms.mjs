@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 // The platform-toolkit table: one record per `(OS, toolkit)` target, and the only place any of
 // it is written down.
 //

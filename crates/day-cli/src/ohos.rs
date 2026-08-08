@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! HarmonyOS / OpenHarmony (`harmony-arkui`) pipeline — the OHOS analogue of mobile.rs's android/iOS
 //! pipelines. `build_ohos` cross-compiles the app to `libentry.so`, then packages + signs a `.hap`
 //! via the ArkTS host project under `<project>/platform/harmony/`; `launch_ohos` installs + starts it on a

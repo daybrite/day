@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-piece-combobox
 
 An editable combo box for Day apps: type a value or pick one from the dropdown.

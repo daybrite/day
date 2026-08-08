@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-clipboard — a HEADLESS cross-platform plain-text clipboard API. No UI; any Rust code can
 //! depend on this crate and call [`set_text`] / [`get_text`] / [`has_text`] to reach the system
 //! clipboard through the platform's NATIVE API.

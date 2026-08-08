@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Fullscreen cover (`cover`) & the system-gesture shield
 
 > **Status: implemented on every backend** (2026-07). Native fullscreen modal on ios-uikit;

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-xaml-sys — C++/WinRT XAML Islands shim (DESIGN.md §9).
 //
 // Hosts the Windows.UI.Xaml control set inside a Win32 host window via

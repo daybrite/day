@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-mock — the headless toolkit (DESIGN.md §3.2, §21.2 M0–M1).
 //!
 //! Records every toolkit call into a compact op log (golden-diffable), performs deterministic

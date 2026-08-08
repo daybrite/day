@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): typed access to the `gtk4::Widget` behind a Day-created piece.
 //!
 //! `with_native` clones the widget handle (a gobject ref) out of the realized tree and hands `f`

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day
 
 Write your app once, in Rust, and run it as a real native app on macOS, iOS, Android,

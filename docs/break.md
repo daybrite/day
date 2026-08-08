@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-break: consent-first crash reporting (normative)
 
 > **Status: implemented** (`crates/day-break`). The panic hook, POSIX signal handlers, session

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-break's OWN Android crash layer — a headless shim (no UI), bundled with the crate and folded
 // into the app's Gradle build via [package.metadata.day.android], with ZERO edits to day-android.
 // It installs a default uncaught-exception handler that writes a `java-<sid>.kv` artifact directly

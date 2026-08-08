@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-arkui
 
 Day's HarmonyOS / OpenHarmony backend, built on ArkUI's native C API.

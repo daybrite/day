@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-part-haptics's OWN Android backend — a headless capability shim (no UI). It is bundled with
 // this crate and folded into the app's Gradle build via [package.metadata.day.android], with ZERO
 // edits to day-android; it registers no view, and the same overlay merges android.permission.VIBRATE

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Lottie (external piece, iOS + Android)
 
 > **Status: implemented** as `day-piece-lottie`, an external Day Piece rendering a Lottie animation,

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Async: futures without a runtime
 
 > **Status: implemented** (DESIGN.md §4.5, revised 2026-07). Day runs futures on its own

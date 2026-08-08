@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! External platform-toolkit discovery (docs/extending.md "External toolkits").
 //!
 //! A toolkit implemented OUTSIDE this repository registers its platform-toolkit pair by declaring

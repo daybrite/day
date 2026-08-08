@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-tweak-button-bezel
 
 Choose an AppKit bezel style for a stock Day button: `.bezel(Bezel::Textured)` and

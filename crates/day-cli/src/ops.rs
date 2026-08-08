@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Build / launch operations. Desktop = cargo with per-(target, profile) CARGO_TARGET_DIR
 //! (§16.5 — parallel targets never contend on the cargo build-dir lock). Mobile pipelines
 //! attach here at M5 (xcodebuild + simctl; gradle + adb).

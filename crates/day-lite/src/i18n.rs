@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Per-miniapp Fluent localization (docs/lite.md §7): each package ships
 //! `i18n/<locale>.ftl` files; `day.i18n.t(key, args?)` formats through a per-app
 //! `FluentBundle`. Locale resolution: `DAY_LOCALE` env (what `day launch --locale` and the

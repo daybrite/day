@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-media — an EXTERNAL Day Piece (DESIGN.md §15) wrapping each toolkit's NATIVE media
 //! player: AVPlayerView on AppKit, AVPlayerViewController on UIKit, QMediaPlayer + QVideoWidget on
 //! Qt, `android.widget.VideoView` on Android, GtkVideo on GTK. One Rust API registered link-time

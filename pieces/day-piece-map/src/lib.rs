@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-map — an EXTERNAL Day Piece (DESIGN.md §15) wrapping the platform's NATIVE map view,
 //! **APPLE PLATFORMS ONLY**. It is the reference for a piece that deliberately does NOT support every
 //! backend: AppKit and UIKit render a real `MKMapView`; on GTK/Qt/Android/XAML the `map` kind falls

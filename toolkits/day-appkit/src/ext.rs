@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): typed access to the `NSView` behind a Day-created piece.
 //!
 //! `with_native` clones the retained handle out of the realized tree (a retain, not a transfer)

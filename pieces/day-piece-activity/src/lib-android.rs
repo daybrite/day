@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: android.widget.ProgressBar — the default style is a circular indeterminate spinner, so
 // this piece adds ZERO Gradle dependencies and no permissions. The Java factory

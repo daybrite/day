@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Dynamic piece registry (feature `dyn-registry`; docs/lite.md §4).
 //!
 //! The machine-readable surface of the piece layer: every registered constructor and

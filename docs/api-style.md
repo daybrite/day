@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # API style: argument clarity
 
 Rust has no named arguments, so Day emulates their clarity where it pays and keeps

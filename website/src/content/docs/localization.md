@@ -5,6 +5,11 @@ order: 21
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day localizes with [Mozilla Fluent](https://projectfluent.org/), a message format built for the
 grammar problems that `printf`-style formats handle badly: plurals, gender, and languages that
 reorder everything. Localization is designed into Day's core rather than added on top: the

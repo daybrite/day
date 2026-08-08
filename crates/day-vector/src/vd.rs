@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! SVG → Android VectorDrawable (docs/vectors.md §per-backend emission).
 //!
 //! The usvg tree after normalization — paths with absolute transforms, resolved paints — maps

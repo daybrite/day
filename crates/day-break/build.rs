@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Bake the app identity (Day.toml `[app]`, exported by `day build`/`day launch` as `DAY_APP_*`,
 //! see `crates/day-cli/src/ops.rs::apply_app_identity`) into the crate so a crash report can carry
 //! id/version/build without reading a platform manifest at runtime.

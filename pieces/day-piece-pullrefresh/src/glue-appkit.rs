@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit emulated-gesture glue: macOS has no native pull-to-refresh, but NSScrollView's ELASTIC
 // scrolling (trackpad rubber-band) exposes exactly the gesture — during an overscroll past the top

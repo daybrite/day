@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The web-view piece's own Qt shim behind a flat C ABI. When Qt6WebEngineWidgets is available
 // (build.rs probes pkg-config and defines DAY_WEBVIEW_QT_ENGINE) this wraps a real QWebEngineView
 // and forwards `urlChanged` to a C callback so a bound text field follows navigation. When it is

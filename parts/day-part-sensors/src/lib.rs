@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-sensors — a HEADLESS cross-platform motion-sensor API. No UI; any Rust code can
 //! depend on this crate and [`watch`] the device's motion sensors through the platform's NATIVE API.
 //!

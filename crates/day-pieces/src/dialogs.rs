@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Imperative, awaitable presentations: the `alert` / `confirm` / `prompt` dialogs and the
 //! `open_file` / `save_file` system file pickers (`FileUrl`) — each returns a future you await
 //! for the user's choice.

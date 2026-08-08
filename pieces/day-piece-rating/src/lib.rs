@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-rating — flagship COMPOSE pieces (DESIGN §8, the composition-first tier).
 //!
 //! Everything here is built PURELY from Day's core primitives ([`row`], [`canvas`], the

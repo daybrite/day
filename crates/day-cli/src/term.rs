@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Centralized terminal styling for the day CLI.
 //!
 //! A single palette, referenced everywhere instead of inline `\x1b[..m` escape codes. Built on

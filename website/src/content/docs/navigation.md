@@ -5,6 +5,11 @@ order: 20
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day's navigation model is two Pieces and a route registry. `selector` handles "one of several
 top-level sections" (a sidebar on desktop, tabs where that's the platform idiom); `stack` handles
 "drill in, come back" (push/pop with the platform's own transitions and back gestures). Both are

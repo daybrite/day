@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // HarmonyOS / OpenHarmony: the native BasicServicesKit battery C API (`libohbattery_info.so`,
 // `ohbattery_info.h`, API 13+). Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed
 // (unlike Android's BatteryManager, which rides day-android's JVM/Context). Reading battery needs

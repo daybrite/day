@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Menu action dispatch (§ menus). The MODEL ([`day_spec::MenuItem`]) is toolkit-neutral and carries
 //! only ids for its actions; the real closures live here, keyed by id. A backend fires
 //! `Event::MenuAction(id)` when a native item is chosen; the event pump routes it to

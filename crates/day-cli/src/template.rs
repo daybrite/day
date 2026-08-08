@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Template-driven scaffolding for `day new app` (docs/cli.md).
 //!
 //! The default template is a real directory tree (`crates/day-cli/templates/app/`) embedded in

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Store listings (docs/store.md): one canonical source per app, generated into the layouts App Store
 //! Connect and Google Play expect.
 //!

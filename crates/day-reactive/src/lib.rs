@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-reactive — the reactive core (DESIGN.md §3.3, §4).
 //!
 //! Build-once / bind-forever: signals, memos, effects, `bind`, and `watch` over a thread-local

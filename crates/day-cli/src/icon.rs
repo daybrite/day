@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! `day icon` (docs/icons.md, DESIGN.md §16.5) — every platform's app-icon set from ONE
 //! master, kept in sync.
 //!

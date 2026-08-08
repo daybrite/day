@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Linux: no single portable device-identity API is guaranteed, so we read the two files every desktop
 // distro provides: /etc/os-release (the freedesktop standard — NAME/PRETTY_NAME + VERSION_ID) for the
 // OS name/version, and the DMI node /sys/devices/virtual/dmi/id/product_name for the hardware model

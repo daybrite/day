@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Build and launch the day website (website/) locally.
 #
 #   scripts/website.sh            # install deps + start the dev server (http://localhost:4321/)

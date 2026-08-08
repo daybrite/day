@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // AppKit: an editable NSTextView inside an NSScrollView (the standard scrollable text editor). A
 // per-node delegate implements NSTextDelegate::textDidChange: and dispatches Event::TextChanged;

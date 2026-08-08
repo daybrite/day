@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Qt: this crate's OWN shim (src/lib-qt-shim.cpp) wrapping QMediaPlayer + QAudioOutput +
 // QVideoWidget behind a flat C ABI. build.rs compiles it AND links Qt6MultimediaWidgets (which

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: AutoCompleteTextView — Android's real combo box (free-form text with a dropdown of
 // suggestions). The Java factory (`dev.daybrite.day.piece.combobox.DayCombo`) is bundled with

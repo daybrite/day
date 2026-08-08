@@ -5,6 +5,11 @@ order: 22
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 A Day button is a real
 `NSButton`, a real Material button, a real `GtkButton`, so VoiceOver, TalkBack, Narrator, and
 Orca already know how to focus it, name its role, and activate it. You start from the platform's

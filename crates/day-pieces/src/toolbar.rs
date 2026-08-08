@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The window-toolbar builder: `toolbar_button`, `toolbar_toggle`, `toolbar_menu`,
 //! `toolbar_search`, `toolbar_label`, and the spacers, assembled with [`toolbar`].
 //!

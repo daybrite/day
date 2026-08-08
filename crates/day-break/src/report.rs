@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The report data model and its two serialization formats.
 //!
 //! Crash artifacts are written in a line-oriented `key=value` **kv** format, never JSON: the signal

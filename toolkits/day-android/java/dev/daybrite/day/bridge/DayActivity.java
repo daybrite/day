@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 package dev.daybrite.day.bridge;
 
 import android.content.pm.ActivityInfo;

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-lite bootstrap (docs/lite.md §5–§7): the ergonomic JS layer over the __day_* host
 // hooks. Plain JS (no stripping). Pieces and signals are integer handles wrapped in
 // classes whose marker keys (`__p` / `__s`) the host recognizes on the way back in.

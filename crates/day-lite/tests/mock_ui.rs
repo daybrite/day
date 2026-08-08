@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Mount a miniapp's UI under the mock toolkit: the page builder crosses JS → dyn registry
 //! → real pieces, and the probe asserts the tree actually materialized (the layer
 //! `day lite test` deliberately doesn't exercise).

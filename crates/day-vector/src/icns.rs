@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! macOS `.icns` writer — the modern PNG-chunk form: an `icns` header plus one four-cc chunk
 //! per size, each carrying a PNG verbatim. Only the documented PNG-only OSTypes are emitted
 //! (`ic07`–`ic14`), so every reader from Finder to `iconutil` accepts the file; sizes without

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-piece-webview — the HarmonyOS half of the piece (docs/extending.md, docs/webview.md).
 //
 // The ArkUI C node API has no Web node kind (native_node.h stops at the container types), so the

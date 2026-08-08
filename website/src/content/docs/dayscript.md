@@ -5,6 +5,11 @@ order: 23
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 **dayscript** is Day's automation language: a YAML file of steps that drives and asserts a
 *running* app. One script taps buttons, types text, navigates, asserts what's on screen, and
 captures screenshots, identically on macOS, iOS, Android, Linux, Windows, and OpenHarmony,

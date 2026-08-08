@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The realized tree: nodes own native handles (or are layout-only), a reactive scope, and
 //! layout state. One `Tree<B>` per process, installed thread-local; bindings and event
 //! handlers reach it through [`with_tree`] — and tree methods NEVER run user code, so the

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // iOS: CoreMotion's CMMotionManager is natively poll-friendly — start updates once, then read the
 // `accelerometerData`/`gyroData`/`magnetometerData` properties (None until the first sample). Apple
 // recommends a single CMMotionManager per app, so one is kept in a static for the process lifetime.

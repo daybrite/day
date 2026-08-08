@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Text & typography
 
 `label(...)` renders native text. Its font is chosen from a **semantic (logical) style** that maps to

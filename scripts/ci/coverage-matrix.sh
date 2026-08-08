@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
 # Regenerate docs/coverage-matrix.md — WHICH PIECE KINDS each backend actually renders, and what
 # each answers for every `Cap`. Companion to duty-matrix.sh: that one proves the Toolkit trait is
 # implemented, this one proves the vocabulary is. CI runs both and fails on drift.

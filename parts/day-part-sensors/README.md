@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-part-sensors
 
 Motion sensors — accelerometer and gyroscope readings — where the hardware has them.

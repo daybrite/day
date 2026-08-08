@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Desktop Linux: there is NO toolkit-independent native clipboard API — the clipboard lives in the
 // display server, and GDK's accessor needs GTK initialized (which would break day-qt binaries). So
 // this shells out to the session's standard clipboard tools instead: `wl-copy`/`wl-paste`

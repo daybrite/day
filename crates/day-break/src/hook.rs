@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The Rust panic hook and the day-core contained-panic observer.
 //!
 //! The hook fires for EVERY panic — including one day-core will contain at a trampoline boundary

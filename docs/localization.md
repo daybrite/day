@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Localization (§12)
 
 Day localizes with [Mozilla Fluent](https://projectfluent.org). Text is a **key** resolved against

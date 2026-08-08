@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // UIKit: UISearchTextField (iOS 13+) — a UITextField subclass with the search field's rounded
 // background + magnifier + clear button. A per-node target fires on UIControlEvents::EditingChanged

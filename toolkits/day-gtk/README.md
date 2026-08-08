@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-gtk
 
 Day's GTK 4 backend, written in pure Rust over gtk4-rs.

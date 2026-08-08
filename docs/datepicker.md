@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Date & time pickers (external piece)
 
 > **Status: implemented** as `day-piece-datetime`, an external Day Piece registered link-time into

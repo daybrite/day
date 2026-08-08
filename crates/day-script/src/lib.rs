@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-script — the embedded dayscript engine (DESIGN.md §14). Bind-only-when-invited: the
 //! server starts ONLY when DAYSCRIPT_PORT + DAYSCRIPT_TOKEN are present in the environment
 //! (never otherwise), listens on 127.0.0.1, and accepts only the step catalog. Steps execute

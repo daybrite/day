@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! ArkUI (HarmonyOS) resource staging (§18.3).
 //!
 //! Both images and data go into `platform/harmony/entry/src/main/resources/rawfile/day/` (hvigor packages

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Host bridges (docs/lite.md §7, §10): native capabilities exposed to scripts, each
 //! behind a permission id. A bridge installs its namespace whether or not the permission
 //! was granted — ungranted entry points REJECT with `PermissionError` so feature detection

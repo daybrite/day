@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-script
 
 The engine that lets a script drive a running Day app: tap buttons, type text, navigate,

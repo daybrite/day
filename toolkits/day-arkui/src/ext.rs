@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): RAW access to the `ArkUI_NodeHandle` behind a Day-created piece.
 //!
 //! ArkUI is driven through the NDK C API, and the stored handle IS the NDK node pointer — so the

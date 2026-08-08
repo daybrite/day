@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: a Fluent `CommandBar` docked under the menu bar (docs/toolbars.md). That is the Windows
 // toolbar — the commands are AppBarButtons, so they take the icon size, the label position and

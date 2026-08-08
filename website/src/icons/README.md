@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Platform-toolkit icons
 
 One SVG per platform-toolkit id, rendered by `src/components/PlatformIcon.astro`. Each file is

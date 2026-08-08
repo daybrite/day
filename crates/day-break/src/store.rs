@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! On-disk layout, the session sentinel, and next-launch reconciliation.
 //!
 //! Everything a session might leave behind lives in one directory, filenames keyed by a per-launch

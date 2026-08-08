@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Tweaks (docs/tweaks.md): access to the WinRT `UIElement` behind a Day-created piece.
 //!
 //! XAML is driven through a C++/WinRT shim, and the modern `windows` crate ships no

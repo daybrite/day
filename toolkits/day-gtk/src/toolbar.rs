@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // GTK: the window's AdwHeaderBar (docs/toolbars.md). GNOME has no separate toolbar — the header
 // bar IS the toolbar, holding the window title in the middle and the app's actions at either

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The ArkUI half of day-tweak-slider-tickmarks — the bring-your-own-NDK tweak recipe
 // (docs/tweaks.md): the raw `ArkUI_NodeHandle` from `day_arkui::with_native_raw` is driven with
 // the ArkUI native node API, resolved here exactly the way day-arkui-sys resolves it. A stepped

@@ -5,6 +5,11 @@ order: 32
 section: Build & ship
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 `day pack -p <target>` builds the app in release mode, signs it, and produces a **standalone
 installable artifact** in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the
 result output. One command per platform, the platform's own signing tools underneath. Day

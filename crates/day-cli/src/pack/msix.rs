@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! windows-xaml → .msix (makeappx + signtool). The xaml backend hosts system XAML Islands
 //! (Windows.UI.Xaml ships with the OS — no WinAppSDK runtime dependency to declare or bootstrap).
 //! Signing providers (Day.toml signing.windows.provider): self-signed-dev (default; generated

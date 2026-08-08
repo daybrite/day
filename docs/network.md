@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Network connectivity (headless capability crate)
 
 > **Status: implemented** as `day-part-network` (in `parts/`, the headless counterpart of `pieces/`), a

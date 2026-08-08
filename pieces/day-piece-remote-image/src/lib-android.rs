@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // Android: an ImageView decoding the pushed bytes via BitmapFactory. The Java factory
 // (`dev.daybrite.day.piece.remoteimage.DayRemoteImage`) is bundled with THIS crate under

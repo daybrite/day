@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The web-view piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp.
 //
 // day-xaml hosts UWP system XAML (winrt::Windows::UI::Xaml, base Windows SDK, no WinAppSDK) inside a

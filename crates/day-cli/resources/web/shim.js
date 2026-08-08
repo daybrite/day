@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // day-dom shim — the DOM half of the web-dom backend (toolkits/day-dom/src/lib.rs is the
 // Rust half; the two mirror each other's tables). Owns every real DOM call, keyed by numeric
 // element ids, and calls back into wasm through a handful of exports. Plain ES module: no

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The portable-permission → native-declaration table (docs/permissions.md).
 //!
 //! Two consumers need exactly this knowledge and must never disagree about it:

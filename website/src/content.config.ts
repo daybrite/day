@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
 

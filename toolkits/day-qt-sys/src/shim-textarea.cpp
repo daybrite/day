@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The textarea piece's OWN Qt shim behind a flat C ABI: a QPlainTextEdit (Qt's lightweight multi-line
 // plain-text editor) with a native placeholder, word wrapping, and an internal vertical scrollbar.
 // textChanged reports edits back to Rust as a UTF-8 C string (valid only during the callback; Rust

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Windows: RtlGetVersion (ntdll) fills an OSVERSIONINFOW with the REAL running version — unlike the
 // Win32 GetVersionExW, which lies (reports 6.2 for Windows 8+) unless the app ships a compatibility
 // manifest. RtlGetVersion is the documented driver-facing escape hatch and honours no manifest, so it

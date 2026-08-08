@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Data-driven structure pieces: `when` (conditional), `each` (keyed children from a fixed
 //! sequence), `list` (a reactive, diffed collection), and the scoped `environment` context
 //! (`with_environment` / `environment`).

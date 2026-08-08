@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Tweaks: per-toolkit configuration of built-in pieces
 
 A **tweak** configures the native widget behind a Day-created piece: the extra `NSButton` or

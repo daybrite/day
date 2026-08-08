@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-tweak-slider-tickmarks
 
 Native tick marks for Day's slider, with snap-to-tick where the platform supports it:

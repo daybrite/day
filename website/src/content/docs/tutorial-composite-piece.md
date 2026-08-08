@@ -5,6 +5,11 @@ order: 41
 section: Extend
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Most Day widgets you build won't need a single line of platform code. They are
 **composite pieces**: new widgets assembled from primitives Day already ships. A composite
 piece is pure Rust, with no cargo features, no `build.rs`, and no per-toolkit source files. You add it

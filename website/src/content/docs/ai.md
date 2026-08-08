@@ -5,6 +5,11 @@ order: 24
 section: Guides
 ---
 
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 Day treats an AI agent as a full developer: every launch embeds the
 [dayscript](/docs/dayscript) engine, and the `day` CLI exposes it as MCP tools an agent can
 call: build, relaunch, tap, type, assert, screenshot. The agent doesn't guess whether its

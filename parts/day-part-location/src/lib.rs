@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-part-location — a HEADLESS cross-platform location API. No UI; any Rust code can depend on
 //! this crate and ask the platform's own location service for a fix, once or as a live stream.
 //!

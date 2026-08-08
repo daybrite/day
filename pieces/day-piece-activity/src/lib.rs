@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-piece-activity — an EXTERNAL Day Piece (DESIGN.md §15) wrapping each toolkit's NATIVE
 //! indeterminate activity/loading spinner: `NSProgressIndicator` (Spinning style) on AppKit,
 //! `UIActivityIndicatorView` on UIKit, `GtkSpinner` on GTK, a busy `QProgressBar` (range 0..0) on

@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Web: the web-dom backend (§9)
 
 Day's ninth backend renders in a browser. The DOM is the toolkit: a Day `button` is a real

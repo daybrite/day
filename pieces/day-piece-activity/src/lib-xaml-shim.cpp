@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The activity piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. day-xaml hosts the UWP
 // system XAML (winrt::Windows::UI::Xaml, from the base Windows SDK — no WinAppSDK), so the matching
 // spinner is Windows.UI.Xaml.Controls.ProgressRing, whose `IsActive` runs/stops the animation. The

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // Re-arms scheduled notifications after a reboot.
 //
 // WHY THIS EXISTS. A restart clears every AlarmManager alarm, so without this a notification

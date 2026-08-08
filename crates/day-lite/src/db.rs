@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Per-app sqlite with append-only migrations (docs/lite.md §7.1). One database file per
 //! app id; `user_version` tracks how many migration steps have applied, and a `_day_lite_
 //! migrations` table records each step's content hash so editing history (instead of

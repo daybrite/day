@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Window toolbars
 
 > **Status: implemented** on the four desktop backends: AppKit, GTK, Qt, XAML. A toolbar is

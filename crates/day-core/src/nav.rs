@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Route registry (docs/navigation.md, docs/tabs.md): mounted `nav()` / `tabs()` hosts each
 //! register a controller here. Registrations form a STACK so hosts can nest — e.g. a `tabs()`
 //! inside a `nav()` route — and the stack order IS the nesting order (outermost first).

@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! The extension-dependency layering rule (docs/extending.md §4): pieces may depend on parts;
 //! parts must not depend on day-pieces or any day-piece-*; tweaks may depend on day-pieces
 //! (the built-ins they configure — `Decorate::tweak` lives there) but not on any satellite

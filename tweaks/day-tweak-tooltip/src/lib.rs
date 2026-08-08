@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! day-tweak-tooltip — a mid-size packaged tweak (docs/tweaks.md): give any piece a native help
 //! tooltip, on the three toolkits with a native tooltip affordance and three different access
 //! tiers — objc2 (AppKit), gtk4-rs (GTK), and JNI (Android). Everywhere else, `.tooltip(…)` is a

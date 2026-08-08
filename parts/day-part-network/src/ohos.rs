@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // HarmonyOS / OpenHarmony: the native NetworkKit connection-management C API (`libnet_connection.so`,
 // `net_connection.h`, API 11+). Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed
 // (unlike Android's ConnectivityManager, which rides day-android's JVM/Context). The app DOES need

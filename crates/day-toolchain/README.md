@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # day-toolchain
 
 One crate that knows where developer toolchains and SDKs live on your machine.

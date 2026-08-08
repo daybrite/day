@@ -1,3 +1,8 @@
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
 # Persistent preferences (headless capability crate)
 
 > **Status: implemented** as `day-part-prefs` (in `parts/`, the headless counterpart of `pieces/`).

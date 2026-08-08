@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // HarmonyOS / OpenHarmony: the native device-info C API (`deviceinfo.h`, `libdeviceinfo_ndk.so`).
 // Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed. The getters return borrowed,
 // static `const char *` (never freed, so we only copy them). `OH_GetOSFullName()` is e.g.

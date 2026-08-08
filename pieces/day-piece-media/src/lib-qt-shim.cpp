@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // The media piece's own Qt shim behind a flat C ABI. When Qt6MultimediaWidgets is available
 // (build.rs probes pkg-config and defines DAY_MEDIA_QT_MM) this wraps QMediaPlayer + QAudioOutput +
 // QVideoWidget. When it is NOT — some minimal Qt installs — it degrades to a QLabel showing the

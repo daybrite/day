@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 // ---------------------------------------------------------------------------
 // XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — a multi-line TextBox (AcceptsReturn
 // = true, TextWrapping = Wrap, a native PlaceholderText) boxed into a Day handle via the
