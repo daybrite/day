@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 use day_spec::NodeId;
@@ -32,7 +32,9 @@ extern_class!(
 );
 
 struct NavIvars {
-    node: NodeId,
+    /// Mutable: a session-retained view outlives the node that first realized it, and must report
+    /// to whichever node is currently showing it.
+    node: Cell<NodeId>,
 }
 
 define_class!(
@@ -50,7 +52,7 @@ define_class!(
         #[unsafe(method(webView:didFinishNavigation:))]
         fn did_finish(&self, web_view: &WKWebView, _navigation: *mut AnyObject) {
             if let Some(url) = current_url(web_view) {
-                day_uikit::emit(self.ivars().node, Event::custom("webview:url", url));
+                day_uikit::emit(self.ivars().node.get(), Event::custom("webview:url", url));
             }
         }
     }
@@ -58,13 +60,20 @@ define_class!(
 
 impl WebNav {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(NavIvars { node });
+        let this = Self::alloc(mtm).set_ivars(NavIvars {
+            node: Cell::new(node),
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
 
 thread_local! {
+    // Keep each navigation delegate alive as long as its web view (delegate ref is weak).
     static DELEGATES: RefCell<HashMap<usize, Retained<WebNav>>> = RefCell::new(HashMap::new());
+    // Session id -> the retained web view. Day drops its own reference when the page is navigated
+    // away from, which on UIKit only detaches (`removeFromSuperview`); this reference is what keeps
+    // the engine — and so the loaded page and its JavaScript context — alive until the app returns.
+    static SESSIONS: RefCell<HashMap<u64, Retained<UIView>>> = RefCell::new(HashMap::new());
 }
 
 fn current_url(web: &WKWebView) -> Option<String> {
@@ -83,6 +92,21 @@ fn load_url(web: &WKWebView, url: &str) {
 }
 
 fn make(_backend: &mut Uikit, p: &WebProps, id: NodeId) -> Retained<UIView> {
+    // A session already holding a view: re-attach it rather than build a new one. Only the node
+    // changes — point the delegate at the node now showing it, and do NOT reload, since the whole
+    // purpose is to come back to the page as it was left.
+    if p.session != 0
+        && let Some(view) = SESSIONS.with(|m| m.borrow().get(&p.session).cloned())
+    {
+        let key = (&*view as *const UIView) as usize;
+        DELEGATES.with(|m| {
+            if let Some(nav) = m.borrow().get(&key) {
+                nav.ivars().node.set(id);
+            }
+        });
+        return view;
+    }
+
     let mtm = MainThreadMarker::new().unwrap();
     let web: Retained<WKWebView> = unsafe { msg_send![WKWebView::alloc(mtm), init] };
     let nav = WebNav::new(mtm, id);
@@ -95,6 +119,9 @@ fn make(_backend: &mut Uikit, p: &WebProps, id: NodeId) -> Retained<UIView> {
         m.borrow_mut()
             .insert((view.as_ref() as *const UIView) as usize, nav)
     });
+    if p.session != 0 {
+        SESSIONS.with(|m| m.borrow_mut().insert(p.session, view.clone()));
+    }
     view
 }
 
@@ -102,7 +129,7 @@ fn make(_backend: &mut Uikit, p: &WebProps, id: NodeId) -> Retained<UIView> {
 /// from the navigation delegate retained alongside it.
 fn node_of(view: &Retained<UIView>) -> Option<NodeId> {
     let key = (&**view as *const UIView) as usize;
-    DELEGATES.with(|m| m.borrow().get(&key).map(|nav| nav.ivars().node))
+    DELEGATES.with(|m| m.borrow().get(&key).map(|nav| nav.ivars().node.get()))
 }
 
 /// Same contract as the AppKit arm (see its `eval`): the front-end's wrapper makes the result
@@ -173,6 +200,17 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &WebPatch) {
 /// inherit the dead node's id and misroute its events.
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     let key = (&**h as *const UIView) as usize;
+    // A session-retained view is not going away — day is only detaching it from the page being
+    // torn down, and the next visit re-attaches it. Its delegate has to outlive this node too, or
+    // the returning view would report navigations to nobody.
+    let retained = SESSIONS.with(|m| {
+        m.borrow()
+            .values()
+            .any(|v| (&**v as *const UIView) as usize == key)
+    });
+    if retained {
+        return;
+    }
     DELEGATES.with(|m| {
         m.borrow_mut().remove(&key);
     });

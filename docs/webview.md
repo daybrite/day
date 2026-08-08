@@ -73,12 +73,21 @@ Reactive state is a separate problem with a separate answer: signals declared in
 minted fresh per visit too, so hoist them with `Signal::global` behind a `OnceCell` (the showcase's
 `pages/webview.rs` and `pages/scripting.rs` both do this).
 
-**Per-backend.** AppKit, UIKit and GTK release a handle by *detaching* it, so the piece holding its
-own reference is all it takes. Qt is the exception — its `release` calls `deleteLater()` on the
-handle — so what the shim retains is the `QWebEngineView` *inside* the container, and `~DayWebView`
-re-parents it out before `~QWidget` deletes its children. Verified on macos-appkit and macos-qt by
-setting `window.__dayMarker` in the live page, navigating away and back, and reading it again.
-Android, XAML, ArkUI and web-dom ignore `session` and rebuild as before.
+**Per-backend.** AppKit and UIKit release a handle by *detaching* it (`removeFromSuperview`), so the
+piece holding its own reference is all it takes. Qt is the exception — its `release` calls
+`deleteLater()` on the handle — so what the shim retains is the `QWebEngineView` *inside* the
+container, and `~DayWebView` re-parents it out before `~QWidget` deletes its children. All three
+also have to keep the node the retained view reports to up to date: the view outlives the node that
+first realized it, so `make` re-points it at whichever node is showing it now, and `release` leaves
+a retained view's bookkeeping alone.
+
+Verified on macos-appkit, ios-uikit and macos-qt by setting `window.__dayMarker` in the live page,
+navigating away and back, and reading it again — the showcase walkthrough asserts exactly that, so a
+backend that starts rebuilding instead of retaining fails CI rather than degrading quietly.
+
+GTK, Android, XAML, ArkUI and web-dom ignore `session` and rebuild as before. GTK's `release` also
+only detaches, so it is the next one that could carry this; the others would each need the same work
+Qt needed.
 
 ## Per-backend native realization
 
