@@ -21,12 +21,14 @@ objc2 = "0.6"
 block2 = "0.6"
 dispatch2 = "0.3"
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", features = ["CGImage"] }
 objc2-quartz-core = { version = "0.3", features = ["CAMediaTimingFunction"] }
 objc2-foundation = { version = "0.3", features = [
     "NSString", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }
 objc2-app-kit = { version = "0.3", features = [
+    "objc2-core-graphics",
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton",
     "NSTextField", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",

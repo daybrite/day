@@ -2652,8 +2652,8 @@ impl Toolkit for AppKit {
                     // NSVisualEffectView blended BEHIND the window, and an offscreen capture
                     // (`cacheDisplayInRect`) has no backdrop to sample — the selection came out
                     // a black pill that swallowed the row label. The material is AppKit's own
-                    // now, and `snapshot_view` pre-fills the window background before
-                    // compositing, so a capture has something to blend against.
+                    // now, and captures go through the window server (`snapshot_view`), which
+                    // composites the material for real instead of guessing at it.
                     // `style = SourceList` is the whole switch: the matching
                     // `selectionHighlightStyle` constant is deprecated precisely because the
                     // style property now implies it.
@@ -4318,10 +4318,123 @@ impl Platform for AppKit {
     }
 }
 
-/// Capture a window content view as PNG (the dayscript screenshot seam, §14): offscreen
-/// `cacheDisplayInRect` over a window-background pre-fill resolved for the view's
-/// light/dark appearance.
+// `CGWindowListCreateImage` is obsoleted as of the macOS 15 SDK (ScreenCaptureKit is the
+// sanctioned replacement) but still resolves and answers on macOS 26. It is declared here rather
+// than taken from a binding because the availability attribute would refuse the call outright,
+// and every use below treats a NULL return as "ask the offscreen path instead".
+unsafe extern "C" {
+    fn CGWindowListCreateImage(
+        bounds: objc2_core_foundation::CGRect,
+        list_option: u32,
+        window_id: u32,
+        image_option: u32,
+    ) -> *mut objc2_core_graphics::CGImage;
+}
+
+/// kCGWindowListOptionIncludingWindow — composite ONLY this window, so whatever is stacked over
+/// it (another app, a CI runner's stray window) cannot appear in the capture.
+const CG_WINDOW_LIST_INCLUDING_WINDOW: u32 = 1 << 3;
+/// kCGWindowImageBoundsIgnoreFraming — the window's own frame, without its drop shadow, which
+/// makes the returned image exactly `window.frame()` at the backing scale.
+const CG_WINDOW_IMAGE_IGNORE_FRAMING: u32 = 1 << 0;
+
+fn png_of_rep(rep: &objc2_app_kit::NSBitmapImageRep) -> Result<Vec<u8>, String> {
+    let data = unsafe {
+        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
+    }
+    .ok_or("png encode failed")?;
+    Ok(data.to_vec())
+}
+
+/// Capture `content` by asking the WINDOW SERVER for the composited window and cropping to it.
+///
+/// This exists because an offscreen render cannot draw macOS's own materials. As of macOS 26 a
+/// sidebar `NSSplitViewItem` is a Liquid Glass surface the window server composites from what is
+/// behind it; `cacheDisplayInRect` has no backdrop to sample, so it renders the sidebar as an
+/// opaque white slab with none of its rows in it — every macos-appkit gallery shot had a blank
+/// sidebar. The window server has the real pixels, including the rows.
+///
+/// It answers only while the window is actually on screen. A hidden, minimized or
+/// never-composited window has no image to hand back (verified: hiding the app makes this return
+/// NULL while the offscreen path still produces a frame), so this returns `Err` and the caller
+/// falls back rather than failing the capture.
+fn snapshot_via_window_server(content: &NSView) -> Result<Vec<u8>, String> {
+    let window = content.window().ok_or("view is not in a window")?;
+    let number = window.windowNumber();
+    if number <= 0 {
+        return Err(format!("window {number} is not on screen"));
+    }
+    // CGRectNull asks for the window's own bounds rather than a screen region.
+    let null_rect = objc2_core_foundation::CGRect::new(
+        objc2_core_foundation::CGPoint::new(f64::INFINITY, f64::INFINITY),
+        objc2_core_foundation::CGSize::new(0.0, 0.0),
+    );
+    let shot = unsafe {
+        CGWindowListCreateImage(
+            null_rect,
+            CG_WINDOW_LIST_INCLUDING_WINDOW,
+            number as u32,
+            CG_WINDOW_IMAGE_IGNORE_FRAMING,
+        )
+    };
+    if shot.is_null() {
+        return Err("the window server has no image for this window".into());
+    }
+    // SAFETY: non-NULL CGImageRef owned by this call (Create rule); CFRetained takes that
+    // ownership over, so it is released exactly once.
+    let shot = unsafe {
+        objc2_core_foundation::CFRetained::from_raw(std::ptr::NonNull::new_unchecked(shot))
+    };
+
+    // Crop the window frame down to the content view. Keeping the framing identical to the
+    // offscreen path is the point: the titlebar has never been part of a Day capture, and every
+    // published gallery shot would otherwise change size.
+    let frame = window.frame();
+    if frame.size.width <= 0.0 || frame.size.height <= 0.0 {
+        return Err("zero-size window".into());
+    }
+    let scale = objc2_core_graphics::CGImage::width(Some(&shot)) as f64 / frame.size.width;
+    // Cocoa rects are bottom-left origin; a CGImage's are top-left, so the content's distance
+    // from the window top is what the crop needs.
+    let in_window = unsafe { content.convertRect_toView(content.bounds(), None) };
+    let from_top = frame.size.height - (in_window.origin.y + in_window.size.height);
+    let crop = objc2_core_foundation::CGRect::new(
+        objc2_core_foundation::CGPoint::new(
+            (in_window.origin.x * scale).round(),
+            (from_top * scale).round(),
+        ),
+        objc2_core_foundation::CGSize::new(
+            (in_window.size.width * scale).round(),
+            (in_window.size.height * scale).round(),
+        ),
+    );
+    let cropped = objc2_core_graphics::CGImage::with_image_in_rect(Some(&shot), crop)
+        .ok_or("crop to the content view failed")?;
+    let rep = unsafe {
+        objc2_app_kit::NSBitmapImageRep::initWithCGImage(
+            objc2_app_kit::NSBitmapImageRep::alloc(),
+            &cropped,
+        )
+    };
+    png_of_rep(&rep)
+}
+
+/// Capture a window content view as PNG (the dayscript screenshot seam, §14).
+///
+/// The window server first, because it is the only one of the two that can show macOS's own
+/// composited materials; the offscreen render when it declines, because it is the only one of the
+/// two that works with no window on screen. See each for why.
 fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
+    match snapshot_via_window_server(content) {
+        Ok(bytes) => Ok(bytes),
+        Err(_) => snapshot_view_cache(content),
+    }
+}
+
+/// The offscreen fallback: `cacheDisplayInRect` over a window-background pre-fill resolved for
+/// the view's light/dark appearance. Renders the view hierarchy Day drew, and nothing the window
+/// server composites (see `snapshot_via_window_server`).
+fn snapshot_view_cache(content: &NSView) -> Result<Vec<u8>, String> {
     let bounds = content.bounds();
     let rep =
         unsafe { content.bitmapImageRepForCachingDisplayInRect(bounds) }.ok_or("no bitmap rep")?;
@@ -4340,11 +4453,7 @@ fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
         }));
     NSGraphicsContext::restoreGraphicsState_class();
     unsafe { content.cacheDisplayInRect_toBitmapImageRep(bounds, &rep) };
-    let data = unsafe {
-        rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
-    }
-    .ok_or("png encode failed")?;
-    Ok(data.to_vec())
+    png_of_rep(&rep)
 }
 
 /// Recursively mark a view tree as needing display (startup first-frame fix, see `run`).
