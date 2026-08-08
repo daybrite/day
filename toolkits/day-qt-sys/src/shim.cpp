@@ -521,12 +521,20 @@ void day_qt_checkbox_set(void *w, int on) {
 }
 
 // --- slider (int 0..=1000; day-qt maps to f64 range) ---
-void *day_qt_slider_new(int value, uint64_t id, void (*cb)(uint64_t, int)) {
+// `cb(id, value, committed)`: `committed != 0` marks the value the user settled on, as against
+// the stream a drag produces (day-spec `Event::ValueCommitted`). Qt tells the two apart exactly:
+// while the thumb is held, `isSliderDown()` is true and only `sliderReleased` ends it; a keyboard
+// step, a wheel notch, or a click on the groove moves the value with the thumb NOT down, and is
+// therefore already settled when `valueChanged` fires.
+void *day_qt_slider_new(int value, uint64_t id, void (*cb)(uint64_t, int, int)) {
     QSlider *s = new QSlider(Qt::Horizontal);
     s->setMinimum(0);
     s->setMaximum(1000);
     s->setValue(value);
-    QObject::connect(s, &QSlider::valueChanged, [id, cb](int v) { cb(id, v); });
+    QObject::connect(s, &QSlider::valueChanged, [s, id, cb](int v) {
+        cb(id, v, s->isSliderDown() ? 0 : 1);
+    });
+    QObject::connect(s, &QSlider::sliderReleased, [s, id, cb]() { cb(id, s->value(), 1); });
     return s;
 }
 void day_qt_slider_set(void *w, int value) {

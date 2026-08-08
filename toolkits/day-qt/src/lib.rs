@@ -313,10 +313,15 @@ extern "C" fn on_text(id: u64, s: *const c_char) {
     let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
     emit(NodeId(id), Event::TextChanged(text));
 }
-extern "C" fn on_slider(id: u64, v: c_int) {
+extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
     let (min, max) = RANGES.with(|r| r.borrow().get(&id).copied().unwrap_or((0.0, 1.0)));
     let value = min + (v as f64 / 1000.0) * (max - min);
+    // The live value always; the settled one additionally, so a drag records once (the shim
+    // decides which is which — see `day_qt_slider_new`).
     emit(NodeId(id), Event::ValueChanged(value));
+    if committed != 0 {
+        emit(NodeId(id), Event::ValueCommitted(value));
+    }
 }
 /// Focus callback from the C++ event filter (docs/focus.md).
 /// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).

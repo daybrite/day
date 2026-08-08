@@ -29,9 +29,9 @@ use objc2_app_kit::{
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
     NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
-    NSControlTextEditingDelegate, NSFont, NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem,
-    NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch,
-    NSTabView, NSTabViewItem, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
+    NSControlTextEditingDelegate, NSEventType, NSFont, NSGraphicsContext, NSLineBreakMode, NSMenu,
+    NSMenuItem, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider,
+    NSSwitch, NSTabView, NSTabViewItem, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
     NSTextMovementUserInfoKey, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
@@ -160,7 +160,17 @@ define_class!(
             if sender.downcast_ref::<NSSwitch>().is_some() {
                 emit(node, Event::ToggleChanged(unsafe { sender.integerValue() } != 0));
             } else if sender.downcast_ref::<NSSlider>().is_some() {
-                emit(node, Event::ValueChanged(unsafe { sender.doubleValue() }));
+                let value = unsafe { sender.doubleValue() };
+                // The live value first: bindings follow this, so the UI tracks the thumb.
+                emit(node, Event::ValueChanged(value));
+                // Then, once, the value the user actually chose. The slider is `continuous`, so
+                // this action fires on every tick of a drag; AppKit's own way to tell where in the
+                // gesture you are is the event that provoked it. A mouse-up ends a drag; a key
+                // press (arrow keys) moves the value by one discrete step and is already settled;
+                // anything else — mouse-down, mouse-dragged — is mid-gesture and commits nothing.
+                if slider_value_settled() {
+                    emit(node, Event::ValueCommitted(value));
+                }
             } else {
                 emit(node, Event::Pressed);
             }
@@ -214,6 +224,25 @@ impl DayTarget {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
         unsafe { msg_send![super(this), init] }
     }
+}
+
+/// Whether the NSEvent currently being dispatched ends a slider's interaction — see the
+/// `ValueCommitted` emission in `DayTarget::action:`. AppKit gives a continuous slider no
+/// "drag ended" callback, so the event that provoked the action is what says where in the gesture
+/// we are: a mouse-up ends a drag, an arrow key moves one discrete step and is already settled,
+/// and mouse-down/mouse-dragged are mid-gesture. No current event at all — a programmatic
+/// `setDoubleValue:` that fires the action — is not a user commit either.
+fn slider_value_settled() -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let Some(event) = NSApplication::sharedApplication(mtm).currentEvent() else {
+        return false;
+    };
+    matches!(
+        unsafe { event.r#type() },
+        NSEventType::LeftMouseUp | NSEventType::KeyDown | NSEventType::KeyUp
+    )
 }
 
 // ---------------------------------------------------------------------------

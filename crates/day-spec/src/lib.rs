@@ -258,11 +258,14 @@ pub mod bridge {
         WindowClosed = 20,
         /// A secondary window's key/active state changed; `num` != 0 ⇒ focused.
         WindowFocused = 21,
+        /// `num` = the settled value — the drag ended (see `Event::ValueCommitted`). A backend
+        /// that cannot tell a settled value from a moving one sends only `ValueChanged`.
+        ValueCommitted = 22,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 22] = [
+        pub const ALL: [BridgeKind; 23] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -285,6 +288,7 @@ pub mod bridge {
             BridgeKind::SafeArea,
             BridgeKind::WindowClosed,
             BridgeKind::WindowFocused,
+            BridgeKind::ValueCommitted,
         ];
     }
 
@@ -316,6 +320,19 @@ pub enum Event {
     Submitted,
     ToggleChanged(bool),
     ValueChanged(f64),
+    /// A continuous control's value SETTLED: the drag ended (mouse/touch up), or the value moved
+    /// by a discrete action (a keyboard arrow, a click on the track). Always preceded by the
+    /// `ValueChanged` carrying the same value.
+    ///
+    /// The pair exists because one gesture produces two different facts. `ValueChanged` is the
+    /// live one — bindings follow it so the UI tracks the thumb — and it fires continuously, which
+    /// is why nothing durable should key off it: a drag from 1 to 100 and back to 50 emits every
+    /// value in between. `ValueCommitted` fires once, with the value the user actually chose, and
+    /// is what a recording, a log, or a refetch should use.
+    ///
+    /// A backend that cannot tell the two apart emits only `ValueChanged`; its sliders then do not
+    /// record (docs/coverage-matrix.md).
+    ValueCommitted(f64),
     SelectionChanged(i64),
     /// A multi-select list's selection changed: the FULL set of selected row indices,
     /// ascending (empty = nothing selected). Emitted instead of `SelectionChanged` where

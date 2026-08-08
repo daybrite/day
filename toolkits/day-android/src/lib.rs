@@ -40,6 +40,7 @@ mod bridge_kinds_parity {
             ("K_TEXT_CHANGED", BridgeKind::TextChanged),
             ("K_TOGGLE_CHANGED", BridgeKind::ToggleChanged),
             ("K_VALUE_CHANGED", BridgeKind::ValueChanged),
+            ("K_VALUE_COMMITTED", BridgeKind::ValueCommitted),
             ("K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
             ("K_NAV_BACK", BridgeKind::NavBack),
             ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
@@ -792,6 +793,7 @@ mod imp {
     const K_TEXT_CHANGED: i32 = bridge::BridgeKind::TextChanged as i32;
     const K_TOGGLE_CHANGED: i32 = bridge::BridgeKind::ToggleChanged as i32;
     const K_VALUE_CHANGED: i32 = bridge::BridgeKind::ValueChanged as i32;
+    const K_VALUE_COMMITTED: i32 = bridge::BridgeKind::ValueCommitted as i32;
     const K_SELECTION_CHANGED: i32 = bridge::BridgeKind::SelectionChanged as i32;
     const K_NAV_BACK: i32 = bridge::BridgeKind::NavBack as i32;
     const K_FRAME_CHANGED: i32 = bridge::BridgeKind::FrameChanged as i32;
@@ -822,6 +824,7 @@ mod imp {
             }
             K_TOGGLE_CHANGED => Event::ToggleChanged(num != 0.0),
             K_VALUE_CHANGED => Event::ValueChanged(num),
+            K_VALUE_COMMITTED => Event::ValueCommitted(num),
             K_SELECTION_CHANGED => Event::SelectionChanged(num as i64),
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back

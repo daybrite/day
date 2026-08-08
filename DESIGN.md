@@ -2024,6 +2024,15 @@ current locale. Comments are ordinary YAML, so an annotated script parses and re
 `annotate_yaml` renders this form, `steps_to_yaml` the bare one. `day_core::label_of(NodeId)`
 resolves the label.
 
+**Action logging** is the same machinery with the capture removed: `day::record::log_actions(true)`
+(or `DAY_LOG_ACTIONS=1`, read in `day_script::init` beside `DAY_RECORD`) installs the same two
+observers and echoes each action in the same vocabulary, keeping no steps and writing no file — so
+it costs what the observer costs and never grows, and an app can leave it on for its whole life.
+The prefix names the mode (`dayscript ▸` logging, `day record ▸` recording) and `exclude_prefix`
+applies to both. The two are independent: logging survives a recording starting and stopping under
+it, and a live recording emits one line per action, not two. daybrite/Day-Showcase turns it on in
+`root()`, so its console reads as the script a recording would have produced.
+
 Known gaps follow from the scope: an element the app never gave an `.id()` cannot be recorded;
 slider values and native OS chrome (the file picker, the IME, permission dialogs) are outside what
 Day observes — the same blind spots playback has ([§14.2](#142-the-embedded-engine)). A recording

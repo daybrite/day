@@ -123,6 +123,7 @@ public final class DayBridge {
     public static final int K_WINDOW_RESIZED = 18;
     public static final int K_WINDOW_CLOSED = 20;
     public static final int K_WINDOW_FOCUSED = 21;
+    public static final int K_VALUE_COMMITTED = 22;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -634,9 +635,25 @@ public final class DayBridge {
         s.setValueFrom((float) min);
         s.setValueTo((float) max);
         s.setValue((float) Math.max(min, Math.min(max, value)));
+        // Two facts per interaction: the live value, and the one the user settled on. A drag
+        // streams the first and ends with the second; a keyboard or a11y change never starts a
+        // touch, so it IS settled the moment it lands. The flag is a one-element array because a
+        // Java anonymous class can only capture effectively-final locals.
+        final boolean[] dragging = { false };
         s.addOnChangeListener(new Slider.OnChangeListener() {
             @Override public void onValueChange(Slider slider, float v, boolean fromUser) {
-                if (fromUser) nativeOnEvent(id, K_VALUE_CHANGED, v, null);
+                if (!fromUser) return;
+                nativeOnEvent(id, K_VALUE_CHANGED, v, null);
+                if (!dragging[0]) nativeOnEvent(id, K_VALUE_COMMITTED, v, null);
+            }
+        });
+        s.addOnSliderTouchListener(new Slider.OnSliderTouchListener() {
+            @Override public void onStartTrackingTouch(Slider slider) {
+                dragging[0] = true;
+            }
+            @Override public void onStopTrackingTouch(Slider slider) {
+                dragging[0] = false;
+                nativeOnEvent(id, K_VALUE_COMMITTED, slider.getValue(), null);
             }
         });
         return s;

@@ -100,7 +100,11 @@ unsafe extern "C" {
     pub fn day_qt_checkbox_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_checkbox_set(w: *mut c_void, on: c_int);
 
-    pub fn day_qt_slider_new(value: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    pub fn day_qt_slider_new(
+        value: c_int,
+        id: u64,
+        cb: extern "C" fn(u64, c_int, c_int),
+    ) -> *mut c_void;
     pub fn day_qt_slider_set(w: *mut c_void, value: c_int);
 
     pub fn day_qt_lineedit_new(

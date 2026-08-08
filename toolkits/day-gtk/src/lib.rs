@@ -1738,6 +1738,29 @@ impl Toolkit for Gtk {
                 scale.set_value(p.value);
                 scale.set_draw_value(false);
                 scale.connect_value_changed(move |s| emit(id, Event::ValueChanged(s.value())));
+                // GtkScale has no "drag ended" signal — `value-changed` fires on every motion
+                // step — so the settled value comes from the interactions that END one: the
+                // pointer coming up, and a key being released after an arrow/Page step. Both
+                // controllers run in the CAPTURE phase so the scale's own internal gesture
+                // (which claims the sequence) cannot swallow them first.
+                let released = gtk4::GestureClick::new();
+                released.set_propagation_phase(gtk4::PropagationPhase::Capture);
+                {
+                    let scale = scale.clone();
+                    released.connect_released(move |_, _n, _x, _y| {
+                        emit(id, Event::ValueCommitted(scale.value()))
+                    });
+                }
+                scale.add_controller(released);
+                let keys = gtk4::EventControllerKey::new();
+                keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+                {
+                    let scale = scale.clone();
+                    keys.connect_key_released(move |_, _k, _c, _m| {
+                        emit(id, Event::ValueCommitted(scale.value()))
+                    });
+                }
+                scale.add_controller(keys);
                 wire_focus(&scale, id);
                 scale.upcast()
             }

@@ -199,6 +199,9 @@ mod ev {
     pub const SCROLL: u32 = 12; // a,b = offset
     pub const RESIZED: u32 = 13; // a,b = size (ResizeObserver)
     pub const NAV_BACK: u32 = 14;
+    /// a = the settled value. The DOM already separates the two: `input` fires as the thumb
+    /// moves, `change` once the user lets go (day-spec `Event::ValueCommitted`).
+    pub const VALUE_COMMITTED: u32 = 15;
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +645,9 @@ impl Toolkit for Dom {
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
-                unsafe { day_dom_listen(el, 2) };
+                // 2 = `input` (live, every motion) | 4 = `change` (settled, on release) — the
+                // two facts a drag produces, which the DOM already separates for us.
+                unsafe { day_dom_listen(el, 2 | 4) };
                 el
             }
             Some(Builtin::TextField) => {
@@ -1970,6 +1975,7 @@ pub extern "C" fn day_dom_event(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f
         ev::SUBMIT => Event::Submitted,
         ev::TOGGLE => Event::ToggleChanged(a != 0.0),
         ev::VALUE => Event::ValueChanged(a),
+        ev::VALUE_COMMITTED => Event::ValueCommitted(a),
         ev::SELECT => Event::SelectionChanged(a as i64),
         ev::FOCUS => Event::FocusChanged(a != 0.0),
         ev::TAP => Event::Tap(Point::new(a, b)),

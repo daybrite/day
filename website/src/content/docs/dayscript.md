@@ -141,6 +141,25 @@ The recorder is honest about the same blind spots the engine has. It captures ac
 you gave ids, not positional taps, slider drags, or native OS chrome, so a recording is a starting
 point you edit — not a pixel-exact replay.
 
+### Logging actions without recording
+
+The same observer can narrate instead of capture. `day::record::log_actions(true)` — or
+`DAY_LOG_ACTIONS=1` on any Day app, no rebuild — echoes every action to stdout in the same
+vocabulary and keeps nothing:
+
+```text
+dayscript ▸ navigate → dates  "Date & time"
+dayscript ▸ tap list-shuffle  "Shuffle"
+dayscript ▸ select unit-picker = 1  "Units"
+```
+
+Nothing accumulates, so it is cheap to leave on for an app's whole life, and it reads as the script
+a recording would have written — useful for watching what a walkthrough will capture before you
+record it, and for making a bug report say what was actually pressed. The Showcase turns it on at
+launch; `DAY_LOG_ACTIONS=0` silences it. Logging and recording are independent: start a recording
+underneath a log and each action still prints once, with the prefix naming the mode
+(`day record ▸`).
+
 ## Limits
 
 dayscript can only see what Day owns. It cannot type through the native IME, verify the software

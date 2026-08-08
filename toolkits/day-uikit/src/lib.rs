@@ -328,6 +328,21 @@ mod imp {
                 }
             }
 
+            /// A slider's interaction ENDED: the finger lifted (inside or outside the track), so
+            /// the value under it is the one the user chose. `UIControlEvents::ValueChanged`
+            /// fires continuously while dragging — bindings need that — so the settled value is a
+            /// separate control event (day-spec `Event::ValueCommitted`).
+            #[unsafe(method(commit:))]
+            fn commit(&self, sender: &UIControl) {
+                let obj: &AnyObject = sender.as_ref();
+                if let Some(sl) = obj.downcast_ref::<UISlider>() {
+                    emit(
+                        self.ivars().node,
+                        Event::ValueCommitted(unsafe { sl.value() } as f64),
+                    );
+                }
+            }
+
             /// EditingDidBegin — the keyboard is up and this field owns it (docs/focus.md).
             #[unsafe(method(editBegan:))]
             fn edit_began(&self, sender: &UIControl) {
@@ -2696,6 +2711,12 @@ mod imp {
                             Some(tobj),
                             sel!(fire:),
                             UIControlEvents::ValueChanged,
+                        );
+                        // Both lift events: a drag that ends off the track still ends.
+                        sl.addTarget_action_forControlEvents(
+                            Some(tobj),
+                            sel!(commit:),
+                            UIControlEvents::TouchUpInside | UIControlEvents::TouchUpOutside,
                         );
                     }
                     let view = view_of(sl);

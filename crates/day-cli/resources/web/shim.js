@@ -703,6 +703,9 @@ function listen(id, mask) {
   if (mask & 4) el.addEventListener('change', () => {
     if (el.type === 'checkbox') wasm.day_dom_event(id, 4, el.checked ? 1 : 0, 0, 0, 0);
     else if (el.tagName === 'SELECT') wasm.day_dom_event(id, 6, el.selectedIndex, 0, 0, 0);
+    // A range's `change` is the settled value: the DOM fires `input` as the thumb moves and
+    // `change` once, when the user lets go (event 15 — mirrors ev::VALUE_COMMITTED in lib.rs).
+    else if (el.type === 'range') wasm.day_dom_event(id, 15, Number(el.value), 0, 0, 0);
   });
   if (mask & 8) {
     el.addEventListener('focus', () => wasm.day_dom_event(id, 7, 1, 0, 0, 0));

@@ -684,7 +684,11 @@ fn exec(step: Step) -> Reply {
                 Ok(Reply::ok())
             }
             Step::SetValue { id, value } => {
+                // Both, for the same reason `tap` sends `Pressed` and `Tap`: a binding follows
+                // the live value and anything durable follows the committed one, and a replayed
+                // `set_value` is a user who dragged and let go — so it has to look like one.
                 emit(&id, Event::ValueChanged(value))?;
+                emit(&id, Event::ValueCommitted(value))?;
                 Ok(Reply::ok())
             }
             Step::Toggle { id, value } => {

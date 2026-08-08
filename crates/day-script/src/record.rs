@@ -174,8 +174,8 @@ pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
 /// - an id-less `Tap`, and `LongPress`/`ContextMenu`: a bare coordinate is not portable;
 /// - `Drag`/`ScrollChanged`/`Pointer`/`Key`/`WindowResized`/`FrameChanged`/`Submitted`/
 ///   `FocusChanged`: gesture and low-level input, no id-addressed step;
-/// - `ValueChanged` (a slider drag): no `set_value` step is emitted — a slider re-records as a
-///   storm of intermediate values that rarely belongs in a walkthrough (edit one in by hand);
+/// - `ValueChanged` (a slider mid-drag): the settled value arrives separately as
+///   `ValueCommitted`, which IS recorded — recording both would write a step per tick;
 /// - `SelectionSet` (multi-select): no single-index step covers it;
 /// - lifecycle / menu / toolbar / present-result / custom / window events: not the user UI actions
 ///   the recorder targets.
@@ -205,6 +205,14 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
         Event::ToggleChanged(on) => id.map(|id| Step::Select {
             id: id.to_string(),
             index: *on as i64,
+        }),
+        // The SETTLED value of a slider, not the drag. `ValueChanged` fires on every tick — a
+        // drag from 1 to 100 and back to 50 would write a hundred steps and print a hundred
+        // lines — so the recorder ignores it and takes `ValueCommitted`, which fires once with
+        // the value the user let go on (day-spec `Event::ValueCommitted`).
+        Event::ValueCommitted(value) => id.map(|id| Step::SetValue {
+            id: id.to_string(),
+            value: *value,
         }),
         // Navigation (RouteRequested, NavBack, and every nav_link/sidebar/stack push that calls
         // `navigate` from an event handler) is captured by the NAV observer via route changes,
@@ -264,7 +272,12 @@ const PLAYBACK_EMISSIONS: &[(&str, &[Event], Disposition)] = &[
     (
         "set_value",
         &[Event::ValueChanged(0.5)],
-        Disposition::Dropped("a slider drag re-records as a storm of intermediate values"),
+        Disposition::Dropped("mid-drag; the settled value arrives as ValueCommitted"),
+    ),
+    (
+        "set_value",
+        &[Event::ValueCommitted(0.5)],
+        Disposition::Records("set_value"),
     ),
 ];
 
@@ -456,6 +469,9 @@ fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
         }
         Step::Select { id, index } => {
             let _ = write!(line, "select {id} = {index}");
+        }
+        Step::SetValue { id, value } => {
+            let _ = write!(line, "set_value {id} = {value}");
         }
         Step::Navigate { route } => {
             let _ = write!(
@@ -1024,6 +1040,41 @@ mod tests {
             },
             Some("picker")
         ));
+    }
+
+    /// Logging and recording are independent modes over one observer, and the failure that
+    /// matters is a mode silently switching the other off: `stop()` used to unhook the observers
+    /// unconditionally, which would have left an app that logs continuously deaf after its first
+    /// recording.
+    #[test]
+    fn logging_and_recording_do_not_switch_each_other_off() {
+        assert!(!is_logging_actions());
+        assert!(!is_recording());
+        assert!(!is_observing());
+
+        log_actions(true);
+        assert!(is_logging_actions());
+        assert!(is_observing(), "logging alone has to run the observers");
+        assert!(!is_recording(), "logging is not recording");
+
+        start(); // a recording underneath the log
+        assert!(is_recording());
+        assert!(
+            is_logging_actions(),
+            "starting a recording must not end the log"
+        );
+
+        stop();
+        assert!(!is_recording());
+        assert!(
+            is_logging_actions(),
+            "stopping a recording must not end the log"
+        );
+        assert!(is_observing());
+
+        log_actions(false);
+        assert!(!is_observing(), "nothing left to watch");
+        clear();
     }
 
     #[test]
