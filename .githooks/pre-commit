@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Format Rust before it becomes a commit — the same `cargo fmt --all` CI fails on.
+#
+# Tracked here rather than in .git/hooks (which git does not version) and wired up with
+# `git config core.hooksPath .githooks`, so a fresh clone gets it from one command:
+#
+#     scripts/install-hooks.sh
+#
+# `--no-verify` skips it, as with any hook.
+#
+# What it will NOT do is decide what goes in your commit. `cargo fmt --all` formats the whole
+# workspace, so it can touch files you never staged; this only re-stages files that were ALREADY
+# staged, and refuses outright when a staged file also has unstaged changes — re-adding that file
+# would sweep the unstaged hunks into the commit, which is the hook silently committing something
+# you did not choose.
+set -euo pipefail
+
+# NUL-delimited into an array, rather than `mapfile`: macOS ships bash 3.2, where `mapfile` does
+# not exist — and a hook that dies on the committer's own machine is worse than no hook. The same
+# constraint is why every array expansion below is guarded by a count first (bash 3.2 treats
+# "${arr[@]}" on an empty array as unset under `set -u`).
+read_paths() { # usage: read_paths <array-name> < <(git … -z)
+    local name="$1" path
+    eval "$name=()"
+    while IFS= read -r -d '' path; do
+        eval "$name+=(\"\$path\")"
+    done
+}
+
+# Nothing Rust in this commit: docs- and workflow-only commits pay nothing.
+read_paths staged < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.rs')
+if [ "${#staged[@]}" -eq 0 ]; then
+    exit 0
+fi
+
+# A staged file that ALSO has unstaged changes cannot be re-staged safely (see above). Say which,
+# and how to proceed, rather than choosing on the committer's behalf.
+read_paths partial < <(git diff --name-only -z -- "${staged[@]}")
+if [ "${#partial[@]}" -gt 0 ]; then
+    echo "pre-commit: these files are partially staged, so formatting them could commit work you did not stage:" >&2
+    printf '  %s\n' "${partial[@]}" >&2
+    echo >&2
+    echo "Stage them fully, or run 'cargo fmt --all' yourself and re-stage the hunks you want." >&2
+    echo "To commit as-is: git commit --no-verify" >&2
+    exit 1
+fi
+
+echo "pre-commit: cargo fmt --all"
+# The whole workspace, from its root: a per-crate fmt misses crates that are not default members
+# (an empty cfg'd crate still has to satisfy `--check` in CI), which is the drift this exists to
+# stop. Hooks run with the working directory at the repo top level, which is that root.
+cargo fmt --all
+
+# Re-stage ONLY the files this commit already carried. A file the formatter touched that was not
+# staged stays in the working tree, unstaged and reported — it is not this commit's business.
+changed=()
+for f in "${staged[@]}"; do
+    if ! git diff --quiet -- "$f"; then
+        changed+=("$f")
+    fi
+done
+if [ "${#changed[@]}" -gt 0 ]; then
+    git add -- "${changed[@]}"
+    echo "pre-commit: reformatted and re-staged:"
+    printf '  %s\n' "${changed[@]}"
+fi
+
+# Anything else the formatter rewrote is left alone, but it should not be a surprise later.
+read_paths others < <(git diff --name-only -z -- '*.rs')
+if [ "${#others[@]}" -gt 0 ]; then
+    echo "pre-commit: also reformatted (left unstaged, not part of this commit):"
+    printf '  %s\n' "${others[@]}"
+fi

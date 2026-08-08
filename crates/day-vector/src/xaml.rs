@@ -312,7 +312,10 @@ mod tests {
             !data.contains(['Q', 'q', 'T', 't', 'S', 's', 'A', 'a', 'H', 'h', 'V', 'v']),
             "only M/L/C/Z may be emitted: {data}"
         );
-        assert!(data.contains('C'), "the curve must survive as a cubic: {data}");
+        assert!(
+            data.contains('C'),
+            "the curve must survive as a cubic: {data}"
+        );
     }
 
     /// Elevation must be exact, not a redraw: the cubic has to pass through the quadratic's own
