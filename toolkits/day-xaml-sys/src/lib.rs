@@ -285,6 +285,9 @@ unsafe extern "C" {
     pub fn day_xaml_toolbar_set_text(id: *const c_char, text: *const c_char);
     pub fn day_xaml_toolbar_set_checked(id: *const c_char, on: c_int);
     pub fn day_xaml_toolbar_set_enabled(id: *const c_char, on: c_int);
+    // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behaviour, also
+    // reachable from dayscript through the toolkit duty. 0 = no split nav in this window.
+    pub fn day_xaml_toggle_sidebar() -> c_int;
 
     // present / dismiss (docs/dialogs.md): ContentDialog (alert/prompt) + WinRT file pickers.
     // The cb delivers a result as (req, tag, index, text) — tag matches PresentResult::decode.

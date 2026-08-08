@@ -514,8 +514,57 @@ const NAV_SIDEBAR_W: f64 = day_spec::NAV_SIDEBAR_WIDTH;
 
 /// selector(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
 enum NavPresent {
-    Split(gtk4::Paned),
+    /// The GNOME idiom: a pinned sidebar with libadwaita's own split treatment, whose
+    /// `show-sidebar` property is what a `SidebarToggle` flips.
+    ///
+    /// AdwOverlaySplitView rather than AdwNavigationSplitView, and the difference matters:
+    /// NavigationSplitView's `collapsed` is an ADAPTIVE-BREAKPOINT concept (narrow window ⇒
+    /// become a stack), not a user toggle. Driving it from the toolbar button collapsed the
+    /// whole host to a sliver, because a pinned sidebar is then the widget's natural width.
+    /// OverlaySplitView is the same Adw split family with a real `show-sidebar`, and it is what
+    /// GNOME apps carrying a sidebar button use (Text Editor, Console, Loupe).
+    Split(adw::OverlaySplitView),
+    /// `DAY_GTK_SPLIT=paned`: a GtkPaned with a USER-DRAGGABLE divider. Off the GNOME HIG —
+    /// libadwaita pins sidebar widths by design — but kept for apps that want the AppKit-style
+    /// adjustable split, and for comparing the two.
+    Paned(gtk4::Paned),
     Stack(adw::NavigationView),
+}
+
+/// Whether this process draws its `selector(Sidebar)` with a GtkPaned instead of libadwaita's
+/// AdwNavigationSplitView (docs/navigation.md).
+fn paned_split() -> bool {
+    std::env::var("DAY_GTK_SPLIT").is_ok_and(|v| v == "paned")
+}
+
+/// Show/hide the sidebar of this process's `selector(Sidebar)` host — what a
+/// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives (docs/toolbars.md). `false` when
+/// there is no split host to toggle, which is how the item knows to render disabled.
+///
+/// KNOWN LIMIT: `NAV_STATE` is not keyed by window, so with two split-hosting windows open this
+/// toggles the first one found rather than the one whose toolbar was clicked. Day apps are
+/// single-window today; keying nav state by window is the fix when that stops being true.
+pub(crate) fn toggle_sidebar() -> bool {
+    NAV_STATE.with(|m| {
+        for st in m.borrow().values() {
+            match &st.present {
+                // Adw's own property: collapsed shows the content alone, exactly what the
+                // GNOME sidebar button does.
+                NavPresent::Split(sv) => {
+                    sv.set_show_sidebar(!sv.shows_sidebar());
+                    return true;
+                }
+                NavPresent::Paned(paned) => {
+                    if let Some(child) = paned.start_child() {
+                        child.set_visible(!child.is_visible());
+                        return true;
+                    }
+                }
+                NavPresent::Stack(_) => {}
+            }
+        }
+        false
+    })
 }
 
 struct NavState {
@@ -918,7 +967,8 @@ fn nav_report(host_key: usize) {
             return Vec::new();
         };
         let (hw, hh) = match &state.present {
-            NavPresent::Split(paned) => (paned.width() as f64, paned.height() as f64),
+            NavPresent::Split(sv) => (sv.width() as f64, sv.height() as f64),
+            NavPresent::Paned(paned) => (paned.width() as f64, paned.height() as f64),
             NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
         };
         if hw <= 0.0 || hh <= 0.0 {
@@ -928,7 +978,16 @@ fn nav_report(host_key: usize) {
         // back to the default width before the first allocation) — Day re-lays each pane's
         // content to the reported size on every drag.
         let sidebar_w = match &state.present {
-            NavPresent::Split(paned) => {
+            // Pinned by min == max, so the width is known — except while collapsed, when the
+            // content has the whole host and the sidebar page is not on screen at all.
+            NavPresent::Split(sv) => {
+                if !sv.shows_sidebar() {
+                    0.0
+                } else {
+                    NAV_SIDEBAR_W
+                }
+            }
+            NavPresent::Paned(paned) => {
                 let pos = paned.position() as f64;
                 if pos > 0.0 { pos } else { NAV_SIDEBAR_W }
             }
@@ -1500,7 +1559,30 @@ impl Toolkit for Gtk {
                     .map(|p| p.split)
                     .unwrap_or(true);
                 let suppress = Rc::new(std::cell::Cell::new(false));
-                let (host, present): (Handle, NavPresent) = if is_split {
+                let (host, present): (Handle, NavPresent) = if is_split && !paned_split() {
+                    // AdwNavigationSplitView: the GNOME split. The sidebar is PINNED (libadwaita
+                    // has no draggable sidebars by design), it carries Adwaita's own sidebar
+                    // background treatment, and its `collapsed` property gives the toolbar's
+                    // sidebar toggle something native to drive. `DAY_GTK_SPLIT=paned` selects the
+                    // draggable GtkPaned instead (docs/navigation.md).
+                    let sv = adw::OverlaySplitView::new();
+                    sv.set_min_sidebar_width(NAV_SIDEBAR_W);
+                    sv.set_max_sidebar_width(NAV_SIDEBAR_W);
+                    sv.set_show_sidebar(true);
+                    let handle: Handle = sv.clone().upcast();
+                    // Re-lay both panes whenever the split resizes or collapses: the sidebar's
+                    // width goes to zero when collapsed, so the detail's reported size changes.
+                    {
+                        let hk = Rc::new(std::cell::Cell::new(widget_key(&handle)));
+                        let h2 = hk.clone();
+                        sv.connect_show_sidebar_notify(move |_| {
+                            let key = h2.get();
+                            gtk4::glib::idle_add_local_once(move || nav_report(key));
+                        });
+                        let _ = hk;
+                    }
+                    (handle, NavPresent::Split(sv))
+                } else if is_split {
                     // GtkPaned: sidebar + detail with a USER-DRAGGABLE divider (the AppKit
                     // NSSplitView counterpart). AdwNavigationSplitView pins its sidebar width by
                     // design (GNOME HIG has no draggable sidebars), so a paned is the native way to
@@ -1529,7 +1611,7 @@ impl Toolkit for Gtk {
                     }
                     let handle: Handle = paned.clone().upcast();
                     host_key_for_report.set(widget_key(&handle));
-                    (handle, NavPresent::Split(paned))
+                    (handle, NavPresent::Paned(paned))
                 } else {
                     // AdwNavigationView: a genuine push/pop stack with back gesture.
                     let nv = adw::NavigationView::new();
@@ -2481,7 +2563,19 @@ impl Toolkit for Gtk {
                 .unwrap_or_else(|| "Day".to_string());
             let nav_page = adw::NavigationPage::new(child, &title);
             match &state.present {
-                NavPresent::Split(paned) => {
+                NavPresent::Split(sv) => {
+                    // Still the AdwNavigationPage wrapper, even though an overlay split takes
+                    // plain widgets: Day's pages are GtkFixeds with no natural size, and the
+                    // page is what gives the split something to size against. Handing over the
+                    // bare Fixed collapsed both panes to nothing. The split supplies the sidebar
+                    // treatment itself, so no `.sidebar-pane` class is needed.
+                    if state.split && index == 0 {
+                        sv.set_sidebar(Some(&nav_page));
+                    } else {
+                        sv.set_content(Some(&nav_page));
+                    }
+                }
+                NavPresent::Paned(paned) => {
                     if state.split && index == 0 {
                         // libadwaita's split-sidebar background treatment on the paned child.
                         nav_page.add_css_class("sidebar-pane");
@@ -2537,7 +2631,8 @@ impl Toolkit for Gtk {
                 let (_, _, nav_page) = state.pages.remove(pos);
                 match &state.present {
                     // The content page is being replaced; clear it (a new one follows).
-                    NavPresent::Split(paned) => paned.set_end_child(None::<&gtk4::Widget>),
+                    NavPresent::Split(sv) => sv.set_content(None::<&gtk4::Widget>),
+                    NavPresent::Paned(paned) => paned.set_end_child(None::<&gtk4::Widget>),
                     // The stack pop already removed it (day-driven pop or native gesture);
                     // dropping our ref is enough.
                     NavPresent::Stack(_) => {
@@ -3028,6 +3123,10 @@ impl Toolkit for Gtk {
     fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
         OPS.with(|m| m.borrow_mut().insert(h.as_ptr() as usize, ops.to_vec()));
         h.queue_draw();
+    }
+
+    fn toggle_sidebar(&mut self) -> bool {
+        crate::toggle_sidebar()
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

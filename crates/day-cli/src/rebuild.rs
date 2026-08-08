@@ -982,6 +982,51 @@ fn zero_macho_uuid(buf: &mut [u8]) -> usize {
 ///
 /// This is where Day's reproducibility guarantee is defined, so state it plainly: a rebuild is NOT
 /// promised to be byte-identical to the original artifact. It is promised to be identical after
+/// Whether `head` is a Mach-O — thin, or a fat/universal archive.
+///
+/// The fat magic needs more than its four bytes, because `0xCAFEBABE` is ALSO the Java class-file
+/// magic; Java chose it knowingly, and the two formats have collided ever since. An APK is full of
+/// class files, and `kotlinx-coroutines`' `DebugProbesKt.bin` is one of them under a `.bin` name —
+/// enough for the android scaffold check to take it for a universal binary, run `codesign` on it,
+/// and fail the whole reproducibility check on a Linux runner that has no `codesign` at all.
+///
+/// So a fat header must also look like one: a plausible architecture count, and a first entry
+/// whose `cputype` is one Mach-O actually defines. A class file's corresponding bytes are its
+/// version and constant-pool count, which do not land on a cputype.
+fn looks_macho(head: &[u8]) -> bool {
+    if head.len() < 4 {
+        return false;
+    }
+    let be = |at: usize| -> Option<u32> {
+        head.get(at..at + 4)
+            .map(|b| u32::from_be_bytes(b.try_into().unwrap_or_default()))
+    };
+    // Thin Mach-O, either endianness and either width — distinctive enough on its own.
+    if matches!(
+        u32::from_le_bytes(head[0..4].try_into().unwrap_or_default()),
+        0xFEED_FACF | 0xFEED_FACE | 0xCFFA_EDFE | 0xCEFA_EDFE
+    ) {
+        return true;
+    }
+    // Fat (0xCAFEBABE) / fat 64 (0xCAFEBABF), both stored big-endian.
+    if !matches!(be(0), Some(0xCAFE_BABE | 0xCAFE_BABF)) {
+        return false;
+    }
+    // `mach/machine.h`: the 64-bit forms are the 32-bit ones | CPU_ARCH_ABI64 (0x0100_0000), and
+    // arm64_32 | CPU_ARCH_ABI64_32 (0x0200_0000).
+    const CPU_TYPES: [u32; 7] = [
+        7,           // x86
+        0x0100_0007, // x86_64
+        12,          // arm
+        0x0100_000C, // arm64
+        0x0200_000C, // arm64_32
+        18,          // ppc
+        0x0100_0012, // ppc64
+    ];
+    let archs = be(4).unwrap_or(0);
+    (1..=32).contains(&archs) && be(8).is_some_and(|cpu| CPU_TYPES.contains(&cpu))
+}
+
 /// normalization — once the parts that describe the machine and the moment, rather than the
 /// compiled program, are removed. Toolchains that embed a signature, a build id, or a path to
 /// their own scratch directory would otherwise make the check impossible to pass without pinning
@@ -1001,13 +1046,7 @@ fn normalize(path: &Path) -> Result<(), String> {
     let Ok(head) = std::fs::read(path) else {
         return Ok(());
     };
-    let looks_macho = head.len() > 4
-        && matches!(
-            u32::from_le_bytes(head[0..4].try_into().unwrap_or_default()),
-            0xFEED_FACF | 0xFEED_FACE | 0xCFFA_EDFE | 0xCEFA_EDFE
-        )
-        || head.starts_with(&[0xCA, 0xFE, 0xBA, 0xBE]);
-    if !looks_macho {
+    if !looks_macho(&head) {
         return Ok(());
     }
     // The ad-hoc signature covers the UUID, so it has to go first or it will not match either.
@@ -1029,6 +1068,14 @@ fn normalize(path: &Path) -> Result<(), String> {
                 path.display(),
                 o.status,
                 String::from_utf8_lossy(&o.stderr).trim()
+            ));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!(
+                "`codesign` is not on this host, so the Mach-O at {} cannot be normalized for \
+                 comparison. A Mach-O reaching a host without Apple's tools means the payload was \
+                 misidentified — check `looks_macho`.",
+                path.display()
             ));
         }
         Err(e) => return Err(format!("running `codesign` on {}: {e}", path.display())),
@@ -1553,6 +1600,42 @@ mod tests {
             assert!(err.contains("windows"), "{err}");
             assert!(err.contains("host"), "{err}");
         }
+    }
+
+    /// `0xCAFEBABE` is the Mach-O fat magic AND the Java class magic. An APK is full of class
+    /// files, and one of them — kotlinx-coroutines' `DebugProbesKt.bin` — is a class file wearing
+    /// a `.bin` name, so the four-byte test took it for a universal binary, ran `codesign` on a
+    /// Linux runner that has none, and failed the android reproducibility check on a difference
+    /// that was not in the code.
+    #[test]
+    fn a_java_class_is_not_mistaken_for_a_universal_binary() {
+        // The real first bytes of DebugProbesKt.bin (kotlinx-coroutines-core-jvm 1.8.0):
+        // magic, minor 0, major 52, constant-pool count 63, then a UTF8 entry.
+        let class_file = [
+            0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x00, 0x00, 0x34, 0x00, 0x3F, 0x01, 0x00, 0x2C, 0x6B,
+            0x6F, 0x74,
+        ];
+        assert!(!looks_macho(&class_file));
+
+        // A real fat header still is one: 2 architectures, first cputype x86_64.
+        let mut fat = vec![0xCA, 0xFE, 0xBA, 0xBE];
+        fat.extend_from_slice(&2u32.to_be_bytes());
+        fat.extend_from_slice(&0x0100_0007u32.to_be_bytes());
+        assert!(looks_macho(&fat));
+        // …and so does a fat 64 header (arm64).
+        let mut fat64 = vec![0xCA, 0xFE, 0xBA, 0xBF];
+        fat64.extend_from_slice(&1u32.to_be_bytes());
+        fat64.extend_from_slice(&0x0100_000Cu32.to_be_bytes());
+        assert!(looks_macho(&fat64));
+
+        // Thin Mach-O, unchanged.
+        assert!(looks_macho(&0xFEED_FACFu32.to_le_bytes()));
+        assert!(looks_macho(&0xCEFA_EDFEu32.to_le_bytes()));
+
+        // Nothing else, including a truncated header and an ordinary ELF/zip member.
+        assert!(!looks_macho(&[0xCA, 0xFE, 0xBA]));
+        assert!(!looks_macho(b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00"));
+        assert!(!looks_macho(b"PK\x03\x04payload"));
     }
 
     #[test]

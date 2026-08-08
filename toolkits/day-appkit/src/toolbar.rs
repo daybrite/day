@@ -275,6 +275,12 @@ fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
         ToolbarItemKind::Space | ToolbarItemKind::Separator => unsafe {
             NSToolbarSpaceItemIdentifier.copy()
         },
+        // The system item, not one of ours: AppKit gives it the right glyph, the localized
+        // name, the leading position next to the split's divider, and the `toggleSidebar:`
+        // action that NSSplitViewController implements (docs/toolbars.md, docs/navigation.md).
+        ToolbarItemKind::SidebarToggle => unsafe {
+            objc2_app_kit::NSToolbarToggleSidebarItemIdentifier.copy()
+        },
         _ => NSString::from_str(&item.id),
     }
 }

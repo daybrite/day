@@ -574,6 +574,18 @@ pub trait TreeOps {
     /// raw material for the `a11y_audit` step (§14.2). Comparison/policy lives in day-script.
     fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)>;
     fn find_by_id(&self, id: &str) -> Option<RNode>;
+    /// Show/hide this window's `selector(Sidebar)` pane — what a
+    /// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives. `false` when the toolkit has
+    /// no split host to toggle (or no sidebar concept at all), which is how the caller knows to
+    /// render the item disabled.
+    ///
+    /// A DUTY rather than an action id, because the item carries no app closure: the native
+    /// toolbar button and dayscript's `toolbar:` step both land here, so a walkthrough exercises
+    /// exactly the path a click takes. Defaulted to `false` so a backend without a sidebar needs
+    /// no code. docs/toolbars.md, docs/navigation.md.
+    fn toggle_sidebar(&mut self) -> bool {
+        false
+    }
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     /// Whether native transitions have settled (see `Toolkit::ui_idle`).
     fn ui_idle(&mut self) -> bool;
@@ -1212,6 +1224,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             .iter()
             .find(|(_, n)| n.id.as_deref() == Some(id))
             .map(|(k, _)| k)
+    }
+
+    fn toggle_sidebar(&mut self) -> bool {
+        self.toolkit.toggle_sidebar()
     }
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {

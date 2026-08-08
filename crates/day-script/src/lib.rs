@@ -817,6 +817,20 @@ fn exec(step: Step) -> Reply {
                 if !found.enabled {
                     return Err(Reply::fail(format!("toolbar: {item:?} is disabled"), false));
                 }
+                // The sidebar toggle carries no app closure — the toolkit owns the behaviour, so
+                // it is driven through the duty rather than the action registry. Same call the
+                // native button makes, which is the point: the walkthrough exercises the real
+                // path (docs/toolbars.md).
+                if matches!(found.kind, day_spec::ToolbarItemKind::SidebarToggle) {
+                    if !day_core::toolbar::toggle_sidebar() {
+                        return Err(Reply::fail(
+                            format!("toolbar: {item:?} found no sidebar to toggle"),
+                            false,
+                        ));
+                    }
+                    day_reactive::flush_sync();
+                    return Ok(Reply::ok());
+                }
                 if found.action == 0 {
                     return Err(Reply::fail(
                         format!("toolbar: {item:?} has no command"),

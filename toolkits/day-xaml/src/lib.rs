@@ -2043,6 +2043,12 @@ impl Toolkit for Xaml {
     // RenderTargetBitmap is a follow-up — dayscript `window:` screenshots on xaml show the
     // primary meanwhile (docs/windows.md).
 
+    fn toggle_sidebar(&mut self) -> bool {
+        // The same call the toolbar's own AppBarButton makes, so a dayscript walkthrough drives
+        // the real path (docs/toolbars.md).
+        unsafe { ffi::day_xaml_toggle_sidebar() != 0 }
+    }
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {
             return Err("no window".into());

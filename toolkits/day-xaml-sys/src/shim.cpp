@@ -14,6 +14,14 @@
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20 // absent from pre-20H1 SDK headers
 #endif
+// Mica (docs/navigation.md). Absent from SDKs older than 22621; the call then fails and the
+// window keeps its opaque ground, so defining them here costs nothing on older targets.
+#ifndef DWMWA_SYSTEMBACKDROP_TYPE
+#define DWMWA_SYSTEMBACKDROP_TYPE 38
+#endif
+#ifndef DWMSBT_MAINWINDOW
+#define DWMSBT_MAINWINDOW 2 // the Mica backdrop a document-shaped app asks for
+#endif
 
 #include <string>
 #include <limits>
@@ -533,6 +541,20 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
                               sizeof(dark_titlebar));
     }
 
+    // Mica: the Windows 11 window material, and the counterpart of the sidebar material AppKit
+    // supplies (docs/navigation.md). DWMSBT_MAINWINDOW is the backdrop a document-shaped app
+    // uses; the call fails harmlessly on Windows 10 and on 11 before 22621, where the attribute
+    // does not exist — which is exactly why the RESULT decides what happens next. Mica only
+    // shows through content that is transparent, so the grounding below is skipped when (and
+    // only when) the backdrop was accepted; if it was refused, the opaque ground stays and the
+    // window looks as it always has.
+    bool mica = false;
+    {
+        DWORD backdrop = DWMSBT_MAINWINDOW;
+        mica = SUCCEEDED(DwmSetWindowAttribute(host, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
+                                               sizeof(backdrop)));
+    }
+
     WUXC::Canvas root;
     // Force DAY_THEME PER-ELEMENT (islands-safe, unlike Application::RequestedTheme): ElementTheme
     // on the root cascades to every descendant control + its {ThemeResource} lookups, so the whole
@@ -547,8 +569,9 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     // SYSTEM theme, so it is only trustworthy when unforced; when DAY_THEME forces a scheme, ground
     // with a solid neutral matching it (the Fluent page-base color for that scheme).
     {
-        bool grounded = false;
-        if (g_forced_theme == 0) {
+        // Mica accepted ⇒ leave the root transparent so the material shows through it.
+        bool grounded = mica;
+        if (!mica && g_forced_theme == 0) {
             auto res = WUX::Application::Current().Resources();
             auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
             if (res.HasKey(key)) {
@@ -1335,6 +1358,29 @@ void day_xaml_navlist_set_selected(void* w, int idx) {
 // region reflows (region 0 = content / detail, 1 = pane header); back_cb(id) on the back button.
 static constexpr double DAY_NAV_SIDEBAR_WIDTH = 240.0; // mirrors day_spec::NAV_SIDEBAR_WIDTH
 
+// The split NavigationView this process is showing, for the toolbar's sidebar toggle
+// (docs/toolbars.md). Only a split host registers here; a stack presentation has no sidebar to
+// show or hide. Single-window, like the AppKit and GTK counterparts.
+static WUXC::NavigationView g_navview{ nullptr };
+
+// Show/hide the nav pane. In PaneDisplayMode::Left the pane is ALWAYS expanded and IsPaneOpen is
+// ignored, so hiding it means dropping to LeftMinimal — the mode whose pane is a hidden overlay
+// behind a hamburger, which is what a Windows app's collapsed nav looks like. Returns 0 when
+// there is no split nav in this window, which is how the caller renders the item disabled.
+extern "C" int day_xaml_toggle_sidebar() try {
+    if (!g_navview) return 0;
+    if (g_navview.PaneDisplayMode() == WUXC::NavigationViewPaneDisplayMode::Left) {
+        g_navview.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftMinimal);
+        g_navview.IsPaneOpen(false);
+    } else {
+        g_navview.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left);
+        g_navview.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
+    }
+    return 1;
+} catch (...) {
+    return 0;
+}
+
 void* day_xaml_nav_new(unsigned long long id,
                         void (*sel_cb)(unsigned long long, int),
                         void (*size_cb)(unsigned long long, int, int, int),
@@ -1355,6 +1401,8 @@ void* day_xaml_nav_new(unsigned long long id,
     } else {
         nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left); // always-expanded sidebar
         nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
+        // Only a split host is toggleable; the toolbar's sidebar button drives this one.
+        g_navview = nv;
     }
 
     // The detail host: a Canvas day positions the current page into (absolute frames). A Canvas has
@@ -2912,6 +2960,22 @@ extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
             }
             lead.Children().Append(box);
             if (!id.empty()) g_toolbar_elems.insert_or_assign(id, box);
+        } else if (kind == "S") {
+            // The sidebar toggle. E700 is GlobalNavButton, the hamburger every Windows app uses
+            // for exactly this, so the item needs no icon from the app. It carries no action id:
+            // the click drives the NavigationView directly (docs/toolbars.md).
+            WUXC::AppBarButton toggle;
+            toggle.Label(hs(label.c_str()));
+            toggle.Icon(toolbar_icon(glyph.empty() ? std::string("E700") : glyph, image));
+            toggle.IsEnabled(enabled);
+            compact(toggle, true);
+            WUXC::ToolTipService::SetToolTip(toggle, winrt::box_value(hs(tip.c_str())));
+            toggle.Click([](WF::IInspectable const& s, WUX::RoutedEventArgs const&) {
+                if (!day_xaml_toggle_sidebar()) {
+                    if (auto b = s.try_as<WUXC::AppBarButton>()) b.IsEnabled(false);
+                }
+            });
+            place_command(toggle, id);
         } else if (kind == "L") {
             WUXC::TextBlock caption;
             caption.Text(hs(label.c_str()));

@@ -46,6 +46,7 @@ enum Kind {
         query: Signal<String>,
         placeholder: Option<TextSource>,
     },
+    SidebarToggle,
     Label,
     Separator,
     Space,
@@ -115,6 +116,21 @@ pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> Toolba
     ToolbarEntry {
         label: Some(text.into_text()),
         ..entry(id, Kind::Label)
+    }
+}
+
+/// Show/hide the window's sidebar — the leading item of a desktop toolbar in an app built
+/// around a `selector(Sidebar)` (Mail, Finder, Files, Explorer).
+///
+/// Takes no `.action`: the toolkit binds it to the sidebar host in this window and drives that
+/// host's own collapse, so the app declares the affordance and each platform supplies its
+/// native behaviour and glyph. Place it first, before any [`toolbar_flexible_space`]. In a
+/// window with no sidebar it renders disabled rather than vanishing, so the bar keeps its shape
+/// as the route changes. docs/toolbars.md.
+pub fn toolbar_sidebar_toggle<M>(id: impl Into<String>, label: impl IntoText<M>) -> ToolbarEntry {
+    ToolbarEntry {
+        label: Some(label.into_text()),
+        ..entry(id, Kind::SidebarToggle)
     }
 }
 
@@ -288,6 +304,7 @@ fn lower(entries: Vec<ToolbarEntry>) -> Vec<ToolbarItem> {
                         act,
                     )
                 }
+                Kind::SidebarToggle => (ToolbarItemKind::SidebarToggle, 0),
                 Kind::Label => (ToolbarItemKind::Label, 0),
                 Kind::Separator => (ToolbarItemKind::Separator, 0),
                 Kind::Space => (ToolbarItemKind::Space, 0),

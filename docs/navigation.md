@@ -32,7 +32,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 
 | Style | Native container |
 |-------|------------------|
-| `Sidebar` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwNavigationSplitView` (libadwaita); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
+| `Sidebar` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwOverlaySplitView` (libadwaita; `DAY_GTK_SPLIT=paned` selects a draggable `GtkPaned` instead); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
 | `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` (docs/tabs.md). |
 
 `selector` is one primitive, a selection-bound switcher. The two styles differ only in chrome and

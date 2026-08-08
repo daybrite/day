@@ -432,3 +432,75 @@ body {
    the theme background unless the app sets its own color. */
 .day-cover { display: none; position: fixed; inset: 0; z-index: 100; background: var(--day-bg); }
 .day-cover.open { display: block; }
+
+/* Window toolbar (docs/toolbars.md) ---------------------------------------- */
+/* The web has no window chrome, so the bar is a strip docked above the app root. Day sizes the
+   root from the viewport, so the strip's height comes off it — see `day-has-toolbar`. */
+.day-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  background: var(--day-bar-bg);
+  border-bottom: 1px solid var(--day-divider);
+  font: inherit;
+  user-select: none;
+}
+.day-toolbar-flex { flex: 1; }
+.day-toolbar-gap { width: 12px; flex: none; }
+.day-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  flex: none;
+  margin: 0 6px;
+  background: var(--day-divider);
+}
+.day-toolbar-label { padding: 0 8px; opacity: 0.75; }
+.day-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.day-toolbar-btn:hover:not(:disabled) { background: var(--day-control-bg); }
+.day-toolbar-btn:disabled { opacity: 0.4; cursor: default; }
+/* A pressed toggle reads as selected, the way a checked AppBarToggleButton does. */
+.day-toolbar-btn[aria-pressed="true"] {
+  background: var(--day-accent);
+  color: var(--day-accent-fg);
+}
+/* Template rendering, as the nav rows do: the icon is a mask painted with currentColor, so it
+   follows the button's text colour in both schemes and while pressed. */
+.day-toolbar-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  background-color: currentColor;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+}
+.day-toolbar-search {
+  height: 28px;
+  min-width: 180px;
+  padding: 0 10px;
+  border: 1px solid var(--day-divider);
+  border-radius: 6px;
+  background: var(--day-bg);
+  color: inherit;
+  font: inherit;
+}
+/* The sidebar toggle hides the split's sidebar pane rather than dispatching an app action. */
+.day-nav.split.day-sidebar-hidden .day-nav-sidebar { display: none; }

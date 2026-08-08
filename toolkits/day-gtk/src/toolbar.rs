@@ -212,6 +212,23 @@ impl Gtk {
                     }
                     b.upcast()
                 }
+                ToolbarItemKind::SidebarToggle => {
+                    // GNOME's own sidebar affordance: the `sidebar-show-symbolic` button that
+                    // opens Files' and Text Editor's side pane. The app supplies no action —
+                    // the click drives the split host directly (docs/toolbars.md).
+                    let b = gtk4::Button::new();
+                    dress_button(&b, item);
+                    if item.icon.is_none() {
+                        b.set_icon_name("sidebar-show-symbolic");
+                    }
+                    b.set_sensitive(item.enabled);
+                    b.connect_clicked(|b| {
+                        if !crate::toggle_sidebar() {
+                            b.set_sensitive(false); // no sidebar in this window
+                        }
+                    });
+                    b.upcast()
+                }
                 ToolbarItemKind::Menu { items } => {
                     let b = gtk4::MenuButton::new();
                     let group = gtk4::gio::SimpleActionGroup::new();

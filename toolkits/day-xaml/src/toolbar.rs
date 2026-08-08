@@ -122,6 +122,8 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             ToolbarItemKind::Search { text, placeholder } => {
                 ("F", 0, text.as_str(), placeholder.as_str())
             }
+            // "S" — the shim maps it to NavigationView.IsPaneOpen (docs/toolbars.md).
+            ToolbarItemKind::SidebarToggle => ("S", 0, "", ""),
             ToolbarItemKind::Label => ("L", 0, "", ""),
             ToolbarItemKind::Separator => ("-", 0, "", ""),
             ToolbarItemKind::Space => ("_", 0, "", ""),

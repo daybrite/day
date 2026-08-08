@@ -144,6 +144,14 @@ pub fn primary_toolbar_model() -> Vec<ToolbarItem> {
     toolbar_model(with_tree(|t| t.root_node()))
 }
 
+/// Show/hide the window's `selector(Sidebar)` pane — the behaviour behind a
+/// [`day_spec::ToolbarItemKind::SidebarToggle`] item. `false` when this toolkit has no split
+/// host to toggle. The native toolbar button and dayscript's `toolbar:` step share this call,
+/// so a walkthrough drives the same path a click does (docs/toolbars.md).
+pub fn toggle_sidebar() -> bool {
+    with_tree(|t| t.toggle_sidebar())
+}
+
 /// Drop a closed window's toolbar and the value closures only it owned.
 pub(crate) fn forget_window(root: RNode) {
     let gone = MODELS.with(|m| {

@@ -1184,6 +1184,12 @@ pub trait Toolkit: Sized + 'static {
     // answers Cap::Toolbar = Unsupported rather than drawing an imitation.
     fn set_toolbar(&mut self, h, items: &[ToolbarItem]) {}
     fn update_toolbar(&mut self, h, patch: &ToolbarPatch) {}
+    // Show/hide the window's `selector(Sidebar)` pane — what a `ToolbarItemKind::SidebarToggle`
+    // item drives. A DUTY rather than a dispatch id, because that item carries no app closure:
+    // the native button and dayscript's `toolbar:` step both land here, so a walkthrough
+    // exercises the path a click takes. `false` = no sidebar in this window, and the item
+    // renders disabled. Defaulted, so a backend without one needs no code.
+    fn toggle_sidebar(&mut self) -> bool { false }
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}

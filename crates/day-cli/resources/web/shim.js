@@ -9,6 +9,7 @@ let lastSetRoute = null;    // the route we last wrote to the hash (echo suppres
 const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
+let toolbarItems = {};      // toolbar item id → its element, for targeted patches
 const httpInflight = new Map(); // request id → AbortController (day-part-http's browser arm)
 const utf8 = new TextDecoder();
 const utf8enc = new TextEncoder();
@@ -298,6 +299,92 @@ const env = {
       el.append(row);
     });
   },
+  // --- window toolbar (docs/toolbars.md) -----------------------------------
+  // The web has no window chrome, so the bar is a strip docked above the app root. One spec
+  // rebuilds the whole strip; day_dom_toolbar_patch carries targeted changes so a search field
+  // the user is typing in is never rebuilt out from under them.
+  day_dom_toolbar(json, len) {
+    const spec = JSON.parse(str(json, len));
+    let bar = document.getElementById('day-toolbar');
+    if (bar) bar.remove();
+    if (!spec.items.length) { document.body.classList.remove('day-has-toolbar'); return; }
+    bar = div('day-toolbar'); bar.id = 'day-toolbar';
+    toolbarItems = {};
+    let trailing = false;
+    for (const it of spec.items) {
+      let el = null;
+      if (it.kind === '>') { trailing = true; el = div('day-toolbar-flex'); }
+      else if (it.kind === '-') el = div('day-toolbar-sep');
+      else if (it.kind === '_') el = div('day-toolbar-gap');
+      else if (it.kind === 'L') { el = div('day-toolbar-label'); el.textContent = it.label; }
+      else if (it.kind === 'F') {
+        el = document.createElement('input');
+        el.type = 'search'; el.className = 'day-toolbar-search';
+        el.value = it.text || ''; el.placeholder = it.placeholder || '';
+        el.disabled = !it.enabled;
+        if (it.action) el.addEventListener('input', () => {
+          const [ptr, len] = intoWasm(el.value);
+          wasm.day_dom_toolbar_text(it.action, ptr, len);
+        });
+      } else {
+        // B, T, S and M are all buttons; only their click behaviour differs.
+        el = document.createElement('button');
+        el.className = 'day-toolbar-btn';
+        el.disabled = !it.enabled;
+        el.title = it.tip || it.label;
+        if (it.icon) {
+          const ic = div('day-toolbar-icon');
+          ic.style.maskImage = `url("${it.icon}")`;
+          ic.style.webkitMaskImage = `url("${it.icon}")`;
+          el.append(ic);
+        }
+        const t = document.createElement('span'); t.textContent = it.label; el.append(t);
+        if (it.kind === 'T') {
+          el.classList.add('day-toolbar-toggle');
+          el.setAttribute('aria-pressed', it.on ? 'true' : 'false');
+          el.addEventListener('click', () => {
+            const on = el.getAttribute('aria-pressed') !== 'true';
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+            if (it.action) wasm.day_dom_toolbar_on(it.action, on ? 1 : 0);
+          });
+        } else if (it.kind === 'S') {
+          // The sidebar toggle owns its behaviour: no app action to dispatch.
+          el.classList.add('day-toolbar-sidebar');
+          el.setAttribute('aria-expanded', 'true');
+          el.addEventListener('click', () => {
+            const shown = wasm.day_dom_toolbar_sidebar();
+            if (!shown) el.disabled = true;
+            else el.setAttribute('aria-expanded',
+              document.querySelector('.day-nav.split.day-sidebar-hidden') ? 'false' : 'true');
+          });
+        } else if (it.action) {
+          el.addEventListener('click', () => wasm.day_dom_toolbar_action(it.action));
+        }
+      }
+      if (it.id) toolbarItems[it.id] = el;
+      if (trailing) el.classList.add('trailing');
+      bar.append(el);
+    }
+    document.body.prepend(bar);
+    document.body.classList.add('day-has-toolbar');
+  },
+  day_dom_toolbar_patch(json, len) {
+    const p = JSON.parse(str(json, len));
+    const el = toolbarItems[p.item];
+    if (!el) return;
+    if (p.text !== undefined && el.value !== p.text) el.value = p.text;
+    if (p.on !== undefined) el.setAttribute('aria-pressed', p.on ? 'true' : 'false');
+    if (p.enabled !== undefined) el.disabled = !p.enabled;
+  },
+  // Show/hide the split nav's sidebar. 0 when this page has no split nav, which is how the
+  // caller (and the dayscript duty) knows to report the item disabled.
+  day_dom_toolbar_sidebar() {
+    const nav = document.querySelector('.day-nav.split');
+    if (!nav) return 0;
+    nav.classList.toggle('day-sidebar-hidden');
+    return 1;
+  },
+
   day_dom_navmenu_select(id, idx) {
     [...E(id).children].forEach((row, i) => row.classList.toggle('selected', i === idx));
   },

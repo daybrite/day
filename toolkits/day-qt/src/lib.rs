@@ -513,9 +513,29 @@ struct NavState {
     pages: Vec<(QtHandle, NodeId)>,
     /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
     split: bool,
+    /// Whether the sidebar pane is showing. Tracked rather than read back because the shim
+    /// exposes `day_qt_set_visible` and no getter — what a `SidebarToggle` item flips.
+    sidebar_shown: bool,
     /// Stack presentation: title per level (index 0 = root) for the back header — desktop has
     /// no system back affordance, so the header gives a pushed page its way out.
     titles: Vec<String>,
+}
+
+/// Show/hide the sidebar of this process's `selector(Sidebar)` host — what a
+/// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives (docs/toolbars.md). `false` when
+/// there is no split host, which is how the item knows to render disabled. Same
+/// single-window limit as the GTK twin: `NAV_STATE` is not keyed by window.
+pub(crate) fn toggle_sidebar() -> bool {
+    NAV_STATE.with(|m| {
+        for st in m.borrow_mut().values_mut() {
+            if st.split {
+                st.sidebar_shown = !st.sidebar_shown;
+                unsafe { ffi::day_qt_set_visible(st.sidebar_pane, i32::from(st.sidebar_shown)) };
+                return true;
+            }
+        }
+        false
+    })
 }
 
 /// The stack-nav header's back button: a day-initiated pop — the host's handler writes it
@@ -999,6 +1019,7 @@ impl Toolkit for Qt {
                                 detail_pane,
                                 pages: Vec::new(),
                                 split: is_split,
+                                sidebar_shown: is_split,
                                 titles,
                             },
                         )
@@ -1913,6 +1934,10 @@ impl Toolkit for Qt {
         // surfaces light while every native control around them rendered dark.
         // SAFETY: a plain palette read; no arguments and no pointers cross the boundary.
         unsafe { ffi::day_qt_dark_mode() != 0 }
+    }
+
+    fn toggle_sidebar(&mut self) -> bool {
+        crate::toggle_sidebar()
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

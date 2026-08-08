@@ -713,6 +713,15 @@ pub enum ToolbarItemKind {
     /// A two-state button. `on` seeds it; the user flipping it emits
     /// [`ToolbarValue::On`], and the app's own writes arrive as [`ToolbarPatch::On`].
     Toggle { on: bool },
+    /// Show/hide this window's sidebar. The item carries NO `action`: the toolkit binds it to
+    /// whatever `selector(Sidebar)` host the window contains and drives that host's own
+    /// collapse, so the app declares the affordance and the platform supplies the behaviour —
+    /// `NSToolbarToggleSidebarItemIdentifier` on AppKit, the split view's collapse on GTK,
+    /// `NavigationView.IsPaneOpen` on XAML. Place it where the platform expects it (leading,
+    /// before the first [`ToolbarItemKind::FlexibleSpace`]); a window with no sidebar renders
+    /// it disabled rather than dropping it, so the toolbar's shape does not change with the
+    /// route. docs/toolbars.md.
+    SidebarToggle,
     /// A button that drops a menu — the same [`MenuItem`] model the menu bar uses, so a
     /// toolbar menu and its menu-bar twin are one list of commands.
     Menu { items: Vec<MenuItem> },
@@ -2344,6 +2353,17 @@ pub trait Toolkit: Sized + 'static {
     fn replay(&mut self, _h: &Self::Handle, _ops: &[DrawOp], _size: Size) {}
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
+    }
+    /// Show/hide this window's `selector(Sidebar)` pane — what a
+    /// [`ToolbarItemKind::SidebarToggle`] item drives. `false` when there is no split host to
+    /// toggle, which is how the caller knows to render the item disabled.
+    ///
+    /// A duty rather than an action id, because the item carries no app closure: the native
+    /// toolbar button and dayscript's `toolbar:` step both land here, so a walkthrough drives
+    /// exactly the path a click takes. Defaulted, so a backend with no sidebar needs no code.
+    /// docs/toolbars.md, docs/navigation.md.
+    fn toggle_sidebar(&mut self) -> bool {
+        false
     }
     /// Whether the UI has settled — no native transition (modal present/dismiss, nav push)
     /// still animating. The dayscript `screenshot` step polls this before capturing so shots

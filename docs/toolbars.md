@@ -35,6 +35,7 @@ switch and how items are added and removed.
 | `toolbar_toggle(id, label, signal)` | a two-state button, bound two-way |
 | `toolbar_menu(id, label, entries)` | a pull-down, from the same `MenuEntry`s the menu bar takes |
 | `toolbar_search(id, signal)` | the platform's search control, bound two-way |
+| `toolbar_sidebar_toggle(id, label)` | show/hide the window's `selector(Sidebar)` pane |
 | `toolbar_label(id, text)` | static text |
 | `toolbar_separator()` | a divider where the platform has one |
 | `toolbar_space()` | a fixed gap |
@@ -42,6 +43,15 @@ switch and how items are added and removed.
 
 Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.placeholder(t)`,
 `.enabled(bool)`, `.enabled_when(f)`.
+
+`toolbar_sidebar_toggle` takes no `.action` and needs no icon. It is the one item whose behaviour
+belongs to the toolkit rather than the app: each backend binds it to the `selector(Sidebar)` host
+in that window and drives that host's own collapse — `NSToolbarToggleSidebarItem` on AppKit,
+`AdwOverlaySplitView`'s `show-sidebar` on GTK, the splitter pane on Qt,
+`NavigationView.PaneDisplayMode` on Windows, a class on the split element on the web. Declare it
+first, before any `toolbar_flexible_space()`, which is where every desktop expects it. In a window
+with no sidebar it renders disabled rather than disappearing, so the bar keeps its shape as the
+route changes.
 
 Every item takes an `id`. It is the item's identity everywhere: the native item identifier, the
 dayscript target, and the key a targeted update addresses. Ids are unique within a bar.
@@ -86,10 +96,13 @@ Probe it:
 if capability(Cap::Toolbar) == Support::Native { /* toolbar(…) */ } else { /* in the content */ }
 ```
 
-`Cap::Toolbar` is `Native` on the four desktop backends and `Unsupported` everywhere else. A
-phone has no toolbar, so `toolbar(…)` installs nothing there and the app puts those commands in
-the content instead; see Day Sheets, whose search is a toolbar item on the desktops and a
-timeline field on a phone.
+`Cap::Toolbar` is `Native` on the four desktop backends, **`Emulated` on web-dom** (2026-08: a
+strip docked above the app root, since a browser tab has no title bar to hang chrome on), and
+`Unsupported` on the phones. Probe for `!= Support::Unsupported` rather than `== Native` unless
+the difference actually matters to the app — what a caller usually wants to know is whether the
+commands belong in a bar at all. A phone has no toolbar, so `toolbar(…)` installs nothing there
+and the app puts those commands in the content instead; see Day Sheets, whose search is a toolbar
+item on the desktops and a timeline field on a phone.
 
 For a single app-wide command that belongs on the chrome rather than in the page — Settings,
 Compose, "Show Source" — the navigation bar's trailing action is the mobile counterpart:

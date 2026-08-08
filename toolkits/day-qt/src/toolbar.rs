@@ -104,6 +104,11 @@ fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     }
 }
 
+/// The reserved dispatch id a `SidebarToggle` item carries. Qt routes every toolbar click
+/// through an action id, and this item has no app action to route — so it rides a sentinel that
+/// `on_toolbar_value` intercepts and never forwards to the app's registry.
+pub(crate) const SIDEBAR_TOGGLE_ACTION: u64 = u64::MAX;
+
 /// Values from the shim: kind 0 = a toggle's new state, kind 1 = a search field's text.
 pub(crate) extern "C" fn on_toolbar_value(
     action: u64,
@@ -111,6 +116,11 @@ pub(crate) extern "C" fn on_toolbar_value(
     on: c_int,
     text: *const c_char,
 ) {
+    // The sidebar toggle is Day's own, not the app's: drive the split host and stop here.
+    if action == SIDEBAR_TOGGLE_ACTION {
+        crate::toggle_sidebar();
+        return;
+    }
     let value = if kind == 0 {
         ToolbarValue::On(on != 0)
     } else {
@@ -140,10 +150,19 @@ impl Qt {
             let (icon, fallback) = icon_args(item.icon.as_ref());
             let icon = cstr(&icon);
             match &item.kind {
-                ToolbarItemKind::Button | ToolbarItemKind::Toggle { .. } => {
+                ToolbarItemKind::Button
+                | ToolbarItemKind::Toggle { .. }
+                | ToolbarItemKind::SidebarToggle => {
+                    // A checkable action whose checked state IS the sidebar's visibility, so
+                    // the button reads pressed while the pane is open (docs/toolbars.md).
                     let (checkable, checked) = match item.kind {
                         ToolbarItemKind::Toggle { on } => (1, on as c_int),
+                        ToolbarItemKind::SidebarToggle => (1, 1),
                         _ => (0, 0),
+                    };
+                    let action = match item.kind {
+                        ToolbarItemKind::SidebarToggle => SIDEBAR_TOGGLE_ACTION,
+                        _ => item.action,
                     };
                     unsafe {
                         ffi::day_qt_toolbar_add_action(
@@ -153,7 +172,7 @@ impl Qt {
                             icon.as_ptr(),
                             fallback,
                             tip.as_ptr(),
-                            item.action,
+                            action,
                             item.enabled as c_int,
                             checkable,
                             checked,

@@ -533,6 +533,10 @@ struct NavState {
     /// sidebar's material and the split's delegate duties — so it has to be retained here or
     /// the sidebar loses its treatment the moment this realize returns.
     _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
+    /// The sidebar item, for the `SidebarToggle` duty (docs/toolbars.md). AppKit's own
+    /// `NSToolbarToggleSidebarItem` reaches the controller through the responder chain; this is
+    /// the path dayscript and any non-toolbar caller take.
+    sidebar_item: Retained<objc2_app_kit::NSSplitViewItem>,
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
@@ -2443,6 +2447,17 @@ impl Toolkit for AppKit {
                     split_vc.addSplitViewItem(&detail_item);
                 }
                 let split = unsafe { split_vc.splitView() };
+                // NSToolbarToggleSidebarItem sends `toggleSidebar:` down the RESPONDER chain,
+                // and NSSplitViewController implements it — but a view controller only patches
+                // itself into that chain when it is parented (a window's contentViewController
+                // or another controller's child), and Day's tree is view-based all the way to
+                // the window. Insert it by hand, directly after the split view, so a first
+                // responder anywhere inside either pane walks up through it.
+                unsafe {
+                    let after = split.nextResponder();
+                    split.setNextResponder(Some(&split_vc));
+                    split_vc.setNextResponder(after.as_deref());
+                }
                 unsafe {
                     split.setVertical(true);
                     split.setDividerStyle(objc2_app_kit::NSSplitViewDividerStyle::Thin);
@@ -2524,6 +2539,7 @@ impl Toolkit for AppKit {
                             sidebar_wrap,
                             detail_wrap,
                             _split_vc: split_vc,
+                            sidebar_item,
                             pages: Vec::new(),
                             positioned: false,
                             split: is_split,
@@ -3781,6 +3797,25 @@ impl Toolkit for AppKit {
     fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
         OPS.with(|m| m.borrow_mut().insert(ptr_of(h), ops.to_vec()));
         unsafe { h.setNeedsDisplay(true) };
+    }
+
+    fn toggle_sidebar(&mut self) -> bool {
+        NAV_STATE.with(|m| {
+            for st in m.borrow().values() {
+                if st.split {
+                    let item = &st.sidebar_item;
+                    // Set DIRECTLY, not through the `animator` proxy. The proxy defers the
+                    // change to an animation the dayscript screenshot step does not wait on, so
+                    // a scripted toggle captured a sidebar that had not moved yet. AppKit's own
+                    // NSToolbarToggleSidebarItem still animates — it runs `toggleSidebar:` on
+                    // the controller and never comes through here.
+                    let collapsed = unsafe { item.isCollapsed() };
+                    unsafe { item.setCollapsed(!collapsed) };
+                    return true;
+                }
+            }
+            false
+        })
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

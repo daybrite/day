@@ -92,6 +92,12 @@ unsafe extern "C" {
     fn day_dom_nav_add_page(nav: u32, page: u32, sidebar: u32);
     fn day_dom_nav_back_bar(nav: u32, visible: u32, t: *const u8, tl: usize);
     fn day_dom_navmenu(el: u32, json: *const u8, len: usize);
+    // Window toolbar (docs/toolbars.md): the whole bar crosses as one JSON spec, the way the
+    // nav menu does; targeted patches address an item by id. `day_dom_toolbar_sidebar` returns
+    // 0 when the page has no split nav to toggle.
+    fn day_dom_toolbar(json: *const u8, len: usize);
+    fn day_dom_toolbar_patch(json: *const u8, len: usize);
+    fn day_dom_toolbar_sidebar() -> u32;
     fn day_dom_navmenu_select(el: u32, idx: i32);
     fn day_dom_tabs(el: u32, json: *const u8, len: usize);
     fn day_dom_tabs_select(el: u32, idx: u32);
@@ -459,6 +465,68 @@ fn navmenu_json(
     json
 }
 
+/// Build the toolbar JSON the shim's `day_dom_toolbar` consumes (docs/toolbars.md). One spec
+/// per install, the way the nav menu crosses: the shim rebuilds the whole strip, and targeted
+/// updates go through `day_dom_toolbar_patch` so a search in progress is undisturbed.
+///
+/// `kind` mirrors the XAML serializer's one-letter vocabulary so the two stay readable together:
+/// B button, T toggle, S sidebar toggle, M menu, F search field, L label, `-` separator,
+/// `_` space, `>` flexible space.
+fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
+    use day_spec::ToolbarItemKind as K;
+    let mut json = String::from("{\"items\":[");
+    for (i, it) in items.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        let kind = match &it.kind {
+            K::Button => "B",
+            K::Toggle { .. } => "T",
+            K::SidebarToggle => "S",
+            K::Menu { .. } => "M",
+            K::Search { .. } => "F",
+            K::Label => "L",
+            K::Separator => "-",
+            K::Space => "_",
+            K::FlexibleSpace => ">",
+        };
+        json.push_str("{\"kind\":");
+        json_str(&mut json, kind);
+        json.push_str(",\"id\":");
+        json_str(&mut json, &it.id);
+        json.push_str(",\"label\":");
+        json_str(&mut json, &it.label);
+        json.push_str(",\"tip\":");
+        json_str(&mut json, it.tooltip.as_deref().unwrap_or(&it.label));
+        json.push_str(",\"action\":");
+        json.push_str(&it.action.to_string());
+        json.push_str(",\"enabled\":");
+        json.push_str(if it.enabled { "true" } else { "false" });
+        if let K::Toggle { on } = it.kind {
+            json.push_str(",\"on\":");
+            json.push_str(if on { "true" } else { "false" });
+        }
+        if let K::Search { text, placeholder } = &it.kind {
+            json.push_str(",\"text\":");
+            json_str(&mut json, text.as_str());
+            json.push_str(",\"placeholder\":");
+            json_str(&mut json, placeholder.as_str());
+        }
+        // A bundled image crosses as a staged URL; a Symbol has no web icon set to draw from,
+        // so the label carries the item on its own rather than inventing a glyph.
+        if let Some(day_spec::Icon::Image(name)) = &it.icon {
+            json.push_str(",\"icon\":");
+            json_str(
+                &mut json,
+                &format!("assets/images/{name}.{}", image_ext(name)),
+            );
+        }
+        json.push('}');
+    }
+    json.push_str("]}");
+    json
+}
+
 fn json_str(out: &mut String, v: &str) {
     out.push('"');
     for ch in v.chars() {
@@ -571,6 +639,11 @@ impl Toolkit for Dom {
                 }
             }
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
+            // A strip docked above the app root, not window chrome the OS draws — a browser tab
+            // has no title bar to hang one on. Emulated is the honest answer, and it is enough
+            // for an app to decide the commands belong in the bar rather than in the content
+            // (docs/toolbars.md).
+            Cap::Toolbar => Support::Emulated,
             // The Badging API takes a number or, with no argument, a dot. Emulated rather than
             // Native because whether anything is DRAWN depends on the browser and on the page
             // being an installed app — the call itself always succeeds (docs/badge.md).
@@ -1276,6 +1349,45 @@ impl Toolkit for Dom {
         // browser back/forward walk the app's navigation.
         let replace = FIRST_ROUTE.with(|c| c.replace(false));
         unsafe { day_dom_set_hash(route.as_ptr(), route.len(), replace as u32) };
+    }
+
+    fn set_toolbar(&mut self, _h: &DomHandle, items: &[day_spec::ToolbarItem]) {
+        // The web has no window chrome, so the bar is a strip the shim docks at the top of the
+        // document (docs/toolbars.md). One spec rebuilds the whole strip; `update_toolbar`
+        // carries the targeted changes so a search in progress is not rebuilt out from under
+        // the user.
+        let json = toolbar_json(items);
+        unsafe { day_dom_toolbar(json.as_ptr(), json.len()) };
+    }
+
+    fn update_toolbar(&mut self, _h: &DomHandle, patch: &day_spec::ToolbarPatch) {
+        use day_spec::ToolbarPatch as P;
+        let mut json = String::from("{\"item\":");
+        match patch {
+            P::Text { item, text } => {
+                json_str(&mut json, item);
+                json.push_str(",\"text\":");
+                json_str(&mut json, text);
+            }
+            P::On { item, on } => {
+                json_str(&mut json, item);
+                json.push_str(",\"on\":");
+                json.push_str(if *on { "true" } else { "false" });
+            }
+            P::Enabled { item, on } => {
+                json_str(&mut json, item);
+                json.push_str(",\"enabled\":");
+                json.push_str(if *on { "true" } else { "false" });
+            }
+        }
+        json.push('}');
+        unsafe { day_dom_toolbar_patch(json.as_ptr(), json.len()) };
+    }
+
+    fn toggle_sidebar(&mut self) -> bool {
+        // Same call the strip's own button makes, so a dayscript walkthrough drives the real
+        // path (docs/toolbars.md).
+        unsafe { day_dom_toolbar_sidebar() != 0 }
     }
 
     fn set_app_menu(&mut self, _items: &[MenuItem]) {
@@ -2020,6 +2132,40 @@ pub extern "C" fn day_dom_present_result(req: u32, which: i32, ptr: *mut u8, len
         Event::PresentResult {
             req: u64::from(req),
             result,
+        },
+    );
+}
+
+/// A toolbar button or menu entry was chosen — the same `MenuAction` every other backend
+/// emits. The action id crosses as an f64: it is a small counter, far inside the range an f64
+/// represents exactly.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_toolbar_action(action: f64) {
+    emit(day_spec::WINDOW_NODE, Event::MenuAction(action as u64));
+}
+
+/// A toolbar toggle flipped.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_toolbar_on(action: f64, on: u32) {
+    emit(
+        day_spec::WINDOW_NODE,
+        Event::ToolbarChanged {
+            action: action as u64,
+            value: day_spec::ToolbarValue::On(on != 0),
+        },
+    );
+}
+
+/// A toolbar search field's text changed. `take_string` takes ownership of the shim's
+/// allocation, the way the other text callbacks here do.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_toolbar_text(action: f64, ptr: *mut u8, len: usize) {
+    let text = take_string(ptr, len);
+    emit(
+        day_spec::WINDOW_NODE,
+        Event::ToolbarChanged {
+            action: action as u64,
+            value: day_spec::ToolbarValue::Text(text),
         },
     );
 }
