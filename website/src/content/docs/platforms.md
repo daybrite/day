@@ -21,8 +21,8 @@ exercised by real applications, and it gets updated when reality changes.
 | `macos-gtk` | ✓ | ✓ | — (dev only) | Development combo; no accessibility tree (GTK a11y is Linux-only) |
 | `macos-qt` | ✓ | ✓ | — (dev only) | Development combo |
 | `windows-xaml` | ✓ | ✓ | `.msix` + installer | XAML Islands (system XAML), not the WinAppSDK runtime |
-| `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2/MinGW toolchain; marked experimental in CI. External piece renderers currently fail to register under the MinGW linker and draw placeholders |
-| `windows-gtk` | ✓ | best-effort | — (dev only) | Same |
+| `windows-qt` | ✓ | best-effort | — (dev only) | MSYS2 toolchain ([setup](/docs/getting-started#qt-and-gtk-on-a-windows-host)); marked experimental in CI. Under CI's x86-64 MinGW `ld`, external piece renderers fail to register and draw placeholders; a clang/`lld` MSYS2 environment keeps them |
+| `windows-gtk` | ✓ | best-effort | — (dev only) | Same, plus no accessibility tree and no WebKitGTK 6 for Windows |
 | `harmony-arkui` | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
 | `web-dom` | ✓ | ✓ (headless Chromium) | static `dist/` | Experimental; the [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI — see the [web notes](/docs/internal/web) |
 

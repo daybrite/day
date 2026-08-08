@@ -300,6 +300,11 @@ fn gtk_group() -> Group {
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
                 • Linux  — `apt install libgtk-4-dev libadwaita-1-dev pkg-config`\n\
                 • Windows— MSYS2: `pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita`\n\
+                  (ARM64 hosts: the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages),\n\
+                  plus a GNU Rust toolchain — MSVC cannot link MSYS2's import libraries:\n\
+                  `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\
+                  `stable-aarch64-pc-windows-gnullvm`), then build with MSYS2's bin on PATH and\n\
+                  RUSTUP_TOOLCHAIN set to it.\n\
                 `glib-compile-resources` (ships with glib) compiles bundled resources (§18.3); without\n\
                 it images fall back to loose files.",
     }
@@ -316,7 +321,7 @@ fn qt_group() -> Group {
                 run_line("pkg-config", &["--modversion", "Qt6Widgets"])
                     .or_else(|| run_line("qmake6", &["-query", "QT_VERSION"]))
                     .or_else(|| run_line("qmake", &["-query", "QT_VERSION"])),
-                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev` · aqtinstall on Windows)",
+                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev` · MSYS2 mingw-w64-qt6-base)",
             ),
             // Optional: like glib-compile-resources, `rcc` staging is best-effort — a miss skips the
             // qresource blob (day loads images from the filesystem roots), so it's a warning, not an
@@ -353,7 +358,13 @@ fn qt_group() -> Group {
         setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
                 • Linux  — `apt install qt6-base-dev qt6-webengine-dev pkg-config`\n\
-                • Windows— install Qt (aqtinstall or the online installer) and put its bin/ on PATH\n\
+                • Windows— MSYS2: `pacman -S mingw-w64-x86_64-qt6-base` (ARM64 hosts: the\n\
+                  CLANGARM64 environment's `mingw-w64-clang-aarch64-qt6-base`), plus a GNU Rust\n\
+                  toolchain — MSVC cannot link MSYS2's import libraries, and the C++ shim is built\n\
+                  from pkg-config's flags, which an aqtinstall/online-installer Qt does not ship:\n\
+                  `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\
+                  `stable-aarch64-pc-windows-gnullvm`), then build with MSYS2's bin on PATH and\n\
+                  RUSTUP_TOOLCHAIN set to it.\n\
                 `rcc` (Qt's resource compiler, §18.3) is resolved from qmake's libexec; a missing Qt\n\
                 means both the build and bundled-resource staging fail.",
     }

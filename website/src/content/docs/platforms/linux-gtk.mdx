@@ -57,7 +57,11 @@ its own GTK: `chmod +x` and run, no package manager involved.
 - **Canvas text uses cairo's toy text API**, not Pango, so complex-script shaping inside a
   `canvas` is weaker than in a `label`.
 - GTK on macOS and Windows (`macos-gtk`, `windows-gtk`) exists for development convenience only —
-  no packaging, and no accessibility tree (GTK's a11y bridge is Linux-only).
+  no packaging, and no accessibility tree (GTK's a11y bridge is Linux-only). `windows-gtk` builds
+  against MSYS2's GTK 4 with a GNU Rust toolchain
+  ([setup](/docs/getting-started#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
+  Windows, so the web view is a placeholder there, and bundled custom fonts don't register with
+  Pango.
 
 ## What each piece becomes
 

@@ -35,6 +35,10 @@ day launch -p windows-xaml
 
 `day doctor --toolkit xaml` checks the SDK and toolchain.
 
+A Windows machine can also build `windows-qt` and `windows-gtk` for development — the same
+codebase against three desktop toolkits. Those need MSYS2 and a GNU Rust toolchain alongside your
+MSVC default; [getting started](/docs/getting-started#qt-and-gtk-on-a-windows-host) has the recipe.
+
 ```powershell
 day pack -p windows-xaml     # .msix plus an NSIS -setup.exe
 ```

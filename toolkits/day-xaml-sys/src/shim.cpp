@@ -367,6 +367,11 @@ struct AppWindow {
 
 static AppWindow* g_app = nullptr;
 
+// The open secondary windows (docs/windows.md), keyed by host HWND. A map of POINTERS needs only
+// the forward declaration, so it lives up here where the window procedures can both reach it.
+struct SecWindow;
+static std::map<HWND, SecWindow*> g_sec_windows;
+
 static const UINT WM_DAY_POST = WM_APP + 1;
 struct PostMsg { void (*cb)(void*); void* data; };
 // Day's window-resize report (single window, v1 — like g_app). UNVERIFIED on a live
@@ -465,6 +470,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_DESTROY:
+        // Closing the primary quits, taking any secondary window with it — day's model across
+        // backends (docs/windows.md; day-qt-sys states it outright, having turned Qt's
+        // quitOnLastWindowClosed off to get it). Keeping the loop alive for the remaining
+        // windows was tried and does not work: day's tree is rooted in this window, so with it
+        // gone nothing tears the others down and they linger as hidden, unclosable islands.
         PostQuitMessage(0);
         return 0;
     }
@@ -714,7 +724,6 @@ struct SecWindow {
     WUXC::CommandBar toolbar{ nullptr };
     unsigned long long node = 0;
 };
-static std::map<HWND, SecWindow*> g_sec_windows;
 static void (*g_win_resized)(unsigned long long, int, int) = nullptr;
 static void (*g_win_closed)(unsigned long long) = nullptr;
 static void (*g_win_focused)(unsigned long long, int) = nullptr;
@@ -725,6 +734,22 @@ void day_xaml_set_window_events_cb(void (*resized)(unsigned long long, int, int)
     g_win_resized = resized;
     g_win_closed = closed;
     g_win_focused = focused;
+}
+
+/// The host HWND of the window `e` is in, or null. Each window is its own XAML island with its
+/// own XamlRoot, which is what tells them apart — the same handle the sidebar toggle resolves by.
+/// Used for the menu commands that act on THEIR window rather than the app.
+static HWND host_for_element(WUX::FrameworkElement const& e) try {
+    if (!e) return nullptr;
+    auto root = e.XamlRoot();
+    if (!root) return nullptr;
+    if (g_app && g_app->root && g_app->root.XamlRoot() == root) return g_app->host;
+    for (auto const& [hwnd, sw] : g_sec_windows) {
+        if (sw && sw->root && sw->root.XamlRoot() == root) return hwnd;
+    }
+    return nullptr;
+} catch (...) {
+    return nullptr;
 }
 
 // Lay this window's chrome out and report the size that remains for day's content — the
@@ -825,6 +850,12 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     // controls measure to 0). Bounded pump.
     ShowWindow(host, SW_SHOWNORMAL);
     UpdateWindow(host);
+    // ACTIVATE it, which ShowWindow alone does not reliably do for a window created by a
+    // background thread's request. Without this the new window appears while the window that
+    // opened it keeps focus — so the next menu command goes to the OLD window. `File ▸ New
+    // Window` then `File ▸ Close` read as "close the window I just opened" but closed the
+    // PRIMARY, and closing the primary ends the app (above), taking the new window with it.
+    SetForegroundWindow(host);
     auto loaded = std::make_shared<bool>(false);
     auto token = root.Loaded([loaded](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
         *loaded = true;
@@ -2801,17 +2832,37 @@ static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> 
             // What this item does — shared by the Click handler and, for an OEM shortcut, by
             // the message loop's own dispatch, so both paths can never drift apart.
             std::function<void()> fire;
+            // `MenuRole::CloseWindow` closes the window the MENU is in, so unlike every other
+            // role it needs the clicked item to say which that is — hence the sender-aware arm
+            // below rather than a plain `fire`.
+            bool closes_window = false;
             if (kind == "A") {
                 unsigned long long aid = f.size() > 1 ? std::strtoull(f[1].c_str(), nullptr, 10) : 0;
                 fire = [aid] { if (g_menu_cb) g_menu_cb(aid); };
             } else {
                 int role = f.size() > 2 ? std::atoi(f[2].c_str()) : -1;
-                if (role == 8) { // Quit
+                if (role == 8) { // Quit — ends the app, whichever window it was chosen from
                     fire = [] { if (g_app && g_app->host) PostMessageW(g_app->host, WM_CLOSE, 0, 0); };
                 }
+                // Role 11 = CloseWindow. It had NO handler at all: a live, enabled File ▸ Close
+                // that did nothing. That was survivable while only the primary window carried a
+                // menu; now every window does, and a dead Close sits directly above Quit — which
+                // DOES end the whole app — right where someone reaches to close one window.
+                closes_window = role == 11;
             }
-            if (fire) {
-                item.Click([fire](WF::IInspectable const&, WUX::RoutedEventArgs const&) { fire(); });
+            if (fire || closes_window) {
+                item.Click([fire, closes_window](WF::IInspectable const& s,
+                                                 WUX::RoutedEventArgs const&) {
+                    if (closes_window) {
+                        // Same WM_CLOSE the title-bar X sends, so both routes tear the window
+                        // down through one path (secondary: hide + day-side teardown; primary:
+                        // lifecycle-terminate, then the app ends with its window).
+                        if (auto fe = s.try_as<WUX::FrameworkElement>())
+                            if (HWND h = host_for_element(fe)) PostMessageW(h, WM_CLOSE, 0, 0);
+                        return;
+                    }
+                    if (fire) fire();
+                });
             }
             // A disabled item must not fire from the keyboard either.
             add_accel(item, key, mods, enabled ? fire : std::function<void()>{}, global_accels);
