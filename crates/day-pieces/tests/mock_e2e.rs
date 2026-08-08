@@ -3625,6 +3625,11 @@ fn native_close_tears_down_and_fires_on_close() {
 /// a settings panel is not one of them. Closing the last primary quits even with a preferences
 /// window still open — and the panel goes with it rather than stranding a windowless process.
 ///
+/// Except on macOS, where the windowless state is the convention rather than a stranding:
+/// `applicationShouldTerminateAfterLastWindowClosed` defaults to false, the menu bar stays live,
+/// and a Settings window is independent of the documents — closing the last document there
+/// leaves Settings open, so this asserts that it survives.
+///
 /// Driven through `note_initial_window_closed` because the tree still pins the initial window
 /// at `windows[0]`; that flag is the one piece of the policy the next phase replaces.
 #[test]
@@ -3654,9 +3659,14 @@ fn last_primary_close_quits_even_with_a_secondary_window_open() {
     let mark = probe.log_len();
     probe.close_window_natively(day_core::windows::window_node_id(&extra));
     flush_sync();
-    // …but that WAS the last primary, so the app ends and the settings panel closes with it.
+    // …but that WAS the last primary, so the app ends and the settings panel closes with it —
+    // everywhere the app actually ends. macOS keeps running, and keeps its Settings window.
     assert!(!extra.is_open());
-    assert!(!prefs.is_open(), "a secondary window outlived the app");
+    assert_eq!(
+        prefs.is_open(),
+        cfg!(target_os = "macos"),
+        "a secondary window must go with the app, and must survive an app that stays up"
+    );
     assert_eq!(day_core::windows::primary_window_count(), 0);
     let quit = probe.log_since(mark).iter().any(|l| l == "quit_app");
     // macOS keeps a windowless app alive on purpose (its menu bar stays live), so the policy

@@ -51,9 +51,12 @@ win.close();                              // async: confirmed by the platform, T
   `WindowHandle::close()` all route through the platform's confirm
   (`Event::WindowClosed` on the window's root), and day-core tears the subtree down on a
   deferred hop, never inside the native close callback. `on_close` runs after disposal.
-- Closing the PRIMARY window quits the app, taking secondary windows with it (unified
-  across the desktop backends; the mac-conventional zero-window state is a recorded
-  non-goal for v1).
+- Closing the last PRIMARY window quits the app, taking secondary windows with it — a settings
+  panel does not keep an app alive, however long it has been up. **macOS is the exception**, and
+  deliberately: `applicationShouldTerminateAfterLastWindowClosed` defaults to false there, an app
+  with no windows keeps its menu bar live, and ⌘N reopens one. So on macOS the app stays up and
+  its secondary windows stay with it; every other desktop treats the last primary as the app.
+  A window's role comes from its `WindowKind` (`Preferences` ⇒ secondary).
 - Probe `Cap::MultiWindow` to adapt chrome: on `Unsupported` backends the surface is a
   fullscreen cover with no native title bar or close button; content that needs a close
   affordance should carry its own (system back closes it on Android).

@@ -2989,19 +2989,22 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
    failure killed the CLI artifact and with it every Linux-descended combo).
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
-   later job (and the release lane). The leg whose arch matches its runner also runs
+   later job (and the release lane). The native-arch leg of each OS runs the host-portable
+   `cargo test` first — one run per operating system — so a failing host test fails that leg
+   before the release build spends anything, and every combo downstream of that binary skips.
+   The tag lane skips the test step (the tagged commit was already validated on main). The leg whose arch matches its runner also runs
    `scripts/ci/scaffold-check.sh`, the only place CI exercises `day new app` end to end: it
    scaffolds a 21-locale project and lints it with `--strict --allow store-placeholder`, so every
    rule but the listing TODOs a human still has to write holds against a fresh project. It runs on
    all three OSes because the four locale surfaces (`resource/locales/`, `store/`, Xcode's
    `knownRegions`, `website/site.toml`) are written through platform path handling.
-3. **Framework checks** — the crates the framework owns, varied along the two axes a single job
-   cannot cover: `test (<os>)` runs the host-portable `cargo test` once per operating system, and
-   `toolkit (<backend>)` lints the showcase against one backend crate's feature and scaffolds a
-   piece/part/app for it. Feature unification is why the second exists — a `--workspace` clippy
-   would link several backends into one binary and trip the one-backend-per-binary guard
-   ([§3](#3-crate-architecture)). These used to run INSIDE the per-combo jobs, which made every
-   build job framework-shaped and unusable as an app pipeline; split out, they run beside it. Two
+3. **Framework checks** — `toolkit (<backend>)` lints the showcase against one backend crate's
+   feature and scaffolds a piece/part/app for it. Feature unification is why it exists — a
+   `--workspace` clippy would link several backends into one binary and trip the
+   one-backend-per-binary guard ([§3](#3-crate-architecture)). It used to run INSIDE the
+   per-combo jobs, which made every build job framework-shaped and unusable as an app pipeline;
+   split out, it runs beside the build pipeline. The other framework check, the host-portable
+   `cargo test`, rides the CLI builds' native-arch legs (phase 2). Two
    backends still lint from their own combo job, because that job already sets up the cross-target
    toolchain and a `toolkit` row would mean a second copy of it: arkui needs the OpenHarmony SDK,
    dom the wasm32 target.
