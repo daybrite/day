@@ -43,6 +43,8 @@ unsafe extern "C" {
     pub fn day_xaml_set_app_icon(win: *mut c_void, ico_path: *const c_char);
     pub fn day_xaml_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));
     pub fn day_xaml_run(win: *mut c_void);
+    /// End the app — day-core's close policy decided the last primary window is gone.
+    pub fn day_xaml_quit();
     pub fn day_xaml_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
 
     // containers

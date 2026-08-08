@@ -953,6 +953,12 @@ impl Toolkit for MockToolkit {
         day_spec::WindowOpenReply::Open(MockHandle(h))
     }
 
+    fn quit_app(&mut self) {
+        // Recorded rather than acted on: a test asserts the close policy reached the platform
+        // exit, and the harness has no process to end (docs/windows.md).
+        self.state.borrow_mut().log("quit_app".to_string());
+    }
+
     fn close_window(&mut self, host: &MockHandle) {
         // Model the native round-trip: mark closed, then confirm through the sink with
         // `WindowClosed` — day-core tears down when the (queued) event drains.

@@ -980,6 +980,12 @@ void day_xaml_run(void* win) {
     }
 }
 
+// End the app (docs/windows.md close policy). day-core calls this once the last primary
+// window has closed, having already disposed the rest and delivered WillTerminate — so this
+// ends the message loop and nothing more. Deliberately NOT a WM_CLOSE to the primary: that
+// would fire the terminate lifecycle a second time.
+void day_xaml_quit() { PostQuitMessage(0); }
+
 void day_xaml_post(void (*cb)(void*), void* data) {
     if (g_app && g_app->host) {
         PostMessageW(g_app->host, WM_DAY_POST, 0, reinterpret_cast<LPARAM>(new PostMsg{ cb, data }));

@@ -3618,6 +3618,66 @@ fn native_close_tears_down_and_fires_on_close() {
     assert!(closed.get_untracked(), "on_close did not run");
 }
 
+/// The close policy (docs/windows.md): the app's life is the life of its PRIMARY windows, and
+/// a settings panel is not one of them. Closing the last primary quits even with a preferences
+/// window still open — and the panel goes with it rather than stranding a windowless process.
+///
+/// Driven through `note_initial_window_closed` because the tree still pins the initial window
+/// at `windows[0]`; that flag is the one piece of the policy the next phase replaces.
+#[test]
+fn last_primary_close_quits_even_with_a_secondary_window_open() {
+    let probe = boot(|| label("main").any());
+    let extra = day_core::open_window(
+        None,
+        win_options("Second", 800.0, 600.0),
+        day_spec::WindowKind::Normal,
+        || label("second body").any(),
+    );
+    let prefs = day_core::open_window(
+        Some("prefs"),
+        win_options("Settings", 520.0, 640.0),
+        day_spec::WindowKind::Preferences,
+        || label("prefs body").any(),
+    );
+    flush_sync();
+    assert_eq!(day_core::windows::primary_window_count(), 1, "one extra primary");
+
+    // The initial window goes first: the app must NOT end here — another primary is open.
+    day_core::windows::note_initial_window_closed();
+    let mark = probe.log_len();
+    probe.close_window_natively(day_core::windows::window_node_id(&extra));
+    flush_sync();
+    // …but that WAS the last primary, so the app ends and the settings panel closes with it.
+    assert!(!extra.is_open());
+    assert!(!prefs.is_open(), "a secondary window outlived the app");
+    assert_eq!(day_core::windows::primary_window_count(), 0);
+    let quit = probe.log_since(mark).iter().any(|l| l == "quit_app");
+    // macOS keeps a windowless app alive on purpose (its menu bar stays live), so the policy
+    // is platform-conditional and the assertion follows it.
+    assert_eq!(quit, !cfg!(target_os = "macos"), "quit_app reached the toolkit");
+}
+
+/// The other half: closing a SECONDARY window never ends the app, however few windows remain.
+#[test]
+fn closing_a_secondary_window_never_quits() {
+    let probe = boot(|| label("main").any());
+    let prefs = day_core::open_window(
+        Some("prefs"),
+        win_options("Settings", 520.0, 640.0),
+        day_spec::WindowKind::Preferences,
+        || label("prefs body").any(),
+    );
+    flush_sync();
+    let mark = probe.log_len();
+    probe.close_window_natively(day_core::windows::window_node_id(&prefs));
+    flush_sync();
+    assert!(!prefs.is_open());
+    assert!(
+        !probe.log_since(mark).iter().any(|l| l == "quit_app"),
+        "closing a settings panel ended the app"
+    );
+}
+
 #[test]
 fn singleton_key_opens_once_and_refocuses() {
     let probe = boot(|| label("main").any());

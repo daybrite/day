@@ -638,6 +638,8 @@ pub trait TreeOps {
     /// Ask the platform to close the window whose root is `root` (async — the platform
     /// confirms with `Event::WindowClosed`).
     fn close_native_window(&mut self, root: RNode);
+    /// End the app — the last primary window has closed (docs/windows.md close policy).
+    fn quit_app(&mut self);
     /// Bring the window whose root is `root` to front and make it key.
     fn focus_native_window(&mut self, root: RNode);
     /// Retitle the window whose root is `root`.
@@ -1371,6 +1373,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
             self.toolkit.close_window(&h);
         }
+    }
+
+    fn quit_app(&mut self) {
+        self.toolkit.quit_app();
     }
 
     fn focus_native_window(&mut self, root: RNode) {

@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use day_reactive::Scope;
 use day_spec::props::{CoverPatch, CoverProps};
-use day_spec::{Event, NodeId, Size, WindowKind, WindowOptions, kinds};
+use day_spec::{Event, NodeId, Size, WindowKind, WindowOptions, WindowRole, kinds};
 
 use crate::AnyPiece;
 use crate::build::{Boundary, BuildCx, Piece as _};
@@ -44,6 +44,9 @@ struct WindowRecord {
     root: RNode,
     key: Option<String>,
     kind: WindowKind,
+    /// Whether this window keeps the app alive (docs/windows.md close policy). Derived from
+    /// `kind` today; a per-window override is the natural next step.
+    role: WindowRole,
     scope: Scope,
     tier: Tier,
     focused: bool,
@@ -305,6 +308,7 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
             root,
             key: key.map(str::to_string),
             kind,
+            role: WindowRole::from(kind),
             scope,
             tier,
             focused: false,
@@ -347,6 +351,62 @@ fn wire_window_events(root: RNode) {
     });
 }
 
+/// How many REGISTERED windows keep the app alive (docs/windows.md close policy). The initial
+/// window is not among them — see [`initial_primary_open`].
+pub fn primary_window_count() -> usize {
+    WINDOWS.with(|w| {
+        w.borrow()
+            .iter()
+            .filter(|r| r.role == WindowRole::Primary)
+            .count()
+    })
+}
+
+thread_local! {
+    /// Whether the initial window is still open.
+    ///
+    /// It is not a registry record: the tree pins it at `windows[0]` and asserts on removing
+    /// that slot, so it cannot yet be torn down like any other window. Tracking it as a flag
+    /// keeps the close POLICY complete and in one place — the rule below already reads
+    /// "no primary windows left", not "the first window closed" — while the remaining work is
+    /// isolated to one bool. Relaxing the `windows[0]` invariant is what lets this go false,
+    /// and until then a backend still ends the app through its own primary-close path.
+    static INITIAL_PRIMARY_OPEN: Cell<bool> = const { Cell::new(true) };
+}
+
+/// Whether any window is still holding the app open.
+fn app_has_primary_window() -> bool {
+    INITIAL_PRIMARY_OPEN.with(|c| c.get()) || primary_window_count() > 0
+}
+
+/// Whether closing the last primary window ends the process on this platform.
+///
+/// macOS says no, and means it: an app with no windows stays running with its menu bar live,
+/// and ⌘N reopens one — `applicationShouldTerminateAfterLastWindowClosed` defaults to false
+/// for exactly this. Quitting there would be the framework overriding a platform convention
+/// its users rely on. Every other desktop treats the last window as the app.
+fn last_primary_close_quits() -> bool {
+    !cfg!(target_os = "macos")
+}
+
+/// End the app because its last [`WindowRole::Primary`] window has closed.
+///
+/// One place, for every backend: dispose whatever is still open — a settings panel does not
+/// keep an app alive, however long it has been up — deliver `WillTerminate` once, and then
+/// ask the toolkit for the platform's own exit.
+fn quit_after_last_primary() {
+    if !last_primary_close_quits() {
+        return;
+    }
+    // Secondary windows go with the app. Collected first: teardown mutates the registry.
+    let remaining: Vec<RNode> = WINDOWS.with(|w| w.borrow().iter().map(|r| r.root).collect());
+    for root in remaining {
+        teardown(root);
+    }
+    crate::lifecycle::dispatch_lifecycle(day_spec::Lifecycle::WillTerminate);
+    with_tree(|t| t.quit_app());
+}
+
 /// The single teardown path (any close route lands here). Idempotent via registry
 /// membership: registry-remove → scope dispose → content removal → root removal →
 /// `on_close` callbacks.
@@ -384,6 +444,11 @@ fn teardown(root: RNode) {
     });
     for f in record.on_close.borrow().iter() {
         f();
+    }
+    // The app's life is the life of its primary windows, not of the first one opened. Checked
+    // after the callbacks so a handler that opens a replacement window is counted.
+    if record.role == WindowRole::Primary && !app_has_primary_window() {
+        quit_after_last_primary();
     }
 }
 
@@ -615,11 +680,19 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
 /// Reset the registry + registrations (tests — pairs with `uninstall_tree`).
 pub fn reset_windows() {
     WINDOWS.with(|w| w.borrow_mut().clear());
+    INITIAL_PRIMARY_OPEN.with(|c| c.set(true));
     crate::toolbar::reset_toolbars();
     PREFS.with(|p| *p.borrow_mut() = None);
     NEW_WINDOW.with(|p| *p.borrow_mut() = None);
     // Action ids stay registered (the closures are inert without a builder) — cheap, and
     // re-registration reuses them.
+}
+
+/// Mark the initial window closed (tests, and the Phase-2 work that makes it an ordinary
+/// record). Exposed so the close POLICY can be exercised now, while the tree still pins the
+/// initial window at `windows[0]` — without it the rule below would be unreachable code.
+pub fn note_initial_window_closed() {
+    INITIAL_PRIMARY_OPEN.with(|c| c.set(false));
 }
 
 /// The window root's spec-boundary id (backends key their per-window maps by it).

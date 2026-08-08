@@ -2081,6 +2081,12 @@ impl Toolkit for Xaml {
         }
     }
 
+    fn quit_app(&mut self) {
+        // Just the platform's exit: day-core has already disposed the other windows and
+        // delivered WillTerminate (docs/windows.md close policy).
+        unsafe { ffi::day_xaml_quit() };
+    }
+
     fn focus_window(&mut self, host: &WinHandle) {
         if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
             unsafe { ffi::day_xaml_window_raise2(w.win) };

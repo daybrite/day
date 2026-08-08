@@ -2469,6 +2469,17 @@ pub trait Toolkit: Sized + 'static {
     /// hosts are ignored. Never called with the primary window's container.
     fn close_window(&mut self, _host: &Self::Handle) {}
 
+    /// End the application: the last window with [`WindowRole::Primary`] has closed
+    /// (docs/windows.md). day-core decides WHEN — it owns the window registry and the role
+    /// each window carries — and the backend supplies only the platform's own exit:
+    /// `NSApplication.terminate`, `QCoreApplication::quit`, `GtkApplication.quit`,
+    /// `PostQuitMessage`. Everything day-core wanted to happen first (secondary windows
+    /// disposed, `WillTerminate` delivered) already has by the time this is called.
+    ///
+    /// The default does nothing, which is right for the backends whose process lifetime is
+    /// not theirs to end — a browser tab, an Android activity, an iOS scene.
+    fn quit_app(&mut self) {}
+
     /// Bring the window whose CONTENT container is `host` to front and make it key/active —
     /// the focus half of open-or-focus singleton windows. Default no-op.
     fn focus_window(&mut self, _host: &Self::Handle) {}
@@ -2493,6 +2504,37 @@ pub enum WindowKind {
     /// tabbing and drops the resize/minimize chrome, mobile presents it modally. Pairs with
     /// day-core's key-singleton reopen (`open_window` with a key).
     Preferences,
+}
+
+/// Whether a window keeps the APP alive (docs/windows.md close policy).
+///
+/// A separate axis from [`WindowKind`], which describes chrome. They correlate — a
+/// preferences panel is the archetypal window that should not hold an app open — but they are
+/// not the same question, and conflating them would leave no way to say "an ordinary-looking
+/// tool window that shouldn't outlive the documents".
+///
+/// Note the word "secondary" is overloaded around windows: elsewhere in day it means "a window
+/// other than the first one opened". Here it means "does not keep the app alive", which is
+/// about lifetime, not about order of creation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WindowRole {
+    /// Closing the last one of these ends the app.
+    #[default]
+    Primary,
+    /// Never keeps the app alive: when the last `Primary` closes, the app exits and takes
+    /// these with it, however many are open.
+    Secondary,
+}
+
+impl From<WindowKind> for WindowRole {
+    /// The default pairing: an ordinary window holds the app open, a preferences panel does
+    /// not. An app that needs a different answer sets the role itself.
+    fn from(kind: WindowKind) -> WindowRole {
+        match kind {
+            WindowKind::Normal => WindowRole::Primary,
+            WindowKind::Preferences => WindowRole::Secondary,
+        }
+    }
 }
 
 /// A backend's answer to [`Toolkit::open_window`] (docs/windows.md).
