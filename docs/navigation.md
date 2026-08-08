@@ -32,7 +32,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 
 | Style | Native container |
 |-------|------------------|
-| `Sidebar` | a NavigationSplitView: macOS `NSSplitView` sidebar (inset-styled `NSOutlineView`; accent selection, capture-safe — no offscreen-hostile material) + detail; GTK `AdwNavigationSplitView` (libadwaita); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
+| `Sidebar` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwNavigationSplitView` (libadwaita); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
 | `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` (docs/tabs.md). |
 
 `selector` is one primitive, a selection-bound switcher. The two styles differ only in chrome and
@@ -386,6 +386,17 @@ host.
   path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; Day sizes it from the
   host width (sidebar is a fixed width, detail fills the rest). Tabs use an `AdwViewStack` with a
   `.linked` toggle switcher (docs/tabs.md); dialogs use `AdwAlertDialog` (docs/dialogs.md).
+> [!NOTE]
+> **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
+> its pane to a sidebar `NSSplitViewItem`, so AppKit supplies the material — on macOS 26 a
+> `NSContainerConcentricGlassEffectView` floating glass panel. That material samples what is
+> BEHIND the window, and the dayscript screenshot seam renders the window offscreen
+> (`cacheDisplayInRect`), where there is nothing to sample: the sidebar comes out a flat white
+> block while the detail pane captures correctly. The window on screen is right; only the
+> capture is wrong. This is the same trade the old inset-styled outline avoided by refusing
+> material altogether, and it is why the gallery's macOS sidebar shots need a window-server
+> capture rather than an offscreen one.
+
 - **macOS `NSSplitView` / Qt `QSplitter`** honor a `split` flag: `Sidebar` shows both panes; a
   `stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
   with a **back header** (chevron + centered title, hidden at the root) above the pages;

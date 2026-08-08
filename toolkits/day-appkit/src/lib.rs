@@ -38,9 +38,7 @@ use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
     NSApplicationWillTerminateNotification,
 };
-use objc2_app_kit::{
-    NSOutlineViewDataSource, NSOutlineViewDelegate, NSSplitViewDelegate, NSTabViewDelegate,
-};
+use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
@@ -521,11 +519,20 @@ struct NavHeader {
 /// Height of the stack-nav back header while a pushed page is showing.
 const NAV_HEADER_H: f64 = 34.0;
 
+/// Drag limits for the sidebar pane, around `day_spec::NAV_SIDEBAR_WIDTH`. A sidebar
+/// NSSplitViewItem enforces these itself, which is why the divider no longer needs restoring
+/// by hand after every window resize.
+const NAV_SIDEBAR_MIN_W: f64 = 160.0;
+const NAV_SIDEBAR_MAX_W: f64 = 400.0;
+
 struct NavState {
     sidebar_wrap: Retained<NSView>,
     detail_wrap: Retained<NSView>,
-    /// Keeps the split's delegate (weakly referenced by AppKit) alive with the host.
-    _split_delegate: Retained<DaySplitDelegate>,
+    /// The container behind the host view. A view holds NO strong reference to its controller,
+    /// and the split view controller is what owns the items, their holding priorities, the
+    /// sidebar's material and the split's delegate duties — so it has to be retained here or
+    /// the sidebar loses its treatment the moment this realize returns.
+    _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
@@ -575,49 +582,12 @@ thread_local! {
 }
 
 // ---------------------------------------------------------------------------
-// DaySplitDelegate — the sidebar pane holds its width through NSSplitView's own
-// layout passes (docs/navigation.md).
+// The sidebar pane holds its width through NSSplitViewController's own holding priorities
+// (docs/navigation.md) — a sidebar NSSplitViewItem pins its thickness and lets the detail
+// absorb a window resize, which is exactly the Finder/Mail behaviour the hand-rolled
+// `splitView:shouldAdjustSizeOfSubview:` delegate used to approximate. The controller IS the
+// split's delegate, so Day must not install one of its own.
 // ---------------------------------------------------------------------------
-
-define_class!(
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "DaySplitDelegate"]
-    struct DaySplitDelegate;
-
-    unsafe impl NSObjectProtocol for DaySplitDelegate {}
-
-    unsafe impl NSSplitViewDelegate for DaySplitDelegate {
-        /// Size changes go to the DETAIL pane; the sidebar (pane 0) holds its width. Without
-        /// this, the split's own layout pass after a section switch (the swap of the detail
-        /// page subview dirties the split) redistributed the panes and collapsed the sidebar
-        /// to zero — and `set_frame`'s divider restore only runs on window resizes, so
-        /// nothing ever brought it back. In stack mode the same rule pins the (deliberately
-        /// zero-width) sidebar pane closed.
-        #[unsafe(method(splitView:shouldAdjustSizeOfSubview:))]
-        fn should_adjust(
-            &self,
-            sv: &objc2_app_kit::NSSplitView,
-            subview: &NSView,
-        ) -> objc2::runtime::Bool {
-            let subs = sv.subviews();
-            if subs.count() == 0 {
-                return objc2::runtime::Bool::YES;
-            }
-            let first = subs.objectAtIndex(0);
-            objc2::runtime::Bool::new(!std::ptr::eq(
-                &*first as *const NSView,
-                subview as *const NSView,
-            ))
-        }
-    }
-);
-
-impl DaySplitDelegate {
-    fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        unsafe { msg_send![Self::alloc(mtm), init] }
-    }
-}
 
 struct NavPageIvars {
     node: NodeId,
@@ -2422,39 +2392,68 @@ impl Toolkit for AppKit {
                     .downcast_ref::<NavProps>()
                     .map(|p| p.split)
                     .unwrap_or(true);
-                let split = unsafe { objc2_app_kit::NSSplitView::new(mtm) };
+                // The host is an NSSplitViewController, not a bare NSSplitView. Handing the
+                // sidebar pane to `NSSplitViewItem::sidebarWithViewController:` is what buys
+                // the system treatment: AppKit installs its own backing material and vibrancy
+                // (so no hand-rolled NSVisualEffectView), pins the thickness with a sidebar
+                // holding priority, animates collapse/expand, and drives the window's titlebar
+                // separator. Day still owns the CONTENT of each pane — the two wraps below are
+                // the item view controllers' views, so `insert`/`remove`/the NAV patches are
+                // unchanged.
+                let sidebar_wrap = view_of(DayFlipped::new(mtm));
+                let detail_wrap = view_of(DayFlipped::new(mtm));
+                let split_vc = unsafe { objc2_app_kit::NSSplitViewController::new(mtm) };
+                // Force loadView/viewDidLoad BEFORE the items go in. NSSplitViewController
+                // installs an item's view into the split as the item is added, which it can
+                // only do once its own view exists — and reading `splitView` does not trigger
+                // the lifecycle the way reading `view` does. Skipping this leaves a split view
+                // with zero subviews: correct frame, nothing in it.
+                let _ = unsafe { split_vc.view() };
+                // Plain NSViewControllers with their view set explicitly: setting `view` up
+                // front is what stops NSViewController looking for a nib named after itself.
+                let sidebar_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
+                let detail_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
+                unsafe {
+                    sidebar_vc.setView(&sidebar_wrap);
+                    detail_vc.setView(&detail_wrap);
+                }
+                let sidebar_item = unsafe {
+                    objc2_app_kit::NSSplitViewItem::sidebarWithViewController(&sidebar_vc)
+                };
+                let detail_item = unsafe {
+                    objc2_app_kit::NSSplitViewItem::splitViewItemWithViewController(&detail_vc)
+                };
+                unsafe {
+                    // A stack presentation has no sidebar to show: collapse the (empty) pane
+                    // and refuse the drag, so the detail owns the full width.
+                    sidebar_item.setCanCollapse(is_split);
+                    sidebar_item.setCollapsed(!is_split);
+                    if is_split {
+                        // Run the sidebar's material to the top of the window, under the
+                        // titlebar, the way Mail and Finder do. Pairs with the unified toolbar
+                        // style the window already uses (toolbar.rs).
+                        sidebar_item.setAllowsFullHeightLayout(true);
+                        sidebar_item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
+                        sidebar_item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
+                    } else {
+                        sidebar_item.setMinimumThickness(0.0);
+                        sidebar_item.setMaximumThickness(0.0);
+                    }
+                    split_vc.addSplitViewItem(&sidebar_item);
+                    split_vc.addSplitViewItem(&detail_item);
+                }
+                let split = unsafe { split_vc.splitView() };
                 unsafe {
                     split.setVertical(true);
                     split.setDividerStyle(objc2_app_kit::NSSplitViewDividerStyle::Thin);
-                }
-                // Sidebar pane rides in an NSVisualEffectView for the standard
-                // translucent source-list treatment.
-                let effect = unsafe { objc2_app_kit::NSVisualEffectView::new(mtm) };
-                unsafe {
-                    effect.setMaterial(objc2_app_kit::NSVisualEffectMaterial::Sidebar);
-                    effect.setBlendingMode(objc2_app_kit::NSVisualEffectBlendingMode::BehindWindow);
-                }
-                let sidebar_wrap = view_of(DayFlipped::new(mtm));
-                unsafe {
-                    sidebar_wrap.setFrame(effect.bounds());
-                    sidebar_wrap.setAutoresizingMask(
-                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
-                            | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
-                    );
-                    effect.addSubview(&sidebar_wrap);
-                }
-                let detail_wrap = view_of(DayFlipped::new(mtm));
-                let split_delegate = DaySplitDelegate::new(mtm);
-                unsafe {
-                    split.addArrangedSubview(&effect);
-                    split.addArrangedSubview(&detail_wrap);
-                    // (Holding priorities are a no-op when Day drives the split's frame
-                    // directly — the sidebar-holds-width behaviour lives in the delegate's
-                    // `splitView:shouldAdjustSizeOfSubview:`, plus `set_frame`'s divider
-                    // restore after each window resize.)
-                    split.setHoldingPriority_forSubviewAtIndex(260.0, 0);
-                    split.setHoldingPriority_forSubviewAtIndex(250.0, 1);
-                    split.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
+                    // Day owns this view's frame (`set_frame`). A split view vended by
+                    // NSSplitViewController arrives switched over to Auto Layout, which
+                    // ignores that frame and lays the split out at zero — a window with
+                    // chrome and nothing under it. Hand it back to autoresizing translation
+                    // so Day stays the layout owner OUTSIDE the split; the constraints the
+                    // controller installs BETWEEN the split and its panes are untouched and
+                    // keep doing the pane sizing.
+                    split.setTranslatesAutoresizingMaskIntoConstraints(true);
                 }
                 // Stack presentation: a back header (hidden at root) — desktop has no system
                 // back affordance, so a pushed page needs its own way out (docs/navigation.md).
@@ -2524,7 +2523,7 @@ impl Toolkit for AppKit {
                         NavState {
                             sidebar_wrap,
                             detail_wrap,
-                            _split_delegate: split_delegate,
+                            _split_vc: split_vc,
                             pages: Vec::new(),
                             positioned: false,
                             split: is_split,
@@ -2605,17 +2604,22 @@ impl Toolkit for AppKit {
                     outline.addTableColumn(&col);
                     outline.setOutlineTableColumn(Some(&col));
                     outline.setHeaderView(None);
-                    // Inset style, NOT SourceList: the source-list style draws its selection
-                    // and labels through the sidebar material/vibrancy pipeline, which needs a
-                    // backdrop behind the window to composite. Screenshot captures render the
-                    // window offscreen (`cacheDisplayInRect`, no backdrop), where that material
-                    // came out as a black pill that swallowed the row label. Inset keeps the
-                    // rounded-pill selection look with a plain accent fill that renders the
-                    // same on screen and in captures.
-                    outline.setStyle(objc2_app_kit::NSTableViewStyle::Inset);
-                    outline.setSelectionHighlightStyle(
-                        objc2_app_kit::NSTableViewSelectionHighlightStyle::Regular,
-                    );
+                    // SourceList: the real sidebar treatment (Finder/Mail). The outline now
+                    // lives inside a sidebar NSSplitViewItem, so AppKit supplies the backing
+                    // material and the vibrancy the source-list selection composites through.
+                    // This was Inset until 2026-08 because the earlier hand-rolled
+                    // NSVisualEffectView blended BEHIND the window, and an offscreen capture
+                    // (`cacheDisplayInRect`) has no backdrop to sample — the selection came out
+                    // a black pill that swallowed the row label. The material is AppKit's own
+                    // now, and `snapshot_view` pre-fills the window background before
+                    // compositing, so a capture has something to blend against.
+                    // `style = SourceList` is the whole switch: the matching
+                    // `selectionHighlightStyle` constant is deprecated precisely because the
+                    // style property now implies it.
+                    outline.setStyle(objc2_app_kit::NSTableViewStyle::SourceList);
+                    // Section headers pin to the top of the scroll as their group passes under
+                    // it, the way Finder's sidebar groups do.
+                    outline.setFloatsGroupRows(true);
                     outline.setIndentationPerLevel(0.0);
                     outline.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                     outline.setDelegate(Some(ProtocolObject::from_ref(&*data)));
@@ -3471,38 +3475,23 @@ impl Toolkit for AppKit {
             NSPoint::new(frame.origin.x, frame.origin.y),
             NSSize::new(frame.size.width, frame.size.height),
         );
-        // Nav host: the sidebar should HOLD its width when the window resizes, letting the
-        // detail pane absorb the change (the standard Finder/Mail behavior). NSSplitView's
-        // holding priorities don't take effect when Day drives the split's frame directly, so
-        // we capture the current sidebar width, resize, then restore the divider to it.
+        // Nav host: the sidebar HOLDS its width when the window resizes and the detail pane
+        // absorbs the change. That is now the sidebar NSSplitViewItem's own behaviour, so the
+        // only thing left to do here is give the split its frame and place the divider ONCE —
+        // re-placing it on every resize would fight the item and undo a user's drag.
         if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {
-            let (first, is_split) = NAV_STATE.with(|m| {
+            let first = NAV_STATE.with(|m| {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
-                    .map(|s| (!std::mem::replace(&mut s.positioned, true), s.split))
-                    .unwrap_or((false, true))
+                    .map(|s| !std::mem::replace(&mut s.positioned, true) && s.split)
+                    .unwrap_or(false)
             });
-            // Sidebar pane = arranged subview 0; its width is the divider position.
-            let prev_sidebar = {
-                let subs = split.subviews();
-                if subs.count() > 0 {
-                    subs.objectAtIndex(0).frame().size.width
-                } else {
-                    0.0
-                }
-            };
             unsafe {
                 split.setFrame(r);
                 split.layoutSubtreeIfNeeded();
-                // A stack collapses the (empty) sidebar so the detail is full-width.
-                let target = if !is_split {
-                    0.0
-                } else if first || prev_sidebar <= 1.0 {
-                    day_spec::NAV_SIDEBAR_WIDTH
-                } else {
-                    prev_sidebar
-                };
-                split.setPosition_ofDividerAtIndex(target, 0);
+                if first {
+                    split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH, 0);
+                }
             }
         } else {
             unsafe { h.setFrame(r) };

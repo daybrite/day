@@ -502,9 +502,14 @@ extern "C" fn on_text(id: u64, s: *const c_char) {
     let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
     emit(NodeId(id), Event::TextChanged(text));
 }
-extern "C" fn on_slider(id: u64, v: f64) {
+extern "C" fn on_slider(id: u64, v: f64, committed: c_int) {
     // XAML's Slider is driven in the app's real f64 units, so its Value is the event value as-is.
+    // The live value always; the settled one additionally, so a drag records once (the shim
+    // decides which is which — see `day_xaml_slider_new`).
     emit(NodeId(id), Event::ValueChanged(v));
+    if committed != 0 {
+        emit(NodeId(id), Event::ValueCommitted(v));
+    }
 }
 /// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
 extern "C" fn on_focus(id: u64, kind: c_int) {

@@ -522,12 +522,18 @@ mod imp {
                     },
                 }
             }
-            3 => {
-                // ArkUI slider reports 0..100; map back to the node's day range.
+            3 | 22 => {
+                // ArkUI slider reports 0..100; map back to the node's day range. Code 22 is the
+                // same value once the interaction settled (day-spec `Event::ValueCommitted`).
                 let (min, max) = SLIDER_RANGE
                     .with(|m| m.borrow().get(&(id as usize)).copied())
                     .unwrap_or((0.0, 1.0));
-                Event::ValueChanged(min + (num / 100.0) * (max - min))
+                let value = min + (num / 100.0) * (max - min);
+                if kind == 22 {
+                    Event::ValueCommitted(value)
+                } else {
+                    Event::ValueChanged(value)
+                }
             }
             // An ArkTS-built piece component reporting back (docs/extending.md), through the
             // shim's `pieceEvent`. Like the Android bridge's Custom, the payload IS the event —

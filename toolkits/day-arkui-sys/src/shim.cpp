@@ -78,6 +78,7 @@ extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const 
 #define DAY_K_PRESENT_FILE 15
 #define DAY_K_FOCUS_CHANGED 16
 #define DAY_K_SUBMITTED 17
+#define DAY_K_VALUE_COMMITTED 22
 extern "C" void day_arkui_set_cache_dir(const char* path);
 // Recycling-list callbacks into Rust (docs/list.md): row count, and build/rebind a row's content
 // into the native cell (a plain Stack `cell`) — plus recycle when a cell scrolls out.
@@ -194,8 +195,18 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
             break;
         }
         case NODE_SLIDER_EVENT_ON_CHANGE: {
+            // data[0].f32 is the value; data[1].i32 is the state that triggered the event —
+            // ArkTS's SliderChangeMode (Begin 0, Moving 1, End 2, Click 3). ArkUI is the one
+            // toolkit that hands the phase over directly, so the settled value needs no
+            // tracking flag: End ends a drag, Click is a jump to a point on the track and is
+            // already settled. The enum has no C name in the SDK headers, hence the literals.
             auto* c = OH_ArkUI_NodeEvent_GetNodeComponentEvent(ev);
-            day_arkui_on_event(id, DAY_K_VALUE_CHANGED, c ? (double)c->data[0].f32 : 0.0, "");
+            double value = c ? (double)c->data[0].f32 : 0.0;
+            int mode = c ? c->data[1].i32 : 1;
+            day_arkui_on_event(id, DAY_K_VALUE_CHANGED, value, "");
+            if (mode == 2 || mode == 3) {
+                day_arkui_on_event(id, DAY_K_VALUE_COMMITTED, value, "");
+            }
             break;
         }
         case NODE_SWIPER_EVENT_ON_CHANGE: {

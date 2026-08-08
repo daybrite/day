@@ -177,7 +177,7 @@ unsafe extern "C" {
         max: f64,
         step: f64,
         id: u64,
-        cb: extern "C" fn(u64, f64),
+        cb: extern "C" fn(u64, f64, c_int),
     ) -> *mut c_void;
     pub fn day_xaml_slider_set(w: *mut c_void, value: f64);
 

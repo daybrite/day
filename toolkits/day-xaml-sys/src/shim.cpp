@@ -1841,8 +1841,10 @@ void day_xaml_toggle_set(void* h, int on) {
 
 // ---- slider (native double range: day passes the app's f64 min/max/step/value straight through) ----
 
+// `cb(id, value, committed)`: `committed != 0` marks the value the user settled on, as against
+// the stream a drag produces (day-spec `Event::ValueCommitted`).
 void* day_xaml_slider_new(double value, double min, double max, double step, unsigned long long id,
-                           void (*cb)(unsigned long long, double)) {
+                           void (*cb)(unsigned long long, double, int)) {
     WUXC::Slider s;
     // XAML's Slider.Value/Minimum/Maximum/StepFrequency are all `double`, so day drives it in the
     // app's real units directly (like the GTK backend's Scale) — no 0..1000 integer-tick mapping.
@@ -1859,7 +1861,17 @@ void* day_xaml_slider_new(double value, double min, double max, double step, uns
     s.Value(value);
     s.ValueChanged([id, cb](WF::IInspectable const& sender,
                             WUXCP::RangeBaseValueChangedEventArgs const&) {
-        cb(id, sender.as<WUXC::Slider>().Value());
+        cb(id, sender.as<WUXC::Slider>().Value(), 0);
+    });
+    // XAML gives a Slider no "drag ended" event. What it does give is the thumb's pointer
+    // capture: the control takes it on press and loses it on release (or on the gesture being
+    // cancelled), so PointerCaptureLost is the end of a drag. Keyboard steps never take capture,
+    // so KeyUp covers those — arrow/Page keys move by StepFrequency and are settled on release.
+    s.PointerCaptureLost([id, cb](WF::IInspectable const& sender, WUX::Input::PointerRoutedEventArgs const&) {
+        cb(id, sender.as<WUXC::Slider>().Value(), 1);
+    });
+    s.KeyUp([id, cb](WF::IInspectable const& sender, WUX::Input::KeyRoutedEventArgs const&) {
+        cb(id, sender.as<WUXC::Slider>().Value(), 1);
     });
     return boxh(s);
 }

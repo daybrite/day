@@ -113,7 +113,9 @@ enum Cmd {
         /// it survives a kill.
         #[arg(long = "record", value_name = "PATH")]
         record: Option<PathBuf>,
-        /// dayscript file(s) to execute after launch (repeatable; implies detach)
+        /// dayscript file(s) to execute after launch (repeatable). Attachment is unaffected:
+        /// `day` stays in the foreground streaming the app's output unless `--detach` says
+        /// otherwise, so Ctrl-C still takes the app down with it.
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
         /// Screenshot set name: saves shots under `build/day/screenshots/<target>/<variant>/`

@@ -1990,9 +1990,21 @@ Scope is **actions only, and only where the step is portable**:
 - `Pressed` **and** `Tap(Point)` → `tap`, `TextChanged` → `input` (coalesced per field),
   `SelectionChanged`/`ToggleChanged` → `select`, `RouteRequested` → `navigate` (coalesced),
   `NavBack` → `nav_back`.
-- **Dropped, deliberately:** gestures other than tap, `ValueChanged` (a slider drag re-records as
-  a storm of intermediate values), multi-select, and every lifecycle/menu/toolbar/window event. An
-  **id-less** action has no portable step, so it is dropped too — including a bare positional tap.
+- `ValueCommitted` → `set_value`: a slider records the value it SETTLED on, once.
+- **Dropped, deliberately:** gestures other than tap, `ValueChanged` (the live value a drag
+  streams — the settled one arrives separately), multi-select, and every lifecycle/menu/toolbar/
+  window event. An **id-less** action has no portable step, so it is dropped too — including a
+  bare positional tap.
+
+A continuous control produces two different facts and needs both: `ValueChanged` fires on every
+motion so bindings track the thumb, and nothing durable can key off it (a drag from 1 to 100 and
+back to 50 emits every value between). `ValueCommitted` fires once, with the value the user chose.
+Every toolkit can tell them apart, though none the same way — Qt has `sliderReleased` and
+`isSliderDown`, ArkUI hands over the `SliderChangeMode` directly, Android has
+`onStopTrackingTouch`, UIKit the touch-up control events, the DOM separates `input` from `change`,
+and AppKit and XAML have neither signal so they read the interaction that provoked the callback
+(the current `NSEvent`'s type; the thumb's pointer capture being lost). `Step::SetValue` synthesizes
+both, so a replayed `set_value` looks like a user who dragged and let go.
 
 Both tap shapes record because a control's shape decides which one it gets. A native `button` leaf
 delivers `Pressed`; a `Button::style(…)` is not a leaf at all but a piece COMPOSED from
