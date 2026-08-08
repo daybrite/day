@@ -43,6 +43,10 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &WebPatch) {
         }
         WebPatch::Stop => wv.stop_loading(),
         WebPatch::Reload => wv.reload(),
+        // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
+        // reports Unsupported, so the front-end resolves the future without dispatching
+        // and this arm is unreachable — it exists to keep the match exhaustive.
+        WebPatch::Eval { .. } => {}
     }
 }
 

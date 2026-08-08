@@ -462,6 +462,11 @@ pub enum AppCmd {
         #[arg(long)]
         template: Option<String>,
     },
+    /// Move the Xcode projects' user-adjustable build settings into DayApp.xcconfig files
+    /// (platform/ios, platform/macos) — what `day new` scaffolds and `day build` migrates
+    /// automatically; this runs the same migration without building.
+    #[command(name = "split-xcconfig")]
+    SplitXcconfig,
 }
 
 #[derive(clap::Subcommand)]
@@ -602,6 +607,17 @@ pub fn run() -> i32 {
             cmd: AppCmd::AddToolkit { targets, template },
         } => with_project(cli.project.as_deref(), |project| {
             crate::new::add_toolkit(project, &targets, template.as_deref())
+        }),
+        Cmd::App {
+            cmd: AppCmd::SplitXcconfig,
+        } => with_project(cli.project.as_deref(), |project| {
+            for platform in ["ios", "macos"] {
+                if let Err(e) = crate::xcconfig::ensure_split(project, platform) {
+                    eprintln!("error: {e}");
+                    return 1;
+                }
+            }
+            0
         }),
         Cmd::Metadata { json, schema } => {
             if schema {

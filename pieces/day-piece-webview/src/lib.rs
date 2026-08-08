@@ -9,6 +9,13 @@
 //! history — each `watch`ed to a `WebPatch`. The bound URL is two-way: `.go()` loads it, and native
 //! navigation reports the current URL back so a bound text field follows along.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::rc::Rc;
+use std::task::Poll;
+
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
 use day_reactive::{Signal, Trigger, watch};
 use day_spec::Event;
@@ -33,6 +40,220 @@ pub enum WebPatch {
     Stop,
     /// Reload the current page.
     Reload,
+    /// Evaluate `script` (already wrapped by [`wrap_script`]) and report the result back as an
+    /// `Event::Custom` whose `num` is `req`. See docs/webview-eval.md.
+    Eval {
+        req: u64,
+        script: String,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// JavaScript evaluation (docs/webview-eval.md)
+// ---------------------------------------------------------------------------
+
+/// Field separator inside an evaluation reply. A raw 0x1F can never appear inside JSON text —
+/// `JSON.stringify` escapes control characters as the six ASCII chars `` — so splitting on it
+/// is unambiguous and needs no JSON parser on the Rust side.
+const SEP: char = '\u{1f}';
+
+/// Why an evaluation did not produce a value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EvalError {
+    /// This backend has no engine to evaluate in (web-dom's `<iframe>`, or no renderer at all).
+    Unsupported,
+    /// The script threw. `name`/`message` come from the caught exception; a cyclic value that
+    /// `JSON.stringify` refuses arrives here too, as a `TypeError`.
+    Threw { name: String, message: String },
+    /// The web view was never realized, or went away before the reply arrived.
+    ViewGone,
+    /// The engine ran but the reply did not decode — the raw payload is included.
+    Engine(String),
+}
+
+impl std::fmt::Display for EvalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EvalError::Unsupported => write!(f, "javascript evaluation is unsupported here"),
+            EvalError::Threw { name, message } => write!(f, "{name}: {message}"),
+            EvalError::ViewGone => write!(f, "the web view is gone"),
+            EvalError::Engine(raw) => write!(f, "undecodable reply: {raw}"),
+        }
+    }
+}
+
+/// Wrap a user expression so every backend reports errors the same way.
+///
+/// Qt and Android have no error channel at all — a throw, a syntax error and a genuine `null` all
+/// arrive identically — so the channel is built in JavaScript instead, and every backend then
+/// behaves like the ones with real errors. The reply is `1␟<json>` or `0␟<name>␟<message>`.
+///
+/// Two `try` blocks, not one: the second catches `JSON.stringify` refusing a cyclic value, which is
+/// a different failure from the script throwing. The newline before the closing paren keeps a
+/// trailing `//` comment in the user's script from swallowing it.
+///
+/// A **syntax** error is not caught — the wrapper and the script compile as one unit, so there is
+/// nothing to run. Only WebView2's `ExecuteScriptWithResult` reports those natively.
+fn wrap_script(script: &str) -> String {
+    format!(
+        "(function(){{var v;\
+         try{{v=({script}\n);}}\
+         catch(e){{return \"0\\u001f\"+((e&&e.name)||\"Error\")+\"\\u001f\"+((e&&e.message)||String(e));}}\
+         try{{var s=JSON.stringify(v);return \"1\\u001f\"+(s===undefined?\"null\":s);}}\
+         catch(e){{return \"0\\u001f\"+((e&&e.name)||\"TypeError\")+\"\\u001f\"+((e&&e.message)||String(e));}}\
+         }})()"
+    )
+}
+
+/// Build a reply an arm can send when the ENGINE failed rather than the script — a dead content
+/// process, a missing web view, a reply of the wrong type. Shaped like the wrapper's own error arm
+/// so [`decode`] needs only one format.
+// Used by the per-backend arms, each of which is `#[cfg]`-gated to one toolkit — so on any single
+// build all but one caller is compiled out, and on a build whose backend has no eval arm yet there
+// are none. Which callers exist is a build-configuration accident, not a sign this is unused.
+#[allow(dead_code)]
+pub(crate) fn engine_error(name: &str, message: &str) -> String {
+    format!("0{SEP}{name}{SEP}{message}")
+}
+
+/// Decode one reply produced by [`wrap_script`]. `undefined` and values `JSON.stringify` drops
+/// (a function, a symbol) both arrive as `null` — the wrapper normalizes them so the payload is
+/// always valid JSON.
+fn decode(payload: &str) -> Result<String, EvalError> {
+    match payload.split_once(SEP) {
+        Some(("1", json)) => Ok(json.to_string()),
+        Some(("0", rest)) => {
+            let (name, message) = rest.split_once(SEP).unwrap_or(("Error", rest));
+            Err(EvalError::Threw {
+                name: name.to_string(),
+                message: message.to_string(),
+            })
+        }
+        _ => Err(EvalError::Engine(payload.to_string())),
+    }
+}
+
+struct EvalShared {
+    result: RefCell<Option<Result<String, EvalError>>>,
+    waker: RefCell<Option<std::task::Waker>>,
+}
+
+thread_local! {
+    /// Request ids start at 1 so 0 stays free for the URL report, which shares this channel.
+    static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
+    static PENDING: RefCell<HashMap<u64, Rc<EvalShared>>> = RefCell::new(HashMap::new());
+}
+
+/// Deliver a reply to whichever future is waiting on `req`. A reply for a dropped future finds
+/// nothing pending and is discarded.
+fn resolve(req: u64, payload: &str) {
+    let Some(shared) = PENDING.with(|p| p.borrow_mut().remove(&req)) else {
+        return;
+    };
+    *shared.result.borrow_mut() = Some(decode(payload));
+    if let Some(waker) = shared.waker.borrow_mut().take() {
+        waker.wake();
+    }
+}
+
+/// A handle for running JavaScript in a web view. `Copy`, like `Trigger`, so it can be captured by
+/// several closures. Bind it with [`WebView::js`]; evaluating before the view is realized fails
+/// with [`EvalError::ViewGone`].
+#[derive(Clone, Copy)]
+pub struct JsHandle {
+    node: Signal<Option<RNode>>,
+}
+
+impl Default for JsHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl JsHandle {
+    #[track_caller]
+    pub fn new() -> Self {
+        JsHandle {
+            node: Signal::new(None),
+        }
+    }
+
+    /// Evaluate `script` and resolve with its result as JSON text.
+    ///
+    /// Nothing is dispatched until the future is polled. Dropping it deregisters the request, so a
+    /// late reply is discarded — but the script keeps running: no backend can cancel one.
+    pub fn eval(&self, script: impl AsRef<str>) -> EvalFuture {
+        EvalFuture {
+            req: NEXT_REQ.with(|c| {
+                let v = c.get();
+                c.set(v + 1);
+                v
+            }),
+            node: self.node,
+            script: Some(wrap_script(script.as_ref())),
+            shared: Rc::new(EvalShared {
+                result: RefCell::new(None),
+                waker: RefCell::new(None),
+            }),
+            sent: false,
+        }
+    }
+}
+
+/// The pending result of [`JsHandle::eval`].
+pub struct EvalFuture {
+    req: u64,
+    node: Signal<Option<RNode>>,
+    script: Option<String>,
+    shared: Rc<EvalShared>,
+    sent: bool,
+}
+
+impl Future for EvalFuture {
+    type Output = Result<String, EvalError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        if let Some(result) = self.shared.result.borrow_mut().take() {
+            return Poll::Ready(result);
+        }
+        // Dispatch on first poll, not at construction — an eval that is never awaited never runs.
+        if !self.sent {
+            self.sent = true;
+            if eval_support() != day_spec::Support::Native {
+                return Poll::Ready(Err(EvalError::Unsupported));
+            }
+            let Some(node) = self.node.get_untracked() else {
+                return Poll::Ready(Err(EvalError::ViewGone));
+            };
+            let (req, script) = (self.req, self.script.take().unwrap_or_default());
+            PENDING.with(|p| p.borrow_mut().insert(req, self.shared.clone()));
+            with_tree(|t| t.patch(node, Box::new(WebPatch::Eval { req, script }), false));
+        }
+        *self.shared.waker.borrow_mut() = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+impl Drop for EvalFuture {
+    fn drop(&mut self) {
+        PENDING.with(|p| p.borrow_mut().remove(&self.req));
+    }
+}
+
+/// Whether this backend can evaluate JavaScript. A separate axis from [`support`]: web-dom loads
+/// pages but cannot evaluate in them, so the two answers differ there.
+pub fn eval_support() -> day_spec::Support {
+    if cfg!(any(
+        all(feature = "appkit", target_os = "macos"),
+        all(feature = "uikit", target_os = "ios"),
+    )) {
+        day_spec::Support::Native
+    } else {
+        // GTK, Qt, Android, XAML and ArkUI all have an engine and an equivalent call; their arms
+        // are not written yet (docs/webview-eval.md lists them in order). web-dom cannot ever do
+        // this — `contentWindow.eval` throws across origins.
+        day_spec::Support::Unsupported
+    }
 }
 
 /// A native web view bound to `url`. Attach command triggers with `.go()/.back()/.forward()/
@@ -44,6 +265,7 @@ pub struct WebView {
     forward: Option<Trigger>,
     stop: Option<Trigger>,
     reload: Option<Trigger>,
+    js: Option<JsHandle>,
 }
 
 /// `web_view(url)` — a native web view showing `url`. The initial value loads on creation; call
@@ -60,6 +282,7 @@ pub fn web_view(url: Signal<String>) -> WebView {
         forward: None,
         stop: None,
         reload: None,
+        js: None,
     }
 }
 
@@ -87,6 +310,11 @@ impl WebView {
     /// Reload the current page whenever `trigger` fires.
     pub fn reload(mut self, trigger: Trigger) -> Self {
         self.reload = Some(trigger);
+        self
+    }
+    /// Bind a [`JsHandle`] so `handle.eval(…)` runs in this view (docs/webview-eval.md).
+    pub fn js(mut self, handle: JsHandle) -> Self {
+        self.js = Some(handle);
         self
     }
 }
@@ -129,6 +357,7 @@ impl Piece for WebView {
             forward,
             stop,
             reload,
+            js,
         } = self;
         let initial = WebProps {
             url: url.get_untracked(),
@@ -169,13 +398,23 @@ impl Piece for WebView {
             watch(move || reload.track(), move |_, _| send(WebPatch::Reload));
         }
 
-        // Native navigation reports the current URL back via `Event::Custom` so a bound text field
-        // follows along. In-process backends tag it "webview:url"; Android's cross-boundary Custom
-        // carries just the payload. This node emits only that event, so any Custom is the URL — no
-        // more hijacking `TextChanged` on Android (§8.2's opened event channel).
+        // Bind the eval handle to the realized node so `handle.eval(…)` knows where to send.
+        if let Some(js) = js {
+            js.node.set(Some(node));
+        }
+
+        // Two kinds of report share this node's `Event::Custom` channel, told apart by `num`:
+        // 0 is navigation (the URL, so a bound text field follows along), anything else is an
+        // evaluation reply keyed by its request id. In-process backends also tag them, but a
+        // cross-boundary Custom (JNI, C-ABI) carries only `num`/`text` — so `num` is the
+        // discriminator that works everywhere (§8.2's opened event channel).
         cx.on(node, move |ev| {
-            if let Event::Custom { text, .. } = ev {
-                url.set(text.clone());
+            if let Event::Custom { num, text, .. } = ev {
+                if *num >= 1.0 {
+                    resolve(*num as u64, text);
+                } else {
+                    url.set(text.clone());
+                }
             }
         });
         node

@@ -16,7 +16,7 @@ build = "build.rs"
 # crate. See docs/extending.md + docs/webview.md.
 
 [features]
-appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:objc2-web-kit"]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:objc2-web-kit", "dep:block2"]
 # WebKitGTK 6 via the webkit6 crate, scoped to Linux (non-macOS, non-Windows): Homebrew's webkitgtk
 # vends the GTK3 API and isn't viable on macOS-quartz, and MSYS2/MINGW64 has no WebKitGTK package at
 # all. `dep:webkit6` is a no-op where the dependency is target-gated out (macOS + Windows), so on
@@ -25,7 +25,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk = ["dep:day-gtk", "dep:gtk4", "dep:webkit6"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, linking Qt6WebEngineWidgets when present (else a URL-label fallback)
 # objc2-web-kit 0.3 binds WKWebView for macOS only, so UIKit hand-rolls it via extern_class!/msg_send!.
-uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:block2"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]     # + build.rs compiles src/lib-xaml-shim.cpp
 # The ArkUI C node API has no Web node, so this backend is the crate's ArkTS half
@@ -57,13 +57,15 @@ day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }
+# Apple completion handlers for evaluateJavaScript: (docs/webview-eval.md).
+block2 = { version = "0.6", optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSURLRequest"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSURLRequest", "NSError"] }
 objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
-objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKWebViewConfiguration", "WKNavigationDelegate", "WKNavigation", "WKFrameInfo"] }
+objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKWebViewConfiguration", "WKNavigationDelegate", "WKNavigation", "WKFrameInfo", "WKError", "block2"] }
 
 # WebKitGTK 6 ships as a fast package only on Linux (libwebkitgtk-6.0-dev): MSYS2/MINGW64 has no
 # WebKitGTK at all and it isn't viable on macOS-quartz. Scope `webkit6` to non-macOS + non-Windows so

@@ -2355,7 +2355,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
-| `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`) |
+| `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `split-xcconfig` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
@@ -2397,6 +2397,14 @@ conditional `swift build` prepass statically links macOS Swift contributions
 ([§15.2](#152-package-layout-and-aggregation), docs/swiftui.md). The
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
+Both Xcode scaffolds keep their user-adjustable build settings (signing, deployment target,
+device family) in a committed `DayApp.xcconfig` rather than the pbxproj (2026-08): every build
+configuration's `baseConfigurationReference` points at it, and it `#include?`s — LAST, so
+Day.toml stays authoritative — a generated `build/day/xcconfig/<platform>.xcconfig` carrying
+the Day.toml-derived bundle id, version, and build number. Command-line settings still win, a
+fresh checkout builds in the IDE from the committed fallback lines, and `day build` migrates a
+pre-split scaffold in place (also available standalone as `day app split-xcconfig`; an
+unrecognized pbxproj degrades to a warning, never a half-edit).
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
 
 #### `day icon`
@@ -2555,10 +2563,12 @@ fieldnotes/
     smoke.yaml               # starter script; real apps grow a walkthrough
   platform/                  # only for toolkits with a native host project:
     ios/                     #   DayApp.xcodeproj + Runner (day root in a view controller),
-                             #   Run-Script phase calling `day xcode-backend build` (§17.4)
+                             #   Run-Script phase calling `day xcode-backend build` (§17.4);
+                             #   DayApp.xcconfig holds the user-adjustable build settings
     macos/                   #   DayApp.xcodeproj + Runner (thin main.swift → day_main),
                              #   same callback phase + `day xcode-backend stage-resources`;
-                             #   builds a real .app (debugger/Instruments-ready; §16.5 day build)
+                             #   builds a real .app (debugger/Instruments-ready; §16.5 day build);
+                             #   DayApp.xcconfig, as on ios
     android/                 #   Gradle project; committed build files read the generated
                              #   build/day/android/*.json|properties generically (§17.5)
     harmony/                 #   hvigor project (docs/harmonyos.md; pre-rename scaffolds'
@@ -2719,7 +2729,10 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
 > **Status: shipped; concrete filenames evolved.** The mechanism is exactly as designed —
 > generated, gitignored, content-hashed files that committed scaffolds reference generically.
 > The real names: Android reads `build/day/android/day-app.properties`, `day-signing.properties`,
-> and `day-pieces.json` ([§15.2](#152-package-layout-and-aggregation)); iOS conveys through the generated xcconfig + the `DayPieces`
+> and `day-pieces.json` ([§15.2](#152-package-layout-and-aggregation)); iOS and macOS convey
+> identity through `build/day/xcconfig/<platform>.xcconfig` (2026-08), `#include?`d LAST by the
+> committed `platform/<p>/DayApp.xcconfig` holding the user-adjustable settings ([§16.5](#165-the-command-surface) day build),
+> with the callback phase failing on mid-build drift as designed below — plus the `DayPieces`
 > SwiftPM package; the Rust side's "generated metadata" became the `day-build` resource
 > constants ([§18.5](#185-typed-resource-constants-docsresourcesmd)). The `day-meta` shared library was folded into `day-cli` (its `meta`
 > module) + `day-build`. The table below records the designed shape:

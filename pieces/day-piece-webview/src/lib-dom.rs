@@ -73,6 +73,9 @@ fn update(backend: &mut Dom, h: &DomHandle, patch: &WebPatch) {
         // would drive day's router rather than the frame, so they stay no-ops and the app disables
         // the controls via `support()`.
         WebPatch::Back | WebPatch::Forward | WebPatch::Stop => {}
+        // Evaluation is blocked by the same policy: `contentWindow.eval` throws cross-origin.
+        // `eval_support()` reports Unsupported, so this never arrives.
+        WebPatch::Eval { .. } => {}
     }
 }
 

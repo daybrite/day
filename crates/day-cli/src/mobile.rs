@@ -146,6 +146,34 @@ pub fn xcode_backend_build() -> i32 {
     } else {
         "debug"
     };
+    // Freshness (§17.5): Xcode resolved the generated xcconfig BEFORE this phase ran, so if
+    // Day.toml changed since it was last written, the bundle this build is assembling
+    // carries stale identity. Refresh the file and fail with the designed message — the
+    // retry is clean. A missing file (first build after a clone) is not drift: Xcode used
+    // the committed DayApp.xcconfig fallbacks, and the next build picks up the values.
+    let xc_platform = if platform.contains("macos") {
+        "macos"
+    } else {
+        "ios"
+    };
+    let xc_path = project
+        .root
+        .join("build/day/xcconfig")
+        .join(format!("{xc_platform}.xcconfig"));
+    let xc_before = std::fs::read_to_string(&xc_path).ok();
+    if let Err(e) = crate::xcconfig::write_generated(&project, xc_platform) {
+        eprintln!("day xcode-backend: {e}");
+        return 2;
+    }
+    if let Some(before) = xc_before
+        && std::fs::read_to_string(&xc_path).ok().as_deref() != Some(before.as_str())
+    {
+        eprintln!(
+            "day xcode-backend: app metadata changed since Xcode read it (Day.toml id/version/\
+             build) — build again to pick up the refreshed values"
+        );
+        return 3;
+    }
     // macOS builds honor Xcode's ARCHS (host arch under ONLY_ACTIVE_ARCH; both for a
     // universal Release), lipo'd below when there is more than one.
     let (triples, toolkit_feature, target_dir_name): (Vec<&str>, &str, &str) =
@@ -482,6 +510,9 @@ pub fn build_macos_xcode(
     // must land in the same tree as the app target's.
     let symroot = absolute(&project.root.join("build/day/macos-appkit"))?;
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
+    // The xcconfig split (§17.4) — same order rationale as prepare_ios.
+    crate::xcconfig::ensure_split(project, "macos")?;
+    crate::xcconfig::write_generated(project, "macos")?;
     crate::pieces::write_macos_pieces(project, true)?;
     status(
         "Building",
@@ -726,6 +757,11 @@ pub(crate) fn ios_wants_push(project: &Project) -> Result<bool, String> {
 /// invocation downstream must pass it — a command-line setting reaches the app AND the SwiftPM
 /// package targets, which is the only way to raise both without editing the scaffold.
 pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
+    // The xcconfig split (§17.4): migrate a pre-split scaffold once, then refresh the
+    // generated Day.toml-derived values the committed DayApp.xcconfig includes last. Before
+    // `write_ios_pieces`, whose deployment floor reads the (possibly just-moved) setting.
+    crate::xcconfig::ensure_split(project, "ios")?;
+    crate::xcconfig::write_generated(project, "ios")?;
     let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
     sync_usage_descriptions(project, false)?;

@@ -43,6 +43,10 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &WebPatch) {
         WebPatch::Forward => (2, ""),
         WebPatch::Stop => (3, ""),
         WebPatch::Reload => (4, ""),
+        // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
+        // reports Unsupported, so the front-end resolves the future without dispatching
+        // and this arm is unreachable — it exists to keep the match exhaustive.
+        WebPatch::Eval { .. } => return,
     };
     with_env(|env| {
         let s = env.new_string(url).expect("cmd url");

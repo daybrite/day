@@ -1161,6 +1161,7 @@ dependencies = [
 name = "day-piece-webview"
 version = "0.1.4"
 dependencies = [
+ "block2",
  "cc",
  "day-android",
  "day-appkit",

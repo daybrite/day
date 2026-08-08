@@ -40,6 +40,7 @@ mod template;
 mod term;
 mod update;
 mod web;
+mod xcconfig;
 
 fn main() {
     // Before any thread spawns (the update check): point icu4x's source cache at ~/.day/icu/src.

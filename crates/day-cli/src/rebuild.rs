@@ -615,9 +615,14 @@ fn compare(
         Ok((diffs, _)) => {
             // Name the first actual difference. Without it a verdict of "these XML files differ"
             // sends the next person guessing at a package they cannot open on their own host.
+            // Text members quote the line; the compiled binary — the member that actually fails
+            // this check — names the Mach-O region instead, since a hex dump would say nothing.
             let hint = diffs
                 .first()
-                .and_then(|rel| first_text_difference(&ua.join(rel), &ub.join(rel)))
+                .and_then(|rel| {
+                    let (pa, pb) = (ua.join(rel), ub.join(rel));
+                    first_text_difference(&pa, &pb).or_else(|| first_binary_difference(&pa, &pb))
+                })
                 .map(|d| format!("\n        {}: {d}", diffs[0]))
                 .unwrap_or_default();
             (
@@ -1303,6 +1308,188 @@ fn first_text_difference(a: &Path, b: &Path) -> Option<String> {
     (ca != cb).then(|| format!("{ca} line(s) vs {cb}"))
 }
 
+/// Where two binary members first differ, named in the Mach-O's own terms.
+///
+/// The sibling of `first_text_difference` for the member that actually fails this check on Apple
+/// platforms: the compiled executable. "the executable differs" gives whoever reads a CI log
+/// nothing to act on, while the region the bytes land in is a lead — `__TEXT,__text` says the
+/// emitted code changed, `__LINKEDIT` says a table the linker built did, and unequal lengths say
+/// the two links did not produce the same shape at all.
+fn first_binary_difference(a: &Path, b: &Path) -> Option<String> {
+    let (ba, bb) = (std::fs::read(a).ok()?, std::fs::read(b).ok()?);
+    let sizes = (ba.len() != bb.len()).then(|| format!("{} vs {} bytes", ba.len(), bb.len()));
+    let Some(at) = ba.iter().zip(&bb).position(|(x, y)| x != y) else {
+        // Equal as far as the shorter one goes: there is no differing byte to point at.
+        return sizes.map(|s| format!("one is a prefix of the other ({s})"));
+    };
+    let n = ba.iter().zip(&bb).filter(|(x, y)| x != y).count();
+    let head = match sizes {
+        Some(s) => format!("{s}, first difference at"),
+        None => format!("{n} byte(s) differ, first at"),
+    };
+    Some(match macho_location(&ba, at) {
+        Some(place) => format!("{head} 0x{at:x} ({place})"),
+        None => format!("{head} 0x{at:x}"),
+    })
+}
+
+/// The load command a Mach-O command word names, for the few that carry a file range.
+fn lc_name(cmd: u32) -> &'static str {
+    match cmd {
+        0x01 => "LC_SEGMENT",
+        0x02 => "LC_SYMTAB",
+        0x0B => "LC_DYSYMTAB",
+        0x0C => "LC_LOAD_DYLIB",
+        0x0E => "LC_LOAD_DYLINKER",
+        0x19 => "LC_SEGMENT_64",
+        0x1B => "LC_UUID",
+        0x1D => "LC_CODE_SIGNATURE",
+        0x1C => "LC_RPATH",
+        0x26 => "LC_FUNCTION_STARTS",
+        0x29 => "LC_DATA_IN_CODE",
+        0x2A => "LC_SOURCE_VERSION",
+        0x32 => "LC_BUILD_VERSION",
+        0x8000_0022 => "LC_DYLD_INFO_ONLY",
+        0x8000_0028 => "LC_MAIN",
+        0x8000_0033 => "LC_DYLD_EXPORTS_TRIE",
+        0x8000_0034 => "LC_DYLD_CHAINED_FIXUPS",
+        _ => "LC_?",
+    }
+}
+
+/// Name the part of a Mach-O a file offset falls in — `__TEXT,__text`, a load command, or one of
+/// the `__LINKEDIT` tables the header points at.
+///
+/// Best-effort and shape-tolerant by design: this runs on a file the check has already decided is
+/// wrong, so a malformed or unexpected one must yield `None` rather than a guess or a panic. The
+/// narrowest range wins, so a section is named ahead of the segment containing it.
+fn macho_location(buf: &[u8], at: usize) -> Option<String> {
+    fn u32_at(b: &[u8], at: usize, big: bool) -> Option<u32> {
+        let v = b.get(at..at + 4)?.try_into().ok()?;
+        Some(if big {
+            u32::from_be_bytes(v)
+        } else {
+            u32::from_le_bytes(v)
+        })
+    }
+    fn u64_at(b: &[u8], at: usize, big: bool) -> Option<u64> {
+        let v = b.get(at..at + 8)?.try_into().ok()?;
+        Some(if big {
+            u64::from_be_bytes(v)
+        } else {
+            u64::from_le_bytes(v)
+        })
+    }
+    // A 16-byte fixed field, NUL-padded.
+    fn name16(b: &[u8], at: usize) -> String {
+        let raw = b.get(at..at + 16).unwrap_or_default();
+        String::from_utf8_lossy(raw)
+            .trim_end_matches('\0')
+            .to_string()
+    }
+    fn thin(buf: &[u8], base: usize, at: usize) -> Option<String> {
+        let (big, is64) = match u32_at(buf, base, false)? {
+            0xFEED_FACF => (false, true),
+            0xFEED_FACE => (false, false),
+            0xCFFA_EDFE => (true, true),
+            0xCEFA_EDFE => (true, false),
+            _ => return None,
+        };
+        let ncmds = u32_at(buf, base + 16, big)?;
+        let header = base + if is64 { 32 } else { 28 };
+        let mut ranges: Vec<(usize, usize, String)> = vec![(base, header, "the header".into())];
+        let mut lc = header;
+        for i in 0..ncmds {
+            let (cmd, size) = (u32_at(buf, lc, big)?, u32_at(buf, lc + 4, big)? as usize);
+            if size < 8 || lc + size > buf.len() {
+                break;
+            }
+            ranges.push((lc, lc + size, format!("load command {i}, {}", lc_name(cmd))));
+            match cmd {
+                // Segments: name the section rather than the segment wherever one covers the
+                // offset. Zero-filled sections have no file range and are skipped.
+                0x19 | 0x01 => {
+                    let seg64 = cmd == 0x19;
+                    let (first, stride) = if seg64 { (72, 80) } else { (56, 68) };
+                    let nsects = u32_at(buf, lc + if seg64 { 64 } else { 48 }, big)?;
+                    for s in 0..nsects as usize {
+                        let so = lc + first + s * stride;
+                        let (sect, seg) = (name16(buf, so), name16(buf, so + 16));
+                        let (off, len) = if seg64 {
+                            (
+                                u32_at(buf, so + 48, big)? as usize,
+                                u64_at(buf, so + 40, big)? as usize,
+                            )
+                        } else {
+                            (
+                                u32_at(buf, so + 40, big)? as usize,
+                                u32_at(buf, so + 36, big)? as usize,
+                            )
+                        };
+                        if off > 0 && len > 0 {
+                            ranges.push((base + off, base + off + len, format!("{seg},{sect}")));
+                        }
+                    }
+                }
+                // The two tables LC_SYMTAB points at are separate ranges with separate meanings.
+                0x02 => {
+                    let symoff = u32_at(buf, lc + 8, big)? as usize;
+                    let nsyms = u32_at(buf, lc + 12, big)? as usize;
+                    let stroff = u32_at(buf, lc + 16, big)? as usize;
+                    let strsize = u32_at(buf, lc + 20, big)? as usize;
+                    let width = if is64 { 16 } else { 12 };
+                    ranges.push((
+                        base + symoff,
+                        base + symoff + nsyms * width,
+                        "__LINKEDIT symbol table".into(),
+                    ));
+                    ranges.push((
+                        base + stroff,
+                        base + stroff + strsize,
+                        "__LINKEDIT string table".into(),
+                    ));
+                }
+                // linkedit_data_command: cmd, cmdsize, dataoff, datasize.
+                0x1D | 0x26 | 0x29 | 0x8000_0033 | 0x8000_0034 => {
+                    let off = u32_at(buf, lc + 8, big)? as usize;
+                    let len = u32_at(buf, lc + 12, big)? as usize;
+                    if len > 0 {
+                        ranges.push((
+                            base + off,
+                            base + off + len,
+                            format!("__LINKEDIT {}", lc_name(cmd)),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+            lc += size;
+        }
+        // Narrowest wins: a section beats the segment, and either beats the load-command table.
+        ranges
+            .into_iter()
+            .filter(|(lo, hi, _)| at >= *lo && at < *hi)
+            .min_by_key(|(lo, hi, _)| hi - lo)
+            .map(|(_, _, what)| what)
+    }
+    // Fat: place the offset in its slice first, then inside that slice's Mach-O.
+    if let Some(m @ (0xCAFE_BABE | 0xBEBA_FECA)) = u32_at(buf, 0, true) {
+        let big = m == 0xCAFE_BABE;
+        let n = u32_at(buf, 4, big)?;
+        for i in 0..n as usize {
+            let arch = 8 + i * 20;
+            let off = u32_at(buf, arch + 8, big)? as usize;
+            let size = u32_at(buf, arch + 12, big)? as usize;
+            if at >= off && at < off + size {
+                let inner = thin(buf, off, at).unwrap_or_else(|| "unplaced".into());
+                return Some(format!("slice {i}, {inner}"));
+            }
+        }
+        return Some("the fat header".into());
+    }
+    thin(buf, 0, at)
+}
+
 /// Differing members, and the members excluded from the comparison.
 fn differing_members(a: &Path, b: &Path) -> Result<(Vec<String>, Vec<String>), String> {
     let keep = |l: Vec<PathBuf>| -> (Vec<PathBuf>, Vec<String>) {
@@ -1675,6 +1862,60 @@ mod tests {
         // The magic and load-command header must survive untouched.
         assert_eq!(&buf[0..4], &0xFEED_FACFu32.to_le_bytes());
         assert_eq!(&buf[lc..lc + 4], &LC_UUID.to_le_bytes());
+    }
+
+    /// A minimal 64-bit little-endian Mach-O: one `__TEXT` segment holding one `__text` section
+    /// whose 16 bytes live at file offset 200.
+    fn synthetic_macho() -> Vec<u8> {
+        let mut buf = vec![0u8; 216];
+        buf[0..4].copy_from_slice(&0xFEED_FACFu32.to_le_bytes());
+        buf[16..20].copy_from_slice(&1u32.to_le_bytes()); // ncmds
+        let lc = 32;
+        buf[lc..lc + 4].copy_from_slice(&0x19u32.to_le_bytes()); // LC_SEGMENT_64
+        buf[lc + 4..lc + 8].copy_from_slice(&152u32.to_le_bytes()); // cmdsize: 72 + one section
+        buf[lc + 8..lc + 14].copy_from_slice(b"__TEXT");
+        buf[lc + 64..lc + 68].copy_from_slice(&1u32.to_le_bytes()); // nsects
+        let sect = lc + 72;
+        buf[sect..sect + 6].copy_from_slice(b"__text");
+        buf[sect + 16..sect + 22].copy_from_slice(b"__TEXT");
+        buf[sect + 40..sect + 48].copy_from_slice(&16u64.to_le_bytes()); // size
+        buf[sect + 48..sect + 52].copy_from_slice(&200u32.to_le_bytes()); // file offset
+        buf
+    }
+
+    /// "the executable differs" is not a lead. The region has to ride along, and the narrowest
+    /// range has to win so a section is named ahead of the segment and load command over it.
+    #[test]
+    fn a_binary_difference_names_the_macho_region() {
+        let buf = synthetic_macho();
+        assert_eq!(macho_location(&buf, 4).as_deref(), Some("the header"));
+        assert_eq!(
+            macho_location(&buf, 40).as_deref(),
+            Some("load command 0, LC_SEGMENT_64")
+        );
+        assert_eq!(macho_location(&buf, 204).as_deref(), Some("__TEXT,__text"));
+
+        let tmp = std::env::temp_dir().join(format!("day-bindiff-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        let (a, b) = (tmp.join("a"), tmp.join("b"));
+        std::fs::write(&a, &buf).expect("a");
+        let mut other = buf.clone();
+        other[204] = 0xFF;
+        std::fs::write(&b, &other).expect("b");
+        let d = first_binary_difference(&a, &b).expect("a difference");
+        assert!(d.contains("__TEXT,__text"), "{d}");
+        assert!(d.contains("0xcc"), "the offset is reported in hex: {d}");
+        assert!(d.starts_with("1 byte(s) differ"), "{d}");
+
+        // A length change is its own answer: the two links did not produce the same shape.
+        std::fs::write(&b, &buf[..100]).expect("b");
+        let d = first_binary_difference(&a, &b).expect("a difference");
+        assert!(d.contains("216 vs 100 bytes"), "{d}");
+        assert!(
+            d.contains("prefix"),
+            "and says the shorter is a prefix: {d}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// Endianness detection was the bug in the first Python attempt: reading the magic big-endian

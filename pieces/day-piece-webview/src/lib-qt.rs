@@ -50,6 +50,10 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &WebPatch) {
             WebPatch::Forward => day_webview_forward(h.0),
             WebPatch::Stop => day_webview_stop(h.0),
             WebPatch::Reload => day_webview_reload(h.0),
+            // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
+            // reports Unsupported, so the front-end resolves the future without dispatching
+            // and this arm is unreachable — it exists to keep the match exhaustive.
+            WebPatch::Eval { .. } => {}
         }
     }
 }

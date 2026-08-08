@@ -14,7 +14,8 @@ use day_uikit::Uikit;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, extern_class, msg_send};
-use objc2_foundation::{NSString, NSURL, NSURLRequest};
+use block2::RcBlock;
+use objc2_foundation::{NSError, NSString, NSURL, NSURLRequest};
 use objc2_ui_kit::{UIResponder, UIView};
 
 // WKWebView lives in WebKit.framework. objc2-web-kit force-links it on macOS but only binds the
@@ -97,12 +98,57 @@ fn make(_backend: &mut Uikit, p: &WebProps, id: NodeId) -> Retained<UIView> {
     view
 }
 
+/// The node a realized view belongs to. `update` gets only the native handle, so the id comes back
+/// from the navigation delegate retained alongside it.
+fn node_of(view: &Retained<UIView>) -> Option<NodeId> {
+    let key = (&**view as *const UIView) as usize;
+    DELEGATES.with(|m| m.borrow().get(&key).map(|nav| nav.ivars().node))
+}
+
+/// Same contract as the AppKit arm (see its `eval`): the front-end's wrapper makes the result
+/// always a JS string, so the completion's `id` is an `NSString` and no JSON walk is needed.
+fn eval(web: &WKWebView, node: NodeId, req: u64, script: &str) {
+    let js = NSString::from_str(script);
+    let handler = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
+        let payload = if !result.is_null() {
+            // SAFETY: non-null result from WebKit; the wrapper guarantees an NSString.
+            unsafe { &*result }
+                .downcast_ref::<NSString>()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| engine_error("WebKitError", "non-string reply"))
+        } else if !error.is_null() {
+            // SAFETY: non-null NSError from WebKit.
+            engine_error(
+                "WebKitError",
+                &unsafe { (*error).localizedDescription() }.to_string(),
+            )
+        } else {
+            engine_error("WebKitError", "no result")
+        };
+        day_uikit::emit(
+            node,
+            Event::Custom {
+                tag: "webview:eval",
+                num: req as f64,
+                text: payload,
+            },
+        );
+    });
+    // SAFETY: main thread (a renderer duty); WebKit copies the block before returning.
+    let _: () = unsafe { msg_send![web, evaluateJavaScript: &*js, completionHandler: &*handler] };
+}
+
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &WebPatch) {
     let Some(web) = (**h).downcast_ref::<WKWebView>() else {
         return;
     };
     unsafe {
         match patch {
+            WebPatch::Eval { req, script } => {
+                if let Some(node) = node_of(h) {
+                    eval(web, node, *req, script);
+                }
+            }
             WebPatch::Load(url) => load_url(web, url),
             WebPatch::Back => {
                 let _: *mut AnyObject = msg_send![web, goBack];

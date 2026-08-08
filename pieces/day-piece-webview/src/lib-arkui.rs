@@ -25,6 +25,10 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &WebPatch) {
         WebPatch::Forward => ("forward", ""),
         WebPatch::Stop => ("stop", ""),
         WebPatch::Reload => ("reload", ""),
+        // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
+        // reports Unsupported, so the front-end resolves the future without dispatching
+        // and this arm is unreachable — it exists to keep the match exhaustive.
+        WebPatch::Eval { .. } => return,
     };
     piece::update(h, cmd, arg);
 }

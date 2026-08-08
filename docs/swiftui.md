@@ -176,8 +176,8 @@ The generated packages default to iOS 15 / macOS 13; a contribution's `platform`
 floor (the max across contributions wins). On iOS the raise must also reach the app target —
 `day build` passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild, which covers the app and
 the SwiftPM package targets without editing the scaffold. Command-line settings do not apply to
-⌘R builds inside Xcode, so for IDE work raise the value in
-`platform/ios/DayApp.xcodeproj` by hand (a user-raised value is never lowered).
+⌘R builds inside Xcode, so for IDE work raise `IPHONEOS_DEPLOYMENT_TARGET` in
+`platform/ios/DayApp.xcconfig` (a user-raised value is never lowered).
 
 ## Failure behavior
 

@@ -8,13 +8,14 @@ use super::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use block2::RcBlock;
 use day_appkit::AppKit;
 use day_spec::NodeId;
 use objc2::rc::Retained;
-use objc2::runtime::{NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::NSView;
-use objc2_foundation::{NSObject, NSString, NSURL, NSURLRequest};
+use objc2_foundation::{NSError, NSObject, NSString, NSURL, NSURLRequest};
 use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKWebView};
 
 struct NavIvars {
@@ -53,6 +54,13 @@ thread_local! {
     static DELEGATES: RefCell<HashMap<usize, Retained<WebNav>>> = RefCell::new(HashMap::new());
 }
 
+/// The node a realized view belongs to. `update` is handed only the native handle, so the id is
+/// recovered from the navigation delegate kept alive alongside it.
+fn node_of(view: &Retained<NSView>) -> Option<NodeId> {
+    let key = (&**view as *const NSView) as usize;
+    DELEGATES.with(|m| m.borrow().get(&key).map(|nav| nav.ivars().node))
+}
+
 fn current_url(web: &WKWebView) -> Option<String> {
     let url = unsafe { web.URL() }?;
     let s = url.absoluteString()?;
@@ -85,11 +93,51 @@ fn make(backend: &mut AppKit, p: &WebProps, id: NodeId) -> Retained<NSView> {
     view
 }
 
+/// Run `script` and report `1␟<json>` / `0␟<name>␟<message>` back on `node`, keyed by `req`.
+///
+/// The script is already wrapped by the front-end, so it always evaluates to a JS string and the
+/// `id` handed to the completion is an `NSString` — no `NSJSONSerialization` walk, which matters
+/// because WebKit hands back genuinely cyclic dictionaries that would hang it.
+///
+/// A `nil` result with a `nil` error cannot happen here for the same reason (the wrapper always
+/// returns a string), so anything else is WebKit itself failing — most often a dead content
+/// process, which reports as `JavaScriptResultTypeIsUnsupported` with no exception message.
+fn eval(web: &WKWebView, node: NodeId, req: u64, script: &str) {
+    let js = NSString::from_str(script);
+    let handler = RcBlock::new(move |result: *mut AnyObject, error: *mut NSError| {
+        let payload = if !result.is_null() {
+            // SAFETY: non-null result from WebKit; the wrapper guarantees it is an NSString.
+            let obj = unsafe { &*result };
+            obj.downcast_ref::<NSString>()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| engine_error("WebKitError", "non-string reply"))
+        } else if !error.is_null() {
+            // SAFETY: non-null NSError from WebKit.
+            let msg = unsafe { (*error).localizedDescription() }.to_string();
+            engine_error("WebKitError", &msg)
+        } else {
+            engine_error("WebKitError", "no result")
+        };
+        day_appkit::emit(node, Event::Custom {
+            tag: "webview:eval",
+            num: req as f64,
+            text: payload,
+        });
+    });
+    // SAFETY: main thread (a renderer duty), and WebKit copies the block before returning.
+    unsafe { web.evaluateJavaScript_completionHandler(&js, Some(&handler)) };
+}
+
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &WebPatch) {
     let Some(web) = h.downcast_ref::<WKWebView>() else {
         return;
     };
     match patch {
+        WebPatch::Eval { req, script } => {
+            if let Some(node) = node_of(h) {
+                eval(web, node, *req, script);
+            }
+        }
         WebPatch::Load(url) => load_url(web, url),
         WebPatch::Back => {
             let _ = unsafe { web.goBack() };

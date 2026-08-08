@@ -1,0 +1,56 @@
+// Build settings for the Day macOS app, split out of DayApp.xcodeproj so they can be edited
+// and diffed as plain text. Xcode reads this file as the base configuration of the project
+// and the Runner target; values set per-config in Xcode's Build Settings editor and the
+// command-line settings `day build`/`day pack` pass still override anything here.
+//
+// Any Xcode build setting can be added to this file. To see every setting with its current
+// value, run:  xcodebuild -showBuildSettings -project DayApp.xcodeproj
+// Reference:   https://developer.apple.com/documentation/xcode/build-settings-reference
+
+// ===========================================================================
+// Identity — fresh-checkout fallbacks
+// ===========================================================================
+// Day.toml is the source of truth for these three: every `day build` regenerates the
+// include at the bottom of this file from it, and that include wins. These lines only
+// carry a checkout that has not run `day build` yet. Change the app id in Day.toml [app]
+// and the version in Cargo.toml [package].
+PRODUCT_BUNDLE_IDENTIFIER = {{id}}
+MARKETING_VERSION = 0.1.0
+CURRENT_PROJECT_VERSION = 1
+
+// ===========================================================================
+// Signing
+// ===========================================================================
+// Dev builds run unsigned, and `day pack` signs (and notarizes) from Day.toml
+// [signing.macos] after the build. To sign builds driven from the Xcode IDE, remove the
+// CODE_SIGNING_ALLOWED line and set your team:
+CODE_SIGNING_ALLOWED = NO
+//DEVELOPMENT_TEAM = ABCDE12345
+//CODE_SIGN_STYLE = Automatic
+//CODE_SIGN_IDENTITY = Apple Development
+//ENABLE_HARDENED_RUNTIME = YES
+
+// ===========================================================================
+// Platform
+// ===========================================================================
+// The minimum macOS version. `day build` raises it per-invocation when a Day piece
+// requires a newer floor, so raise it here only when your own code needs it.
+MACOSX_DEPLOYMENT_TARGET = 13.0
+
+// ===========================================================================
+// More examples
+// ===========================================================================
+//INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity
+//INFOPLIST_KEY_NSHumanReadableCopyright = Copyright 2026 My Company
+//SWIFT_VERSION = 6.0
+//SWIFT_STRICT_CONCURRENCY = complete
+//OTHER_SWIFT_FLAGS = $(inherited) -warnings-as-errors
+//GCC_PREPROCESSOR_DEFINITIONS = $(inherited) MY_FLAG=1
+
+// ===========================================================================
+// Day-managed values (generated)
+// ===========================================================================
+// Written by `day build` from Day.toml; missing until the first build, which is fine.
+// Included LAST so Day.toml stays authoritative for the identity block above — anything
+// else you set above this line keeps its value.
+#include? "../../build/day/xcconfig/macos.xcconfig"

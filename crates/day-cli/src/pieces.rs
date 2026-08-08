@@ -937,16 +937,20 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     Ok((max_platform(&pbx, &floor) != pbx).then_some(floor))
 }
 
-/// The scaffold pbxproj's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across configurations),
-/// parsed tolerantly — `None` when the file or the setting is missing.
+/// The scaffold's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across every place it can
+/// be set), parsed tolerantly — `None` when nothing declares it. Since the xcconfig split
+/// (§17.4) the setting normally lives in `DayApp.xcconfig`; the pbxproj is still read for
+/// pre-split projects and hand-added per-config overrides. The same line parser serves both
+/// formats (the xcconfig just has no trailing `;`, which the parser already trims).
 fn pbxproj_ios_target(project: &Project) -> Option<String> {
-    let text = std::fs::read_to_string(
-        project
-            .root
-            .join("platform/ios/DayApp.xcodeproj/project.pbxproj"),
-    )
-    .ok()?;
-    ios_target_from_pbxproj(&text)
+    [
+        "platform/ios/DayApp.xcodeproj/project.pbxproj",
+        "platform/ios/DayApp.xcconfig",
+    ]
+    .iter()
+    .filter_map(|rel| std::fs::read_to_string(project.root.join(rel)).ok())
+    .filter_map(|text| ios_target_from_pbxproj(&text))
+    .reduce(|a, b| max_platform(&a, &b))
 }
 
 fn ios_target_from_pbxproj(text: &str) -> Option<String> {
@@ -1565,13 +1569,17 @@ mod tests {
 
     #[test]
     fn ios_target_parses_from_the_scaffold_pbxproj() {
-        // The real template must stay parseable — the floor override maxes against this value.
-        let template = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/templates/app/platform/ios/DayApp.xcodeproj/project.pbxproj"
-        );
-        let text = std::fs::read_to_string(template).expect("template pbxproj");
-        assert_eq!(ios_target_from_pbxproj(&text).as_deref(), Some("15.0"));
+        // Since the xcconfig split (§17.4) the scaffold declares the floor in
+        // DayApp.xcconfig — the floor override maxes against that value — and the pbxproj
+        // must NOT redeclare it (a buildSettings value would override the xcconfig, leaving
+        // the committed setting dead).
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/templates/app/platform/ios");
+        let pbx = std::fs::read_to_string(format!("{root}/DayApp.xcodeproj/project.pbxproj"))
+            .expect("template pbxproj");
+        assert_eq!(ios_target_from_pbxproj(&pbx), None);
+        let xcc =
+            std::fs::read_to_string(format!("{root}/DayApp.xcconfig")).expect("template xcconfig");
+        assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("15.0"));
         // Tolerant of spacing, takes the max across configurations.
         let raw = "  IPHONEOS_DEPLOYMENT_TARGET = 15.0;\n\tIPHONEOS_DEPLOYMENT_TARGET=16.0 ;\n";
         assert_eq!(ios_target_from_pbxproj(raw).as_deref(), Some("16.0"));
