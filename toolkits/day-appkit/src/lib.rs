@@ -2456,7 +2456,29 @@ impl Toolkit for AppKit {
                 unsafe {
                     let after = split.nextResponder();
                     split.setNextResponder(Some(&split_vc));
-                    split_vc.setNextResponder(after.as_deref());
+                    // The controller must never end up aiming at ITSELF or at its OWN view,
+                    // or its dealloc aborts the process: `-[NSViewController dealloc]`
+                    // splices itself out with `view.nextResponder = self.nextResponder`, and
+                    // if that lands the view on itself AppKit raises "The next responder
+                    // should never be yourself!" — an NSException that unwinds into Rust and
+                    // aborts. Both shapes occur here naturally: before macOS 15 the freshly
+                    // loaded split view's next IS the controller, and on 15+ `view` is a
+                    // WRAPPER above `splitView` whose auto-wiring makes the split's next
+                    // that wrapper. Neither is a real upstream hop, so drop them.
+                    let own_view = split_vc.view();
+                    let vc_resp: *const objc2_app_kit::NSResponder = {
+                        let r: &objc2_app_kit::NSResponder = &split_vc;
+                        r
+                    };
+                    let view_resp: *const objc2_app_kit::NSResponder = {
+                        let r: &objc2_app_kit::NSResponder = &own_view;
+                        r
+                    };
+                    let upstream = after.filter(|a| {
+                        let p: *const objc2_app_kit::NSResponder = &**a;
+                        p != vc_resp && p != view_resp
+                    });
+                    split_vc.setNextResponder(upstream.as_deref());
                 }
                 unsafe {
                     split.setVertical(true);
@@ -3257,7 +3279,27 @@ impl Toolkit for AppKit {
             m.borrow_mut().remove(&ptr_of(&h));
         });
         NAV_STATE.with(|m| {
-            m.borrow_mut().remove(&ptr_of(&h));
+            if let Some(nav) = m.borrow_mut().remove(&ptr_of(&h)) {
+                // Unhook the split view controller from the responder chain BEFORE the drop
+                // deallocs it. AppKit rewires these pointers behind day's back (mounting the
+                // split resets its next to the superview; the controller's own view keeps
+                // aiming at the controller), and a controller whose next responder is its own
+                // view dies in dealloc's chain splice with the "next responder should never
+                // be yourself" NSException — foreign to Rust, so it aborts the process
+                // instead of unwinding (the Stack-page teardown crash, 2026-08).
+                unsafe {
+                    nav._split_vc.setNextResponder(None);
+                    let split = nav._split_vc.splitView();
+                    if split.nextResponder().is_some_and(|r| {
+                        core::ptr::eq::<objc2::runtime::AnyObject>(
+                            r.as_ref(),
+                            nav._split_vc.as_ref(),
+                        )
+                    }) {
+                        split.setNextResponder(None);
+                    }
+                }
+            }
         });
         NAV_PAGES.with(|set| {
             set.borrow_mut().remove(&ptr_of(&h));
