@@ -53,7 +53,7 @@ pub enum WebPatch {
 // ---------------------------------------------------------------------------
 
 /// Field separator inside an evaluation reply. A raw 0x1F can never appear inside JSON text —
-/// `JSON.stringify` escapes control characters as the six ASCII chars `` — so splitting on it
+/// `JSON.stringify` escapes control characters as the six ASCII chars `\u001f` — so splitting on it
 /// is unambiguous and needs no JSON parser on the Rust side.
 const SEP: char = '\u{1f}';
 
@@ -82,22 +82,59 @@ impl std::fmt::Display for EvalError {
     }
 }
 
-/// Wrap a user expression so every backend reports errors the same way.
+/// Escape `s` into a JavaScript string literal, quotes included.
+///
+/// U+2028 and U+2029 get named escapes because they are literal line terminators in JS source and
+/// would end the string; everything below U+0020 goes to `\uXXXX` because a raw control character
+/// is not legal inside a literal either.
+fn js_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Wrap a user script so every backend reports errors the same way.
 ///
 /// Qt and Android have no error channel at all — a throw, a syntax error and a genuine `null` all
 /// arrive identically — so the channel is built in JavaScript instead, and every backend then
 /// behaves like the ones with real errors. The reply is `1␟<json>` or `0␟<name>␟<message>`.
 ///
-/// Two `try` blocks, not one: the second catches `JSON.stringify` refusing a cyclic value, which is
-/// a different failure from the script throwing. The newline before the closing paren keeps a
-/// trailing `//` comment in the user's script from swallowing it.
+/// The script is passed to `eval` as a **string literal** rather than spliced in as source. That
+/// costs one escape pass and buys three things splicing cannot:
 ///
-/// A **syntax** error is not caught — the wrapper and the script compile as one unit, so there is
-/// nothing to run. Only WebView2's `ExecuteScriptWithResult` reports those natively.
+/// - **Syntax errors become catchable.** Spliced in, the wrapper and the script compile as one
+///   unit, so a bad script kills the wrapper too and the backend reports its uninformative
+///   "no result". `eval` compiles at run time, inside the `try`.
+/// - **Statements work.** `throw new Error("x")` and `var a = 1; a + 1` are statements, so
+///   `v = (…)` around them is itself a syntax error. `eval` takes a program and yields its
+///   completion value, which is the behaviour a console user expects.
+/// - **No lexical hazards.** A trailing `//` comment or an unbalanced brace in the script cannot
+///   reach the wrapper's own tokens.
+///
+/// The cost is that a page whose Content-Security-Policy omits `unsafe-eval` refuses to run it;
+/// that surfaces as a caught `EvalError`, which is at least legible.
+///
+/// Two `try` blocks, not one: the second catches `JSON.stringify` refusing a cyclic value, which is
+/// a different failure from the script throwing.
 fn wrap_script(script: &str) -> String {
+    let src = js_string_literal(script);
     format!(
         "(function(){{var v;\
-         try{{v=({script}\n);}}\
+         try{{v=eval({src});}}\
          catch(e){{return \"0\\u001f\"+((e&&e.name)||\"Error\")+\"\\u001f\"+((e&&e.message)||String(e));}}\
          try{{var s=JSON.stringify(v);return \"1\\u001f\"+(s===undefined?\"null\":s);}}\
          catch(e){{return \"0\\u001f\"+((e&&e.name)||\"TypeError\")+\"\\u001f\"+((e&&e.message)||String(e));}}\
@@ -246,12 +283,13 @@ pub fn eval_support() -> day_spec::Support {
     if cfg!(any(
         all(feature = "appkit", target_os = "macos"),
         all(feature = "uikit", target_os = "ios"),
+        feature = "qt",
     )) {
         day_spec::Support::Native
     } else {
-        // GTK, Qt, Android, XAML and ArkUI all have an engine and an equivalent call; their arms
-        // are not written yet (docs/webview-eval.md lists them in order). web-dom cannot ever do
-        // this — `contentWindow.eval` throws across origins.
+        // GTK, Android, XAML and ArkUI all have an engine and an equivalent call; their arms are
+        // not written yet (docs/webview-eval.md lists them in order). web-dom cannot ever do this
+        // — `contentWindow.eval` throws across origins.
         day_spec::Support::Unsupported
     }
 }
@@ -435,3 +473,105 @@ day_pieces::glue_modules!(appkit, qt, uikit, mdc, xaml, arkui, dom);
 #[cfg(all(feature = "gtk", not(target_os = "macos"), not(windows)))]
 #[path = "lib-gtk.rs"]
 mod gtk_impl;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a reply the way an arm would, without a literal control char in the test source.
+    fn reply(parts: &[&str]) -> String {
+        parts.join(&SEP.to_string())
+    }
+
+    #[test]
+    fn decodes_a_value() {
+        assert_eq!(decode(&reply(&["1", "2"])), Ok("2".into()));
+        assert_eq!(decode(&reply(&["1", "null"])), Ok("null".into()));
+        let obj = r#"{"a":1,"b":"x"}"#;
+        assert_eq!(decode(&reply(&["1", obj])), Ok(obj.into()));
+    }
+
+    #[test]
+    fn decodes_a_throw() {
+        assert_eq!(
+            decode(&reply(&["0", "TypeError", "boom"])),
+            Err(EvalError::Threw {
+                name: "TypeError".into(),
+                message: "boom".into(),
+            })
+        );
+    }
+
+    /// Only the FIRST separator splits the name off, so a message carrying more stays intact.
+    #[test]
+    fn a_message_may_contain_the_separator() {
+        assert_eq!(
+            decode(&reply(&["0", "Error", "a", "b"])),
+            Err(EvalError::Threw {
+                name: "Error".into(),
+                message: reply(&["a", "b"]),
+            })
+        );
+    }
+
+    /// JSON text can never hold a RAW separator — `JSON.stringify` escapes control characters as
+    /// six ASCII chars — so splitting on it cannot corrupt a value. This pins that.
+    #[test]
+    fn an_escaped_separator_inside_json_survives() {
+        let json = r#""a\u001fb""#;
+        assert_eq!(decode(&reply(&["1", json])), Ok(json.into()));
+    }
+
+    #[test]
+    fn an_undecodable_reply_is_an_engine_error() {
+        assert_eq!(decode(""), Err(EvalError::Engine(String::new())));
+        // What a backend reports when the wrapper never ran at all.
+        assert_eq!(decode("null"), Err(EvalError::Engine("null".into())));
+    }
+
+    /// The arms build engine failures with `engine_error`; it must decode like any other throw.
+    #[test]
+    fn engine_errors_round_trip() {
+        assert_eq!(
+            decode(&engine_error("WebKitError", "process gone")),
+            Err(EvalError::Threw {
+                name: "WebKitError".into(),
+                message: "process gone".into(),
+            })
+        );
+    }
+
+    /// The script rides inside a string literal, so nothing in it can reach the wrapper's own
+    /// tokens — a trailing line comment, an unbalanced brace, a quote, a newline.
+    #[test]
+    fn the_wrapper_is_lexically_sealed() {
+        for hostile in [
+            "1 + 1 // add",
+            "\"unterminated",
+            "}}})(){{{",
+            "a\nb",
+            "x\\y",
+        ] {
+            let js = wrap_script(hostile);
+            assert!(
+                js.trim_end().ends_with("})()"),
+                "wrapper not closed for {hostile:?}: {js}"
+            );
+            assert!(
+                !js.contains("\n"),
+                "raw newline leaked for {hostile:?}: {js}"
+            );
+        }
+    }
+
+    #[test]
+    fn escapes_a_script_into_a_literal() {
+        assert_eq!(js_string_literal("a"), "\"a\"");
+        assert_eq!(js_string_literal("a\"b"), "\"a\\\"b\"");
+        assert_eq!(js_string_literal("a\\b"), "\"a\\\\b\"");
+        assert_eq!(js_string_literal("a\nb"), "\"a\\nb\"");
+        // A literal line terminator would end the string mid-source.
+        assert_eq!(js_string_literal("a\u{2028}b"), "\"a\\u2028b\"");
+        assert_eq!(js_string_literal("a\u{1}b"), "\"a\\u0001b\"");
+    }
+}

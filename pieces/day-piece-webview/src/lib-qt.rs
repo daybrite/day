@@ -22,6 +22,28 @@ unsafe extern "C" {
     fn day_webview_forward(w: *mut c_void);
     fn day_webview_stop(w: *mut c_void);
     fn day_webview_reload(w: *mut c_void);
+    fn day_webview_set_eval_cb(cb: extern "C" fn(u64, u64, *const c_char));
+    fn day_webview_eval(w: *mut c_void, req: u64, script: *const c_char);
+}
+
+/// One evaluation reply, keyed by request id. The shim always calls this exactly once per request
+/// — including from the no-engine fallback — so a pending future can never be stranded.
+extern "C" fn on_eval(id: u64, req: u64, payload: *const c_char) {
+    let text = if payload.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(payload) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    day_qt::emit(
+        NodeId(id),
+        Event::Custom {
+            tag: "webview:eval",
+            num: req as f64,
+            text,
+        },
+    );
 }
 
 extern "C" fn on_url(id: u64, url: *const c_char) {
@@ -39,6 +61,10 @@ fn cstr(s: &str) -> CString {
 }
 
 fn make(_backend: &mut Qt, p: &WebProps, id: NodeId) -> QtHandle {
+    // The eval callback is a single file-static in the shim, shared by every web view (the reply
+    // carries its own node id), so register it once rather than per view.
+    static EVAL_CB: std::sync::Once = std::sync::Once::new();
+    EVAL_CB.call_once(|| unsafe { day_webview_set_eval_cb(on_eval) });
     QtHandle(unsafe { day_webview_new(cstr(&p.url).as_ptr(), id.0, on_url) })
 }
 
@@ -50,10 +76,7 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &WebPatch) {
             WebPatch::Forward => day_webview_forward(h.0),
             WebPatch::Stop => day_webview_stop(h.0),
             WebPatch::Reload => day_webview_reload(h.0),
-            // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
-            // reports Unsupported, so the front-end resolves the future without dispatching
-            // and this arm is unreachable — it exists to keep the match exhaustive.
-            WebPatch::Eval { .. } => {}
+            WebPatch::Eval { req, script } => day_webview_eval(h.0, *req, cstr(script).as_ptr()),
         }
     }
 }

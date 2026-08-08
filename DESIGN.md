@@ -3073,7 +3073,16 @@ the bytes below it, and carrying the packager's identity and clock), the `LC_UUI
 per link by design), and the debug map — the `N_OSO` stabs, in which the linker records an absolute
 path to every object file it consumed. Everything that decides what the program does is left alone:
 text and data, the symbol table proper, the load commands, the linked libraries. A change in any of
-those still fails the check.
+those still fails the check. Both external steps `normalize()` drives (`codesign
+--remove-signature`, then `strip -S`) are checked: a tool that refuses ends the run with the reason
+it gave, since a silent refusal leaves in place the exact bytes normalization exists to remove and
+then reports them as a difference in the code.
+
+**When it fails.** The verdict names the first difference, not only the file holding it. A text
+member quotes the differing line. A compiled member reports how many bytes differ, the offset of
+the first, and the Mach-O region that offset falls in (`__TEXT,__text`, `__LINKEDIT symbol table`,
+a named load command, a slice of a fat binary), and answers a length mismatch as such. The runner
+is gone by the time anyone reads its log, so the verdict has to carry the evidence with it.
 
 The debug map is the reason this has to be a normalized comparison rather than a byte one. Those
 paths reach into `SYMROOT`, into cargo's output, and into the build directory of any SwiftPM package

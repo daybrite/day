@@ -1011,10 +1011,29 @@ fn normalize(path: &Path) -> Result<(), String> {
         return Ok(());
     }
     // The ad-hoc signature covers the UUID, so it has to go first or it will not match either.
-    let _ = Command::new("codesign")
-        .args(["--remove-signature"])
+    //
+    // Its result is CHECKED for the same reason `strip`'s is below: the signature hashes the very
+    // bytes this function goes on to change, so a silent refusal leaves a blob that cannot match
+    // and the run reports "differs after normalization" on a difference that describes the
+    // packager rather than the program. `--remove-signature` exits 0 on a binary that was never
+    // signed, so this does not fire on an ordinary unsigned member.
+    match Command::new("codesign")
+        .arg("--remove-signature")
         .arg(path)
-        .output();
+        .output()
+    {
+        Ok(o) if !o.status.success() => {
+            return Err(format!(
+                "`codesign --remove-signature {}` failed ({}), so the signature could not be \
+                 removed and the comparison would report a difference that is not in the code: {}",
+                path.display(),
+                o.status,
+                String::from_utf8_lossy(&o.stderr).trim()
+            ));
+        }
+        Err(e) => return Err(format!("running `codesign` on {}: {e}", path.display())),
+        Ok(_) => {}
+    }
     // Then the debug map. ld records an ABSOLUTE path to every object file it consumed in the
     // `N_OSO` stabs — into SYMROOT, into cargo's output, into the SwiftPM package's build dir —
     // so two builds of one commit from two directories carry different strings AND different

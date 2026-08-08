@@ -317,6 +317,12 @@ pub fn init() {
     if let Some(path) = std::env::var_os("DAY_RECORD").filter(|p| !p.is_empty()) {
         record::start_to_file(path);
     }
+    // `DAY_LOG_ACTIONS=1` narrates every action to stdout without recording anything (§14.6) — the
+    // same lines a recording echoes. An app can also switch it on for itself with
+    // `day::record::log_actions(true)`; the env var is here so any app gets it without a rebuild.
+    if std::env::var("DAY_LOG_ACTIONS").is_ok_and(|v| v == "1") {
+        record::log_actions(true);
+    }
     let (Ok(port), Ok(token)) = (
         std::env::var("DAYSCRIPT_PORT"),
         std::env::var("DAYSCRIPT_TOKEN"),

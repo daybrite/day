@@ -96,13 +96,21 @@ pub use day_pieces::NativeRef;
 pub use day_pieces::routes;
 pub use day_spec::{Lifecycle, WindowOptions};
 
-/// dayscript **recording** (docs/dayscript.md "Recording", DESIGN §14.6): install a recorder that
-/// captures the user's taps, edits, selections, and navigation into a replayable dayscript.
+/// dayscript **recording** and **action logging** (docs/dayscript.md "Recording", DESIGN §14.6):
+/// install an observer that sees the user's taps, edits, selections, and navigation.
 /// `day::record::{start, start_into, start_to_file, stop, is_recording, recording_signal, script,
-/// steps, save, clear, exclude_prefix}`. A recorder also arms headlessly from `day launch --record
-/// <file>` (the `DAY_RECORD` env, honored inside `day_script::init`). What it records is an ordinary
-/// dayscript, so it replays cross-toolkit through [`play_script`] or `day launch -p <target>
-/// --script <file>`.
+/// steps, save, clear, exclude_prefix}` captures them into a replayable dayscript; a recorder also
+/// arms headlessly from `day launch --record <file>` (the `DAY_RECORD` env, honored inside
+/// `day_script::init`). What it records is an ordinary dayscript, so it replays cross-toolkit
+/// through [`play_script`] or `day launch -p <target> --script <file>`.
+///
+/// `day::record::log_actions(true)` (or `DAY_LOG_ACTIONS=1`) turns on the narration alone — every
+/// action echoed to stdout in the same vocabulary, keeping nothing:
+///
+/// ```text
+/// dayscript ▸ navigate → dates  "Date & time"
+/// dayscript ▸ tap list-shuffle  "Shuffle"
+/// ```
 pub mod record {
     pub use day_script::record::*;
 }

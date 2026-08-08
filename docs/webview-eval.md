@@ -1,10 +1,20 @@
-# Web view JavaScript evaluation (planned)
+# Web view JavaScript evaluation
 
-> [!NOTE]
-> **Status: designed, not implemented.** `day-piece-webview` ships commands (`Load`/`Back`/`Forward`/
-> `Stop`/`Reload`) and one-way URL readback today; nothing here exists yet. This document records the
-> per-platform research and the design that follows from it, so the implementation is a transcription
-> rather than a rediscovery. See [webview.md](./webview.md) for the shipped piece.
+> [!IMPORTANT]
+> **Status: partly implemented.** The front-end ships — `JsHandle::eval` returning a future, the
+> JavaScript envelope, the request/reply codec, `eval_support()`, and the `num`-keyed split that
+> keeps evaluation replies from clobbering the URL readback. **AppKit, UIKit and Qt** have working
+> arms; `eval_support()` reports `Native` there.
+>
+> **GTK, Android, XAML and ArkUI** carry an inert `WebPatch::Eval` arm so their `match` stays
+> exhaustive, and report `Unsupported`. The per-platform research below is what those arms need; the
+> order in [Implementation order](#implementation-order) still holds, minus the two that are done.
+> **web-dom can never do this** — `contentWindow.eval` throws across origins.
+>
+> Verified end to end on **macos-qt (21/21 script steps)** and **macos-appkit (20/21 — only the
+> engine-specific `SyntaxError` wording differs)**: values, object serialization, thrown exceptions
+> and syntax errors all round-trip. Eight unit tests pin the codec and the escaping. See
+> [webview.md](./webview.md) for the shipped piece.
 
 Goal: `js.eval("document.title").await` returning a value from the embedded engine, on every backend
 that has one.
@@ -165,10 +175,15 @@ does not try.
 
 ## The design
 
-### 1. Wrap every script in a JSON envelope
+### 1. Wrap every script, and `eval` it from a string literal
 
 This single decision lifts Qt and Android to roughly the error fidelity of WebKit, and normalizes
-value marshaling on all seven backends:
+value marshaling on all seven backends. The shipped wrapper passes the script to `eval` as an
+escaped **string literal** rather than splicing it in as source — which, unlike splicing, also
+catches syntax errors and accepts statements (`throw …`, `var a = 1; a + 1`), because `eval`
+compiles at run time inside the `try`. The cost is that a page whose CSP omits `unsafe-eval`
+refuses it, reported as a legible caught error. The original spliced form is kept below for
+contrast:
 
 ```js
 (function(){try{var v=(/*USER*/

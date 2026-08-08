@@ -1786,6 +1786,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Check every internal doc is published
+        # The internal reference docs are the repo's top-level docs/*.md, symlinked into
+        # website/src/content/internal/ ONE FILE AT A TIME (see src/content.config.ts). A doc added
+        # without its symlink never reaches the site, and linkcheck only notices when some other
+        # page happens to link to it: deep-links.md and recorder-matrix.md were both missing for a
+        # day before webview-eval.md finally produced a 404. Checked in both directions, since a
+        # deleted doc leaves a dangling symlink that fails the Astro build instead.
+        run: |
+          docs=$(find docs -maxdepth 1 -name '*.md' -exec basename {} \; | sort)
+          links=$(find website/src/content/internal -maxdepth 1 -name '*.md' -exec basename {} \; | sort)
+          missing=$(comm -23 <(echo "$docs") <(echo "$links"))
+          dangling=$(comm -13 <(echo "$docs") <(echo "$links"))
+          if [ -n "$missing" ]; then
+            echo "::error::docs/ files with no website/src/content/internal symlink (add one: ln -s ../../../../docs/<name>.md website/src/content/internal/<name>.md):"
+            echo "$missing"
+          fi
+          if [ -n "$dangling" ]; then
+            echo "::error::website/src/content/internal symlinks whose docs/ file is gone:"
+            echo "$dangling"
+          fi
+          [ -z "$missing" ] && [ -z "$dangling" ]
       - uses: actions/setup-node@v6
         with:
           node-version: 22

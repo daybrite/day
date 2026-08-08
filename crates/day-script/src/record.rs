@@ -313,6 +313,10 @@ struct Recorder {
     /// Whether events are being captured. A plain bool (not the reactive flag) so the event path's
     /// guard is a cheap thread-local read, not a reactive-runtime access.
     active: bool,
+    /// Action logging without capture (§14.6): echo every action to the console in the recorder's
+    /// own vocabulary, but keep no steps and write no file. Independent of `active` — an app can
+    /// log continuously and still start and stop recordings underneath it.
+    echo: bool,
     steps: Vec<Step>,
     /// A signal mirrored with the current script text on every change (the showcase's editable
     /// buffer). `None` when recording headlessly.
@@ -433,9 +437,16 @@ fn is_excluded(id: Option<&str>, prefix: &str) -> bool {
 /// trampoline path — so it uses a NON-panicking write: a raw `println!` on a broken stdout pipe
 /// (routine when `day launch` tears the app down) would unwind into non-Rust frames and abort the
 /// process (`panic_cannot_unwind`, the reason `day_core::diag` exists). Errors are dropped.
-fn echo_action(step: &Step, label: Option<&str>) {
+fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
     use std::fmt::Write as _;
-    let mut line = String::from("day record ▸ ");
+    // The prefix says which mode produced the line: a recording is accumulating a script you can
+    // save, action logging is only narrating. Same vocabulary either way — a logged line and the
+    // step a recording would have written are the same thing.
+    let mut line = String::from(if recording {
+        "day record ▸ "
+    } else {
+        "dayscript ▸ "
+    });
     match step {
         Step::Tap { id, .. } => {
             let _ = write!(line, "tap {id}");
@@ -473,9 +484,9 @@ fn echo_action(step: &Step, label: Option<&str>) {
 /// The event observer: resolve the node's id, drop the recorder's own controls, map to a step, and
 /// append. Installed by the `start*` fns; removed by [`stop`].
 fn on_event(node: NodeId, ev: &Event) {
-    // Cheap guard first — the observer stays installed only while active, but a stop() racing an
-    // in-flight dispatch can land here after the flag cleared.
-    if !is_recording() {
+    // Cheap guard first — the observer stays installed only while observing, but a stop() racing
+    // an in-flight dispatch can land here after the flag cleared.
+    if !is_observing() {
         return;
     }
     // Resolve the id with NO recorder borrow held: `id_of` reads the tree, and keeping the borrow
@@ -489,7 +500,9 @@ fn on_event(node: NodeId, ev: &Event) {
     let label = day_core::label_of(node);
     REC.with(|r| {
         let mut rec = r.borrow_mut();
-        if !rec.active || is_excluded(id.as_deref(), &rec.exclude) {
+        // The exclude prefix applies to BOTH modes: an app's own record/stop controls are noise in
+        // a log for the same reason they are wrong in a recording.
+        if is_excluded(id.as_deref(), &rec.exclude) {
             return;
         }
         // One press, one step: drop the positional twin that follows a `Pressed` on the same node.
@@ -500,8 +513,12 @@ fn on_event(node: NodeId, ev: &Event) {
             (Event::Pressed, Step::Tap { id, .. }) => Some(id.clone()),
             _ => None,
         };
+        echo_action(&step, label.as_deref(), rec.active);
+        // Logging narrates and keeps nothing; only a recording accumulates.
+        if !rec.active {
+            return;
+        }
         let is_input = matches!(step, Step::Tap { .. } | Step::Select { .. });
-        echo_action(&step, label.as_deref());
         rec.push(step, label);
         rec.input_gen = is_input.then(day_core::pump_generation);
         rec.flush();
@@ -513,7 +530,7 @@ fn on_event(node: NodeId, ev: &Event) {
 /// route as one absolute `Navigate` — which replays multi-level stacks (`items/item-1`) in a
 /// single step — folding in the tap/select that triggered it when there was one.
 fn on_nav(route: &str, label: Option<&str>) {
-    if !is_recording() {
+    if !is_observing() {
         return;
     }
     let step = Step::Navigate {
@@ -523,6 +540,7 @@ fn on_nav(route: &str, label: Option<&str>) {
     REC.with(|r| {
         let mut rec = r.borrow_mut();
         if !rec.active {
+            echo_action(&step, label.as_deref(), false);
             return;
         }
         let foldable = rec
@@ -532,7 +550,7 @@ fn on_nav(route: &str, label: Option<&str>) {
                 rec.steps.last(),
                 Some(Step::Tap { .. } | Step::Select { .. })
             );
-        echo_action(&step, label.as_deref());
+        echo_action(&step, label.as_deref(), true);
         if foldable {
             // The tap/select that caused this navigation IS this navigation — replace the
             // non-portable `Select { id: nav, index }` / stack-push tap with the absolute route,
@@ -610,14 +628,58 @@ pub fn start_to_file(path: impl AsRef<Path>) {
 /// [`steps`] / [`save`], or resume with a `start*`).
 pub fn stop() {
     REC.with(|r| r.borrow_mut().active = false);
-    day_core::set_event_observer(None);
-    day_core::set_nav_observer(None);
+    // Only unhook when nothing else wants the events: action logging (`log_actions`) rides the
+    // same observers, and an app that logs continuously must keep doing so after a recording ends.
+    if !is_logging_actions() {
+        day_core::set_event_observer(None);
+        day_core::set_nav_observer(None);
+    }
     recording_signal().set_if_changed(false);
 }
 
 /// Whether a recording is currently live.
 pub fn is_recording() -> bool {
     REC.with(|r| r.borrow().active)
+}
+
+/// Whether the observers should run at all — a recording, action logging, or both.
+fn is_observing() -> bool {
+    REC.with(|r| {
+        let rec = r.borrow();
+        rec.active || rec.echo
+    })
+}
+
+/// Log every action the app receives to stdout, in the recorder's own vocabulary — the same lines
+/// a recording echoes, minus the recording:
+///
+/// ```text
+/// dayscript ▸ navigate → dates  "Date & time"
+/// dayscript ▸ tap list-shuffle  "Shuffle"
+/// dayscript ▸ select unit-picker = 1  "Units"
+/// ```
+///
+/// It rides the same two seams a recording does ([`start`]), so it sees exactly what the app sees,
+/// on every backend, with no per-toolkit code — and it keeps nothing: no steps, no file, no
+/// growing buffer, so it is safe to leave on for an app's whole life. `exclude_prefix` applies,
+/// so a UI's own scripting controls stay out of the log as they stay out of a recording.
+///
+/// Independent of recording. Turning logging off while a recording is live leaves the recording
+/// alone, and stopping a recording leaves logging on.
+pub fn log_actions(on: bool) {
+    REC.with(|r| r.borrow_mut().echo = on);
+    if on {
+        install_observer();
+    } else if !is_recording() {
+        // Nothing left to observe — take the observers back off the event path.
+        day_core::set_event_observer(None);
+        day_core::set_nav_observer(None);
+    }
+}
+
+/// Whether [`log_actions`] is on.
+pub fn is_logging_actions() -> bool {
+    REC.with(|r| r.borrow().echo)
 }
 
 /// The recorded script as canonical dayscript YAML ([`steps_to_yaml`]); `flow: []` when empty.
