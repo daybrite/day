@@ -3,15 +3,17 @@
 //! Same shape as day-appkit's ext: `with_native` clones the retained handle (a retain, not a
 //! transfer) and hands it to `f` with the concrete native **class name** and the
 //! `MainThreadMarker`. The class is the realized view's runtime class (`object_getClass`), so a
-//! tweak can branch on it — this matters for a piece with a *conditional* backing (e.g. a plain
-//! `label` as `UILabel`, a link-bearing one as `UITextView`). Downcast for widget-specific API:
+//! tweak can branch on it — this matters for a piece with a *conditional* backing: a plain
+//! `label` is a `UILabel`, but a `.selectable()` one is a read-only `UITextView` (docs/text.md).
+//! Chain the tweak AFTER `.selectable()` — it rebuilds the widget, and a tweak applied earlier
+//! runs against the discarded one (docs/tweaks.md). Downcast for widget-specific API:
 //!
 //! ```ignore
 //! use day_uikit::UiKitExt;
-//! label("selectable").uikit(|view, class, _mtm| {
+//! label("order #42").selectable().uikit(|view, class, _mtm| {
 //!     match class {
 //!         "UILabel" => { if let Some(l) = view.downcast_ref::<objc2_ui_kit::UILabel>() { /* … */ } }
-//!         "UITextView" => { /* the rich/link backing */ }
+//!         "UITextView" => { /* the selectable backing */ }
 //!         _ => {}
 //!     }
 //! });

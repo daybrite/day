@@ -74,22 +74,34 @@ piece in with `.selectable()`:
 label("Order #A1B2-C3D4").selectable()   // the reader can select and copy it
 ```
 
-It applies to the piece's own widget, so on a container it makes every label within selectable. The
-modifier routes to `Toolkit::set_selectable`, honored where the toolkit has a native affordance:
+It applies to the piece's own widget, so on a container it makes every label within selectable
+only where the platform affordance cascades (web's `user-select` inherits; the widget-flip
+backends reach the label the modifier is ON) — put it on the label itself for portable behavior.
+The modifier routes to `Toolkit::set_selectable`:
 
 | Backend | Affordance |
 |---|---|
 | AppKit | `NSTextField.setSelectable:` |
+| UIKit | the label is rebuilt as a read-only, non-scrolling `UITextView` (below) |
 | GTK | `GtkLabel.set_selectable` |
 | Qt | `QLabel` `TextSelectableByMouse`/`ByKeyboard` |
 | XAML | `TextBlock.IsTextSelectionEnabled` |
 | HarmonyOS | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
 | Android | `TextView.setTextIsSelectable` (long-press → copy) |
 | web-dom | `user-select: text` (the `#day-root` default is `none`) |
-| UIKit | not supported on a plain `UILabel` — a no-op |
+
+UIKit is the one platform whose label class has no selection support to switch on: UIKit
+reserves selection for `UITextInput` views, and SwiftUI's selectable `Text` isn't a `UILabel`
+either — it pairs its own text renderer with the system selection UI. Day ships the standard
+UIKit emulation of exactly that: `set_selectable` rebuilds the label as a read-only,
+non-scrolling `UITextView` (zero container inset and padding, so it measures like the label),
+and day-core re-points the node's handle at the replacement so text/font/color updates and
+layout keep flowing. The reader gets the platform's real selection — long-press or double-tap,
+grabbers, and the Copy/Look Up edit menu.
 
 Selection visuals and the copy shortcut are the platform's own. It's unmanaged: set once at mount,
 and it survives Day's own text updates.
 
 The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,
-the three bundled custom fonts, and a `.selectable()` line.
+the three bundled custom fonts, and links — with a **Selectable** toggle in the heading's corner
+that opts every text piece on the page in and out of `.selectable()`.

@@ -72,14 +72,15 @@ the accessor hands you that widget's concrete class name:
 
 - **Typed tiers** (AppKit/UIKit/GTK) report the *live* widget's runtime class: objc
   `object_getClass` (`"NSSlider"`, `"UILabel"`), GTK's GType name (`"GtkScale"`). Because it reads
-  the real object, it stays correct even when a piece has a **conditional backing**: if a future
-  rich-text `label` is realized as `UITextView` instead of `UILabel`, the class tells you, and a
-  `downcast_ref` you'd have guessed wrong is avoided:
+  the real object, it stays correct even when a piece has a **conditional backing** — which is no
+  longer hypothetical: a `.selectable()` label on UIKit is realized as a read-only `UITextView`,
+  because `UILabel` has no selection support to switch on (docs/text.md). The class tells you
+  which one you got, and a `downcast_ref` you'd have guessed wrong is avoided:
 
   ```rust
-  label(text).uikit(|view, class, _mtm| match class {
-      "UILabel"    => { /* the lightweight backing */ }
-      "UITextView" => { /* the rich / link-bearing backing */ }
+  label(text).selectable().uikit(|view, class, _mtm| match class {
+      "UILabel"    => { /* the plain backing */ }
+      "UITextView" => { /* the selectable backing (and any future rich/link one) */ }
       _ => {}
   });
   ```
@@ -92,6 +93,34 @@ the accessor hands you that widget's concrete class name:
 Android reports the Java class its `DayBridge` factory realizes (`"android.widget.TextView"`,
 `"com.google.android.material.slider.Slider"`). The name is `""` for layout-only nodes and for
 kinds whose stored handle is a container rather than a single leaf widget.
+
+### Conditional backings: the contract
+
+The native class behind a piece is **not part of Day's API**. Day picks the best class for the
+piece's current modifiers on each platform, and that choice can change — with a modifier (a
+`.selectable()` label on UIKit), with a platform version, or with a Day release. SwiftUI works
+the same way underneath, and the introspection ecosystem around it shows what that costs when
+the mapping is guessed rather than reported: when iOS 16 moved `List` from `UITableView` to
+`UICollectionView`, every hardcoded `UITableView` cast silently stopped matching
+(swiftui-introspect answers this with per-OS-version pins on every view type). Day's tweaks are
+in a stronger position — Day *owns* realization, so instead of you pinning versions, the
+accessor reports the concrete class of the live widget and keeps the node's handle pointed at
+whatever is actually on screen. Three rules keep a tweak on the right side of that contract:
+
+1. **Match the class, don't assume it.** Branch on the reported `class` (or use a guarded
+   `downcast_ref`) as in the example above. An unrecognized class must fall through to a no-op —
+   that is also how a tweak stays quiet on a Day release that changes a backing.
+2. **Order tweaks after rebuilding modifiers.** Decorators run in chain order at mount, and
+   `.selectable()` may *rebuild* the widget (UIKit). A tweak chained before it runs against the
+   widget the rebuild discards — Day logs a warning when that happens; chained after, the tweak
+   sees the widget that ships. When in doubt, tweaks go last in the chain.
+3. **Prefer the widest surface that expresses the intent.** A mutation on the common superclass
+   (`UIView`/`NSView` alpha, layers, tooltips) lands identically on every backing and survives a
+   swap without a branch; reach for the concrete class only when the intent needs it.
+
+`NativeRef` is immune to all of this by construction: it stores the node, not the widget, and
+re-resolves the handle on every call — after a swap it hands you the replacement. That is one
+more reason the rules below say to hold a `NativeRef` rather than a handle clone.
 
 ## Packaged tweaks (`day-tweak-*` crates)
 
@@ -165,6 +194,9 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
 
 - **Main thread only:** Tweaks run at mount (already on the main thread); `NativeRef::with` from
   anywhere else is a checked no-op on Apple (`MainThreadMarker`) and undefined elsewhere; don't.
+- **Tweaks go last in the chain** — after any modifier that can rebuild the backing widget
+  (today `.selectable()`, see "Conditional backings" above). A tweak chained before the rebuild
+  pokes a widget that gets discarded, and Day warns at runtime.
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
   handle clones past the call; hold a `NativeRef` and re-resolve.
 - **Managed properties can be clobbered.** Day re-applies what it manages (title, value, enabled,

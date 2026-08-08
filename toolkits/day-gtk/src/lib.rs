@@ -2792,11 +2792,12 @@ impl Toolkit for Gtk {
         }
     }
 
-    fn set_selectable(&mut self, h: &Handle, selectable: bool) {
+    fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
         // A plain label is a GtkLabel (docs/text.md); the downcast guards a non-label backing.
         if let Some(l) = h.downcast_ref::<gtk4::Label>() {
             l.set_selectable(selectable);
         }
+        None
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {

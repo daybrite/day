@@ -2240,7 +2240,7 @@ mod imp {
             );
         }
 
-        fn set_selectable(&mut self, h: &AHandle, selectable: bool) {
+        fn set_selectable(&mut self, h: &AHandle, selectable: bool) -> Option<AHandle> {
             // A plain label is an android.widget.TextView; make its text selectable (long-press →
             // copy, docs/text.md). A direct instance call — no DayBridge method needed.
             with_env(|env| {
@@ -2251,6 +2251,7 @@ mod imp {
                     &[JValue::Bool(selectable)],
                 );
             });
+            None
         }
 
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {

@@ -2281,8 +2281,16 @@ pub trait Toolkit: Sized + 'static {
     // once from the `.selectable()` modifier (day-pieces) to the widget it wraps — a `label`'s
     // native text view, most usefully. UNMANAGED: Day sets it here and never patches it, so it
     // survives text updates. The default no-op means a backend without a selection affordance
-    // (or where a plain label can't be made selectable) silently leaves the text unselectable.
-    fn set_selectable(&mut self, _h: &Self::Handle, _selectable: bool) {}
+    // silently leaves the text unselectable.
+    //
+    // Returns `Some(replacement)` when the toolkit had to REBUILD the widget as a different
+    // native class to gain a selection affordance (UIKit: `UILabel` has none, so the label
+    // becomes a read-only `UITextView`); day-core re-points the node's handle at the
+    // replacement, so later patches and layout reach the widget that is actually on screen.
+    // Every property-flip backend returns `None`.
+    fn set_selectable(&mut self, _h: &Self::Handle, _selectable: bool) -> Option<Self::Handle> {
+        None
+    }
 
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}

@@ -22,7 +22,7 @@ implement them, and this table proves it.
 | `set_frame` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_opacity` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_transform` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
-| `set_selectable` | · | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `set_selectable` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_scroll_content` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `scroll_to` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `scroll_offset` | · | · | · | · | · | ✓ | · | · | ✓ | ✓ |

@@ -1435,10 +1435,11 @@ mod imp {
             }
         }
 
-        fn set_selectable(&mut self, h: &AHandle, selectable: bool) {
+        fn set_selectable(&mut self, h: &AHandle, selectable: bool) -> Option<AHandle> {
             // The shim sets NODE_TEXT_COPY_OPTION on the Text node; a non-text node ignores it
             // (docs/text.md).
             unsafe { ffi::day_ark_label_set_selectable(h.0, selectable as c_int) };
+            None
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {

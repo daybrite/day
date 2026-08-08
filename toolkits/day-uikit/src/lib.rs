@@ -58,9 +58,10 @@ mod imp {
     };
     use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
-        UIColor, UIControl, UIControlEvents, UIControlState, UILabel, UIModalPresentationStyle,
-        UIProgressView, UIRectEdge, UIScrollView, UISlider, UISwitch, UITextBorderStyle,
-        UITextField, UIView, UIViewAnimationOptions, UIViewController, UIWindow,
+        UIColor, UIControl, UIControlEvents, UIControlState, UIEdgeInsets, UILabel,
+        UIModalPresentationStyle, UIProgressView, UIRectEdge, UIScrollView, UISlider, UISwitch,
+        UITextBorderStyle, UITextField, UITextView, UIView, UIViewAnimationOptions,
+        UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
         UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate, UINavigationBar,
@@ -2231,7 +2232,10 @@ mod imp {
         }
     }
 
-    fn apply_font(label: &UILabel, spec: day_spec::FontSpec) {
+    /// Resolve a [`day_spec::FontSpec`] to its concrete `UIFont` — semantic style, weight,
+    /// italic, tabular figures, all Dynamic Type scaled. Shared by the `UILabel` path and the
+    /// read-only `UITextView` a `.selectable()` label swaps to (`set_selectable`).
+    fn resolve_font(spec: day_spec::FontSpec) -> Retained<objc2_ui_kit::UIFont> {
         use objc2_ui_kit::*;
         let base: Retained<UIFont> = match spec.style {
             Font::System(pt) => unsafe {
@@ -2304,7 +2308,7 @@ mod imp {
         // system face at the resolved size/weight. System styles only — a bundled family keeps
         // its own figures rather than being silently swapped for the system typeface. The result
         // still goes through UIFontMetrics below, so Dynamic Type keeps working.
-        let font = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
+        if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
             unsafe {
                 let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
                 let raw = UIFont::monospacedDigitSystemFontOfSize_weight(font.pointSize(), w);
@@ -2312,7 +2316,11 @@ mod imp {
             }
         } else {
             font
-        };
+        }
+    }
+
+    fn apply_font(label: &UILabel, spec: day_spec::FontSpec) {
+        let font = resolve_font(spec);
         unsafe {
             label.setFont(Some(&font));
             // Re-scale live when the user changes the accessibility text size (works for fonts derived
@@ -3038,6 +3046,31 @@ mod imp {
                                 }
                             },
                         }
+                    } else if let (Some(p), Some(tv)) = (
+                        patch.downcast_ref::<LabelPatch>(),
+                        (**h).downcast_ref::<UITextView>(),
+                    ) {
+                        // A `.selectable()` label rides a read-only UITextView (the
+                        // `set_selectable` swap); the same patches route there.
+                        match p {
+                            LabelPatch::Text(t) => unsafe {
+                                tv.setText(Some(&NSString::from_str(t)))
+                            },
+                            LabelPatch::Font(f) => {
+                                let font = resolve_font(*f);
+                                unsafe {
+                                    tv.setFont(Some(&font));
+                                    let _: () =
+                                        msg_send![&*tv, setAdjustsFontForContentSizeCategory: true];
+                                }
+                            }
+                            LabelPatch::Color(c) => unsafe {
+                                match c {
+                                    Some(c) => tv.setTextColor(Some(&uicolor(*c))),
+                                    None => tv.setTextColor(Some(&UIColor::labelColor())),
+                                }
+                            },
+                        }
                     }
                 }
                 kinds::BUTTON => {
@@ -3323,6 +3356,62 @@ mod imp {
 
         fn move_child(&mut self, parent: &Handle, child: &Handle, _to: usize) {
             unsafe { parent.addSubview(child) };
+        }
+
+        fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
+            // A backing that already is a text view (an earlier swap): flip the flag in place.
+            if let Some(tv) = (**h).downcast_ref::<UITextView>() {
+                unsafe { tv.setSelectable(selectable) };
+                return None;
+            }
+            // UIKit reserves selection for UITextInput views, so a UILabel has no flag to flip
+            // (SwiftUI's selectable Text is its own renderer with the system selection UI
+            // attached — not a UILabel either). The standard emulation ships here instead: the
+            // label is rebuilt as a read-only, non-scrolling UITextView, geometry-matched to
+            // the label (zero inset and padding, so `sizeThatFits` measures the same), and
+            // day-core re-points the node's handle at the replacement (docs/text.md).
+            let label = (**h).downcast_ref::<UILabel>()?;
+            if !selectable {
+                return None; // a plain UILabel is already unselectable
+            }
+            let tv = UITextView::new(mtm());
+            unsafe {
+                tv.setText(label.text().as_deref());
+                tv.setFont(label.font().as_deref());
+                tv.setTextColor(label.textColor().as_deref());
+                let adj: bool = msg_send![label, adjustsFontForContentSizeCategory];
+                let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: adj];
+                tv.setEditable(false);
+                tv.setSelectable(true);
+                tv.setScrollEnabled(false);
+                tv.setBackgroundColor(None);
+                tv.setTextContainerInset(UIEdgeInsets {
+                    top: 0.0,
+                    left: 0.0,
+                    bottom: 0.0,
+                    right: 0.0,
+                });
+                // The container pads 5pt per side by default; raw sends spare day-uikit the
+                // NSTextContainer binding for this one call.
+                let container: *mut AnyObject = msg_send![&*tv, textContainer];
+                let _: () = msg_send![container, setLineFragmentPadding: 0.0f64];
+                // `.id()` may have run before `.selectable()` — carry the identifier over.
+                let ident: Option<Retained<NSString>> = msg_send![&**h, accessibilityIdentifier];
+                if let Some(i) = ident {
+                    let _: () = msg_send![&*tv, setAccessibilityIdentifier: &*i];
+                }
+                // A swap on a LIVE node (a `.tweak` after mount): take the label's place in the
+                // view tree; the re-pointed handle routes later layout and patches here.
+                if let Some(sup) = label.superview() {
+                    tv.setFrame(label.frame());
+                    sup.insertSubview_aboveSubview(
+                        <UITextView as AsRef<UIView>>::as_ref(&tv),
+                        <UILabel as AsRef<UIView>>::as_ref(label),
+                    );
+                    label.removeFromSuperview();
+                }
+            }
+            Some(view_of(tv))
         }
 
         fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {

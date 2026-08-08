@@ -1774,9 +1774,10 @@ impl Toolkit for Xaml {
         }
     }
 
-    fn set_selectable(&mut self, h: &WinHandle, selectable: bool) {
+    fn set_selectable(&mut self, h: &WinHandle, selectable: bool) -> Option<WinHandle> {
         // The shim try_as's to a TextBlock, so a non-label handle is a safe no-op (docs/text.md).
         unsafe { ffi::day_xaml_label_set_selectable(h.0, selectable as c_int) };
+        None
     }
 
     // Animatable visual channels (DESIGN.md §8.4): cheap per-node opacity + transform that don't

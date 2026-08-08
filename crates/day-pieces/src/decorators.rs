@@ -160,22 +160,33 @@ pub trait Decorate: Piece + Sized {
     /// change affects the widget's intrinsic size, follow it with
     /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,
     /// enabled, frame, a11y) on its next patch; unmanaged properties are stable.
+    ///
+    /// Order it AFTER any modifier that can rebuild the backing widget — today
+    /// [`selectable`](Decorate::selectable), which on UIKit realizes the label as a different
+    /// native class. Chained before it, the tweak runs against the widget the rebuild discards
+    /// (Day warns at runtime); chained after, it sees the widget that ships.
     fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> AnyPiece {
         piece_fn(move |cx| {
             let n = self.build(cx);
             f(n);
+            // Mark the node so a LATER backing swap (`.selectable()` on a toolkit that
+            // rebuilds the widget) warns about the discarded tweak instead of losing it
+            // silently (docs/tweaks.md).
+            with_tree(|t| t.note_node_tweaked(n));
             n
         })
     }
 
     /// Make this piece's text **user-selectable** — the reader can select and copy it
     /// (docs/text.md). Most useful on a [`label`](crate::label): text is NOT selectable by default
-    /// on any backend, matching each platform's native behavior. Applied to the piece's own
-    /// widget, so on a container it makes all the text within it selectable.
+    /// on any backend, matching each platform's native behavior.
     ///
-    /// Best-effort: a backend with a native selection affordance for the widget honors it (AppKit,
-    /// UIKit-less desktop toolkits, GTK, Qt, XAML, HarmonyOS, Android, web); one without leaves the
-    /// text unselectable rather than erroring. Selection visuals and the copy shortcut are the
+    /// Every backend honors it on a label: most flip the native widget's selection affordance
+    /// (AppKit, GTK, Qt, XAML, HarmonyOS, Android, web); UIKit — whose `UILabel` has none —
+    /// rebuilds the label as a read-only `UITextView` behind the same handle. On other widgets
+    /// it is best-effort: a backing with no selection affordance leaves the text unselectable
+    /// rather than erroring, and a container cascades only where the platform's affordance does
+    /// (the web) — prefer the label itself. Selection visuals and the copy shortcut are the
     /// platform's own. Unmanaged — set once at mount, and it survives Day's text updates.
     fn selectable(self) -> AnyPiece {
         piece_fn(move |cx| {

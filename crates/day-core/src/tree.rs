@@ -93,6 +93,10 @@ pub struct NodeData<H> {
     /// patches and frame changes animate even outside a `with_animation`. The ambient animation
     /// (`with_animation`) takes precedence when both are present.
     pub implicit_anim: Option<day_spec::AnimSpec>,
+    /// A `.tweak` closure (or a per-toolkit ext modifier, which routes through it) ran against
+    /// this node's handle (docs/tweaks.md). Read by `set_node_selectable`: a backing swap would
+    /// discard that work, which warrants a loud warning rather than silent loss.
+    pub tweaked: bool,
 }
 
 /// An event handler registered on a realized node.
@@ -158,6 +162,7 @@ impl<B: Toolkit> Tree<B> {
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
+            tweaked: false,
             is_boundary: true,
         });
         Tree {
@@ -194,6 +199,7 @@ impl<B: Toolkit> Tree<B> {
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
+            tweaked: false,
             is_boundary: true,
         })
     }
@@ -549,6 +555,12 @@ pub trait TreeOps {
     /// Make `node`'s text user-selectable (the `.selectable()` modifier). One-shot and unmanaged;
     /// No-op if the node has no handle.
     fn set_node_selectable(&mut self, node: RNode, selectable: bool);
+    /// Record that a `.tweak` closure ran against `node`'s current handle (docs/tweaks.md), so
+    /// a later backing swap (`set_node_selectable` on a toolkit that rebuilds the widget) can
+    /// warn about the discarded work instead of losing it silently.
+    fn note_node_tweaked(&mut self, node: RNode) {
+        let _ = node;
+    }
     fn mark_needs_measure(&mut self, node: RNode);
     fn mark_layout_dirty(&mut self);
     fn layout_if_needed(&mut self);
@@ -773,6 +785,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
+            tweaked: false,
             is_boundary,
         });
         if native {
@@ -1127,7 +1140,26 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
             return;
         };
-        self.toolkit.set_selectable(&h, selectable);
+        // A toolkit may have to rebuild the widget as a selection-capable class (UIKit's
+        // label → read-only text view); adopt the replacement so patches and layout follow it.
+        if let Some(new) = self.toolkit.set_selectable(&h, selectable)
+            && let Some(n) = self.nodes.get_mut(node)
+        {
+            if n.tweaked {
+                eprintln!(
+                    "day: `.selectable()` rebuilt this widget as a different native class, \
+                     discarding an earlier tweak's changes — apply `.selectable()` BEFORE the \
+                     tweak so it runs against the widget that ships (docs/tweaks.md)."
+                );
+            }
+            n.handle = Some(new);
+        }
+    }
+
+    fn note_node_tweaked(&mut self, node: RNode) {
+        if let Some(n) = self.nodes.get_mut(node) {
+            n.tweaked = true;
+        }
     }
 
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>) {
@@ -1266,6 +1298,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
+            tweaked: false,
             is_boundary: true,
         });
         match self.toolkit.open_window(rnode_to_id(root), options, kind) {

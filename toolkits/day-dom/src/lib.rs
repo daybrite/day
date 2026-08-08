@@ -1302,10 +1302,11 @@ impl Toolkit for Dom {
         );
     }
 
-    fn set_selectable(&mut self, h: &DomHandle, selectable: bool) {
+    fn set_selectable(&mut self, h: &DomHandle, selectable: bool) -> Option<DomHandle> {
         // Nothing is selectable by default (#day-root sets `user-select: none`); the class opts
         // this element and its text back in (`.day-selectable` in day.css). See docs/text.md.
         class(h.0, "day-selectable", selectable);
+        None
     }
 
     fn set_scroll_content(&mut self, h: &DomHandle, content: Size) {
