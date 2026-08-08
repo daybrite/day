@@ -383,33 +383,50 @@ static void (*g_lifecycle_cb)(int) = nullptr;
 // client size to day-core (XAML works in DIPs; the resize report and client rect are physical px
 // — convert via the window DPI). Either strip may be absent, and they are installed in either
 // order, so both offsets are recomputed here rather than where a bar is created.
-static void day_xaml_relayout_chrome(AppWindow* app) {
-    if (!app || !app->host) return;
-    RECT rc; GetClientRect(app->host, &rc);
-    double scale = GetDpiForWindow(app->host) / 96.0;
+/// Lay one window's docked strips out and report the client size that REMAINS for day's content.
+///
+/// Split out of the primary's relayout so a secondary window (docs/windows.md) lays its chrome
+/// out by the same rules: the two windows differ only in how they report the remaining size —
+/// the primary through the global resize callback, a secondary through its node id — so that is
+/// what stays with each caller and everything else lives here.
+static void layout_window_chrome(HWND host, WUXC::Canvas const& content,
+                                 WUXC::MenuBar const& menubar, WUXC::CommandBar const& toolbar,
+                                 int* out_w, int* out_h) {
+    RECT rc; GetClientRect(host, &rc);
+    double scale = GetDpiForWindow(host) / 96.0;
     if (scale <= 0) scale = 1.0;
     double mh_dip = 0;
-    if (app->menubar) {
-        app->menubar.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
-                                       std::numeric_limits<float>::infinity() });
-        mh_dip = app->menubar.DesiredSize().Height;
-        app->menubar.Width(rc.right / scale);
+    if (menubar) {
+        menubar.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
+                                  std::numeric_limits<float>::infinity() });
+        mh_dip = menubar.DesiredSize().Height;
+        menubar.Width(rc.right / scale);
     }
     double th_dip = 0;
-    if (app->toolbar) {
+    if (toolbar) {
         // Measured at the real width: a CommandBar lays its commands out against the width it
         // gets, and an infinite proposal would not give the height it will actually draw at.
-        app->toolbar.Measure(WF::Size{ static_cast<float>(rc.right / scale),
-                                       std::numeric_limits<float>::infinity() });
-        th_dip = app->toolbar.DesiredSize().Height;
-        app->toolbar.Width(rc.right / scale);
-        WUXC::Canvas::SetTop(app->toolbar, mh_dip);
+        toolbar.Measure(WF::Size{ static_cast<float>(rc.right / scale),
+                                  std::numeric_limits<float>::infinity() });
+        th_dip = toolbar.DesiredSize().Height;
+        toolbar.Width(rc.right / scale);
+        WUXC::Canvas::SetTop(toolbar, mh_dip);
     }
-    if (app->content) WUXC::Canvas::SetTop(app->content, mh_dip + th_dip);
-    if (g_resize_cb) {
-        int chrome_px = static_cast<int>(std::lround((mh_dip + th_dip) * scale));
-        g_resize_cb(rc.right, rc.bottom > chrome_px ? rc.bottom - chrome_px : 0);
-    }
+    if (content) WUXC::Canvas::SetTop(content, mh_dip + th_dip);
+    int chrome_px = static_cast<int>(std::lround((mh_dip + th_dip) * scale));
+    if (out_w) *out_w = rc.right;
+    if (out_h) *out_h = rc.bottom > chrome_px ? rc.bottom - chrome_px : 0;
+}
+
+// Reserve the docked chrome's strips on the PRIMARY window and report the remaining client size
+// to day-core (XAML works in DIPs; the resize report and client rect are physical px). Either
+// strip may be absent, and they are installed in either order, so both offsets are recomputed
+// here rather than where a bar is created.
+static void day_xaml_relayout_chrome(AppWindow* app) {
+    if (!app || !app->host) return;
+    int w = 0, h = 0;
+    layout_window_chrome(app->host, app->content, app->menubar, app->toolbar, &w, &h);
+    if (g_resize_cb) g_resize_cb(w, h);
 }
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -671,11 +688,30 @@ void day_xaml_window_show(void* win) {
 // Known v1 limit: the primary's message loop PreTranslateMessage targets the primary
 // island only, so keyboard accelerators inside secondary islands may be degraded.
 
+// Live toolbar item elements by id, for the targeted patches (search text, toggle state,
+// enabled). Each install rebuilds its window's map; the map holds the only reference day keeps to
+// those elements.
+//
+// Keyed BY WINDOW, because item ids are only unique within one toolbar: every window an app opens
+// installs the same item list (the showcase's `register_new_window` re-runs its toolbar install),
+// so a single id→element map would let the newest window's items answer patches aimed at an older
+// window's — and clearing it per install would strand the older window's patches entirely.
+// Declared here rather than beside the toolbar builder because a window's teardown drops its
+// entry, and that runs further up this file.
+using ToolbarElems = std::map<std::string, FrameworkElement>;
+static std::map<void*, ToolbarElems> g_toolbar_elems;
+
 struct SecWindow {
     HWND host{};
     HWND island{};
     WUXH::DesktopWindowXamlSource source{ nullptr };
     WUXC::Canvas root{ nullptr };
+    // Day's tree mounts into `content`, a child canvas offset BELOW the docked chrome — the
+    // primary window's arrangement, so a secondary window can carry a menu bar and a toolbar
+    // instead of being a bare island (docs/windows.md).
+    WUXC::Canvas content{ nullptr };
+    WUXC::MenuBar menubar{ nullptr };
+    WUXC::CommandBar toolbar{ nullptr };
     unsigned long long node = 0;
 };
 static std::map<HWND, SecWindow*> g_sec_windows;
@@ -691,6 +727,15 @@ void day_xaml_set_window_events_cb(void (*resized)(unsigned long long, int, int)
     g_win_focused = focused;
 }
 
+// Lay this window's chrome out and report the size that remains for day's content — the
+// secondary counterpart of day_xaml_relayout_chrome, differing only in where the size goes.
+static void relayout_sec_chrome(SecWindow* sw) {
+    if (!sw || !sw->host) return;
+    int w = 0, h = 0;
+    layout_window_chrome(sw->host, sw->content, sw->menubar, sw->toolbar, &w, &h);
+    if (g_win_resized) g_win_resized(sw->node, w, h);
+}
+
 static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto it = g_sec_windows.find(hwnd);
     SecWindow* sw = it == g_sec_windows.end() ? nullptr : it->second;
@@ -699,7 +744,9 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (sw && sw->island) {
             RECT rc; GetClientRect(hwnd, &rc);
             SetWindowPos(sw->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
-            if (g_win_resized) g_win_resized(sw->node, rc.right, rc.bottom);
+            // Reports the size BELOW the chrome, not the whole client, or day would lay its
+            // tree out under the menu bar.
+            relayout_sec_chrome(sw);
         }
         return 0;
     case WM_ACTIVATE:
@@ -732,13 +779,22 @@ void* day_xaml_window_new2(const char* title, int w, int h,
         RegisterClassW(&wc);
         registered = true;
     }
+    // `fixed` is WindowKind::Preferences — a PANEL, not a second main window. docs/windows.md
+    // has it "drop resize/minimize", and Windows' own settings dialogs add to that: owned by the
+    // window they belong to, so they float above it and take no taskbar button of their own. An
+    // owner is passed as hWndParent WITHOUT WS_CHILD, which is what makes it owned rather than
+    // parented. A Normal window gets none of this — it is an independent main window.
     DWORD style = WS_OVERLAPPEDWINDOW;
-    if (fixed) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+    HWND owner = nullptr;
+    if (fixed) {
+        style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX);
+        owner = g_app ? g_app->host : nullptr;
+    }
     RECT r{ 0, 0, w, h };
     AdjustWindowRect(&r, style, FALSE);
     HWND host = CreateWindowExW(0, L"day_xaml_win2", hs(title).c_str(), style,
                                 CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
-                                r.bottom - r.top, nullptr, nullptr,
+                                r.bottom - r.top, owner, nullptr,
                                 GetModuleHandleW(nullptr), nullptr);
     if (!host) return nullptr;
 
@@ -787,11 +843,17 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     }
     root.Loaded(token);
 
+    // Day's tree goes in a child canvas, not in `root` — `root` also carries the docked menu bar
+    // and toolbar, and relayout slides this one below them.
+    WUXC::Canvas content;
+    root.Children().Append(content);
+
     auto sw = new SecWindow();
     sw->host = host;
     sw->island = island;
     sw->source = source;
     sw->root = root;
+    sw->content = content;
     sw->node = node;
     g_sec_windows[host] = sw;
     return sw;
@@ -802,7 +864,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
 }
 
 void* day_xaml_window_content2(void* win) {
-    return boxh(static_cast<SecWindow*>(win)->root);
+    return boxh(static_cast<SecWindow*>(win)->content);
 }
 void day_xaml_window_close2(void* win) {
     PostMessageW(static_cast<SecWindow*>(win)->host, WM_CLOSE, 0, 0);
@@ -818,6 +880,9 @@ void day_xaml_window_set_title2(void* win, const char* title) {
 void day_xaml_window_destroy2(void* win) {
     auto sw = static_cast<SecWindow*>(win);
     g_sec_windows.erase(sw->host);
+    // This window's toolbar items go with it, or the map grows by a full item set on every
+    // open/close cycle and holds those elements alive for the process's life.
+    g_toolbar_elems.erase(win);
     // Close the island BEFORE the host window goes. The DesktopWindowXamlSource owns a child
     // HWND of `host`, so DestroyWindow takes that window out from under XAML and leaves the
     // source to tear down an island whose HWND no longer exists — Close() first is the order
@@ -2770,22 +2835,25 @@ extern "C" void day_xaml_set_context_menu(void* h, const char* spec) try {
 } catch (...) {
 }
 
-extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
-    auto app = reinterpret_cast<AppWindow*>(win);
-    if (!app || !app->root) return;
-    // The OEM shortcuts belong to the menu being replaced; drop them with it.
-    g_oem_accels.clear();
+/// Build the docked MenuBar for `root`, replacing any previous one; null for an empty spec.
+///
+/// Shared by the primary window and every secondary one (docs/windows.md): day's app menu has no
+/// window parameter — it is one menu for the app, the macOS shape — but Windows draws it per
+/// window, so the same spec is installed into each. `global_accels` is reserved for the primary:
+/// the OEM shortcuts it registers dispatch app-level action ids, so registering them once is both
+/// sufficient and what keeps a second window from clearing the first window's set.
+static WUXC::MenuBar install_menu_bar(WUXC::Canvas const& root, const char* spec,
+                                      bool global_accels) {
     // Remove any prior MenuBar we docked (named "day_menubar"). `Children()` returns the
     // UIElementCollection by value (a projection over the real collection), so bind it by value —
     // a non-const reference can't bind to that rvalue (C2440) — mutations still hit the real one.
-    auto kids = app->root.Children();
+    auto kids = root.Children();
     for (uint32_t i = 0; i < kids.Size(); ++i) {
         if (auto fe = kids.GetAt(i).try_as<FrameworkElement>()) {
             if (fe.Name() == L"day_menubar") { kids.RemoveAt(i); break; }
         }
     }
-    app->menubar = nullptr;
-    if (!spec || !*spec) { day_xaml_relayout_chrome(app); return; }
+    if (!spec || !*spec) return nullptr;
     WUXC::MenuBar bar;
     bar.Name(L"day_menubar");
     // Top-level "S" groups become MenuBarItems; a bare item wraps in an unnamed MenuBarItem.
@@ -2811,21 +2879,38 @@ extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
                 inner += "\n";
                 ++i;
             }
-            build_menu_items(mbi.Items(), inner, true);
+            build_menu_items(mbi.Items(), inner, global_accels);
             bar.Items().Append(mbi);
         } else {
             WUXC::MenuBarItem mbi;
             mbi.Title(hs(""));
-            build_menu_items(mbi.Items(), lines[i] + "\n", true);
+            build_menu_items(mbi.Items(), lines[i] + "\n", global_accels);
             bar.Items().Append(mbi);
             ++i;
         }
     }
     WUXC::Canvas::SetLeft(bar, 0);
     WUXC::Canvas::SetTop(bar, 0);
-    app->root.Children().Append(bar);
-    app->menubar = bar;
+    root.Children().Append(bar);
+    return bar;
+}
+
+extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) return;
+    // The OEM shortcuts belong to the menu being replaced; drop them with it.
+    g_oem_accels.clear();
+    app->menubar = install_menu_bar(app->root, spec, true);
     day_xaml_relayout_chrome(app);
+} catch (...) {
+}
+
+// The same app menu, docked in a secondary window (docs/windows.md).
+extern "C" void day_xaml_window_set_menu2(void* win, const char* spec) try {
+    auto sw = static_cast<SecWindow*>(win);
+    if (!sw || !sw->root) return;
+    sw->menubar = install_menu_bar(sw->root, spec, false);
+    relayout_sec_chrome(sw);
 } catch (...) {
 }
 
@@ -2852,9 +2937,19 @@ extern "C" void day_xaml_set_app_menu(void* win, const char* spec) try {
 // kind 0 = toggle (`on`), kind 1 = search text (`text`).
 static void (*g_toolbar_cb)(unsigned long long, int, int, const char*) = nullptr;
 
-// Live item elements by id, for the targeted patches (search text, toggle state, enabled). Each
-// install rebuilds it; the map holds the only reference day keeps to those elements.
-static std::map<std::string, FrameworkElement> g_toolbar_elems;
+// Where the install in progress records its items. Set around a build, since the item
+// construction below is many frames deep and threading a parameter through it all buys nothing
+// on a single UI thread.
+static ToolbarElems* g_toolbar_target = nullptr;
+
+/// One window's live toolbar item, or null. `win` is the window token the install used — the
+/// primary AppWindow* or a SecWindow* — so a patch reaches the item in the window that owns it.
+static FrameworkElement find_toolbar_elem(void* win, const char* id) {
+    auto w = g_toolbar_elems.find(win);
+    if (w == g_toolbar_elems.end()) return nullptr;
+    auto it = w->second.find(std::string(id ? id : ""));
+    return it == w->second.end() ? nullptr : it->second;
+}
 
 // A programmatic IsChecked write is in flight. ToggleButton raises Checked/Unchecked
 // synchronously from the setter, so a flag around the write keeps day's own value from echoing
@@ -2906,20 +3001,22 @@ static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::strin
     return nullptr;
 }
 
-extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
-    auto app = reinterpret_cast<AppWindow*>(win);
-    if (!app || !app->root) return;
+/// Build the docked CommandBar for `root`, replacing any previous one; null for an empty spec.
+/// `elems` receives this window's id→element map for the targeted patches. Shared by the primary
+/// window and every secondary one, exactly like `install_menu_bar`.
+static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char* spec,
+                                            ToolbarElems* elems) {
     // Take out the bar a previous install docked (named "day_toolbar"), the same way the MenuBar
     // above is replaced; `Children()` is a projection returned by value, so bind it by value.
-    auto kids = app->root.Children();
+    auto kids = root.Children();
     for (uint32_t i = 0; i < kids.Size(); ++i) {
         if (auto fe = kids.GetAt(i).try_as<FrameworkElement>()) {
             if (fe.Name() == L"day_toolbar") { kids.RemoveAt(i); break; }
         }
     }
-    app->toolbar = nullptr;
-    g_toolbar_elems.clear();
-    if (!spec || !*spec) { day_xaml_relayout_chrome(app); return; }
+    if (elems) elems->clear();
+    if (!spec || !*spec) return nullptr;
+    g_toolbar_target = elems;
 
     WUXC::CommandBar bar;
     bar.Name(L"day_toolbar");
@@ -2938,7 +3035,7 @@ extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
     auto place_command = [&](FrameworkElement const& e, const std::string& id) {
         if (trailing) bar.PrimaryCommands().Append(e.as<WUXC::ICommandBarElement>());
         else lead.Children().Append(e);
-        if (!id.empty()) g_toolbar_elems.insert_or_assign(id, e);
+        if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, e);
     };
     // A leading AppBarButton is outside the bar's own collections, so DefaultLabelPosition does
     // not reach it and it would draw its label UNDER the icon — two rows tall. Collapse the label
@@ -3005,7 +3102,7 @@ extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
                 });
             }
             lead.Children().Append(box);
-            if (!id.empty()) g_toolbar_elems.insert_or_assign(id, box);
+            if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, box);
         } else if (kind == "S") {
             // The sidebar toggle. E700 is GlobalNavButton, the hamburger every Windows app uses
             // for exactly this, so the item needs no icon from the app. It carries no action id:
@@ -3029,7 +3126,7 @@ extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
             caption.VerticalAlignment(WUX::VerticalAlignment::Center);
             caption.Margin(WUX::Thickness{ 8, 0, 8, 0 });
             lead.Children().Append(caption);
-            if (!id.empty()) g_toolbar_elems.insert_or_assign(id, caption);
+            if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, caption);
         } else if (kind == "T") {
             WUXC::AppBarToggleButton toggle;
             toggle.Label(hs(label.c_str()));
@@ -3091,16 +3188,35 @@ extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
     WUXC::Canvas::SetLeft(bar, 0);
     // The top offset (below the menu bar, if there is one) and the width are relayout's job —
     // the two bars are installed in either order.
-    app->root.Children().Append(bar);
-    app->toolbar = bar;
-    day_xaml_relayout_chrome(app);
-} catch (...) {
+    root.Children().Append(bar);
+    g_toolbar_target = nullptr;
+    return bar;
 }
 
-extern "C" void day_xaml_toolbar_set_text(const char* id, const char* text) try {
-    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
-    if (it == g_toolbar_elems.end()) return;
-    auto box = it->second.try_as<WUXC::AutoSuggestBox>();
+extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->root) return;
+    app->toolbar = install_toolbar_bar(app->root, spec, &g_toolbar_elems[win]);
+    day_xaml_relayout_chrome(app);
+} catch (...) {
+    g_toolbar_target = nullptr;
+}
+
+// A secondary window's own toolbar (docs/toolbars.md): every window an app opens installs its
+// own item list, and each one drives the window it is in.
+extern "C" void day_xaml_window_set_toolbar2(void* win, const char* spec) try {
+    auto sw = static_cast<SecWindow*>(win);
+    if (!sw || !sw->root) return;
+    sw->toolbar = install_toolbar_bar(sw->root, spec, &g_toolbar_elems[win]);
+    relayout_sec_chrome(sw);
+} catch (...) {
+    g_toolbar_target = nullptr;
+}
+
+extern "C" void day_xaml_toolbar_set_text(void* win, const char* id, const char* text) try {
+    auto e = find_toolbar_elem(win, id);
+    if (!e) return;
+    auto box = e.try_as<WUXC::AutoSuggestBox>();
     if (!box) return;
     // Write only a real change, exactly as day_xaml_textbox_set_text does: an identical Text
     // raises no TextChanged at all, so the app's caret and selection survive the sync.
@@ -3109,10 +3225,10 @@ extern "C" void day_xaml_toolbar_set_text(const char* id, const char* text) try 
 } catch (...) {
 }
 
-extern "C" void day_xaml_toolbar_set_checked(const char* id, int on) try {
-    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
-    if (it == g_toolbar_elems.end()) return;
-    auto toggle = it->second.try_as<WUXC::AppBarToggleButton>();
+extern "C" void day_xaml_toolbar_set_checked(void* win, const char* id, int on) try {
+    auto e = find_toolbar_elem(win, id);
+    if (!e) return;
+    auto toggle = e.try_as<WUXC::AppBarToggleButton>();
     if (!toggle) return;
     auto current = toggle.IsChecked(); // IReference<bool>: null = indeterminate
     if (current && current.Value() == (on != 0)) return;
@@ -3123,12 +3239,12 @@ extern "C" void day_xaml_toolbar_set_checked(const char* id, int on) try {
     g_toolbar_setting_checked = false;
 }
 
-extern "C" void day_xaml_toolbar_set_enabled(const char* id, int on) try {
-    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
-    if (it == g_toolbar_elems.end()) return;
+extern "C" void day_xaml_toolbar_set_enabled(void* win, const char* id, int on) try {
+    auto e = find_toolbar_elem(win, id);
+    if (!e) return;
     // A label item is a TextBlock, which has no enabled state — the cast fails and nothing
     // happens, which is the honest outcome for "disable a caption".
-    if (auto control = it->second.try_as<WUXC::Control>()) control.IsEnabled(on != 0);
+    if (auto control = e.try_as<WUXC::Control>()) control.IsEnabled(on != 0);
 } catch (...) {
 }
 

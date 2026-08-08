@@ -161,30 +161,40 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
 impl Xaml {
     /// Install `items` as the window's toolbar (docs/toolbars.md). An empty slice removes it.
     pub(crate) fn install_toolbar(&mut self, h: &WinHandle, items: &[ToolbarItem]) {
-        // Window chrome (the menu bar, this bar, the reduced content size day lays out in) lives
-        // on the primary AppWindow; a secondary window is a bare XAML island with none of it, so
-        // its toolbar is dropped rather than landing on the wrong window.
-        if self.window.is_null() || self.secondary.iter().any(|w| w.content == h.0) {
+        // Into the window that asked for it. Secondary windows carry the same docked chrome as
+        // the primary (docs/windows.md), so an app that installs a toolbar per window — which is
+        // what `register_new_window` builders do — gets one in each.
+        let Some(win) = self.window_token(h) else {
             return;
-        }
+        };
         let spec = serialize_toolbar(items);
-        unsafe { ffi::day_xaml_set_toolbar(self.window, cstr(&spec).as_ptr()) };
+        unsafe {
+            if win == self.window {
+                ffi::day_xaml_set_toolbar(win, cstr(&spec).as_ptr());
+            } else {
+                ffi::day_xaml_window_set_toolbar2(win, cstr(&spec).as_ptr());
+            }
+        }
     }
 
-    /// Apply a targeted change to one live item.
-    pub(crate) fn patch_toolbar(&mut self, _h: &WinHandle, patch: &ToolbarPatch) {
+    /// Apply a targeted change to one live item, in the window that owns it — item ids repeat
+    /// across windows, so the window is half the address.
+    pub(crate) fn patch_toolbar(&mut self, h: &WinHandle, patch: &ToolbarPatch) {
+        let Some(win) = self.window_token(h) else {
+            return;
+        };
         match patch {
             ToolbarPatch::Text { item, text } => {
                 let (id, text) = (cstr(item), cstr(text));
-                unsafe { ffi::day_xaml_toolbar_set_text(id.as_ptr(), text.as_ptr()) };
+                unsafe { ffi::day_xaml_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };
             }
             ToolbarPatch::On { item, on } => {
                 let id = cstr(item);
-                unsafe { ffi::day_xaml_toolbar_set_checked(id.as_ptr(), *on as c_int) };
+                unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), *on as c_int) };
             }
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
-                unsafe { ffi::day_xaml_toolbar_set_enabled(id.as_ptr(), *on as c_int) };
+                unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), *on as c_int) };
             }
         }
     }

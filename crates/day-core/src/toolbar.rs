@@ -58,6 +58,15 @@ pub(crate) fn with_window<R>(root: RNode, f: impl FnOnce() -> R) -> R {
 }
 
 /// The window a toolbar call targets: the one being built, else the primary root.
+///
+/// Public because the reactive installer must CAPTURE it (day-pieces `toolbar_reactive`). Its
+/// effect re-runs long after the build that created it, when `BUILDING` is unset again — and the
+/// fallback here is the primary window, so a second window's rebuilt toolbar would replace the
+/// PRIMARY's. Reading it once, at install time, is what keeps a toolbar with its own window.
+pub fn current_window() -> RNode {
+    target_window()
+}
+
 fn target_window() -> RNode {
     BUILDING
         .get()

@@ -32,8 +32,8 @@ pub use menu::{dispatch_menu_action, register_menu_action, set_app_menu};
 pub use nav::*;
 pub use present::*;
 pub use toolbar::{
-    dispatch_toolbar_value, patch_toolbar, patch_window_toolbar, register_toolbar_value,
-    set_toolbar, set_window_toolbar,
+    current_window, dispatch_toolbar_value, patch_toolbar, patch_window_toolbar,
+    register_toolbar_value, set_toolbar, set_window_toolbar,
 };
 // The resource seam lives in day-spec (backends depend only on day-spec); re-export for the facade.
 pub use day_spec::resource::{

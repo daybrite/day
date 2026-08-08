@@ -534,12 +534,31 @@ pub static RENDERERS: [fn() -> Renderer<Xaml>];
 struct XamlWin {
     win: *mut c_void,
     content: *mut c_void,
+    /// A Preferences panel, which carries no menu bar (docs/windows.md). Recorded because the
+    /// app menu is re-installed on a locale change, and that pass walks every open window — it
+    /// would put a File/Edit/View bar back on the settings panel.
+    menuless: bool,
 }
 
 pub struct Xaml {
     registry: Registry<Xaml>,
     window: *mut c_void,
     secondary: Vec<XamlWin>,
+    /// The app menu's serialized spec, replayed into each window that opens after it was set
+    /// (docs/menus.md): one menu for the app, but Windows draws it per window.
+    menu_spec: String,
+}
+
+impl Xaml {
+    /// The shim-side window token owning `h` — the primary window, or the secondary whose content
+    /// canvas this is. `None` when the handle belongs to no window day opened, which is how a
+    /// chrome call for an unknown host is dropped rather than landing on the wrong window.
+    fn window_token(&self, h: &WinHandle) -> Option<*mut c_void> {
+        if let Some(w) = self.secondary.iter().find(|w| w.content == h.0) {
+            return Some(w.win);
+        }
+        (!self.window.is_null()).then_some(self.window)
+    }
 }
 
 impl Xaml {
@@ -559,6 +578,7 @@ impl Xaml {
             registry,
             window: std::ptr::null_mut(),
             secondary: Vec::new(),
+            menu_spec: String::new(),
         }
     }
 }
@@ -1920,7 +1940,17 @@ impl Toolkit for Xaml {
         );
         let mut spec = String::new();
         serialize_menu_xaml(&items, &mut spec);
-        unsafe { ffi::day_xaml_set_app_menu(self.window, cstr(&spec).as_ptr()) };
+        // Kept, because day's app menu is installed ONCE but Windows draws it per window: a
+        // window opened later has to be given the menu that was set before it existed
+        // (see `open_window`). Re-set on a locale change, so the stored spec stays current.
+        self.menu_spec = spec.clone();
+        let c = cstr(&spec);
+        unsafe { ffi::day_xaml_set_app_menu(self.window, c.as_ptr()) };
+        // Every window already open shows the same bar — the menu is app-level, not per-window.
+        // A Preferences panel is the exception and stays bare.
+        for w in self.secondary.iter().filter(|w| !w.menuless) {
+            unsafe { ffi::day_xaml_window_set_menu2(w.win, c.as_ptr()) };
+        }
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
@@ -2017,7 +2047,21 @@ impl Toolkit for Xaml {
             return day_spec::WindowOpenReply::Unsupported;
         }
         let content = unsafe { ffi::day_xaml_window_content2(win) };
-        self.secondary.push(XamlWin { win, content });
+        // The app menu was installed before this window existed, and Windows draws one per
+        // window — so replay it here rather than leaving the new window bare.
+        //
+        // Except into a Preferences window: that is a panel, not a second main window
+        // (docs/windows.md), and a settings dialog carrying File/Edit/View is not an idiom
+        // Windows has. It keeps the menu-less frame the shim gives it.
+        let menuless = kind == day_spec::WindowKind::Preferences;
+        if !menuless && !self.menu_spec.is_empty() {
+            unsafe { ffi::day_xaml_window_set_menu2(win, cstr(&self.menu_spec).as_ptr()) };
+        }
+        self.secondary.push(XamlWin {
+            win,
+            content,
+            menuless,
+        });
         day_spec::WindowOpenReply::Open(WinHandle(content))
     }
 

@@ -205,7 +205,7 @@ impl ToolbarEntry {
 
 /// Lower app-side entries to the spec model, registering each item's closures with day-core and
 /// wiring the live bindings (toggle state, search text, `enabled_when`).
-fn lower(entries: Vec<ToolbarEntry>) -> Vec<ToolbarItem> {
+fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem> {
     entries
         .into_iter()
         .map(|e| {
@@ -258,7 +258,7 @@ fn lower(entries: Vec<ToolbarEntry>) -> Vec<ToolbarItem> {
                         seed,
                         move || on.get(),
                         move |v: &bool| {
-                            day_core::patch_toolbar(ToolbarPatch::On {
+                            day_core::patch_window_toolbar(window, ToolbarPatch::On {
                                 item: item.clone(),
                                 on: *v,
                             });
@@ -289,7 +289,7 @@ fn lower(entries: Vec<ToolbarEntry>) -> Vec<ToolbarItem> {
                         move || query.get(),
                         move |t: &String| {
                             if guard.borrow_mut().take().as_deref() != Some(t.as_str()) {
-                                day_core::patch_toolbar(ToolbarPatch::Text {
+                                day_core::patch_window_toolbar(window, ToolbarPatch::Text {
                                     item: item.clone(),
                                     text: t.clone(),
                                 });
@@ -316,7 +316,7 @@ fn lower(entries: Vec<ToolbarEntry>) -> Vec<ToolbarItem> {
                 bind(
                     move || f(),
                     move |on: &bool| {
-                        day_core::patch_toolbar(ToolbarPatch::Enabled {
+                        day_core::patch_window_toolbar(window, ToolbarPatch::Enabled {
                             item: item.clone(),
                             on: *on,
                         });
@@ -345,7 +345,10 @@ fn lower(entries: Vec<ToolbarEntry>) -> Vec<ToolbarItem> {
 /// Labels resolve once, in the install-time locale; an app whose language can change at runtime
 /// should use [`toolbar_reactive`].
 pub fn toolbar(items: Vec<ToolbarEntry>) {
-    day_core::set_toolbar(lower(items));
+    // Resolved ONCE and passed down: the bindings `lower` creates outlive this call and fire when
+    // no window is being built, where the target would otherwise fall back to the primary.
+    let window = day_core::current_window();
+    day_core::set_window_toolbar(window, lower(items, window));
 }
 
 /// [`toolbar`] that re-lowers and re-installs whenever a reactive read inside `builder` changes —
@@ -359,6 +362,11 @@ pub fn toolbar_reactive(builder: impl Fn() -> Vec<ToolbarEntry> + 'static) {
     // disposes, so a rebuilt bar does not leave the old one's bindings writing patches at items
     // that no longer exist.
     let pass: Rc<RefCell<Option<Scope>>> = Rc::new(RefCell::new(None));
+    // Captured HERE, while the window that owns this toolbar is still the one being built. The
+    // effect below re-runs on a locale switch or a state change, long after that build has
+    // finished, and would then resolve to the primary window — so a second window's rebuild
+    // replaced the PRIMARY window's toolbar rather than its own.
+    let window = day_core::current_window();
     let outer = Scope::root().enter(Scope::child);
     outer.enter(|| {
         day_reactive::Effect::new(move || {
@@ -366,11 +374,11 @@ pub fn toolbar_reactive(builder: impl Fn() -> Vec<ToolbarEntry> + 'static) {
             let _ = day_l10n::locale().get();
             let entries = builder();
             let next = Scope::root().enter(Scope::child);
-            let items = next.enter(|| lower(entries));
+            let items = next.enter(|| lower(entries, window));
             if let Some(old) = pass.borrow_mut().replace(next) {
                 old.dispose();
             }
-            day_core::set_toolbar(items);
+            day_core::set_window_toolbar(window, items);
         });
     });
 }

@@ -282,9 +282,15 @@ unsafe extern "C" {
     pub fn day_xaml_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));
     pub fn day_xaml_set_toolbar(win: *mut c_void, spec: *const c_char);
     // Targeted patches, addressed by the item's id (no-op if the bar has no such item).
-    pub fn day_xaml_toolbar_set_text(id: *const c_char, text: *const c_char);
-    pub fn day_xaml_toolbar_set_checked(id: *const c_char, on: c_int);
-    pub fn day_xaml_toolbar_set_enabled(id: *const c_char, on: c_int);
+    // Targeted item patches. `win` is the window whose toolbar owns the item: every window
+    // installs the same item ids, so a patch has to name the window as well as the id.
+    pub fn day_xaml_toolbar_set_text(win: *mut c_void, id: *const c_char, text: *const c_char);
+    pub fn day_xaml_toolbar_set_checked(win: *mut c_void, id: *const c_char, on: c_int);
+    pub fn day_xaml_toolbar_set_enabled(win: *mut c_void, id: *const c_char, on: c_int);
+    /// The app menu and a toolbar docked in a SECONDARY window (docs/windows.md): day's app menu
+    /// has no window parameter, so the same spec is installed into each window that opens.
+    pub fn day_xaml_window_set_menu2(win: *mut c_void, spec: *const c_char);
+    pub fn day_xaml_window_set_toolbar2(win: *mut c_void, spec: *const c_char);
     // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behaviour, also
     // reachable from dayscript through the toolkit duty. 0 = no split nav in this window.
     pub fn day_xaml_toggle_sidebar() -> c_int;
