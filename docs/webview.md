@@ -42,8 +42,11 @@ button("Back").enabled(move || history).action(move || back.notify());
 `.back()`, `.forward()` and `.stop()` are no-ops below `Native`, so a button left enabled there is one
 that does nothing when pressed.
 
-Evaluating JavaScript and reading a value back is designed but not implemented — see
-[webview-eval.md](./webview-eval.md) for the per-platform research and the plan.
+Evaluating JavaScript and reading a value back ships on **AppKit, UIKit, Qt and XAML**:
+`JsHandle::eval(script).await` returns the value as JSON, or the error the script threw. Ask
+`eval_support()` before offering it — GTK, Android and ArkUI have an engine but no arm yet, and
+web-dom can never have one. See [webview-eval.md](./webview-eval.md) for the per-platform research,
+the JavaScript envelope, and what each remaining arm needs.
 
 ## Per-backend native realization
 

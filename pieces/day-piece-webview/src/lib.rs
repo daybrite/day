@@ -284,12 +284,13 @@ pub fn eval_support() -> day_spec::Support {
         all(feature = "appkit", target_os = "macos"),
         all(feature = "uikit", target_os = "ios"),
         feature = "qt",
+        all(feature = "xaml", target_os = "windows"),
     )) {
         day_spec::Support::Native
     } else {
-        // GTK, Android, XAML and ArkUI all have an engine and an equivalent call; their arms are
-        // not written yet (docs/webview-eval.md lists them in order). web-dom cannot ever do this
-        // — `contentWindow.eval` throws across origins.
+        // GTK, Android and ArkUI all have an engine and an equivalent call; their arms are not
+        // written yet (docs/webview-eval.md lists them in order). web-dom cannot ever do this —
+        // `contentWindow.eval` throws across origins.
         day_spec::Support::Unsupported
     }
 }

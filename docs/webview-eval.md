@@ -3,18 +3,26 @@
 > [!IMPORTANT]
 > **Status: partly implemented.** The front-end ships — `JsHandle::eval` returning a future, the
 > JavaScript envelope, the request/reply codec, `eval_support()`, and the `num`-keyed split that
-> keeps evaluation replies from clobbering the URL readback. **AppKit, UIKit and Qt** have working
-> arms; `eval_support()` reports `Native` there.
+> keeps evaluation replies from clobbering the URL readback. **AppKit, UIKit, Qt and XAML** have
+> working arms; `eval_support()` reports `Native` there.
 >
-> **GTK, Android, XAML and ArkUI** carry an inert `WebPatch::Eval` arm so their `match` stays
-> exhaustive, and report `Unsupported`. The per-platform research below is what those arms need; the
-> order in [Implementation order](#implementation-order) still holds, minus the two that are done.
+> **GTK, Android and ArkUI** carry an inert `WebPatch::Eval` arm so their `match` stays exhaustive,
+> and report `Unsupported`. The per-platform research below is what those arms need; the order in
+> [Implementation order](#implementation-order) still holds, minus the three that are done.
 > **web-dom can never do this** — `contentWindow.eval` throws across origins.
 >
 > Verified end to end on **macos-qt (21/21 script steps)** and **macos-appkit (20/21 — only the
 > engine-specific `SyntaxError` wording differs)**: values, object serialization, thrown exceptions
-> and syntax errors all round-trip. Eight unit tests pin the codec and the escaping. See
-> [webview.md](./webview.md) for the shipped piece.
+> and syntax errors all round-trip. Eight unit tests pin the codec and the escaping.
+>
+> **windows-xaml verified on real hardware, 2026-08**, driving the showcase's JS console against
+> `https://daybrite.dev`: `document.title` → the page's title, `1+1` → `2`,
+> `({a:1,b:[2,3],c:'hi'})` → `{"a":1,"b":[2,3],"c":"hi"}`, `undefined` → `null`,
+> `throw new Error('boom')` → `Error: boom`, a self-referential object →
+> `TypeError: Converting circular structure to JSON`, and a string carrying an escaped quote and
+> `é` round-tripping as `café`. `1 +` reports **`SyntaxError: Unexpected end of input`** —
+> the case the JS envelope structurally cannot catch, delivered by `ExecuteScriptWithResult`'s
+> engine-level error channel. See [webview.md](./webview.md) for the shipped piece.
 
 Goal: `js.eval("document.title").await` returning a value from the embedded engine, on every backend
 that has one.
@@ -301,8 +309,12 @@ arm loads pages but cannot evaluate at all.
    through `DayBridge.nativeOnEvent(id, 12, corr, value)`. No new Gradle dependency, no day-android edit.
 5. **Qt** — two new C-ABI functions in *both* branches of the shim. The `#else` no-engine branch must
    define them too, or windows-qt fails to link; that is the most likely way this breaks CI.
-6. **XAML** — `try_query<ICoreWebView2_21>` with an `ExecuteScript` fallback, `find_ctx` guard,
-   `CoTaskMemFree` on every out-string.
+6. **XAML** — **done.** `ComPtr::As<ICoreWebView2_21>` with an `ExecuteScript` fallback, `find_ctx`
+   guard, `CoTaskMemFree` on every out-string. Two details the sketch above did not anticipate:
+   `TryGetResultAsString` returns the wrapper's string directly, so the success path needs no JSON
+   walk at all (the same shape Qt's `QVariant` and WebKit's `NSString` hand back) — but the
+   *fallback* path returns the result AS JSON, so it needs a real JSON string decoder including
+   `\u`, because the protocol's own `` separator arrives escaped.
 7. **ArkUI** — the `PieceEvent` widening first, then the arm. Verify on arm64 hardware.
 
 ## Open questions

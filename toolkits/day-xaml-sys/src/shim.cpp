@@ -795,6 +795,17 @@ void day_xaml_window_set_title2(void* win, const char* title) {
 void day_xaml_window_destroy2(void* win) {
     auto sw = static_cast<SecWindow*>(win);
     g_sec_windows.erase(sw->host);
+    // Close the island BEFORE the host window goes. The DesktopWindowXamlSource owns a child
+    // HWND of `host`, so DestroyWindow takes that window out from under XAML and leaves the
+    // source to tear down an island whose HWND no longer exists — Close() first is the order
+    // the API documents. This is the ONLY teardown that runs while the process keeps living:
+    // the primary reaches its own destroy on the way out, where nothing outlives the mistake.
+    if (sw->source) {
+        try {
+            sw->source.Close();
+        } catch (...) {
+        }
+    }
     DestroyWindow(sw->host);
     delete sw;
 }
