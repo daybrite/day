@@ -1358,25 +1358,70 @@ void day_xaml_navlist_set_selected(void* w, int idx) {
 // region reflows (region 0 = content / detail, 1 = pane header); back_cb(id) on the back button.
 static constexpr double DAY_NAV_SIDEBAR_WIDTH = 240.0; // mirrors day_spec::NAV_SIDEBAR_WIDTH
 
-// The split NavigationView this process is showing, for the toolbar's sidebar toggle
-// (docs/toolbars.md). Only a split host registers here; a stack presentation has no sidebar to
-// show or hide. Single-window, like the AppKit and GTK counterparts.
-static WUXC::NavigationView g_navview{ nullptr };
+// Every split NavigationView alive in this process, for the toolbar's sidebar toggle
+// (docs/toolbars.md). Only a split host registers; a stack presentation has no sidebar to show
+// or hide.
+//
+// A LIST, not the single global this started as: secondary windows (docs/windows.md) each build
+// their own split nav, and the last one created would otherwise own the toggle for every window
+// — so the primary window's toolbar button collapsed the SECOND window's sidebar and left its
+// own alone. Each window is its own XAML island with its own XamlRoot, which is what tells them
+// apart at click time.
+static std::vector<WUXC::NavigationView> g_navviews;
 
-// Show/hide the nav pane. In PaneDisplayMode::Left the pane is ALWAYS expanded and IsPaneOpen is
-// ignored, so hiding it means dropping to LeftMinimal — the mode whose pane is a hidden overlay
-// behind a hamburger, which is what a Windows app's collapsed nav looks like. Returns 0 when
-// there is no split nav in this window, which is how the caller renders the item disabled.
-extern "C" int day_xaml_toggle_sidebar() try {
-    if (!g_navview) return 0;
-    if (g_navview.PaneDisplayMode() == WUXC::NavigationViewPaneDisplayMode::Left) {
-        g_navview.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftMinimal);
-        g_navview.IsPaneOpen(false);
+// Show/hide one nav's pane. In PaneDisplayMode::Left the pane is ALWAYS expanded and IsPaneOpen
+// is ignored, so hiding it means dropping to LeftMinimal — the mode whose pane is a hidden
+// overlay behind a hamburger, which is what a Windows app's collapsed nav looks like.
+static bool toggle_nav_pane(WUXC::NavigationView const& nv) {
+    if (!nv) return false;
+    if (nv.PaneDisplayMode() == WUXC::NavigationViewPaneDisplayMode::Left) {
+        nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftMinimal);
+        nv.IsPaneOpen(false);
     } else {
-        g_navview.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left);
-        g_navview.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
+        nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left);
+        nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
     }
-    return 1;
+    return true;
+}
+
+// Drop navs whose window has gone. A closed island leaves its elements without a XamlRoot, which
+// is the only liveness signal a NavigationView offers — without this the list grows across every
+// open/close cycle and `day_xaml_toggle_sidebar` below could pick a dead one as "the primary".
+static void prune_navviews() {
+    g_navviews.erase(std::remove_if(g_navviews.begin(), g_navviews.end(),
+                                    [](WUXC::NavigationView const& nv) {
+                                        if (!nv) return true;
+                                        try {
+                                            return nv.XamlRoot() == nullptr;
+                                        } catch (...) {
+                                            return true;
+                                        }
+                                    }),
+                     g_navviews.end());
+}
+
+// Toggle the sidebar in the SAME window as `origin` — the toolbar button that was clicked.
+// Returns false when that window has no split nav, which is how the caller disables the item.
+static bool toggle_sidebar_near(WUX::FrameworkElement const& origin) try {
+    prune_navviews();
+    if (!origin) return false;
+    auto root = origin.XamlRoot();
+    if (!root) return false;
+    for (auto const& nv : g_navviews) {
+        if (nv.XamlRoot() == root) return toggle_nav_pane(nv);
+    }
+    return false;
+} catch (...) {
+    return false;
+}
+
+// The window-less entry point (day-xaml's `toggle_sidebar` duty, and dayscript's step): no click
+// to locate a window from, so it drives the primary window's nav — the first one still alive,
+// which is the one the app opened with.
+extern "C" int day_xaml_toggle_sidebar() try {
+    prune_navviews();
+    if (g_navviews.empty()) return 0;
+    return toggle_nav_pane(g_navviews.front()) ? 1 : 0;
 } catch (...) {
     return 0;
 }
@@ -1401,8 +1446,9 @@ void* day_xaml_nav_new(unsigned long long id,
     } else {
         nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left); // always-expanded sidebar
         nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
-        // Only a split host is toggleable; the toolbar's sidebar button drives this one.
-        g_navview = nv;
+        // Only a split host is toggleable; a toolbar's sidebar button drives whichever of these
+        // shares its window.
+        g_navviews.push_back(nv);
     }
 
     // The detail host: a Canvas day positions the current page into (absolute frames). A Canvas has
@@ -2970,10 +3016,11 @@ extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
             toggle.IsEnabled(enabled);
             compact(toggle, true);
             WUXC::ToolTipService::SetToolTip(toggle, winrt::box_value(hs(tip.c_str())));
+            // Resolved from the SENDER, not from a process-wide global: the button and the nav it
+            // drives must be in the same window, or a second window steals the primary's toggle.
             toggle.Click([](WF::IInspectable const& s, WUX::RoutedEventArgs const&) {
-                if (!day_xaml_toggle_sidebar()) {
-                    if (auto b = s.try_as<WUXC::AppBarButton>()) b.IsEnabled(false);
-                }
+                auto b = s.try_as<WUXC::AppBarButton>();
+                if (!toggle_sidebar_near(b) && b) b.IsEnabled(false);
             });
             place_command(toggle, id);
         } else if (kind == "L") {
