@@ -70,7 +70,12 @@ jobs:
       - name: Clippy (host-portable crates, CLI, mock backend)
         run: |
           cargo clippy --locked --all-targets
-          cargo clippy --locked -p day-cli -p day-script --all-targets
+          # day-lite is named explicitly because it is a workspace member but NOT a
+          # default-member (its oxc tree is heavy enough to keep out of every bare `cargo
+          # check`), so the line above never compiles it. Without this it is a crate no CI job
+          # builds — which is how a dependabot bump that split the oxc family across two minor
+          # versions sat on main for four days, breaking only `--workspace` builds.
+          cargo clippy --locked -p day-cli -p day-script -p day-lite --all-targets
 
   duty-matrix-drift:
     runs-on: ubuntu-latest

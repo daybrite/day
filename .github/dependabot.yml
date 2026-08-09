@@ -9,3 +9,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Crate families released in lockstep have to be bumped in lockstep. They share types
+    # across crate boundaries, and a 0.x bump is a SemVer-incompatible one — so a PR that
+    # moves two of six leaves the other four behind, cargo keeps both minors in the graph,
+    # and the same struct from two versions stops being the same type ("expected
+    # oxc_allocator::allocator::Allocator, found oxc_allocator::Allocator"). One PR per
+    # family instead of one per crate.
+    groups:
+      oxc:
+        patterns:
+          - "oxc_*"

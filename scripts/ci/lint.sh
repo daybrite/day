@@ -71,7 +71,9 @@ leg "fmt --all --check" cargo fmt --all -- --check
 
 # 2) Host clippy — the default members plus the CLI, dayscript, and mock-backend showcase.
 leg "clippy host (default members)"    cargo clippy --locked --all-targets
-leg "clippy host day-cli + day-script"  cargo clippy --locked -p day-cli -p day-script --all-targets
+# day-lite rides along here rather than in the line above: it is a member but not a
+# default-member, so `cargo clippy --locked` never reaches it (see ci.yml).
+leg "clippy host day-cli + day-script"  cargo clippy --locked -p day-cli -p day-script -p day-lite --all-targets
 app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,

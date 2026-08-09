@@ -119,6 +119,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "base64-simd"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -549,7 +555,7 @@ dependencies = [
 
 [[package]]
 name = "day"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "day-appkit",
@@ -572,7 +578,7 @@ dependencies = [
 
 [[package]]
 name = "day-android"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -583,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "day-appkit"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "day-core",
@@ -602,7 +608,7 @@ dependencies = [
 
 [[package]]
 name = "day-arkui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-arkui-sys",
  "day-core",
@@ -613,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "day-arkui-sys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-spec",
@@ -621,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "day-break"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "day-core",
@@ -639,7 +645,7 @@ dependencies = [
 
 [[package]]
 name = "day-build"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-fonts",
  "fluent-syntax",
@@ -648,7 +654,7 @@ dependencies = [
 
 [[package]]
 name = "day-cli"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "anstream",
  "anstyle",
@@ -678,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "day-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-geometry",
  "day-l10n",
@@ -690,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "day-dom"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-geometry",
  "day-spec",
@@ -698,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "day-fluent"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-l10n",
@@ -707,15 +713,15 @@ dependencies = [
 
 [[package]]
 name = "day-fonts"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "day-geometry"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "day-gtk"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -730,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "day-l10n"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-reactive",
  "fluent-bundle",
@@ -748,7 +754,7 @@ dependencies = [
 
 [[package]]
 name = "day-lite"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-l10n",
@@ -759,11 +765,11 @@ dependencies = [
  "day-reactive",
  "day-spec",
  "fluent-bundle",
- "oxc_allocator 0.142.0",
+ "oxc_allocator",
  "oxc_codegen",
  "oxc_parser",
  "oxc_semantic",
- "oxc_span 0.142.0",
+ "oxc_span",
  "oxc_transformer",
  "rquickjs",
  "rusqlite",
@@ -773,14 +779,14 @@ dependencies = [
 
 [[package]]
 name = "day-mock"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-spec",
 ]
 
 [[package]]
 name = "day-part-battery"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
@@ -791,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-clipboard"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "objc2-app-kit",
@@ -801,7 +807,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-deviceinfo"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "libc",
@@ -812,11 +818,11 @@ dependencies = [
 
 [[package]]
 name = "day-part-fs"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "day-part-haptics"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "objc2",
@@ -826,7 +832,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-http"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "day-android",
@@ -837,7 +843,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-local-notify"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "day-android",
@@ -850,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-location"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "objc2",
@@ -859,14 +865,14 @@ dependencies = [
 
 [[package]]
 name = "day-part-network"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
 ]
 
 [[package]]
 name = "day-part-permissions"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "day-android",
@@ -875,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-prefs"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "day-core",
@@ -886,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-sensors"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "objc2",
@@ -896,7 +902,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-activity"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -921,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-combobox"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -945,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-datetime"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -974,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-lottie"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "day-core",
@@ -991,7 +997,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-map"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -1010,7 +1016,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-media"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -1040,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-pullrefresh"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "cc",
@@ -1066,7 +1072,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-rating"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1075,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-remote-image"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -1103,7 +1109,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-searchfield"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -1130,7 +1136,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-settings"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-fluent",
@@ -1142,7 +1148,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-swiftui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -1160,7 +1166,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-webview"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "cc",
@@ -1192,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "day-pieces"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -1205,7 +1211,7 @@ dependencies = [
 
 [[package]]
 name = "day-qt"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1216,21 +1222,21 @@ dependencies = [
 
 [[package]]
 name = "day-qt-sys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "day-reactive"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "slotmap",
 ]
 
 [[package]]
 name = "day-script"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-fluent",
@@ -1243,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "day-spec"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-fonts",
  "day-geometry",
@@ -1252,11 +1258,11 @@ dependencies = [
 
 [[package]]
 name = "day-toolchain"
-version = "0.1.4"
+version = "0.1.5"
 
 [[package]]
 name = "day-tweak-button-bezel"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -1266,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-slider-tickmarks"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-android",
@@ -1284,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-tooltip"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-android",
  "day-appkit",
@@ -1298,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "day-uikit"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "block2",
  "day-core",
@@ -1316,7 +1322,7 @@ dependencies = [
 
 [[package]]
 name = "day-vector"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "resvg",
  "roxmltree",
@@ -1325,7 +1331,7 @@ dependencies = [
 
 [[package]]
 name = "day-xaml"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1336,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "day-xaml-sys"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cc",
  "day-toolchain",
@@ -3550,63 +3556,39 @@ dependencies = [
 
 [[package]]
 name = "oxc_allocator"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77ffd0bdf76f7272e208a4f55740d309f303a104f198bf4902a7377ae33e0a34"
+checksum = "7c603f4ff4617fc04377aa7557396eaa17c77f82e64ffb22947731f75605951f"
 dependencies = [
  "allocator-api2",
  "hashbrown 0.17.1",
- "oxc_data_structures 0.141.0",
- "rustc-hash",
-]
-
-[[package]]
-name = "oxc_allocator"
-version = "0.142.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae912912216c33ad0fb27a544160f3833a5e92a1216d7c4b9aa79a94b39aee98"
-dependencies = [
- "allocator-api2",
- "hashbrown 0.17.1",
- "oxc_data_structures 0.142.0",
+ "oxc_data_structures",
  "rustc-hash",
 ]
 
 [[package]]
 name = "oxc_ast"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e4a9979cd3cebde3db75fafa713d72e6e891827c29e3ed11d005791052456d9"
+checksum = "cf40d60818cd9ff034774fb371c67d915aa3a6bb0129fdfcb0157a72bda840ff"
 dependencies = [
  "bitflags 2.13.0",
- "oxc_allocator 0.141.0",
- "oxc_ast_macros 0.141.0",
- "oxc_data_structures 0.141.0",
+ "oxc_allocator",
+ "oxc_ast_macros",
+ "oxc_data_structures",
  "oxc_diagnostics",
- "oxc_estree 0.141.0",
+ "oxc_estree",
  "oxc_regular_expression",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "oxc_syntax",
 ]
 
 [[package]]
 name = "oxc_ast_macros"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0adbaf016626ad630020c2d5f9078809aeb115966a9268b313e920c98e58040"
-dependencies = [
- "phf",
- "proc-macro2",
- "quote",
- "syn 3.0.3",
-]
-
-[[package]]
-name = "oxc_ast_macros"
-version = "0.142.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3fff81fa6fffffcf13826a6bc352e402a9197ac88ca286e2b09a0c538904708"
+checksum = "2dd7135befda5e9fab0d549031bf6c0763966bdf596b5429a74c70f0307fcdf5"
 dependencies = [
  "phf",
  "proc-macro2",
@@ -3616,43 +3598,42 @@ dependencies = [
 
 [[package]]
 name = "oxc_ast_visit"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95874e8d4c97ee55054ae50746347fc6d018d0bed9e4f40fef483eb4cf22825a"
+checksum = "a3e2fe96292c0c8752825d95641696be3252be8ddd32a161257cf03874468884"
 dependencies = [
- "oxc_allocator 0.141.0",
+ "oxc_allocator",
  "oxc_ast",
- "oxc_span 0.141.0",
+ "oxc_span",
  "oxc_syntax",
 ]
 
 [[package]]
 name = "oxc_codegen"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3adfd793b0d006c599af1fe8975751cbf425df22c04d55e50691febd3f978fc"
+checksum = "9a945c0ab712d5c14f5962867d9336753f4ef363a69a85a5a9fc7f1a0dcdc2b5"
 dependencies = [
  "bitflags 2.13.0",
  "cow-utils",
- "dragonbox_ecma",
- "itoa",
- "oxc_allocator 0.141.0",
+ "oxc_allocator",
  "oxc_ast",
- "oxc_data_structures 0.141.0",
+ "oxc_data_structures",
+ "oxc_ecmascript",
  "oxc_index",
  "oxc_semantic",
  "oxc_sourcemap",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "oxc_syntax",
  "rustc-hash",
 ]
 
 [[package]]
 name = "oxc_compat"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ba0d6b9b51855cb2255ee1738266163d229696db7225683c0eb809da6adb11b"
+checksum = "887da9e634f5d76da0778674a7303d883e103683fcbc7985cecc9114ce4747ca"
 dependencies = [
  "cow-utils",
  "oxc-browserslist",
@@ -3663,24 +3644,18 @@ dependencies = [
 
 [[package]]
 name = "oxc_data_structures"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "980c41eb52557e3255ebacd0d0b5406d1c8703a59cb5300938940b91de41a46f"
+checksum = "fd2aa418d3599ef5e9880d1a359b27bffff242d4a59e0d62ffe08ebf40acdd99"
 dependencies = [
  "ropey",
 ]
 
 [[package]]
-name = "oxc_data_structures"
-version = "0.142.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d7793b9a760ff426782915100e1f91b4a653873a5b681576214a6eb495d498a"
-
-[[package]]
 name = "oxc_diagnostics"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d355bdf332e8412c7e7e061bf53ac3bf71956225722e8ce1b9428402d97e9db"
+checksum = "f3cdd1fcc5edb6d4666ffc82f1647d9784aa15338e671434b8c70211dd44cb66"
 dependencies = [
  "cow-utils",
  "oxc-miette",
@@ -3689,28 +3664,25 @@ dependencies = [
 
 [[package]]
 name = "oxc_ecmascript"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3729826d5e8e50b6788c79ae3c5f18b6d4b372fb1d5a926813c0edfa69ee5831"
+checksum = "33440685fff66ad5af668cce75130267db8a864938e6433bc264975cd40b2f2c"
 dependencies = [
+ "dragonbox_ecma",
+ "itoa",
  "num-bigint 0.5.1",
  "num-traits",
  "oxc_ast",
- "oxc_span 0.141.0",
+ "oxc_data_structures",
+ "oxc_span",
  "oxc_syntax",
 ]
 
 [[package]]
 name = "oxc_estree"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aec60e099d4c904848f51e2737f290c665be0ed66fb295def44f2e91891b604"
-
-[[package]]
-name = "oxc_estree"
-version = "0.142.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2284782be0ac819aa56b815e6448e140e9f4f2c917917ac4ffa8bd7ccc35a3b"
+checksum = "2267dd438727a1afe72883eb7bf1533511ee713a5ace72cb59ea439f6bc74dca"
 
 [[package]]
 name = "oxc_index"
@@ -3724,23 +3696,23 @@ dependencies = [
 
 [[package]]
 name = "oxc_parser"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc8f483bbfae70f4f7c9a90c4a4a3a165685c2d929e0765e35db6db1ac825c32"
+checksum = "74f6b2ea4e4b0538aa7925d98af33a68cc246c1a85d5543a9540cde24101c7e2"
 dependencies = [
  "bitflags 2.13.0",
  "cow-utils",
  "memchr",
  "num-bigint 0.5.1",
  "num-traits",
- "oxc_allocator 0.141.0",
+ "oxc_allocator",
  "oxc_ast",
- "oxc_data_structures 0.141.0",
+ "oxc_data_structures",
  "oxc_diagnostics",
  "oxc_ecmascript",
  "oxc_regular_expression",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "oxc_syntax",
  "rustc-hash",
  "seq-macro",
@@ -3748,16 +3720,16 @@ dependencies = [
 
 [[package]]
 name = "oxc_regular_expression"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a41b057cf6d615e5736e80eddf9f611827fc0927bc1a7f33b4b10e171cfae4d"
+checksum = "dde40ebbc9bd3d9a35fa67e518197a2ef92da71c6a0b1496eb7443b5014f3fa9"
 dependencies = [
  "bitflags 2.13.0",
- "oxc_allocator 0.141.0",
- "oxc_ast_macros 0.141.0",
+ "oxc_allocator",
+ "oxc_ast_macros",
  "oxc_diagnostics",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "phf",
  "rustc-hash",
  "unicode-id-start",
@@ -3765,21 +3737,21 @@ dependencies = [
 
 [[package]]
 name = "oxc_semantic"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdfab481b9838e23958cfd03638fcb14672be7ca1a3a23d9a87c1a47a00c7cd8"
+checksum = "6d0c6133ad34ad58b9f00ee277fe044e9f47f1c064dd1cb4cf428fce21a8efe5"
 dependencies = [
  "itertools 0.15.0",
  "memchr",
- "oxc_allocator 0.141.0",
+ "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
- "oxc_data_structures 0.141.0",
+ "oxc_data_structures",
  "oxc_diagnostics",
  "oxc_ecmascript",
  "oxc_index",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "oxc_syntax",
  "rustc-hash",
  "self_cell",
@@ -3801,99 +3773,73 @@ dependencies = [
 
 [[package]]
 name = "oxc_span"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9adc1cfe13a710b2c948ffd26470351a8f0e44b6d5f72e9f8d62dcd2dbab500a"
+checksum = "0d7e5d38e008df87a3ec92b2c228b8555e6acd56f7befbaff315d4900c3438bb"
 dependencies = [
  "compact_str",
  "oxc-miette",
- "oxc_allocator 0.141.0",
- "oxc_ast_macros 0.141.0",
- "oxc_estree 0.141.0",
- "oxc_str 0.141.0",
-]
-
-[[package]]
-name = "oxc_span"
-version = "0.142.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "890589be8c87e7c0f7a1f0331a9b8d362ebcd3e543125815daa942fd550b0121"
-dependencies = [
- "compact_str",
- "oxc-miette",
- "oxc_allocator 0.142.0",
- "oxc_ast_macros 0.142.0",
- "oxc_estree 0.142.0",
- "oxc_str 0.142.0",
+ "oxc_allocator",
+ "oxc_ast_macros",
+ "oxc_estree",
+ "oxc_str",
 ]
 
 [[package]]
 name = "oxc_str"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7423b8162376b5dd53e6431d6b25a4917048cbd10429778e9d4ae7701062e239"
+checksum = "66064b0255f08443382c4b79cf98d0695ad0a40b62644fe3dc232461afd7b941"
 dependencies = [
  "compact_str",
  "hashbrown 0.17.1",
- "oxc_allocator 0.141.0",
- "oxc_estree 0.141.0",
-]
-
-[[package]]
-name = "oxc_str"
-version = "0.142.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91f2b9a92f74a8231f21fccfb4eef937d266a7323d9597ccdcd74c7ad0f951b1"
-dependencies = [
- "compact_str",
- "hashbrown 0.17.1",
- "oxc_allocator 0.142.0",
- "oxc_estree 0.142.0",
+ "oxc_allocator",
+ "oxc_estree",
 ]
 
 [[package]]
 name = "oxc_syntax"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d6a9cea50ff9fa2c17bdb1dec8ab69d0e934015b2ba1414040da7f8db822154"
+checksum = "fb571d2462c910943c527d0230064702513c7354a63b107aa6d953e46a0696c1"
 dependencies = [
  "bitflags 2.13.0",
  "cow-utils",
  "dragonbox_ecma",
  "nonmax",
- "oxc_allocator 0.141.0",
- "oxc_ast_macros 0.141.0",
- "oxc_estree 0.141.0",
+ "oxc_allocator",
+ "oxc_ast_macros",
+ "oxc_estree",
  "oxc_index",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "phf",
  "unicode-id-start",
 ]
 
 [[package]]
 name = "oxc_transformer"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3481b17ea50d4866901de759f736aa2c63bfca1fb6a20a67faa423f5361429e9"
+checksum = "a1984c305b3a99c5c4d74b9053132e5751b424d97600c0305ce46e8324304100"
 dependencies = [
- "base64",
+ "base64 0.23.1",
  "compact_str",
  "hmac-sha1-compact",
  "indexmap",
  "itoa",
  "memchr",
- "oxc_allocator 0.141.0",
+ "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
  "oxc_compat",
- "oxc_data_structures 0.141.0",
+ "oxc_data_structures",
  "oxc_diagnostics",
  "oxc_ecmascript",
  "oxc_regular_expression",
  "oxc_semantic",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "oxc_syntax",
  "oxc_traverse",
  "rustc-hash",
@@ -3903,19 +3849,19 @@ dependencies = [
 
 [[package]]
 name = "oxc_traverse"
-version = "0.141.0"
+version = "0.143.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31912d26fa60335e443119368a25b737a3fdc60985fb46fa013e511b825c40f2"
+checksum = "006c6a9163ad8299391c8e8696b4db6b8a6bf140d566b1b169e9554d6cb5f1bf"
 dependencies = [
  "itoa",
- "oxc_allocator 0.141.0",
+ "oxc_allocator",
  "oxc_ast",
  "oxc_ast_visit",
- "oxc_data_structures 0.141.0",
+ "oxc_data_structures",
  "oxc_ecmascript",
  "oxc_semantic",
- "oxc_span 0.141.0",
- "oxc_str 0.141.0",
+ "oxc_span",
+ "oxc_str",
  "oxc_syntax",
  "rustc-hash",
 ]
@@ -5079,7 +5025,7 @@ version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dea7109cdcd5864d4eeb1b58a1648dc9bf520360d7af16ec26d0a9354bafcfc0"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "flate2",
  "log",
  "percent-encoding",
@@ -5096,7 +5042,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e994ba84b0bd1b1b0cf92878b7ef898a5c1760108fe7b6010327e274917a808c"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "http",
  "httparse",
  "log",
@@ -5108,7 +5054,7 @@ version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80be9b06fbae3b8b303400ab20778c80bbaf338f563afe567cf3c9eea17b47ef"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "data-url",
  "flate2",
  "imagesize",
