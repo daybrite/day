@@ -550,6 +550,10 @@ pub struct Xaml {
     /// The app menu's serialized spec, replayed into each window that opens after it was set
     /// (docs/menus.md): one menu for the app, but Windows draws it per window.
     menu_spec: String,
+    /// The primary window's root container. Held so `release` can recognise it and destroy the
+    /// host — the primary is an ordinary window now (docs/windows.md close policy), torn down
+    /// on the same released-root signal as any other.
+    primary_root: *mut c_void,
 }
 
 impl Xaml {
@@ -582,6 +586,7 @@ impl Xaml {
             window: std::ptr::null_mut(),
             secondary: Vec::new(),
             menu_spec: String::new(),
+            primary_root: std::ptr::null_mut(),
         }
     }
 }
@@ -1555,6 +1560,13 @@ impl Toolkit for Xaml {
                 true
             }
         });
+        // The PRIMARY window's root, released the same way now that it is an ordinary window
+        // (docs/windows.md close policy). day-core has finished with its content, so the host
+        // can go — and if that was the last primary, `quit_app` follows right behind.
+        if !self.primary_root.is_null() && self.primary_root == h.0 {
+            self.primary_root = std::ptr::null_mut();
+            unsafe { ffi::day_xaml_destroy_primary() };
+        }
         let key = h.0 as usize;
         TABS_STATE.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
@@ -2210,6 +2222,11 @@ extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
 extern "C" fn win_closed(node: u64) {
     emit(day_spec::NodeId(node), Event::WindowClosed);
 }
+/// The primary window's close — the same event a secondary window reports, addressed to the
+/// root node day-core adopted it under (docs/windows.md close policy).
+extern "C" fn primary_closed() {
+    emit(day_spec::WINDOW_NODE, Event::WindowClosed);
+}
 extern "C" fn win_focused(node: u64, active: c_int) {
     emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
 }
@@ -2337,8 +2354,10 @@ impl Platform for Xaml {
             ffi::day_xaml_set_lifecycle_cb(on_lifecycle);
             ffi::day_xaml_set_present_cb(present_cb);
             let root = ffi::day_xaml_window_root(win);
+            self.primary_root = root;
             ready(self, WinHandle(root), options.size);
             ffi::day_xaml_window_on_resize(win, window_resized);
+            ffi::day_xaml_set_primary_closed_cb(primary_closed);
             ffi::day_xaml_set_window_events_cb(win_resized, win_closed, win_focused);
             ffi::day_xaml_window_show(win);
             ffi::day_xaml_run(win);

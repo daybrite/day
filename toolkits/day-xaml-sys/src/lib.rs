@@ -48,6 +48,11 @@ unsafe extern "C" {
     pub fn day_xaml_run(win: *mut c_void);
     /// End the app — day-core's close policy decided the last primary window is gone.
     pub fn day_xaml_quit();
+    /// The primary window was closed by the user: day-core applies the close policy and drives
+    /// the teardown, exactly as it does for a secondary window (docs/windows.md).
+    pub fn day_xaml_set_primary_closed_cb(cb: extern "C" fn());
+    /// Destroy the primary window's host, once day-core has released its root handle.
+    pub fn day_xaml_destroy_primary();
     pub fn day_xaml_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
 
     // containers
@@ -301,7 +306,11 @@ unsafe extern "C" {
     pub fn day_xaml_toggle_sidebar() -> c_int;
     // Completions for a toolbar search field: the AutoSuggestBox's own ItemsSource
     // (docs/search.md). Unit-separated (\x1f) list; empty clears it.
-    pub fn day_xaml_toolbar_set_suggestions(id: *const c_char, joined: *const c_char);
+    pub fn day_xaml_toolbar_set_suggestions(
+        win: *mut c_void,
+        id: *const c_char,
+        joined: *const c_char,
+    );
 
     // present / dismiss (docs/dialogs.md): ContentDialog (alert/prompt) + WinRT file pickers.
     // The cb delivers a result as (req, tag, index, text) — tag matches PresentResult::decode.

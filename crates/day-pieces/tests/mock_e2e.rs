@@ -3630,11 +3630,12 @@ fn native_close_tears_down_and_fires_on_close() {
 /// and a Settings window is independent of the documents — closing the last document there
 /// leaves Settings open, so this asserts that it survives.
 ///
-/// Driven through `note_initial_window_closed` because the tree still pins the initial window
-/// at `windows[0]`; that flag is the one piece of the policy the next phase replaces.
+/// The INITIAL window closes FIRST here, and must be no different from any other window: it is
+/// an ordinary registry record, so the app carries on while another primary is open.
 #[test]
 fn last_primary_close_quits_even_with_a_secondary_window_open() {
     let probe = boot(|| label("main").any());
+    let initial = day_core::windows::initial_window().expect("initial window adopted at boot");
     let extra = day_core::open_window(
         None,
         win_options("Second", 800.0, 600.0),
@@ -3650,12 +3651,21 @@ fn last_primary_close_quits_even_with_a_secondary_window_open() {
     flush_sync();
     assert_eq!(
         day_core::windows::primary_window_count(),
-        1,
-        "one extra primary"
+        2,
+        "the initial window counts like any other primary"
     );
 
-    // The initial window goes first: the app must NOT end here — another primary is open.
-    day_core::windows::note_initial_window_closed();
+    // The INITIAL window goes first: the app must NOT end — another primary is still open.
+    let mark0 = probe.log_len();
+    probe.close_window_natively(day_core::windows::window_node_id(&initial));
+    flush_sync();
+    assert!(!initial.is_open());
+    assert!(
+        !probe.log_since(mark0).iter().any(|l| l == "quit_app"),
+        "closing the FIRST window ended the app while another primary was open"
+    );
+    assert_eq!(day_core::windows::primary_window_count(), 1);
+
     let mark = probe.log_len();
     probe.close_window_natively(day_core::windows::window_node_id(&extra));
     flush_sync();

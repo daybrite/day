@@ -123,8 +123,12 @@ pub enum WindowRootReply {
 }
 
 /// One realized window: an adopted boundary root plus the content size it lays out at.
-/// `windows[0]` is the primary (the `ready` root container); later entries are secondary
-/// windows opened through `open_window_root` (docs/windows.md).
+///
+/// `windows[0]` starts as the app's first window (the `ready` root container) and later entries
+/// are opened through `open_window_root` (docs/windows.md) — but the first slot is not
+/// privileged: it can close like any other, after which `windows[0]` is simply the oldest
+/// window still open, which is what `root()` then answers. The list is never emptied; see
+/// `remove_window_root`.
 struct WindowEntry {
     root: RNode,
     size: Size,
@@ -1337,10 +1341,18 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn remove_window_root(&mut self, root: RNode) {
-        debug_assert!(
-            self.windows.first().map(|w| w.root) != Some(root),
-            "remove_window_root called with the primary root"
-        );
+        // Any window may go, including the first one opened (docs/windows.md close policy) —
+        // the app's life is the life of its primary windows, not of `windows[0]` specifically.
+        //
+        // The LAST entry is kept, because `root()` has to answer for the whole tree and callers
+        // are in no position to handle "no windows". Reaching that point means the last window
+        // has closed, which is the app exiting: its content is already gone (teardown removes
+        // the children first) and the empty shell outlives nothing.
+        if self.windows.len() <= 1 {
+            self.collect_and_release(root);
+            self.layout_dirty = true;
+            return;
+        }
         self.windows.retain(|w| w.root != root);
         // No native detach: a window root has no native parent — the platform window is
         // already closed (or the backend releases it with the content handle).

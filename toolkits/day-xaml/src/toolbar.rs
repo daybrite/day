@@ -204,12 +204,12 @@ impl Xaml {
                 let id = cstr(item);
                 unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), *on as c_int) };
             }
-            ToolbarPatch::Suggestions { item, list } => unsafe {
-                ffi::day_xaml_toolbar_set_suggestions(
-                    cstr(item).as_ptr(),
-                    cstr(&list.join("\x1f")).as_ptr(),
-                )
-            },
+            ToolbarPatch::Suggestions { item, list } => {
+                let (id, joined) = (cstr(item), cstr(&list.join("\x1f")));
+                unsafe {
+                    ffi::day_xaml_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr())
+                };
+            }
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
                 unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), *on as c_int) };

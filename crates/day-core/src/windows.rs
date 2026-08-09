@@ -366,20 +366,15 @@ pub fn primary_window_count() -> usize {
 }
 
 thread_local! {
-    /// Whether the initial window is still open.
-    ///
-    /// It is not a registry record: the tree pins it at `windows[0]` and asserts on removing
-    /// that slot, so it cannot yet be torn down like any other window. Tracking it as a flag
-    /// keeps the close POLICY complete and in one place — the rule below already reads
-    /// "no primary windows left", not "the first window closed" — while the remaining work is
-    /// isolated to one bool. Relaxing the `windows[0]` invariant is what lets this go false,
-    /// and until then a backend still ends the app through its own primary-close path.
-    static INITIAL_PRIMARY_OPEN: Cell<bool> = const { Cell::new(true) };
+    /// The app's first window, so [`initial_window`] can name it. Nothing about the close
+    /// policy consults this: that window is an ordinary registry record and counts exactly
+    /// like the ones opened after it.
+    static INITIAL_WINDOW: Cell<Option<RNode>> = const { Cell::new(None) };
 }
 
 /// Whether any window is still holding the app open.
 fn app_has_primary_window() -> bool {
-    INITIAL_PRIMARY_OPEN.with(|c| c.get()) || primary_window_count() > 0
+    primary_window_count() > 0
 }
 
 /// Whether closing the last primary window ends the process on this platform.
@@ -683,7 +678,7 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
 /// Reset the registry + registrations (tests — pairs with `uninstall_tree`).
 pub fn reset_windows() {
     WINDOWS.with(|w| w.borrow_mut().clear());
-    INITIAL_PRIMARY_OPEN.with(|c| c.set(true));
+    INITIAL_WINDOW.with(|c| c.set(None));
     crate::toolbar::reset_toolbars();
     PREFS.with(|p| *p.borrow_mut() = None);
     NEW_WINDOW.with(|p| *p.borrow_mut() = None);
@@ -691,11 +686,30 @@ pub fn reset_windows() {
     // re-registration reuses them.
 }
 
-/// Mark the initial window closed (tests, and the Phase-2 work that makes it an ordinary
-/// record). Exposed so the close POLICY can be exercised now, while the tree still pins the
-/// initial window at `windows[0]` — without it the rule below would be unreachable code.
-pub fn note_initial_window_closed() {
-    INITIAL_PRIMARY_OPEN.with(|c| c.set(false));
+/// Adopt the app's FIRST window into the registry, so it is an ordinary primary window rather
+/// than a privileged one (docs/windows.md close policy).
+///
+/// Called once at boot with the root container the backend handed back. `scope` owns the root
+/// content, so closing this window disposes exactly its own tree and nothing else — which is
+/// why the caller builds that content in a child of the root scope rather than in the root
+/// scope itself. State an app wants to outlive its windows still does: `Signal::global` lives
+/// on the root scope, above this one.
+pub fn adopt_initial_window(root: RNode, scope: Scope) {
+    register(root, None, WindowKind::Normal, scope, Tier::Native);
+    wire_window_events(root);
+    INITIAL_WINDOW.with(|c| c.set(Some(root)));
+}
+
+/// A handle to the app's first window, once adopted. `None` before boot completes, and after
+/// that window closes — it is an ordinary window and can be closed like any other.
+pub fn initial_window() -> Option<WindowHandle> {
+    let root = INITIAL_WINDOW.with(|c| c.get())?;
+    WINDOWS.with(|w| {
+        w.borrow()
+            .iter()
+            .any(|r| r.root == root)
+            .then_some(WindowHandle { root })
+    })
 }
 
 /// The window root's spec-boundary id (backends key their per-window maps by it).

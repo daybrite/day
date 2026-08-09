@@ -391,10 +391,20 @@ pub fn launch_with<P: Platform>(
                 );
             });
 
+            // The first window is an ordinary primary window (docs/windows.md close policy):
+            // it goes in the registry like any other, so closing it runs the same teardown and
+            // the same "was that the last primary?" question. Its content builds in a CHILD of
+            // the root scope — disposing that on close takes this window's tree and nothing
+            // else, while `Signal::global` state stays on the root scope above it.
+            let win_scope = day_reactive::Scope::root().enter(day_reactive::Scope::child);
+            windows::adopt_initial_window(root, win_scope);
+
             // Build the root piece under the window container.
             let piece = root_piece();
-            let mut cx = BuildCx::new(root);
-            let _ = piece.build(&mut cx);
+            win_scope.enter(|| {
+                let mut cx = BuildCx::new(root);
+                let _ = piece.build(&mut cx);
+            });
 
             // Initial layout, then keep laying out at every turn boundary.
             with_tree(|t| {

@@ -370,6 +370,10 @@ struct AppWindow {
 
 static AppWindow* g_app = nullptr;
 
+// The primary window's close, reported to day-core so it can apply the close policy — the same
+// deferred teardown a secondary window gets (docs/windows.md).
+static void (*g_primary_closed)() = nullptr;
+
 // The open secondary windows (docs/windows.md), keyed by host HWND. A map of POINTERS needs only
 // the forward declaration, so it lives up here where the window procedures can both reach it.
 struct SecWindow;
@@ -464,27 +468,40 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (g_lifecycle_cb) g_lifecycle_cb(LOWORD(wp) == WA_INACTIVE ? 3 : 2);
         break; // let DefWindowProc handle focus normally
     case WM_CLOSE:
-        // About to close (menu Quit posts WM_CLOSE too) → terminate, then destroy.
-        if (g_lifecycle_cb) g_lifecycle_cb(7);
-        break;
+        // Report the close and STOP: no destroy here, no lifecycle-terminate. This window is
+        // an ordinary primary window (docs/windows.md close policy), so day-core decides what
+        // its closing means — tear down just this window while another primary is open, or end
+        // the app — and drives the destroy back through the released root handle. Exactly the
+        // deferred teardown a secondary window already gets.
+        if (g_primary_closed) g_primary_closed();
+        return 0;
     case WM_DAY_POST: {
         auto p = reinterpret_cast<PostMsg*>(lp);
         if (p) { p->cb(p->data); delete p; }
         return 0;
     }
     case WM_DESTROY:
-        // Closing the primary quits, taking any secondary window with it — day's model across
-        // backends (docs/windows.md; day-qt-sys states it outright, having turned Qt's
-        // quitOnLastWindowClosed off to get it). Keeping the loop alive for the remaining
-        // windows was tried and does not work: day's tree is rooted in this window, so with it
-        // gone nothing tears the others down and they linger as hidden, unclosable islands.
-        PostQuitMessage(0);
+        // NOT the end of the app any more (docs/windows.md close policy): this window is an
+        // ordinary primary window, and day-core ends the process — through `day_xaml_quit` —
+        // when the LAST primary closes. Quitting here would take the other windows with it.
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 extern "C" void day_xaml_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = cb; }
+
+extern "C" void day_xaml_set_primary_closed_cb(void (*cb)()) { g_primary_closed = cb; }
+
+// Destroy the primary window's host, once day-core has torn its content down (the released
+// root handle is the signal). The counterpart of day_xaml_window_destroy2 for window zero.
+extern "C" void day_xaml_destroy_primary() {
+    if (g_app && g_app->host) {
+        HWND h = g_app->host;
+        g_app->host = nullptr;
+        DestroyWindow(h);
+    }
+}
 
 // Open a URL in the system's default handler (browser for http(s), mail app for mailto:, ...).
 // Fire and forget — the IAsyncOperation is discarded; an invalid URI throws and is swallowed.
@@ -3011,6 +3028,25 @@ static FrameworkElement find_toolbar_elem(void* win, const char* id) {
     return it == w->second.end() ? nullptr : it->second;
 }
 
+// Completions for a search field (docs/search.md): AutoSuggestBox's own ItemsSource, so the popup,
+// the keyboard handling and the Fluent styling are the platform's. The list is unit-separated
+// (\x1f) because tabs and newlines are the spec's record separators. Defined ABOVE the toolbar
+// install that seeds it — C++ resolves plain calls by declaration order, so a definition parked
+// down with the patch entry point below would not be visible there.
+static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::string const& joined) {
+    auto items = winrt::single_threaded_observable_vector<WF::IInspectable>();
+    size_t start = 0;
+    while (start <= joined.size() && !joined.empty()) {
+        size_t sep = joined.find('\x1f', start);
+        std::string one = joined.substr(start, sep == std::string::npos ? std::string::npos
+                                                                        : sep - start);
+        if (!one.empty()) items.Append(winrt::box_value(hs(one.c_str())));
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    box.ItemsSource(items);
+}
+
 // A programmatic IsChecked write is in flight. ToggleButton raises Checked/Unchecked
 // synchronously from the setter, so a flag around the write keeps day's own value from echoing
 // back through g_toolbar_cb. (The search field can't use one: AutoSuggestBox raises TextChanged
@@ -3254,27 +3290,9 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
     return bar;
 }
 
-// Completions for a search field (docs/search.md): AutoSuggestBox's own ItemsSource, so the popup,
-// the keyboard handling and the Fluent styling are the platform's. The list is unit-separated
-// (\x1f) because tabs and newlines are the spec's record separators.
-static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::string const& joined) {
-    auto items = winrt::single_threaded_observable_vector<WF::IInspectable>();
-    size_t start = 0;
-    while (start <= joined.size() && !joined.empty()) {
-        size_t sep = joined.find('\x1f', start);
-        std::string one = joined.substr(start, sep == std::string::npos ? std::string::npos
-                                                                        : sep - start);
-        if (!one.empty()) items.Append(winrt::box_value(hs(one.c_str())));
-        if (sep == std::string::npos) break;
-        start = sep + 1;
-    }
-    box.ItemsSource(items);
-}
-
-extern "C" void day_xaml_toolbar_set_suggestions(const char* id, const char* joined) try {
-    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
-    if (it == g_toolbar_elems.end()) return;
-    if (auto box = it->second.try_as<WUXC::AutoSuggestBox>())
+extern "C" void day_xaml_toolbar_set_suggestions(void* win, const char* id, const char* joined) try {
+    auto e = find_toolbar_elem(win, id);
+    if (auto box = e.try_as<WUXC::AutoSuggestBox>())
         day_xaml_fill_suggestions(box, std::string(joined ? joined : ""));
 } catch (...) {
 }
