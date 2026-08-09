@@ -13,7 +13,7 @@ license.workspace = true
 # fontdb/rustybuzz/ttf-parser text-shaping stack, roughly half of resvg's compile cost. The
 # trade: `<text>` elements in masters are NOT rendered (day-cli surfaces "outline your text"
 # instead of drawing it wrong).
-resvg = { version = "0.45", default-features = false }
+resvg = { version = "0.48", default-features = false }
 # resvg's own raster surface, depended on directly for PNG encode (`Pixmap::encode_png`) and for
 # transforming path data in the VectorDrawable emitter. Version tracks resvg's.
 tiny-skia = "0.12"
