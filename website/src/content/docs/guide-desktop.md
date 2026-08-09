@@ -112,18 +112,21 @@ if capability(Cap::Toolbar) == Support::Native {
         toolbar_separator(),
         toolbar_toggle("star", "Star", starred).icon(Symbol::Star),
         toolbar_flexible_space(),
-        toolbar_search("search", query).placeholder("Search articles"),
     ]);
 }
 ```
 
 The vocabulary: `toolbar_button(id, label)` for a command, `toolbar_toggle(id, label, signal)`
 for a two-state button bound two-way, `toolbar_menu(id, label, entries)` for a pull-down built
-from the same `MenuEntry`s the menu bar takes, `toolbar_search(id, signal)` for the platform's
-search control, `toolbar_label(id, text)` for static text, and `toolbar_separator()` /
-`toolbar_space()` / `toolbar_flexible_space()` for the gaps. Modifiers: `.icon(Symbol)`,
-`.image(name)`, `.action(f)`, `.tooltip(t)`, `.placeholder(t)`, `.enabled(bool)`, and
+from the same `MenuEntry`s the menu bar takes, `toolbar_label(id, text)` for static text, and
+`toolbar_separator()` / `toolbar_space()` / `toolbar_flexible_space()` for the gaps. Modifiers:
+`.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(bool)`, and
 `.enabled_when(f)`.
+
+Search is not a toolbar item. Declare it on the navigation surface it filters — 
+`selector(section).searchable(query)` — and Day draws the field where the platform puts search,
+which lets it move into the navigation list on a window too narrow for a sidebar without your code
+changing.
 
 There is no leading/trailing property: items before the first `toolbar_flexible_space()` pack
 to the leading edge and the rest to the trailing edge, and each backend expresses that with

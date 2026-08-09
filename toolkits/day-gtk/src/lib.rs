@@ -3141,7 +3141,6 @@ impl Toolkit for Gtk {
     fn toggle_sidebar(&mut self) -> bool {
         crate::toggle_sidebar()
     }
-
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         // A PLAIN render of the widget tree — no main-loop iteration. This runs inside the
         // engine's tree borrow (`with_tree`), and pumping GLib here can dispatch a callback

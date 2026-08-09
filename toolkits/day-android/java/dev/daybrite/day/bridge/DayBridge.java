@@ -127,6 +127,8 @@ public final class DayBridge {
     public static final int K_WINDOW_CLOSED = 20;
     public static final int K_WINDOW_FOCUSED = 21;
     public static final int K_VALUE_COMMITTED = 22;
+    /** Inline search on a `.searchable()` nav surface (docs/search.md): the field's new text. */
+    public static final int K_SEARCH_CHANGED = 23;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -793,6 +795,37 @@ public final class DayBridge {
             android.util.Log.e("Day", "nav bar action setup failed; continuing without it", t);
         }
     }
+    /**
+     * Inline search on the navigation list (docs/search.md). Applied AFTER the host is built and
+     * wrapped, for the same reason `setNavMenu` above is: a throw on `makeNavHost`'s own path
+     * aborts the native tree build and leaves the app blank, so decoration never rides it.
+     *
+     * No auto-hide. iOS reveals its field by over-scrolling past the top of the list; Material has
+     * no equivalent gesture, so the field simply stays put (docs/search.md).
+     */
+    public static void setNavSearch(View navHost, long id, String prompt, String text) {
+        if (!(navHost instanceof DayNavHost)) {
+            return;
+        }
+        try {
+            ((DayNavHost) navHost).setSearch(id, prompt, text);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav search setup failed; continuing without it", t);
+        }
+    }
+
+    /** Write the app's own query back into the field, without echoing it back as a change. */
+    public static void setNavSearchText(View navHost, String text) {
+        if (!(navHost instanceof DayNavHost)) {
+            return;
+        }
+        try {
+            ((DayNavHost) navHost).setSearchText(text);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav search text sync failed", t);
+        }
+    }
+
     public static View makeNavPage(final long id) {
         DayFixed page = new DayFixed(ctx);
         page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {

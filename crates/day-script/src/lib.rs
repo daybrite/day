@@ -419,11 +419,36 @@ pub use web::{web_init, web_line};
 fn serve(port: u16, token: String) {
     // Give the app time to mount before binding traffic arrives.
     std::thread::sleep(Duration::from_millis(300));
-    let listener = match TcpListener::bind(("127.0.0.1", port)) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("day-script: bind 127.0.0.1:{port} failed: {e}");
-            return;
+    // Retry, because the port is a fixed per-target number and a capture sweep relaunches the
+    // app on it every variant: the previous instance can still be letting go of the socket when
+    // this one starts. Giving up on the first EADDRINUSE is what made that silent — the engine
+    // thread simply ended, the app carried on without one, and the runner then talked to
+    // whatever WAS still listening. That is the previous variant's app, which shares this run's
+    // token and answers every step, so a locale sweep re-photographs the earlier locale instead
+    // of failing.
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let mut said = false;
+    let listener = loop {
+        match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(l) => break l,
+            Err(e) if std::time::Instant::now() < deadline => {
+                // Once, not per attempt: a sweep that waits a second or two per variant would
+                // otherwise bury the run's own output.
+                if !said {
+                    said = true;
+                    eprintln!("day-script: 127.0.0.1:{port} still busy ({e}) — waiting for it");
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            Err(e) => {
+                // Loud: an app with no engine looks exactly like a healthy one until a script
+                // drives the wrong process.
+                eprintln!(
+                    "day-script: bind 127.0.0.1:{port} failed after 15s: {e} — this app has NO \
+                     dayscript engine; anything driving this port is reaching a DIFFERENT process"
+                );
+                return;
+            }
         }
     };
     for stream in listener.incoming().flatten() {

@@ -299,6 +299,9 @@ unsafe extern "C" {
     // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behaviour, also
     // reachable from dayscript through the toolkit duty. 0 = no split nav in this window.
     pub fn day_xaml_toggle_sidebar() -> c_int;
+    // Completions for a toolbar search field: the AutoSuggestBox's own ItemsSource
+    // (docs/search.md). Unit-separated (\x1f) list; empty clears it.
+    pub fn day_xaml_toolbar_set_suggestions(id: *const c_char, joined: *const c_char);
 
     // present / dismiss (docs/dialogs.md): ContentDialog (alert/prompt) + WinRT file pickers.
     // The cb delivers a result as (req, tag, index, text) — tag matches PresentResult::decode.

@@ -4002,13 +4002,4 @@ fn searchable_binds_the_query_both_ways() {
         1,
         "scope choice wrote the app signal"
     );
-
-    // `is_searching()` reflects the field's activity for an app that renders differently while
-    // searching (SwiftUI's isSearching).
-    assert!(!day_core::is_searching());
-    probe.emit(host, Event::SearchActiveChanged(true));
-    flush_sync();
-    assert!(day_core::is_searching(), "activation reported");
-    day_core::dismiss_search();
-    assert!(!day_core::is_searching(), "dismiss_search put it away");
 }

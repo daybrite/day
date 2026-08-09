@@ -72,8 +72,8 @@ pub mod prelude {
         route_param, route_params, row, save_file, scroll, section, selector, shape, shape_group,
         shape_group_fn, slider, spacer, spinner, stack, sub_menu, text_area, text_field, toggle,
         toolbar, toolbar_button, toolbar_flexible_space, toolbar_label, toolbar_menu,
-        toolbar_reactive, toolbar_search, toolbar_separator, toolbar_sidebar_toggle, toolbar_space,
-        toolbar_toggle, vector, when, with_environment, zstack,
+        toolbar_reactive, toolbar_separator, toolbar_sidebar_toggle, toolbar_space, toolbar_toggle,
+        vector, when, with_environment, zstack,
     };
     pub use crate::{Picker, TextArea};
     pub use day_core::{

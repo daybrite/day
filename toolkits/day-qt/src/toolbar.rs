@@ -198,7 +198,11 @@ impl Qt {
                         build_qt_menu(menu, items);
                     }
                 }
-                ToolbarItemKind::Search { text, placeholder } => {
+                ToolbarItemKind::Search {
+                    text,
+                    placeholder,
+                    suggestions,
+                } => {
                     let text = cstr(text);
                     let ph = cstr(placeholder);
                     unsafe {
@@ -209,7 +213,10 @@ impl Qt {
                             ph.as_ptr(),
                             item.action,
                             item.enabled as c_int,
-                        )
+                        );
+                        // Qt's own QCompleter drives the popup (docs/search.md).
+                        let joined = cstr(&suggestions.join("\n"));
+                        ffi::day_qt_toolbar_set_suggestions(id.as_ptr(), joined.as_ptr());
                     };
                 }
                 ToolbarItemKind::Label => unsafe {
@@ -234,6 +241,11 @@ impl Qt {
                 let id = cstr(item);
                 unsafe { ffi::day_qt_toolbar_set_checked(id.as_ptr(), *on as c_int) };
             }
+            ToolbarPatch::Suggestions { item, list } => unsafe {
+                let id = cstr(item);
+                let joined = cstr(&list.join("\n"));
+                ffi::day_qt_toolbar_set_suggestions(id.as_ptr(), joined.as_ptr());
+            },
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
                 unsafe { ffi::day_qt_toolbar_set_enabled(id.as_ptr(), *on as c_int) };

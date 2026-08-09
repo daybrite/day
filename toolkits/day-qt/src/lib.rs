@@ -1952,7 +1952,6 @@ impl Toolkit for Qt {
     fn toggle_sidebar(&mut self) -> bool {
         crate::toggle_sidebar()
     }
-
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {
             return Err("no window".into());

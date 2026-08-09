@@ -13,6 +13,16 @@ const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
 let toolbarItems = {};      // toolbar item id → its element, for targeted patches
+
+// Fill a <datalist> with a search field's completions (docs/search.md).
+function setSuggestions(dl, list) {
+  dl.textContent = '';
+  for (const s of list) {
+    const o = document.createElement('option');
+    o.value = s;
+    dl.append(o);
+  }
+}
 const httpInflight = new Map(); // request id → AbortController (day-part-http's browser arm)
 const utf8 = new TextDecoder();
 const utf8enc = new TextEncoder();
@@ -325,6 +335,14 @@ const env = {
         el.type = 'search'; el.className = 'day-toolbar-search';
         el.value = it.text || ''; el.placeholder = it.placeholder || '';
         el.disabled = !it.enabled;
+        // A native <datalist>: the browser draws the completion popup, so the keyboard handling
+        // and the styling are the platform's (docs/search.md).
+        const dl = document.createElement('datalist');
+        dl.id = 'day-search-suggestions';
+        el.setAttribute('list', dl.id);
+        el.__datalist = dl;
+        setSuggestions(dl, it.suggestions || []);
+        bar.append(dl);
         if (it.action) el.addEventListener('input', () => {
           const [ptr, len] = intoWasm(el.value);
           wasm.day_dom_toolbar_text(it.action, ptr, len);
@@ -378,6 +396,7 @@ const env = {
     if (p.text !== undefined && el.value !== p.text) el.value = p.text;
     if (p.on !== undefined) el.setAttribute('aria-pressed', p.on ? 'true' : 'false');
     if (p.enabled !== undefined) el.disabled = !p.enabled;
+    if (p.suggestions !== undefined && el.__datalist) setSuggestions(el.__datalist, p.suggestions);
   },
   // Show/hide the split nav's sidebar. 0 when this page has no split nav, which is how the
   // caller (and the dayscript duty) knows to report the item disabled.

@@ -1873,6 +1873,24 @@ pub fn launch_android(
         );
         run_quiet(&mut cmd, &format!("am start ({})", dev.serial))?;
         if spec.attached {
+            // Ctrl-C must take the app on the DEVICE down with it, the way it takes a desktop
+            // app down. Nothing else can: the app is not a child of this process, so the signal
+            // handler's pid kills reach only the log pump.
+            //
+            // ATTACHED only. `--detach` means `day` exits and the app carries on, so registering
+            // a stop there would be arming a teardown against the very thing the flag asks for.
+            crate::signals::register_remote_stop(
+                [
+                    "adb".to_string(),
+                    "-s".into(),
+                    dev.serial.clone(),
+                    "shell".into(),
+                    "am".into(),
+                    "force-stop".into(),
+                    app_id.clone(),
+                ]
+                .to_vec(),
+            );
             // One-device runs keep the bare `[android-mdc]` prefix; multi-device runs append
             // the serial so the interleaved log streams read apart.
             let label = if devices.len() > 1 {
@@ -1898,9 +1916,15 @@ pub fn launch_android(
     }))
 }
 
-/// Stream one device's app logs (day-android redirects the app's stdout/stderr into logcat under
-/// tag `day`). `-v tag` prefixes each line with `<prio>/day:`; map the priority to a stream
-/// (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
+/// Stream one device's app logs (day-android's `redirect_stdio_to_logcat` routes the app's
+/// stdout/stderr into logcat under tag `Day`). `-v tag` prefixes each line with `<prio>/Day:`;
+/// map the priority to a stream (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
+///
+/// Both spellings of the tag are allowed through, and that is not belt-and-braces: **logcat tag
+/// filters are case-sensitive**. day-android logged under `day` until it was renamed `Day` for
+/// branding, and this filter kept asking for `day` — which silenced every app line on Android
+/// while every other platform kept streaming. Accepting both means neither a stale installed app
+/// nor another rename can take the console away again.
 fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::JoinHandle<i32> {
     std::thread::spawn(move || {
         let pid = (0..20)
@@ -1930,7 +1954,9 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
         // Clear this device's backlog so we only stream this run's output.
         let _ = adb(Some(&serial)).args(["logcat", "-c"]).status();
         let mut child = match adb(Some(&serial))
-            .args(["logcat", "--pid", &pid, "-v", "tag", "day:V", "*:S"])
+            .args([
+                "logcat", "--pid", &pid, "-v", "tag", "Day:V", "day:V", "*:S",
+            ])
             .stdout(Stdio::piped())
             .spawn()
         {

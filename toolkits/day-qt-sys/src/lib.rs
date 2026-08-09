@@ -259,6 +259,7 @@ unsafe extern "C" {
     pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     pub fn day_qt_widget_size(w: *mut c_void, out_w: *mut c_double, out_h: *mut c_double);
     pub fn day_qt_set_visible(w: *mut c_void, visible: c_int);
+    pub fn day_qt_toolbar_set_suggestions(id: *const c_char, joined: *const c_char);
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;
 

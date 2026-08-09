@@ -118,11 +118,19 @@ fn clean(s: &str) -> String {
 fn serialize_toolbar(items: &[ToolbarItem]) -> String {
     let mut out = String::new();
     for item in items {
+        // Completions ride a 12th field, unit-separated — tabs and newlines are the record
+        // separators, so they can never appear inside one (docs/search.md).
+        let mut sug = String::new();
         let (kind, on, text, placeholder) = match &item.kind {
             ToolbarItemKind::Button => ("B", 0, "", ""),
             ToolbarItemKind::Toggle { on } => ("T", *on as i32, "", ""),
             ToolbarItemKind::Menu { .. } => ("M", 0, "", ""),
-            ToolbarItemKind::Search { text, placeholder } => {
+            ToolbarItemKind::Search {
+                text,
+                placeholder,
+                suggestions,
+            } => {
+                sug = suggestions.join("\x1f");
                 ("F", 0, text.as_str(), placeholder.as_str())
             }
             // "S" — the shim maps it to NavigationView.IsPaneOpen (docs/toolbars.md).
@@ -140,7 +148,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             None => ("", String::new()),
         };
         out.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             kind,
             clean(&item.id),
             item.action,
@@ -152,6 +160,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             clean(item.tooltip.as_deref().unwrap_or(&item.label)),
             clean(text),
             clean(placeholder),
+            clean(&sug),
         ));
         if let ToolbarItemKind::Menu { items } = &item.kind {
             serialize_menu_xaml(items, &mut out);
@@ -195,6 +204,12 @@ impl Xaml {
                 let id = cstr(item);
                 unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), *on as c_int) };
             }
+            ToolbarPatch::Suggestions { item, list } => unsafe {
+                ffi::day_xaml_toolbar_set_suggestions(
+                    cstr(item).as_ptr(),
+                    cstr(&list.join("\x1f")).as_ptr(),
+                )
+            },
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
                 unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), *on as c_int) };

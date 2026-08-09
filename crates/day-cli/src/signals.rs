@@ -1,10 +1,15 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Child-process cleanup on Ctrl-C. `day launch` streams logs from helper processes
-//! (the desktop app itself, `simctl launch --console`, `adb logcat`); if the user
-//! interrupts, those must not be left running. We register each child's PID and kill them
-//! all on interrupt (and on the normal-exit path).
+//! Cleanup on Ctrl-C. `day launch` streams logs from helper processes (the desktop app itself,
+//! `simctl launch --console`, `adb logcat`); if the user interrupts, those must not be left
+//! running. We register each child's PID and kill them all on interrupt (and on the normal-exit
+//! path).
+//!
+//! A launch on a device, emulator or simulator has a second half that no pid reaches: the app
+//! itself is not a child of this process. Those register a STOP COMMAND instead
+//! ([`register_remote_stop`]), so Ctrl-C ends the app on the device the way it ends a desktop
+//! app — rather than only taking its logs away.
 //!
 //! Unix does the real work: a SIGINT/SIGTERM handler writes one byte to a self-pipe
 //! (async-signal-safe); a watcher thread does the killing off the signal context. On
@@ -17,6 +22,9 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 static CHILDREN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static REMOTE_STOPS: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
+/// Held for the whole of [`kill_all`]; see there.
+static TEARDOWN: Mutex<()> = Mutex::new(());
 
 /// Track a spawned child so it is killed on interrupt (and by [`kill_all`]).
 pub fn register_child(pid: u32) {
@@ -25,15 +33,61 @@ pub fn register_child(pid: u32) {
     }
 }
 
-/// Kill every tracked child now (used on the normal-exit path too, so log watchers for
-/// a target that has finished don't linger while other targets run).
+/// Track an app that is NOT a child of this process — one running on a device, emulator or
+/// simulator — as the command line that stops it (`adb shell am force-stop <id>`).
+///
+/// Killing pids cannot reach these. The only host-side process a device launch owns is the log
+/// pump, so Ctrl-C used to take the logs away and leave the app running on the device, which is
+/// the opposite of what the same keystroke does to a desktop app. Registered per launch, and run
+/// on interrupt and on the normal-exit path alike.
+pub fn register_remote_stop(argv: Vec<String>) {
+    if let Ok(mut r) = REMOTE_STOPS.lock() {
+        r.push(argv);
+    }
+}
+
+/// Drop the registered device stops without running them — for a run that DELIBERATELY leaves the
+/// app up (`--keep-alive`, whose whole promise is that the app outlives `day`). Without this the
+/// normal-exit `kill_all` would honour the interrupt contract over the explicit flag and stop the
+/// app anyway. The log-pump children are still reaped; only the app is spared.
+pub fn forget_remote_stops() {
+    if let Ok(mut r) = REMOTE_STOPS.lock() {
+        r.clear();
+    }
+}
+
+/// Stop everything this `day` invocation started: tracked children, then the apps running on
+/// devices. Used on the normal-exit path too, so log watchers for a target that has finished
+/// don't linger while other targets run.
 pub fn kill_all() {
+    // Serialized, because two threads reach here on an interrupt: the signal watcher, and the
+    // main thread the moment killing the log pump lets its `join` return. Without this the main
+    // thread wins, returns from `main`, and `process::exit` tears down the watcher — mid
+    // `adb force-stop`, so the app on the device outlived the Ctrl-C that was meant to end it.
+    // Whoever arrives second now waits for the first to finish rather than exiting out from
+    // under it.
+    let _teardown = TEARDOWN.lock().unwrap_or_else(|e| e.into_inner());
     let pids = CHILDREN
         .lock()
         .map(|mut c| std::mem::take(&mut *c))
         .unwrap_or_default();
     for pid in pids {
         kill_one(pid);
+    }
+    // After the children, so the log pump is already gone and the stop itself does not get
+    // streamed back as app output.
+    let stops = REMOTE_STOPS
+        .lock()
+        .map(|mut r| std::mem::take(&mut *r))
+        .unwrap_or_default();
+    for argv in stops {
+        if let Some((exe, args)) = argv.split_first() {
+            let _ = std::process::Command::new(exe)
+                .args(args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+        }
     }
 }
 

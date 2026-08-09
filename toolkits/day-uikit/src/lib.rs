@@ -54,6 +54,7 @@ mod imp {
     #[allow(deprecated)]
     use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::UINavigationControllerDelegate;
+    use objc2_ui_kit::UISearchResultsUpdating;
     use objc2_ui_kit::{
         UIAction, UIContextMenuConfiguration, UIContextMenuInteraction,
         UIContextMenuInteractionDelegate, UIMenu, UIMenuElement, UIMenuElementAttributes,
@@ -779,6 +780,14 @@ mod imp {
         /// as it joins the stack — `None` when the host declares none (e.g. desktop).
         bar_action: Option<NavBarButton>,
         _delegate: Retained<DayNavDelegate>,
+        /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
+        /// item, so pulling the top-level list down reveals it. `None` when the surface is not
+        /// searchable or its placement resolved elsewhere. Retained here because the navigation
+        /// item does not own the updater.
+        search: Option<(
+            Retained<objc2_ui_kit::UISearchController>,
+            Retained<DaySearchUpdater>,
+        )>,
     }
 
     thread_local! {
@@ -898,6 +907,52 @@ mod imp {
 
     struct NavDelegateIvars {
         host: std::cell::Cell<usize>,
+    }
+
+    /// Inline search on a `.searchable()` surface (docs/search.md).
+    ///
+    /// The iOS convention: a `UISearchController` on the ROOT page's `navigationItem`, hidden
+    /// until the list is pulled down (`hidesSearchBarWhenScrolling`, the default). It is not a
+    /// toolbar item — the phones have no toolbar — so the placement resolver hands it here
+    /// instead, and the field belongs to the navigation surface it filters.
+    struct SearchUpdaterIvars {
+        /// The nav host's day node, so edits emit against the surface that declared the search.
+        node: std::cell::Cell<u64>,
+        /// Suppresses the echo while day writes the field's text back into it.
+        suppress: std::cell::Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DaySearchUpdater"]
+        #[ivars = SearchUpdaterIvars]
+        struct DaySearchUpdater;
+
+        unsafe impl NSObjectProtocol for DaySearchUpdater {}
+
+        unsafe impl UISearchResultsUpdating for DaySearchUpdater {
+            #[unsafe(method(updateSearchResultsForSearchController:))]
+            fn update(&self, sc: &objc2_ui_kit::UISearchController) {
+                if self.ivars().suppress.get() {
+                    return;
+                }
+                let text = unsafe { sc.searchBar().text() }
+                    .map(|t| t.to_string())
+                    .unwrap_or_default();
+                emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
+            }
+        }
+    );
+
+    impl DaySearchUpdater {
+        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(SearchUpdaterIvars {
+                node: std::cell::Cell::new(node.0),
+                suppress: std::cell::Cell::new(false),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
     }
 
     define_class!(
@@ -2466,6 +2521,37 @@ mod imp {
                     nav.ivars().host.set(ptr_of(&host));
                     let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
                     unsafe { nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                    // Inline search (docs/search.md): build the controller now; it is attached to
+                    // the ROOT page's navigation item as that page joins the stack, which is what
+                    // puts it behind the pull-down on the top-level list.
+                    let search = p
+                        .search
+                        .as_ref()
+                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
+                        .map(|sp| {
+                            let updater = DaySearchUpdater::new(mtm, id);
+                            let sc = unsafe {
+                                objc2_ui_kit::UISearchController::initWithSearchResultsController(
+                                    objc2_ui_kit::UISearchController::alloc(mtm),
+                                    None,
+                                )
+                            };
+                            unsafe {
+                                sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(
+                                    &*updater,
+                                )));
+                                // The results controller is the app's own list, not a separate
+                                // one, so dimming it while typing would grey out the very rows
+                                // being filtered.
+                                sc.setObscuresBackgroundDuringPresentation(false);
+                                let bar = sc.searchBar();
+                                bar.setPlaceholder(Some(&NSString::from_str(&sp.prompt)));
+                                if !sp.text.is_empty() {
+                                    bar.setText(Some(&NSString::from_str(&sp.text)));
+                                }
+                            }
+                            (sc, updater)
+                        });
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
                             ptr_of(&host),
@@ -2478,6 +2564,7 @@ mod imp {
                                 last_native: std::cell::Cell::new(0),
                                 bar_action,
                                 _delegate: delegate,
+                                search,
                             },
                         )
                     });
@@ -2956,6 +3043,26 @@ mod imp {
                     }
                 }
                 kinds::NAV => {
+                    // Inline search: the app writing its query patches the live field, so the
+                    // sync never rebuilds it or takes the insertion point (docs/search.md). The
+                    // suppress flag stops UISearchResultsUpdating echoing our own write back.
+                    if let Some(sp) = patch.downcast_ref::<day_spec::props::SearchPatch>() {
+                        NAV_STATE.with(|m| {
+                            let m = m.borrow();
+                            let Some((sc, updater)) =
+                                m.get(&ptr_of(h)).and_then(|st| st.search.as_ref())
+                            else {
+                                return;
+                            };
+                            if let day_spec::props::SearchPatch::Text(t) = sp {
+                                updater.ivars().suppress.set(true);
+                                unsafe { sc.searchBar().setText(Some(&NSString::from_str(t))) };
+                                updater.ivars().suppress.set(false);
+                            }
+                            // Scope and suggestion patches have no UIKit surface yet
+                            // (docs/search.md).
+                        });
+                    }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
                         // the delegate synchronously, which re-borrows NAV_STATE.
@@ -3064,7 +3171,7 @@ mod imp {
                                 unsafe {
                                     tv.setFont(Some(&font));
                                     let _: () =
-                                        msg_send![&*tv, setAdjustsFontForContentSizeCategory: true];
+                                        msg_send![tv, setAdjustsFontForContentSizeCategory: true];
                                 }
                             }
                             LabelPatch::Color(c) => unsafe {
@@ -3320,6 +3427,47 @@ mod imp {
                         MainThreadMarker::new().expect("uikit insert runs on the main thread");
                     let item = ba.make_item(mtm);
                     unsafe { vc.navigationItem().setRightBarButtonItem(Some(&item)) };
+                }
+                // Inline search rides the ROOT page only (docs/search.md): it filters the
+                // TOP-LEVEL list, so it belongs to that list's navigation item and not to every
+                // pushed detail page. `hidesSearchBarWhenScrolling` defaults to true, which is
+                // what puts it behind the pull-down.
+                if index == 0
+                    && let Some((sc, _)) = state.search.as_ref()
+                {
+                    let item = unsafe { vc.navigationItem() };
+                    unsafe {
+                        item.setSearchController(Some(sc));
+                        // Auto-hide, explicitly rather than by default — and LARGE TITLES on this
+                        // page, because that is the configuration the collapse actually belongs
+                        // to. Mail, Settings and Files all do this: the search bar sits under a
+                        // large title and the two collapse together as the list scrolls, then
+                        // come back on a pull down. With a small centred title UIKit keeps the
+                        // field pinned and nothing hides (docs/search.md).
+                        item.setHidesSearchBarWhenScrolling(true);
+                        // The collapse is driven by a SCROLL VIEW the navigation controller can
+                        // track, and tracking needs the content to extend UNDER the bar rather
+                        // than start below it. `DayNavPageView` pins to the safe area, so without
+                        // these two the list never overlaps the bar, UIKit has nothing to couple
+                        // to, and the field stays put no matter how far you scroll — which is
+                        // exactly what the flag alone did not fix.
+                        vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
+                        vc.setExtendedLayoutIncludesOpaqueBars(true);
+                    }
+                    {
+                        item.setLargeTitleDisplayMode(
+                            objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
+                        );
+                        state.nav.navigationBar().setPrefersLargeTitles(true);
+                    }
+                } else if index > 0 {
+                    // Pushed detail pages keep the compact title: the large one belongs to the
+                    // top-level list that owns the search field.
+                    unsafe {
+                        vc.navigationItem().setLargeTitleDisplayMode(
+                            objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
+                        )
+                    };
                 }
                 Some((index == 0).then_some((state.nav.clone(), vc)))
             });

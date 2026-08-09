@@ -20,7 +20,6 @@ toolbar(vec![
     toolbar_separator(),
     toolbar_toggle("star", tr("star"), starred).icon(Symbol::Star),
     toolbar_flexible_space(),
-    toolbar_search("search", query).placeholder(tr("search-articles")),
 ]);
 ```
 
@@ -39,8 +38,14 @@ switch and how items are added and removed.
 | `toolbar_button(id, label)` | a command |
 | `toolbar_toggle(id, label, signal)` | a two-state button, bound two-way |
 | `toolbar_menu(id, label, entries)` | a pull-down, from the same `MenuEntry`s the menu bar takes |
-| `toolbar_search(id, signal)` | the platform's search control, bound two-way |
 | `toolbar_sidebar_toggle(id, label)` | show/hide the window's `selector(Sidebar)` pane |
+
+**Search is not in this table.** It is declared on the navigation surface it filters
+(`Selector::searchable`, docs/search.md) and Day merges the resulting field into this bar under the
+reserved id `day.search`. Declaring it on the surface rather than here is what lets the platform
+move it — into the navigation list on a window too narrow for a sidebar — without the app
+re-declaring anything.
+
 | `toolbar_label(id, text)` | static text |
 | `toolbar_separator()` | a divider where the platform has one |
 | `toolbar_space()` | a fixed gap |
@@ -75,7 +80,7 @@ types: rebuilding would drop the search field's focus mid-word. So the values th
 ride their own bindings and patch a single item instead:
 
 - a `toolbar_toggle`'s signal
-- a `toolbar_search`'s signal
+- a `.searchable()` surface's query signal (docs/search.md)
 - `.enabled_when(…)`
 
 Keep those OUT of a `toolbar_reactive` builder's reactive reads. Put structure there: which

@@ -99,11 +99,10 @@ export const suites = [
       { id: 'about', label: 'About', source: 'src/pages/about.rs' },
       { id: 'animation', label: 'Animation', source: 'src/pages/animation.rs' },
       // The benchmark patchwork: the same generated scene on every target, so the row doubles as
-      // a cross-platform rendering diff. `benchmark-swiftui` exists only where day-piece-swiftui
-      // reports Native (macos-appkit, ios-uikit); the other columns are simply absent.
+      // a cross-platform rendering diff. The walkthrough also captures `benchmark-dense` and
+      // `benchmark-swiftui` (Apple targets only); those shots are deliberately not gallery rows —
+      // the assembler only consults ids listed here, so they stay in the CI artifacts.
       { id: 'benchmark', label: 'Benchmark', source: 'src/pages/benchmark.rs' },
-      { id: 'benchmark-dense', label: 'Benchmark · dense', source: 'src/pages/benchmark.rs' },
-      { id: 'benchmark-swiftui', label: 'Benchmark · SwiftUI twin', source: 'src/pages/benchmark.rs' },
       { id: 'canvas', label: 'Canvas & shapes', source: 'src/pages/canvas.rs' },
       { id: 'controls', label: 'Controls', source: 'src/pages/controls.rs' },
       { id: 'crash', label: 'Crash reporting', source: 'src/pages/crash.rs' },

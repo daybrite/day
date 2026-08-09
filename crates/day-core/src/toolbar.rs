@@ -32,6 +32,9 @@ thread_local! {
     static MODELS: RefCell<Vec<(RNode, Vec<ToolbarItem>)>> = const { RefCell::new(Vec::new()) };
     /// The window whose content is being built right now (see [`with_window`]).
     static BUILDING: Cell<Option<RNode>> = const { Cell::new(None) };
+    /// Per-window search field from a `.searchable()` surface, merged into every toolbar install
+    /// (see [`set_window_search`]).
+    static SEARCH_ITEMS: RefCell<Vec<(RNode, ToolbarItem)>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Register a value callback for a search or toggle item and return its dispatch id (nonzero).
@@ -84,6 +87,7 @@ pub fn set_toolbar(items: Vec<ToolbarItem>) {
 
 /// [`set_toolbar`] against an explicit window root.
 pub fn set_window_toolbar(root: RNode, items: Vec<ToolbarItem>) {
+    let items = merge_search(root, items);
     sweep_values(root, &items);
     MODELS.with(|m| {
         let mut m = m.borrow_mut();
@@ -136,6 +140,13 @@ fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
                 it.enabled = *on;
             }
         }
+        ToolbarPatch::Suggestions { item, list } => {
+            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                && let K::Search { suggestions, .. } = &mut it.kind
+            {
+                *suggestions = list.clone();
+            }
+        }
     }
 }
 
@@ -156,6 +167,52 @@ pub fn primary_toolbar_model() -> Vec<ToolbarItem> {
     toolbar_model(with_tree(|t| t.root_node()))
 }
 
+/// A `.searchable()` surface's field, when its placement resolves to the window toolbar
+/// (docs/search.md). Kept OUTSIDE the app's model and merged into every install, because the two
+/// are written at different times by different owners: the app installs its bar before the tree
+/// builds, and `toolbar_reactive` re-installs the whole model on any reactive change — an item
+/// injected once would be dropped by the next rebuild.
+///
+/// Trailing, after the app's own items, which is where every desktop puts search.
+pub fn set_window_search(root: RNode, item: Option<ToolbarItem>) {
+    SEARCH_ITEMS.with(|m| {
+        let mut m = m.borrow_mut();
+        m.retain(|(r, _)| *r != root);
+        if let Some(item) = item {
+            m.push((root, item));
+        }
+    });
+    // Re-install so the change lands now: the surface registers during the tree build, after the
+    // app's `toolbar(…)` call has already gone through.
+    let current = MODELS.with(|m| {
+        m.borrow()
+            .iter()
+            .find(|(r, _)| *r == root)
+            .map(|(_, items)| items.clone())
+    });
+    if let Some(items) = current {
+        set_window_toolbar(root, items);
+    }
+}
+
+/// The app's items plus this window's search field, if it has one.
+///
+/// The merged model IS what gets stored, so dayscript's `toolbar:` step can resolve the field the
+/// same way it resolves any other item. Idempotent through the `retain`: merging an
+/// already-merged model replaces the item rather than appending a second one.
+fn merge_search(root: RNode, mut items: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
+    if let Some(item) = SEARCH_ITEMS.with(|m| {
+        m.borrow()
+            .iter()
+            .find(|(r, _)| *r == root)
+            .map(|(_, i)| i.clone())
+    }) {
+        items.retain(|i| i.id != item.id);
+        items.push(item);
+    }
+    items
+}
+
 /// Show/hide the window's `selector(Sidebar)` pane — the behaviour behind a
 /// [`day_spec::ToolbarItemKind::SidebarToggle`] item. `false` when this toolkit has no split
 /// host to toggle. The native toolbar button and dayscript's `toolbar:` step share this call,
@@ -166,6 +223,7 @@ pub fn toggle_sidebar() -> bool {
 
 /// Drop a closed window's toolbar and the value closures only it owned.
 pub(crate) fn forget_window(root: RNode) {
+    SEARCH_ITEMS.with(|m| m.borrow_mut().retain(|(r, _)| *r != root));
     let gone = MODELS.with(|m| {
         let mut m = m.borrow_mut();
         m.iter()

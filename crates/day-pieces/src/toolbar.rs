@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The window-toolbar builder: `toolbar_button`, `toolbar_toggle`, `toolbar_menu`,
-//! `toolbar_search`, `toolbar_label`, and the spacers, assembled with [`toolbar`].
+//! `toolbar_label`, and the spacers, assembled with [`toolbar`].
+//!
+//! SEARCH is not here. It is declared on the navigation surface it filters
+//! (`Selector::searchable`, docs/search.md) and day-core merges the resulting field into the
+//! window's bar, so the platform can move it — into the navigation list on a narrow window —
+//! without the app re-declaring anything.
 //!
 //! A toolbar is window chrome, not a piece: it is not laid out by day and does not live in the
 //! tree. It lowers to day_spec's toolkit-neutral [`day_spec::ToolbarItem`] model, which each
@@ -14,7 +19,6 @@
 //! toolbar(vec![
 //!     toolbar_button("refresh", tr("refresh")).icon(Symbol::Refresh).action(refresh_all),
 //!     toolbar_flexible_space(),
-//!     toolbar_search("search", query).placeholder(tr("search-articles")),
 //! ]);
 //! ```
 
@@ -28,7 +32,8 @@ use crate::{IntoText, MenuEntry, TextSource};
 
 /// A toolbar item under construction. Build a command with [`toolbar_button`], a two-state
 /// button with [`toolbar_toggle`], a pull-down with [`toolbar_menu`], a search field with
-/// [`toolbar_search`], and the gaps with [`toolbar_space`] / [`toolbar_flexible_space`].
+/// and the gaps with [`toolbar_space`] / [`toolbar_flexible_space`]. Search is declared on the
+/// navigation surface instead (`Selector::searchable`, docs/search.md).
 pub struct ToolbarEntry {
     id: String,
     kind: Kind,
@@ -45,10 +50,6 @@ enum Kind {
     Button,
     Toggle(Signal<bool>),
     Menu(Vec<MenuEntry>),
-    Search {
-        query: Signal<String>,
-        placeholder: Option<TextSource>,
-    },
     SidebarToggle,
     Label,
     Separator,
@@ -100,18 +101,6 @@ pub fn toolbar_menu<M>(
         label: Some(label.into_text()),
         ..entry(id, Kind::Menu(items))
     }
-}
-
-/// A native search field bound two-way to `query` — `NSSearchToolbarItem`, `GtkSearchEntry`,
-/// a Qt search `QLineEdit`, an `AutoSuggestBox`. Set the prompt with `.placeholder(_)`.
-pub fn toolbar_search(id: impl Into<String>, query: Signal<String>) -> ToolbarEntry {
-    entry(
-        id,
-        Kind::Search {
-            query,
-            placeholder: None,
-        },
-    )
 }
 
 /// Static text in the bar — a status or a caption.
@@ -180,14 +169,6 @@ impl ToolbarEntry {
     /// Hover help. Defaults to the item's label.
     pub fn tooltip<M>(mut self, t: impl IntoText<M>) -> ToolbarEntry {
         self.tooltip = Some(t.into_text());
-        self
-    }
-
-    /// The empty-state prompt of a search item (ignored on other kinds).
-    pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> ToolbarEntry {
-        if let Kind::Search { placeholder, .. } = &mut self.kind {
-            *placeholder = Some(t.into_text());
-        }
         self
     }
 
@@ -271,47 +252,6 @@ fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem
                         },
                     );
                     (ToolbarItemKind::Toggle { on: seed }, act)
-                }
-                Kind::Search { query, placeholder } => {
-                    let seed = query.get_untracked();
-                    let item = id.clone();
-                    // Controlled input with origin tracking (§4.4): the echo guard remembers the
-                    // last value that came FROM the native field, so the binding does not patch
-                    // it straight back — which some toolkits re-emit as a change.
-                    let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-                    let g = guard.clone();
-                    let extra = extra.clone();
-                    let act = day_core::register_toolbar_value(Rc::new(move |v: &ToolbarValue| {
-                        if let ToolbarValue::Text(t) = v {
-                            *g.borrow_mut() = Some(t.clone());
-                            query.set(t.clone());
-                            if let Some(f) = &extra {
-                                f();
-                            }
-                        }
-                    }));
-                    bind_seeded(
-                        seed.clone(),
-                        move || query.get(),
-                        move |t: &String| {
-                            if guard.borrow_mut().take().as_deref() != Some(t.as_str()) {
-                                day_core::patch_window_toolbar(
-                                    window,
-                                    ToolbarPatch::Text {
-                                        item: item.clone(),
-                                        text: t.clone(),
-                                    },
-                                );
-                            }
-                        },
-                    );
-                    (
-                        ToolbarItemKind::Search {
-                            text: seed,
-                            placeholder: placeholder.map(|p| p.initial()).unwrap_or_default(),
-                        },
-                        act,
-                    )
                 }
                 Kind::SidebarToggle => (ToolbarItemKind::SidebarToggle, 0),
                 Kind::Label => (ToolbarItemKind::Label, 0),

@@ -41,7 +41,6 @@ implement them, and this table proves it.
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `toggle_sidebar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
-| `dismiss_search` | · | · | · | · | · | · | · | · | · | · |
 | `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |

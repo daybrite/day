@@ -53,6 +53,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QCompleter>
 #include <QListWidget>
 #include <QResizeEvent>
 #include <QSplitter>
@@ -1741,6 +1742,26 @@ void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
     }
     tb->addWidget(edit);
     g_toolbar_widgets[std::string(id)] = edit;
+}
+
+// Completions for a toolbar search field (docs/search.md): Qt's own QCompleter, so the popup, the
+// keyboard handling and the inline completion are the ones every Qt app has. An empty list drops
+// the completer rather than leaving an empty popup armed.
+void day_qt_toolbar_set_suggestions(const char *id, const char *joined) {
+    auto it = g_toolbar_widgets.find(std::string(id));
+    if (it == g_toolbar_widgets.end()) return;
+    auto *edit = qobject_cast<QLineEdit *>(it->second);
+    if (!edit) return;
+    QString all = QString::fromUtf8(joined);
+    if (all.isEmpty()) {
+        if (QCompleter *old = edit->completer()) { edit->setCompleter(nullptr); old->deleteLater(); }
+        return;
+    }
+    auto *c = new QCompleter(all.split(QLatin1Char('\n')), edit);
+    c->setCaseSensitivity(Qt::CaseInsensitive);
+    c->setCompletionMode(QCompleter::PopupCompletion);
+    if (QCompleter *old = edit->completer()) { edit->setCompleter(nullptr); old->deleteLater(); }
+    edit->setCompleter(c);
 }
 
 void day_qt_toolbar_add_label(void *bar, const char *id, const char *text) {

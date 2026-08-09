@@ -44,6 +44,7 @@ mod bridge_kinds_parity {
             ("K_TOGGLE_CHANGED", BridgeKind::ToggleChanged),
             ("K_VALUE_CHANGED", BridgeKind::ValueChanged),
             ("K_VALUE_COMMITTED", BridgeKind::ValueCommitted),
+            ("K_SEARCH_CHANGED", BridgeKind::SearchChanged),
             ("K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
             ("K_NAV_BACK", BridgeKind::NavBack),
             ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
@@ -60,6 +61,10 @@ mod bridge_kinds_parity {
             ("K_SUBMITTED", BridgeKind::Submitted),
             ("K_WINDOW_RESIZED", BridgeKind::WindowResized),
             ("K_SAFE_AREA", BridgeKind::SafeArea),
+            // These two were absent from this table while present in DayBridge.java, so the
+            // parity assertion below was failing before the search work touched it.
+            ("K_WINDOW_CLOSED", BridgeKind::WindowClosed),
+            ("K_WINDOW_FOCUSED", BridgeKind::WindowFocused),
         ];
         assert_eq!(
             found.len(),
@@ -797,6 +802,7 @@ mod imp {
     const K_TOGGLE_CHANGED: i32 = bridge::BridgeKind::ToggleChanged as i32;
     const K_VALUE_CHANGED: i32 = bridge::BridgeKind::ValueChanged as i32;
     const K_VALUE_COMMITTED: i32 = bridge::BridgeKind::ValueCommitted as i32;
+    const K_SEARCH_CHANGED: i32 = bridge::BridgeKind::SearchChanged as i32;
     const K_SELECTION_CHANGED: i32 = bridge::BridgeKind::SelectionChanged as i32;
     const K_NAV_BACK: i32 = bridge::BridgeKind::NavBack as i32;
     const K_FRAME_CHANGED: i32 = bridge::BridgeKind::FrameChanged as i32;
@@ -828,6 +834,8 @@ mod imp {
             K_TOGGLE_CHANGED => Event::ToggleChanged(num != 0.0),
             K_VALUE_CHANGED => Event::ValueChanged(num),
             K_VALUE_COMMITTED => Event::ValueCommitted(num),
+            // Inline search on the nav list (docs/search.md): the field's new text.
+            K_SEARCH_CHANGED => Event::SearchChanged(env.dstr(jstr).ok().unwrap_or_default()),
             K_SELECTION_CHANGED => Event::SelectionChanged(num as i64),
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back
@@ -1462,6 +1470,34 @@ mod imp {
                             }
                         });
                     }
+                    // Inline search (docs/search.md), same best-effort discipline as the bar
+                    // action above and for the same reason: a throw on the host's own build path
+                    // blanks the app, so the field goes on afterwards or not at all.
+                    if let Some(sp) = p
+                        .search
+                        .as_ref()
+                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
+                    {
+                        let (prompt, text) = (sp.prompt.clone(), sp.text.clone());
+                        with_env(|env| {
+                            let pr = jstr(env, &prompt);
+                            let tx = jstr(env, &text);
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setNavSearch",
+                                "(Landroid/view/View;JLjava/lang/String;Ljava/lang/String;)V",
+                                &[
+                                    JValue::Object(host.0.as_obj()),
+                                    JValue::Long(idj),
+                                    JValue::Object(&pr),
+                                    JValue::Object(&tx),
+                                ],
+                            );
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                        });
+                    }
                     host
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
@@ -1801,6 +1837,26 @@ mod imp {
                     }
                 }
                 kinds::NAV => {
+                    // Inline search (docs/search.md): the app writing its query patches the live
+                    // field, so a sync never rebuilds it or takes the insertion point. The Java
+                    // side guards the echo while it writes.
+                    if let Some(day_spec::props::SearchPatch::Text(t)) =
+                        patch.downcast_ref::<day_spec::props::SearchPatch>()
+                    {
+                        let text = t.clone();
+                        with_env(|env| {
+                            let tx = jstr(env, &text);
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setNavSearchText",
+                                "(Landroid/view/View;Ljava/lang/String;)V",
+                                &[JValue::Object(h.0.as_obj()), JValue::Object(&tx)],
+                            );
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                        });
+                    }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
                             NavPatch::Pushed { title, immersive } => with_env(|env| {

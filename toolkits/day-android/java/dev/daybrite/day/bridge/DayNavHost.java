@@ -11,7 +11,12 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.text.Editable;
+import android.text.TextWatcher;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import android.util.TypedValue;
 import java.util.ArrayList;
 import java.util.WeakHashMap;
@@ -68,6 +73,11 @@ public class DayNavHost extends LinearLayout {
 
     final MaterialToolbar toolbar;
     final AppBarLayout appBar;
+    /** Inline search field (docs/search.md); null until `setSearch` runs. */
+    TextInputLayout searchLayout;
+    EditText searchEdit;
+    /** Suppresses the echo while day writes the app's query back into the field. */
+    boolean searchSyncing;
     final FrameLayout pages;
     final long hostNode;
     String rootTitle; // not final: NavPatch::Title retitles the root live
@@ -186,8 +196,21 @@ public class DayNavHost extends LinearLayout {
      *  this can run while the FragmentManager is still executing, and Rust's reaction
      *  (removing the page subtree) lands back in fragment transactions — re-entrant
      *  execution is an IllegalStateException. */
+    /**
+     * The inline search field belongs to the TOP-LEVEL list only (docs/search.md): it filters
+     * that list, so on a pushed detail page there is nothing for it to filter. Driven from
+     * `resync`, the one place the stack depth is reconciled, so every route in — push, pop,
+     * predictive-back — obeys the same rule.
+     */
+    private void syncSearchVisibility(int depth) {
+        if (searchLayout != null) {
+            searchLayout.setVisibility(depth == 0 ? View.VISIBLE : View.GONE);
+        }
+    }
+
     private void resync() {
         int now = myEntries();
+        syncSearchVisibility(now);
         while (knownEntries > now) {
             knownEntries--;
             if (!titles.isEmpty()) titles.remove(titles.size() - 1);
@@ -248,6 +271,77 @@ public class DayNavHost extends LinearLayout {
      *  default light surface bar the bundled dark glyph reads as-is. Called by
      *  {@link DayBridge#setNavMenu} AFTER construction, inside a try/catch — never from the
      *  constructor — so a failure here can't blank the host. */
+    /**
+     * Install the inline search field directly under the app bar, above the navigation list
+     * (docs/search.md).
+     *
+     * A Material `TextInputLayout` with a search icon and a clear button, NOT the Material
+     * `SearchBar`/`SearchView` pair: `SearchBar` is a launcher for a full-screen `SearchView`
+     * overlay that shows its OWN results list, and on a searchable navigation surface the list
+     * underneath already is the result set. An editable filter-in-place field is the control this
+     * actually needs.
+     *
+     * No auto-hide: iOS reveals its field by over-scrolling past the top of the list, and Material
+     * has no equivalent gesture, so the field stays put.
+     */
+    void setSearch(final long id, String prompt, String text) {
+        if (searchLayout != null) {
+            return; // already installed
+        }
+        TextInputLayout box = new TextInputLayout(getContext(), null,
+                com.google.android.material.R.attr.textInputOutlinedStyle);
+        box.setHint(prompt == null ? "" : prompt);
+        box.setEndIconMode(TextInputLayout.END_ICON_CLEAR_TEXT);
+        box.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
+        TextInputEditText edit = new TextInputEditText(box.getContext());
+        edit.setSingleLine(true);
+        edit.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        edit.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        if (text != null && !text.isEmpty()) {
+            edit.setText(text);
+        }
+        edit.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(Editable e) {
+                if (!searchSyncing) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_SEARCH_CHANGED, 0.0, e.toString());
+                }
+            }
+        });
+        box.addView(edit, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        int pad = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, 12f, getResources().getDisplayMetrics());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(pad, pad / 2, pad, pad / 2);
+        box.setLayoutParams(lp);
+        searchLayout = box;
+        searchEdit = edit;
+        // Directly under the app bar, so it reads as part of the list's own chrome.
+        int at = indexOfChild(appBar) + 1;
+        addView(box, at < 0 ? 0 : at);
+        // A surface can be built with pages already stacked (a launch deep link), so start from
+        // the current depth rather than assuming the root.
+        syncSearchVisibility(myEntries());
+    }
+
+    /** Day writing the app's query back in — guarded so the watcher does not echo it. */
+    void setSearchText(String text) {
+        if (searchEdit == null) {
+            return;
+        }
+        String next = text == null ? "" : text;
+        if (next.contentEquals(searchEdit.getText())) {
+            return;
+        }
+        searchSyncing = true;
+        searchEdit.setText(next);
+        searchSyncing = false;
+    }
+
     void setBarAction(String iconName, String label, final long actionId) {
         MenuItem it = toolbar.getMenu().add(Menu.NONE, 0, 0, label == null ? "" : label);
         it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);

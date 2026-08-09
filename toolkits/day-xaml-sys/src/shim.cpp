@@ -3114,7 +3114,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         bool enabled = fld(3) != "0";
         bool on = fld(4) == "1";
         std::string glyph = fld(5), image = fld(6), label = fld(7), tip = fld(8), text = fld(9),
-                    placeholder = fld(10);
+                    placeholder = fld(10), suggestions = fld(11);
         bool has_icon = !glyph.empty() || !image.empty();
 
         if (kind == ">") {
@@ -3145,6 +3145,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             }
         } else if (kind == "F") {
             WUXC::AutoSuggestBox box;
+            day_xaml_fill_suggestions(box, suggestions);
             box.Text(hs(text.c_str()));
             box.PlaceholderText(hs(placeholder.c_str()));
             box.QueryIcon(toolbar_icon("E721", "")); // the search glyph
@@ -3251,6 +3252,31 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
     root.Children().Append(bar);
     g_toolbar_target = nullptr;
     return bar;
+}
+
+// Completions for a search field (docs/search.md): AutoSuggestBox's own ItemsSource, so the popup,
+// the keyboard handling and the Fluent styling are the platform's. The list is unit-separated
+// (\x1f) because tabs and newlines are the spec's record separators.
+static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::string const& joined) {
+    auto items = winrt::single_threaded_observable_vector<WF::IInspectable>();
+    size_t start = 0;
+    while (start <= joined.size() && !joined.empty()) {
+        size_t sep = joined.find('\x1f', start);
+        std::string one = joined.substr(start, sep == std::string::npos ? std::string::npos
+                                                                        : sep - start);
+        if (!one.empty()) items.Append(winrt::box_value(hs(one.c_str())));
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    box.ItemsSource(items);
+}
+
+extern "C" void day_xaml_toolbar_set_suggestions(const char* id, const char* joined) try {
+    auto it = g_toolbar_elems.find(std::string(id ? id : ""));
+    if (it == g_toolbar_elems.end()) return;
+    if (auto box = it->second.try_as<WUXC::AutoSuggestBox>())
+        day_xaml_fill_suggestions(box, std::string(joined ? joined : ""));
+} catch (...) {
 }
 
 extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {

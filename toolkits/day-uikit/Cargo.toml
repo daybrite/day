@@ -35,6 +35,9 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIProgressView", "UIActivityIndicatorView",
     "UIScrollView", "UIAccessibility", "UIBezierPath", "UIImage", "UIImageView", "UITraitCollection", "NSAttributedString", "NSStringDrawing", "UIStringDrawing", "UIFont",
     "UINavigationController", "UINavigationBar", "UINavigationItem",
+    # Inline search on a `.searchable()` surface (docs/search.md): the UISearchController the
+    # navigation item reveals when the top-level list is pulled down — the iOS convention.
+    "UISearchController", "UISearchBar",
     "UITabBarController", "UITabBar", "UITabBarItem",
     "UITableView", "UITableViewCell", "UILabel",
     "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",

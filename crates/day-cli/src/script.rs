@@ -540,6 +540,12 @@ pub fn run_scripts(
         // stays drivable (`day drive`), so scripts can be built and debugged incrementally.
         // Attached: `day` stays in the foreground streaming the app's console output until the
         // app exits or the run is stopped. Detached: `day` exits now and the app lives on.
+        //
+        // A device app is stopped by a registered command rather than by dying with its parent
+        // (signals.rs), and the exit path runs those unconditionally — which would take down the
+        // very app this flag exists to keep. Retract them: `--keep-alive` is the explicit wish,
+        // and it outranks the interrupt contract.
+        crate::signals::forget_remote_stops();
         if attached {
             eprintln!(
                 "  {WARN}▸{WARN:#} {} left running (--keep-alive): streaming logs — stop the task \
@@ -645,6 +651,41 @@ fn write_gallery(root: &Path) {
     let _ = std::fs::write(root.join("index.html"), html);
 }
 
+/// Quote a literal for use inside the extended regular expression `pkill -f` takes. The project
+/// root goes into that pattern, and a checkout path containing `+`, `(` or `[` would otherwise be
+/// read as syntax and match the wrong processes (or none).
+fn ere_escape(literal: &str) -> String {
+    let mut out = String::with_capacity(literal.len());
+    for c in literal.chars() {
+        if "\\.[]{}()*+?^$|".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Poll until nothing matches `pattern` any more. `true` if the processes went away inside
+/// `budget`. Used to make [`terminate`] mean "it is gone", not "it has been asked to go".
+fn await_exit(pattern: &str, budget: Duration) -> bool {
+    let deadline = std::time::Instant::now() + budget;
+    loop {
+        // pgrep exits non-zero with no output when nothing matches, and never reports itself.
+        let alive = Command::new("pgrep")
+            .args(["-f", pattern])
+            .output()
+            .map(|o| !o.stdout.is_empty())
+            .unwrap_or(false);
+        if !alive {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 pub(crate) fn terminate(project: &Project, target: &Target) {
     match target.kind {
         TargetKind::Desktop if cfg!(windows) => {
@@ -654,12 +695,36 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                 .status();
         }
         TargetKind::Desktop => {
-            let _ = Command::new("pkill")
-                .args([
-                    "-f",
-                    &format!("cargo/{}.*{}", target.name, project.manifest.app.name),
-                ])
-                .status();
+            // Match the launch DIRECTORY, never the app name. Two layouts have to be covered,
+            // because macos-appkit now builds through a scaffolded Xcode host project (§17.4)
+            // while every other desktop target is still a bare cargo binary:
+            //
+            //   <root>/build/day/cargo/<target>/<profile>/<name>                     cargo
+            //   <root>/build/day/<target>/<config>/<Name>.app/Contents/MacOS/<Name>  xcodebuild
+            //
+            // and the executable's NAME is not common ground between them: `app.name` is the
+            // crate name (`day-skies`), while an Xcode bundle's binary is named by the pbxproj's
+            // PRODUCT_NAME (`DaySkies`). A pattern built from `app.name` matches nothing at all
+            // under the second layout. The directory is the one thing both agree on, and it is
+            // also what makes this project-specific — two checkouts building the same target
+            // would otherwise terminate each other's apps.
+            //
+            // Getting this wrong is not a leaked process so much as a corrupted run: the
+            // survivor holds the dayscript engine's port, the NEXT launch cannot bind, and the
+            // runner then drives the OLD app — which shares the run's token and answers every
+            // step, so a locale sweep quietly re-photographs the first locale.
+            let root = ere_escape(&project.root.to_string_lossy());
+            let pattern = format!("^{root}/build/day/(cargo/)?{}/", target.name);
+            let _ = Command::new("pkill").args(["-f", &pattern]).status();
+            // `pkill` only DELIVERS the signal; the app still has to run its own teardown, and
+            // it holds the engine port until it does. Returning here would hand the next launch
+            // a port that is still bound — the same corrupted run as above, reached by a race
+            // instead of by a bad pattern. So wait for the process table to actually clear, and
+            // escalate to SIGKILL for an app that will not go on its own.
+            if !await_exit(&pattern, Duration::from_secs(10)) {
+                let _ = Command::new("pkill").args(["-9", "-f", &pattern]).status();
+                let _ = await_exit(&pattern, Duration::from_secs(5));
+            }
         }
         TargetKind::IosSim => {
             let _ = Command::new("xcrun")

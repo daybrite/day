@@ -103,8 +103,10 @@ enum Cmd {
         /// every connected one gets the app. Equivalent to setting `ANDROID_SERIAL`.
         #[arg(long = "android-device", value_name = "SERIAL")]
         android_device: Option<String>,
-        /// Exit after launch instead of staying attached to logs
-        #[arg(long)]
+        /// Build, launch, and exit — leaving the apps running in the background. `day` streams no
+        /// logs and owns nothing afterwards, so there is no Ctrl-C to take them down with it;
+        /// stop them later with `day stop`. Also accepted as `--detached`.
+        #[arg(long, alias = "detached")]
         detach: bool,
         /// Keep the app running after its dayscript completes (interactive script development:
         /// the session stays drivable via `day drive`)

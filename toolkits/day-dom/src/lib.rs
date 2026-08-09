@@ -524,11 +524,25 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
             json.push_str(",\"on\":");
             json.push_str(if on { "true" } else { "false" });
         }
-        if let K::Search { text, placeholder } = &it.kind {
+        if let K::Search {
+            text,
+            placeholder,
+            suggestions,
+        } = &it.kind
+        {
             json.push_str(",\"text\":");
             json_str(&mut json, text.as_str());
             json.push_str(",\"placeholder\":");
             json_str(&mut json, placeholder.as_str());
+            // A native <datalist>, so the browser draws the completion popup.
+            json.push_str(",\"suggestions\":[");
+            for (n, sug) in suggestions.iter().enumerate() {
+                if n > 0 {
+                    json.push(',');
+                }
+                json_str(&mut json, sug);
+            }
+            json.push(']');
         }
         // A bundled image crosses as a staged URL; a Symbol has no web icon set to draw from,
         // so the label carries the item on its own rather than inventing a glyph.
@@ -1407,11 +1421,21 @@ impl Toolkit for Dom {
                 json.push_str(",\"enabled\":");
                 json.push_str(if *on { "true" } else { "false" });
             }
+            P::Suggestions { item, list } => {
+                json_str(&mut json, item);
+                json.push_str(",\"suggestions\":[");
+                for (n, sug) in list.iter().enumerate() {
+                    if n > 0 {
+                        json.push(',');
+                    }
+                    json_str(&mut json, sug);
+                }
+                json.push(']');
+            }
         }
         json.push('}');
         unsafe { day_dom_toolbar_patch(json.as_ptr(), json.len()) };
     }
-
     fn toggle_sidebar(&mut self) -> bool {
         // Same call the strip's own button makes, so a dayscript walkthrough drives the real
         // path (docs/toolbars.md).

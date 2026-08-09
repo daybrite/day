@@ -3853,7 +3853,6 @@ impl Toolkit for AppKit {
         OPS.with(|m| m.borrow_mut().insert(ptr_of(h), ops.to_vec()));
         unsafe { h.setNeedsDisplay(true) };
     }
-
     fn toggle_sidebar(&mut self) -> bool {
         NAV_STATE.with(|m| {
             for st in m.borrow().values() {

@@ -252,7 +252,11 @@ impl Gtk {
                     b.set_sensitive(item.enabled);
                     b.upcast()
                 }
-                ToolbarItemKind::Search { text, placeholder } => {
+                // `suggestions` unused: GTK4 deprecated GtkEntryCompletion and GtkSearchEntry
+                // has no replacement, so there is no native completion list to fill.
+                ToolbarItemKind::Search {
+                    text, placeholder, ..
+                } => {
                     let e = gtk4::SearchEntry::new();
                     e.set_text(text);
                     if !placeholder.is_empty() {
@@ -361,6 +365,8 @@ impl Gtk {
                         t.set_active(*on);
                     }
                 }
+                // No native completion list on this toolkit's search widget (docs/search.md).
+                ToolbarPatch::Suggestions { .. } => {}
                 ToolbarPatch::Enabled { item, on } => {
                     if let Some(w) = bar.widgets.get(item) {
                         w.set_sensitive(*on);

@@ -304,7 +304,11 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
     let tip = NSString::from_str(item.tooltip.as_deref().unwrap_or(&item.label));
 
     let bar_item: Retained<NSToolbarItem> = match &item.kind {
-        ToolbarItemKind::Search { text, placeholder } => {
+        // `suggestions` unused: NSSearchField's menu is a RECENTS list, not completions for the
+        // current text, so offering it as one would misrepresent what the control does.
+        ToolbarItemKind::Search {
+            text, placeholder, ..
+        } => {
             let search =
                 NSSearchToolbarItem::initWithItemIdentifier(NSSearchToolbarItem::alloc(mtm), &id);
             let field = search.searchField();
@@ -511,7 +515,8 @@ impl AppKit {
         let target_id = match patch {
             ToolbarPatch::Text { item, .. }
             | ToolbarPatch::On { item, .. }
-            | ToolbarPatch::Enabled { item, .. } => item.clone(),
+            | ToolbarPatch::Enabled { item, .. }
+            | ToolbarPatch::Suggestions { item, .. } => item.clone(),
         };
         for bar_item in toolbar.items().iter() {
             if bar_item.itemIdentifier().to_string() != target_id {
@@ -538,6 +543,8 @@ impl AppKit {
                     }
                 }
                 ToolbarPatch::Enabled { on, .. } => bar_item.setEnabled(*on),
+                // No completion affordance on NSSearchField (see the realize above).
+                ToolbarPatch::Suggestions { .. } => {}
             }
         }
     }
@@ -559,6 +566,8 @@ fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
                 *o = *on;
             }
         }
+        // No native completion list on this toolkit's search widget (docs/search.md).
+        ToolbarPatch::Suggestions { .. } => {}
         ToolbarPatch::Enabled { item, on } => {
             if let Some(it) = items.iter_mut().find(|i| i.id == *item) {
                 it.enabled = *on;

@@ -410,6 +410,12 @@ type DestFn<K> = Rc<dyn Fn(&K) -> AnyPiece>;
 /// Completions for a search field's current text (`Selector::search_suggestions`).
 type SuggestFn = Rc<dyn Fn(&str) -> Vec<String>>;
 
+/// The toolbar item id a `.searchable()` surface's field carries when its placement resolves to
+/// the window toolbar (docs/search.md). Reserved and stable: dayscript's `toolbar:` step addresses
+/// the field by this id, and it is Day's own rather than the app's, since the app never declares
+/// the item.
+pub const SEARCH_ITEM_ID: &str = "day.search";
+
 /// The flattened live rows a selector's dynamic blocks derive to: per-row key strings, typed
 /// keys, titles, and icons (index-aligned). Carried through the reconcile `bind`.
 /// One tracked derive of a selector's rows: (key strings, typed keys, titles, icons, badges,
@@ -729,6 +735,32 @@ struct SearchSpec {
 }
 
 impl SearchSpec {
+    /// Turn a requested placement into the one this toolkit will actually use (docs/search.md).
+    ///
+    /// `Automatic` asks the platform. Today the answer is the window toolbar wherever the toolkit
+    /// has one, and inline — attached to the navigation surface — where it does not, which is the
+    /// phones. That second case needs no size class: "this toolkit has no toolbar at all" is a
+    /// static fact about the backend, not a question about the window's width. Resolving a narrow
+    /// window on a toolkit that DOES have a toolbar is what waits on the size-class work.
+    ///
+    /// Never returns `Automatic`: the props carry the decision, so a backend reads a placement it
+    /// can act on rather than re-deriving the policy itself.
+    fn resolve(requested: day_spec::props::SearchPlacement) -> day_spec::props::SearchPlacement {
+        use day_spec::props::SearchPlacement as P;
+        match requested {
+            P::Toolbar | P::Inline => requested,
+            P::Automatic => {
+                if with_tree(|t| t.capability(day_spec::Cap::Toolbar))
+                    == day_spec::Support::Unsupported
+                {
+                    P::Inline
+                } else {
+                    P::Toolbar
+                }
+            }
+        }
+    }
+
     /// The props the host is realized with: current values only. Everything live rides the
     /// bindings in [`SearchSpec::bind`].
     fn lower(&self) -> day_spec::props::SearchProps {
@@ -745,37 +777,96 @@ impl SearchSpec {
                 .as_ref()
                 .map(TextSource::initial)
                 .unwrap_or_default(),
-            placement: self.placement,
+            // The RESOLVED placement, so a backend reads a decision rather than a request.
+            placement: Self::resolve(self.placement),
             scopes: self.scopes.iter().map(TextSource::initial).collect(),
             scope: self.scope.map(|s| s.get_untracked()).unwrap_or(0),
-            active: false,
         }
     }
 
-    /// Wire the two-way bindings once the host exists: the app's writes patch the live field,
-    /// and the user's edits (arriving as `Event::SearchChanged` / `SearchScopeChanged`) write the
-    /// app's signals. Both directions go through the SIGNAL, never through the widget, which is
-    /// what lets a later placement change move the field without moving the state.
-    fn bind(&self, host: RNode, seed: &day_spec::props::SearchProps) {
-        use day_spec::props::SearchPatch;
+    /// Install the field and wire it, both directions (docs/search.md).
+    ///
+    /// ONE model, ONE writer. `SearchProps` on the nav host is the source of truth for every
+    /// placement; the toolbar item a desktop backend draws is a RENDERING of it, not a second
+    /// representation with its own state. Both inbound transports — a toolbar value callback and
+    /// `Event::SearchChanged` from an inline field — land on the same `apply` closure, and the
+    /// single outbound binding patches whichever target the resolved placement renders into.
+    ///
+    /// That is what makes a future placement change tractable: the state does not live in the
+    /// widget, so re-rendering into the other target is a patch rather than a rebuild. The
+    /// remaining step for the size-class work is a `SearchPatch::Placement` that swaps the render
+    /// target on a live host — see docs/search.md.
+    fn install(&self, host: RNode, seed: &day_spec::props::SearchProps) {
+        use day_spec::props::{SearchPatch, SearchPlacement as P};
+        let placement = Self::resolve(self.placement);
         let query = self.query;
-        // Text: app → field. Seeded, because `lower` already put the current value in the realize
+        // Controlled input with origin tracking (§4.4): the guard remembers the value that came
+        // FROM the field so the binding does not patch it straight back, which some toolkits
+        // re-emit as another change. One guard, because there is one writer.
+        let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+        if placement == P::Toolbar {
+            let g = guard.clone();
+            let action =
+                day_core::register_toolbar_value(Rc::new(move |v: &day_spec::ToolbarValue| {
+                    if let day_spec::ToolbarValue::Text(t) = v {
+                        *g.borrow_mut() = Some(t.clone());
+                        query.set(t.clone());
+                    }
+                }));
+            day_core::set_window_search(
+                day_core::toolbar::current_window(),
+                Some(day_spec::ToolbarItem {
+                    id: SEARCH_ITEM_ID.to_string(),
+                    kind: day_spec::ToolbarItemKind::Search {
+                        text: seed.text.clone(),
+                        placeholder: seed.prompt.clone(),
+                        suggestions: seed.suggestions.clone(),
+                    },
+                    label: seed.prompt.clone(),
+                    tooltip: None,
+                    icon: None,
+                    enabled: true,
+                    action,
+                }),
+            );
+        }
+
+        // The one outbound binding: the app writing its query reaches whichever target this
+        // placement renders into. Seeded, because `lower` already put the value in the realize
         // props — re-applying it here would be the duplicate op §5.2 forbids.
+        let window = day_core::toolbar::current_window();
         bind_seeded(
             seed.text.clone(),
             move || query.get(),
-            move |text| {
-                let p = SearchPatch::Text(text.clone());
-                with_tree(|t| t.patch(host, Box::new(p), false));
+            move |t: &String| {
+                if guard.borrow_mut().take().as_deref() == Some(t.as_str()) {
+                    return; // came from the field; patching it back would fight the caret
+                }
+                match placement {
+                    P::Toolbar => day_core::patch_window_toolbar(
+                        window,
+                        day_spec::ToolbarPatch::Text {
+                            item: SEARCH_ITEM_ID.to_string(),
+                            text: t.clone(),
+                        },
+                    ),
+                    _ => {
+                        let p = SearchPatch::Text(t.clone());
+                        with_tree(|tr| tr.patch(host, Box::new(p), false));
+                    }
+                }
             },
         );
+
         if let Some(sig) = self.scope {
+            let seed_scope = seed.scope;
             bind_seeded(
-                seed.scope,
+                seed_scope,
                 move || sig.get(),
                 move |i| {
                     let p = SearchPatch::Scope(*i);
-                    with_tree(|t| t.patch(host, Box::new(p), false));
+                    with_tree(|tr| tr.patch(host, Box::new(p), false));
                 },
             );
         }
@@ -784,9 +875,18 @@ impl SearchSpec {
             bind_seeded(
                 seed.suggestions.clone(),
                 move || f(&query.get()),
-                move |list| {
-                    let p = SearchPatch::Suggestions(list.clone());
-                    with_tree(|t| t.patch(host, Box::new(p), false));
+                move |list| match placement {
+                    P::Toolbar => day_core::patch_window_toolbar(
+                        window,
+                        day_spec::ToolbarPatch::Suggestions {
+                            item: SEARCH_ITEM_ID.to_string(),
+                            list: list.clone(),
+                        },
+                    ),
+                    _ => {
+                        let p = SearchPatch::Suggestions(list.clone());
+                        with_tree(|t| t.patch(host, Box::new(p), false));
+                    }
                 },
             );
         }
@@ -1425,7 +1525,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // touches the widget directly, which is what lets a later placement change relocate the field
     // without disturbing the query.
     if let Some((spec, seed)) = search_spec.as_ref().zip(search_seed.as_ref()) {
-        spec.bind(host, seed);
+        spec.install(host, seed);
         let query = spec.query;
         let scope_sig = spec.scope;
         cx.on(host, move |ev| match ev {
@@ -1435,9 +1535,6 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     s.set(*i);
                 }
             }
-            // Activation feeds `day::is_searching()` and the suggestion choice already arrived as
-            // a SearchChanged, so neither writes an app signal here.
-            Event::SearchActiveChanged(on) => day_core::set_searching(*on),
             _ => {}
         });
     }

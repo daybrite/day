@@ -264,6 +264,9 @@ pub mod bridge {
         /// `num` = the settled value — the drag ended (see `Event::ValueCommitted`). A backend
         /// that cannot tell a settled value from a moving one sends only `ValueChanged`.
         ValueCommitted = 22,
+        /// Inline search on a `.searchable()` navigation surface (docs/search.md): the field's
+        /// new text, against the nav host's node.
+        SearchChanged = 23,
     }
 
     impl BridgeKind {
@@ -404,8 +407,6 @@ pub enum Event {
     SearchChanged(String),
     /// The user picked a different scope. Carries the index into `SearchProps::scopes`.
     SearchScopeChanged(usize),
-    /// The field became active or was dismissed — what `day::is_searching()` reflects.
-    SearchActiveChanged(bool),
     /// The user chose one of `SearchProps::suggestions`, by index. The toolkit has ALREADY put
     /// that completion in the field and emitted [`Event::SearchChanged`] for it; this says which
     /// one, for an app that wants to act on the choice itself.
@@ -743,7 +744,16 @@ pub enum ToolbarItemKind {
     Menu { items: Vec<MenuItem> },
     /// A search field. Edits emit [`ToolbarValue::Text`]; the app's own writes arrive as
     /// [`ToolbarPatch::Text`].
-    Search { text: String, placeholder: String },
+    ///
+    /// Day creates this item itself, from a `.searchable()` surface whose placement resolved to
+    /// the toolbar (docs/search.md) — apps declare search on the surface, never here.
+    Search {
+        text: String,
+        placeholder: String,
+        /// Completions for the current text, drawn by the field's own completion affordance
+        /// where it has one (`AutoSuggestBox`, `QCompleter`, `<datalist>`). Empty = none.
+        suggestions: Vec<String>,
+    },
     /// Static text, for a status or a caption.
     Label,
     /// A divider, where the platform draws one (macOS toolbars have no separator, so AppKit
@@ -797,6 +807,10 @@ pub enum ToolbarPatch {
     On { item: String, on: bool },
     /// Enable or disable any item.
     Enabled { item: String, on: bool },
+    /// Replace a search item's completions (docs/search.md). Targeted rather than a rebuild,
+    /// because these change on every keystroke and rebuilding the bar would take the field's
+    /// focus with it.
+    Suggestions { item: String, list: Vec<String> },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -890,22 +904,6 @@ pub enum Cap {
     /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
     /// stacks answer `Unsupported` and get push/pop presentation instead.
     NavSplit,
-    /// A search field over a navigation surface (`Selector::searchable`, docs/search.md).
-    /// `Native` wherever the platform has a real search control; `Emulated` where the field is
-    /// built from a plain text input.
-    Search,
-    /// A one-of-N scope bar under a search field. `Native` only on UIKit, which has a
-    /// purpose-built `UISearchBar.scopeButtonTitles`. `Emulated` covers two different things and
-    /// the distinction matters when reading the matrix: a real native component doing exactly
-    /// this job (a Material `ChipGroup` of single-selection filter chips, an ArkUI
-    /// `SegmentButtonV2`, an `NSSegmentedControl`, GTK `.linked` toggles) versus a bar composed
-    /// from primitives (web-dom, and system XAML, which has no `Segmented` control). Both are
-    /// honest; neither claims to be the platform's own scope bar.
-    SearchScopes,
-    /// Completions offered for a search field's current text — native on the toolkits whose
-    /// search widget already does it (`AutoSuggestBox`, `QCompleter`, `<datalist>`,
-    /// `UISearchResultsUpdating`), `Emulated` where it is a popover Day draws.
-    SearchSuggestions,
     /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
     /// needn't repeat it in its own content. `Native` on XAML (the NavigationView header),
     /// UIKit (`UINavigationBar`), Android (`MaterialToolbar`), and ArkUI (`NavDestination`
@@ -1894,10 +1892,6 @@ pub mod props {
         /// FIELD rather than replacing the list: the list is already the result set, so an
         /// overlay of results would cover the thing it is filtering.
         pub suggestions: Vec<String>,
-        /// Whether the field is currently active (focused, or showing its cancel affordance).
-        /// Mirrors SwiftUI's `isSearching`; the toolkit reports changes through
-        /// [`Event::SearchActiveChanged`].
-        pub active: bool,
     }
 
     /// A targeted update to a live search field — the path a bound signal writes through, so
@@ -2474,10 +2468,6 @@ pub trait Toolkit: Sized + 'static {
     fn toggle_sidebar(&mut self) -> bool {
         false
     }
-    /// Dismiss the active search field on a `.searchable()` surface — clear its focus and its
-    /// cancel affordance (docs/search.md). Defaulted to a no-op; a backend with no search field
-    /// on screen has nothing to dismiss.
-    fn dismiss_search(&mut self) {}
     /// Whether the UI has settled — no native transition (modal present/dismiss, nav push)
     /// still animating. The dayscript `screenshot` step polls this before capturing so shots
     /// never catch a half-faded dialog or half-pushed page. Backends without async
