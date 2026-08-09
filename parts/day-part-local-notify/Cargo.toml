@@ -72,7 +72,18 @@ res = ["android/res"]
 # Structural, not user-facing: re-arming scheduled notifications after a reboot needs no consent
 # prompt and no reason string, so the crate contributes it rather than the app. POST_NOTIFICATIONS
 # is the runtime permission the APP declares via day-part-permissions.
-permissions = ["android.permission.RECEIVE_BOOT_COMPLETED"]
+#
+# SCHEDULE_EXACT_ALARM makes `Trigger::In`/`Trigger::At` fire on time on Android 12+: auto-granted
+# (revocable) on 12–13, off by default on 14+ where the user flips it in settings. Without the
+# declaration `canScheduleExactAlarms()` is always false and every schedule silently degrades to
+# an inexact alarm. Clock/alarm apps should ALSO declare `android.permission.USE_EXACT_ALARM` in
+# their own [package.metadata.day.android] for the install-time grant (API 33+) — that one is
+# Play-restricted to alarm and calendar apps, so the crate must not impose it on every consumer
+# (docs/notify.md).
+permissions = [
+    "android.permission.RECEIVE_BOOT_COMPLETED",
+    "android.permission.SCHEDULE_EXACT_ALARM",
+]
 proguard = ["android/proguard-rules.pro"]
 # The alarm + boot receivers. Android instantiates these by name from the manifest, so without this
 # the APK installs, runs, and silently never delivers a scheduled notification.

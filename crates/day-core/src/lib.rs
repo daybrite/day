@@ -111,6 +111,41 @@ pub fn set_safe_area(insets: day_geometry::Insets) {
     safe_area_signal().set(insets);
 }
 
+thread_local! {
+    /// Whether a searchable surface's field is active (docs/search.md). Global for now, like
+    /// `safe_area` above and for the same reason — one window is the overwhelming case; both move
+    /// to per-window together rather than growing two different scoping models.
+    static SEARCHING: std::cell::OnceCell<day_reactive::Signal<bool>> =
+        const { std::cell::OnceCell::new() };
+}
+
+fn searching_signal() -> day_reactive::Signal<bool> {
+    SEARCHING.with(|c| {
+        *c.get_or_init(|| day_reactive::Scope::root().enter(|| day_reactive::Signal::global(false)))
+    })
+}
+
+/// Whether the user is searching — the field on a `.searchable()` surface is active
+/// (docs/search.md). SwiftUI's `isSearching`, and the read is tracked, so a piece that shows a
+/// different empty state while searching re-renders on its own.
+pub fn is_searching() -> bool {
+    searching_signal().get()
+}
+
+/// Dismiss the active search field: clears its focus and its cancel affordance. SwiftUI's
+/// `dismissSearch`. Does NOT clear the query — the app owns that signal and can clear it itself
+/// if that is the behaviour it wants.
+pub fn dismiss_search() {
+    searching_signal().set(false);
+    with_tree(|t| t.dismiss_search());
+}
+
+/// Backend-facing: report that the field became active or was dismissed. Apps observe it through
+/// [`is_searching`].
+pub fn set_searching(on: bool) {
+    searching_signal().set(on);
+}
+
 /// Override the layout direction (normally from `install_locales`). Must be called before the
 /// first layout pass to take effect everywhere.
 pub fn set_layout_direction(dir: day_geometry::LayoutDirection) {

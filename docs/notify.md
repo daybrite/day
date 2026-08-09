@@ -6,11 +6,26 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Notifications (proposed: two parts + a sending tool)
 
 > [!NOTE]
-> **Status: `day-part-local-notify` phase 1 shipped on Apple and Android; the rest is proposed.**
-> What exists: the crate, its API (`Channel`, `Notification`, `Trigger`, `capabilities`, `cancel`),
-> the **iOS + macOS** arm over `UNUserNotificationCenter`, and the **Android** arm over
-> `NotificationManager` + `AlarmManager` with its own Java shim, alarm receiver, and boot receiver —
-> no Play services, no Firebase.
+> **Status: `day-part-local-notify` phases 1 and 2a shipped on Apple and Android; the rest is
+> proposed.** What exists: the crate, its API (`Channel`, `Notification`, `Trigger`,
+> `capabilities`, `cancel`), the **iOS + macOS** arm over `UNUserNotificationCenter`, and the
+> **Android** arm over `NotificationManager` + `AlarmManager` with its own Java shim, alarm
+> receiver, and boot receiver — no Play services, no Firebase.
+>
+> **Phase 2a (alarm-grade scheduling) is shipped.** `Trigger::At(SystemTime)` schedules an
+> absolute instant (a past instant fires immediately). The crate now declares
+> `SCHEDULE_EXACT_ALARM`, so exact alarms actually engage on Android 12+ (before, the undeclared
+> permission made `canScheduleExactAlarms()` answer false everywhere and every schedule silently
+> degraded); an alarm-clock app adds `USE_EXACT_ALARM` in its own metadata for the install-time
+> grant — Play restricts that one to clock/calendar apps, so the crate does not impose it. A
+> schedule whose channel importance is `Urgent` goes through `setAlarmClock` (Doze-exempt,
+> status-bar alarm icon, the most OEM-survivable path); other exact schedules stay on
+> `setExactAndAllowWhileIdle`, and the boot receiver re-arms each with the exactness it was
+> scheduled with. One deliberate divergence from the design tables below: Apple realizes `At` as
+> a `UNTimeIntervalNotificationTrigger` delta rather than the designed `UNCalendarNotificationTrigger`
+> — `At` takes an absolute instant, so a calendar trigger adds nothing for a one-shot; calendar
+> semantics come with `Every`. Still not shipped from the scheduling design: `Trigger::Every`,
+> notification actions (snooze from the shade), custom/looping sounds, and full-screen intents.
 >
 > Verified end to end, not inferred: on the iOS Simulator the showcase reports `Posted (#1)`; on an
 > Android emulator `dumpsys notification` shows the created channel (`mImportance=3`, sound set) and

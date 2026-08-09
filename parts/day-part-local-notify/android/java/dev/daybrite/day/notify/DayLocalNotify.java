@@ -148,28 +148,44 @@ public final class DayLocalNotify {
 
     /**
      * Schedule for {@code atMillis}. Persists the payload first, so a reboot (which clears every
-     * alarm) can re-arm it, then sets the alarm.
+     * alarm) can re-arm it, then sets the alarm. {@code alarmClock} = the notification rides an
+     * Urgent channel: use the alarm-clock slot (status-bar icon, Doze-exempt, what the OS reserves
+     * for "the user is expecting to wake up to this").
      */
     public static int schedule(int id, long atMillis, String channelId, String title, String body,
-                               String route, String icon, int badge) {
+                               String route, String icon, int badge, boolean alarmClock) {
         Context ctx = DayBridge.ctx;
         if (ctx == null) return ERR_FAILED;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return ERR_FAILED;
         try {
-            persist(ctx, id, atMillis, channelId, title, body, route, icon, badge);
+            persist(ctx, id, atMillis, channelId, title, body, route, icon, badge, alarmClock);
             PendingIntent pi = alarmIntent(ctx, id, atMillis, channelId, title, body, route, icon, badge);
-            // Exact alarms are increasingly restricted: auto-granted but revocable on 12–13, and on
-            // 14+ withheld from apps that are not clocks/calendars. Fall back to an inexact alarm
-            // rather than dropping it — the caller is told which it got by the capability flag.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-                am.set(AlarmManager.RTC_WAKEUP, atMillis, pi);
-            } else {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pi);
-            }
+            setAlarm(am, ctx, atMillis, route, alarmClock, pi);
             return OK;
         } catch (Throwable t) {
             return ERR_FAILED;
+        }
+    }
+
+    /**
+     * Arm {@code pi} at {@code atMillis} as exactly as this device allows. Shared with
+     * DayNotifyBootReceiver so a re-armed alarm keeps the exactness it was scheduled with.
+     *
+     * Exact alarms are increasingly restricted: SCHEDULE_EXACT_ALARM is auto-granted but revocable
+     * on 12–13 and withheld by default on 14+; a clock app gets an install-time grant by declaring
+     * USE_EXACT_ALARM itself (docs/notify.md). All three exact paths — including setAlarmClock —
+     * need the grant, so a missing one falls back to an inexact alarm rather than dropping it; the
+     * caller is told which it got by the canScheduleExact capability flag.
+     */
+    static void setAlarm(AlarmManager am, Context ctx, long atMillis, String route,
+                         boolean alarmClock, PendingIntent pi) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+            am.set(AlarmManager.RTC_WAKEUP, atMillis, pi);
+        } else if (alarmClock) {
+            am.setAlarmClock(new AlarmManager.AlarmClockInfo(atMillis, tapIntent(ctx, route)), pi);
+        } else {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, atMillis, pi);
         }
     }
 
@@ -185,10 +201,10 @@ public final class DayLocalNotify {
 
     /** One record per scheduled id, tab-separated. A tab cannot appear in the fields we store. */
     private static void persist(Context ctx, int id, long atMillis, String channelId, String title,
-                                String body, String route, String icon, int badge) {
+                                String body, String route, String icon, int badge, boolean alarmClock) {
         SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String rec = atMillis + "\t" + s(channelId) + "\t" + s(title) + "\t" + s(body) + "\t"
-                + s(route) + "\t" + s(icon) + "\t" + badge;
+                + s(route) + "\t" + s(icon) + "\t" + badge + "\t" + (alarmClock ? "1" : "0");
         p.edit().putString(String.valueOf(id), rec).apply();
     }
 

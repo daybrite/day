@@ -98,7 +98,11 @@ pub(crate) fn register_channel(channel: &Channel) {
 }
 
 pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
-    let delay = n.delay_secs();
+    let fire_at = n.fire_at_ms(now_ms());
+    // An Urgent channel schedules through `setAlarmClock` — the user-visible alarm-clock slot
+    // (status-bar icon, Doze-exempt). The channel's importance lives on the Rust side; Android's
+    // own channel can't answer this because Urgent and High both map to IMPORTANCE_HIGH there.
+    let alarm_clock = super::channels::importance(n.channel_str()) == Importance::Urgent;
     with_env(|env| {
         let (Ok(channel), Ok(title), Ok(body), Ok(route), Ok(icon)) = (
             env.new_string(n.channel_str()),
@@ -112,15 +116,14 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
         let id = JValue::Int(n.resolved_id().0 as i32);
         let badge = JValue::Int(n.badge_count().unwrap_or(0) as i32);
 
-        let code = if delay > 0.0 {
+        let code = if let Some(at_ms) = fire_at {
             // Absolute wall-clock time, because AlarmManager.RTC_WAKEUP takes one — and because
             // the boot receiver has to know WHEN, not "how long from some forgotten start".
-            let at_ms = now_ms() + (delay * 1000.0) as i64;
             env.dcall_static(
                 CLASS,
                 "schedule",
                 "(IJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;\
-                 Ljava/lang/String;Ljava/lang/String;I)I",
+                 Ljava/lang/String;Ljava/lang/String;IZ)I",
                 &[
                     id,
                     JValue::Long(at_ms),
@@ -130,6 +133,7 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
                     JValue::Object(&route),
                     JValue::Object(&icon),
                     badge,
+                    JValue::Bool(alarm_clock),
                 ],
             )
         } else {

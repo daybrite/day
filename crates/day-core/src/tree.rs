@@ -606,6 +606,8 @@ pub trait TreeOps {
     fn toggle_sidebar(&mut self) -> bool {
         false
     }
+    /// Dismiss the active search field (`day_core::dismiss_search`, docs/search.md).
+    fn dismiss_search(&mut self) {}
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     /// Whether native transitions have settled (see `Toolkit::ui_idle`).
     fn ui_idle(&mut self) -> bool;
@@ -1270,6 +1272,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn toggle_sidebar(&mut self) -> bool {
         self.toolkit.toggle_sidebar()
+    }
+
+    fn dismiss_search(&mut self) {
+        self.toolkit.dismiss_search();
     }
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {

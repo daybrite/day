@@ -10,7 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Scope, bind, bind_seeded};
+use day_reactive::{Scope, Signal, bind, bind_seeded};
 use day_spec::{Event, Size, kinds};
 
 use crate::*;
@@ -407,6 +407,9 @@ pub enum SelectorStyle {
 /// or a stack's `.destination`.
 type DestFn<K> = Rc<dyn Fn(&K) -> AnyPiece>;
 
+/// Completions for a search field's current text (`Selector::search_suggestions`).
+type SuggestFn = Rc<dyn Fn(&str) -> Vec<String>>;
+
 /// The flattened live rows a selector's dynamic blocks derive to: per-row key strings, typed
 /// keys, titles, and icons (index-aligned). Carried through the reconcile `bind`.
 /// One tracked derive of a selector's rows: (key strings, typed keys, titles, icons, badges,
@@ -707,6 +710,87 @@ pub struct Selector<S: SignalRw<K>, K: Route = String> {
     /// An optional trailing nav-bar action ([`Selector::bar_action`]) — the mobile stand-in for a
     /// desktop toolbar button. `None` unless set.
     bar_action: Option<BarActionSpec>,
+    /// Search over this surface ([`Selector::searchable`]). `None` unless set.
+    search: Option<SearchSpec>,
+}
+
+/// A pending search declaration ([`Selector::searchable`] and its modifiers). The query and the
+/// scope are app-owned signals, which is what lets the FIELD move between the toolbar and the
+/// navigation list without the STATE moving with it (docs/search.md).
+struct SearchSpec {
+    query: Signal<String>,
+    prompt: Option<TextSource>,
+    placement: day_spec::props::SearchPlacement,
+    /// Scope titles and the signal holding the chosen index. Empty titles = no scope bar.
+    scopes: Vec<TextSource>,
+    scope: Option<Signal<usize>>,
+    /// Completions for the current text, re-derived whenever its reactive reads change.
+    suggestions: Option<SuggestFn>,
+}
+
+impl SearchSpec {
+    /// The props the host is realized with: current values only. Everything live rides the
+    /// bindings in [`SearchSpec::bind`].
+    fn lower(&self) -> day_spec::props::SearchProps {
+        let text = self.query.get_untracked();
+        day_spec::props::SearchProps {
+            suggestions: self
+                .suggestions
+                .as_ref()
+                .map(|f| day_reactive::untrack(|| f(&text)))
+                .unwrap_or_default(),
+            text,
+            prompt: self
+                .prompt
+                .as_ref()
+                .map(TextSource::initial)
+                .unwrap_or_default(),
+            placement: self.placement,
+            scopes: self.scopes.iter().map(TextSource::initial).collect(),
+            scope: self.scope.map(|s| s.get_untracked()).unwrap_or(0),
+            active: false,
+        }
+    }
+
+    /// Wire the two-way bindings once the host exists: the app's writes patch the live field,
+    /// and the user's edits (arriving as `Event::SearchChanged` / `SearchScopeChanged`) write the
+    /// app's signals. Both directions go through the SIGNAL, never through the widget, which is
+    /// what lets a later placement change move the field without moving the state.
+    fn bind(&self, host: RNode, seed: &day_spec::props::SearchProps) {
+        use day_spec::props::SearchPatch;
+        let query = self.query;
+        // Text: app → field. Seeded, because `lower` already put the current value in the realize
+        // props — re-applying it here would be the duplicate op §5.2 forbids.
+        bind_seeded(
+            seed.text.clone(),
+            move || query.get(),
+            move |text| {
+                let p = SearchPatch::Text(text.clone());
+                with_tree(|t| t.patch(host, Box::new(p), false));
+            },
+        );
+        if let Some(sig) = self.scope {
+            bind_seeded(
+                seed.scope,
+                move || sig.get(),
+                move |i| {
+                    let p = SearchPatch::Scope(*i);
+                    with_tree(|t| t.patch(host, Box::new(p), false));
+                },
+            );
+        }
+        // Completions re-derive on every keystroke AND on whatever else the closure reads.
+        if let Some(f) = self.suggestions.clone() {
+            bind_seeded(
+                seed.suggestions.clone(),
+                move || f(&query.get()),
+                move |list| {
+                    let p = SearchPatch::Suggestions(list.clone());
+                    with_tree(|t| t.patch(host, Box::new(p), false));
+                },
+            );
+        }
+    }
 }
 
 /// A pending nav-bar action ([`Selector::bar_action`] / [`Stack::bar_action`]): the bundled icon
@@ -743,6 +827,7 @@ pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
         routed: true,
         restore: None,
         bar_action: None,
+        search: None,
     }
 }
 
@@ -941,6 +1026,76 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             label: label.into_text(),
             action: Rc::new(action),
         });
+        self
+    }
+
+    /// Make this surface searchable, bound two-way to `query` (docs/search.md).
+    ///
+    /// Search is declared on the SURFACE, not on the toolbar — the same move SwiftUI made with
+    /// `.searchable()`. That is what lets the platform choose where to draw the field: the window
+    /// toolbar on a wide window, attached to the navigation list on a narrow one, without the app
+    /// branching on either. `query` stays app-owned, so the field moving between placements never
+    /// moves the state.
+    ///
+    /// ```ignore
+    /// selector(section)
+    ///     .style(SelectorStyle::Sidebar)
+    ///     .searchable(query)
+    ///     .items(move || destinations().filter(|d| matches(d, &query.get())), …)
+    /// ```
+    pub fn searchable(mut self, query: Signal<String>) -> Self {
+        self.search = Some(SearchSpec {
+            query,
+            prompt: None,
+            placement: day_spec::props::SearchPlacement::Automatic,
+            scopes: Vec::new(),
+            scope: None,
+            suggestions: None,
+        });
+        self
+    }
+
+    /// The search field's empty-state prompt. No-op unless [`Selector::searchable`] was called.
+    pub fn search_prompt<M>(mut self, prompt: impl IntoText<M>) -> Self {
+        if let Some(s) = self.search.as_mut() {
+            s.prompt = Some(prompt.into_text());
+        }
+        self
+    }
+
+    /// Ask for a particular placement. A PREFERENCE: a backend that cannot honour it falls back
+    /// to its platform's own convention, so `Automatic` (the default) is almost always right.
+    pub fn search_placement(mut self, placement: day_spec::props::SearchPlacement) -> Self {
+        if let Some(s) = self.search.as_mut() {
+            s.placement = placement;
+        }
+        self
+    }
+
+    /// A one-of-N scope bar under the field, bound to `scope` (an index into `titles`).
+    ///
+    /// Native on UIKit alone; elsewhere it is a real native component doing the same job (a
+    /// Material `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
+    /// `NSSegmentedControl`) or, on web and system XAML, one composed from primitives. Probe
+    /// [`day_spec::Cap::SearchScopes`] if the difference matters to the app.
+    pub fn search_scopes<M>(mut self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
+        if let Some(s) = self.search.as_mut() {
+            s.scopes = titles.into_iter().map(IntoText::into_text).collect();
+            s.scope = Some(scope);
+        }
+        self
+    }
+
+    /// Completions for the current text, re-derived whenever a reactive read inside `f` changes.
+    ///
+    /// On a navigation surface these COMPLETE THE FIELD rather than replacing the list: the list
+    /// is already the filtered result set, so an overlay of results would cover the very thing it
+    /// is narrowing. Backends whose search widget does completions natively use it
+    /// (`AutoSuggestBox`, `QCompleter`, `<datalist>`, `UISearchResultsUpdating`).
+    pub fn search_suggestions(mut self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
+        if let Some(s) = self.search.as_mut() {
+            s.suggestions = Some(Rc::new(f));
+        }
         self
     }
 }
@@ -1225,6 +1380,14 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // Register the optional nav-bar action once (getting its dispatch id) and lower it into the
     // host props — the mobile backends draw it as an upper-right bar button (docs/navigation.md).
     let bar_action = sel.bar_action.map(BarActionSpec::lower);
+    // Search over this surface (docs/search.md). Lowered to the host's props with its CURRENT
+    // values; the live bindings below keep the field in step through targeted patches, so the
+    // app writing the query never rebuilds (and refocuses) the field mid-word.
+    let search_spec = sel.search;
+    // Lowered ONCE: the bindings below need these same values as their seeds, and `lower` runs
+    // the app's suggestion closure, which should not run twice per build.
+    let search_seed = search_spec.as_ref().map(SearchSpec::lower);
+    let search = search_seed.clone();
     let items = Rc::new(SelItems::from_sources(sel.sources, sel.destination));
     // The live row set is reactive: `typed` (index → key) and `titles` are shared mutable state
     // the derive effect updates; the initial derive is untracked (the effect below owns the
@@ -1243,6 +1406,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             title: title_s.clone(),
             split,
             bar_action,
+            search,
         },
         Rc::new(NavLayout {
             sizes: sizes.clone(),
@@ -1255,6 +1419,28 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         },
         Boundary::Yes,
     );
+
+    // Search, both directions (docs/search.md). The app's writes patch the live field; the user's
+    // edits arrive as events against this host and write the app's own signals. Nothing here
+    // touches the widget directly, which is what lets a later placement change relocate the field
+    // without disturbing the query.
+    if let Some((spec, seed)) = search_spec.as_ref().zip(search_seed.as_ref()) {
+        spec.bind(host, seed);
+        let query = spec.query;
+        let scope_sig = spec.scope;
+        cx.on(host, move |ev| match ev {
+            Event::SearchChanged(text) => query.set(text.clone()),
+            Event::SearchScopeChanged(i) => {
+                if let Some(s) = scope_sig {
+                    s.set(*i);
+                }
+            }
+            // Activation feeds `day::is_searching()` and the suggestion choice already arrived as
+            // a SearchChanged, so neither writes an app signal here.
+            Event::SearchActiveChanged(on) => day_core::set_searching(*on),
+            _ => {}
+        });
+    }
 
     // The per-host back-owner stack (docs/navigation.md): the detail page pushes its "deselect"
     // owner, and a nested stack that merges into this host pushes its page owners on top. The
@@ -1833,6 +2019,10 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     title: title_s.clone(),
                     split: false, // a stack is a stack (no sidebar)
                     bar_action,
+                    // Stacks are not searchable yet — `.searchable()` is on `Selector` only
+                    // (docs/search.md); a stack gains the same surface when the placement
+                    // resolver lands, since it is the same lowering.
+                    search: None,
                 },
                 Rc::new(NavLayout {
                     sizes: sizes.clone(),

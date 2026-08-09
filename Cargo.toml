@@ -46,6 +46,7 @@ members = [
     "parts/day-part-permissions",
     "parts/day-part-location",
     "parts/day-part-local-notify",
+    "parts/day-part-timezone",
     "pieces/day-piece-activity",
     "pieces/day-piece-searchfield",
     "pieces/day-piece-map",
@@ -125,6 +126,7 @@ day-part-http = { path = "parts/day-part-http", version = "0.1.5" }
 day-part-permissions = { path = "parts/day-part-permissions", version = "0.1.5" }
 day-part-location = { path = "parts/day-part-location", version = "0.1.5" }
 day-part-local-notify = { path = "parts/day-part-local-notify", version = "0.1.5" }
+day-part-timezone = { path = "parts/day-part-timezone", version = "0.1.5" }
 day-part-fs = { path = "parts/day-part-fs", version = "0.1.5" }
 day-piece-activity = { path = "pieces/day-piece-activity", version = "0.1.5" }
 day-piece-searchfield = { path = "pieces/day-piece-searchfield", version = "0.1.5" }

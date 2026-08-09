@@ -23,8 +23,8 @@
 compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{
-    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
-    set_appearance, sleep, task,
+    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, dismiss_search, is_searching,
+    safe_area, set_app_badge, set_appearance, sleep, task,
 };
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, VectorName, resource};
 pub use day_spec::AppBadge;
@@ -185,6 +185,9 @@ pub mod prelude {
     // Safe-area insets (docs/layout.md): zero everywhere except edge-to-edge backends — pad
     // content by it where a background runs under the system bars.
     pub use day_core::safe_area;
+    // Search over a `.searchable()` surface (docs/search.md): whether the field is active, and
+    // the way to put it away. SwiftUI's `isSearching` / `dismissSearch`.
+    pub use day_core::{dismiss_search, is_searching};
     pub use day_spec::{Cap, Support};
     // Layout direction (docs/localization): `is_rtl()` lets a piece mirror its own drawing under a
     // right-to-left locale — the layout engine mirrors placement, but a `canvas` owns its coordinates.

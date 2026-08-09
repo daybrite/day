@@ -696,6 +696,9 @@ const env = {
       case 'dark': v = (q.get('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? '1' : '0'; break;
       case 'locales': v = (q.get('locale') ? [q.get('locale')] : navigator.languages).join(','); break;
       case 'route': v = location.hash.slice(1) || q.get('route') || ''; break;
+      // The browser's IANA time zone (day-part-timezone's local-zone source on web).
+      // `?tz=` overrides for testing, mirroring the other reserved keys.
+      case 'tz': v = q.get('tz') ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); break;
       default:
         // Reserved `vector:` keys answer "is NAME a bundled vector glyph?" from the list
         // the assemble step injects into the page (docs/vectors.md) — '1' or empty.
@@ -710,6 +713,8 @@ const env = {
     return bytes.length;
   },
   day_dom_warn: (ptr, len) => console.warn(str(ptr, len)),
+  // Wall clock for the wasm side (SystemTime::now() aborts on wasm32-unknown-unknown).
+  day_dom_now_ms: () => Date.now(),
 
   // Appearance override (Toolkit::set_appearance): 0 light, 1 dark, 2 follow the browser.
   // Returns the effective mode so the wasm side's dark_mode cache stays truthful.

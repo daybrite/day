@@ -58,6 +58,7 @@ the architecture-level view and the rationale.
 | menus — app menu, context menus, roles, shortcuts | docs/menus.md | [§8.1](#81-the-toolkit-trait) |
 | deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | docs/deep-links.md | [§10.5](#105-navigation-and-presentation) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
+| search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | docs/search.md | [§8.1](#81-the-toolkit-trait) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | docs/icons.md | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | docs/vectors.md | [§18.3](#183-images-and-data) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
@@ -215,7 +216,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | term | meaning |
 |---|---|
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
-| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location, app-local files — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location, app-local files, local notifications, wall clock & time zones — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), docs/tweaks.md). |
 | **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
@@ -1195,6 +1196,12 @@ pub trait Toolkit: Sized + 'static {
     // exercises the path a click takes. `false` = no sidebar in this window, and the item
     // renders disabled. Defaulted, so a backend without one needs no code.
     fn toggle_sidebar(&mut self) -> bool { false }
+    // Dismiss the active search field on a `.searchable()` surface (docs/search.md). Search is
+    // declared on the SURFACE rather than on the toolbar, which is what lets each backend draw
+    // the field where its platform puts search — and later move it as the size class changes —
+    // without the app branching. The query stays an app-owned signal, so the field moving never
+    // moves the state; this duty only puts the field away.
+    fn dismiss_search(&mut self) {}
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
@@ -2112,8 +2119,10 @@ Two package kinds share the mechanism:
   battery, network, sensors (streaming, docs/sensors.md), clipboard, prefs, haptics, deviceinfo,
   http (requests through the platform HTTP stack, docs/http.md), permissions (the OS consent system
   plus the build-time declarations each platform requires, docs/permissions.md), location
-  (docs/location.md), and fs (app-local file storage, docs/fs.md). Same registration and
-  metadata machinery, no widget.
+  (docs/location.md), fs (app-local file storage, docs/fs.md), local-notify (local notifications:
+  post or schedule, channels, tap-to-route, docs/notify.md), and timezone (the wall clock — also on
+  wasm, where std has none — plus IANA zone facts from a bundled tzdb, docs/timezone.md). Same
+  registration and metadata machinery, no widget.
 
 ### §15.2 Package layout and aggregation
 

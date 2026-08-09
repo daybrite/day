@@ -91,5 +91,6 @@ pages yet; their crate docs are the reference.
 | [http](/docs/internal/http) | `day-part-http` |
 | [permissions](/docs/internal/permissions) | `day-part-permissions` |
 | [location](/docs/internal/location) | `day-part-location` |
+| [timezone](/docs/internal/timezone) | `day-part-timezone` |
 
 If a guide and a reference page disagree, trust the reference page and tell us about the guide.

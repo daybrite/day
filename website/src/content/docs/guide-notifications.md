@@ -93,11 +93,12 @@ notification in place instead of stacking a second one.
 
 ## 4. Schedule and cancel
 
-`Trigger` has two variants, `Now` (the default) and `In(Duration)`:
+`Trigger` has three variants: `Now` (the default), `In(Duration)`, and `At(SystemTime)` — the
+alarm-clock form, for firing at an absolute instant rather than after a delay:
 
 ```rust
 use day_part_local_notify::{Trigger, cancel};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 let id = Notification::new("Stand up")
     .channel("timers")
@@ -105,14 +106,28 @@ let id = Notification::new("Stand up")
     .post()?;
 
 cancel(id);                           // or cancel_all()
+
+let wake = SystemTime::now() + Duration::from_secs(8 * 3600);
+Notification::new("Good morning")
+    .channel("alarms")
+    .trigger(Trigger::At(wake))
+    .post()?;
 ```
+
+`At` takes an instant, not a civil time: resolve "06:30 tomorrow" to a `SystemTime` yourself
+(day-part-timezone has the zone arithmetic), and re-derive on each foreground if you're tracking
+a local-time target across DST changes. An instant already in the past fires immediately.
 
 Where `capabilities().schedule_while_dead` is true, the OS holds the trigger and fires it even if
 the app has exited. On Apple the system owns the whole thing. Android has no notification
 scheduler, so the part sets an `AlarmManager` alarm that wakes a receiver; a reboot clears every
 alarm, and the part's boot receiver re-arms schedules from persisted data. When Android withholds
 the exact-alarm grant, `capabilities().schedule_exact` is false and the notification still
-arrives, possibly late in Doze.
+arrives, possibly late in Doze. Two refinements for alarm-clock apps: declare
+`android.permission.USE_EXACT_ALARM` in your app's `[package.metadata.day.android]` for the
+install-time exact-alarm grant (Play restricts it to clock and calendar apps, so the part can't
+declare it for you), and schedule on a channel registered with `Importance::Urgent` — those go
+through `AlarmManager.setAlarmClock`, the Doze-exempt path that shows the status-bar alarm icon.
 
 A scheduled notification may fire in a process with no Day tree alive, so its content is
 snapshotted at post time as plain strings: a `Notification` cannot bind a signal or a closure.

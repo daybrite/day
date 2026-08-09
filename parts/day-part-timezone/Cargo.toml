@@ -1,0 +1,36 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "day-part-timezone"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): the host's WALL CLOCK and TIME-ZONE facts, the two
+# things zone-aware apps (world clocks, alarms, calendars) need and Day's civil-time core
+# deliberately doesn't carry (day-l10n formats epochs as UTC civil time; day-piece-datetime edits
+# zoneless values). The API is thin: `now()` / `now_epoch_ms()` (a wall clock that also works on
+# wasm, where `SystemTime::now()` aborts), `local_zone()` (IANA id), `is_zone()`, and DST-correct
+# `offset_seconds(zone, at)` / `local_offset_seconds(at)`. See docs/timezone.md.
+
+[dependencies]
+# The IANA time-zone database and its DST arithmetic — the canonical do-not-hand-roll dependency.
+# icu_time (already in-tree under day-l10n) deprecated its offset API as "a bad approximation of a
+# time zone database" and points at a real tzdb instead; jiff is that, pure Rust, no transitive
+# deps of note. `tzdb-bundle-always` embeds the database (~200 KB) so every target answers from the
+# same rules — Android/OpenHarmony/wasm have no /usr/share/zoneinfo to read, and a bundled db beats
+# eight per-platform readers. Default features stay on for `tz-system` (local-zone detection from
+# /etc/localtime, the Windows registry, or Android's persist.sys.timezone).
+jiff = { version = "0.2", features = ["tzdb-bundle-always"] }
+
+# web: the browser is the only source for the wall clock (`Date.now()`) and the local zone
+# (`Intl.DateTimeFormat().resolvedOptions().timeZone`), both answered by the day-dom shim. This is
+# the one target where the headless crate rides on the day runtime, like day-part-haptics does on
+# Android.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+day-dom = { workspace = true }

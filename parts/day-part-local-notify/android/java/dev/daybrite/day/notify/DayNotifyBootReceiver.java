@@ -15,7 +15,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.os.Build;
 
 import java.util.Map;
 
@@ -43,9 +42,11 @@ public final class DayNotifyBootReceiver extends BroadcastReceiver {
             }
             Object v = e.getValue();
             if (!(v instanceof String)) continue;
-            // atMillis \t channel \t title \t body \t route \t icon \t badge
+            // atMillis \t channel \t title \t body \t route \t icon \t badge \t alarmClock
+            // (records written before the alarmClock field carry 7 fields; treat those as plain)
             String[] f = ((String) v).split("\t", -1);
             if (f.length < 7) continue;
+            boolean alarmClock = f.length >= 8 && "1".equals(f[7]);
             long at;
             int badge;
             try {
@@ -63,11 +64,9 @@ public final class DayNotifyBootReceiver extends BroadcastReceiver {
             try {
                 android.app.PendingIntent pi = DayLocalNotify.alarmIntent(
                         ctx, id, at, f[1], f[2], f[3], f[4], f[5], badge);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-                    am.set(AlarmManager.RTC_WAKEUP, at, pi);
-                } else {
-                    am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
-                }
+                // f[4] is the route; the shared helper keeps the re-arm's exactness (and its
+                // alarm-clock slot) identical to the original schedule.
+                DayLocalNotify.setAlarm(am, ctx, at, f[4], alarmClock, pi);
             } catch (Throwable t) {
                 // One bad record must not stop the rest from being re-armed.
             }

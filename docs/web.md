@@ -228,5 +228,6 @@ Query parameters the host page reads: `theme=light|dark` (else the OS preference
 `locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`.
 A browser sandbox has no process environment, so `day launch --env K=V` forwards each pair
 as `?K=V` (percent-encoded) and `day::env("K")` reads it back through the shim. The shim's
-page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`) and the reserved `theme`,
-`locale`, and `dayscript` names shadow same-named app keys; avoid those as env names.
+page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz` — the last carries the
+browser's IANA zone for day-part-timezone, overridable as `?tz=` for testing) and the reserved
+`theme`, `locale`, and `dayscript` names shadow same-named app keys; avoid those as env names.

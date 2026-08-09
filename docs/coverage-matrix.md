@@ -68,6 +68,9 @@ An app branches on this rather than on the target name.
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | – | N | N | N | – | – | – |
 | `NavSplit` | N | – | N | N | N | – | – | ? |
+| `Search` | – | – | – | – | – | – | – | – |
+| `SearchScopes` | – | – | – | – | – | – | – | – |
+| `SearchSuggestions` | – | – | – | – | – | – | – | – |
 | `NavHeader` | – | N | – | – | N | N | N | – |
 | `Appearance` | N | N | N | – | – | – | – | N |
 | `Dialogs` | N | N | N | N | N | N | – | N |

@@ -397,6 +397,19 @@ pub enum Event {
         action: u64,
         value: ToolbarValue,
     },
+    /// A searchable navigation surface's field changed (docs/search.md). Emitted against the NAV
+    /// HOST's node, not through the toolbar's dispatch registry: search belongs to the surface,
+    /// so the field can move between the toolbar and the navigation list without the app
+    /// re-registering anything.
+    SearchChanged(String),
+    /// The user picked a different scope. Carries the index into `SearchProps::scopes`.
+    SearchScopeChanged(usize),
+    /// The field became active or was dismissed — what `day::is_searching()` reflects.
+    SearchActiveChanged(bool),
+    /// The user chose one of `SearchProps::suggestions`, by index. The toolkit has ALREADY put
+    /// that completion in the field and emitted [`Event::SearchChanged`] for it; this says which
+    /// one, for an app that wants to act on the choice itself.
+    SearchSuggestionChosen(usize),
     /// The app moved through a lifecycle phase (docs/lifecycle.md). Backends emit this from the
     /// native app/activity delegate; day-core routes it to the app's `on_lifecycle` handlers.
     Lifecycle(Lifecycle),
@@ -877,6 +890,22 @@ pub enum Cap {
     /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
     /// stacks answer `Unsupported` and get push/pop presentation instead.
     NavSplit,
+    /// A search field over a navigation surface (`Selector::searchable`, docs/search.md).
+    /// `Native` wherever the platform has a real search control; `Emulated` where the field is
+    /// built from a plain text input.
+    Search,
+    /// A one-of-N scope bar under a search field. `Native` only on UIKit, which has a
+    /// purpose-built `UISearchBar.scopeButtonTitles`. `Emulated` covers two different things and
+    /// the distinction matters when reading the matrix: a real native component doing exactly
+    /// this job (a Material `ChipGroup` of single-selection filter chips, an ArkUI
+    /// `SegmentButtonV2`, an `NSSegmentedControl`, GTK `.linked` toggles) versus a bar composed
+    /// from primitives (web-dom, and system XAML, which has no `Segmented` control). Both are
+    /// honest; neither claims to be the platform's own scope bar.
+    SearchScopes,
+    /// Completions offered for a search field's current text — native on the toolkits whose
+    /// search widget already does it (`AutoSuggestBox`, `QCompleter`, `<datalist>`,
+    /// `UISearchResultsUpdating`), `Emulated` where it is a popover Day draws.
+    SearchSuggestions,
     /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
     /// needn't repeat it in its own content. `Native` on XAML (the NavigationView header),
     /// UIKit (`UINavigationBar`), Android (`MaterialToolbar`), and ArkUI (`NavDestination`
@@ -1819,6 +1848,67 @@ pub mod props {
         /// An optional trailing bar-button command for the mobile nav bar (see [`NavBarAction`]);
         /// `None` on desktop, where the toolbar carries commands instead.
         pub bar_action: Option<NavBarAction>,
+        /// Search over this navigation surface (`Selector::searchable`, docs/search.md).
+        /// `None` = the surface is not searchable and no field is rendered anywhere.
+        pub search: Option<SearchProps>,
+    }
+
+    /// Where a searchable surface's field should be drawn.
+    ///
+    /// A PREFERENCE, not an instruction: a backend that cannot honour the request falls back to
+    /// whatever its platform does, exactly as SwiftUI's `searchable(placement:)` does ("depending
+    /// on the containing view hierarchy and platform, the requested placement may not be able to
+    /// be fulfilled"). `Automatic` is the one to reach for — it is what lets the field live in the
+    /// window toolbar on a wide window and move into the navigation list on a narrow one.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum SearchPlacement {
+        /// The platform decides, from the window's size class and its own convention.
+        #[default]
+        Automatic,
+        /// In the window's toolbar (`NSSearchToolbarItem`, an `AdwHeaderBar` entry, a
+        /// `CommandBar` `AutoSuggestBox`). Ignored where there is no toolbar.
+        Toolbar,
+        /// Attached to the navigation surface itself: above the sidebar list, or in the
+        /// navigation bar's search drawer on the phones.
+        Inline,
+    }
+
+    /// Search over a navigation surface (docs/search.md). The QUERY itself stays an app-owned
+    /// signal — this carries only what the toolkit must draw, so moving the field between
+    /// placements never moves the state.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SearchProps {
+        /// Current text. Two-way: the user typing emits [`Event::SearchChanged`], and the app's
+        /// own writes arrive as [`SearchPatch::Text`].
+        pub text: String,
+        /// Empty-state prompt.
+        pub prompt: String,
+        pub placement: SearchPlacement,
+        /// Scope titles, empty = no scope bar. One-of-N: a `UISearchBar` scope bar, a Material
+        /// `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
+        /// `NSSegmentedControl` (docs/search.md has the per-backend table).
+        pub scopes: Vec<String>,
+        /// Index into `scopes`; meaningless when `scopes` is empty.
+        pub scope: usize,
+        /// Completions offered for the current text. On a navigation surface these COMPLETE THE
+        /// FIELD rather than replacing the list: the list is already the result set, so an
+        /// overlay of results would cover the thing it is filtering.
+        pub suggestions: Vec<String>,
+        /// Whether the field is currently active (focused, or showing its cancel affordance).
+        /// Mirrors SwiftUI's `isSearching`; the toolkit reports changes through
+        /// [`Event::SearchActiveChanged`].
+        pub active: bool,
+    }
+
+    /// A targeted update to a live search field — the path a bound signal writes through, so
+    /// syncing text never rebuilds (and refocuses) the field mid-word.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum SearchPatch {
+        Text(String),
+        Scope(usize),
+        Suggestions(Vec<String>),
+        /// Activate or dismiss the field (`day::dismiss_search`).
+        Active(bool),
     }
     /// Applied to the NAV HOST after a page child is attached / before it is removed;
     /// the toolkit animates its native presentation accordingly.
@@ -2384,6 +2474,10 @@ pub trait Toolkit: Sized + 'static {
     fn toggle_sidebar(&mut self) -> bool {
         false
     }
+    /// Dismiss the active search field on a `.searchable()` surface — clear its focus and its
+    /// cancel affordance (docs/search.md). Defaulted to a no-op; a backend with no search field
+    /// on screen has nothing to dismiss.
+    fn dismiss_search(&mut self) {}
     /// Whether the UI has settled — no native transition (modal present/dismiss, nav push)
     /// still animating. The dayscript `screenshot` step polls this before capturing so shots
     /// never catch a half-faded dialog or half-pushed page. Backends without async

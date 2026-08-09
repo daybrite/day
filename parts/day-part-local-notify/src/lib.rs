@@ -27,7 +27,7 @@
 //! notification is lost if the process or tab goes away.
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,6 +74,14 @@ pub enum Trigger {
     /// After a delay. Where [`Capabilities::schedule_while_dead`] is true the OS holds it, so it
     /// fires even if the app exits; elsewhere it is an in-process timer and dies with the process.
     In(Duration),
+    /// At an absolute wall-clock instant — the alarm-clock form. Same holding rules as
+    /// [`In`](Trigger::In). An instant already in the past fires immediately rather than erroring.
+    ///
+    /// This is an INSTANT, not a civil time: "06:30 tomorrow" must be resolved to a `SystemTime`
+    /// by the caller (day-part-timezone has the zone arithmetic), and if the zone's rules change
+    /// between arming and firing, the fire moment does not move — re-derive and re-post to track
+    /// civil time, as clock apps re-arm on every foreground anyway.
+    At(SystemTime),
 }
 
 /// A notification's identity. Posting again with the same id UPDATES the existing notification
@@ -325,12 +333,36 @@ impl Notification {
     pub(crate) fn trigger_kind(&self) -> Trigger {
         self.trigger
     }
-    /// The delay in whole seconds, or 0 for immediate — the form every platform arm wants.
+    /// The delay in seconds, or 0 for immediate (including an [`Trigger::At`] instant already in
+    /// the past) — the form the Apple arm wants. Reading it consumes "now", so call it once per
+    /// post.
     #[allow(dead_code)]
     pub(crate) fn delay_secs(&self) -> f64 {
         match self.trigger {
             Trigger::Now => 0.0,
             Trigger::In(d) => d.as_secs_f64(),
+            Trigger::At(t) => t
+                .duration_since(SystemTime::now())
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0),
+        }
+    }
+
+    /// The absolute fire time in epoch milliseconds given the current wall clock, or `None` for an
+    /// immediate post — the form the Android arm wants (`AlarmManager.RTC_WAKEUP` takes absolute
+    /// time, and the boot receiver has to know WHEN, not "how long from some forgotten start").
+    /// An [`Trigger::At`] instant in the past answers its real (past) millis; AlarmManager fires
+    /// past alarms immediately, which is the alarm-clock semantic we want.
+    #[allow(dead_code)]
+    pub(crate) fn fire_at_ms(&self, now_ms: i64) -> Option<i64> {
+        match self.trigger {
+            Trigger::Now => None,
+            Trigger::In(d) => Some(now_ms.saturating_add((d.as_secs_f64() * 1000.0) as i64)),
+            Trigger::At(t) => Some(
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0),
+            ),
         }
     }
 }
@@ -468,6 +500,34 @@ mod tests {
                 .delay_secs(),
             5.0
         );
+    }
+
+    #[test]
+    fn at_trigger_encodes_absolute_and_delay() {
+        let future = SystemTime::now() + Duration::from_secs(10);
+        let n = Notification::new("t").trigger(Trigger::At(future));
+        // Apple form: seconds from now, allowing for the instants between the two `now` reads.
+        let d = n.delay_secs();
+        assert!((9.0..=10.5).contains(&d), "delay was {d}");
+        // Android form: the absolute instant, independent of the now argument.
+        let ms = future
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        assert_eq!(n.fire_at_ms(0), Some(ms));
+
+        // A past instant is an immediate fire, not an error: zero delay, real (past) millis.
+        let past = SystemTime::now() - Duration::from_secs(60);
+        let n = Notification::new("t").trigger(Trigger::At(past));
+        assert_eq!(n.delay_secs(), 0.0);
+        assert!(n.fire_at_ms(0).unwrap() > 0);
+    }
+
+    #[test]
+    fn fire_at_ms_is_relative_for_in_and_none_for_now() {
+        let n = Notification::new("t").trigger(Trigger::In(Duration::from_secs(5)));
+        assert_eq!(n.fire_at_ms(1_000_000), Some(1_005_000));
+        assert_eq!(Notification::new("t").fire_at_ms(1_000_000), None);
     }
 
     #[test]

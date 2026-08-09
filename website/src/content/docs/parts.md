@@ -36,6 +36,7 @@ plugin registry or runtime lookup; the target selects the implementation at comp
 | `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/internal/permissions) |
 | `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
 | `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
+| `day-part-timezone` | the wall clock (works on web too) and DST-correct IANA time-zone offsets | [timezone](/docs/internal/timezone) |
 
 ## Using parts
 

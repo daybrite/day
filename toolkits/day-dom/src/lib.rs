@@ -120,6 +120,9 @@ unsafe extern "C" {
     /// `prefers-color-scheme`. Returns the effective mode (0/1) after applying.
     fn day_dom_set_dark(mode: u32) -> u32;
     fn day_dom_warn(ptr: *const u8, len: usize);
+    /// The page's wall clock (`Date.now()`), in milliseconds since the Unix epoch. This is the
+    /// only wall clock on `wasm32-unknown-unknown` — `std::time::SystemTime::now()` aborts there.
+    fn day_dom_now_ms() -> f64;
 }
 
 fn s(el: u32, prop: &str, val: &str) {
@@ -144,6 +147,18 @@ fn warn(msg: &str) {
 pub fn host_env(key: &str) -> Option<String> {
     let v = env(key);
     if v.is_empty() { None } else { Some(v) }
+}
+
+/// Milliseconds since the Unix epoch, from the page's `Date.now()`. The wasm target has no
+/// working `SystemTime::now()`, so time-of-day code asks the host page instead (day-part-timezone
+/// routes through here on `web-dom`).
+pub fn now_epoch_ms() -> u64 {
+    let ms = unsafe { day_dom_now_ms() };
+    if ms.is_finite() && ms > 0.0 {
+        ms as u64
+    } else {
+        0
+    }
 }
 
 /// Read a host "environment" value (query params / navigator facts) into a String.

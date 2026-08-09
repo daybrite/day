@@ -3937,3 +3937,78 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     assert!(day_core::open_preferences());
     assert_eq!(probe.windows().len(), 1);
 }
+
+/// `.searchable()` is declared on the SURFACE, and the query stays an app-owned signal
+/// (docs/search.md). That is what will let the field move between the toolbar and the navigation
+/// list without the state moving with it, so the binding has to run in both directions against
+/// the signal — never against the widget.
+#[test]
+fn searchable_binds_the_query_both_ways() {
+    let section = Signal::new(Option::<String>::None);
+    let query = Signal::new(String::new());
+    let scope = Signal::new(0usize);
+    let rows = ["alpha".to_string(), "beta".to_string()];
+    let q_r = query;
+    let probe = boot(move || {
+        selector(section)
+            .style(SelectorStyle::Sidebar)
+            .searchable(q_r)
+            .search_prompt("Find")
+            .search_scopes(scope, vec!["All", "Recent"])
+            .items(
+                move || {
+                    // TRACKED: the row set narrows as the query changes, which is the whole point
+                    // of binding search to the surface the rows come from.
+                    let q = q_r.get().to_lowercase();
+                    rows.iter()
+                        .filter(|r| q.is_empty() || r.starts_with(&q))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                },
+                |r: &String| item(r.clone(), r.clone()),
+            )
+            .destination(|_: &Option<String>| label("detail"))
+            .any()
+    });
+    let menu = probe.find_by_kind("day.nav_menu")[0].0;
+    let host = node_id(&probe, "day.nav", 0);
+    assert_eq!(probe.widget(menu).text, "alpha|beta", "unfiltered to start");
+
+    // Backend → app: the user typing writes the app's signal, and the rows re-derive from it.
+    probe.emit(host, Event::SearchChanged("be".into()));
+    flush_sync();
+    assert_eq!(query.get_untracked(), "be", "typing wrote the app signal");
+    assert_eq!(
+        probe.widget(menu).text,
+        "beta",
+        "rows narrowed to the query"
+    );
+
+    // App → backend: the app clearing its own signal restores the rows. The field follows through
+    // a targeted patch rather than a rebuild, so this direction must work without touching it.
+    batch(|| query.set(String::new()));
+    flush_sync();
+    assert_eq!(
+        probe.widget(menu).text,
+        "alpha|beta",
+        "cleared restores rows"
+    );
+
+    // Scopes are one-of-N over an app signal, same discipline as the query.
+    probe.emit(host, Event::SearchScopeChanged(1));
+    flush_sync();
+    assert_eq!(
+        scope.get_untracked(),
+        1,
+        "scope choice wrote the app signal"
+    );
+
+    // `is_searching()` reflects the field's activity for an app that renders differently while
+    // searching (SwiftUI's isSearching).
+    assert!(!day_core::is_searching());
+    probe.emit(host, Event::SearchActiveChanged(true));
+    flush_sync();
+    assert!(day_core::is_searching(), "activation reported");
+    day_core::dismiss_search();
+    assert!(!day_core::is_searching(), "dismiss_search put it away");
+}
