@@ -206,9 +206,7 @@ impl Xaml {
             }
             ToolbarPatch::Suggestions { item, list } => {
                 let (id, joined) = (cstr(item), cstr(&list.join("\x1f")));
-                unsafe {
-                    ffi::day_xaml_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr())
-                };
+                unsafe { ffi::day_xaml_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr()) };
             }
             ToolbarPatch::Enabled { item, on } => {
                 let id = cstr(item);
