@@ -2254,6 +2254,30 @@ reference generically, exactly once:
 This mirrors how Flutter plugins carry `android/`/`ios/` folders the tool weaves into host
 projects. It is the reason Day's scaffolds are real Xcode/Gradle projects ([§17](#17-the-conventional-day-project-and-daytoml)).
 
+**One module per build system, not one per crate (decided 2026-08).** Every contributing crate's
+native sources land in a *single* generated unit per platform: one `DayPieces` SwiftPM target, one
+Gradle `:app` module (sources referenced in place through `srcDirs`, never copied), one `daypieces`
+ArkTS directory. The alternative — a module per crate, `day-x` → `DayX` — was evaluated and
+declined for now, because the price of a module differs by an order of magnitude across these build
+systems while the benefit does not. Gradle and hvigor modules cost configuration time, a manifest,
+a namespace, an R class, and a resource-merge pass each, and buy nothing: Java/Kotlin packages
+already namespace, and Android never stages a copy at all. Swift is the exception in kind: a
+SwiftPM target IS the module, and **subdirectories inside it are not namespaces**, so two crates
+declaring the same module-scope type collide with an error the app author cannot fix in either
+crate.
+
+The chosen answer for that is detection rather than partition: day-build already parses contributed
+Swift for the SwiftUI bindings, so it collects top-level type names per crate and fails with both
+crate names when two collide. Two enhancements stay on the shelf, each with a stated trigger:
+(1) **per-crate SwiftPM targets** with `DayPieces` as an umbrella — worth doing at three or more
+contributing crates, or at the first collision a rename cannot resolve, and cheap because the graph
+is flat (contributing crates' native halves never call each other, so there are no inter-module
+edges to compute); (2) **a generated Gradle module for one crate** — only when a crate needs
+settings that cannot merge into `:app` (its own `minSdk`, a compiler plugin, consumer ProGuard
+rules, a different JVM toolchain), and never as a wholesale conversion. Module splitting would not
+fix `@objc` class-name collisions, which live in a process-global namespace; that stays a naming
+rule, and is why [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) derives every bridge name mechanically.
+
 ### §15.3 dayffi: the C ABI (superseded — never built)
 
 > [!WARNING]
@@ -2353,7 +2377,7 @@ main-loop post** (`day_reactive::on_main`), because Day's UI is single-threaded 
 cannot be built without it.
 
 **Lowering, and why [§5.1](#51-authoring-surface-functions-and-builders-no-macros) still holds.** A crate's bridge sections sit inside one
-`daybridge::bridge!` block — a `macro_rules!` that **discards its body** and expands to an
+`day_bridge::bridge!` block — a `macro_rules!` that **discards its body** and expands to an
 `include!` of generated code in `OUT_DIR`. There is no procedural macro: the real parser is
 day-build reading the crate's own source text, exactly as `day-build/src/swiftui.rs` already parses
 `.swift` to generate `crate::swiftui::*`. So the framework still requires no macro anywhere, and a
@@ -3710,7 +3734,7 @@ implementation as noted above.
 | DP-17 | flush scheduling: when does the reactive drain run? | (A) synchronous fixpoint drain at batch end; layout in a coalesced posted callback (as specced [§3.3](#33-threading-model-and-the-turn-state-machine)); (B) always-posted flush (pane's literal model — simpler reentrancy, +1 turn latency on every event, fuzzier `wait_idle`) | **A** (already specced; this DP records the ratification) |
 | DP-18 | reading a disposed signal in **release** builds | (A) panic (floem/pane precedent, fail-fast); (B) log-once + default via try-path (leptos's panic-on-read is a notorious production footgun) | **A**, paired with the `try_*` doctrine of [§4.3](#43-scopes-and-disposal) — silent defaults hide real bugs and the no-op-write rule already covers legitimate async races |
 | DP-19 | Qt list recycling (QListView recycles delegate *paintings*, not live QWidget rows; `setIndexWidget` is unvirtualized) | (A) day-side emulated recycling: QAbstractScrollArea host + pooled cell QWidgets behind the same RowHost protocol, reported `Support::Emulated`; (B) painted `QStyledItemDelegate` fast path, rows restricted to text/icon/accessory | **A** default (preserves "any piece is a row"), B as a later optimization |
-| DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into [§16.5](#165-subcommands); needed for macos-gtk/qt regardless) |
+| DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into [§16.5](#165-subcommands); needed for macos-gtk/qt regardless). **Outcome (2026-08):** both, in the end — macos-appkit gained the `platform/macos/` Xcode host project and is now dual-mode ([§16.5](#165-subcommands)), while A survives as the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) and is still the only answer for macos-gtk/qt. The feared cost of B was real and is why the escape hatch exists: CI capture loops take the cargo path for speed |
 | DP-21 | extensibility (pillar 4) in the MVP | (A) tier-1 combobox joins MVP acceptance; battery/dayffi defer to M9; scaffolds ship the (empty) generated-aggregator attachment points from M5; (B) A + one thin tier-2 slice (battery, apple+android) in M8 to force dayffi real before templates ossify (~1 milestone-week); (C) confirm full M9+ deferral and say pillar 4 ships unproven | **A** (folded into [§21](#21-mvp-definition-and-milestone-plan)), with **B as stretch** if schedule allows |
 | DP-22 | scriptability of tier-2/adopted-native piece *internals* (a ComboBox popup or WebView content is one opaque handle to the element index) | (A) optional `script_query`/`script_act` dayffi vtable entries + sub-element locator syntax (`stations-combo#item:3`) — additive, keeps pillar composition true; (B) scope the claim to root nodes + exposed props, with capability-flagged structured errors | **A** for MVP-adjacent pieces (ComboBox); at minimum [§2](#2-the-four-pillars)'s claim stays scoped as now written |
 | DP-23 | ~~navigation architecture~~ | — | **resolved (owner, 2026-07-01): native containers.** `nav_stack` = UINavigationController / fragment+predictive-back hosts, desktop day-composed with native-style transitions ([§10.5](#105-navigation-and-presentation)); prerequisites already in place — VC/fragment-hosted roots ([§17.1](#171-project-layout-day-new-output)) + reserved push/pop/present hooks ([§10.5](#105-navigation-and-presentation)) |

@@ -46,10 +46,11 @@ unsigned artifact.
 
 When a dependency contributes Swift under `[package.metadata.day.macos]` — the
 [SwiftUI embedding](/docs/internal/swiftui) shim, or an app's own local SwiftPM package —
-`day build` runs a Swift prepass. It generates a `DayPieces` SwiftPM package under
-`build/day/macos/`, runs `swift build`, and statically links the result into the cargo binary,
-so the target stays cargo-driven with no Xcode project. An app with no Swift contributions
-builds exactly as before, and needs no Swift toolchain.
+`day build` generates a `DayPieces` SwiftPM package under `build/day/macos/`. An app carrying
+the `platform/macos/DayApp.xcodeproj` scaffold builds through xcodebuild, which references that
+package; on the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) `day build` runs
+`swift build` and statically links the result into the cargo binary. An app with no Swift
+contributions needs no Swift toolchain either way.
 
 ## Caveats and special considerations
 

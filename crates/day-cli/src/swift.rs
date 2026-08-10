@@ -4,9 +4,14 @@
 //! The macos-appkit Swift prepass (docs/swiftui.md). When any dependency contributes macOS Swift
 //! (`[package.metadata.day.macos]` — the day-piece-swiftui shim, an app's local SwiftPM package),
 //! `day build` compiles the generated `build/day/macos/DayPieces` package with `swift build` and
-//! statically links its archives into the cargo binary. macos-appkit stays cargo-driven (§16.5:
-//! no Xcode project); the Swift *runtime* is the OS's own dylibs (`/usr/lib/swift`, macOS ≥
-//! 10.14.4), so `day pack`'s codesign/notarize flow is untouched.
+//! statically links its archives into the cargo binary.
+//!
+//! This is the **bare-cargo** half of macos-appkit's dual-mode build (§16.5, 2026-08): an app
+//! carrying `platform/macos/DayApp.xcodeproj` builds through xcodebuild instead
+//! ([`crate::mobile::macos_xcode_enabled`]), and there the pbxproj references the same generated
+//! package rather than this prepass linking it. `DAY_MACOS_XCODE=0` or a project without the
+//! scaffold takes the path below. Either way the Swift *runtime* is the OS's own dylibs
+//! (`/usr/lib/swift`, macOS ≥ 10.14.4), so `day pack`'s codesign/notarize flow is untouched.
 
 use std::path::PathBuf;
 use std::process::Command;

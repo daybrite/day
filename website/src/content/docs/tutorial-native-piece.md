@@ -474,9 +474,9 @@ The same table takes a `platform = "16.0"` key to raise the minimum-OS floor (th
 contributing crates wins), and `swift-packages` entries may be **local**
 (`{ path = "swiftui", products = ["MyViews"] }`, relative to the crate): a local package's public
 SwiftUI views are scanned and exported as typed `crate::swiftui::MyView(…)` bindings. A parallel
-`[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg, where there is
-no Xcode project: `day build` compiles the contributions with a `swift build` prepass and
-statically links them into the cargo binary. See the
+`[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
+hands the contributions to the `platform/macos/` Xcode host project, or compiles them with a
+`swift build` prepass and links them into the cargo binary on the bare-cargo path. See the
 [SwiftUI embedding reference](/docs/internal/swiftui).
 
 ## 5. Register and wire the features

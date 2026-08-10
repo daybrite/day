@@ -234,11 +234,13 @@ fn appkit_group() -> Group {
             )
             .need(Need::BuildOptional),
         ],
-        setup: "macOS desktop (AppKit) builds as a plain cargo binary and needs Apple's clang\n\
-                toolchain: `xcode-select --install` (or a full Xcode). No extra Rust target — the\n\
-                host toolchain builds it. When a dependency contributes macOS Swift (SwiftUI\n\
-                embedding, docs/swiftui.md), `day build` adds a `swift build` prepass and links\n\
-                the result statically — that path also needs the `swift` compiler.",
+        setup: "macOS desktop (AppKit) needs Apple's clang toolchain: `xcode-select --install`\n\
+                (or a full Xcode). No extra Rust target — the host toolchain builds it. An app\n\
+                carrying `platform/macos/DayApp.xcodeproj` builds through xcodebuild, which needs\n\
+                a full Xcode; `DAY_MACOS_XCODE=0` (or no scaffold) falls back to the bare cargo\n\
+                build, where the command-line tools are enough. When a dependency contributes\n\
+                macOS Swift (SwiftUI embedding, docs/swiftui.md), that path adds a `swift build`\n\
+                prepass and links the result statically — it also needs the `swift` compiler.",
     }
 }
 

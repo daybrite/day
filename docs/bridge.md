@@ -40,39 +40,39 @@ in a foreign language would add a toolchain to the build and buy nothing.
 
 ## The file
 
-Everything bridge-related in a crate lives inside one `daybridge::bridge!` block. The macro
-discards its body; the generated Rust arrives through an `include!` of `OUT_DIR`.
+Everything bridge-related in a crate lives inside one `day_bridge::bridge!` block. The macro
+discards its body; the generated Rust arrives through an `include!` of `OUT_DIR/day-bridge/mod.rs`.
 
 ```rust
-daybridge::bridge! {
+day_bridge::bridge! {
     // 1. the contract — the only definition of the API
-    #[daybridge::declare]
+    #[day_bridge::declare]
     extern "day" {
-        fn speak_native(text: &str) -> Result<(), daybridge::Error>;
+        fn speak_native(text: &str) -> Result<(), day_bridge::Error>;
         fn stop_native();
     }
 
     // 2. file-level preamble for one language: imports only
-    #[daybridge::prelude(kotlin)]
+    #[day_bridge::prelude(kotlin)]
     kotlin!(r#"
         import android.speech.tts.TextToSpeech
         import dev.daybrite.day.bridge.DayBridge
     "#);
 
     // 3. an implementation, inline
-    #[daybridge::impl(kotlin, platforms = [android])]
+    #[day_bridge::impl(kotlin, platforms = [android])]
     kotlin!(r#"
         fun speakNative(text: String) { … }
         fun stopNative() { … }
     "#);
 
     // 4. or an implementation in its own file, staged like android/java is today
-    #[daybridge::impl(swift, platforms = [ios, macos], src = "platform/Speech.swift")]
+    #[day_bridge::impl(swift, platforms = [ios, macos], src = "platform/Speech.swift")]
 
     // 5. the arm that keeps `cargo test` and day-mock compiling
-    #[daybridge::impl(rust, platforms = [other])]
-    fn speak_native(_text: &str) -> Result<(), daybridge::Error> {
-        Err(daybridge::Error::Unsupported)
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn speak_native(_text: &str) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
     }
 }
 ```
@@ -99,7 +99,7 @@ Everything is derived from the crate name, so nothing has to be kept in agreemen
 | Swift file | `<CrateCamel>Bridge.swift` in `DayPieces` | `DayPartSpeechBridge.swift` |
 | ES module | `build/day/web/bridge/<crate>.js` | `bridge/day-part-speech.js` |
 | ArkTS module | `<crate>/Index.ets` under the ohos host | `day-part-speech/Index.ets` |
-| C/C++ unit | `OUT_DIR/daybridge/<crate>.c` \| `.cpp` | — |
+| C/C++ unit | `OUT_DIR/day-bridge/<crate>.c` \| `.cpp` | — |
 
 A foreign function's name is the lowerCamelCase of the Rust name (`speak_native` →
 `speakNative`) in Swift, Kotlin, ArkTS, and JavaScript, and the snake_case name in C and C++.
@@ -123,8 +123,8 @@ The v1 surface. A declaration using anything outside this table is a `day lint` 
 | `String` (return) | `String` | `String` | `string` | `string` | `char*`, callee-allocated |
 | `&[u8]` (argument) | `Data` | `ByteArray` | `Uint8Array` | `Uint8Array` | `const uint8_t*` + `size_t` |
 | `Vec<u8>` (return) | `Data` | `ByteArray` | `Uint8Array` | `Uint8Array` | `uint8_t*` + out `size_t` |
-| `#[daybridge::data] struct` of the above | `struct` | `data class` | interface | object | `struct` |
-| `Result<T, daybridge::Error>` | `throws` | exception | thrown | thrown | status code + out-param |
+| `#[day_bridge::data] struct` of the above | `struct` | `data class` | interface | object | `struct` |
+| `Result<T, day_bridge::Error>` | `throws` | exception | thrown | thrown | status code + out-param |
 
 Four rules the table doesn't show:
 
@@ -135,9 +135,9 @@ Four rules the table doesn't show:
   declaration never changes either way.
 
   ```rust
-  #[daybridge::impl(cpp, platforms = [windows], encoding = "utf16", link = ["ole32", "sapi"])]
+  #[day_bridge::impl(cpp, platforms = [windows], encoding = "utf16", link = ["ole32", "sapi"])]
   ```
-- **`#[daybridge::data]` structs are POD**: fields from this table, no nesting in v1, no
+- **`#[day_bridge::data]` structs are POD**: fields from this table, no nesting in v1, no
   `Option`. A struct is copied across the boundary, never shared.
 - **A struct is not versioned.** It crosses by layout, so changing a field is a breaking change to
   every arm at once — which is safe, because inline arms are generated from the declaration and
@@ -203,7 +203,7 @@ every platform, so the sync contract costs it nothing.
 
 ## Errors
 
-`daybridge::Error` is the single error type crossing the boundary:
+`day_bridge::Error` is the single error type crossing the boundary:
 
 | Variant | Raised when |
 |---|---|
@@ -226,7 +226,7 @@ the declarations and CI-gated for drift, the way `docs/duty-matrix.md`, `docs/co
 and `docs/recorder-matrix.md` already are.
 
 ```rust
-pub fn available() -> Support { daybridge::support!(speak_native) }
+pub fn available() -> Support { day_bridge::support!(speak_native) }
 ```
 
 An arm may report `Emulated` rather than `Native` when the platform implementation is a partial
@@ -306,11 +306,26 @@ trade: put it in `src = "platform/Speech.kt"`, where `kotlinc` line numbers are 
 an IDE, a formatter, and a linter all work. The ~25-line threshold is a suggestion everywhere
 except Kotlin and Java, where it is the recommendation.
 
-## Determinism
+## Determinism and mtimes
 
-Generated sources are inputs to reproducible builds (docs/reproducible-builds.md): arms are emitted
-in declaration order, symbol lists are sorted, and no timestamp, absolute path, or hostname appears
-in generated output. The repro CI leg covers bridge output like any other artifact.
+Two separate requirements, and meeting the first does not meet the second.
+
+**Byte-stable output**, because generated sources are inputs to reproducible builds
+(docs/reproducible-builds.md): arms are emitted in declaration order, symbol lists are sorted, and
+no timestamp, absolute path, or hostname appears in generated output. The repro CI leg covers
+bridge output like any other artifact.
+
+**Stable mtimes**, because the native build behind each arm is incremental. Every generated file is
+written through a touch-only-when-changed helper — read the current bytes, return early when they
+match — and stale files are pruned rather than left behind, which is the rule DESIGN §17.5 already
+states for conveyance ("touch only when changed — keeps native incremental builds warm") and the
+macOS `DayPieces` generator already implements. Identical bytes rewritten unconditionally still
+restamp the file, and `swift build` and hvigor key their incremental checks on **mtime and size**,
+so an unconditional write recompiles the whole module on every `day build`. Gradle is the exception
+that proves the point: it content-hashes its inputs, so an identical rewrite costs nothing there.
+
+Neither `std::fs::write` nor `std::fs::copy` is acceptable in a bridge generator — the first
+restamps, and the second restamps *and* drops the source mtime.
 
 ## Testing
 
@@ -339,6 +354,30 @@ Read it before writing a bridge of your own.
 - **No foreign state beyond process statics.** An arm may hold a synthesizer or a connection in a
   file-scope static; it may not hold anything Rust is expected to own or free.
 
+## Implementation phases
+
+The order is chosen so each phase is provable on its own and the expensive ones sit where they can
+be cut without stranding the phases before them.
+
+| # | Phase | Proves it works when |
+|---|---|---|
+| 0 | **Contract** — this file, DESIGN §15.6 | reviewed |
+| 1 | **Skeleton** — `day-bridge` (discarding macros, `Error`, `Support`), `day-build/src/bridge.rs` scanner + Rust generator, `rust`/`other` arm only | a crate with only a fallback arm passes `cargo check` and `cargo test` on the host, under day-mock, with no foreign toolchain installed |
+| 2 | **C / C++** — `cc` from the crate's `build.rs`, `#line` mapping, `link`/`pkg_config`/`encoding` attributes | a C arm builds on macOS, Linux, and Windows in CI, and a deliberate syntax error names the `.rs` line |
+| 3 | **Swift** — adapters into the generated `DayPieces` module | an inline Swift arm calls AVFoundation on `macos-appkit` and `ios-uikit`; a Swift type error names the `.rs` line |
+| 4 | **Kotlin / JNI** — generated object into a Gradle `srcDir`, `RegisterNatives` in `JNI_OnLoad`, thread attach, `GlobalRef` promotion | `day-part-battery` migrates: its `DayBattery.java`, its `java = [...]` table, and its packed-`i64` protocol all deleted, emulator walkthrough green |
+| 5 | **JavaScript** — per-crate ES module under `build/day/web/bridge/`, imported by the day-dom shim, merged into the wasm import table | headless WebKit walkthrough green; two bridge crates linked together produce no duplicate or missing import |
+| 6 | **ArkTS** — generated module with its `Index.ets`, wired through hvigor | the arm runs on the ohos leg in CI — that leg is the verification, with no local emulator run in the acceptance criteria (harmony-arkui is Tier 3, and its emulator is the least reliable part of the local loop) |
+| 7 | **`day-part-speech`** — the reference crate, six arms, plus a Day-Showcase Platform-services demo and dayscript step (cross-repo) | `speak`/`stop` work on every target that claims support, the walkthrough drives the demo on each target's CI leg, and `available()` matches the generated matrix |
+| 8 | **Migrate the synchronous parts** — battery (in 4), then haptics, deviceinfo, clipboard, prefs, network, http | every `android/java` directory in those seven crates is gone, walkthroughs green |
+| 9 | **Gates** — `docs/bridge-matrix.md` + drift check, the `day lint` rules from [What fails the build](#what-fails-the-build), determinism in the repro leg, `day doctor` probes per arm | CI fails on a hand-edited matrix, a missing `other` arm, and a symbol collision |
+
+**Review checkpoints** fall after phase 3 (skeleton plus the two backends that share the least machinery), after phase 4 (Kotlin and the battery migration — the payoff and the riskiest single phase), and after phase 9.
+
+Deferred with the callback tier, not scheduled here: `day-part-location`, `day-part-sensors`,
+`day-part-permissions`, and `day-part-local-notify`, whose Android shims push events back to Rust
+(6, 6, 1, and 1 listener respectively) and therefore need [callbacks and streams](#after-v1).
+
 ## After v1
 
 Deferred deliberately, each with its shape sketched so v1 doesn't foreclose it:
@@ -352,7 +391,7 @@ Deferred deliberately, each with its shape sketched so v1 doesn't foreclose it:
 - **Futures.** Generated on top of callbacks, so parts keep the shape `day-part-fs` established
   (`speak_future(text).await` under `day::task`).
 - **Streams.** Sensors and location want repeated delivery rather than a completion. This is a
-  separate declaration (`#[daybridge::stream]`), not a relaxation of the at-most-once callback
+  separate declaration (`#[day_bridge::stream]`), not a relaxation of the at-most-once callback
   rule — deciding which came first was the reason both are deferred rather than half-built.
 - **Kotlin `suspend` arms**, once callbacks exist to bridge them onto.
 - **Kotlin/Java diagnostic remapping**, if inline arms in those languages turn out to be common
@@ -367,7 +406,7 @@ Settled 2026-08-10, recorded so the reasoning outlives the discussion:
 | Symbol collisions | **Fail the build**, naming both manifest paths | A path hash would make the failure silent and the symbol unreadable in a crash log; predictable names are the point of the derivation table |
 | Win32 string width | **Opt-in per arm** (`encoding = "utf16"`), UTF-8 by default | A UTF-8 C library on Windows stays natural; an arm calling a wide API asks for what it needs |
 | Kotlin `suspend` | **Deferred** with the rest of async | Nothing to bridge it onto until the callback tier exists |
-| Multi-shot callbacks | **Deferred**; a separate `#[daybridge::stream]` when it lands | Sensors and location need repeated delivery, which is a different shape from at-most-once completion — half-building either would foreclose the other |
+| Multi-shot callbacks | **Deferred**; a separate `#[day_bridge::stream]` when it lands | Sensors and location need repeated delivery, which is a different shape from at-most-once completion — half-building either would foreclose the other |
 | Struct evolution | **No versioning.** A change breaks every arm at once, and file-form arms are signature-validated | Everything regenerates in one build, so the only drift risk is the hand-written file arm — which the validator catches |
 
 One question remains, and it is low-stakes enough that the implementation will proceed on the

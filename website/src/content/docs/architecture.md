@@ -104,8 +104,8 @@ and neither goes stale.
 
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
 `libentry.so`), and `macos-appkit` generates its own `DayPieces` SwiftPM package (at
-`build/day/macos/DayPieces`) when Swift is contributed — with no Xcode project involved, since
-cargo drives the final link. Metadata flows one way: `Day.toml` (identity) and the Cargo
+`build/day/macos/DayPieces`) when Swift is contributed — referenced by the `platform/macos/`
+Xcode host project, or linked directly by cargo on the bare-cargo path. Metadata flows one way: `Day.toml` (identity) and the Cargo
 `version` are conveyed into generated, gitignored files that the checked-in projects read; the
 scaffolds themselves are never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.

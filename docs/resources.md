@@ -67,9 +67,11 @@ the backend resolves the name.
   `resources: [.process(...)]`. xcodebuild runs `actool` → an optimized, deduplicated `Assets.car` in
   `DayResources_DayResources.bundle`; the backend loads via
   `UIImage(named:in:compatibleWith:)`.
-- **macOS (AppKit):** the app is a plain cargo binary (no xcodebuild/actool), so the image is a file
-  in the `.app` bundle, loaded with `NSImage(contentsOfFile:)`. (Optimization is whatever the source
-  already is; there is no actool step off the Xcode build.)
+- **macOS (AppKit):** the image is a file in the `.app` bundle, loaded with
+  `NSImage(contentsOfFile:)`. That holds in both build modes — the bare-cargo build runs no
+  xcodebuild at all, and the `platform/macos/` Xcode host stages images into `Contents/Resources`
+  through its `day xcode-backend stage-resources` phase rather than through an asset catalog.
+  (Optimization is whatever the source already is; no `actool` runs for images on either path.)
 - **Android:** staged into `res/drawable*/` (density buckets from `@Nx` variants); aapt2 crunches and
   assigns an `R.drawable` id. Runtime resolves the name with `Resources.getIdentifier(name,
   "drawable", pkg)` (cached) → `getDrawable`.

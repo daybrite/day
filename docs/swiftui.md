@@ -158,8 +158,10 @@ callbacks do not fire inside the hosted view.
 
 ### The macOS leg
 
-macos-appkit stays cargo-driven (DESIGN §16.5 — no Xcode project). When any dependency contributes
-under `[package.metadata.day.macos]`, `day build`:
+macos-appkit is dual-mode (DESIGN §16.5, 2026-08): an app carrying `platform/macos/DayApp.xcodeproj`
+builds through xcodebuild, and its pbxproj references the generated `DayPieces` package directly;
+`DAY_MACOS_XCODE=0` or a project without the scaffold takes the bare-cargo path described here.
+When any dependency contributes under `[package.metadata.day.macos]`, that path has `day build`:
 
 1. regenerates `build/day/macos/DayPieces` (staged shims + generated glue + `Package.swift` with a
    static library product), touching only files whose bytes changed so the Swift incremental build

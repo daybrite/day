@@ -11,7 +11,10 @@
 //!
 //! Data (`assets/`) is copied into the app bundle by the xcode-backend copy phase and read back
 //! through the default mmap file opener (a plain bundle file — the Apple native path). macOS/AppKit
-//! is a cargo binary (no xcodebuild/actool), so it stays on the bundle-file path.
+//! stays on the bundle-file path in BOTH of its build modes: the bare-cargo build has no
+//! xcodebuild at all, and the `platform/macos/` Xcode host stages images through the
+//! `day xcode-backend stage-resources` script phase into `Contents/Resources` rather than through
+//! an asset catalog, so no `actool` runs for them there either (the appicon is the exception).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -37,10 +40,13 @@ pub fn write_media_xcassets(
         return Ok(false);
     }
     let catalog = sources_dir.join("Media.xcassets");
-    // Regenerate fresh so a removed image never lingers in the catalog.
-    let _ = fs::remove_dir_all(&catalog);
     fs::create_dir_all(&catalog).map_err(|e| e.to_string())?;
-    fs::write(catalog.join("Contents.json"), CATALOG_ROOT).map_err(|e| e.to_string())?;
+    // Touch only what changed and prune the rest: a removed image must not linger in the catalog,
+    // but rewriting it wholesale restamps every file and re-runs `actool` on every build.
+    let mut expected: Vec<std::path::PathBuf> = Vec::new();
+    let root_contents = catalog.join("Contents.json");
+    crate::pieces::write_if_changed(&root_contents, CATALOG_ROOT)?;
+    expected.push(root_contents);
 
     // Group scale variants by image name — skipping the raster twins of names shipped below as
     // preserve-vector SVG imagesets (same name, two imagesets would collide in the catalog).
@@ -65,7 +71,9 @@ pub fn write_media_xcassets(
             } else {
                 format!("{name}.{ext}")
             };
-            fs::copy(&v.path, imageset.join(&fname)).map_err(|e| e.to_string())?;
+            let staged = imageset.join(&fname);
+            crate::pieces::copy_if_changed(&v.path, &staged)?;
+            expected.push(staged);
             entries.push(format!(
                 "    {{ \"idiom\" : \"universal\", \"filename\" : \"{fname}\", \"scale\" : \"{}x\" }}",
                 v.scale
@@ -75,16 +83,23 @@ pub fn write_media_xcassets(
             "{{\n  \"images\" : [\n{}\n  ],\n  \"info\" : {{ \"author\" : \"day\", \"version\" : 1 }}\n}}\n",
             entries.join(",\n")
         );
-        fs::write(imageset.join("Contents.json"), contents).map_err(|e| e.to_string())?;
+        let contents_path = imageset.join("Contents.json");
+        crate::pieces::write_if_changed(&contents_path, &contents)?;
+        expected.push(contents_path);
     }
     for (name, svg) in vectors {
         let imageset = catalog.join(format!("{name}.imageset"));
         fs::create_dir_all(&imageset).map_err(|e| e.to_string())?;
-        fs::copy(svg, imageset.join(format!("{name}.svg"))).map_err(|e| e.to_string())?;
+        let staged = imageset.join(format!("{name}.svg"));
+        crate::pieces::copy_if_changed(svg, &staged)?;
+        expected.push(staged);
         let contents = format!(
             "{{\n  \"images\" : [\n    {{ \"idiom\" : \"universal\", \"filename\" : \"{name}.svg\" }}\n  ],\n  \"info\" : {{ \"author\" : \"day\", \"version\" : 1 }},\n  \"properties\" : {{ \"preserves-vector-representation\" : true }}\n}}\n"
         );
-        fs::write(imageset.join("Contents.json"), contents).map_err(|e| e.to_string())?;
+        let contents_path = imageset.join("Contents.json");
+        crate::pieces::write_if_changed(&contents_path, &contents)?;
+        expected.push(contents_path);
     }
+    crate::pieces::prune_except(&catalog, &expected.into_iter().collect());
     Ok(true)
 }

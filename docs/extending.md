@@ -246,8 +246,10 @@ Two further keys, shared with the macOS table below (docs/swiftui.md has the ful
 ### macOS Swift (`[package.metadata.day.macos]`)
 
 The same table shape for the macos-appkit leg — `swift`, `swift-packages` (remote or local),
-`frameworks`, `platform`. macos-appkit has no Xcode scaffold (it is a plain cargo binary), so
-`day build` generates `build/day/macos/DayPieces` with a **static** library product, compiles it
+`frameworks`, `platform`. macos-appkit is dual-mode: an app with `platform/macos/DayApp.xcodeproj`
+builds through xcodebuild, whose pbxproj references the generated package. On the bare-cargo path
+(`DAY_MACOS_XCODE=0`, or no scaffold) `day build` generates `build/day/macos/DayPieces` with a
+**static** library product, compiles it
 with `swift build`, and links the archives into the cargo binary directly (`-force_load` on the
 DayPieces archive, so provider classes reached only by name survive the link; the Swift runtime
 resolves against the OS dylibs). Apps that contribute no macOS Swift keep the exact prior cargo

@@ -442,8 +442,8 @@ let data = day::resource(res::assets::stations_json)?;
 
 On iOS, `resource/images/` is staged into a real asset catalog and compiled by `actool` (the
 same optimized `Assets.car` you'd get from Xcode), and fonts land in the bundle with the
-`UIAppFonts` plist entry written for you; the macOS app is a plain cargo binary, so its images
-ship as ordinary bundle files. Localization uses
+`UIAppFonts` plist entry written for you; on macOS images ship as ordinary bundle files rather than
+a compiled catalog. Localization uses
 [Mozilla Fluent](https://projectfluent.org/) instead of String Catalogs: plural rules live in
 the message, `res::str::*` accessors are generated so a bad key is a compile error, and adding
 a language is adding a `resource/locales/<lang>/` directory. The locale is a signal. Switching
