@@ -84,6 +84,9 @@ pub mod prelude {
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
+    // `Selector::presentation` takes one (docs/size-classes.md); apps that leave the
+    // presentation automatic never name it.
+    pub use day_spec::props::NavPresentation;
     pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
     pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};

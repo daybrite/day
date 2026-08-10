@@ -543,11 +543,77 @@ struct NavState {
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
+    /// The host's sidebar page, once it has one — what a re-present moves between the sidebar
+    /// pane and the head of `pages` (docs/size-classes.md).
+    sidebar_page: Option<Retained<NSView>>,
     positioned: bool,
     /// Sidebar+detail split (a selector Sidebar) vs. a pure push/pop stack (a `stack`).
     split: bool,
     /// Back header (stack presentation only).
     header: Option<NavHeader>,
+    /// The host's own title, kept so a re-present into a stack can seed a fresh back header
+    /// with the same root title the initial build would have used.
+    root_title: String,
+    /// The host's node, for the same reason — a back header's button targets it.
+    node: NodeId,
+}
+
+/// The stack presentation's back header: a chevron + centred title docked above the pages,
+/// hidden at the root. Desktop has no system back affordance, so a pushed page carries its own
+/// way out (docs/navigation.md).
+///
+/// Built here rather than inline because a host that RE-PRESENTS into a stack needs one at that
+/// moment (docs/size-classes.md), and a header that differed from the one a stack-at-launch host
+/// gets would be a second shape to keep in step.
+fn build_nav_header(
+    mtm: MainThreadMarker,
+    id: NodeId,
+    detail_wrap: &NSView,
+    root_title: &str,
+) -> NavHeader {
+    let bar = view_of(DayFlipped::new(mtm));
+    let target = DayTarget::new(mtm, id);
+    let back = unsafe {
+        let img = objc2_app_kit::NSImage::imageNamed(objc2_app_kit::NSImageNameGoBackTemplate)
+            .expect("NSGoBackTemplate");
+        let tobj: &objc2::runtime::AnyObject = target.as_ref();
+        objc2_app_kit::NSButton::buttonWithImage_target_action(
+            &img,
+            Some(tobj),
+            Some(sel!(navBack:)),
+            mtm,
+        )
+    };
+    let title = unsafe { NSTextField::labelWithString(&NSString::from_str(root_title), mtm) };
+    unsafe {
+        back.setFrame(NSRect::new(
+            NSPoint::new(6.0, 4.0),
+            NSSize::new(30.0, NAV_HEADER_H - 8.0),
+        ));
+        title.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
+        title.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+        title.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
+        title.setFrame(NSRect::new(
+            NSPoint::new(44.0, 9.0),
+            NSSize::new((detail_wrap.bounds().size.width - 88.0).max(0.0), 18.0),
+        ));
+        title.setAutoresizingMask(objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable);
+        bar.setFrame(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(detail_wrap.bounds().size.width, NAV_HEADER_H),
+        ));
+        bar.setAutoresizingMask(objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable);
+        bar.addSubview(&back);
+        bar.addSubview(&title);
+        bar.setHidden(true);
+        detail_wrap.addSubview(&bar);
+    }
+    NavHeader {
+        bar,
+        title,
+        titles: vec![root_title.to_string()],
+        _target: target,
+    }
 }
 
 /// The frame a stack page occupies inside the detail wrap: full bounds at the root, inset
@@ -581,11 +647,127 @@ fn sync_nav_header(hdr: &NavHeader, wrap: &NSView, pages: &[Retained<NSView>]) {
     }
 }
 
+/// Re-present a live nav host (docs/size-classes.md): the window crossed a breakpoint, so the
+/// chrome changes but the pages do not.
+///
+/// Both presentations already share one `NSSplitViewController` — a stack is the same split with
+/// its sidebar item collapsed to zero thickness — so the morph is three moves, and none of them
+/// touches a page's CONTENT:
+///
+/// 1. the sidebar item collapses or expands (AppKit animates it and re-runs the titlebar
+///    separator on its own),
+/// 2. the sidebar PAGE moves between the sidebar wrap and the head of the detail stack,
+/// 3. the back header appears or hides, since only a stack has one.
+///
+/// `addSubview` re-parents a view rather than rebuilding it, so every page keeps its subtree,
+/// its scroll position, and its first responder across the move.
+fn nav_present(mtm: MainThreadMarker, host: &Handle, split: bool) {
+    let Some((sidebar_page, detail_wrap, sidebar_wrap, sidebar_item, was_split, root_title, id)) =
+        NAV_STATE.with(|m| {
+            let st = m.borrow();
+            let s = st.get(&ptr_of(host))?;
+            Some((
+                s.sidebar_page.clone(),
+                s.detail_wrap.clone(),
+                s.sidebar_wrap.clone(),
+                s.sidebar_item.clone(),
+                s.split,
+                s.root_title.clone(),
+                s.node,
+            ))
+        })
+    else {
+        return;
+    };
+    if was_split == split {
+        return;
+    }
+    unsafe {
+        sidebar_item.setCanCollapse(split);
+        sidebar_item.setCollapsed(!split);
+        if split {
+            sidebar_item.setAllowsFullHeightLayout(true);
+            sidebar_item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
+            sidebar_item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
+        } else {
+            // Zero the thickness bounds BEFORE collapsing takes effect, or the pane keeps a
+            // minimum width and the detail never reaches the window edge.
+            sidebar_item.setMinimumThickness(0.0);
+            sidebar_item.setMaximumThickness(0.0);
+        }
+    }
+    // A stack needs a back header; a split must not show one. Built on demand and kept
+    // afterwards — rebuilding it on every morph would leak a target per crossing.
+    let mut header = NAV_STATE.with(|m| m.borrow_mut().get_mut(&ptr_of(host))?.header.take());
+    if !split && header.is_none() {
+        header = Some(build_nav_header(mtm, id, &detail_wrap, &root_title));
+    }
+    if let Some(hdr) = header.as_ref() {
+        hdr.bar.setHidden(true);
+    }
+    // Move the sidebar page: its own pane when split, the head of the stack when not.
+    let mut pages = NAV_STATE.with(|m| {
+        m.borrow()
+            .get(&ptr_of(host))
+            .map(|s| s.pages.clone())
+            .unwrap_or_default()
+    });
+    if let Some(page) = sidebar_page {
+        pages.retain(|p| ptr_of(p) != ptr_of(&page));
+        unsafe {
+            if split {
+                page.setFrame(sidebar_wrap.bounds());
+                sidebar_wrap.addSubview(&page);
+            } else {
+                detail_wrap.addSubview(&page);
+                pages.insert(0, page.clone());
+            }
+        }
+        // A sidebar pane always shows its page; as a stack root it may have been hidden under a
+        // pushed detail.
+        page.setHidden(false);
+    }
+    // Only the top page shows in either presentation; a split's sidebar sits outside `pages`.
+    let last = pages.len().saturating_sub(1);
+    for (i, page) in pages.iter().enumerate() {
+        page.setHidden(i != last);
+    }
+    NAV_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        if let Some(s) = m.get_mut(&ptr_of(host)) {
+            s.split = split;
+            s.pages = pages;
+            s.header = header;
+            if let Some(hdr) = s.header.as_ref() {
+                // Depth drives visibility, and the header is meaningless while split.
+                if split {
+                    hdr.bar.setHidden(true);
+                } else {
+                    sync_nav_header(hdr, &s.detail_wrap, &s.pages);
+                }
+            }
+            if split {
+                // Leaving the stack: the pages were inset below the header, so give them the
+                // full pane back.
+                let frame = nav_page_frame(&s.detail_wrap, false);
+                for page in &s.pages {
+                    unsafe { page.setFrame(frame) };
+                }
+            }
+        }
+    });
+}
+
 thread_local! {
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
     /// Handles whose frames are native-owned (nav pages): set_frame skips them.
     static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
         RefCell::new(std::collections::HashSet::new());
+    /// Each nav page's pane, recorded at realize because `insert` sees only handles
+    /// (docs/size-classes.md). Identity rather than position: a re-present re-homes the pages
+    /// without changing their order, so "index 0 is the sidebar" stops being true the moment a
+    /// host can morph.
+    static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -1132,6 +1314,9 @@ impl DayNavMenuData {
     }
 
     /// Data-driven rows changed (`NavMenuPatch::Items`): swap the stored decorations in place.
+    // The parameters ARE the patch's payload: index-aligned per-row decoration arrays, each
+    // landing in its own ivar. Bundling them would just move the same eight fields.
+    #[allow(clippy::too_many_arguments)]
     fn set_items(
         &self,
         items: &[String],
@@ -2282,6 +2467,10 @@ impl Toolkit for AppKit {
             Cap::Snapshot
             | Cap::NativeSymbols
             | Cap::NavSplit
+            // Both presentations are the same NSSplitViewController — a stack is that split with
+            // its sidebar item collapsed — so re-presenting is a collapse plus one `addSubview`
+            // that re-parents the sidebar page (docs/size-classes.md).
+            | Cap::NavRepresent
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::Animation
@@ -2454,7 +2643,7 @@ impl Toolkit for AppKit {
             Some(Builtin::Nav) => {
                 let is_split = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.split)
+                    .map(|p| p.presentation.is_split())
                     .unwrap_or(true);
                 // The host is an NSSplitViewController, not a bare NSSplitView. Handing the
                 // sidebar pane to `NSSplitViewItem::sidebarWithViewController:` is what buys
@@ -2552,66 +2741,16 @@ impl Toolkit for AppKit {
                     // keep doing the pane sizing.
                     split.setTranslatesAutoresizingMaskIntoConstraints(true);
                 }
+                let root_title = props
+                    .downcast_ref::<NavProps>()
+                    .map(|p| p.title.clone())
+                    .unwrap_or_default();
                 // Stack presentation: a back header (hidden at root) — desktop has no system
                 // back affordance, so a pushed page needs its own way out (docs/navigation.md).
                 let header = if is_split {
                     None
                 } else {
-                    let root_title = props
-                        .downcast_ref::<NavProps>()
-                        .map(|p| p.title.clone())
-                        .unwrap_or_default();
-                    let bar = view_of(DayFlipped::new(mtm));
-                    let target = DayTarget::new(mtm, id);
-                    let back = unsafe {
-                        let img = objc2_app_kit::NSImage::imageNamed(
-                            objc2_app_kit::NSImageNameGoBackTemplate,
-                        )
-                        .expect("NSGoBackTemplate");
-                        let tobj: &objc2::runtime::AnyObject = target.as_ref();
-                        objc2_app_kit::NSButton::buttonWithImage_target_action(
-                            &img,
-                            Some(tobj),
-                            Some(sel!(navBack:)),
-                            mtm,
-                        )
-                    };
-                    let title = unsafe {
-                        NSTextField::labelWithString(&NSString::from_str(&root_title), mtm)
-                    };
-                    unsafe {
-                        back.setFrame(NSRect::new(
-                            NSPoint::new(6.0, 4.0),
-                            NSSize::new(30.0, NAV_HEADER_H - 8.0),
-                        ));
-                        title.setFont(Some(&NSFont::boldSystemFontOfSize(13.0)));
-                        title.setAlignment(objc2_app_kit::NSTextAlignment::Center);
-                        title.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
-                        title.setFrame(NSRect::new(
-                            NSPoint::new(44.0, 9.0),
-                            NSSize::new((detail_wrap.bounds().size.width - 88.0).max(0.0), 18.0),
-                        ));
-                        title.setAutoresizingMask(
-                            objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
-                        );
-                        bar.setFrame(NSRect::new(
-                            NSPoint::new(0.0, 0.0),
-                            NSSize::new(detail_wrap.bounds().size.width, NAV_HEADER_H),
-                        ));
-                        bar.setAutoresizingMask(
-                            objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
-                        );
-                        bar.addSubview(&back);
-                        bar.addSubview(&title);
-                        bar.setHidden(true);
-                        detail_wrap.addSubview(&bar);
-                    }
-                    Some(NavHeader {
-                        bar,
-                        title,
-                        titles: vec![root_title],
-                        _target: target,
-                    })
+                    Some(build_nav_header(mtm, id, &detail_wrap, &root_title))
                 };
                 let view = view_of(split);
                 NAV_STATE.with(|m| {
@@ -2623,9 +2762,12 @@ impl Toolkit for AppKit {
                             _split_vc: split_vc,
                             sidebar_item,
                             pages: Vec::new(),
+                            sidebar_page: None,
                             positioned: false,
                             split: is_split,
                             header,
+                            root_title,
+                            node: id,
                         },
                     )
                 });
@@ -2634,6 +2776,9 @@ impl Toolkit for AppKit {
             Some(Builtin::NavPage) => {
                 let page = view_of(DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
+                if let Some(p) = props.downcast_ref::<day_spec::props::NavPageProps>() {
+                    PAGE_PANE.with(|m| m.borrow_mut().insert(ptr_of(&page), p.pane));
+                }
                 page
             }
             // Emulated fullscreen cover (docs/cover.md, the ArkUI tier): a DayNavPage — its
@@ -3091,6 +3236,10 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::NAV => {
+                if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
+                    nav_present(self.mtm(), h, next.is_split());
+                    return;
+                }
                 if let Some(p) = patch.downcast_ref::<NavPatch>() {
                     NAV_STATE.with(|m| {
                         let mut m = m.borrow_mut();
@@ -3148,6 +3297,8 @@ impl Toolkit for AppKit {
                             // (NavBack{already_popped:false}), so there is no native auto-pop to
                             // suppress — the guard runs in the pieces layer (docs/navigation.md).
                             NavPatch::GuardTop(_) => {}
+                            // Handled outside this borrow (it re-homes views and builds chrome).
+                            NavPatch::Presentation(_) => {}
                         }
                     });
                 }
@@ -3429,17 +3580,23 @@ impl Toolkit for AppKit {
         if handled_tab {
             return;
         }
-        // Nav host: index 0 = sidebar page, the rest are detail (stack) pages. Pages fill
-        // their pane via autoresizing — the pane, not Day, owns their frames.
+        // Nav host: pages land by their PANE, not their position (docs/size-classes.md). Pages
+        // fill their pane via autoresizing — the pane, not Day, owns their frames.
+        let is_sidebar_page = PAGE_PANE.with(|m| {
+            m.borrow().get(&ptr_of(child)).copied() == Some(day_spec::props::Pane::Sidebar)
+        });
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&ptr_of(parent)) else {
                 return false;
             };
-            // Split (selector Sidebar): index 0 is the sidebar; the rest are detail pages.
-            // Stack (`split == false`): every page — including the root — lives in the detail
-            // pane so push/pop visibility covers them all.
-            let (wrap, frame) = if state.split && index == 0 {
+            if is_sidebar_page {
+                state.sidebar_page = Some(child.clone());
+            }
+            // Split (selector Sidebar): the sidebar pane's page goes in the sidebar; the rest are
+            // detail pages. Stack: every page — including the sidebar's, which is the stack's
+            // root — lives in the detail pane so push/pop visibility covers them all.
+            let (wrap, frame) = if state.split && is_sidebar_page {
                 (&state.sidebar_wrap, state.sidebar_wrap.bounds())
             } else {
                 state.pages.push(child.clone());
@@ -3467,9 +3624,13 @@ impl Toolkit for AppKit {
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
+        PAGE_PANE.with(|m| m.borrow_mut().remove(&ptr_of(child)));
         NAV_STATE.with(|m| {
             if let Some(state) = m.borrow_mut().get_mut(&ptr_of(parent)) {
                 state.pages.retain(|p| ptr_of(p) != ptr_of(child));
+                if state.sidebar_page.as_deref().map(ptr_of) == Some(ptr_of(child)) {
+                    state.sidebar_page = None;
+                }
             }
         });
         // Data-driven tabs: a removed page's NSTabViewItem must go too (removeFromSuperview

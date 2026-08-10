@@ -381,6 +381,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 
 ## External toolkits: registering a platform-toolkit pair (experimental)
 
+> [!WARNING]
 > **The toolkit SPI is unstable.** Everything a backend implements (day-spec's `Toolkit` and
 > `Platform` traits, `Event`, `Cap`, the per-kind props structs) evolves with this repository and
 > is not published to crates.io. An external toolkit pins the day crates to a **git revision** and

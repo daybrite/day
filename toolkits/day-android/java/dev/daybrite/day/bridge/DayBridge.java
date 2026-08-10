@@ -129,6 +129,8 @@ public final class DayBridge {
     public static final int K_VALUE_COMMITTED = 22;
     /** Inline search on a `.searchable()` nav surface (docs/search.md): the field's new text. */
     public static final int K_SEARCH_CHANGED = 23;
+    /** A nav host's SlidingPaneLayout settled on a presentation (docs/size-classes.md). */
+    public static final int K_NAV_PRESENTATION = 24;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -778,8 +780,8 @@ public final class DayBridge {
     }
 
     // --- navigation (docs/navigation.md) ---
-    public static View makeNavHost(long id, String title) {
-        return new DayNavHost(ctx, id, title);
+    public static View makeNavHost(long id, String title, boolean adaptive, float tileMinDp) {
+        return new DayNavHost(ctx, id, title, adaptive, tileMinDp);
     }
 
     // Trailing nav-bar action (docs/navigation.md, NavProps::bar_action): applied AFTER the host is

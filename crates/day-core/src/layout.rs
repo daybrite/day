@@ -1117,10 +1117,32 @@ impl Layout for ScrollLayout {
 /// back to a sidebar/detail split (or the full host) of the host bounds.
 pub struct NavLayout {
     pub sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
-    pub split: bool,
+    /// The presentation as last resolved. Shared with the piece rather than copied, so a
+    /// re-present (`NavPatch::Presentation`) changes the fallback split without rebuilding the
+    /// layout object the host was realized with.
+    pub presentation: std::rc::Rc<std::cell::Cell<day_spec::props::NavPresentation>>,
+    /// The host's sidebar page, once it has one. Identity, not position: after a re-present the
+    /// pages keep their roles but a backend may have re-homed them in a different order.
+    pub sidebar: std::rc::Rc<std::cell::Cell<Option<RNode>>>,
 }
 
 pub use day_spec::NAV_SIDEBAR_WIDTH;
+
+impl NavLayout {
+    /// A host with no sidebar pane and no re-presenting to do: a tab strip's page area, or a
+    /// `stack` piece, both of which stay stacked at every size.
+    pub fn stack(
+        sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
+    ) -> Self {
+        NavLayout {
+            sizes,
+            presentation: std::rc::Rc::new(std::cell::Cell::new(
+                day_spec::props::NavPresentation::Stack,
+            )),
+            sidebar: std::rc::Rc::new(std::cell::Cell::new(None)),
+        }
+    }
+}
 
 impl Layout for NavLayout {
     fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
@@ -1130,20 +1152,20 @@ impl Layout for NavLayout {
         Size::new(p.width.unwrap_or(480.0), p.height.unwrap_or(640.0))
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
-        for (i, &page) in children.iter().enumerate() {
+        let split = self.presentation.get().is_split();
+        let sidebar = self.sidebar.get();
+        for &page in children {
             let reported = self.sizes.borrow().get(&page).copied();
             let sz = reported.unwrap_or_else(|| {
-                if self.split {
-                    if i == 0 {
-                        Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
-                    } else {
-                        Size::new(
-                            (bounds.size.width - NAV_SIDEBAR_WIDTH - 1.0).max(0.0),
-                            bounds.size.height,
-                        )
-                    }
-                } else {
+                if !split {
                     bounds.size
+                } else if Some(page) == sidebar {
+                    Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
+                } else {
+                    Size::new(
+                        (bounds.size.width - NAV_SIDEBAR_WIDTH - 1.0).max(0.0),
+                        bounds.size.height,
+                    )
                 }
             });
             cx.place_child_native(page, Rect::from_size(sz));

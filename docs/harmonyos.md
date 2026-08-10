@@ -7,7 +7,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 HarmonyOS Next dropped the AOSP layer; its UI framework is **ArkUI**. Day targets it with a native
 backend (`day-arkui`) built on the **ArkUI Native NodeAPI**, using the same "real native widgets, Day
-owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world.
+owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world. `harmony-arkui`
+is [Tier 3](https://daybrite.dev/docs/platforms#support-tiers): tested, but not comprehensively, and
+not yet exercised by shipping applications.
 
 ## Architecture
 

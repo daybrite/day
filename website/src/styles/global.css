@@ -46,6 +46,21 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --pf-harmony-arkui: #ff453a;    /* red */
   --pf-web-dom: #ff9f0a;       /* orange */
 
+  /* Support tiers (/docs/platforms#support-tiers) share ONE tint — the iOS palette's Purple,
+     the hue no platform accent claims — so a tier badge beside a target name never reads as a
+     second platform mark. The four tiers differ in badge weight, not color. */
+  --tier: #bf5af2;             /* purple */
+
+  /* Admonition kinds (plugins/admonitions.mjs). Semantic, and deliberately clear of the tier
+     purple so a call-out never reads as a support tier. `status` is neutral on purpose: the
+     reference docs each open with one, and forty tinted banners would shout over the prose. */
+  --adm-note: #6aa4ff;         /* blue — the brand accent */
+  --adm-tip: #30d158;          /* green */
+  --adm-question: #40c8e0;     /* teal */
+  --adm-important: #ffc24b;    /* amber */
+  --adm-warning: #ff6b5e;      /* red */
+  --adm-status: #8b98bb;       /* slate */
+
   /* OS-level aliases (the hero carousel is keyed by OS) resolve to the canonical target. */
   --pf-macos: var(--pf-macos-appkit);
   --pf-ios: var(--pf-ios-uikit);
@@ -101,6 +116,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --pf-windows-xaml: #30b0c7; /* teal */
   --pf-harmony-arkui: #ff3b30;    /* red */
   --pf-web-dom: #ff9500;       /* orange */
+
+  --tier: #af52de;             /* purple */
+
+  /* Light-mode admonition tints: the same hues, darkened enough to carry header text on a pale
+     fill (the amber and green in particular are unreadable at their dark-mode values). */
+  --adm-note: #2f6fde;
+  --adm-tip: #1a9e4b;
+  --adm-question: #0f8fa8;
+  --adm-important: #b47600;
+  --adm-warning: #d93b2b;
+  --adm-status: #5a6785;
 
   color-scheme: light;
 }
@@ -252,6 +278,117 @@ pre.code code { color: inherit; background: none; padding: 0; }
   color: color-mix(in srgb, var(--pf) 78%, var(--text));
   background: color-mix(in srgb, var(--pf) 13%, transparent);
 }
+
+/* ---- support-tier badges ----
+   One pill for all four tiers, in the tier tint. Written in markdown as a link to
+   /docs/platforms#support-tiers reading "Tier 2" or "Tier 2 · Demi-supported"; the
+   tier-badge rehype plugin stamps the class and data-tier at build time, and the platform
+   pages' title row emits the same markup. Tier 1 is a filled pill, and each tier below it
+   loses fill and border weight until Tier 4 is a dashed outline — the ramp reads in
+   grayscale, so the numeral is never the only signal. */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.14em 0.62em;
+  border: 1px solid color-mix(in srgb, var(--tier) 38%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tier) 10%, transparent);
+  color: color-mix(in srgb, var(--tier) 55%, var(--text));
+  font-size: 0.8em;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.tier-badge[data-tier='1'] {
+  background: color-mix(in srgb, var(--tier) 24%, transparent);
+  border-color: color-mix(in srgb, var(--tier) 72%, transparent);
+  color: color-mix(in srgb, var(--tier) 62%, var(--text));
+  font-weight: 700;
+}
+.tier-badge[data-tier='2'] {
+  background: color-mix(in srgb, var(--tier) 15%, transparent);
+  border-color: color-mix(in srgb, var(--tier) 55%, transparent);
+}
+.tier-badge[data-tier='3'] {
+  background: color-mix(in srgb, var(--tier) 7%, transparent);
+  border-color: color-mix(in srgb, var(--tier) 42%, transparent);
+  color: color-mix(in srgb, var(--tier) 45%, var(--text));
+}
+.tier-badge[data-tier='4'] {
+  background: transparent;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--tier) 38%, transparent);
+  color: color-mix(in srgb, var(--tier) 30%, var(--muted));
+}
+a.tier-badge:hover {
+  border-color: color-mix(in srgb, var(--tier) 85%, transparent);
+  color: color-mix(in srgb, var(--tier) 72%, var(--text));
+}
+
+/* ---- admonitions ----
+   A call-out blockquote (`> [!WARNING] Title` or `> **Title.** …`) becomes a group box: a tinted
+   header carrying the kind's icon and the title, over a quieter body. `--adm` is the kind's tint,
+   set per data-kind below, and everything else is mixed from it so a new kind needs one line. */
+.admonition {
+  --adm: var(--adm-note);
+  margin: 22px 0;
+  border: 1px solid color-mix(in srgb, var(--adm) 32%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--adm) 5%, var(--surface));
+  overflow: hidden;
+  scroll-margin-top: 84px; /* the header is sticky; land the box below it, like headings do */
+}
+.admonition[data-kind='tip'] { --adm: var(--adm-tip); }
+.admonition[data-kind='question'] { --adm: var(--adm-question); }
+.admonition[data-kind='important'] { --adm: var(--adm-important); }
+.admonition[data-kind='warning'] { --adm: var(--adm-warning); }
+.admonition[data-kind='status'] { --adm: var(--adm-status); }
+
+.admonition-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 14px;
+  background: color-mix(in srgb, var(--adm) 15%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--adm) 26%, transparent);
+  color: color-mix(in srgb, var(--adm) 62%, var(--text));
+}
+.admonition-icon { flex: none; color: var(--adm); }
+.admonition-title {
+  font-weight: 680;
+  font-size: 0.95rem;
+  line-height: 1.35;
+  letter-spacing: 0.005em;
+  min-width: 0;
+}
+.admonition-title code { background: color-mix(in srgb, var(--adm) 15%, transparent); color: inherit; }
+.admonition-title a { color: inherit; }
+
+/* The permalink: always present but faint, so it is discoverable without a hover to find it
+   (and on touch, where there is none), and full strength once hovered or focused. */
+.admonition-anchor {
+  margin-left: auto;
+  padding: 0 2px;
+  color: color-mix(in srgb, var(--adm) 55%, var(--muted));
+  font-weight: 700;
+  text-decoration: none;
+  opacity: 0.35;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+.admonition:hover .admonition-anchor { opacity: 0.75; }
+.admonition-anchor:hover,
+.admonition-anchor:focus-visible { opacity: 1; color: var(--adm); }
+/* Landing on a linked admonition marks it, so the reader sees which box the link meant. */
+.admonition:target {
+  border-color: color-mix(in srgb, var(--adm) 62%, var(--border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--adm) 18%, transparent);
+}
+
+.admonition-body { padding: 12px 14px 13px; }
+.admonition-body > :first-child { margin-top: 0; }
+.admonition-body > :last-child { margin-bottom: 0; }
 
 /* very light syntax tint (token classes emitted by the CodeSample component) */
 .tok-kw { color: #ff9e73; }

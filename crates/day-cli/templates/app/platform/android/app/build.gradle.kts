@@ -127,6 +127,10 @@ dependencies {
     // predictive back gesture (docs/navigation.md).
     implementation("androidx.fragment:fragment:1.8.5")
     implementation("androidx.transition:transition:1.5.1")
+    // Adaptive navigation (docs/size-classes.md): SlidingPaneLayout decides at MEASURE time
+    // whether both panes fit, so the split-vs-stack choice follows the window without Day
+    // computing it — `isSlideable` is then observed and reported back.
+    implementation("androidx.slidingpanelayout:slidingpanelayout:1.2.0")
     // Gradle dependencies contributed by standalone pieces (docs/extending.md).
     pieceDeps.forEach { implementation(it) }
 }

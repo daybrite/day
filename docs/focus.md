@@ -5,7 +5,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Focus
 
-> Status: **implemented** on every backend (AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and
+> **Status: implemented** on every backend (AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and
 > mock). `Event::FocusChanged(bool)` (reserved by §8.3) is real, `Toolkit::focus` is the duty
 > behind it, and DESIGN §4.4's controlled-input rule ("the native widget is the source of truth
 > **while it has focus**") now rests on actual focus knowledge. The showcase's Focus page

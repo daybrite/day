@@ -43,7 +43,8 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 `selector` is one primitive, a selection-bound switcher. The two styles differ only in chrome and
 page lifetime: tabs keep every page resident, the sidebar builds the selected detail.
 
-> Renamed: `selector(sel).style(Tabs)` was `tabs()`, and `selector(sel).style(Sidebar)` was `nav()`.
+> [!NOTE]
+> **Renamed.** `selector(sel).style(Tabs)` was `tabs()`, and `selector(sel).style(Sidebar)` was `nav()`.
 
 ### Immersive items (`.immersive()`)
 
@@ -319,7 +320,7 @@ pub trait Route: Clone + PartialEq + 'static {
 }
 ```
 
-`title()` is the label a [stack](#stacks-pushpop-navigation) shows in the native navigation bar
+`title()` is the label a [stack](#stack-pushpop-with-a-value-path) shows in the native navigation bar
 for a pushed page. It defaults to the wire `key`, so override it to display a name when the key
 is not presentable (e.g. a route that carries only an id can look the name up from your data).
 
@@ -389,16 +390,24 @@ The sidebar selection drives which section shows; the selected section is itself
 drills down. Each surface owns its signal.
 
 **Nested stacks share one native container on mobile.** When the enclosing host presents as a
-push stack (mobile, where `Cap::NavSplit` is unsupported and a `Sidebar` collapses to a
-list-that-pushes), a `stack` built inside one of its pages does **not** mint a second native
+push stack (a phone, or any window too narrow for two panes — see
+[size classes](size-classes.md)), a `stack` built inside one of its pages does **not** mint a second native
 navigation controller; it pushes its own pages onto the enclosing host, so the whole chain
 (list → section → drill-down) is one native stack with a single back button. The inner `stack`
 keeps its own path signal and route registration (so `current_route()`, deep links, and
-`nav_back()` fall-through are unchanged); only the native container is shared. On desktop the
-enclosing host presents as split panes (`split == true`), so a nested `stack` is *not* merged;
-it renders in the detail pane with its own back-header, which is the right desktop shape. A
-resident container (`selector(Tabs)`) is a merge barrier: a `stack` inside a tab keeps its own
-host.
+`nav_back()` fall-through are unchanged); only the native container is shared. Where the
+enclosing host presents as split panes a nested `stack` is *not* merged; it renders in the
+detail pane with its own back-header, which is the right desktop shape. A resident container
+(`selector(Tabs)`) is a merge barrier: a `stack` inside a tab keeps its own host.
+
+## Split or stacked
+
+A `selector(Sidebar)` shows its list beside the selected page in a wide window and pushes the
+page over the list in a narrow one. That follows the window, not the platform: it is resolved
+from the window's size class and re-resolved whenever the window crosses a breakpoint, so one
+`selector` is right on a desktop, a tablet, and a phone. `.presentation(…)` pins it where the
+content only works one way. [docs/size-classes.md](size-classes.md) is normative — it covers the
+breakpoints, what survives a re-presentation, and which backends morph today.
 
 ## Backend notes
 
@@ -421,7 +430,7 @@ host.
 > material altogether, and it is why the gallery's macOS sidebar shots need a window-server
 > capture rather than an offscreen one.
 
-- **macOS `NSSplitView` / Qt `QSplitter`** honor a `split` flag: `Sidebar` shows both panes; a
+- **macOS `NSSplitView` / Qt `QSplitter`** honor the resolved presentation: `Split` shows both panes; a
   `stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
   with a **back header** (chevron + centered title, hidden at the root) above the pages;
   desktop has no system back affordance, so a pushed page carries its own way out. The button

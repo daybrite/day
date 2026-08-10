@@ -232,6 +232,7 @@ mod bridge_kinds_parity {
             ("DAY_K_PRESENT_FILE", BridgeKind::PresentFile),
             ("DAY_K_FOCUS_CHANGED", BridgeKind::FocusChanged),
             ("DAY_K_SUBMITTED", BridgeKind::Submitted),
+            ("DAY_K_VALUE_COMMITTED", BridgeKind::ValueCommitted),
         ];
         assert_eq!(found.len(), expect.len(), "define count drifted: {found:?}");
         for (name, kind) in expect {

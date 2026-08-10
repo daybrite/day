@@ -95,6 +95,9 @@ pub struct MockState {
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
+    /// `Cap::NavSplit` answers `Native` — the harness for split and re-presenting nav hosts
+    /// (docs/size-classes.md). Off by default, so the mock keeps modelling a phone.
+    pub nav_split: bool,
     /// `open_window` answers `Pending` (the async-completion test harness); the test
     /// finishes the open through [`MockProbe::complete_window`].
     pub pending_windows: bool,
@@ -266,6 +269,13 @@ impl MockProbe {
         self.state.borrow_mut().no_multi_window = v;
     }
 
+    /// Make `Cap::NavSplit` answer `Native` — the harness for a selector that presents as split
+    /// panes and re-presents on a size-class change (docs/size-classes.md). Unlike the window
+    /// toggles this is read during the BUILD, so set it before launching.
+    pub fn set_nav_split(&self, v: bool) {
+        self.state.borrow_mut().nav_split = v;
+    }
+
     /// Make `open_window` answer `Pending` — the async-completion test harness. Finish an
     /// open with [`Self::complete_window`] + `day_core::finish_window_open`.
     pub fn set_pending_windows(&self, v: bool) {
@@ -376,6 +386,16 @@ impl Toolkit for MockToolkit {
             Cap::Cover => Support::Native,
             // The probe drives the whole guard → commit reorder seam (`list_can_move`/`list_move`).
             Cap::ListReorder => Support::Native,
+            // Off by default: the mock models a phone, so a selector stacks unless a test opts in.
+            // A mock that can split can also re-present — it records the patch, which is exactly
+            // what the morph tests assert against.
+            Cap::NavSplit | Cap::NavRepresent => {
+                if self.state.borrow().nav_split {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
             // Real (recorded) windows unless the test opted into the cover-fallback tier.
             Cap::MultiWindow => {
                 if self.state.borrow().no_multi_window {
@@ -435,12 +455,14 @@ impl Toolkit for MockToolkit {
             detail = format!(" value={:?}", p.value);
         } else if let Some(p) = props.downcast_ref::<NavProps>() {
             w.text = p.title.clone();
-            w.flag = p.split;
-            detail = format!(" title={:?} split={}", p.title, p.split);
+            w.flag = p.presentation.is_split();
+            detail = format!(" title={:?} presentation={:?}", p.title, p.presentation);
         } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
             w.text = p.title.clone();
-            w.flag = p.sidebar;
-            detail = format!(" title={:?} sidebar={}", p.title, p.sidebar);
+            // The page's PANE, not the presentation drawing it — a selector's list page reads
+            // `sidebar` whether the host is split or stacked (docs/size-classes.md).
+            w.flag = p.pane == day_spec::props::Pane::Sidebar;
+            detail = format!(" title={:?} pane={:?}", p.title, p.pane);
         } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
             w.text = p.items.join("|");
             w.value = p.selected.map(|i| i as f64).unwrap_or(-1.0);
@@ -614,6 +636,13 @@ impl Toolkit for MockToolkit {
                     NavPatch::GuardTop(on) => {
                         w.flag = *on;
                         format!("nav guard={on}")
+                    }
+                    // The host's presentation after a size-class change. `flag` tracks it the
+                    // same way the initial `NavProps` did, so a walkthrough asserting the morph
+                    // reads one field either side of it.
+                    NavPatch::Presentation(p) => {
+                        w.flag = p.is_split();
+                        format!("nav presentation={p:?}")
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {

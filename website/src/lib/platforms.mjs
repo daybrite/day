@@ -18,6 +18,12 @@
  * @typedef {object} Platform
  * @property {string}  id        Target key, e.g. `macos-appkit`. Matches `day build -p <id>`, the
  *                               CI artifact suffix, `src/icons/<id>.svg`, and `--pf-<id>`.
+ *                               Exception: a `deviceClass` entry is a capture-only refinement of
+ *                               another target and matches only its CI screenshot artifact.
+ * @property {string} [deviceClass]  Set on capture-only entries — the same build as another
+ *                               target, walked through on a different device class (`ipad`,
+ *                               `tablet`). Gets its own gallery column and nothing else: no
+ *                               package, no download row, no landing-grid card.
  * @property {string}  os        The OS, as a reader knows it: `macOS`, `iOS`, `Windows`.
  * @property {string}  toolkit   The toolkit as a card heading names it: `AppKit`, `Material
  *                               Components`, `XAML`.
@@ -35,6 +41,8 @@
  * @property {boolean} [primary] One of the eight the landing page's "Runs natively on" grid
  *                               shows. The other four are the same toolkits on a second OS, which
  *                               the gallery covers but the grid would only repeat.
+ * @property {1|2|3|4} tier      The support tier, defined in `tiers` below and documented at
+ *                               /docs/platforms#support-tiers.
  */
 
 /** Every CI target, in display order. */
@@ -47,6 +55,7 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'chrome',
     shell: 'macos',
     primary: true,
+    tier: 1,
   },
   {
     id: 'macos-gtk',
@@ -55,6 +64,7 @@ export const platforms = /** @type {Platform[]} */ ([
     toolkitLong: 'GTK 4 · libadwaita',
     shellKind: 'chrome',
     shell: 'macos',
+    tier: 4,
   },
   {
     id: 'macos-qt',
@@ -63,6 +73,7 @@ export const platforms = /** @type {Platform[]} */ ([
     toolkitLong: 'Qt 6 Widgets',
     shellKind: 'chrome',
     shell: 'macos',
+    tier: 4,
   },
   {
     id: 'ios-uikit',
@@ -73,6 +84,16 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'bezel',
     shell: 'iphone',
     primary: true,
+    tier: 1,
+  },
+  {
+    id: 'ios-uikit-ipad',
+    deviceClass: 'ipad',
+    os: 'iOS',
+    toolkit: 'UIKit',
+    chip: 'iPad',
+    toolkitLong: 'UIKit · iPad',
+    tier: 1,
   },
   {
     id: 'android-mdc',
@@ -83,6 +104,16 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'bezel',
     shell: 'android',
     primary: true,
+    tier: 1,
+  },
+  {
+    id: 'android-mdc-tablet',
+    deviceClass: 'tablet',
+    os: 'Android',
+    toolkit: 'Material Components',
+    chip: 'Tablet',
+    toolkitLong: 'Material Components · tablet',
+    tier: 1,
   },
   {
     id: 'linux-gtk',
@@ -92,6 +123,7 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'chrome',
     shell: 'gnome',
     primary: true,
+    tier: 2,
   },
   {
     id: 'linux-qt',
@@ -102,6 +134,7 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'chrome',
     shell: 'kde',
     primary: true,
+    tier: 2,
   },
   {
     id: 'windows-xaml',
@@ -111,6 +144,7 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'chrome',
     shell: 'windows',
     primary: true,
+    tier: 2,
   },
   {
     id: 'windows-gtk',
@@ -119,6 +153,7 @@ export const platforms = /** @type {Platform[]} */ ([
     toolkitLong: 'GTK 4 · libadwaita',
     shellKind: 'chrome',
     shell: 'windows',
+    tier: 4,
   },
   {
     id: 'windows-qt',
@@ -127,6 +162,7 @@ export const platforms = /** @type {Platform[]} */ ([
     toolkitLong: 'Qt 6 Widgets',
     shellKind: 'chrome',
     shell: 'windows',
+    tier: 4,
   },
   {
     id: 'harmony-arkui',
@@ -136,6 +172,7 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'bezel',
     shell: 'harmony',
     primary: true,
+    tier: 3,
   },
   {
     id: 'web-dom',
@@ -146,6 +183,7 @@ export const platforms = /** @type {Platform[]} */ ([
     shellKind: 'chrome',
     shell: 'browser',
     primary: true,
+    tier: 3,
   },
 ]);
 
@@ -153,6 +191,45 @@ export const platforms = /** @type {Platform[]} */ ([
 export const platformsById = /** @type {Record<string, Platform>} */ (
   Object.fromEntries(platforms.map((p) => [p.id, p]))
 );
+
+/**
+ * The support tiers, defined once here and explained at /docs/platforms#support-tiers. A tier
+ * says how much testing and maintenance a target gets, not how complete its backend is: a Tier 4
+ * target can render every piece and still be a development combination nobody ships.
+ *
+ * @typedef {object} Tier
+ * @property {1|2|3|4} n     The tier number, as the badge and the docs write it.
+ * @property {string} name   The tier's name: `Supported`, `Development`.
+ * @property {string} blurb  One sentence on what the tier promises, for badge tooltips.
+ */
+export const tiers = /** @type {Tier[]} */ ([
+  {
+    n: 1,
+    name: 'Supported',
+    blurb: 'Fully supported and thoroughly tested; the highest attention to quality and correctness.',
+  },
+  {
+    n: 2,
+    name: 'Demi-supported',
+    blurb: 'Very high priority, with less direct quality assurance and thorough testing than Tier 1.',
+  },
+  {
+    n: 3,
+    name: 'Experimental',
+    blurb: 'Tested, but not comprehensively, and not yet exercised by real-world applications.',
+  },
+  {
+    n: 4,
+    name: 'Development',
+    blurb: 'For compatibility testing and running one toolkit on a second OS; not meant for shipping apps.',
+  },
+]);
+
+/** A tier by number, for the badge markup. */
+export const tierOf = (/** @type {number} */ n) => tiers.find((t) => t.n === n);
+
+/** The targets in a tier, in display order. */
+export const platformsInTier = (/** @type {number} */ n) => platforms.filter((p) => p.tier === n);
 
 /** The eight the landing grid shows. */
 export const primaryPlatforms = platforms.filter((p) => p.primary);

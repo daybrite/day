@@ -59,6 +59,7 @@ the architecture-level view and the rationale.
 | deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | docs/deep-links.md | [§10.5](#105-navigation-and-presentation) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | docs/toolbars.md | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | docs/search.md | [§8.1](#81-the-toolkit-trait) |
+| size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint | docs/size-classes.md | [§10.5](#105-navigation-and-presentation) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | docs/icons.md | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | docs/vectors.md | [§18.3](#183-images-and-data) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
@@ -1141,8 +1142,8 @@ pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
-    // NativeSymbols, Snapshot, NavSplit, NavHeader, Appearance, Dialogs, FileDialogs,
-    // Animation, Cover, TextEditable, TextSelectable, TextSpellCheck)
+    // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavHeader, Appearance, Dialogs,
+    // FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1196,12 +1197,6 @@ pub trait Toolkit: Sized + 'static {
     // exercises the path a click takes. `false` = no sidebar in this window, and the item
     // renders disabled. Defaulted, so a backend without one needs no code.
     fn toggle_sidebar(&mut self) -> bool { false }
-    // Dismiss the active search field on a `.searchable()` surface (docs/search.md). Search is
-    // declared on the SURFACE rather than on the toolbar, which is what lets each backend draw
-    // the field where its platform puts search — and later move it as the size class changes —
-    // without the app branching. The query stays an app-owned signal, so the field moving never
-    // moves the state; this duty only puts the field away.
-    fn dismiss_search(&mut self) {}
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
@@ -1523,6 +1518,18 @@ where the toolkit libraries come from and whether `day pack` can bundle them; bu
 a redistributable macOS/Windows app is real work and is explicitly **post-MVP**, DP-7). The
 `Day.toml` `targets:` list and `day doctor` gate which combinations a project claims.
 
+**Support tiers.** Every target carries a tier saying how much testing and maintenance it gets:
+**Tier 1 — Supported** (`ios-uikit`, `android-mdc`, `macos-appkit`), **Tier 2 — Demi-supported**
+(`linux-gtk`, `linux-qt`, `windows-xaml`), **Tier 3 — Experimental** (`harmony-arkui`,
+`web-dom`), **Tier 4 — Development** (`macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt`). The
+tier is independent of backend completeness — a Tier 4 target runs the same backend crate as its
+Tier 2 sibling on another OS, and differs in the attention it gets, not in what it renders. The
+definitions are normative on the website's Platform support page, "Support tiers"
+(`website/src/content/docs/platforms.md`); the per-target assignment lives once in
+`website/src/lib/platforms.mjs`, and `website/plugins/tier-badge.mjs` renders it as a badge
+wherever the docs name a target's support level. A target moves up a tier when contributors and
+maintainers commit to keeping it there (CONTRIBUTING.md).
+
 **web-html sketch → `web-dom`, shipped experimental (2026-07):** the sketch read: wasm32 binary;
 pieces map to semantic elements (`<button>`, `<input>`, `<label>`); Day layout emits
 `position:absolute` placements; text measurement via a hidden measurement element or
@@ -1636,14 +1643,31 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 > - **`selector(signal)`** — one signal of the active destination, presented per platform and
 >   `SelectorStyle` (desktop sidebar + detail split, mobile list-push, tabs, segmented);
 >   `Cap::NavSplit`/`Cap::NavHeader` let pages adapt to what the toolkit provides.
+> - **Size-class presentation** *(2026-08)* — the split-vs-stack choice moved off `Cap::NavSplit`
+>   alone and onto the WINDOW: `SizeClass` (Android's breakpoints, one table for every backend)
+>   rides a per-window reactive signal that day-core derives from `Event::WindowResized`, and
+>   `NavProps::presentation` is re-resolved on every change. A `selector` re-presents in place
+>   through `NavPatch::Presentation` — the toolkit rebuilds its chrome and RE-HOMES the pages it
+>   already has, keyed by `NavPageProps::pane` (`Sidebar`/`Detail`, a model fact rather than a
+>   drawing one), so scroll offsets, focus, and the search query survive a morph that a rebuild
+>   would lose. `Cap::NavRepresent` gates it per backend and expresses the split policy: desktop
+>   and web are TOLD their presentation, while the mobile containers that already morph natively
+>   (`UISplitViewController`, `SlidingPaneLayout`, `Navigation.mode(Auto)`) are meant to be
+>   OBSERVED instead — `Cap::NavRepresent = Emulated`, with the toolkit reporting through
+>   `Event::NavPresentationChanged`. Shipped: web-dom, macos-appkit and Qt (told); ios-uikit
+>   (`UISplitViewController`) and android-mdc (`SlidingPaneLayout`) (observed). GTK and XAML keep
+>   the pre-size-class behaviour; ArkUI is untouched. `safe_area` moved to the same per-window
+>   signal in the same change. docs/size-classes.md is normative.
 > - **`stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
 >   (iOS swipe/button, Android system + predictive back) arrives as
 >   `Event::NavBack { already_popped }` so the path signal reconciles without double-popping. A
 >   `stack` nested inside a page of an enclosing push-stack host (mobile) **merges** into that
 >   host — pushing its pages onto the one native container for a single back button — instead of
->   nesting a second controller; on desktop split panes it renders in the detail pane. This is a
->   shared-Rust presentation detail (the inner surface keeps its own signal and route
->   registration); backends are unchanged (docs/navigation.md, Composition).
+>   nesting a second controller; under a SPLIT host it stays standalone in the detail pane, and
+>   its host is lowered `presentation: Stack` — literal *(2026-08)*: the backend realizes it as a
+>   plain navigation container (a bare `UINavigationController` on iOS, a single-pane host on
+>   Android) because nesting an adaptive split container inside a pane re-runs the tiling
+>   decision at pane width and breaks (docs/navigation.md, docs/size-classes.md).
 > - **Presentation** shipped as the `present`/`dismiss` duties (`PresentSpec` →
 >   `PresentResult`): alert/confirm/prompt/sheets and the open/save file pickers, all native,
 >   all scriptable (`assert_presented` / `respond`).

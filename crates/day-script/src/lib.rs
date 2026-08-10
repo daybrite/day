@@ -259,6 +259,46 @@ pub enum Step {
         #[serde(default)]
         within: Option<f64>,
     },
+    /// Force the window's size class (docs/size-classes.md) without resizing anything — the
+    /// cheap way to drive a responsive layout on a backend whose window cannot be resized from a
+    /// script (the phones, an emulator). `width` is `compact` | `medium` | `expanded` | `large` |
+    /// `extra-large`; `height` is `compact` | `medium` | `expanded` and defaults to `expanded`.
+    ///
+    /// This reports a class the way a backend would, so everything downstream — an automatic
+    /// nav host re-presenting, a piece that lays out from `day::size_class()` — runs its real
+    /// path. What it does NOT do is change the window's actual pixels: a screenshot after this
+    /// step shows the new LAYOUT at the old size. Drive a real resize from the runner instead
+    /// (Playwright's `setViewportSize` on web, the simulator's rotation on iOS) when the
+    /// geometry itself is what's under test.
+    SizeClass {
+        width: String,
+        #[serde(default)]
+        height: Option<String>,
+    },
+}
+
+/// `size_class:`'s `width:` spelling → the class. Kebab-case, matching how the docs name them.
+fn parse_width_class(s: &str) -> Option<day_spec::WidthClass> {
+    use day_spec::WidthClass as W;
+    match s {
+        "compact" => Some(W::Compact),
+        "medium" => Some(W::Medium),
+        "expanded" => Some(W::Expanded),
+        "large" => Some(W::Large),
+        "extra-large" => Some(W::ExtraLarge),
+        _ => None,
+    }
+}
+
+/// `size_class:`'s `height:` spelling → the class.
+fn parse_height_class(s: &str) -> Option<day_spec::HeightClass> {
+    use day_spec::HeightClass as H;
+    match s {
+        "compact" => Some(H::Compact),
+        "medium" => Some(H::Medium),
+        "expanded" => Some(H::Expanded),
+        _ => None,
+    }
 }
 
 impl Step {
@@ -1062,6 +1102,31 @@ fn exec(step: Step) -> Reply {
                 // Runner-side (day-cli watches for the connection to drop); the engine only reaches
                 // this arm if the step was somehow delivered — treat it as a no-op success.
                 let _ = within;
+                Ok(Reply::ok())
+            }
+            Step::SizeClass { width, height } => {
+                let width = parse_width_class(&width).ok_or_else(|| {
+                    Reply::fail(
+                        format!(
+                            "size_class: unknown width {width:?} \
+                             (compact|medium|expanded|large|extra-large)"
+                        ),
+                        false,
+                    )
+                })?;
+                let height = match height.as_deref() {
+                    None => day_spec::HeightClass::Expanded,
+                    Some(h) => parse_height_class(h).ok_or_else(|| {
+                        Reply::fail(
+                            format!("size_class: unknown height {h:?} (compact|medium|expanded)"),
+                            false,
+                        )
+                    })?,
+                };
+                day_core::set_size_class(day_spec::SizeClass { width, height });
+                // Settle the re-present before the next step looks: the class write schedules a
+                // binding, and the backend's re-home runs inside it.
+                day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
             Step::DeepLink { url } => {

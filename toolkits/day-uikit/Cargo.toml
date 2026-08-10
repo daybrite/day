@@ -35,6 +35,9 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIProgressView", "UIActivityIndicatorView",
     "UIScrollView", "UIAccessibility", "UIBezierPath", "UIImage", "UIImageView", "UITraitCollection", "NSAttributedString", "NSStringDrawing", "UIStringDrawing", "UIFont",
     "UINavigationController", "UINavigationBar", "UINavigationItem",
+    # Adaptive navigation (docs/size-classes.md): the split host that collapses and expands
+    # with the window's size class, and the delegate Day observes it through.
+    "UISplitViewController",
     # Inline search on a `.searchable()` surface (docs/search.md): the UISearchController the
     # navigation item reveals when the top-level list is pulled down — the iOS convention.
     "UISearchController", "UISearchBar",

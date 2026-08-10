@@ -41,6 +41,61 @@ website/
 └── public/                 # favicon; public/gallery is generated
 ```
 
+## Support-tier badges
+
+Every target's support tier (Tier 1 supported … Tier 4 development) is recorded once in
+`src/lib/platforms.mjs`, next to the rest of the platform table, and defined for readers at
+`/docs/platforms#support-tiers`. To badge a target in a docs page, write a plain markdown link to
+that anchor whose text starts with `Tier <n>`:
+
+```text
+[Tier 3](/docs/platforms#support-tiers)                 compact, for table cells
+[Tier 3 · Experimental](/docs/platforms#support-tiers)  full, for prose and headings
+```
+
+`plugins/tier-badge.mjs` stamps the class, `data-tier`, and a tooltip at build time, and
+`src/styles/global.css` styles the pill in the tier tint (`--tier`, the one iOS-palette hue no
+platform accent uses). The repo's internal docs (`docs/*.md`) are read on GitHub as well, so they
+use the absolute form `https://daybrite.dev/docs/platforms#support-tiers`, which the plugin matches
+too. The eight `/docs/platforms/<target>` pages need no markup — their title row reads the tier
+from the platform table.
+
+**Changing a target's tier** edits `src/lib/platforms.mjs`, both tables in
+`src/content/docs/platforms.md`, and the target table in `src/content/docs/overview.md`;
+`grep -rn support-tiers src/content docs` finds every other badge.
+
+## Admonitions
+
+A call-out blockquote renders as a titled, tinted box with an icon (`plugins/admonitions.mjs`).
+Two ways to write one:
+
+```md
+> [!WARNING] Experimental ([Tier 3](/docs/platforms#support-tiers))
+> Body text. The title sits on the marker line, so it can carry links and code.
+
+> **Which XAML.** Body text — a bold lead becomes the title, which is why the ~40 reference
+> docs that open with "**Status: implemented** …" needed no edit.
+```
+
+Kinds: `note` (blue), `tip` (green), `question` (teal), `important` (amber), `warning` (red, and
+GitHub's `CAUTION` maps here), `status` (neutral). `[!NOTE]` is treated as "no kind chosen", so a
+title starting "Status…" still gets the quiet status box; any other marker wins. A blockquote with
+neither a marker nor a bold lead stays a plain quote — that is what keeps the agent prompts in
+`ai.md` and `getting-started.mdx` looking like quotations.
+
+`[!NOTE|TIP|IMPORTANT|WARNING|CAUTION]` are GitHub's own markers, so the repo's `docs/*.md` (read
+on GitHub as well as here) can use them — but there, put the bare marker on its own line with a
+bold lead beneath it. A title on the marker line, and the `[!QUESTION]` / `[!STATUS]` kinds, are
+ours alone and print literally on GitHub, so use them only under `src/content/docs/`.
+
+Every box gets an id from its title (`#admonition-which-xaml`) for linking from outside, a `#`
+permalink in its header that appears on hover, and a highlight when it is the link target.
+`npm run linkcheck` validates those anchors like any other.
+
+**Editing a plugin?** Astro caches rendered markdown in `.astro/`, so a plugin change alone does
+not re-render pages that did not change — `npx astro build --force` (or `astro dev --force`)
+clears it. A plain `npm run build` after a plugin edit will happily serve the old HTML.
+
 ## The gallery
 
 The gallery is assembled from CI screenshot artifacts by an Astro integration

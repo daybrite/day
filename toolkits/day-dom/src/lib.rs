@@ -92,6 +92,9 @@ unsafe extern "C" {
     fn day_dom_present(req: u32, json: *const u8, len: usize);
     fn day_dom_dismiss(req: u32);
     fn day_dom_nav_mode(el: u32, split: u32, title: *const u8, tl: usize);
+    /// Rebuild a live host's chrome for the other presentation, detaching its pages (which stay
+    /// alive in the shim's registry) for Day to re-home.
+    fn day_dom_nav_present(el: u32, split: u32);
     fn day_dom_nav_add_page(nav: u32, page: u32, sidebar: u32);
     fn day_dom_nav_back_bar(nav: u32, visible: u32, t: *const u8, tl: usize);
     fn day_dom_navmenu(el: u32, json: *const u8, len: usize);
@@ -238,8 +241,13 @@ pub struct DomHandle(pub u32);
 
 struct NavState {
     split: bool,
-    /// Detail (stack) pages in push order — the sidebar page is not tracked here.
+    /// Detail (stack) pages in push order. In a `Stack` presentation the sidebar page is the
+    /// stack's root and so appears here FIRST; in `Split` it lives in its own pane and does not.
+    /// A re-present moves it between the two (see `nav_present`).
     pages: Vec<u32>,
+    /// The host's sidebar page, once it has one. Tracked by identity so a re-present can re-home
+    /// it without depending on where it currently sits.
+    sidebar: Option<u32>,
     titles: Vec<String>,
 }
 
@@ -686,13 +694,15 @@ impl Toolkit for Dom {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
-            Cap::NavSplit => {
-                if SPLIT_MODE.with(|c| c.get()) {
-                    Support::Native
-                } else {
-                    Support::Unsupported
-                }
-            }
+            // A statement about the toolkit, not about the current window: web-dom can always
+            // draw two panes. Whether a given host does follows from the window's size class,
+            // which `run`/`day_dom_resized` report and the pieces layer resolves against
+            // (docs/size-classes.md).
+            Cap::NavSplit => Support::Native,
+            // A re-present is a DOM re-home: the shim rebuilds the host's chrome and the page
+            // elements move between containers intact, keeping their subtrees, scroll offsets,
+            // and focus (docs/size-classes.md).
+            Cap::NavRepresent => Support::Native,
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
             // A strip docked above the app root, not window chrome the OS draws — a browser tab
             // has no title bar to hang one on. Emulated is the honest answer, and it is enough
@@ -861,15 +871,17 @@ impl Toolkit for Dom {
             Some(Builtin::Divider) => unsafe { day_dom_create(EL_DIVIDER) },
             Some(Builtin::Nav) => {
                 let p = props.downcast_ref::<NavProps>().unwrap();
+                let split = p.presentation.is_split();
                 let el = unsafe { day_dom_create(EL_NAV) };
-                unsafe { day_dom_nav_mode(el, p.split as u32, p.title.as_ptr(), p.title.len()) };
+                unsafe { day_dom_nav_mode(el, split as u32, p.title.as_ptr(), p.title.len()) };
                 unsafe { day_dom_listen(el, 1) }; // the back bar's button reports via CLICK
                 NAV_STATE.with(|m| {
                     m.borrow_mut().insert(
                         el,
                         NavState {
-                            split: p.split,
+                            split,
                             pages: Vec::new(),
+                            sidebar: None,
                             titles: vec![p.title.clone()],
                         },
                     )
@@ -879,7 +891,10 @@ impl Toolkit for Dom {
             Some(Builtin::NavPage) => {
                 let p = props.downcast_ref::<NavPageProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_PAGE) };
-                PAGE_SIDEBAR.with(|m| m.borrow_mut().insert(el, p.sidebar));
+                PAGE_SIDEBAR.with(|m| {
+                    m.borrow_mut()
+                        .insert(el, p.pane == day_spec::props::Pane::Sidebar)
+                });
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
                 unsafe { day_dom_listen(el, 32) };
                 el
@@ -1220,6 +1235,9 @@ impl Toolkit for Dom {
             let sidebar = PAGE_SIDEBAR
                 .with(|p| p.borrow().get(&child.0).copied())
                 .unwrap_or(false);
+            if sidebar {
+                state.sidebar = Some(child.0);
+            }
             unsafe { day_dom_nav_add_page(parent.0, child.0, (state.split && sidebar) as u32) };
             if !(state.split && sidebar) {
                 state.pages.push(child.0);
@@ -1583,7 +1601,6 @@ impl Platform for Dom {
         let w: f64 = env("vw").parse().unwrap_or(1000.0);
         let h: f64 = env("vh").parse().unwrap_or(700.0);
         LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
-        SPLIT_MODE.with(|c| c.set(w >= 700.0));
         DARK.with(|d| d.set(env("dark") == "1"));
         // Root container: the shim pre-registers the `#day-root` element under this id.
         let root = self.root;
@@ -1736,10 +1753,18 @@ fn css_anim(a: &AnimSpec) -> String {
 }
 
 fn nav_patch(el: u32, p: &NavPatch) {
+    // Re-present rebuilds chrome and re-homes pages — it needs the state map unborrowed while it
+    // calls back into the shim, so it runs outside the borrow below.
+    if let NavPatch::Presentation(next) = p {
+        nav_present(el, next.is_split());
+        return;
+    }
     NAV_STATE.with(|m| {
         let mut m = m.borrow_mut();
         let Some(state) = m.get_mut(&el) else { return };
         match p {
+            // Handled above, before the borrow.
+            NavPatch::Presentation(_) => {}
             NavPatch::Pushed { title, .. } => {
                 state.titles.push(title.clone());
                 let last = state.pages.len().saturating_sub(1);
@@ -1775,6 +1800,59 @@ fn nav_patch(el: u32, p: &NavPatch) {
 
 fn sync_back_bar(el: u32, state: &NavState) {
     sync_back_bar_at(el, state, state.pages.len());
+}
+
+/// Re-present a live nav host (docs/size-classes.md): the window crossed a breakpoint, so the
+/// chrome changes but the pages do not.
+///
+/// The whole point is that no page is rebuilt. The shim rebuilds the host's own chrome and leaves
+/// the page elements detached-but-alive; this function then re-homes each one by its PANE, which
+/// is the only thing that differs between the two presentations:
+///
+/// - `Split` — the sidebar page gets its own pane; `pages` holds detail pages alone.
+/// - `Stack` — the sidebar page is the stack's root, so it heads `pages`.
+fn nav_present(el: u32, split: bool) {
+    let Some((sidebar, mut pages, was_split)) = NAV_STATE.with(|m| {
+        let st = m.borrow();
+        let s = st.get(&el)?;
+        Some((s.sidebar, s.pages.clone(), s.split))
+    }) else {
+        return;
+    };
+    if was_split == split {
+        return;
+    }
+    // Move the sidebar page in or out of the stack's page list.
+    if let Some(side) = sidebar {
+        pages.retain(|p| *p != side);
+        if !split {
+            pages.insert(0, side);
+        }
+    }
+    unsafe { day_dom_nav_present(el, split as u32) };
+    if let Some(side) = sidebar
+        && split
+    {
+        unsafe { day_dom_nav_add_page(el, side, 1) };
+        // A sidebar pane always shows its page; it may have been hidden as a stack root under a
+        // pushed detail.
+        s(side, "display", "block");
+    }
+    let last = pages.len().saturating_sub(1);
+    for (i, page) in pages.iter().enumerate() {
+        unsafe { day_dom_nav_add_page(el, *page, 0) };
+        s(*page, "display", if i == last { "block" } else { "none" });
+    }
+    // The back bar belongs to the stack presentation alone, and its visibility depends on the
+    // page count we just settled — so commit the state first, then sync from it.
+    NAV_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        if let Some(st) = m.get_mut(&el) {
+            st.split = split;
+            st.pages = pages;
+            sync_back_bar(el, st);
+        }
+    });
 }
 
 /// Stack presentation: the back bar shows while pushed pages are on top (`depth` counts the
@@ -2280,6 +2358,8 @@ pub extern "C" fn day_dom_frame(ts: f64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_resized(w: f64, h: f64) {
     LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
+    // day-core re-buckets the window's size class from this (docs/size-classes.md) — a backend
+    // reports geometry, not classes, so there is one breakpoint table rather than nine.
     emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
 }
 

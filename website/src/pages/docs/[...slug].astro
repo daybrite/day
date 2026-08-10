@@ -4,6 +4,8 @@
 import { getCollection, render } from 'astro:content';
 import DocsLayout from '../../layouts/DocsLayout.astro';
 import PlatformIcon from '../../components/PlatformIcon.astro';
+import { platformsById, tierOf } from '../../lib/platforms.mjs';
+import { url } from '../../lib/site';
 
 export async function getStaticPaths() {
   const docs = await getCollection('docs');
@@ -19,12 +21,24 @@ const { Content } = await render(entry);
 const platform = entry.id.startsWith('platforms/') ? entry.id.slice('platforms/'.length) : undefined;
 const known = new Set(Object.keys(import.meta.glob('../../icons/*.svg')).map((p) => p.split('/').pop()!.replace('.svg', '')));
 const iconId = platform && known.has(platform) ? platform : undefined;
+
+// …and its support tier, from the same table (src/lib/platforms.mjs), so every platform page
+// states where it stands without repeating the tier in its frontmatter.
+const tier = platform && platformsById[platform] ? tierOf(platformsById[platform].tier) : undefined;
 ---
 <DocsLayout title={entry.data.title} description={entry.data.description} slug={entry.id}>
   {iconId ? (
     <div class="doc-title" data-pf={iconId}>
       <PlatformIcon id={iconId} class="doc-title-icon" />
       <h1>{entry.data.title}</h1>
+      {tier && (
+        <a
+          class="tier-badge"
+          data-tier={tier.n}
+          href={url('docs/platforms#support-tiers')}
+          title={`Tier ${tier.n} — ${tier.name}: ${tier.blurb}`}
+        >Tier {tier.n} · {tier.name}</a>
+      )}
     </div>
   ) : (
     <h1>{entry.data.title}</h1>
@@ -33,9 +47,11 @@ const iconId = platform && known.has(platform) ? platform : undefined;
 </DocsLayout>
 
 <style>
-  /* Same header shape as the platform cards: the mark beside the title, centered against it. */
-  .doc-title { display: flex; align-items: center; gap: 14px; }
+  /* Same header shape as the platform cards: the mark beside the title, centered against it,
+     with the support tier trailing the title (wrapping under it when the row runs out). */
+  .doc-title { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
   .doc-title h1 { margin: 0; }
+  .doc-title :global(.tier-badge) { font-size: 0.82rem; }
   .doc-title :global(.doc-title-icon) {
     width: 40px;
     height: 40px;

@@ -1596,6 +1596,9 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
 pub fn uninstall_tree() {
     crate::nav::clear_controllers();
     crate::windows::reset_windows();
+    // Per-window signals are keyed by root node, and roots repeat across trees on this thread —
+    // a stale entry would hand the next tree the previous one's size class.
+    crate::reset_ambient();
     TREE.with(|t| *t.borrow_mut() = None);
     EVENTS.with(|e| e.borrow_mut().clear());
     PUMP_PENDING.set(false);

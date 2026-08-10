@@ -93,6 +93,13 @@ an SF Symbol on macOS, a freedesktop icon name on GTK and Qt, a Segoe Fluent gly
 This is the only way one icon looks native on four desktops; a bundled PNG cannot, because it is
 one artist's take on all of them. Use `.image(name)` only for something app-specific.
 
+`.image(name)` takes either a `resource/images/` file or a `resource/vectors/` glyph — the same
+names the rest of the app uses. The vector is tried first, because on AppKit a vector asset stages
+as an SVG and nothing else: looking only for a raster found nothing and the item silently fell back
+to drawing its LABEL, a button reading "Star" where a star belonged. Bundled glyphs are templates,
+so each backend tints them to the bar's own foreground (Qt does this explicitly — an untinted
+template is a flat black shape, invisible on a dark toolbar).
+
 `Symbol` is `#[non_exhaustive]`. A backend that has no glyph for a symbol draws none and the item
 falls back to its label, never to a broken-image placeholder. GTK additionally checks the running
 icon theme before setting a name, because icon themes vary in completeness and a missing name
@@ -175,6 +182,11 @@ menu-bar twin. A toggle or a search field emits `Event::ToolbarChanged { action,
 - toolbar: { item: search, key: nav_stack }   # …or type a Fluent key resolved in the RUN'S locale
 - toolbar: { item: star, on: true }           # set a toggle
 ```
+
+`on:` is REQUIRED for a toggle. A toggle's action is registered in the value registry rather than
+the menu-action one, so a bare `toolbar: { item }` on one used to dispatch into the wrong registry
+and do nothing at all — the step passed, the app never moved, and the script went on asserting
+against a state it had not reached. The step now refuses it and says which argument is missing.
 
 Note what this step does NOT prove. It resolves the item in the CURRENT model and dispatches its
 action, so it passes even if the native control is still bound to a previous model's action, the

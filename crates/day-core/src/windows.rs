@@ -289,6 +289,12 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
         return false;
     }
     with_tree(|t| t.set_native_window_title(root, &title));
+    // This window's own size class, before its content builds (docs/size-classes.md) — a second
+    // window can sit in a different class from the first, which is why the signal is per-window.
+    crate::ambient::set_window_size_class(
+        root,
+        day_spec::SizeClass::from_size(size.width, size.height),
+    );
     if let Some(build) = build {
         scope.enter(|| {
             crate::toolbar::with_window(root, || {
@@ -420,6 +426,7 @@ fn teardown(root: RNode) {
     };
     record.scope.dispose();
     crate::toolbar::forget_window(root);
+    crate::ambient::forget_window(root);
     match record.tier {
         Tier::Native | Tier::PendingNative { .. } => {
             while let Some(c) = with_tree(|t| t.first_child(root)) {

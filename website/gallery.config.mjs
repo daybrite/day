@@ -77,11 +77,15 @@ export const suites = [
       { id: 'dark-zh-cn', label: 'Dark · 中文', dirs: ['dark-zh-CN'] },
     ],
     // The PRIMARY target per OS, in display order — one strip column per platform users actually
-    // ship to. The secondary desktop combos (macos-gtk/qt, windows-gtk/qt) still run in CI and
-    // upload artifacts; they're just not shown here.
+    // ship to, plus the capture-only device-class columns (iPad, Android tablet: the same
+    // builds walked through on a tablet form factor, showing the split navigation). The
+    // secondary desktop combos (macos-gtk/qt, windows-gtk/qt) still run in CI and upload
+    // artifacts; they're just not shown here.
     platforms: [
       'ios-uikit',
+      'ios-uikit-ipad',
       'android-mdc',
+      'android-mdc-tablet',
       'harmony-arkui',
       'macos-appkit',
       'windows-xaml',

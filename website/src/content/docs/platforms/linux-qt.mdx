@@ -70,7 +70,8 @@ actual binary, not on a flag.
   patch is a no-op.
 - **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
-- **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo: no packaging.
+- **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo, and stays at
+  [Tier 4](/docs/platforms#support-tiers): no packaging.
   Windows builds against MSYS2's Qt 6 with a GNU Rust toolchain
   ([setup](/docs/getting-started#qt-and-gtk-on-a-windows-host)) and is marked experimental in CI.
   MSYS2 has no Qt 6 WebEngine, so the web view degrades to its URL label there. CI's x86-64 MinGW

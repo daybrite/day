@@ -98,8 +98,9 @@ features aren't implemented yet (semantic color tokens, an animation scheduler,
 form validation; [Platform support](/docs/platforms) keeps the current list), and you will hit
 edges. The mitigations are partial: the architecture descends from several generations
 of working systems, a nontrivial Matrix chat client runs on five targets, and every target is
-exercised in CI with screenshot validation on every push. Judge the risk for your project
-accordingly.
+exercised in CI with screenshot validation on every push. How much testing a given target gets
+varies, and [support tiers](/docs/platforms#support-tiers) say which ones get the most. Judge the
+risk for your project accordingly.
 
 **Rust, with a single-threaded UI.** If your team doesn't know Rust, the learning curve is the
 project's learning curve. UI state is main-thread-only by construction (`Signal` isn't `Send`);

@@ -95,7 +95,8 @@ day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re
 [workspace]
 ```
 
-> In the Day workspace these are `{ workspace = true }` instead of a version. Either way, contrast
+> [!NOTE] Inside the Day workspace
+> These are `{ workspace = true }` instead of a version. Either way, contrast
 > this with a native piece's `Cargo.toml`, which carries a `[features]` block (one feature per
 > backend) and often a `build.rs`. See [the native-piece tutorial](/docs/tutorial-native-piece).
 

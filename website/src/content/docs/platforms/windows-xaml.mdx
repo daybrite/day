@@ -18,7 +18,8 @@ There is no framework runtime for your users to install.
 
 <PlatformShots platform="windows-xaml" shots={["home", "controls", "dates", "grid"]} />
 
-> **Which XAML.** This backend uses **system XAML** — the `Windows.UI.Xaml` stack that ships
+> [!QUESTION] Which XAML?
+> This backend uses **system XAML** — the `Windows.UI.Xaml` stack that ships
 > inside Windows 10 and 11 — not WinUI 3 / the Windows App SDK. That is why the target is named
 > `windows-xaml` rather than after a XAML release: many control names exist in both namespaces
 > with different behavior (this `ProgressRing` is the UWP dotted ring, not WinUI 3's arc; `Pivot`
@@ -40,9 +41,10 @@ day launch -p windows-xaml
 
 `day doctor --toolkit xaml` checks the SDK and toolchain.
 
-A Windows machine can also build `windows-qt` and `windows-gtk` for development — the same
-codebase against three desktop toolkits. Those need MSYS2 and a GNU Rust toolchain alongside your
-MSVC default; [getting started](/docs/getting-started#qt-and-gtk-on-a-windows-host) has the recipe.
+A Windows machine can also build `windows-qt` and `windows-gtk` for development
+([Tier 4](/docs/platforms#support-tiers)) — the same codebase against three desktop toolkits.
+Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
+[getting started](/docs/getting-started#qt-and-gtk-on-a-windows-host) has the recipe.
 
 ```powershell
 day pack -p windows-xaml     # .msix plus an NSIS -setup.exe

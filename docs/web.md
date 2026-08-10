@@ -8,7 +8,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's ninth backend renders in a browser. The DOM is the toolkit: a Day `button` is a real
 `<button>`, a slider is `<input type="range">`, a dialog is `<dialog>`: semantic HTML plus ARIA,
 never widgets painted onto a canvas. The backend is `toolkits/day-dom`, the target name is
-`web-dom`, and the feature is `dom`. Status: **experimental**; the capability subset below is
+`web-dom`, and the feature is `dom`. Status: **experimental**
+([Tier 3](https://daybrite.dev/docs/platforms#support-tiers)); the capability subset below is
 real, and gaps are listed, not hidden.
 
 ```bash

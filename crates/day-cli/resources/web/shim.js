@@ -97,6 +97,26 @@ function register(el) {
 }
 
 function div(cls) { const d = document.createElement('div'); d.className = cls; return d; }
+
+// A nav host's chrome for one presentation: sidebar+detail panes, or a back bar over a single
+// detail region. Shared by the initial realize and by a re-present, so the two can never drift.
+function navChrome(nav, id, split) {
+  nav.classList.add(split ? 'split' : 'stack');
+  if (split) {
+    const side = div('day-nav-sidebar'); const detail = div('day-nav-detail');
+    nav.append(side, detail); nav.__side = side; nav.__detail = detail;
+  } else {
+    const bar = div('day-nav-backbar');
+    const btn = document.createElement('button'); btn.className = 'day-nav-back'; btn.textContent = '‹';
+    const title = div('day-nav-title');
+    bar.append(btn, title); bar.style.display = 'none';
+    const detail = div('day-nav-detail');
+    nav.append(bar, detail);
+    nav.__bar = bar; nav.__title = title; nav.__detail = detail;
+    btn.addEventListener('click', () => wasm.day_dom_event(id, 14, 0, 0, 0, 0));
+  }
+}
+
 const E = (id) => els[id];
 // The element that carries value/checked/listeners (the toggle wraps its input).
 const V = (id) => E(id).__input || E(id);
@@ -263,22 +283,17 @@ const env = {
   day_dom_present: (req, json, len) => present(req, JSON.parse(str(json, len))),
   day_dom_dismiss(req) { dialogs.get(req)?.close('day-dismiss'); },
 
-  day_dom_nav_mode(id, split, t, tl) {
+  day_dom_nav_mode(id, split, t, tl) { navChrome(E(id), id, split); },
+  // Re-present a LIVE host after a size-class change (docs/size-classes.md). The chrome is
+  // rebuilt, but the pages are not: detaching an element leaves it in `els`, so each page keeps
+  // its DOM subtree — and with it every scroll offset, text selection, and focused field —
+  // until Day re-homes it with `day_dom_nav_add_page`.
+  day_dom_nav_present(id, split) {
     const nav = E(id);
-    nav.classList.add(split ? 'split' : 'stack');
-    if (split) {
-      const side = div('day-nav-sidebar'); const detail = div('day-nav-detail');
-      nav.append(side, detail); nav.__side = side; nav.__detail = detail;
-    } else {
-      const bar = div('day-nav-backbar');
-      const btn = document.createElement('button'); btn.className = 'day-nav-back'; btn.textContent = '‹';
-      const title = div('day-nav-title');
-      bar.append(btn, title); bar.style.display = 'none';
-      const detail = div('day-nav-detail');
-      nav.append(bar, detail);
-      nav.__bar = bar; nav.__title = title; nav.__detail = detail;
-      btn.addEventListener('click', () => wasm.day_dom_event(id, 14, 0, 0, 0, 0));
-    }
+    nav.textContent = '';
+    nav.classList.remove('split', 'stack');
+    nav.__side = nav.__detail = nav.__bar = nav.__title = undefined;
+    navChrome(nav, id, split);
   },
   day_dom_nav_add_page(nav, page, sidebar) {
     const n = E(nav);

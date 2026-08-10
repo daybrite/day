@@ -55,6 +55,7 @@ mod imp {
     use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::UINavigationControllerDelegate;
     use objc2_ui_kit::UISearchResultsUpdating;
+    use objc2_ui_kit::UISplitViewControllerDelegate;
     use objc2_ui_kit::{
         UIAction, UIContextMenuConfiguration, UIContextMenuInteraction,
         UIContextMenuInteractionDelegate, UIMenu, UIMenuElement, UIMenuElementAttributes,
@@ -756,18 +757,44 @@ mod imp {
     // safe area; the content view is Day's handle (its frame is native-owned).
     // -----------------------------------------------------------------------
 
+    /// The adaptive half of a nav host (docs/size-classes.md) — present only when the host was
+    /// lowered as `Split`. A host lowered `Stack` is a stack at every size (a nested `stack()`
+    /// under a split host), and realizes as a plain navigation controller instead: a
+    /// `UISplitViewController` assumes it owns the window, and nesting one inside a pane breaks
+    /// its layout (the embedded-split trap).
+    struct SplitParts {
+        /// The adaptive host. `NavState::nav` is its SECONDARY column; the sidebar page's
+        /// controller is its primary. Retained because a view holds no strong reference to its
+        /// controller, and this one owns the columns and the collapse behaviour.
+        split_vc: Retained<objc2_ui_kit::UISplitViewController>,
+        /// The PRIMARY column's navigation controller — the sidebar page's stack.
+        ///
+        /// It has to be a navigation controller, not a bare view controller: UIKit merges the
+        /// secondary column INTO the primary's stack when it collapses, and with nothing to merge
+        /// into it drops the navigation bar entirely — the collapsed list rendered with no title
+        /// and no bar button. Which of the two is live therefore depends on the presentation,
+        /// which is what `active_nav` answers (docs/size-classes.md).
+        primary_nav: Retained<DayNavController>,
+        _split_delegate: Retained<DaySplitDelegate>,
+    }
+
     struct NavState {
         nav: Retained<DayNavController>,
         host_node: NodeId,
-        /// Our mirror of the intended VC stack (index 0 = root page).
+        /// `Some` for the adaptive (Split-lowered) host, `None` for a plain stack host.
+        split: Option<SplitParts>,
+        /// UIKit's current answer, mirrored so `insert` knows which container a late-arriving
+        /// page belongs in and the pop detector knows when a count change was a merge. Always
+        /// `false` for a plain stack host.
+        collapsed: std::cell::Cell<bool>,
+        /// Our mirror of the intended VC stack (index 0 = root page). This is the SOURCE for
+        /// `nav_sync_stack`: day-initiated changes apply it wholesale, so it is pruned eagerly
+        /// on `NavPatch::Popped` rather than waiting for the `remove()` duty.
         vcs: Vec<Retained<UIViewController>>,
-        /// A day-initiated pop is in flight: the delegate must not re-emit NavBack.
-        expect_pop: std::cell::Cell<bool>,
         /// Native user-back pops (swipe / back button) awaiting Day's answering `NavPatch::Popped`.
         /// The native stack already popped, so that answering patch must be ABSORBED (decrement)
-        /// rather than popping again — a stale no-op pop would wedge `expect_pop` true, so the NEXT
-        /// native back gets swallowed, `selection` never resets, and re-selecting the SAME item does
-        /// nothing (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
+        /// rather than re-pruning the mirror for a pop that already happened
+        /// (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
         native_pops: std::cell::Cell<usize>,
         /// The native VC count at the LAST `didShow` — the pop detector's baseline. Comparing
         /// against the `vcs` mirror instead is wrong: a previous transition's pop-`didShow` can
@@ -790,6 +817,21 @@ mod imp {
         )>,
     }
 
+    impl NavState {
+        /// The navigation controller that currently OWNS the stack (docs/size-classes.md).
+        ///
+        /// Collapsed, UIKit has merged the secondary's pages into the primary's, so a push has to
+        /// land there; expanded, the two are separate and details belong to the secondary.
+        /// Everything that pushes, pops, or inspects the stack goes through this rather than
+        /// naming a column, so the same code is right in both presentations.
+        fn active_nav(&self) -> Retained<DayNavController> {
+            match &self.split {
+                Some(parts) if self.collapsed.get() => parts.primary_nav.clone(),
+                _ => self.nav.clone(),
+            }
+        }
+    }
+
     thread_local! {
         /// Keyed by the nav host view ptr (the UINavigationController's view).
         static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
@@ -799,6 +841,11 @@ mod imp {
         /// Handles whose frames are native-owned (page content views).
         static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
             RefCell::new(std::collections::HashSet::new());
+        /// Each nav page's pane, recorded at realize because `insert` sees only handles
+        /// (docs/size-classes.md). The SIDEBAR page is the split host's primary column; every
+        /// other page is a detail, pushed on the secondary's stack.
+        static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> =
+            RefCell::new(HashMap::new());
     }
 
     struct NavPageIvars {
@@ -813,9 +860,39 @@ mod imp {
         struct DayNavPageView;
 
         impl DayNavPageView {
+            /// Re-lay whenever the page joins (or rejoins) a window.
+            ///
+            /// `safeAreaInsets` is only meaningful for a view that is actually IN a window —
+            /// UIKit does not recompute it for the off-screen members of a navigation stack. After
+            /// a split collapse the sidebar page sits at the bottom of the merged stack, so it
+            /// kept the insets it had in the other orientation (a landscape notch inset of 100pt
+            /// applied in portrait). Reporting on entry is what makes the geometry right at the
+            /// moment it starts to matter (docs/size-classes.md).
+            #[unsafe(method(didMoveToWindow))]
+            fn did_move_to_window(&self) {
+                let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
+                if unsafe { self.window() }.is_some() {
+                    self.setNeedsLayout();
+                }
+            }
+
+            /// The designated change hook for the insets themselves: a page can gain or lose
+            /// bar height with its bounds unchanged (standard vs large-title bar as it moves
+            /// between columns), and `layoutSubviews` alone never re-fires for that.
+            #[unsafe(method(safeAreaInsetsDidChange))]
+            fn safe_area_insets_did_change(&self) {
+                let _: () = unsafe { msg_send![super(self), safeAreaInsetsDidChange] };
+                self.setNeedsLayout();
+            }
+
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                // Out of any window the insets below are stale, and a report built from them
+                // would size the content for wherever this page last WAS.
+                if unsafe { self.window() }.is_none() {
+                    return;
+                }
                 // Pin the content subview to the safe area (below the navigation bar)
                 // and report its size so NavLayout re-lays the Day content (§8.3).
                 let bounds = self.bounds();
@@ -827,8 +904,31 @@ mod imp {
                         (bounds.size.height - insets.top - insets.bottom).max(0.0),
                     ),
                 );
-                if let Some(content) = unsafe { self.subviews() }.firstObject() {
+                let subs = unsafe { self.subviews() };
+                if let Some(content) = subs.firstObject() {
                     unsafe { content.setFrame(frame) };
+                    if std::env::var("DAY_DIAG_NAV").is_ok() {
+                        let a = content.frame();
+                        eprintln!(
+                            "DAYDIAG   applied node={} nsubs={} content=({},{} {}x{})",
+                            self.ivars().node.0, subs.count(),
+                            a.origin.x, a.origin.y, a.size.width, a.size.height,
+                        );
+                    }
+                }
+                if std::env::var("DAY_DIAG_NAV").is_ok() {
+                    let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
+                    let winf = unsafe { self.convertRect_toView(bounds, None) };
+                    eprintln!(
+                        "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) -> report {}x{} super={}x{} hidden={}",
+                        self.ivars().node.0,
+                        bounds.size.width, bounds.size.height,
+                        winf.origin.x, winf.origin.y, winf.size.width, winf.size.height,
+                        insets.top, insets.bottom, insets.left, insets.right,
+                        frame.size.width, frame.size.height,
+                        sup.size.width, sup.size.height,
+                        self.isHidden(),
+                    );
                 }
                 emit(
                     self.ivars().node,
@@ -955,6 +1055,178 @@ mod imp {
         }
     }
 
+    // The split host's own delegate (docs/size-classes.md). UIKit owns the decision here — a
+    // `UISplitViewController` collapses and expands on its own as the horizontal size class
+    // changes, which on a Plus/Pro Max iPhone happens on every rotation — so Day OBSERVES and
+    // reports rather than driving. Pushing a presentation back at it would be a second source of
+    // truth racing UIKit's own collapse animation.
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DaySplitDelegate"]
+        #[ivars = NavDelegateIvars]
+        struct DaySplitDelegate;
+
+        unsafe impl NSObjectProtocol for DaySplitDelegate {}
+
+        unsafe impl UISplitViewControllerDelegate for DaySplitDelegate {
+            #[unsafe(method(splitViewControllerDidCollapse:))]
+            fn did_collapse(&self, _svc: &objc2_ui_kit::UISplitViewController) {
+                split_presentation_changed(self.ivars().host.get(), false);
+            }
+
+            #[unsafe(method(splitViewControllerDidExpand:))]
+            fn did_expand(&self, _svc: &objc2_ui_kit::UISplitViewController) {
+                split_presentation_changed(self.ivars().host.get(), true);
+            }
+        }
+    );
+
+    impl DaySplitDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// UIKit collapsed or expanded the split host: reconcile Day's mirror, then report.
+    ///
+    /// The mirror matters because collapsing MERGES the columns — UIKit inserts the primary
+    /// column's view controller at the bottom of the secondary's navigation stack, and expanding
+    /// takes it back out. Day's `vcs` mirror tracks only the pages it pushed, so both the mirror
+    /// and the pop detector's `last_native` baseline have to be rebased in step; otherwise the
+    /// next `didShow` reads the count change as a user back and tears down a live page.
+    fn split_presentation_changed(host: usize, expanded: bool) {
+        let node = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let state = m.get_mut(&host)?;
+            let parts = state.split.as_ref()?;
+            state.collapsed.set(!expanded);
+            // Reconcile the mirror with the merge UIKit just performed. `vcs` is Day's picture of
+            // the LIVE stack, and the pop detector compares its length against the native count —
+            // so the sidebar page has to join it exactly when UIKit merges it in and leave when
+            // it is lifted back out, or every subsequent back is misread.
+            let sidebar_vc = unsafe { parts.primary_nav.viewControllers() }.firstObject();
+            if let Some(vc) = sidebar_vc {
+                let already = state.vcs.iter().any(|v| std::ptr::eq(&**v, &*vc));
+                if expanded && already {
+                    state.vcs.retain(|v| !std::ptr::eq(&**v, &*vc));
+                } else if !expanded && !already {
+                    state.vcs.insert(0, vc);
+                }
+            }
+            // Rebase against what UIKit actually left in the stack, rather than predicting it —
+            // the merge runs inside this callback, so the count here is already the new one.
+            let native = unsafe { state.active_nav().viewControllers() }.count();
+            state.last_native.set(native);
+            Some(state.host_node)
+        });
+        let Some(node) = node else { return };
+        emit(
+            node,
+            Event::NavPresentationChanged(if expanded {
+                day_spec::props::NavPresentation::Split
+            } else {
+                day_spec::props::NavPresentation::Stack
+            }),
+        );
+        // Re-lay every page against its NEW column, one runloop turn later.
+        //
+        // A merge REPARENTS the page views, and `layoutSubviews` only fires — and only reports
+        // `FrameChanged` — when a view's own bounds change. Reparenting alone may not change
+        // them in the same pass, so each page can keep the frame it had in the other
+        // presentation: the list drawn at sidebar width on top of a detail still sized for the
+        // split. Forcing the layout inline does not help either, because this callback runs
+        // DURING the transition and the bounds are still mid-animation. Deferring is the same
+        // shape as the Qt fix, where hiding a splitter pane does not resize its sibling until Qt
+        // has run its own layout pass (docs/size-classes.md).
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            NAV_STATE.with(|m| {
+                let m = m.borrow();
+                let Some(state) = m.get(&host) else { return };
+                // RESIZE each page to the column that now owns it, then lay it out.
+                //
+                // Laying a view out does not change its own frame, which is why forcing
+                // `layoutIfNeeded` alone never fixed this: UIKit does not resize the OFF-SCREEN
+                // members of a navigation stack, and after a collapse the sidebar page sits at
+                // the bottom of the merged stack. It kept the column bounds it had while
+                // expanded — measured at 420x409 in landscape while the detail had correctly
+                // re-laid to 430x839 — so its content stayed sized for the other presentation
+                // (docs/size-classes.md).
+                //
+                // Every page is full-bleed within its own navigation controller, so that
+                // controller's view bounds ARE the page's frame.
+                // Ask each COLUMN to lay itself out, rather than resizing pages by hand.
+                //
+                // The navigation controller owns its pages' frames AND their safe-area insets, so
+                // laying it out propagates both. Setting a page's frame directly does not: the
+                // insets stay whatever they were where the page last lived, which is how a
+                // landscape notch inset of 100pt survived into portrait.
+                let relayout = |nav: &DayNavController| {
+                    if let Some(v) = unsafe { nav.viewIfLoaded() } {
+                        v.setNeedsLayout();
+                        v.layoutIfNeeded();
+                    }
+                };
+                let Some(parts) = state.split.as_ref() else {
+                    return;
+                };
+                relayout(&parts.primary_nav);
+                relayout(&state.nav);
+                if let Some(v) = unsafe { parts.split_vc.viewIfLoaded() } {
+                    v.setNeedsLayout();
+                    v.layoutIfNeeded();
+                }
+            });
+        });
+    }
+
+    /// Apply Day's model of the stack to the ACTIVE navigation controller in ONE
+    /// `setViewControllers:animated:` — UIKit's atomic stack primitive (docs/navigation.md).
+    ///
+    /// Incremental push/pop calls raced a fast driver: a selection change is a pop AND a
+    /// push, and issuing the second while the first still animates leaves `viewControllers`
+    /// reporting a transient state — one mid-flight read hit a 1-count and the detail-column
+    /// wipe emptied the MERGED stack, sidebar included; the late didShow train then read as
+    /// a user back and tore the route down. Deriving the whole array from the mirror at
+    /// execution time is idempotent: however calls interleave, the LAST sync applies the
+    /// final model and every intermediate state converges. A sync's settled count equals the
+    /// mirror's by construction, so `didShow` can never mistake it for a user pop.
+    fn nav_sync_stack(host: usize) {
+        let target = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            m.get(&host).map(|s| (s.active_nav(), s.vcs.clone()))
+        });
+        let Some((nav, vcs)) = target else { return };
+        let current = unsafe { nav.viewControllers() };
+        let unchanged = current.count() == vcs.len()
+            && (0..vcs.len()).all(|i| std::ptr::eq(&*current.objectAtIndex(i), &*vcs[i]));
+        if unchanged {
+            return;
+        }
+        if std::env::var("DAY_DIAG_NAV").is_ok() {
+            eprintln!(
+                "DAYDIAG exec SYNC native={} -> target={}",
+                current.count(),
+                vcs.len()
+            );
+        }
+        let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
+        // Re-stamp the transition clock at EXECUTION, not only at dispatch: this closure can
+        // sit in the modal queue past `ui_idle`'s 250ms settle margin, and the transition
+        // coordinator is only born once the set below runs — without this second stamp a
+        // screenshot lands in that blind window and captures a mid-slide frame.
+        note_ui_transition();
+        // Never ANIMATE to an empty stack (deselecting in the expanded split empties the
+        // detail column): with no destination controller the transition sets up but never
+        // completes — the stack keeps its old contents and the orphaned transition
+        // coordinator holds `ui_idle` false forever, failing every later screenshot.
+        let animated = !vcs.is_empty();
+        unsafe { nav.setViewControllers_animated(&arr, animated) };
+    }
+
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
@@ -976,10 +1248,10 @@ mod imp {
                 // the observed native count DECREASED since the last didShow (else a late
                 // pop-didShow arriving after the next push's mirror append reads native <
                 // mirror and phantom-pops the fresh page), AND the mirror still holds more
-                // than native (else a day-initiated reset — setViewControllers shrinking the
-                // stack with the mirror already cleaned — reads as a user pop). Day-initiated
-                // pops set expect_pop; what passes both tests without it is the user's back
-                // button / swipe.
+                // than native. Day-initiated changes go through `nav_sync_stack`, whose
+                // settled count EQUALS the mirror's — so what passes both tests is the
+                // user's back button / swipe, which pops the native stack under a mirror
+                // that still holds the page.
                 let host = self.ivars().host.get();
                 let suspicious = NAV_STATE.with(|m| {
                     let mut m = m.borrow_mut();
@@ -987,13 +1259,33 @@ mod imp {
                         return false;
                     };
                     let native = unsafe { nav.viewControllers() }.count();
-                    let prev = state.last_native.replace(native);
-                    if native < prev && native < state.vcs.len() {
-                        // A day-initiated pop announces itself; consume the flag here.
-                        !state.expect_pop.replace(false)
-                    } else {
-                        false
+                    // A split host MERGES its columns as it collapses and separates them as it
+                    // expands, which moves a controller in or out of this stack — a count change
+                    // that is not a pop at all (docs/size-classes.md). The delegate callback that
+                    // rebases the mirror can arrive after this `didShow`, so detect the in-flight
+                    // transition here and rebase rather than reading it as a user back: absorbed
+                    // as a phantom pop, it would swallow the NEXT real one and leave a stale page
+                    // under the detail.
+                    if let Some(parts) = state.split.as_ref()
+                        && state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
+                    {
+                        if std::env::var("DAY_DIAG_NAV").is_ok() {
+                            eprintln!(
+                                "DAYDIAG didShow REBASE native={native} (collapse flip in flight)"
+                            );
+                        }
+                        state.last_native.set(native);
+                        return false;
                     }
+                    let prev = state.last_native.replace(native);
+                    let popped = native < prev && native < state.vcs.len();
+                    if std::env::var("DAY_DIAG_NAV").is_ok() {
+                        eprintln!(
+                            "DAYDIAG didShow native={native} prev={prev} mirror={} suspicious={popped}",
+                            state.vcs.len(),
+                        );
+                    }
+                    popped
                 });
                 if !suspicious {
                     return;
@@ -1011,8 +1303,15 @@ mod imp {
                         let Some(state) = m.get_mut(&host) else {
                             return (false, NodeId(0));
                         };
-                        let native = unsafe { state.nav.viewControllers() }.count();
+                        let native = unsafe { state.active_nav().viewControllers() }.count();
                         state.last_native.set(native);
+                        if std::env::var("DAY_DIAG_NAV").is_ok() {
+                            eprintln!(
+                                "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
+                                state.vcs.len(),
+                                native < state.vcs.len(),
+                            );
+                        }
                         if native < state.vcs.len() {
                             // Still popped after settling: a real user back. Sync the mirror
                             // (Day's remove() will find it gone) and record that Day's
@@ -1172,6 +1471,21 @@ mod imp {
                 }
                 ROOT_BASE_FRAME.with(|f| f.set(inner));
                 unsafe { root.setFrame(inner) };
+                if std::env::var("DAY_DIAG_NAV").is_ok() {
+                    eprintln!(
+                        "DAYDIAG holder bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
+                        bounds.size.width,
+                        bounds.size.height,
+                        insets.top,
+                        insets.bottom,
+                        insets.left,
+                        insets.right,
+                        inner.origin.x,
+                        inner.origin.y,
+                        inner.size.width,
+                        inner.size.height,
+                    );
+                }
                 emit(
                     WINDOW_NODE,
                     Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
@@ -1608,6 +1922,10 @@ mod imp {
     }
 
     impl DayNavTableData {
+        // The parameters ARE `NavMenuProps`, minus `selected`: index-aligned per-row
+        // decoration arrays. Taking the props struct instead would tie this to one caller —
+        // `NavMenuPatch::Items` carries the same arrays without a props value to hand over.
+        #[allow(clippy::too_many_arguments)]
         fn new(
             mtm: MainThreadMarker,
             node: NodeId,
@@ -2494,7 +2812,16 @@ mod imp {
                 | Cap::TextSpellCheck
                 // UITableView's own drag pipeline: long-press lift + gap, no editing mode.
                 | Cap::ListReorder
+                // A `UISplitViewController` hosts every `selector(Sidebar)`, so two columns are
+                // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
+                // iPhone in landscape (docs/size-classes.md).
+                | Cap::NavSplit
                 | Cap::Appearance => Support::Native,
+                // EMULATED, and the distinction is the whole design: UIKit owns the collapse and
+                // expand, on its own schedule and with its own animation, so Day observes it
+                // through `Event::NavPresentationChanged` rather than pushing a presentation
+                // into it (docs/size-classes.md).
+                Cap::NavRepresent => Support::Emulated,
                 // Real UIScenes on iPad (docs/windows.md); iPhone shows one scene, so the
                 // cover fallback is the honest answer there.
                 Cap::MultiWindow => {
@@ -2558,16 +2885,98 @@ mod imp {
                     let root_vc = WINDOW
                         .with(|w| w.borrow().clone())
                         .and_then(|w| w.rootViewController());
-                    if let Some(root_vc) = root_vc {
-                        unsafe {
-                            root_vc.addChildViewController(&nav);
-                            nav.didMoveToParentViewController(Some(&root_vc));
+                    // `presentation: Stack` in props means a stack at EVERY size — a nested
+                    // `stack()` under a split host (docs/size-classes.md) — realized as a PLAIN
+                    // navigation controller. A `UISplitViewController` assumes it owns the
+                    // window; nested inside a detail pane its column layout collapses into
+                    // garbage (the embedded-split trap), which is exactly what a pane-sized
+                    // grey void looked like.
+                    let (host, split) = if p.presentation == day_spec::props::NavPresentation::Stack
+                    {
+                        if let Some(root_vc) = root_vc {
+                            unsafe {
+                                root_vc.addChildViewController(&nav);
+                                nav.didMoveToParentViewController(Some(&root_vc));
+                            }
                         }
-                    }
-                    let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                        let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                        (host, None)
+                    } else {
+                        // The adaptive host (docs/size-classes.md): a two-column
+                        // UISplitViewController whose SECONDARY column is Day's navigation stack
+                        // and whose PRIMARY is the sidebar page. UIKit collapses it to a single
+                        // stack at compact width and expands it at regular — which is a rotation
+                        // away on a Plus/Pro Max iPhone and the standing state on an iPad.
+                        //
+                        // Collapsing MERGES: UIKit inserts the primary's controller at the bottom
+                        // of the secondary's navigation stack. That lands on exactly the shape
+                        // Day's model already has in a stack presentation — the sidebar page as
+                        // the stack's root — so the phone path is unchanged and only the mirror
+                        // needs rebasing.
+                        let split_vc = unsafe {
+                            objc2_ui_kit::UISplitViewController::initWithStyle(
+                                objc2_ui_kit::UISplitViewController::alloc(mtm),
+                                objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn,
+                            )
+                        };
+                        let primary_nav = DayNavController::new(mtm, 0); // host ptr set below
+                        unsafe {
+                            split_vc.setViewController_forColumn(
+                                Some(&primary_nav),
+                                objc2_ui_kit::UISplitViewControllerColumn::Primary,
+                            );
+                            split_vc.setViewController_forColumn(
+                                Some(&nav),
+                                objc2_ui_kit::UISplitViewControllerColumn::Secondary,
+                            );
+                            // Both columns side by side when there is room; UIKit still collapses
+                            // to one at compact width.
+                            split_vc.setPreferredDisplayMode(
+                                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary,
+                            );
+                            // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a
+                            // portrait iPad: the sidebar floats above a dimmed detail, and the
+                            // detail keeps the full window width — so Day lays its content out
+                            // for a width the user cannot see the left edge of. Tiling gives the
+                            // detail column its own narrower bounds, which is what the page then
+                            // reports through `FrameChanged` (docs/size-classes.md).
+                            split_vc.setPreferredSplitBehavior(
+                                objc2_ui_kit::UISplitViewControllerSplitBehavior::Tile,
+                            );
+                        }
+                        if let Some(root_vc) = root_vc {
+                            unsafe {
+                                root_vc.addChildViewController(&split_vc);
+                                split_vc.didMoveToParentViewController(Some(&root_vc));
+                            }
+                        }
+                        let host = view_of(unsafe { split_vc.view() }.expect("split view"));
+                        primary_nav.ivars().host.set(ptr_of(&host));
+                        let split_delegate = DaySplitDelegate::new(mtm, ptr_of(&host));
+                        unsafe {
+                            split_vc.setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)))
+                        };
+                        (
+                            host,
+                            Some(SplitParts {
+                                split_vc,
+                                primary_nav,
+                                _split_delegate: split_delegate,
+                            }),
+                        )
+                    };
                     nav.ivars().host.set(ptr_of(&host));
                     let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
-                    unsafe { nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                    // One delegate for both columns: they are the same Day host, and only one of
+                    // them owns the stack at a time.
+                    unsafe {
+                        nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                        if let Some(parts) = split.as_ref() {
+                            parts
+                                .primary_nav
+                                .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                        }
+                    }
                     // Inline search (docs/search.md): build the controller now; it is attached to
                     // the ROOT page's navigation item as that page joins the stack, which is what
                     // puts it behind the pull-down on the top-level list.
@@ -2605,8 +3014,13 @@ mod imp {
                             NavState {
                                 nav,
                                 host_node: id,
+                                collapsed: std::cell::Cell::new(
+                                    split
+                                        .as_ref()
+                                        .is_some_and(|s| unsafe { s.split_vc.isCollapsed() }),
+                                ),
+                                split,
                                 vcs: Vec::new(),
-                                expect_pop: std::cell::Cell::new(false),
                                 native_pops: std::cell::Cell::new(0),
                                 last_native: std::cell::Cell::new(0),
                                 bar_action,
@@ -2630,6 +3044,7 @@ mod imp {
                     let handle = view_of(content);
                     PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
+                    PAGE_PANE.with(|m| m.borrow_mut().insert(ptr_of(&handle), p.pane));
                     handle
                 }
                 // Fullscreen cover (docs/cover.md): a DayCoverVC over a DayNavPageView (safe-
@@ -3131,32 +3546,34 @@ mod imp {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
                         // the delegate synchronously, which re-borrows NAV_STATE.
                         enum Act {
-                            Push(Retained<UIViewController>, Retained<DayNavController>),
-                            Pop(Retained<DayNavController>),
+                            Sync,
                             Title(Retained<UIViewController>, String),
                             None,
                         }
                         let act = NAV_STATE.with(|m| {
-                            let m = m.borrow();
-                            let Some(state) = m.get(&ptr_of(h)) else {
+                            let mut m = m.borrow_mut();
+                            let Some(state) = m.get_mut(&ptr_of(h)) else {
                                 return Act::None;
                             };
                             match p {
-                                NavPatch::Pushed { .. } => state
-                                    .vcs
-                                    .last()
-                                    .map(|vc| Act::Push(vc.clone(), state.nav.clone()))
-                                    .unwrap_or(Act::None),
+                                NavPatch::Pushed { .. } => Act::Sync,
                                 NavPatch::Popped => {
                                     // Answering a native user-back? The stack already popped, so
-                                    // absorb it (don't pop again — that stale pop would wedge
-                                    // expect_pop). Otherwise it's a day-initiated pop: perform it.
+                                    // absorb it — syncing again would be a no-op anyway, but the
+                                    // counter keeps the mirror bookkeeping honest.
                                     if state.native_pops.get() > 0 {
                                         state.native_pops.set(state.native_pops.get() - 1);
                                         Act::None
                                     } else {
-                                        state.expect_pop.set(true);
-                                        Act::Pop(state.nav.clone())
+                                        // Day-initiated: prune the mirror NOW — the sync target
+                                        // derives from it, and the remove() duty only arrives
+                                        // after this patch. Never below the merged stack's
+                                        // sidebar root (docs/size-classes.md).
+                                        let floor = usize::from(state.collapsed.get());
+                                        if state.vcs.len() > floor {
+                                            state.vcs.pop();
+                                        }
+                                        Act::Sync
                                     }
                                 }
                                 // Retitle the TOP page's controller — the navigation bar
@@ -3169,31 +3586,29 @@ mod imp {
                                 // Arm the back guard: shouldPop vetoes the back button, and the
                                 // swipe gesture is disabled (docs/navigation.md).
                                 NavPatch::GuardTop(on) => {
-                                    state.nav.ivars().guarded.set(*on);
-                                    if let Some(g) =
-                                        unsafe { state.nav.interactivePopGestureRecognizer() }
-                                    {
+                                    state.active_nav().ivars().guarded.set(*on);
+                                    if let Some(g) = unsafe {
+                                        state.active_nav().interactivePopGestureRecognizer()
+                                    } {
                                         g.setEnabled(!*on);
                                     }
                                     Act::None
                                 }
+                                // Unreachable: this backend answers `Cap::NavRepresent =
+                                // Unsupported`, so the pieces layer never sends it. The plan for
+                                // iOS is to adopt `UISplitViewController` and OBSERVE its own
+                                // collapse/expand rather than be told (docs/size-classes.md).
+                                NavPatch::Presentation(_) => Act::None,
                             }
                         });
-                        // Defer past any in-flight modal transition: a push/pop issued the
+                        // Defer past any in-flight modal transition: a stack change issued the
                         // instant a (scripted) dialog dismissal starts races the dismissal
                         // transition and wedges the navigation controller.
                         match act {
-                            Act::Push(vc, nav) => {
+                            Act::Sync => {
                                 note_ui_transition();
-                                modal_after_idle(move || unsafe {
-                                    nav.pushViewController_animated(&vc, true)
-                                });
-                            }
-                            Act::Pop(nav) => {
-                                note_ui_transition();
-                                modal_after_idle(move || {
-                                    let _ = unsafe { nav.popViewControllerAnimated(true) };
-                                });
+                                let host = ptr_of(h);
+                                modal_after_idle(move || nav_sync_stack(host));
                             }
                             Act::Title(vc, t) => unsafe {
                                 vc.setTitle(Some(&NSString::from_str(&t)));
@@ -3475,7 +3890,14 @@ mod imp {
                 unsafe { tabbar.setSelectedIndex(sel) };
                 return;
             }
-            // Nav host: pages join the VC stack; index 0 becomes the root VC now, later
+            // The SIDEBAR page is the split host's primary column, not a member of the stack
+            // (docs/size-classes.md). It goes in whatever the current presentation calls for:
+            // its own column while expanded, and the stack's root while collapsed — which is the
+            // shape the phone path has always had, so nothing below changes for it.
+            let is_sidebar = PAGE_PANE.with(|m| {
+                m.borrow().get(&ptr_of(child)).copied() == Some(day_spec::props::Pane::Sidebar)
+            });
+            // Nav host: pages join the VC stack; the first one becomes the root VC now, later
             // pages are presented by the Pushed patch.
             // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).
             let set_root = NAV_STATE.with(|m| {
@@ -3496,9 +3918,7 @@ mod imp {
                 // TOP-LEVEL list, so it belongs to that list's navigation item and not to every
                 // pushed detail page. `hidesSearchBarWhenScrolling` defaults to true, which is
                 // what puts it behind the pull-down.
-                if index == 0
-                    && let Some((sc, _)) = state.search.as_ref()
-                {
+                if is_sidebar && let Some((sc, _)) = state.search.as_ref() {
                     let item = unsafe { vc.navigationItem() };
                     unsafe {
                         item.setSearchController(Some(sc));
@@ -3522,9 +3942,12 @@ mod imp {
                         item.setLargeTitleDisplayMode(
                             objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
                         );
-                        state.nav.navigationBar().setPrefersLargeTitles(true);
+                        state
+                            .active_nav()
+                            .navigationBar()
+                            .setPrefersLargeTitles(true);
                     }
-                } else if index > 0 {
+                } else if !is_sidebar {
                     // Pushed detail pages keep the compact title: the large one belongs to the
                     // top-level list that owns the search field.
                     unsafe {
@@ -3533,7 +3956,34 @@ mod imp {
                         )
                     };
                 }
-                Some((index == 0).then_some((state.nav.clone(), vc)))
+                // The sidebar page ALWAYS becomes the primary column, in both presentations
+                // (docs/size-classes.md). Never conditionally the stack's root: `isCollapsed`
+                // is not yet meaningful when a host is realized — it has no window — so branching
+                // on it here put the page in the stack AND left UIKit's own merge with nothing to
+                // move, stranding a phantom entry under every detail. Letting UIKit own the move
+                // means one code path and no guess: it merges the column into the stack when it
+                // collapses, which IS the phone shape, and lifts it back out when it expands.
+                if is_sidebar && let Some(parts) = state.split.as_ref() {
+                    state.vcs.retain(|v| !std::ptr::eq(&**v, &*vc));
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
+                    unsafe { parts.primary_nav.setViewControllers(&arr) };
+                    // Handled — Some(None), NOT None: the outer match reads None as "parent is
+                    // not a nav host" and reparents the child via addSubview, which STEALS the
+                    // content view out of its DayNavPageView (addSubview moves a view). The page
+                    // then has nothing to pin to the safe area, and the sidebar's content draws
+                    // from the split view's origin at whatever size it was last laid out for —
+                    // the cut-off landscape list and the stale overlay after a collapse.
+                    return Some(None);
+                }
+                // A PLAIN host's first page becomes its root right here: a nested stack's root
+                // is part of the host build and no `NavPatch::Pushed` follows it (only pushed
+                // destinations patch). The adaptive host never takes this path — UIKit's
+                // collapse puts the sidebar column at the stack root, and detail pages arrive
+                // through `NavPatch::Pushed`.
+                if state.split.is_none() && state.vcs.len() == 1 {
+                    return Some(Some((state.nav.clone(), vc)));
+                }
+                Some(None::<(Retained<DayNavController>, Retained<UIViewController>)>)
             });
             match set_root {
                 Some(Some((nav, vc))) => {
@@ -4037,6 +4487,28 @@ mod imp {
                         };
                         unsafe { ac.addAction(&action) };
                     }
+                    // On iPad an action sheet presents as a POPOVER, and a popover without an
+                    // anchor is an NSGenericException at transition time — the app dies. The
+                    // dialog surface has no anchor concept (a sheet is logically modal,
+                    // docs/dialogs.md), so anchor it to the window's centre, arrowless: the
+                    // pad convention for source-less sheets. On iPhone the popover controller
+                    // is unused and this is inert.
+                    if *sheet
+                        && let Some(pop) = unsafe { ac.popoverPresentationController() }
+                        && let Some(w) = WINDOW.with(|win| win.borrow().clone())
+                    {
+                        let b = w.bounds();
+                        unsafe {
+                            pop.setSourceView(Some(w.as_ref()));
+                            pop.setSourceRect(CGRect::new(
+                                CGPoint::new(b.size.width / 2.0, b.size.height / 2.0),
+                                CGSize::new(0.0, 0.0),
+                            ));
+                            pop.setPermittedArrowDirections(
+                                objc2_ui_kit::UIPopoverArrowDirection::empty(),
+                            );
+                        }
+                    }
                     PRESENT_VCS.with(|p| p.borrow_mut().insert(req, ac.clone()));
                     modal_enqueue(ModalOp::Present(req, ac.into_super()));
                 }
@@ -4224,7 +4696,7 @@ mod imp {
                 || NAV_STATE.with(|m| {
                     m.borrow()
                         .values()
-                        .any(|s| s.nav.transitionCoordinator().is_some())
+                        .any(|s| s.active_nav().transitionCoordinator().is_some())
                 });
             if active {
                 UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));

@@ -1519,6 +1519,11 @@ impl Toolkit for Xaml {
                             // NavigationView BackRequested already routes back through Day
                             // (never a native auto-pop), so nothing to suppress here.
                             NavPatch::GuardTop(_) => None,
+                            // Unreachable: this backend answers `Cap::NavRepresent =
+                            // Unsupported`, so the pieces layer never sends it. A NavigationView
+                            // owns its own PaneDisplayMode, so re-presenting here means driving
+                            // that rather than re-homing pages (docs/size-classes.md).
+                            NavPatch::Presentation(_) => None,
                         };
                         if let Some(title) = title {
                             let nav = NAV_STATE.with(|m| {

@@ -45,6 +45,7 @@ mod bridge_kinds_parity {
             ("K_VALUE_CHANGED", BridgeKind::ValueChanged),
             ("K_VALUE_COMMITTED", BridgeKind::ValueCommitted),
             ("K_SEARCH_CHANGED", BridgeKind::SearchChanged),
+            ("K_NAV_PRESENTATION", BridgeKind::NavPresentation),
             ("K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
             ("K_NAV_BACK", BridgeKind::NavBack),
             ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
@@ -803,6 +804,7 @@ mod imp {
     const K_VALUE_CHANGED: i32 = bridge::BridgeKind::ValueChanged as i32;
     const K_VALUE_COMMITTED: i32 = bridge::BridgeKind::ValueCommitted as i32;
     const K_SEARCH_CHANGED: i32 = bridge::BridgeKind::SearchChanged as i32;
+    const K_NAV_PRESENTATION: i32 = bridge::BridgeKind::NavPresentation as i32;
     const K_SELECTION_CHANGED: i32 = bridge::BridgeKind::SelectionChanged as i32;
     const K_NAV_BACK: i32 = bridge::BridgeKind::NavBack as i32;
     const K_FRAME_CHANGED: i32 = bridge::BridgeKind::FrameChanged as i32;
@@ -836,6 +838,12 @@ mod imp {
             K_VALUE_COMMITTED => Event::ValueCommitted(num),
             // Inline search on the nav list (docs/search.md): the field's new text.
             K_SEARCH_CHANGED => Event::SearchChanged(env.dstr(jstr).ok().unwrap_or_default()),
+            // SlidingPaneLayout settled on a presentation; Day reconciles rather than drives.
+            K_NAV_PRESENTATION => Event::NavPresentationChanged(if num >= 0.5 {
+                day_spec::props::NavPresentation::Split
+            } else {
+                day_spec::props::NavPresentation::Stack
+            }),
             K_SELECTION_CHANGED => Event::SelectionChanged(num as i64),
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back
@@ -1227,6 +1235,10 @@ mod imp {
                 // The MaterialToolbar names the destination on every page (DayNavHost
                 // syncChrome) — content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
+                // A SlidingPaneLayout hosts every `selector(Sidebar)`, so two panes are
+                // available wherever they fit — a tablet, a foldable open, a phone in landscape
+                // if the widths allow (docs/size-classes.md).
+                | Cap::NavSplit
                 | Cap::TextEditable
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck
@@ -1236,6 +1248,11 @@ mod imp {
                 // Document-style DayWindowActivity instances (docs/windows.md): separate
                 // recents entries; side-by-side in split-screen/freeform/desktop windowing.
                 | Cap::MultiWindow => Support::Native,
+                // EMULATED: SlidingPaneLayout decides at MEASURE time whether both panes fit, so
+                // the platform owns the presentation and Day observes it through
+                // `Event::NavPresentationChanged` rather than pushing one in
+                // (docs/size-classes.md).
+                Cap::NavRepresent => Support::Emulated,
                 _ => Support::Unsupported,
             }
         }
@@ -1429,13 +1446,25 @@ mod imp {
                 }
                 Some(Builtin::Nav) => {
                     let p = props.downcast_ref::<NavProps>().unwrap();
+                    // `Stack` in props is literal — a host that is a stack at EVERY size (a
+                    // nested `stack()` under a split host, docs/size-classes.md) — so it gets a
+                    // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
+                    // nesting one inside a pane re-runs the whole tiling decision at pane width.
+                    let adaptive = p.presentation != day_spec::props::NavPresentation::Stack;
                     let host = with_env(|env| {
                         let s = jstr(env, &p.title);
                         AHandle(make_view(
                             env,
                             "makeNavHost",
-                            "(JLjava/lang/String;)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Object(&s)],
+                            "(JLjava/lang/String;ZF)Landroid/view/View;",
+                            &[
+                                JValue::Long(idj),
+                                JValue::Object(&s),
+                                JValue::Bool(adaptive),
+                                // The tiling threshold comes from Day's breakpoint table, so
+                                // the platform's measure-time answer agrees with it.
+                                JValue::Float(day_spec::SizeClass::SPLIT_MIN_WIDTH as f32),
+                            ],
                         ))
                     });
                     // Optional trailing bar action (docs/navigation.md): set on the host AFTER it
@@ -1934,6 +1963,11 @@ mod imp {
                                     &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
                                 );
                             }),
+                            // Unreachable: this backend answers `Cap::NavRepresent =
+                            // Unsupported`, so the pieces layer never sends it. The plan for
+                            // Android is `SlidingPaneLayout`, which decides at measure time and
+                            // is OBSERVED rather than told (docs/size-classes.md).
+                            NavPatch::Presentation(_) => {}
                         }
                     }
                 }

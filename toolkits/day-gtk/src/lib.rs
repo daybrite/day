@@ -696,6 +696,10 @@ fn gtk_animation(
 
 /// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
 /// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
+// The parameters ARE `NavMenuProps`, minus `selected`: index-aligned per-row decoration arrays.
+// Taking the props struct instead would tie this to one caller — `NavMenuPatch::Items` carries
+// the same arrays without a props value to hand over.
+#[allow(clippy::too_many_arguments)]
 fn fill_nav_menu(
     listbox: &gtk4::ListBox,
     items: &[String],
@@ -1573,7 +1577,7 @@ impl Toolkit for Gtk {
             Some(Builtin::Nav) => {
                 let is_split = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.split)
+                    .map(|p| p.presentation.is_split())
                     .unwrap_or(true);
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 let (host, present): (Handle, NavPresent) = if is_split && !paned_split() {
@@ -2312,6 +2316,13 @@ impl Toolkit for Gtk {
                         {
                             page.set_can_pop(!on);
                         }
+                        // `NavPatch::Presentation` is deliberately not handled: this backend
+                        // answers `Cap::NavRepresent = Unsupported`, so the pieces layer never
+                        // sends it. Unlike the other desktops the two presentations are different
+                        // WIDGETS here (AdwOverlaySplitView vs AdwNavigationView), and Day holds
+                        // the host handle — so morphing means moving to AdwNavigationSplitView
+                        // and driving its `collapsed`, which is the GNOME adaptive idiom but a
+                        // real restructure (docs/size-classes.md).
                     });
                 }
             }

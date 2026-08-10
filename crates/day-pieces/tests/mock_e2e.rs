@@ -41,6 +41,23 @@ fn boot_with_env(
     probe
 }
 
+/// Boot a mock that CAN present split panes, in a window of `size` — so the launch size class
+/// decides the presentation exactly as it does on a real toolkit (docs/size-classes.md).
+fn boot_splittable(size: Size, root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    // Read during the build, so it has to be set before launching.
+    probe.set_nav_split(true);
+    let options = WindowOptions {
+        title: "test".into(),
+        size,
+        ..Default::default()
+    };
+    day_core::launch_with(mock, options, root);
+    probe
+}
+
 fn node_id(probe: &MockProbe, kind: &str, index: usize) -> NodeId {
     let found = probe.find_by_kind(kind);
     NodeId(found[index].1.node)
@@ -505,6 +522,121 @@ fn selector_sidebar_lists_items_and_navigates() {
     assert_eq!(day_core::current_route().as_deref(), Some(""));
     assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
     assert!(!nav_back());
+}
+
+/// A wide window presents split; a narrow one stacks. The class decides, not the toolkit alone
+/// (docs/size-classes.md).
+#[test]
+fn selector_presentation_follows_the_launch_size_class() {
+    let sel = Signal::new(String::new());
+    let probe = boot_splittable(Size::new(1000.0, 700.0), move || sidebar_selector(sel));
+    let host = probe.find_by_kind("day.nav")[0].1.clone();
+    assert!(host.flag, "expanded window → split");
+    // Split never shows an empty detail: the first item is selected for us.
+    assert_eq!(sel.get_untracked(), "about");
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+
+    let sel2 = Signal::new(String::new());
+    let probe2 = boot_splittable(Size::new(390.0, 844.0), move || sidebar_selector(sel2));
+    assert!(
+        !probe2.find_by_kind("day.nav")[0].1.flag,
+        "compact window → stack"
+    );
+    assert_eq!(sel2.get_untracked(), "", "a stack opens on its list");
+    assert_eq!(probe2.find_by_kind("day.nav_page").len(), 1);
+}
+
+/// The morph, and the thing that makes it worth having: crossing a breakpoint RE-PRESENTS the
+/// live host. The pages keep their node identities and the selection survives — a rebuild would
+/// lose both, and would take every scroll offset and focused field with them.
+#[test]
+fn size_class_change_re_presents_without_rebuilding_pages() {
+    let sel = Signal::new(String::new());
+    let probe = boot_splittable(Size::new(1000.0, 700.0), move || sidebar_selector(sel));
+    let host = probe.find_by_kind("day.nav")[0].0;
+    batch(|| sel.set("extra".into()));
+    flush_sync();
+    let pages_before: Vec<u64> = probe
+        .find_by_kind("day.nav_page")
+        .iter()
+        .map(|(_, w)| w.node)
+        .collect();
+    assert_eq!(pages_before.len(), 2, "sidebar + detail");
+    assert!(probe.widget(host).flag, "split before");
+
+    // Narrow the window past the 600dp breakpoint, as a backend would report it.
+    day_core::set_size_class(day_spec::SizeClass::from_size(390.0, 844.0));
+    flush_sync();
+
+    assert!(!probe.widget(host).flag, "stacked after narrowing");
+    let pages_after: Vec<u64> = probe
+        .find_by_kind("day.nav_page")
+        .iter()
+        .map(|(_, w)| w.node)
+        .collect();
+    assert_eq!(
+        pages_before, pages_after,
+        "pages were re-homed, not rebuilt"
+    );
+    assert_eq!(
+        sel.get_untracked(),
+        "extra",
+        "narrowing keeps the selection — the detail becomes the top of the stack"
+    );
+    assert_eq!(day_core::current_route().as_deref(), Some("extra"));
+
+    // And back: widening re-presents again, still without rebuilding.
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+    assert!(probe.widget(host).flag, "split again after widening");
+    let pages_final: Vec<u64> = probe
+        .find_by_kind("day.nav_page")
+        .iter()
+        .map(|(_, w)| w.node)
+        .collect();
+    assert_eq!(pages_before, pages_final);
+    assert_eq!(sel.get_untracked(), "extra");
+}
+
+/// Widening with nothing selected has to pick something: a split presentation has no way to draw
+/// an empty detail pane.
+#[test]
+fn widening_from_an_unselected_stack_selects_the_first_item() {
+    let sel = Signal::new(String::new());
+    let probe = boot_splittable(Size::new(390.0, 844.0), move || sidebar_selector(sel));
+    assert_eq!(sel.get_untracked(), "");
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 1);
+
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+    assert_eq!(sel.get_untracked(), "about");
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+}
+
+/// A pinned presentation ignores the window entirely — including the breakpoint it would
+/// otherwise cross.
+#[test]
+fn a_pinned_presentation_does_not_morph() {
+    let sel = Signal::new(String::new());
+    let probe = boot_splittable(Size::new(390.0, 844.0), move || {
+        selector(sel)
+            .presentation(day_spec::props::NavPresentation::Split)
+            .item("about", "About", || label("about-content"))
+            .item("extra", "Extra", || label("extra-content"))
+            .any()
+    });
+    let host = probe.find_by_kind("day.nav")[0].0;
+    assert!(
+        probe.widget(host).flag,
+        "pinned split despite a compact window"
+    );
+
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+    assert!(probe.widget(host).flag);
+    day_core::set_size_class(day_spec::SizeClass::from_size(390.0, 844.0));
+    flush_sync();
+    assert!(probe.widget(host).flag, "still pinned");
 }
 
 #[test]

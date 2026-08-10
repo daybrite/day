@@ -92,8 +92,8 @@ for Qt and GTK is a listed follow-up).
 ## Current limits
 
 - **GTK off Linux has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
-  `macos-gtk` and `windows-gtk` development combos are invisible to screen readers. Ship the
-  platform-native target for real users.
+  `macos-gtk` and `windows-gtk` development combos ([Tier 4](/docs/platforms#support-tiers))
+  are invisible to screen readers. Ship the platform-native target for real users.
 - **Android annotations are partial** — labels and values map today (`contentDescription`, state
   description); role and hint refinement is still open, and audit read-back isn't implemented.
 - **Qt's `QAccessible` layer bridges to the native accessibility API on every OS** (no other

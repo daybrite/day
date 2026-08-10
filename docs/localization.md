@@ -103,7 +103,8 @@ label(res::str::nav_home())                      // 0-param keys are nullary fun
 - Using the functions is **optional**: `tr("…")` stays for keys built at runtime, and `day lint`
   counts a `res::str::key` reference as a use just like `tr("key")`.
 
-> Fluent parsing is centralized: the codegen, `day lint`'s coverage checks (`day_build::message_keys`),
+> [!NOTE]
+> **One Fluent parser.** The codegen, `day lint`'s coverage checks (`day_build::message_keys`),
 > and the runtime resolver (`fluent-bundle`) all use `fluent-syntax`, so what the tooling accepts is what
 > resolves at runtime.
 

@@ -230,9 +230,11 @@ struct NavHostCx {
     /// One entry per page pushed above the root, in native order; the host's single `NavBack`
     /// handler invokes the last.
     owners: Rc<RefCell<Vec<PopOwner>>>,
-    /// The enclosing host presents as split panes (desktop). A nested stack does NOT merge into a
-    /// split host — it keeps its own detail-pane stack.
-    split: bool,
+    /// The enclosing host presents as split panes. A nested stack does NOT merge into a split
+    /// host — it keeps its own detail-pane stack. Shared and mutable because the host can
+    /// re-present under us: a page built while the window is narrow should merge, and one built
+    /// after it widens should not.
+    split: Rc<Cell<bool>>,
 }
 
 thread_local! {
@@ -767,6 +769,9 @@ pub struct Selector<S: SignalRw<K>, K: Route = String> {
     bar_action: Option<BarActionSpec>,
     /// Search over this surface ([`Selector::searchable`]). `None` unless set.
     search: Option<SearchSpec>,
+    /// The presentation pinned by [`Selector::presentation`]; `None` = automatic, resolved from
+    /// the window's size class and re-resolved whenever it changes.
+    presentation: Option<day_spec::props::NavPresentation>,
 }
 
 /// A pending search declaration ([`Selector::searchable`] and its modifiers). The query and the
@@ -977,6 +982,7 @@ pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
         restore: None,
         bar_action: None,
         search: None,
+        presentation: None,
     }
 }
 
@@ -1041,6 +1047,19 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     /// An optional piece shown above the sidebar list (a logo, app name…).
     pub fn header<P: Piece>(mut self, build: impl FnOnce() -> P + 'static) -> Self {
         self.header = Some(Box::new(move || AnyPiece::new(build())));
+        self
+    }
+    /// Pin the presentation instead of letting the window's size decide (docs/size-classes.md).
+    ///
+    /// Leave this unset — the default — and the selector shows sidebar+detail on a window wide
+    /// enough for both and stacks on one that is not, re-presenting live as the window is resized
+    /// or the device rotated. Pin it when the content only works one way: a settings sidebar whose
+    /// detail is meaningless alone, a wizard that must stay a stack.
+    ///
+    /// A pin is still a preference. A toolkit with no split container (the phones today) stacks
+    /// whatever is asked for, exactly as it does for the automatic case.
+    pub fn presentation(mut self, presentation: day_spec::props::NavPresentation) -> Self {
+        self.presentation = Some(presentation);
         self
     }
     /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
@@ -1251,8 +1270,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     ///
     /// Native on UIKit alone; elsewhere it is a real native component doing the same job (a
     /// Material `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
-    /// `NSSegmentedControl`) or, on web and system XAML, one composed from primitives. Probe
-    /// [`day_spec::Cap::SearchScopes`] if the difference matters to the app.
+    /// `NSSegmentedControl`) or, on web and system XAML, one composed from primitives.
     pub fn search_scopes<M>(mut self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
         if let Some(s) = self.search.as_mut() {
             s.scopes = titles.into_iter().map(IntoText::into_text).collect();
@@ -1338,10 +1356,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
             icons: icons0.clone(),
             selected: initial_idx,
         },
-        Rc::new(NavLayout {
-            sizes: sizes.clone(),
-            split: false,
-        }),
+        Rc::new(NavLayout::stack(sizes.clone())),
         Flex {
             grow_w: true,
             grow_h: true,
@@ -1559,8 +1574,60 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
 }
 
 fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
-    use day_spec::props::{NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavProps};
-    let split = with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
+    use day_spec::props::{
+        NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavPresentation, NavProps, Pane,
+    };
+    // Presentation (docs/size-classes.md). Resolved from the window's size class on every change,
+    // not fixed at build time — `NavPatch::Presentation` re-presents the live host. The window
+    // root is captured HERE: the effect below re-runs long after this build, when
+    // `current_window` would answer the primary window instead of ours.
+    let window = day_core::current_window();
+    let can_split =
+        with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
+    // WHO DECIDES the presentation (docs/size-classes.md), which is what `Cap::NavRepresent`'s
+    // three answers distinguish:
+    //   Native      — we do, and we patch the host when the class changes.
+    //   Emulated    — the toolkit's own adaptive container does, and reports back.
+    //   Unsupported — nobody; it is fixed at build time from `Cap::NavSplit` alone, because a
+    //                 toolkit that cannot change presentation must not have it decided by
+    //                 something that can — a window launched narrow would be stuck stacked.
+    let represent = with_tree(|t| t.capability(day_spec::Cap::NavRepresent));
+    let we_drive = represent == day_spec::Support::Native;
+    let toolkit_drives = represent == day_spec::Support::Emulated;
+    // Either way the window's size decides the INITIAL value: a backend that morphs itself still
+    // starts wherever its container will land, so seeding from the class avoids a first frame in
+    // the wrong presentation followed by a correcting report.
+    let size_decides = we_drive || toolkit_drives;
+    let requested = sel.presentation;
+    // The resolver owns the "can this toolkit do it" question, so `NavProps` always carries a
+    // presentation the backend can actually draw.
+    let resolve = move |class: Option<day_spec::SizeClass>| -> NavPresentation {
+        match requested {
+            _ if !can_split => NavPresentation::Stack,
+            Some(p) => p,
+            None => match class {
+                Some(c) if size_decides && !c.prefers_split() => NavPresentation::Stack,
+                _ => NavPresentation::Split,
+            },
+        }
+    };
+    let presentation = resolve(day_core::window_size_class_untracked(window));
+    // What the HOST PROPS carry is a different question from what this build currently shows.
+    // An Emulated toolkit's adaptive container collapses and expands ITSELF, so its host is
+    // lowered as `Split` — "build the adaptive container" — even when the window is compact
+    // right now. `Stack` in props is thereby reserved for hosts that are stacks at EVERY size
+    // (a pinned request, a toolkit that cannot split, the `stack()` piece), which a backend
+    // may take literally and realize as a plain navigation container: nesting an adaptive
+    // split container inside a pane is exactly what breaks (docs/size-classes.md).
+    let lowered = if toolkit_drives && requested.is_none() && can_split {
+        NavPresentation::Split
+    } else {
+        presentation
+    };
+    let split = presentation.is_split();
+    let presentation_cell = Rc::new(Cell::new(presentation));
+    let split_cell = Rc::new(Cell::new(split));
+    let sidebar_cell: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
     let selection = sel.selection;
     let routed = sel.routed;
     let restore = sel.restore;
@@ -1592,13 +1659,14 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         kinds::NAV,
         &NavProps {
             title: title_s.clone(),
-            split,
+            presentation: lowered,
             bar_action,
             search,
         },
         Rc::new(NavLayout {
             sizes: sizes.clone(),
-            split,
+            presentation: presentation_cell.clone(),
+            sidebar: sidebar_cell.clone(),
         }),
         Flex {
             grow_w: true,
@@ -1635,18 +1703,21 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         host,
         sizes: sizes.clone(),
         owners: owners.clone(),
-        split,
+        split: split_cell.clone(),
     };
 
-    // Sidebar / root page: optional header + native item list.
+    // Sidebar / root page. `Pane::Sidebar` is unconditional: it says what this page IS in the
+    // model, not how the host happens to draw it today, which is what lets a re-present re-home
+    // it between the sidebar pane and the root of the stack (docs/size-classes.md).
     let root_page = nav_page(
         host,
         &NavPageProps {
             title: title_s.clone(),
-            sidebar: split,
+            pane: Pane::Sidebar,
         },
         &sizes,
     );
+    sidebar_cell.set(Some(root_page));
     let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
     {
         let (mh, ks, s, ts) = (
@@ -1777,7 +1848,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 host,
                 &NavPageProps {
                     title: title_now.clone(),
-                    sidebar: false,
+                    pane: Pane::Detail,
                 },
                 &sizes,
             );
@@ -1824,7 +1895,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         }
     });
 
-    // Desktop split never shows an empty detail: default to the first item.
+    // Split never shows an empty detail: default to the first item.
     if split
         && selection.get_untracked_rw().key().is_empty()
         && let Some(k) = typed.borrow().first().cloned()
@@ -1834,6 +1905,65 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     {
         let (s, show) = (selection.clone(), show.clone());
         bind(move || s.get_rw().key(), move |key: &String| show(key));
+    }
+
+    // What a presentation change means for the MODEL, whoever caused it. Widening with nothing
+    // selected would leave the detail pane empty, the one state a split presentation has no way
+    // to draw — adopt the same first-item rule the build uses. Narrowing keeps the selection
+    // instead: the detail simply becomes the top of the stack, which is where the user already
+    // was.
+    let reconcile = {
+        let (pc, sel_r, typed_r, split_r) = (
+            presentation_cell.clone(),
+            selection.clone(),
+            typed.clone(),
+            split_cell.clone(),
+        );
+        Rc::new(move |next: NavPresentation| {
+            pc.set(next);
+            split_r.set(next.is_split());
+            if next.is_split()
+                && sel_r.get_untracked_rw().key().is_empty()
+                && let Some(k) = typed_r.borrow().first().cloned()
+            {
+                sel_r.set_rw(k);
+            }
+        })
+    };
+
+    if requested.is_none() && can_split && we_drive {
+        // WE drive (docs/size-classes.md). Seeded with what we just built, so the first run is a
+        // no-op; after that a class change patches the LIVE host and the backend re-homes the
+        // pages it already has. Nothing here rebuilds a page, which is what keeps scroll offsets,
+        // field focus, and the search query across the morph.
+        let rec = reconcile.clone();
+        bind_seeded(
+            presentation,
+            move || resolve(day_core::window_size_class(window)),
+            move |next: &NavPresentation| {
+                with_tree(|t| {
+                    t.patch(host, Box::new(NavPatch::Presentation(*next)), false);
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+                rec(*next);
+            },
+        );
+    } else if toolkit_drives {
+        // The TOOLKIT drives: its own adaptive container already morphed and is telling us after
+        // the fact, so there is nothing to patch — only the model to reconcile. Pushing a
+        // presentation at it instead would be a second source of truth racing the platform's own
+        // collapse animation.
+        let rec = reconcile.clone();
+        cx.on(host, move |ev| {
+            if let Event::NavPresentationChanged(next) = ev {
+                rec(*next);
+                with_tree(|t| {
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+            }
+        });
     }
 
     // Re-derive the row set when a dynamic block's signal changes (re-patch the native menu,
@@ -2147,7 +2277,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
 
 impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        use day_spec::props::{NavPageProps, NavPatch, NavProps};
+        use day_spec::props::{NavPageProps, NavPatch, NavPresentation, NavProps, Pane};
         let Stack {
             path,
             title,
@@ -2183,7 +2313,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         // (mobile, `split == false`), MERGE: push our pages onto that host instead of minting a
         // second native container — one native nav chain, one back button (docs/navigation.md).
         // A split host (desktop) is not merged into; a stack keeps its own detail-pane stack.
-        let merge = current_nav_host().filter(|c| !c.split);
+        let merge = current_nav_host().filter(|c| !c.split.get());
 
         let entries: Rc<RefCell<Vec<StackEntry<K>>>> = Rc::default();
         let native_popped: Rc<Cell<usize>> = Rc::new(Cell::new(0));
@@ -2211,18 +2341,17 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             host = cx.native(
                 kinds::NAV,
                 &NavProps {
+                    // A stack is a stack at every size: it has no sidebar pane to re-home, so
+                    // there is nothing for a size-class change to re-present.
                     title: title_s.clone(),
-                    split: false, // a stack is a stack (no sidebar)
+                    presentation: NavPresentation::Stack,
                     bar_action,
                     // Stacks are not searchable yet — `.searchable()` is on `Selector` only
                     // (docs/search.md); a stack gains the same surface when the placement
                     // resolver lands, since it is the same lowering.
                     search: None,
                 },
-                Rc::new(NavLayout {
-                    sizes: sizes.clone(),
-                    split: false,
-                }),
+                Rc::new(NavLayout::stack(sizes.clone())),
                 Flex {
                     grow_w: true,
                     grow_h: true,
@@ -2235,13 +2364,13 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                 host,
                 sizes: sizes.clone(),
                 owners: owners.clone(),
-                split: false,
+                split: Rc::new(Cell::new(false)),
             };
             let root_page = nav_page(
                 host,
                 &NavPageProps {
                     title: title_s,
-                    sidebar: false,
+                    pane: Pane::Detail,
                 },
                 &sizes,
             );
@@ -2355,7 +2484,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                         host,
                         &NavPageProps {
                             title: title.clone(),
-                            sidebar: false,
+                            pane: Pane::Detail,
                         },
                         &sizes,
                     );

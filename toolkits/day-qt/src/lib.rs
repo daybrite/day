@@ -511,9 +511,11 @@ fn font_params(spec: day_spec::FontSpec) -> (f64, c_int, c_int, c_int) {
 struct NavState {
     sidebar_pane: *mut std::os::raw::c_void,
     detail_pane: *mut std::os::raw::c_void,
-    /// (page, node id); split: index 0 = sidebar page, rest = detail stack. Stack
-    /// (`split == false`): every page (incl. root) is in the detail pane and the stack.
+    /// (page, node id) in insertion order. The sidebar page — when the host has one — is
+    /// always first; what changes with the presentation is its PARENT, not its position.
     pages: Vec<(QtHandle, NodeId)>,
+    /// The host's sidebar page, once it has one (docs/size-classes.md).
+    sidebar_page: Option<QtHandle>,
     /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
     split: bool,
     /// Whether the sidebar pane is showing. Tracked rather than read back because the shim
@@ -574,6 +576,68 @@ fn nav_sync_header(host: *mut std::os::raw::c_void) {
 thread_local! {
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
     static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// Each nav page's pane, recorded at realize because `insert` sees only handles
+    /// (docs/size-classes.md).
+    static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
+}
+
+/// Is this page the host's sidebar pane?
+fn is_sidebar_page(page: *mut std::os::raw::c_void) -> bool {
+    PAGE_PANE
+        .with(|m| m.borrow().get(&(page as usize)).copied() == Some(day_spec::props::Pane::Sidebar))
+}
+
+/// Re-present a live nav host (docs/size-classes.md): the window crossed a breakpoint, so the
+/// chrome changes but the pages do not.
+///
+/// Both presentations are the same `QSplitter` with the same back header already installed, so
+/// the morph is: show or hide the sidebar pane, re-parent the sidebar PAGE between the two panes,
+/// and let the header follow the new depth. `day_qt_add_child` re-parents a widget rather than
+/// rebuilding it, so each page keeps its children and its scroll state.
+fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
+    let Some((sidebar_page, sidebar_pane, detail_pane, was_split)) = NAV_STATE.with(|m| {
+        let st = m.borrow();
+        let s = st.get(&(host as usize))?;
+        Some((s.sidebar_page, s.sidebar_pane, s.detail_pane, s.split))
+    }) else {
+        return;
+    };
+    if was_split == split {
+        return;
+    }
+    unsafe {
+        ffi::day_qt_set_visible(sidebar_pane, i32::from(split));
+        if let Some(page) = sidebar_page {
+            // Its own pane when split, the stack's root page when not.
+            ffi::day_qt_add_child(if split { sidebar_pane } else { detail_pane }, page.0);
+            ffi::day_qt_set_visible(page.0, 1);
+        }
+    }
+    NAV_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        if let Some(s) = m.get_mut(&(host as usize)) {
+            s.split = split;
+            s.sidebar_shown = split;
+            // Only the top detail page shows; the sidebar page, when split, sits outside that.
+            let detail: Vec<QtHandle> = s
+                .pages
+                .iter()
+                .filter(|(p, _)| !(split && is_sidebar_page(p.0)))
+                .map(|(p, _)| *p)
+                .collect();
+            let last = detail.len().saturating_sub(1);
+            for (i, page) in detail.iter().enumerate() {
+                unsafe { ffi::day_qt_set_visible(page.0, i32::from(i == last)) };
+            }
+        }
+    });
+    // Deferred one turn, like the pop path: hiding a QSplitter pane does not resize its sibling
+    // until Qt runs its own layout pass, so reading the pane sizes now would report the OLD
+    // detail width and leave the page laid out for a window that still had a sidebar.
+    let host_addr = host as usize;
+    <Qt as Platform>::post(Box::new(move || {
+        nav_sync_header(host_addr as *mut std::os::raw::c_void)
+    }));
 }
 
 /// Report both pane sizes so NavLayout re-lays page content (enqueue-only, §8.3).
@@ -594,10 +658,9 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
         state
             .pages
             .iter()
-            .enumerate()
-            .map(|(i, (_, id))| {
-                // Split: page 0 is the sidebar. Stack: every page fills the detail pane.
-                let size = if state.split && i == 0 {
+            .map(|(page, id)| {
+                // A page in the sidebar pane is sized by it; everything else fills the detail.
+                let size = if state.split && is_sidebar_page(page.0) {
                     Size::new(sw, sh)
                 } else {
                     Size::new(dw, dh)
@@ -953,6 +1016,10 @@ impl Toolkit for Qt {
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::Snapshot
             | Cap::NavSplit
+            // One QSplitter carries both presentations, with the back header installed either
+            // way — so re-presenting is a pane visibility flip plus one re-parent of the
+            // sidebar page (docs/size-classes.md).
+            | Cap::NavRepresent
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::TextEditable
@@ -998,21 +1065,27 @@ impl Toolkit for Qt {
                 }
                 Some(Builtin::Nav) => {
                     let nav_props = props.downcast_ref::<NavProps>();
-                    let is_split = nav_props.map(|p| p.split).unwrap_or(true);
+                    let is_split = nav_props.map(|p| p.presentation.is_split()).unwrap_or(true);
                     let host = ffi::day_qt_splitter_new();
                     let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
                     let mut detail_pane = ffi::day_qt_splitter_pane(host, 1);
                     ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
-                    let mut titles = Vec::new();
+                    // The back header goes in for BOTH presentations, hidden until a stack
+                    // actually pushes. Installing it lazily would mean restructuring the detail
+                    // pane's layout under live, absolutely-positioned pages the first time a
+                    // window narrowed (docs/size-classes.md) — this way the widget tree is the
+                    // same shape either way and a re-present only flips visibility.
+                    let pages = ffi::day_qt_nav_header_install(host, id.0, nav_back_clicked);
+                    if !pages.is_null() {
+                        detail_pane = pages;
+                    }
+                    // Depth titles for the back header. Recorded in BOTH presentations, so a
+                    // window that narrows into a stack already knows what to put in the header
+                    // (docs/size-classes.md); the header simply stays hidden while split.
+                    let titles = vec![nav_props.map(|p| p.title.clone()).unwrap_or_default()];
                     if !is_split {
-                        // A stack has no sidebar: hide the empty pane so the detail is full-width,
-                        // and install the back header (hidden at root) above the pages.
+                        // A stack has no sidebar: hide the empty pane so the detail is full-width.
                         ffi::day_qt_set_visible(sidebar_pane, 0);
-                        let pages = ffi::day_qt_nav_header_install(host, id.0, nav_back_clicked);
-                        if !pages.is_null() {
-                            detail_pane = pages;
-                        }
-                        titles.push(nav_props.map(|p| p.title.clone()).unwrap_or_default());
                     }
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
@@ -1021,6 +1094,7 @@ impl Toolkit for Qt {
                                 sidebar_pane,
                                 detail_pane,
                                 pages: Vec::new(),
+                                sidebar_page: None,
                                 split: is_split,
                                 sidebar_shown: is_split,
                                 titles,
@@ -1032,6 +1106,9 @@ impl Toolkit for Qt {
                 Some(Builtin::NavPage) => {
                     let page = QtHandle(ffi::day_qt_container_new());
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
+                    if let Some(p) = props.downcast_ref::<day_spec::props::NavPageProps>() {
+                        PAGE_PANE.with(|m| m.borrow_mut().insert(page.0 as usize, p.pane));
+                    }
                     page
                 }
                 // Emulated fullscreen cover (docs/cover.md): parked hidden; Present re-homes
@@ -1366,28 +1443,33 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::NAV => {
+                    if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
+                        nav_present(h.0, next.is_split());
+                        return;
+                    }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         NAV_STATE.with(|m| {
                             let mut m = m.borrow_mut();
                             let Some(state) = m.get_mut(&(h.0 as usize)) else {
                                 return;
                             };
-                            // Split: detail stack is pages[1..] (page 0 is the sidebar).
-                            // Stack: every page participates.
-                            let detail = if state.split {
-                                &state.pages[1..]
-                            } else {
-                                &state.pages[..]
-                            };
+                            // Split: the sidebar's page is not part of the detail stack.
+                            // Stack: every page participates, its root included.
+                            let split_now = state.split;
+                            let detail: Vec<(QtHandle, NodeId)> = state
+                                .pages
+                                .iter()
+                                .filter(|(p, _)| !(split_now && is_sidebar_page(p.0)))
+                                .copied()
+                                .collect();
+                            let detail = &detail[..];
                             match p {
                                 NavPatch::Pushed { title, .. } => {
                                     let last = detail.len().saturating_sub(1);
                                     for (i, (page, _)) in detail.iter().enumerate() {
                                         ffi::day_qt_set_visible(page.0, (i == last) as _);
                                     }
-                                    if !state.split {
-                                        state.titles.push(title.clone());
-                                    }
+                                    state.titles.push(title.clone());
                                 }
                                 NavPatch::Popped => {
                                     let n = detail.len();
@@ -1397,7 +1479,7 @@ impl Toolkit for Qt {
                                     if n >= 2 {
                                         ffi::day_qt_set_visible(detail[n - 2].0.0, 1);
                                     }
-                                    if !state.split && state.titles.len() > 1 {
+                                    if state.titles.len() > 1 {
                                         state.titles.pop();
                                     }
                                 }
@@ -1409,6 +1491,8 @@ impl Toolkit for Qt {
                                 // Custom back header → always NavBack{already_popped:false};
                                 // no native auto-pop to suppress (docs/navigation.md).
                                 NavPatch::GuardTop(_) => {}
+                                // Handled before this borrow (it re-parents widgets).
+                                NavPatch::Presentation(_) => {}
                             }
                         });
                         // Header visibility follows the depth AFTER the pop completes (the
@@ -1615,7 +1699,8 @@ impl Toolkit for Qt {
             tabs_sync(parent.0);
             return;
         }
-        // Nav host: index 0 = sidebar page, the rest are detail (stack) pages.
+        // Nav host: pages land by their PANE, not their position (docs/size-classes.md).
+        let sidebar = is_sidebar_page(child.0);
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&(parent.0 as usize)) else {
@@ -1624,7 +1709,10 @@ impl Toolkit for Qt {
             let id = NAV_PAGE_IDS
                 .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
                 .unwrap_or(NodeId(0));
-            let pane = if state.split && index == 0 {
+            if sidebar {
+                state.sidebar_page = Some(*child);
+            }
+            let pane = if state.split && sidebar {
                 state.sidebar_pane
             } else {
                 state.detail_pane
@@ -1641,9 +1729,13 @@ impl Toolkit for Qt {
     }
 
     fn remove(&mut self, parent: &QtHandle, child: &QtHandle) {
+        PAGE_PANE.with(|m| m.borrow_mut().remove(&(child.0 as usize)));
         NAV_STATE.with(|m| {
             if let Some(state) = m.borrow_mut().get_mut(&(parent.0 as usize)) {
                 state.pages.retain(|(p, _)| p.0 != child.0);
+                if state.sidebar_page.map(|p| p.0) == Some(child.0) {
+                    state.sidebar_page = None;
+                }
             }
         });
         // Data-driven tabs: drop the page's tab (removeTab keeps the widget; Day disposes it).

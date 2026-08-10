@@ -267,6 +267,9 @@ pub mod bridge {
         /// Inline search on a `.searchable()` navigation surface (docs/search.md): the field's
         /// new text, against the nav host's node.
         SearchChanged = 23,
+        /// The toolkit's own adaptive nav container changed presentation and is reporting it
+        /// (docs/size-classes.md). `num` = 1.0 for split, 0.0 for stacked.
+        NavPresentation = 24,
     }
 
     impl BridgeKind {
@@ -365,6 +368,18 @@ pub enum Event {
     NavBack {
         already_popped: bool,
     },
+    /// A nav host's own adaptive container changed presentation, and Day is being told about it
+    /// after the fact (docs/size-classes.md).
+    ///
+    /// The counterpart to [`props::NavPatch::Presentation`], for the toolkits that answer
+    /// `Cap::NavRepresent = Emulated`: `UISplitViewController` collapsing as a Pro Max iPhone
+    /// rotates into portrait, `SlidingPaneLayout` deciding at measure time that two panes no
+    /// longer fit. Day did not ask for it and must not fight it — the pieces layer only
+    /// reconciles what follows, which is the selection rule (a split presentation cannot draw an
+    /// empty detail pane, so expanding with nothing selected picks the first item).
+    ///
+    /// Emitted on the NAV host node, and only when the presentation actually changed.
+    NavPresentationChanged(props::NavPresentation),
     Key(KeyEvent),
     Pointer(PointerEvent),
     WindowResized(Size),
@@ -890,6 +905,87 @@ pub enum AppBadge {
     Dot,
 }
 
+/// How wide a window is, in coarse buckets (docs/size-classes.md).
+///
+/// The breakpoints are Android's window size classes, in density-independent points, and they are
+/// used verbatim on every backend rather than per-platform. One table means one answer: a 700pt
+/// window is [`WidthClass::Medium`] on a Mac, in a browser, and on a tablet, so an app that lays
+/// out from the class gets the same layout at the same size everywhere. Apple publishes only two
+/// buckets (compact/regular); those map onto this table rather than replacing it, with
+/// [`WidthClass::Compact`] the compact one and everything above it regular.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum WidthClass {
+    /// `< 600dp` — a phone in portrait. One pane at a time.
+    #[default]
+    Compact,
+    /// `600–839dp` — a tablet in portrait, a narrow desktop window.
+    Medium,
+    /// `840–1199dp` — a tablet in landscape, a typical desktop window.
+    Expanded,
+    /// `1200–1599dp` — a large desktop window.
+    Large,
+    /// `≥ 1600dp` — a maximized window on a big display.
+    ExtraLarge,
+}
+
+/// How tall a window is (docs/size-classes.md). Consulted far less than [`WidthClass`]: it is
+/// what tells a phone in LANDSCAPE — wide enough for two panes, too short for a tall list — that
+/// it should not grow vertical chrome.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum HeightClass {
+    /// `< 480dp` — a phone in landscape.
+    #[default]
+    Compact,
+    /// `480–899dp` — a phone in portrait, a tablet in landscape.
+    Medium,
+    /// `≥ 900dp` — a tablet in portrait, most desktop windows.
+    Expanded,
+}
+
+/// A window's size class (docs/size-classes.md), reported by the backend and read by apps
+/// through `day::size_class()`.
+///
+/// PER-WINDOW, not per-app: two windows of one process can sit in different classes at the same
+/// time (a narrow and a wide window side by side, iPadOS Stage Manager, Android split-screen), and
+/// an app that keyed off a single global would lay the second window out for the first one's size.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SizeClass {
+    pub width: WidthClass,
+    pub height: HeightClass,
+}
+
+impl SizeClass {
+    /// The `Compact`/`Medium` width boundary in dp — the narrowest window where a second
+    /// pane starts to fit. Backends that hand an adaptive container its pane widths derive
+    /// them from this (Android's list + minimum-detail widths sum to it), so the platform's
+    /// measure-time decision and this table agree by construction (docs/size-classes.md).
+    pub const SPLIT_MIN_WIDTH: f64 = 600.0;
+
+    /// Bucket a window's size in points. The one place the breakpoint numbers appear.
+    pub fn from_size(width: f64, height: f64) -> Self {
+        SizeClass {
+            width: match width {
+                w if w >= 1600.0 => WidthClass::ExtraLarge,
+                w if w >= 1200.0 => WidthClass::Large,
+                w if w >= 840.0 => WidthClass::Expanded,
+                w if w >= Self::SPLIT_MIN_WIDTH => WidthClass::Medium,
+                _ => WidthClass::Compact,
+            },
+            height: match height {
+                h if h >= 900.0 => HeightClass::Expanded,
+                h if h >= 480.0 => HeightClass::Medium,
+                _ => HeightClass::Compact,
+            },
+        }
+    }
+
+    /// Whether a two-pane presentation fits. The rule behind an automatic
+    /// [`props::NavPresentation`]: anything wider than compact gets both panes.
+    pub fn prefers_split(self) -> bool {
+        self.width > WidthClass::Compact
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cap {
     ListRecycling,
@@ -901,9 +997,29 @@ pub enum Cap {
     Lottie,
     NativeSymbols,
     Snapshot,
-    /// The toolkit presents `nav()` as sidebar+detail split panes (desktop). Mobile
-    /// stacks answer `Unsupported` and get push/pop presentation instead.
+    /// The toolkit CAN present `nav()` as sidebar+detail split panes — a statement about the
+    /// toolkit, not about the window it is currently drawing. Whether a given host is split right
+    /// now follows from its [`SizeClass`]: the pieces layer resolves an automatic
+    /// [`props::NavPresentation`] against both, and re-resolves on every class change. A backend
+    /// with no split container answers `Unsupported` and stays stacked at every size.
     NavSplit,
+    /// How a navigation host's presentation follows the window (docs/size-classes.md). All three
+    /// answers mean something different here, and the difference is WHO DECIDES:
+    ///
+    /// - `Native` — **Day tells the toolkit.** The pieces layer resolves the presentation from
+    ///   the [`SizeClass`], re-resolves on every change, and sends
+    ///   [`props::NavPatch::Presentation`]; the toolkit rebuilds its chrome and re-homes the
+    ///   pages it already has. The desktops and web-dom.
+    /// - `Emulated` — **the toolkit tells Day.** Its own adaptive container owns the decision
+    ///   (`UISplitViewController` collapsing as a Pro Max iPhone rotates, `SlidingPaneLayout`
+    ///   measuring whether both panes fit), so Day must NOT push a presentation into it — that
+    ///   would be a second source of truth racing the platform's own animation. The toolkit
+    ///   reports what it did with [`Event::NavPresentationChanged`] and Day reconciles.
+    /// - `Unsupported` — nobody re-presents. The presentation is resolved once, from
+    ///   [`Cap::NavSplit`] alone, and the window's size never enters into it. A toolkit that
+    ///   cannot change presentation must not have it decided by something that can, or a window
+    ///   launched narrow would be stuck stacked with no way back.
+    NavRepresent,
     /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
     /// needn't repeat it in its own content. `Native` on XAML (the NavigationView header),
     /// UIKit (`UINavigationBar`), Android (`MaterialToolbar`), and ArkUI (`NavDestination`
@@ -1837,12 +1953,37 @@ pub mod props {
         pub icon: Option<String>,
     }
 
-    /// Navigation host (docs/navigation.md). `split` = sidebar+detail presentation
-    /// (chosen by the pieces layer from `Cap::NavSplit`); false = stack presentation.
+    /// How a navigation host lays its panes out (docs/navigation.md).
+    ///
+    /// This is the RESOLVED presentation — what the toolkit must draw right now. The app asks for
+    /// one through `Selector::presentation`, where leaving it unset means "automatic": the pieces
+    /// layer resolves it from the window's [`SizeClass`] and the toolkit's `Cap::NavSplit`, and
+    /// re-resolves it whenever the class changes. There is deliberately no `Auto` variant here —
+    /// a backend can only ever draw a concrete one, so the undecided state stays on the app's side
+    /// of the boundary where it can still be decided.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum NavPresentation {
+        /// Sidebar beside detail, both visible (`NSSplitViewController`, `AdwOverlaySplitView`,
+        /// a `NavigationView`). The sidebar pane gets its own container.
+        Split,
+        /// One page at a time, back-navigable. The sidebar pane becomes the stack's root.
+        #[default]
+        Stack,
+    }
+
+    impl NavPresentation {
+        /// `true` for [`NavPresentation::Split`] — the shape most backend code wants.
+        pub fn is_split(self) -> bool {
+            self == NavPresentation::Split
+        }
+    }
+
+    /// Navigation host (docs/navigation.md).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NavProps {
         pub title: String,
-        pub split: bool,
+        /// The presentation to draw now; re-presented in place by [`NavPatch::Presentation`].
+        pub presentation: NavPresentation,
         /// An optional trailing bar-button command for the mobile nav bar (see [`NavBarAction`]);
         /// `None` on desktop, where the toolbar carries commands instead.
         pub bar_action: Option<NavBarAction>,
@@ -1901,8 +2042,6 @@ pub mod props {
         Text(String),
         Scope(usize),
         Suggestions(Vec<String>),
-        /// Activate or dismiss the field (`day::dismiss_search`).
-        Active(bool),
     }
     /// Applied to the NAV HOST after a page child is attached / before it is removed;
     /// the toolkit animates its native presentation accordingly.
@@ -1924,13 +2063,40 @@ pub mod props {
         /// this is a no-op; iOS disables the swipe, Android holds its callback, GTK sets the
         /// page `can-pop=false`, ArkUI consumes `onBackPressed`.
         GuardTop(bool),
+        /// Re-present the host: the window's size class crossed a breakpoint, or the app wrote a
+        /// new `presentation`. The page children do NOT change — the toolkit rebuilds its own
+        /// chrome and RE-HOMES the pages it already has, each one landing by its
+        /// [`NavPageProps::pane`]. Rebuilding them instead would drop scroll offsets, field
+        /// focus, and every native animation in flight, which is the whole reason this is a
+        /// patch and not a rebuild.
+        ///
+        /// Backends with no split container ignore it and stay stacked.
+        Presentation(NavPresentation),
     }
 
-    /// One destination's native container. `sidebar` marks the split-mode sidebar pane.
+    /// Which pane of a navigation host a page belongs to (docs/navigation.md).
+    ///
+    /// A page's pane is a fact about the MODEL, not about how the host currently draws it: a
+    /// selector's list page is [`Pane::Sidebar`] whether the toolkit is showing a sidebar beside
+    /// a detail or stacking the two. What the presentation decides is where each pane lands —
+    /// its own splitter pane in [`NavPresentation::Split`], the root of the stack in
+    /// [`NavPresentation::Stack`]. Keeping the two separate is what lets a host RE-PRESENT on a
+    /// size-class change (`NavPatch::Presentation`) by re-homing the pages it already has,
+    /// instead of tearing the tree down and rebuilding it.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum Pane {
+        /// The list / master pane of a selector. At most one page per host.
+        Sidebar,
+        /// A destination page. Every page of a `stack` presentation is one of these.
+        #[default]
+        Detail,
+    }
+
+    /// One destination's native container.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NavPageProps {
         pub title: String,
-        pub sidebar: bool,
+        pub pane: Pane,
     }
 
     /// A fullscreen cover's content container (docs/cover.md). Realized detached and hidden;

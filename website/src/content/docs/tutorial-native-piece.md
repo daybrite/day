@@ -27,6 +27,7 @@ We will build one throughout: a **native search field** bound two-way to a `Sign
 already exists in the tree as [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
 so you can read the finished crate alongside this tutorial. Every snippet below is lifted from it.
 
+> [!QUESTION] Do you need a native piece?
 > If your control can instead be *assembled* from existing Pieces (an HStack of a label and a
 > stepper, a card built from a `column` and a `divider`), you want the much lighter
 > [composite-piece tutorial](/docs/tutorial-composite-piece) instead. Reach for a native piece only when

@@ -30,6 +30,10 @@ them.
 | `harmony-arkui` | `.hap` | hvigor release build, signed with your release material via `hap-sign-tool` (or the public dev certificate without it) |
 | `web-dom` | — | there is no pack step: `day build -p web-dom` writes a self-contained `dist/` (host page, shim, stylesheet, `.wasm`, images, fonts) that you deploy to any static host as-is |
 
+`macos-gtk`, `macos-qt`, `windows-gtk`, and `windows-qt` have no `day pack` step. Bundling GTK or
+Qt into a redistributable macOS or Windows app is deferred work, which is part of why those four
+sit at [Tier 4](/docs/platforms#support-tiers).
+
 `--formats` narrows the set (`day pack -p android-mdc --formats apk`); `--no-sign` and
 `--no-notarize` skip stages; `--no-wait` submits notarization asynchronously (poll with
 `day sign --notarize-status <id>`). Artifact names follow one pattern,

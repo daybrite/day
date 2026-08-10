@@ -67,23 +67,25 @@ A *target* is an `(OS, toolkit)` pair. One binary is compiled per target, contai
 toolkit's backend. The AppKit build has no GTK code in it, and there's no runtime abstraction
 layer to pay for.
 
-| Target | OS | Toolkit |
-|---|---|---|
-| `macos-appkit` | macOS | AppKit |
-| `ios-uikit` | iOS | UIKit |
-| `android-mdc` | Android | Material Components / android.view |
-| `linux-gtk` | Linux | GTK 4 · libadwaita |
-| `linux-qt` | Linux | Qt 6 Widgets |
-| `windows-xaml` | Windows | XAML (XAML Islands) |
-| `harmony-arkui` | OpenHarmony / HarmonyOS | ArkUI |
-| `web-dom` | Web (any modern browser) | DOM — wasm32 + semantic HTML |
-| `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 |
-| `windows-gtk`, `windows-qt` | Windows | GTK 4, Qt 6 |
+| Target | OS | Toolkit | Tier |
+|---|---|---|---|
+| `macos-appkit` | macOS | AppKit | [Tier 1](/docs/platforms#support-tiers) |
+| `ios-uikit` | iOS | UIKit | [Tier 1](/docs/platforms#support-tiers) |
+| `android-mdc` | Android | Material Components / android.view | [Tier 1](/docs/platforms#support-tiers) |
+| `linux-gtk` | Linux | GTK 4 · libadwaita | [Tier 2](/docs/platforms#support-tiers) |
+| `linux-qt` | Linux | Qt 6 Widgets | [Tier 2](/docs/platforms#support-tiers) |
+| `windows-xaml` | Windows | XAML (XAML Islands) | [Tier 2](/docs/platforms#support-tiers) |
+| `harmony-arkui` | OpenHarmony / HarmonyOS | ArkUI | [Tier 3](/docs/platforms#support-tiers) |
+| `web-dom` | Web (any modern browser) | DOM — wasm32 + semantic HTML | [Tier 3](/docs/platforms#support-tiers) |
+| `macos-gtk`, `macos-qt` | macOS | GTK 4, Qt 6 | [Tier 4](/docs/platforms#support-tiers) |
+| `windows-gtk`, `windows-qt` | Windows | GTK 4, Qt 6 | [Tier 4](/docs/platforms#support-tiers) |
 
 The last two rows exist because GTK and Qt are themselves portable, useful for development
 (`macos-appkit`, `macos-gtk`, and `macos-qt` run side by side on one Mac) and for teams that
-prefer one toolkit across Linux and Windows. Maturity varies by target; [Platform support](/docs/platforms) says exactly
-where each one stands rather than implying they're all equal.
+prefer one toolkit across Linux and Windows. Maturity varies by target, and the tier in the last
+column says how much testing and maintenance each one gets: Tier 1 is fully supported and
+thoroughly tested, Tier 4 exists for compatibility testing. [Support tiers](/docs/platforms#support-tiers)
+defines all four, and [Platform support](/docs/platforms) has the per-target detail.
 
 ## What it's like day to day
 

@@ -153,6 +153,13 @@ for (const d of docs) {
   .doc-body p, .doc-body li { color: var(--muted); }
   .doc-body strong { color: var(--text); }
   .doc-body a { text-decoration: underline; text-underline-offset: 2px; text-decoration-color: rgba(106,164,255,0.4); }
+  /* A tier badge is a pill (global.css), not prose — the docs' link underline would cut it.
+     Same for an admonition's permalink, which is a control rather than a reference. */
+  .doc-body a.tier-badge,
+  .doc-body a.admonition-anchor { text-decoration: none; }
+  /* Admonition bodies carry prose, so they inherit the doc-body rhythm; only the box's own
+     first/last child margins are collapsed (global.css). */
+  .doc-body .admonition-body > p:only-child { margin: 0; }
   .doc-body ul, .doc-body ol { padding-left: 22px; }
   .doc-body li { margin: 6px 0; }
   .doc-body pre {

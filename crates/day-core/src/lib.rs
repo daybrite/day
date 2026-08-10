@@ -5,6 +5,7 @@
 //! (DESIGN.md §5, §7). Build-once: pieces are constructed exactly once; all dynamism flows
 //! through reactive bindings (day-reactive) writing to the thread-local tree.
 
+mod ambient;
 mod anim;
 mod build;
 pub mod frame;
@@ -19,6 +20,11 @@ pub mod toolbar;
 mod tree;
 pub mod windows;
 
+pub use ambient::{
+    reset_ambient, safe_area, set_safe_area, set_size_class, set_window_safe_area,
+    set_window_size_class, size_class, window_safe_area, window_size_class,
+    window_size_class_untracked,
+};
 pub use anim::{current_anim, with_animation};
 pub use build::*;
 pub use frame::{
@@ -66,49 +72,6 @@ pub fn layout_direction() -> day_geometry::LayoutDirection {
         d.set(Some(dir));
         dir
     })
-}
-
-thread_local! {
-    /// The window's safe-area insets (points) — see [`safe_area`]. ROOT-scoped: backends write
-    /// it from native inset callbacks that can fire while transient scopes are current.
-    static SAFE_AREA: std::cell::OnceCell<day_reactive::Signal<day_geometry::Insets>> =
-        const { std::cell::OnceCell::new() };
-}
-
-fn safe_area_signal() -> day_reactive::Signal<day_geometry::Insets> {
-    SAFE_AREA.with(|c| {
-        *c.get_or_init(|| {
-            // Seeded from the launch environment so a page built during startup — before the
-            // backend's first live report lands — already sees the right top inset (the same
-            // lazy-env pattern as `layout_direction`/DAY_LOCALE). Points, not px.
-            let initial = std::env::var("DAY_SAFE_AREA_TOP")
-                .ok()
-                .and_then(|v| v.parse::<f64>().ok())
-                .map(|top| day_geometry::Insets {
-                    top,
-                    ..Default::default()
-                })
-                .unwrap_or_default();
-            day_reactive::Scope::root().enter(|| day_reactive::Signal::global(initial))
-        })
-    })
-}
-
-/// The window's safe-area insets, in points. Zero on every backend that clamps Day's root to
-/// the safe area natively (the default everywhere); nonzero only where a backend runs the root
-/// edge-to-edge — today day-android's opt-in immersive mode (docs/layout.md, the android
-/// platform page). Compose it yourself where a background should run under the system bars:
-/// paint the background unpadded, pad the content by these insets. The read is tracked, but
-/// layout attributes like `.padding` capture the value at build time — a mid-run inset change
-/// (rotation) does not re-pad already-built pages.
-pub fn safe_area() -> day_geometry::Insets {
-    safe_area_signal().get()
-}
-
-/// Backend-facing: report the window's safe-area insets (points). Call from the native inset
-/// pass whenever the value changes; apps observe it through [`safe_area`].
-pub fn set_safe_area(insets: day_geometry::Insets) {
-    safe_area_signal().set(insets);
 }
 
 /// Override the layout direction (normally from `install_locales`). Must be called before the
@@ -368,6 +331,15 @@ pub fn launch_with<P: Platform>(
             let root = tree.root();
             tree::install_tree(Box::new(tree));
 
+            // Seed the window's size class from the size the backend just reported
+            // (docs/size-classes.md), BEFORE the root piece builds below — a nav host resolving
+            // an automatic presentation reads it during its own build. Backends push later
+            // changes themselves; one that never does simply keeps this launch value.
+            ambient::set_window_size_class(
+                root,
+                day_spec::SizeClass::from_size(size.width, size.height),
+            );
+
             // The backend is now known: warn about any lifecycle handlers already registered for
             // phases this platform doesn't deliver (docs/lifecycle.md).
             lifecycle::warn_unsupported_registrations();
@@ -384,6 +356,14 @@ pub fn launch_with<P: Platform>(
                         day_spec::Event::WindowResized(size) => {
                             let s = *size;
                             with_tree(|t| t.set_window_size(s));
+                            // Re-bucket the window (docs/size-classes.md). Derived HERE, from the
+                            // geometry every backend already reports, so there is one breakpoint
+                            // table rather than one per toolkit — and only a class CHANGE
+                            // notifies, so dragging an edge within a bucket costs nothing.
+                            ambient::set_window_size_class(
+                                rn,
+                                day_spec::SizeClass::from_size(s.width, s.height),
+                            );
                         }
                         day_spec::Event::RouteRequested(route) => handle_route_request(route),
                         _ => {}

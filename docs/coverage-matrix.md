@@ -67,7 +67,8 @@ An app branches on this rather than on the target name.
 | `Lottie` | – | – | – | – | – | – | – | – |
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | – | N | N | N | – | – | – |
-| `NavSplit` | N | – | N | N | N | – | – | ? |
+| `NavSplit` | N | N | N | N | N | N | – | N |
+| `NavRepresent` | N | E | – | N | – | E | – | N |
 | `NavHeader` | – | N | – | – | N | N | N | – |
 | `Appearance` | N | N | N | – | – | – | – | N |
 | `Dialogs` | N | N | N | N | N | N | – | N |

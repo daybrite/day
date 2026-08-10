@@ -24,7 +24,7 @@ compile_error!("day: enable exactly one backend feature");
 
 pub use day_core::{
     AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
-    set_appearance, sleep, task,
+    set_appearance, size_class, sleep, task,
 };
 pub use day_core::{AssetName, FontFamily, ImageName, Resource, VectorName, resource};
 pub use day_spec::AppBadge;
@@ -185,7 +185,12 @@ pub mod prelude {
     // Safe-area insets (docs/layout.md): zero everywhere except edge-to-edge backends — pad
     // content by it where a background runs under the system bars.
     pub use day_core::safe_area;
-    pub use day_spec::{Cap, Support};
+    // The window's size class (docs/size-classes.md): what a `nav()` host resolves its own
+    // presentation from, and what an app lays out from when it wants to make the same call —
+    // two columns on a wide window, one on a narrow one. `None` on a backend that reports no
+    // geometry. Tracked, so a piece reading it rebuilds when the window crosses a breakpoint.
+    pub use day_core::size_class;
+    pub use day_spec::{Cap, HeightClass, SizeClass, Support, WidthClass};
     // Layout direction (docs/localization): `is_rtl()` lets a piece mirror its own drawing under a
     // right-to-left locale — the layout engine mirrors placement, but a `canvas` owns its coordinates.
     pub use day_core::{is_rtl, layout_direction};

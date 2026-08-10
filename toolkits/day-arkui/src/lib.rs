@@ -1157,6 +1157,12 @@ mod imp {
                             NavPatch::GuardTop(on) => unsafe {
                                 ffi::day_ark_nav_set_guard(*on as i32);
                             },
+                            // Unreachable: this backend answers `Cap::NavRepresent =
+                            // Unsupported`, so the pieces layer never sends it. The plan for
+                            // HarmonyOS is `Navigation.mode(Auto)`, which switches at its own
+                            // 520vp threshold and is OBSERVED through `onNavigationModeChange`
+                            // rather than told (docs/size-classes.md).
+                            NavPatch::Presentation(_) => {}
                         }
                     }
                 }

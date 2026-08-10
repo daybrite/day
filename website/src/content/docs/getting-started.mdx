@@ -157,8 +157,9 @@ day launch -p macos-appkit -p ios-uikit     # terminal equivalent
 `windows-xaml` is the target you ship on Windows. But GTK and Qt are themselves portable, so the
 same machine can also run `windows-qt` and `windows-gtk` — useful for checking a change against
 three desktop toolkits before it reaches CI, and for teams standardizing on one toolkit across
-Linux and Windows. Both are development combos: `day pack` refuses them (bundling a toolkit into a
-Windows installer is deferred), and `windows-gtk` has no accessibility tree.
+Linux and Windows. Both are development combos ([Tier 4](/docs/platforms#support-tiers)):
+`day pack` refuses them (bundling a toolkit into a Windows installer is deferred), and
+`windows-gtk` has no accessibility tree.
 
 Each needs two things: the toolkit's development libraries from [MSYS2](https://www.msys2.org),
 and **a second Rust toolchain whose ABI matches them**. That second half is the step that trips

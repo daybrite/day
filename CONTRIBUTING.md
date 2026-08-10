@@ -32,6 +32,27 @@ Once a discussion lands on "yes, send a patch":
 4. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 
+## Platform support tiers
+
+Every `(OS, toolkit)` target sits in a support tier, from Tier 1 (supported: thoroughly tested,
+highest attention to quality) down to Tier 4 (development: compatibility combinations no app
+ships on). The [Platform support](https://daybrite.dev/docs/platforms#support-tiers) page defines
+all four and says where each target stands today.
+
+A tier records the maintenance a target has, not a verdict on the platform, so a target moves up
+when people show up to keep it there. Taking a platform up a tier means taking on the work that
+tier promises:
+
+- an owner for the backend who reviews the patches that touch it;
+- the showcase walkthrough run on real hardware before a release, not only in CI;
+- triage for that platform's bug reports, with reproductions the rest of us can run;
+- its toolchain kept green in CI as SDKs, signing, and packaging move.
+
+If you or your team can commit to that, open a
+[Discussion](https://github.com/daybrite/day/discussions) naming the target and what you can
+cover. Tiers move down the same way: a target whose maintainer moves on, or whose CI leg stays
+red, drops until someone picks it up.
+
 ## Contribution terms
 
 By submitting a contribution to this repository — a pull request, a patch, or any other

@@ -79,6 +79,21 @@ public class DayNavHost extends LinearLayout {
     /** Suppresses the echo while day writes the app's query back into the field. */
     boolean searchSyncing;
     final FrameLayout pages;
+    /// The adaptive host (docs/size-classes.md). SlidingPaneLayout decides at MEASURE time
+    /// whether both panes fit: side by side on a tablet, one-at-a-time on a phone, with no size
+    /// class computed by Day. `isSlideable` is the answer, and Day OBSERVES it.
+    ///
+    /// NULL for a host whose presentation is a permanent Stack (a nested `stack()` under a
+    /// split host): that host is a stack at every size, and nesting a SlidingPaneLayout inside
+    /// a pane would re-run the whole tiling decision at pane width.
+    final androidx.slidingpanelayout.widget.SlidingPaneLayout split;
+    /// The list pane — the Pane::Sidebar page's permanent fragment container. Permanent because a
+    /// Fragment cannot change containers without its view being destroyed and rebuilt, which is
+    /// exactly what a re-presentation must not do. NULL alongside `split`.
+    final FrameLayout listPane;
+    private final int listContainerId;
+    /// The last presentation reported to Rust, so only real changes are emitted.
+    private boolean lastSlideable;
     final long hostNode;
     String rootTitle; // not final: NavPatch::Title retitles the root live
     private final FragmentManager fm;
@@ -102,7 +117,8 @@ public class DayNavHost extends LinearLayout {
     /** Pops we initiated via popBackStack — the listener must not re-report them. */
     private int pendingPops;
 
-    public DayNavHost(Context ctx, long hostNode, String title) {
+    public DayNavHost(Context ctx, long hostNode, String title, boolean adaptive,
+            float tileMinDp) {
         super(ctx);
         setOrientation(VERTICAL);
         this.hostNode = hostNode;
@@ -130,6 +146,55 @@ public class DayNavHost extends LinearLayout {
         pages = new FrameLayout(ctx);
         containerId = View.generateViewId();
         pages.setId(containerId);
+        listContainerId = View.generateViewId();
+        View content;
+        if (adaptive) {
+            listPane = new FrameLayout(ctx);
+            listPane.setId(listContainerId);
+            split = new androidx.slidingpanelayout.widget.SlidingPaneLayout(ctx);
+            // A fixed-width list beside a weighted detail. SlidingPaneLayout tiles them when
+            // both minimum widths fit and overlaps them when they do not — the whole adaptive
+            // decision, made by the platform at measure time (docs/size-classes.md).
+            float density = ctx.getResources().getDisplayMetrics().density;
+            androidx.slidingpanelayout.widget.SlidingPaneLayout.LayoutParams lp =
+                    new androidx.slidingpanelayout.widget.SlidingPaneLayout.LayoutParams(
+                            Math.round(NAV_SIDEBAR_DP * density),
+                            ViewGroup.LayoutParams.MATCH_PARENT);
+            split.addView(listPane, lp);
+            // The detail pane carries a REAL width, not `0dp + weight`. SlidingPaneLayout
+            // decides whether it can tile by measuring children at their LayoutParams width
+            // BEFORE weights are distributed, so a zero-width detail always "fits" — a portrait
+            // handset tiled a 280dp list beside a sliver of detail instead of stacking.
+            // (`setMinimumWidth` does not help either; the layout reads the params, not the
+            // view's minimum.) The weight still does its job once tiling is chosen, expanding
+            // the detail to fill the rest.
+            //
+            // The two widths sum to `tileMinDp` — Day's own Compact/Medium boundary, passed in
+            // from the day-spec breakpoint table — so the platform's measure-time answer and
+            // Day's table agree on where a phone stops being a phone by construction
+            // (docs/size-classes.md).
+            androidx.slidingpanelayout.widget.SlidingPaneLayout.LayoutParams dp =
+                    new androidx.slidingpanelayout.widget.SlidingPaneLayout.LayoutParams(
+                            Math.round((tileMinDp - NAV_SIDEBAR_DP) * density),
+                            ViewGroup.LayoutParams.MATCH_PARENT);
+            dp.weight = 1f;
+            split.addView(pages, dp);
+            // Report every change of the platform's own answer. Layout is when it is decided,
+            // so this is where it is read.
+            split.addOnLayoutChangeListener(new OnLayoutChangeListener() {
+                @Override public void onLayoutChange(View v, int l, int t, int r, int b,
+                        int ol, int ot, int or, int ob) {
+                    syncPresentation();
+                }
+            });
+            content = split;
+        } else {
+            // A permanent stack: pages only, no list pane, no tiling decision to observe.
+            listPane = null;
+            split = null;
+            content = pages;
+        }
+        lastSlideable = true;
 
         if (DayActivity.edgeToEdge) {
             // Immersive (docs/layout.md): the page container fills the host and the app bar
@@ -146,7 +211,7 @@ public class DayNavHost extends LinearLayout {
                 }
             });
             FrameLayout overlay = new FrameLayout(ctx);
-            overlay.addView(pages, new FrameLayout.LayoutParams(
+            overlay.addView(content, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             overlay.addView(appBar, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -154,7 +219,7 @@ public class DayNavHost extends LinearLayout {
         } else {
             addView(appBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT));
-            addView(pages, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            addView(content, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         }
 
         fm = ((FragmentActivity) ctx).getSupportFragmentManager();
@@ -202,9 +267,17 @@ public class DayNavHost extends LinearLayout {
      * `resync`, the one place the stack depth is reconciled, so every route in — push, pop,
      * predictive-back — obeys the same rule.
      */
+    /** Stacked (one pane at a time)? A plain stack host always is; an adaptive host asks its
+     *  SlidingPaneLayout, whose measure pass owns the answer (docs/size-classes.md). */
+    private boolean stacked() {
+        return split == null || split.isSlideable();
+    }
+
     private void syncSearchVisibility(int depth) {
         if (searchLayout != null) {
-            searchLayout.setVisibility(depth == 0 ? View.VISIBLE : View.GONE);
+            // Tiled, the list it filters never leaves the screen, so the field stays too.
+            boolean show = depth == 0 || !stacked();
+            searchLayout.setVisibility(show ? View.VISIBLE : View.GONE);
         }
     }
 
@@ -361,9 +434,35 @@ public class DayNavHost extends LinearLayout {
         });
     }
 
+    /** The list pane's width, dp (docs/size-classes.md). */
+    private static final float NAV_SIDEBAR_DP = 280f;
+
+    /**
+     * Report the platform's own presentation decision to Rust (docs/size-classes.md).
+     *
+     * `isSlideable` is SlidingPaneLayout's answer to "did both panes fit?", settled during
+     * measure. Day does not compute it and must not override it — it reconciles the model to what
+     * the platform already did, which for a selector means the split-with-nothing-selected rule.
+     * Only real changes are emitted; layout runs constantly.
+     */
+    private void syncPresentation() {
+        if (split == null) return; // a permanent stack has nothing to observe or report
+        boolean slideable = split.isSlideable();
+        if (slideable == lastSlideable) return;
+        lastSlideable = slideable;
+        // Chrome differs: a visible list needs no up-arrow to get back to it, and the inline
+        // search field filters a list that is now always on screen.
+        syncChrome();
+        syncSearchVisibility(depth());
+        // num 1.0 = split (both panes), 0.0 = stacked.
+        DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_PRESENTATION, slideable ? 0.0 : 1.0, null);
+    }
+
     private void syncChrome() {
         toolbar.setTitle(titles.isEmpty() ? rootTitle : titles.get(titles.size() - 1));
-        showUpArrow(!titles.isEmpty());
+        // Only a stacked presentation needs an up-arrow: when both panes are tiled the list is
+        // already on screen, so there is nowhere for "back" to go (docs/size-classes.md).
+        showUpArrow(!titles.isEmpty() && stacked());
         // Edge-to-edge mode: per-page chrome (docs/navigation.md). An immersive page keeps the
         // floating scrim bar over full-bleed content; the root and unmarked pages get a solid
         // colorPrimary bar, which also backs the status-bar area (the app bar carries the
@@ -398,8 +497,12 @@ public class DayNavHost extends LinearLayout {
         frags.add(f);
         pageHosts.put(page, this);
         if (frags.size() == 1) {
+            // The first page. Adaptive host: the Pane::Sidebar page, the list pane's permanent
+            // occupant in BOTH presentations. Plain stack host: its root page, which lives in
+            // the pages container — there is no list pane at all.
+            int container = split != null ? listContainerId : containerId;
             fm.beginTransaction().setReorderingAllowed(true)
-                    .add(containerId, f).commitNowAllowingStateLoss();
+                    .add(container, f).commitNowAllowingStateLoss();
         } else {
             page.setVisibility(View.GONE);
             pages.addView(page);
@@ -432,6 +535,9 @@ public class DayNavHost extends LinearLayout {
         // Execute NOW (commitNow can't take a back stack): the entry must be registered
         // before the next resync(), or the count mismatch reads as a phantom pop.
         fm.executePendingTransactions();
+        // Bring the detail forward. Tiled, this is a no-op — both panes are already visible.
+        // A plain stack host has no panes at all; its pages container is the only surface.
+        if (split != null) split.open();
         syncChrome();
     }
 
