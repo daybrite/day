@@ -91,10 +91,10 @@ thread_local! {
 }
 
 // Navigation host — always a native `NavigationView` (docs/navigation.md), in one of two modes
-// chosen by NavProps.split:
-//  • split=true  → the idiomatic Windows sidebar+header selector (as in Settings): MenuItems are the
+// chosen by NavProps.presentation:
+//  • Split       → the idiomatic Windows sidebar+header selector (as in Settings): MenuItems are the
 //    destinations, the Header names the current one, Content holds the detail page.
-//  • split=false → a push/pop stack: no menu, the back button appears once a page is pushed, and
+//  • Stack       → a push/pop stack: no menu, the back button appears once a page is pushed, and
 //    pages stack in the content region.
 // `menu_node` is the NAV_MENU node id whose SelectionChanged the pane synthesizes; `sidebar_page`
 // (day's logo/title piece) is the PaneHeader; detail pages live in `content_host` (nv.Content) kept
@@ -107,7 +107,7 @@ struct SplitNav {
     /// (page, node, title) — the title is attached by `NavPatch::Pushed`/`Title` so a pop can
     /// restore the PREVIOUS page's title into the NavigationView header (stack_sync).
     detail_pages: Vec<(*mut c_void, NodeId, String)>,
-    /// A push/pop stack (NavProps.split == false): no menu/sidebar, every page stacks in the
+    /// A push/pop stack (NavProps.presentation == Stack): no menu/sidebar, every page stacks in the
     /// content region, and the NavigationView back button appears once a page is pushed.
     is_stack: bool,
 }
@@ -1012,7 +1012,7 @@ impl Toolkit for Xaml {
                     let p = props.downcast_ref::<NavProps>().unwrap();
                     // Both presentations are a native NavigationView: a sidebar+header selector
                     // (split) or a push/pop stack with a back button (docs/navigation.md).
-                    let is_stack = !p.split;
+                    let is_stack = !p.presentation.is_split();
                     let mut content: *mut c_void = std::ptr::null_mut();
                     let nav = ffi::day_xaml_nav_new(
                         id.0,
