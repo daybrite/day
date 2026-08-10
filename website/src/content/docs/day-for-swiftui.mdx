@@ -1,5 +1,6 @@
 ---
 title: Day for SwiftUI developers
+navTitle: SwiftUI
 description: "A SwiftUI-to-Day translation guide: views to Pieces, @State to signals, the same layout protocol, Xcode to Cargo + Day.toml, and archive/export to day pack — with side-by-side code."
 order: 6
 section: Coming from
@@ -39,6 +40,7 @@ pages.
 | `List` / `ForEach(id:)` | `list` / `each` — the key function is required |
 | `NavigationSplitView` | `selector(…).style(SelectorStyle::Sidebar)` |
 | `NavigationStack(path:)` | `stack(path, root)` — same idea, a path signal |
+| `@Environment(\.horizontalSizeClass)` | `size_class()` — five width buckets, one table on every backend |
 | `.environment` / `@Environment` | `with_environment` / `environment::<T>()` |
 | `Task { }` + `@MainActor` | `day::task` — continuations land on the UI thread |
 | String Catalogs (`.xcstrings`) | Fluent `.ftl` + generated `res::str` functions |
@@ -210,6 +212,46 @@ phones, libadwaita's split view on GTK). On top of the signals sits a thin route
 `navigate("library/album-42")`, `current_route()`, and `DAY_DEEPLINK` cover programmatic
 navigation, state restoration, and deep links with one set of strings: the job
 `onOpenURL` and scene restoration do separately. See [Navigation](/docs/navigation).
+
+## Size classes
+
+The idea is Apple's, and Day keeps it — with a finer table and one number for every platform.
+`@Environment(\.horizontalSizeClass)` answers `.compact` or `.regular`; `day::size_class()`
+answers a `WidthClass` of `Compact`, `Medium`, `Expanded`, `Large`, or `ExtraLarge`, from
+[one breakpoint table](/docs/internal/size-classes) (Android's) applied on every backend. So a
+700pt window is `Medium` on a Mac, on a tablet, and in a browser.
+
+<Compare lhs="SwiftUI">
+
+```swift
+@Environment(\.horizontalSizeClass) private var sizeClass
+
+var body: some View {
+    if sizeClass == .regular {
+        NavigationSplitView { Sidebar() } detail: { Detail() }
+    } else {
+        NavigationStack { Sidebar() }
+    }
+}
+```
+
+```rust
+// A selector already does this: it re-presents on every breakpoint crossing
+// and re-homes the pages it built, so scroll offsets, focus, and the search
+// query survive the morph.
+selector(page)
+    .style(SelectorStyle::Sidebar)
+    .destination(|key| page_for(key))
+
+// Where a view wants to make the same call itself:
+let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
+```
+
+</Compare>
+
+Like SwiftUI's environment value, the read is tracked and per window: a piece that lays out from
+the class rebuilds when its own window crosses a breakpoint, and a second window in a different
+size gets its own answer.
 
 ## Modifiers, fonts, and the layout protocol
 
@@ -456,6 +498,11 @@ what Day's macOS toolkit speaks natively.
 | TestFlight / App Store upload | Organizer or Transporter | upload the `.ipa` with your usual tool — `day pack` stops at the artifact |
 | Android / Windows / Linux / HarmonyOS / web | — | `day pack -p android-mdc` / `-p windows-xaml` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` |
 | UI tests | XCUITest | [dayscript](/docs/dayscript) — one YAML script drives every platform |
+
+Maturity differs by target, and these docs say so rather than implying parity: every
+`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+[Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
 Signing works headless and in CI: identities and keys are `${ENV_VAR}` references in
 `Day.toml`, `day sign --check` reports readiness without printing secrets, and a missing

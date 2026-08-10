@@ -1,5 +1,6 @@
 ---
 title: Day for React Native developers
+navTitle: React Native
 description: "A React Native-to-Day translation guide: components to Pieces, hooks to signals, package.json to Cargo + Day.toml, and Metro/Gradle/Xcode to day build — with side-by-side code."
 order: 5
 section: Coming from
@@ -41,6 +42,7 @@ HarmonyOS, web) come from one repository.
 | Redux / Zustand / Jotai | signals in plain Rust — module statics, structs |
 | `<FlatList>` | `list` (recycling), `each` (keyed) |
 | React Navigation | `selector`, `stack`, and string routes |
+| `useWindowDimensions()` + your own breakpoints | `size_class()`, and a `selector` that re-presents itself |
 | `package.json` + Metro | `Cargo.toml` (package) + `Day.toml` (app manifest) |
 | `require('./logo.png')` | `image(res::images::logo)`, a generated constant |
 | i18next / react-intl | Fluent `.ftl` + generated `res::str` functions |
@@ -209,6 +211,46 @@ Deep links need no separate `linking` config: the same route strings serve navig
 `DAY_DEEPLINK` launch variable, and [dayscript](/docs/dayscript) test assertions. See
 [Navigation](/docs/navigation).
 
+## Adaptive layout
+
+React Native gives you `useWindowDimensions()` and leaves the breakpoints to you (or to a library
+like react-native-paper's adaptive components). Day buckets the window into
+[size classes](/docs/internal/size-classes) — Android's numbers, used verbatim on every backend —
+and a `selector` re-presents itself when the window crosses one, on a tablet, in split-screen, or
+in a resized desktop window.
+
+<Compare lhs="React Native">
+
+```tsx
+const { width } = useWindowDimensions();
+const wide = width >= 840;
+
+return (
+  <View style={{ flex: 1, flexDirection: wide ? 'row' : 'column' }}>
+    {wide && <Sidebar items={items} selected={page} onSelect={setPage} />}
+    <View style={{ flex: 1 }}>{renderPage(page)}</View>
+    {!wide && <BottomTabs items={items} selected={page} onSelect={setPage} />}
+  </View>
+);
+```
+
+```rust
+// One selector, both presentations. Day re-resolves on every breakpoint
+// crossing and re-homes the pages it already built, so scroll offsets and
+// focus survive the morph rather than being rebuilt.
+selector(page)
+    .style(SelectorStyle::Sidebar)
+    .destination(|key| page_for(key))
+
+// Where the app wants to make the same call itself:
+let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
+```
+
+</Compare>
+
+The class belongs to a window rather than the app, so an app showing two windows at different
+sizes gets a per-window answer instead of one global that is wrong for the smaller one.
+
 ## Styling and layout
 
 RN styles are flexbox via Yoga. Day also owns its layout engine, but with the
@@ -322,8 +364,8 @@ routing, and certificate stores apply, with no `fetch` polyfill in between.
   "name": "field-notes",
   "version": "1.2.0",
   "dependencies": {
-    "react": "19.1.0",
-    "react-native": "0.81.0",
+    "react": "19.2.0",
+    "react-native": "0.86.0",
     "@react-navigation/native": "^7.0.0",
     "react-i18next": "^15.0.0"
   }
@@ -463,9 +505,14 @@ included, and there's no eject: the hosts are already in your repository, alread
 | apply changes | Fast Refresh | `day relaunch --all-running` |
 | Android store build | Gradle `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab` |
 | iOS store build | Xcode archive / fastlane / EAS | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
-| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` |
+| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` + `.appimage` |
 | web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving real DOM elements |
 | environment check | `npx react-native doctor` | `day doctor` |
+
+Maturity differs by target, and these docs say so rather than implying parity: every
+`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+[Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
 You give up Fast Refresh and the npm ecosystem's size, and you write
 Rust instead of TypeScript. You ship one compiled binary per platform, with no bundled JS

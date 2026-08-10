@@ -12,8 +12,12 @@ imperative request→response model as [dialogs](./dialogs.md): an action opens 
 ```rust
 button(tr("open")).action(|| day::task(async move {
     if let Some(file) = open_file().filter("Text", &["txt", "md"]).await {
-        let text = file.read_to_string()?;   // FileUrl::read_to_string
-        editor.set(text);
+        // `day::task` takes a `Future<Output = ()>`, so handle the error here
+        // rather than reaching for `?`.
+        match file.read_to_string() {          // FileUrl::read_to_string
+            Ok(text) => editor.set(text),
+            Err(e) => status.set(format!("error: {e}")),
+        }
     }
 }));
 

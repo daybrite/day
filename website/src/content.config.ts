@@ -11,6 +11,11 @@ const docs = defineCollection({
   loader: glob({ pattern: '**/*.{md,mdx}', base: './src/content/docs' }),
   schema: z.object({
     title: z.string(),
+    // Sidebar label, when the page title is too long for a 232px column. The page itself, the
+    // browser tab, the docs index card and the prev/next pager all keep `title` — a sidebar row
+    // reading "Flutter" under a "Coming from" heading says everything "Day for Flutter
+    // developers" says, in a quarter of the width.
+    navTitle: z.string().optional(),
     description: z.string(),
     // Sidebar order (ascending). Frontmatter is the single source of truth for doc ordering.
     order: z.number().default(99),

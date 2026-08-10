@@ -1,5 +1,6 @@
 ---
 title: Day for Flutter developers
+navTitle: Flutter
 description: "A Flutter-to-Day translation guide: widgets to Pieces, setState to signals, pubspec to Cargo + Day.toml, and flutter build to day pack — with side-by-side code."
 order: 4
 section: Coming from
@@ -33,6 +34,7 @@ system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere i
 | `ValueNotifier` / Provider / Riverpod | `Signal` and `Memo`, built in |
 | `const` constructors, keys | not needed — the tree is built once |
 | `Navigator` / go_router | `selector`, `stack`, and string routes |
+| `MediaQuery.sizeOf` + your own breakpoints | `size_class()`, and a `selector` that re-presents itself |
 | `pubspec.yaml` | `Cargo.toml` (package) + `Day.toml` (app manifest) |
 | assets section in pubspec | the `resource/` directory, by convention |
 | ARB files + `intl` codegen | Fluent `.ftl` files + generated `res::str` functions |
@@ -235,6 +237,46 @@ writes: `DAY_DEEPLINK=library/album-42` on launch, `assert_route` in a
 [dayscript](/docs/dayscript) test. The [navigation guide](/docs/navigation) covers typed route
 enums that make the keys compile-checked.
 
+## Adaptive layout
+
+Flutter hands you the window size and leaves the decision to you: read `MediaQuery.sizeOf`, pick
+your own breakpoints, and swap `NavigationRail` for `NavigationBar` yourself. Day buckets the
+window into [size classes](/docs/internal/size-classes) — Android's numbers, used verbatim on
+every backend — and a `selector` re-presents itself when the window crosses one.
+
+<Compare lhs="Flutter">
+
+```dart
+final wide = MediaQuery.sizeOf(context).width >= 840;
+
+return Scaffold(
+  body: Row(children: [
+    if (wide) NavigationRail(destinations: dests, selectedIndex: index),
+    Expanded(child: page),
+  ]),
+  bottomNavigationBar:
+      wide ? null : NavigationBar(destinations: dests, selectedIndex: index),
+);
+```
+
+```rust
+// One selector, both presentations. Day re-resolves on every breakpoint
+// crossing and re-homes the pages it already built, so scroll offsets and
+// focus survive the morph rather than being rebuilt.
+selector(page)
+    .style(SelectorStyle::Sidebar)
+    .destination(|key| page_for(key))
+
+// Where the app wants to make the same call itself:
+let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
+```
+
+</Compare>
+
+The class belongs to a window, not the app, so a second window in a different size gets its own
+answer — Stage Manager, Android split-screen, or a desktop window someone is dragging narrower as
+they read.
+
 ## Styling: decoration vs. modifiers
 
 Day's modifier chain is closer to SwiftUI's than to Flutter's wrapper widgets, but the
@@ -325,13 +367,13 @@ name: field_notes
 version: 1.2.0+34
 
 environment:
-  sdk: ^3.5.0
+  sdk: ^3.12.0
 
 dependencies:
   flutter:
     sdk: flutter
   go_router: ^14.0.0
-  intl: ^0.19.0
+  intl: ^0.20.0
 
 flutter:
   uses-material-design: true
@@ -479,6 +521,11 @@ Desktop targets need no host project at all: the Cargo binary is the app. And th
 Flutter doesn't have: `harmony-arkui` for HarmonyOS, plus `web-dom`, which compiles the same
 crate to WebAssembly driving real DOM elements rather than a canvas.
 
+Maturity differs by target, and the docs say so rather than implying parity: each `(OS,
+toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from [Tier
+1](/docs/platforms#support-tiers) (thoroughly tested, shipping apps) down to [Tier
+4](/docs/platforms#support-tiers) (development combinations nobody ships).
+
 ## Building and shipping
 
 `flutter build` per platform maps to `day pack`, which builds release, signs with the
@@ -491,7 +538,7 @@ platform's own tools, and writes an installable artifact plus checksum to `build
 | Android store build | `flutter build appbundle` | `day pack -p android-mdc` → signed `.apk` + `.aab` |
 | iOS store build | `flutter build ipa` | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
 | macOS | `flutter build macos` (then sign/notarize yourself) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
-| Linux | `flutter build linux` (then package yourself) | `day pack -p linux-gtk` → single-file `.flatpak` |
+| Linux | `flutter build linux` (then package yourself) | `day pack -p linux-gtk` → single-file `.flatpak` + `.appimage` |
 | Windows | `flutter build windows` (then package yourself) | `day pack -p windows-xaml` → `.msix` + NSIS installer |
 | doctor | `flutter doctor` | `day doctor` |
 

@@ -1,0 +1,421 @@
+---
+title: Day and the other Rust UI frameworks
+navTitle: Other Rust frameworks
+description: "How Day compares with Tauri, Slint, Iced, and Leptos: what draws the pixels, what the state model is, and the same job written in both."
+order: 9
+section: Coming from
+---
+
+{/*
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+*/}
+
+import Compare from '../../components/Compare.astro';
+
+Rust's UI ecosystem is healthy, and almost all of it makes one of two bets Day doesn't: draw
+every pixel yourself (Iced, Slint, egui, Xilem), or ship a web stack and let the browser draw
+(Tauri, Leptos, Dioxus). Day takes the third road — every Piece becomes the platform's own
+widget, an `NSButton` or a `MaterialButton` or a `<button>` — which is why this page exists: if
+you have already picked one of the others, the differences are structural, not stylistic.
+
+This is the abbreviated version, one section per framework with the same job written both ways.
+The [other guides in this section](/docs/day-for-flutter) go deeper, and
+[Why Day](/docs/benefits) covers the tradeoff in general terms, including the cases where one of
+these is the better tool.
+
+## Where each one draws
+
+| | Version | What draws the pixels | Targets | State model |
+|---|---|---|---|---|
+| **Day** | — | the platform's own widgets | macOS, Windows, Linux, iOS, Android, HarmonyOS, web | fine-grained signals |
+| **Tauri** | 2.11 | a system webview (your HTML/CSS) | desktop + iOS/Android | whatever your JS framework does; Rust state behind IPC |
+| **Slint** | 1.17 | its own renderer (Skia, software, or OpenGL) | desktop, embedded, MCU, mobile, wasm | properties and callbacks declared in a DSL |
+| **Iced** | 0.14 | its own renderer (wgpu or tiny-skia) | desktop, wasm | the Elm architecture: message in, state out |
+| **Leptos** | 0.8 | the browser's DOM | web (client and server) | fine-grained signals |
+
+Two consequences run through everything below. A framework that draws its own pixels owns text
+input, scrolling physics, accessibility, and IME — and has to re-implement each of them per
+platform. A framework that ships a webview inherits all of that from the browser, at the cost of
+a boundary between your Rust and your UI. Day has neither the renderer nor the boundary, and pays
+for that with a smaller widget vocabulary and a look it doesn't control.
+
+## Tauri
+
+[Tauri](https://tauri.app) is the most-used Rust UI project by a wide margin, and the least like
+Day: your interface is a web app in the OS's webview (WKWebView, WebView2, WebKitGTK), and Rust
+is the backend it talks to. Tauri 2 added iOS and Android, so the reach is comparable to Day's.
+The differences are the language boundary — every call is a serialized `invoke` across process
+lines — and permissions, which Tauri models explicitly in capability files.
+
+<Compare lhs="Tauri 2">
+
+```rust
+// src-tauri/src/lib.rs
+#[tauri::command]
+fn bump(
+    by: i64,
+    state: tauri::State<Counter>,
+) -> i64 {
+    state.add(by)
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .manage(Counter::default())
+        .invoke_handler(tauri::generate_handler![bump])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri");
+}
+```
+
+```rust
+use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+```
+
+</Compare>
+
+The Tauri half is only the Rust half. The UI is separate:
+
+```js
+// src/main.js — the other side of the boundary
+import { invoke } from '@tauri-apps/api/core';
+
+document.querySelector('#inc').addEventListener('click', async () => {
+  const count = await invoke('bump', { by: 1 });      // camelCase args, JSON, async
+  document.querySelector('#out').textContent = `${count} clicks`;
+});
+```
+
+Reading a file shows the same split. Tauri routes it through a plugin and a capability the app
+declares up front; Day calls a [part](/docs/parts) in-process, with the sandbox in the API
+instead of in a config file.
+
+<Compare lhs="Tauri 2">
+
+```json
+// src-tauri/capabilities/default.json
+{
+  "identifier": "default",
+  "windows": ["main"],
+  "permissions": ["fs:allow-appdata-read"]
+}
+```
+
+```rust
+// paths are relative and app-scoped; an absolute path
+// or a `..` segment is an error before any backend runs
+let bytes = day_part_fs::read("notes/today.txt")?;
+
+// or, on every target including the web:
+day::task(async move {
+    match day_part_fs::read_future("notes/today.txt").await {
+        Ok(bytes) => notes.set(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(e) => notes.set(format!("error: {e}")),
+    }
+});
+```
+
+</Compare>
+
+```js
+// and the JS that consumes the capability above
+import { readTextFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+const text = await readTextFile('notes/today.txt', { baseDir: BaseDirectory.AppData });
+```
+
+**Pick Tauri when** your UI is already a web app, your team's skill is web, or you want a design
+that looks identical everywhere and is styled by CSS. **Pick Day when** you want the platform's
+own controls, one language end to end, and no webview in the bundle.
+
+## Slint
+
+[Slint](https://slint.dev) is the closest thing to Day in ambition — a native-feeling UI from one
+description, from microcontrollers up to desktop — and the furthest in method. UIs are written
+in a `.slint` DSL that compiles to Rust (or C++, or JS bindings), and Slint renders the result
+itself, so a Slint app looks like a Slint app on every platform. Its runtime fits in well under a
+megabyte, which is why it reaches hardware Day never will.
+
+<Compare lhs="Slint 1.17">
+
+```qml
+// ui/counter.slint
+export component Counter inherits Window {
+    in-out property <int> count: 0;
+    callback increment();
+
+    VerticalBox {
+        Text {
+            text: "\{root.count} clicks";
+        }
+        Button {
+            text: "+";
+            clicked => { root.increment(); }
+        }
+    }
+}
+```
+
+```rust
+use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+```
+
+</Compare>
+
+The Rust side of that Slint component is generated, and you wire it from `main`:
+
+```rust
+slint::include_modules!();
+
+fn main() -> Result<(), slint::PlatformError> {
+    let ui = Counter::new()?;
+    ui.on_increment({
+        let ui = ui.as_weak();
+        move || {
+            let ui = ui.unwrap();
+            ui.set_count(ui.get_count() + 1);
+        }
+    });
+    ui.run()
+}
+```
+
+Lists show the DSL boundary most clearly. Slint's markup iterates a model the Rust side owns;
+Day's list is a function call, and the key that identifies a row is an argument.
+
+<Compare lhs="Slint 1.17">
+
+```qml
+export component Albums inherits Window {
+    in property <[string]> titles;
+    VerticalBox {
+        for title in root.titles: Text { text: title; }
+    }
+}
+```
+
+```rust
+list(
+    move || albums.get(),
+    |a| a.id,
+    |slot: ItemSlot<Album, u64>| {
+        label(move || slot.get().title).padding(8.0)
+    },
+)
+```
+
+</Compare>
+
+```rust
+// the Rust that feeds the Slint model
+let model = std::rc::Rc::new(slint::VecModel::from(vec![
+    slint::SharedString::from("Kind of Blue"),
+]));
+ui.set_titles(model.clone().into());       // Rc<VecModel<_>> → ModelRc<_>
+model.push(slint::SharedString::from("Blue Train"));
+```
+
+**Pick Slint when** you target embedded or MCU hardware, want a live-preview design workflow, or
+want the same pixels on every screen. **Pick Day when** the app should wear each platform's own
+look, and you would rather write Rust than a second language for the UI.
+
+## Iced
+
+[Iced](https://iced.rs) brings the Elm architecture to Rust: state, a `Message` enum, an `update`
+that folds messages into state, and a `view` that renders state into widgets. It draws with wgpu
+(or tiny-skia on machines without a GPU path). The result is enviably predictable — every state
+change has a name — and the tradeoff is that a keystroke is a message, a variant, a match arm,
+and a re-`view` of that part of the tree.
+
+<Compare lhs="Iced 0.14">
+
+```rust
+use iced::widget::{button, column, text, Column};
+
+pub fn main() -> iced::Result {
+    iced::run(update, view)
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    Increment,
+}
+
+fn update(count: &mut u64, message: Message) {
+    match message {
+        Message::Increment => *count += 1,
+    }
+}
+
+fn view(count: &u64) -> Column<Message> {
+    column![
+        text(format!("{count} clicks")),
+        button("+").on_press(Message::Increment),
+    ]
+}
+```
+
+```rust
+use day::prelude::*;
+
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+    .any()
+}
+```
+
+</Compare>
+
+Asynchronous work is where the two models diverge hardest. Iced keeps `update` pure by returning
+a `Task` the runtime performs, delivering the result as another message. Day awaits inline and
+writes the signal, because the continuation already lands on the UI thread.
+
+<Compare lhs="Iced 0.14">
+
+```rust
+fn update(state: &mut State, message: Message) -> Task<Message> {
+    match message {
+        Message::Fetch => Task::perform(load(url), Message::Loaded),
+        Message::Loaded(Ok(body)) => {
+            state.body = body;
+            Task::none()
+        }
+        Message::Loaded(Err(e)) => {
+            state.body = format!("error: {e}");
+            Task::none()
+        }
+    }
+}
+```
+
+```rust
+let body = Signal::new(String::new());
+
+day::task(async move {
+    match day_part_http::fetch_future(request).await {
+        Ok(resp) => body.set(resp.text().into_owned()),
+        Err(e) => body.set(format!("error: {e}")),
+    }
+});
+```
+
+</Compare>
+
+**Pick Iced when** you want one enumerated state machine for the whole app, a pure `update`, and
+a look you control completely. **Pick Day when** you want native controls and would rather bind a
+signal than name every transition.
+
+## Leptos
+
+[Leptos](https://leptos.dev) is the closest relative Day has in this list, and it doesn't draw
+UI at all: it's a full-stack web framework whose reactive core is the same idea as Day's. Signals
+that track their readers, memos that recompute only when their inputs change, effects that clean
+up with their scope. The counter is nearly line-for-line; what differs is the target — Leptos
+patches DOM nodes in a browser (with SSR and hydration), Day patches native widgets on nine
+backends, one of which is also the DOM.
+
+<Compare lhs="Leptos 0.8">
+
+```rust
+#[component]
+fn Counter() -> impl IntoView {
+    let (count, set_count) = signal(0);
+
+    view! {
+        <p>{move || format!("{} clicks", count.get())}</p>
+        <button on:click=move |_| set_count.update(|n| *n += 1)>
+            "+"
+        </button>
+    }
+}
+```
+
+```rust
+fn counter() -> AnyPiece {
+    let count = Signal::new(0i64);
+
+    column((
+        label(move || format!("{} clicks", count.get())),
+        button("+").action(move || count.update(|c| *c += 1)),
+    ))
+    .spacing(12.0)
+    .any()
+}
+```
+
+</Compare>
+
+Derived state is the same primitive with the same name, and both recompute only when the value
+actually changes:
+
+<Compare lhs="Leptos 0.8">
+
+```rust
+let total = Memo::new(move |_| {
+    items.get().iter().map(|i| i.price).sum::<f64>()
+});
+
+view! { <p>{move || format!("{total:.2} €", total = total.get())}</p> }
+```
+
+```rust
+let total = Memo::new(move || {
+    items.with(|v| v.iter().map(|i| i.price).sum::<f64>())
+});
+
+label(move || format!("{:.2} €", total.get()))
+```
+
+</Compare>
+
+The differences that matter are outside the reactive core: Leptos has server functions,
+hydration, and the whole CSS toolbox; Day has native controls, and its `web-dom` backend is one
+target among many rather than the point. If your product is a website, Leptos is the right
+framework and Day is the wrong one — and if it's an app that also wants a web build,
+[`web-dom`](/docs/platforms/web-dom) is that build.
+
+## The rest, at a glance
+
+| Project | Version | Shape |
+|---|---|---|
+| [egui](https://github.com/emilk/egui) | 0.36 | Immediate mode: the UI is re-declared every frame, drawn by egui. Unbeatable for tools, debug overlays, and anything in a game loop; a poor fit where the app should feel like the platform. |
+| [Dioxus](https://dioxuslabs.com) | 0.7 | React-shaped RSX plus signals, rendering to a webview on desktop and mobile, the DOM on web, with a native renderer (Blitz) in progress. The closest thing to "React in Rust". |
+| [Xilem](https://github.com/linebender/xilem) / Masonry | 0.4 | The Linebender group's current toolkit — successor to their discontinued Druid — drawing with Vello on the GPU. Pre-1.0 and moving; the architecture (a view tree diffed against a retained widget tree) is worth reading. |
+| [gtk4-rs](https://gtk-rs.org) / [cxx-qt](https://github.com/KDAB/cxx-qt) | — | Bindings, not frameworks: real native widgets, one toolkit each, and you write the app per platform. Day uses gtk4-rs for its own GTK backend, so this is less a competitor than a layer Day sits on. |
+
+## Where to go next
+
+- [Why Day](/docs/benefits) — the tradeoff in full, including when to pick something else.
+- [Overview](/docs/overview) — the targets, the model, and what Day is not.
+- [Pieces](/docs/pieces) and [Reactivity](/docs/reactivity) — the authoring surface and the
+  signal graph, for comparison against the models above.
+- [Platform support](/docs/platforms#support-tiers) — how much testing each target actually gets.

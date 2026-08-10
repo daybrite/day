@@ -1,5 +1,6 @@
 ---
 title: Day for Jetpack Compose developers
+navTitle: Jetpack Compose
 description: "A Compose-to-Day translation guide: composables to Pieces, remember/mutableStateOf to signals, Gradle to Cargo + Day.toml, and Play publishing to day pack — with side-by-side code."
 order: 7
 section: Coming from
@@ -42,6 +43,7 @@ DOM elements on the web. Your app looks native everywhere rather than identical 
 | `Modifier.padding(16.dp)` | `.padding(16.0)` — modifiers are builder methods |
 | `LazyColumn` | `list` — recycling rows, key required |
 | `NavHost` + `NavController` | `selector`, `stack`, and string routes |
+| `currentWindowAdaptiveInfo().windowSizeClass` | `size_class()` — the same breakpoint table, everywhere |
 | `CompositionLocal` | `with_environment` / `environment::<T>()` |
 | `ViewModel` + `StateFlow` | structs of signals; `Setter` for background threads |
 | Gradle + version catalogs | `Cargo.toml` (package) + `Day.toml` (app manifest) |
@@ -216,6 +218,46 @@ are `DAY_DEEPLINK=library/album-42` at launch, and a UI test asserts `current_ro
 string. Sections (the role of a bottom bar or nav rail) are `selector`, which renders each
 platform's idiom: tabs on phones, a sidebar split view on desktop. See
 [Navigation](/docs/navigation).
+
+## Adaptive layout
+
+Day's breakpoints are the ones you already know: `SizeClass` uses Android's window size classes
+verbatim, on every backend, so a 700pt window is `Medium` on a Mac and in a browser exactly as it
+is on a tablet. What differs is who acts on them — in Compose you pick the scaffold per class; in
+Day the `selector` re-presents itself.
+
+<Compare lhs="Compose">
+
+```kotlin
+val width = currentWindowAdaptiveInfo().windowSizeClass.windowWidthSizeClass
+
+NavigationSuiteScaffold(
+    layoutType = if (width == WindowWidthSizeClass.COMPACT)
+        NavigationSuiteType.NavigationBar
+    else
+        NavigationSuiteType.NavigationRail,
+    navigationSuiteItems = { items.forEach { item(it) } },
+) { Page(page) }
+```
+
+```rust
+// One selector, both presentations. Day re-resolves on every breakpoint
+// crossing and re-homes the pages it already built, so scroll offsets and
+// focus survive the morph rather than being rebuilt.
+selector(page)
+    .style(SelectorStyle::Sidebar)
+    .destination(|key| page_for(key))
+
+// Where the app wants to make the same call itself:
+let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
+```
+
+</Compare>
+
+On Android the backend hands the class to `SlidingPaneLayout` and lets it morph natively, with its
+own animation and gesture, then reports what it chose — Day observes rather than overrides where
+the platform already does this well ([details](/docs/internal/size-classes)). The class is
+per window, so split-screen and freeform windows each get their own answer.
 
 ## Modifiers and layout
 
@@ -471,6 +513,11 @@ debugger and profilers, and Gradle calls back into `day` to rebuild the Rust hal
 | other platforms | Compose Multiplatform (its own renderer everywhere) | `day pack -p ios-uikit` / `-p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` — native widgets on each |
 | UI tests | `createComposeRule`, Espresso | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 | environment check | Android Studio / `doctor` scripts | `day doctor` |
+
+Maturity differs by target, and these docs say so rather than implying parity: every
+`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+[Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
 Release signing reads the keystore from `${ENV_VAR}` references in `Day.toml` (the same
 `signingConfig` idea), but a missing variable degrades to a dev-signed artifact with a warning

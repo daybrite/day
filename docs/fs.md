@@ -25,11 +25,17 @@ let bytes = day_part_fs::read("notes/today.txt")?;
 let names = day_part_fs::list("notes")?;   // ["today.txt"], dirs get a trailing '/'
 day_part_fs::remove("notes/today.txt")?;
 
-// Async — works on EVERY target, including web. Await under day::task (docs/async.md):
+// Async — works on EVERY target, including web. Await under day::task (docs/async.md).
+// `day::task` takes a `Future<Output = ()>`, so each result is handled in the block
+// instead of propagated with `?`:
 day::task(async move {
-    day_part_fs::write_future("notes/today.txt", text.into_bytes()).await?;
-    let names = day_part_fs::list_future("notes").await?;
-    Ok::<(), day_part_fs::FsError>(())
+    match day_part_fs::write_future("notes/today.txt", text.into_bytes()).await {
+        Ok(()) => status.set("saved".into()),
+        Err(e) => status.set(format!("error: {e}")),
+    }
+    if let Ok(names) = day_part_fs::list_future("notes").await {
+        files.set(names.join(", "));
+    }
 });
 ```
 

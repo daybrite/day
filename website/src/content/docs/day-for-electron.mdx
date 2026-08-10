@@ -1,5 +1,6 @@
 ---
 title: Day for Electron developers
+navTitle: Electron
 description: "An Electron-to-Day translation guide: BrowserWindow to open_window, IPC to plain function calls, HTML/CSS to native pieces, and electron-builder to day pack — with side-by-side code."
 order: 8
 section: Coming from
@@ -259,7 +260,7 @@ top of Day's native pieces, though it's a hosting layer, not a general replaceme
   "version": "1.2.0",
   "main": "main.js",
   "devDependencies": {
-    "electron": "^38.0.0",
+    "electron": "^43.0.0",
     "electron-builder": "^26.0.0"
   }
 }
@@ -338,12 +339,17 @@ runtime), and localization is Fluent catalogs compiled to typed functions
 | apply changes | reload the window | `day relaunch --all-running` |
 | macOS artifact | electron-builder → `.dmg`, notarize via config | `day pack -p macos-appkit` → notarized, stapled `.dmg` |
 | Windows artifact | NSIS / Squirrel | `day pack -p windows-xaml` → `.msix` + NSIS installer |
-| Linux artifact | AppImage / deb / snap | `day pack -p linux-gtk` → `.flatpak` + AppImage |
+| Linux artifact | AppImage / deb / snap | `day pack -p linux-gtk` → `.flatpak` + `.appimage` |
 | mobile | — | `day pack -p ios-uikit` / `-p android-mdc` → `.ipa`, `.apk` + `.aab` |
 | web | separate web build of the renderer code | `day build -p web-dom` — the same crate |
 | auto-update | `autoUpdater` + an update server | none yet — stores and installers carry updates |
 | UI tests | Playwright per OS | one dayscript, every target, in CI with screenshots |
 | supply chain | your Chromium/Node rebuild cadence | reproducible builds with SBOM + buildinfo sidecars per artifact ([details](/docs/reproducible-builds)) |
+
+Maturity differs by target, and these docs say so rather than implying parity: every
+`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+[Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
 ## What you give up
 

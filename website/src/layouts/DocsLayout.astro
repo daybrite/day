@@ -37,8 +37,12 @@ for (const d of docs) {
           <>
             <p class="side-h">{s.name}</p>
             {s.pages.map((d) => (
-              <a href={url(`docs/${d.id}`)} class:list={['side-link', { on: d.id === slug }]}>
-                {d.data.title}
+              <a
+                href={url(`docs/${d.id}`)}
+                class:list={['side-link', { on: d.id === slug }]}
+                title={d.data.navTitle ? d.data.title : undefined}
+              >
+                {d.data.navTitle ?? d.data.title}
               </a>
             ))}
           </>
