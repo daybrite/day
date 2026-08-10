@@ -105,7 +105,7 @@ fn clean(s: &str) -> String {
 
 /// Serialize the toolbar model to the shim's line format — one item per line:
 ///
-/// `kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder`
+/// `kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder \t suggestions`
 ///
 /// with kinds `B` button, `T` toggle, `M` menu, `F` search field, `L` label, `-` separator,
 /// `_` fixed space and `>` flexible space (the Content/PrimaryCommands split). `on` seeds a
