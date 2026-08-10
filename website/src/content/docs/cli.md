@@ -28,6 +28,7 @@ day sign    --check          # report release-signing readiness without printing
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
 day lint                     # check ids, Fluent coverage, project shape
 day doctor                   # check toolchains for every target
+day checkup                  # doctor, then scaffold + build + pack a throwaway app per target
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
@@ -188,6 +189,54 @@ One error is worth recognizing on sight, because Apple reports it as `RequestDen
 ```
 
 Installing works on a locked phone; launching does not.
+
+## Checking the machine
+
+`day doctor` reports what each toolkit needs and what's missing. `day checkup` proves the answer by
+doing the work: it runs the doctor checks, then for every target this machine supports it scaffolds
+a throwaway app in a temporary directory, builds it, and packages it. Each target's build time and
+packaged size are printed at the end.
+
+```bash
+day checkup                                   # every target this machine can build
+day checkup -p ios-uikit,macos-appkit         # only these
+day checkup --no-pack --profile release       # stop after the build; use the release profile
+day checkup --day-version 0.2.0               # check that release, not the CLI you have
+```
+
+Run it with no arguments and a target whose prerequisites are missing is skipped, with the same fix
+line `day doctor` would print. Name targets with `-p` and a missing prerequisite is an error
+instead — you said those targets work here. `--strict` fails the run on any target this machine
+could have checked but isn't set up for (a target that only builds on another OS is never counted).
+That is what the scheduled workflow in the `day` repository uses to check each platform-toolkit pair
+against a freshly installed CLI. Under GitHub Actions the per-target table goes to the job summary.
+
+Nothing is left behind: the scaffolded projects are deleted at the end unless you pass `--keep`.
+
+### Checking a specific version of Day
+
+`--day-version` picks which Day the checkup is about. It sets both halves — the `day` CLI that
+scaffolds, builds, and packs, and the `day` your app depends on — so you never test one against the
+other:
+
+```bash
+day checkup --day-version main       # the main branch on GitHub
+day checkup --day-version 0.2.0      # that release
+day checkup --day-version latest     # the newest release on crates.io
+day checkup --day-version a1b2c3d    # that commit
+```
+
+Unless the CLI you're running is already the version you named, checkup installs it into the run's
+temporary directory (`cargo install`), so nothing on your PATH changes. The same spec goes to
+`day new --day-version`, which is available on its own if you only want to pin a project:
+
+```bash
+day new app my-app --day-version main       # day = { git = "…", branch = "main" }
+day new app my-app --day-version 0.2.0      # day = { git = "…", tag = "v0.2.0" }
+```
+
+A release pins the matching `vX.Y.Z` git tag today, because the framework crates aren't on
+crates.io yet; with `--registry` it pins the crates.io version instead.
 
 ## The conventional project
 

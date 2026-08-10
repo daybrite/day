@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::meta::Project;
+use crate::ops::{gha_escape, github_actions};
 use crate::term::{DIM, SUCCESS, WARN};
 use anstream::eprintln;
 
@@ -644,20 +645,6 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     }
     let waived_n: usize = waived.values().map(|(n, _)| n).sum();
     finish(findings.len() - waived_n, waived_n, strict)
-}
-
-/// Whether this process runs inside a GitHub Actions job — the documented signal is
-/// `GITHUB_ACTIONS=true`, set for every step of every runner.
-fn github_actions() -> bool {
-    std::env::var("GITHUB_ACTIONS").is_ok_and(|v| v == "true")
-}
-
-/// Escape a message for a `::warning::` workflow command: GitHub terminates the command at a
-/// literal newline and treats `%` as the escape lead-in.
-fn gha_escape(msg: &str) -> String {
-    msg.replace('%', "%25")
-        .replace('\r', "%0D")
-        .replace('\n', "%0A")
 }
 
 /// Append a markdown findings table to the job's run-summary page.

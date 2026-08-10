@@ -76,6 +76,7 @@ the architecture-level view and the rationale.
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | docs/async.md | [§4.5](#45-async) |
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/ArkTS/JS/C/C++), designed only | docs/bridge.md | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md, docs/fs.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
@@ -2311,6 +2312,70 @@ repository in 2026-08; the runtime crate remains, with no in-repo app building a
 > Stage 1, deferred to SPI stabilization — the dayffi record (§15.3) is the cautionary precedent
 > for freezing an extension boundary early.
 
+### §15.6 daybridge: foreign-language implementations of a Rust API
+
+> [!IMPORTANT]
+> **Status: designed, not implemented (2026-08).** None of this is in the tree. docs/bridge.md is
+> the normative contract — the type table, ownership rule, threading rule, and name derivation —
+> and this section is the architecture-level view. Unlike [§15.3](#153-dayffi-the-c-abi-superseded--never-built), this is a design in
+> progress rather than a superseded one. **v1 bridges synchronous functions only**: callbacks,
+> futures, and streams are sketched in docs/bridge.md's "After v1" but deliberately unbuilt, and
+> line-number remapping is best-effort per language (Swift, C/C++, JS, and ArkTS have it; Kotlin
+> and Java do not, so long arms there stay in their own files). The phased plan lands the Swift,
+> Kotlin, and C/C++ backends first, with per-crate JS modules and ArkTS behind them.
+
+**The problem, measured.** Eleven parts (battery, clipboard, deviceinfo, haptics, http,
+local-notify, location, network, permissions, prefs, sensors) each carry an Android shim, and every
+one of them is Java-only — because Apple, Windows, Linux, and HarmonyOS have been reachable through
+`objc2` and `#[link]`, while Android's platform APIs are not reachable at all. Their *web* halves
+exist too, but not in the crates: `day_dom_sensor_*`, `day_dom_fs_start`, `day_http_start`, and
+`day_location_fix` all live in the CLI's centralized `resources/web/shim.js`, because there is no
+per-crate staging for JavaScript. And where a value has to cross, each crate invents its own wire
+format — day-part-battery packs a level and a state into one `i64` as `(state << 8) | levelByte`,
+written twice, in two languages, agreed by comment.
+
+**The design.** A bridge makes the **Rust signature the contract** and each foreign arm an
+*implementation* of it, selected per target at build time. Calling code sees an ordinary function
+with no platform conditionals. Arms are written inline in the crate's `.rs` (raw strings, because
+foreign code must still lex as Rust tokens inside a macro body and idiomatic JavaScript and ArkTS
+do not) or in their own files past about 25 lines, staged the way `[package.metadata.day.*]`
+directories are staged today.
+
+**Why this is not dayffi.** §15.3 designed a general C ABI — `DayValue` tagged trees, a
+`DayPieceVTable`, generated registrants — and it was never needed, because "one string and one
+number" covered every real case. daybridge starts from that evidence: it bridges *functions*, not
+objects; its v1 type table is scalars, `&str`, owned `String`/`Vec<u8>`, and POD structs of those;
+`Option` does not cross; calls are synchronous, so an `Ok` means the platform accepted the request
+rather than finished it; and there is no cross-language value tree and no out-of-process host. What
+it inherits from dayffi is the rule that survived: **every foreign→Rust re-entry goes through the
+main-loop post** (`day_reactive::on_main`), because Day's UI is single-threaded and signals are not
+`Send` — a rule v1 needs only for the callback tier that follows it, and states now so that tier
+cannot be built without it.
+
+**Lowering, and why [§5.1](#51-authoring-surface-functions-and-builders-no-macros) still holds.** A crate's bridge sections sit inside one
+`daybridge::bridge!` block — a `macro_rules!` that **discards its body** and expands to an
+`include!` of generated code in `OUT_DIR`. There is no procedural macro: the real parser is
+day-build reading the crate's own source text, exactly as `day-build/src/swiftui.rs` already parses
+`.swift` to generate `crate::swiftui::*`. So the framework still requires no macro anywhere, and a
+crate that uses no bridge sees nothing.
+
+**Two generators, no new host machinery.** day-build (in `build.rs`, on any host, with no foreign
+toolchain) emits the Rust externs, wrappers, and a manifest, so plain `cargo check` and day-mock
+keep working. `day build` reads the manifest and emits each arm's adapter into the project that
+target already builds from: the generated `DayPieces` SwiftPM module, a Gradle `srcDirs` entry, an
+hvigor ArkTS module with its `Index.ets`, a per-crate ES module the day-dom shim imports, or a `cc`
+translation unit. Contributions ride the existing `day-pieces.json` aggregation rather than a
+second manifest. Build-graph facts — Gradle coordinates, permissions, frameworks, `pkg-config`
+names, deployment floors — stay in `[package.metadata.day.*]`, where the CLI already reads them.
+
+**Reporting.** Each bridged function answers a `Support` per target, and `docs/bridge-matrix.md` is
+generated from the declarations and CI-gated for drift alongside the duty, coverage, and recorder
+matrices ([§8.1](#81-the-toolkit-trait), [§8.2](#82-the-open-renderer-registry)). A crate with no `other` arm fails `day lint`, because it could not
+compile under the mock toolkit.
+
+`parts/day-part-speech` is the reference crate: one file, six arms (Swift, Kotlin, ArkTS,
+JavaScript, C++, C) over each platform's text-to-speech API, plus the Rust fallback.
+
 ### §16.1 Design goals
 
 For humans: colorful, animated, cancellable, self-explanatory. For machines (CI, IDEs, AI agents):
@@ -2413,13 +2478,14 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | command | what it does |
 |---|---|
 | `day version` | version, build profile, git ref |
-| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add` |
+| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>…` | build for one or more targets, in parallel |
 | `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
+| `day checkup [-p <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-p` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: checkup installs THAT day-cli and pins the app it scaffolds to the same one — what the scheduled `checkup.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
 | `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `split-xcconfig` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift (docs/permissions.md), store-listing rules (docs/store.md), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
@@ -2445,6 +2511,14 @@ flags + `--no-input` for CI/agents. Templates are embedded in the CLI binary; `a
 and `part` scaffolds exist — the latter two produce the [§15](#15-extensibility-pieces-parts-and-tweaks) package shapes with per-toolkit
 feature wiring. An app scaffold gets a unique generated icon (docs/icons.md#generate), seeded
 by the app id so the same id always scaffolds the same icon; `--icon-seed` overrides.
+
+Which `day` a scaffold depends on is `--day-version` (2026-08): a release pins the matching
+`vX.Y.Z` git tag, `main` or any other branch name pins `branch`, a 7–40 character hex string pins
+`rev`, and `latest` asks crates.io for the newest published day-cli first. With `--registry` a
+release becomes the crates.io version instead; a branch has no version to ask for, so that pair is
+refused rather than silently ignored, as is `--day-version` alongside `--local`. Without the flag
+the scaffold takes the remote's default branch, exactly as before. This is what lets one CLI check
+several days — `day checkup --day-version` drives both halves through it.
 
 #### `day build`
 
@@ -2582,7 +2656,64 @@ docs/agent.md; `day launch --script` covers the batch/CI case.
 
 Shipped as designed: per-toolkit workflows (`applicable? functional? missing?`) power both the
 report and actionable failures; `day doctor --json` for agents. The toolchain knowledge lives
-in `day-toolchain`, shared with the build scripts.
+in `day-toolchain`, shared with the build scripts. Each probe declares what its absence blocks —
+build, packaging, or launch — and only a BUILD miss is ever an error; `day checkup` reads the same
+classification to decide what it can build and what it can package.
+
+#### `day checkup`
+
+> [!NOTE]
+> **Added 2026-08.** `day checkup` moved the scheduled install workflow's YAML — focused doctor,
+> `day new`, `day build` — into the CLI, and added the packaging step and `--day-version`.
+> `checkup.yml` is now one step per cell of a combo × day-version matrix
+> ([§20](#20-continuous-integration)).
+
+`day checkup [-p <target>…]` answers "can this machine take a user from `day new` to a shippable
+artifact?" for each platform-toolkit combo. It runs the doctor probes first and stops if they fail,
+then per combo: scaffold a throwaway app into a temporary directory, `day build` it, and `day pack`
+it — reporting the build time and the packaged artifact's size for each, on the console, in the
+`--format json` result event, and (under `GITHUB_ACTIONS`) as a table in the job summary. Needs no
+project: it makes the projects it checks, and removes them unless `--keep`.
+
+The three steps run as sub-processes of a day CLI — this binary, or the one `--day-version`
+installed — the way `day rebuild` re-invokes `day pack`: what is under test is the user-facing
+commands, so that is what runs. One scaffold per combo, not one shared
+multi-target project — the single-target scaffold path (`template::filter_for_targets`) is the one
+that broke silently when `harmony-arkui` was renamed.
+
+With no `-p`, checkup takes every combo this host can build whose BUILD prerequisites are present
+and reports the rest as skips carrying doctor's own fix lines (experimental targets stay out unless
+named). With `-p`, the caller asserts the combos work here: their toolkits are checked in FOCUSED
+doctor mode, so a missing prerequisite is an error before anything is scaffolded. A missing
+PACKAGING tool is never a hard error — doctor treats those as warnings — so the pack stage is
+skipped with its reason instead, and `--strict` is what fails on it.
+
+**Which day is under test** is `--day-version`: `main` (or any branch), `0.2.0` (or any release),
+`latest` (the newest day-cli on crates.io, resolved once at the start so a release landing mid-run
+cannot split it), or a commit. It decides BOTH halves — the day-cli that runs new/build/pack, and
+the `day` dependency the scaffold carries — because testing one against the other measures nothing.
+The CLI is `cargo install`ed into the run's scratch directory (skipped when the running binary is
+already that version, which is what makes the `latest` cells cheap); the scaffold is pinned through
+`day new --day-version`, as a git tag for a release and a branch/rev otherwise, since the framework
+crates are not on crates.io yet. A CLI that predates `day new --day-version` cannot pin its
+scaffold, so checkup refuses it by name rather than building against the remote's default branch
+and reporting the result as that release. Omitting the flag checks the running binary with
+`day new`'s own defaults.
+
+One asymmetry to keep in mind when reading a `--day-version` run: the *driver* is the CLI you
+invoked, so the doctor probes and the target catalog are ITS — a combo or a prerequisite that only
+the day under test knows about is not part of the selection. What the day under test supplies is
+the scaffold, the build, and the pack. For the scheduled `main` cells that means a brand-new target
+is checked once the driver (the published release) knows it too.
+
+`--strict` fails on the skips this machine could have prevented — a missing build prerequisite, a
+missing packaging tool — and reports the combo ones before building rather than after, since no
+amount of building changes the verdict. A combo that builds on another OS, or an experimental one
+nobody named, is out by definition and never turns a strict run red; counting those would make
+`--strict` impossible to pass anywhere. A scheduled job needs the flag: a prerequisite that stopped
+installing would otherwise shorten the check and still report success. Selecting nothing at all is
+an error with or without it. Exit codes: 2 usage, 3 environment, 4 a build or pack failed.
+
 ### §16.6–16.8 (reserved: command reference details live in Appendix D and `day help`)
 
 ### §16.9 The inner loop (no hot reload — the honest story)
@@ -2979,7 +3110,7 @@ day/                                # THIS repository
                                     #   internal reference (scripts/website.sh builds it)
   scripts/                          # CI + release helpers (screenshot validation, duty matrix,
                                     #   installer packaging, API-docs build, website.sh)
-  .github/workflows/                # ci.yml (build/test/e2e/pack/release), install.yml
+  .github/workflows/                # ci.yml (build/test/e2e/pack/release), checkup.yml
 ```
 
 Scaffold templates are embedded in `day-cli` (no `templates/` tree); the sample apps the design
@@ -3000,7 +3131,11 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 > [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
-> carries the whole pipeline, plus `install.yml` (scheduled end-user install checks) in this repo.
+> carries the whole pipeline, plus `checkup.yml` (scheduled end-user install checks — one
+> `day checkup -p <combo> --day-version <v> --strict` per cell of an 11-combo × 2-version matrix,
+> `main` and `latest`, [§16.5](#165-subcommands); it was `install.yml` until 2026-08, when the
+> doctor/new/build steps moved into the CLI and packaging and the version axis joined them) in
+> this repo.
 > External Day apps are served by the **`daybrite/actions`** companion repo: one reusable
 > `build-day-app.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
 > tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)

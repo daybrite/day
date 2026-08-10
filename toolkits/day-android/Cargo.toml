@@ -21,3 +21,13 @@ linkme = { workspace = true }
 # `attach_current_thread(callback)`, and `call_*`/`find_class` take typed name/signature (JNIStr /
 # MethodSignature) rather than `&str`. The `jni compat` helpers in lib.rs adapt the &str ergonomics.
 jni = "0.22"
+
+# The framework shim's OWN Gradle dependencies, collected by `day build` through the same
+# [package.metadata.day.android] channel standalone pieces use (docs/extending.md) and added to
+# the app module by the scaffold's generic pieceDeps loop. A NEW shim dependency goes HERE, next
+# to the Java that needs it — never as a template `implementation(...)` line: the template ships
+# embedded in the day-cli RELEASE, so a template-only declaration leaves every already-released
+# CLI scaffolding apps whose Gradle cannot compile the current shim (the install workflow's
+# android-mdc leg failed exactly this way when SlidingPaneLayout arrived).
+[package.metadata.day.android]
+gradle-dependencies = ["androidx.slidingpanelayout:slidingpanelayout:1.2.0"]

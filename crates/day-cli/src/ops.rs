@@ -47,6 +47,21 @@ pub fn verbose() -> bool {
     VERBOSE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Whether this process runs inside a GitHub Actions job — the documented signal is
+/// `GITHUB_ACTIONS=true`, set for every step of every runner. Shared by the commands that report
+/// into a job (`day lint`'s findings, `day checkup`'s combo table).
+pub fn github_actions() -> bool {
+    std::env::var("GITHUB_ACTIONS").is_ok_and(|v| v == "true")
+}
+
+/// Escape a message for a `::warning::`/`::error::` workflow command: GitHub terminates the
+/// command at a literal newline and treats `%` as the escape lead-in.
+pub fn gha_escape(msg: &str) -> String {
+    msg.replace('%', "%25")
+        .replace('\r', "%0D")
+        .replace('\n', "%0A")
+}
+
 /// Run `cmd` to completion, capturing its stdout and stderr. Under [`verbose`] each stream is ALSO
 /// forwarded — verbatim — to day's own logging stream (**stderr**) as it arrives, so a
 /// sub-command's raw output streams live while the captured copy still feeds day's own failure

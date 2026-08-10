@@ -89,7 +89,9 @@ impl PackError {
     }
 }
 
-fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
+/// The formats this target packs into, or day's own explanation of why it packs none — the answer
+/// `day checkup` quotes when it reports a combo as build-only.
+pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
     Ok(match target.name {
         "macos-appkit" => vec!["dmg"],
         "ios-uikit" => vec!["ipa"], // falls back to sim-app without ASC signing config
@@ -352,6 +354,13 @@ pub(crate) fn msix_check(project: &Project) -> Result<(), String> {
 /// Doctor probe: locate a Windows-Kits tool (None off-Windows or when the SDK is absent).
 pub(crate) fn windows_kit_tool_probe(tool: &str) -> Option<String> {
     msix::windows_kit_tool(tool).map(|p| p.display().to_string())
+}
+
+/// Doctor probe: locate an AppImage tool the SAME way [`appimage`] does — `DAY_<TOOL>` first, then
+/// PATH. A bare PATH lookup would report `linuxdeploy` missing on the machines that set the
+/// override (CI downloads the AppImage into a scratch dir), contradicting the pack that succeeds.
+pub(crate) fn appimage_tool_probe(tool: &str) -> Option<String> {
+    appimage::tool(tool).map(|p| p.display().to_string())
 }
 
 pub fn sha256_file(path: &Path) -> Result<String, String> {

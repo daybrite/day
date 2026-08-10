@@ -74,7 +74,10 @@ pub fn finish(rx: Option<Receiver<String>>) {
 /// GET the crate metadata from crates.io with a descriptive User-Agent (crates.io rejects generic
 /// ones), returning its newest stable version. Any failure (offline, timeout, 404 before the crate is
 /// published, malformed JSON) yields `None` — the check is best-effort and never surfaces errors.
-fn fetch_latest() -> Option<String> {
+///
+/// Also the resolver behind `--day-version latest` (`new::DaySource::parse`), where a `None` IS
+/// reported: there the answer decides what gets built, so guessing would be worse than failing.
+pub fn fetch_latest() -> Option<String> {
     let ua = format!(
         "day-cli/{} ({}; {}; +{})",
         env!("CARGO_PKG_VERSION"),

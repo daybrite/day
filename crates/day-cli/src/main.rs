@@ -5,6 +5,7 @@
 //! desktop targets, Day.toml manifest, per-target cargo dirs, `--format json` result events.
 //! Mobile pipelines (xcodebuild/gradle callbacks) land with the M5 scaffolds.
 
+mod checkup;
 mod cli;
 mod doctor;
 mod drive;

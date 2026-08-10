@@ -11,6 +11,7 @@ The `day` command line: create, build, run, test, and package Day apps.
 day new app hello         # a working project: Day.toml, src/, a starter UI
 day launch -p macos-appkit -p android-mdc
 day doctor                # what's installed, what's missing, how to fix it
+day checkup               # doctor, then scaffold + build + pack a test app for every target
 day pack -p macos-appkit  # a signed .dmg; .ipa, .apk, .flatpak, .msix, .hap per target
 ```
 

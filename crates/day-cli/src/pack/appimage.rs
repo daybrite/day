@@ -192,8 +192,9 @@ fn toolkit_plugin(toolkit: &str) -> Option<&'static str> {
 }
 
 /// Locate a tool, honouring a `DAY_<TOOL>` override before PATH — the linuxdeploy releases are
-/// downloaded AppImages rather than packaged, so they often live outside PATH.
-fn tool(name: &str) -> Option<PathBuf> {
+/// downloaded AppImages rather than packaged, so they often live outside PATH. Shared with
+/// `day doctor`'s probes ([`super::appimage_tool_probe`]) so both answer the same question.
+pub(super) fn tool(name: &str) -> Option<PathBuf> {
     let var = format!("DAY_{}", name.replace('-', "_").to_uppercase());
     if let Ok(p) = std::env::var(&var) {
         let path = PathBuf::from(p);

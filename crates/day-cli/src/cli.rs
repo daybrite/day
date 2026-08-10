@@ -209,6 +209,49 @@ enum Cmd {
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },
+    /// End-to-end check of this machine: doctor, then scaffold + build + pack a throwaway app
+    /// for every platform-toolkit combo it supports
+    Checkup {
+        /// Combo(s) to check (repeatable / comma-separated), e.g. `-p ios-uikit,macos-appkit`.
+        /// Omit to check every combo this host can build with what is installed; naming one
+        /// asserts it works here, so a missing prerequisite becomes an error instead of a skip.
+        #[arg(short = 'p', long = "platform")]
+        platforms: Vec<String>,
+        /// The profile BOTH the build and the pack use. `day pack` alone defaults to release;
+        /// one profile here means one compile rather than two.
+        #[arg(long, default_value = "debug")]
+        profile: String,
+        /// Stop after the build instead of packaging each combo
+        #[arg(long)]
+        no_pack: bool,
+        /// Fail on a combo this host could have checked but is not set up for, and on a pack
+        /// step skipped for missing tooling. CI wants this: a prerequisite that silently
+        /// disappeared must not report success. A combo that builds on another OS is never
+        /// counted.
+        #[arg(long)]
+        strict: bool,
+        /// Scaffold into this directory instead of a fresh one under the system temp dir
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Keep the scaffolded projects instead of deleting them
+        #[arg(long)]
+        keep: bool,
+        /// Scaffold `day` deps from the git remote — passed through to `day new`
+        #[arg(long)]
+        git: bool,
+        /// Scaffold versioned `day` deps from crates.io — passed through to `day new`
+        #[arg(long)]
+        registry: bool,
+        /// Which `day` to check: a release (`0.2.0`), `latest` (the newest published day-cli),
+        /// a branch (`main`), or a commit. The CLI that scaffolds, builds, and packs is
+        /// installed at that version, and the app it scaffolds depends on the same one.
+        /// Omitted, the running binary checks whatever `day new` scaffolds by default.
+        #[arg(long = "day-version", value_name = "SPEC")]
+        day_version: Option<String>,
+        /// Use `path` deps rooted at a local day checkout (CI / framework development)
+        #[arg(long, hide = true)]
+        local: Option<PathBuf>,
+    },
     /// App-project maintenance: add platforms/toolkits to an existing app
     App {
         #[command(subcommand)]
@@ -366,6 +409,11 @@ enum NewKind {
         /// once the day framework crates are published.
         #[arg(long)]
         registry: bool,
+        /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
+        /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
+        /// — a git tag/branch/rev today, or the crates.io version with `--registry`.
+        #[arg(long = "day-version", value_name = "SPEC")]
+        day_version: Option<String>,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
@@ -391,6 +439,11 @@ enum NewKind {
         /// once the day framework crates are published.
         #[arg(long)]
         registry: bool,
+        /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
+        /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
+        /// — a git tag/branch/rev today, or the crates.io version with `--registry`.
+        #[arg(long = "day-version", value_name = "SPEC")]
+        day_version: Option<String>,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
@@ -447,6 +500,11 @@ enum NewKind {
         /// once the day framework crates are published.
         #[arg(long)]
         registry: bool,
+        /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
+        /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
+        /// — a git tag/branch/rev today, or the crates.io version with `--registry`.
+        #[arg(long = "day-version", value_name = "SPEC")]
+        day_version: Option<String>,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
@@ -523,6 +581,32 @@ pub fn run() -> i32 {
                 .unwrap_or(&[]);
             crate::doctor::run(&toolkits, external)
         }
+        // Project-less, like doctor and new: checkup SCAFFOLDS the projects it checks.
+        Cmd::Checkup {
+            platforms,
+            profile,
+            no_pack,
+            strict,
+            dir,
+            keep,
+            git,
+            registry,
+            day_version,
+            local,
+        } => crate::checkup::run(&crate::checkup::Options {
+            platforms,
+            profile,
+            no_pack,
+            strict,
+            dir,
+            keep,
+            git,
+            registry,
+            day_version,
+            local,
+            json: cli.format == "json",
+            verbose: cli.verbose,
+        }),
         Cmd::Rebuild {
             artifact,
             force_tool,
@@ -797,6 +881,7 @@ pub fn run() -> i32 {
                 id,
                 git,
                 registry,
+                day_version,
                 local,
                 no_input,
             }) => crate::new::piece(
@@ -807,6 +892,7 @@ pub fn run() -> i32 {
                 local.as_deref(),
                 git,
                 registry,
+                day_version.as_deref(),
                 no_input,
             ),
             Some(NewKind::Part {
@@ -815,6 +901,7 @@ pub fn run() -> i32 {
                 id,
                 git,
                 registry,
+                day_version,
                 local,
                 no_input,
             }) => crate::new::part(
@@ -824,6 +911,7 @@ pub fn run() -> i32 {
                 local.as_deref(),
                 git,
                 registry,
+                day_version.as_deref(),
                 no_input,
             ),
             Some(NewKind::App {
@@ -837,6 +925,7 @@ pub fn run() -> i32 {
                 targets,
                 git,
                 registry,
+                day_version,
                 local,
                 no_input,
                 no_website,
@@ -854,6 +943,7 @@ pub fn run() -> i32 {
                 local.as_deref(),
                 git,
                 registry,
+                day_version.as_deref(),
                 no_input,
                 no_website,
                 &locales,

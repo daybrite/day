@@ -17,14 +17,33 @@ use std::process::Command;
 
 use crate::targets::host_os;
 
-/// One environment probe: a label, the resolved detail (`Some` = found), and a one-line fix hint.
+/// What a missing probe blocks. Only [`Need::Build`] is ever an error: everything else degrades a
+/// stage that either still works without it (the resource compilers) or isn't part of compiling at
+/// all (packaging tools, a booted device). `day checkup` reads the same field to decide which
+/// toolkits it can build and which it can package (see [`readiness`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Need {
+    /// Required to compile for this toolkit — a miss is an error when the toolkit is focused.
+    Build,
+    /// Build-time but optional: the build still produces a working app, degraded (a skipped
+    /// resource blob, a Swift contribution that no dependency makes).
+    BuildOptional,
+    /// Required by `day pack` for this toolkit's formats — never needed to build.
+    Pack,
+    /// Packaging still succeeds without it, with a less portable artifact (the linuxdeploy
+    /// plugins: without one the AppImage needs a machine that already has the toolkit).
+    PackOptional,
+    /// A launch-time prerequisite (a booted simulator/emulator, hdc) — not needed to compile.
+    Launch,
+}
+
+/// One environment probe: a label, the resolved detail (`Some` = found), a one-line fix hint, and
+/// what its absence blocks.
 struct Probe {
     name: &'static str,
     detail: Option<String>,
     fix: String,
-    /// A launch-time prerequisite (booted simulator/emulator), not a build one — stays a warning
-    /// even when its toolkit is focused, since it isn't needed to compile.
-    soft: bool,
+    need: Need,
 }
 
 impl Probe {
@@ -33,12 +52,17 @@ impl Probe {
             name,
             detail,
             fix: fix.into(),
-            soft: false,
+            need: Need::Build,
         }
     }
-    fn soft(mut self) -> Self {
-        self.soft = true;
+    /// Reclassify: everything but [`Need::Build`] reports as a warning rather than an error.
+    fn need(mut self, need: Need) -> Self {
+        self.need = need;
         self
+    }
+    /// Whether a miss stays a warning even when the toolkit is focused.
+    fn soft(&self) -> bool {
+        self.need != Need::Build
     }
 }
 
@@ -208,7 +232,7 @@ fn appkit_group() -> Group {
                 "install Xcode or the command-line tools — needed only when a dependency embeds \
                  Swift/SwiftUI (docs/swiftui.md)",
             )
-            .soft(),
+            .need(Need::BuildOptional),
         ],
         setup: "macOS desktop (AppKit) builds as a plain cargo binary and needs Apple's clang\n\
                 toolchain: `xcode-select --install` (or a full Xcode). No extra Rust target — the\n\
@@ -242,7 +266,7 @@ fn uikit_group() -> Group {
                 ),
                 "boot a simulator: `xcrun simctl boot <device>` (or open Simulator.app)",
             )
-            .soft(),
+            .need(Need::Launch),
         ],
         setup: "iOS (UIKit) cross-compiles via an Xcode script phase and runs on the Simulator.\n\
                 Needs: full Xcode (`xcode-select -s /Applications/Xcode.app`), the simulator Rust\n\
@@ -275,29 +299,29 @@ fn gtk_group() -> Group {
                 which("glib-compile-resources").map(|p| p.display().to_string()),
                 "install glib tools (bundled with glib/GTK; ships `glib-compile-resources`)",
             )
-            .soft(),
-            // Optional: only `day pack -p linux-gtk` (the .flatpak bundle, §16.5) needs it.
+            .need(Need::BuildOptional),
+            // Only `day pack -p linux-gtk` (the .flatpak bundle, §16.5) needs it.
             Probe::new(
                 "flatpak-builder",
                 which("flatpak-builder").map(|p| p.display().to_string()),
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
-            .soft(),
-            // Optional, and the OTHER half of `day pack -p linux-gtk`: the .appimage (§16.5).
-            // Without the gtk plugin an AppImage still builds, but carries no GdkPixbuf loaders
-            // or GSettings schemas — so both are probed, and both are soft.
+            .need(Need::Pack),
+            // The OTHER half of `day pack -p linux-gtk`: the .appimage (§16.5). Without the gtk
+            // plugin an AppImage still builds, but carries no GdkPixbuf loaders or GSettings
+            // schemas — so both are probed, and the plugin is the optional one.
             Probe::new(
                 "linuxdeploy",
-                which("linuxdeploy").map(|p| p.display().to_string()),
+                crate::pack::appimage_tool_probe("linuxdeploy"),
                 "download linuxdeploy from github.com/linuxdeploy/linuxdeploy/releases (for `day pack` → .appimage)",
             )
-            .soft(),
+            .need(Need::Pack),
             Probe::new(
                 "linuxdeploy-plugin-gtk",
-                which("linuxdeploy-plugin-gtk").map(|p| p.display().to_string()),
+                crate::pack::appimage_tool_probe("linuxdeploy-plugin-gtk"),
                 "download linuxdeploy-plugin-gtk — without it the AppImage needs a machine that already has GTK",
             )
-            .soft(),
+            .need(Need::PackOptional),
         ],
         setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
@@ -334,29 +358,29 @@ fn qt_group() -> Group {
                 find_rcc().map(|p| p.display().to_string()),
                 "install Qt 6 (rcc, the resource compiler, ships in Qt's libexec)",
             )
-            .soft(),
-            // Optional: only `day pack -p linux-qt` (the .flatpak bundle, §16.5) needs it.
+            .need(Need::BuildOptional),
+            // Only `day pack -p linux-qt` (the .flatpak bundle, §16.5) needs it.
             Probe::new(
                 "flatpak-builder",
                 which("flatpak-builder").map(|p| p.display().to_string()),
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
-            .soft(),
-            // Optional, and the OTHER half of `day pack -p linux-qt`: the .appimage (§16.5).
-            // Without the qt plugin the image carries no platform plugin, so it cannot open a
-            // window on a machine without Qt — hence probing the plugin, not just the tool.
+            .need(Need::Pack),
+            // The OTHER half of `day pack -p linux-qt`: the .appimage (§16.5). Without the qt
+            // plugin the image carries no platform plugin, so it cannot open a window on a machine
+            // without Qt — hence probing the plugin, not just the tool.
             Probe::new(
                 "linuxdeploy",
-                which("linuxdeploy").map(|p| p.display().to_string()),
+                crate::pack::appimage_tool_probe("linuxdeploy"),
                 "download linuxdeploy from github.com/linuxdeploy/linuxdeploy/releases (for `day pack` → .appimage)",
             )
-            .soft(),
+            .need(Need::Pack),
             Probe::new(
                 "linuxdeploy-plugin-qt",
-                which("linuxdeploy-plugin-qt").map(|p| p.display().to_string()),
+                crate::pack::appimage_tool_probe("linuxdeploy-plugin-qt"),
                 "download linuxdeploy-plugin-qt — without it the AppImage needs a machine that already has Qt",
             )
-            .soft(),
+            .need(Need::PackOptional),
         ],
         setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
@@ -393,14 +417,14 @@ fn xaml_group() -> Group {
                 }),
                 "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
             ),
-            // Optional: only `day pack -p windows-xaml` needs these (§16.5) — makeappx/signtool
-            // ship with the Windows SDK, makensis via `choco install nsis`.
+            // Only `day pack -p windows-xaml` needs these (§16.5) — makeappx/signtool ship with
+            // the Windows SDK, makensis via `choco install nsis`.
             Probe::new(
                 "makeappx (Windows SDK)",
                 crate::pack::windows_kit_tool_probe("makeappx.exe"),
                 "install the Windows 10/11 SDK (for `day pack` msix)",
             )
-            .soft(),
+            .need(Need::Pack),
             Probe::new(
                 "makensis",
                 // The SAME lookup `day pack` uses (DAY_MAKENSIS → PATH → %ProgramFiles%\NSIS →
@@ -411,7 +435,7 @@ fn xaml_group() -> Group {
                 day_toolchain::makensis().map(|p| p.display().to_string()),
                 "choco install nsis (for `day pack` setup.exe)",
             )
-            .soft(),
+            .need(Need::Pack),
         ],
         setup: "XAML builds on a Windows host with the MSVC toolchain. Install:\n\
                 • the Visual Studio 2022 C++ Build Tools (MSVC + Windows SDK)\n\
@@ -472,7 +496,7 @@ fn android_group() -> Group {
                     }),
                 "start an emulator (`emulator -avd <name>`, or Android Studio's Device Manager) or attach a device",
             )
-            .soft(),
+            .need(Need::Launch),
         ],
         setup: "Android (Material Components) cross-compiles the app to a JNI .so and runs it in a\n\
                 Gradle app. Install:\n\
@@ -530,7 +554,7 @@ fn harmonyos_group() -> Group {
                 hdc.map(|p| p.display().to_string()),
                 "hdc ships with the SDK toolchains/ dir — put it on PATH to install/launch",
             )
-            .soft(),
+            .need(Need::Launch),
         ],
         setup: "HarmonyOS (ArkUI) cross-compiles a Rust cdylib (libentry.so), packages a .hap with\n\
                 hvigor, signs it, and installs over hdc. Install:\n\
@@ -577,6 +601,70 @@ fn all_groups() -> Vec<Group> {
     ]
 }
 
+// --- structured readiness (what `day checkup` asks) ------------------------
+
+/// The doctor group id for a target's toolkit. Two mobile toolkits are spelled differently in the
+/// two vocabularies — the target table names the backend feature (`mdc`, `arkui`), doctor groups
+/// by OS toolchain (`android`, `harmonyos`) — and every caller that bridges them (`day new`'s
+/// next-steps hint, `day checkup`'s selection) must bridge them the same way.
+pub fn group_id(toolkit: &str) -> &str {
+    match toolkit {
+        "mdc" => "android",
+        "arkui" => "harmonyos",
+        other => other,
+    }
+}
+
+/// A probe that found nothing, with the fix line doctor would have printed.
+#[derive(Clone)]
+pub struct Missing {
+    pub name: &'static str,
+    pub fix: String,
+}
+
+/// What a toolkit is missing, split by the stage the miss blocks — the answer `day checkup` needs
+/// to decide whether it can build a combo, package it, or must skip it with a reason.
+/// [`Need::BuildOptional`] / [`Need::PackOptional`] misses are left out: they degrade a stage that
+/// still succeeds, so failing or skipping on them would be wrong.
+#[derive(Clone, Default)]
+pub struct Readiness {
+    pub missing_build: Vec<Missing>,
+    pub missing_pack: Vec<Missing>,
+}
+
+impl Readiness {
+    /// Whether every prerequisite for compiling this toolkit is present. (Packaging asks about
+    /// `missing_pack` directly — it reports WHICH tool is absent rather than just whether one is.)
+    pub fn can_build(&self) -> bool {
+        self.missing_build.is_empty()
+    }
+}
+
+/// Run one toolkit group's probes and report what is missing, by stage. `None` for an id that is
+/// not a builtin group (an externally declared toolkit — day has no house knowledge of it).
+///
+/// This runs the SAME probes `day doctor` prints, so a checkup's skip reason is doctor's own
+/// diagnosis rather than a second, drifting copy of it.
+pub fn readiness(group: &str) -> Option<Readiness> {
+    let g = all_groups().into_iter().find(|g| g.id == group)?;
+    let mut out = Readiness::default();
+    for p in g.probes {
+        if p.detail.is_some() {
+            continue;
+        }
+        let missing = Missing {
+            name: p.name,
+            fix: p.fix,
+        };
+        match p.need {
+            Need::Build => out.missing_build.push(missing),
+            Need::Pack => out.missing_pack.push(missing),
+            Need::BuildOptional | Need::PackOptional | Need::Launch => {}
+        }
+    }
+    Some(out)
+}
+
 // --- rendering -------------------------------------------------------------
 
 // The palette lives in one place now — `crate::term` (anstyle styles; printed through anstream,
@@ -607,7 +695,7 @@ fn report_group(g: &Group, host: &str, hard: bool, show_setup: bool) -> Tally {
     for p in &g.probes {
         match &p.detail {
             Some(d) => eprintln!("  {SUCCESS}✓{SUCCESS:#} {:<14} {d}", p.name),
-            None if hard && !p.soft => {
+            None if hard && !p.soft() => {
                 eprintln!("  {ERROR}✗{ERROR:#} {:<14} {}", p.name, p.fix);
                 t.errors += 1;
             }
@@ -750,5 +838,53 @@ pub fn run(focus: &[String], external: &[crate::external::ExternalToolkit]) -> i
     } else {
         eprintln!("{SUCCESS_BOLD}✓ all good{SUCCESS_BOLD:#}");
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::targets::TARGETS;
+
+    /// Every shipped target's toolkit maps onto a real doctor group. The two vocabularies drifted
+    /// once already (`harmony-arkui`'s rename), and the failure mode is silent: `day new`'s hint
+    /// and `day checkup`'s selection would name a toolkit doctor rejects as unknown.
+    #[test]
+    fn every_target_toolkit_has_a_doctor_group() {
+        let groups: Vec<&str> = all_groups().iter().map(|g| g.id).collect();
+        for t in TARGETS {
+            let id = group_id(t.toolkit);
+            assert!(
+                groups.contains(&id),
+                "{}: toolkit {:?} maps to {id:?}, which is not a doctor group ({groups:?})",
+                t.name,
+                t.toolkit
+            );
+            assert!(readiness(id).is_some(), "{id} has no readiness report");
+        }
+    }
+
+    /// Every toolkit group states at least one BUILD prerequisite. A group whose probes were all
+    /// reclassified as optional would report "ready" on a machine with nothing installed, and
+    /// `day checkup` would select it and fail deep inside cargo instead of skipping with a fix.
+    #[test]
+    fn every_toolkit_group_states_a_build_prerequisite() {
+        for g in all_groups() {
+            if g.id == "core" {
+                continue;
+            }
+            assert!(
+                g.probes.iter().any(|p| p.need == Need::Build),
+                "{} has no Need::Build probe",
+                g.id
+            );
+        }
+    }
+
+    /// An unknown id is `None`, not a panic or an empty (= "ready") report — externally declared
+    /// toolkits reach `readiness` by name.
+    #[test]
+    fn unknown_group_has_no_readiness() {
+        assert!(readiness("not-a-toolkit").is_none());
     }
 }

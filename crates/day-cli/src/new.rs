@@ -12,11 +12,13 @@
 //!
 //! Every scaffold is its OWN cargo workspace, carries a README + .gitignore, and BUILDS out of the box.
 //!
-//! Dependencies default to **versioned crates.io** deps pinned to this CLI's own version (`day-cli x.y.z`
-//! scaffolds against `day x.y.z`), so a scaffold builds standalone with no repo checkout and no network to
-//! GitHub. `--git` points them at the `day` git remote instead; the hidden `--local <path>` flag (or the
-//! `DAY_LOCAL` env var) emits `path` deps rooted at a local `day` checkout — this is what CI uses to build
-//! a freshly-scaffolded crate against the day tree under test.
+//! Dependencies default to the **`day` git remote**, because the framework crates are not published to
+//! crates.io yet; `--registry` writes **versioned crates.io** deps pinned to this CLI's own version
+//! (`day-cli x.y.z` scaffolds against `day x.y.z`) for when they are, and the hidden `--local <path>` flag
+//! (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day` checkout — what CI uses to build
+//! a freshly-scaffolded crate against the day tree under test. `--day-version <spec>` pins whichever of
+//! those applies to one day: a `vX.Y.Z` tag, a branch, a commit, or (with `--registry`) a crates.io
+//! version. `day checkup` drives that flag to check several days from one CLI.
 
 use std::path::{Path, PathBuf};
 
@@ -36,13 +38,100 @@ const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 // Dependency source: versioned crates.io (default), git remote (--git), or a local path (--local / CI).
 // ---------------------------------------------------------------------------
 
+/// Which `day` a scaffold builds against, from `--day-version` — a released version, a branch, or
+/// a commit. `latest` resolves to the newest day-cli published on crates.io ([`DaySource::parse`]).
+///
+/// This is the scaffold half of the answer; `day checkup` uses the SAME spec to decide which
+/// day-cli binary to run, so the tool and the framework it scaffolds against stay in step.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DaySource {
+    /// A published release, `x.y.z`. The framework crates are not on crates.io yet, so a scaffold
+    /// takes the matching `vX.Y.Z` git TAG; `--registry` asks for the crates.io version instead.
+    Release(String),
+    Branch(String),
+    Rev(String),
+}
+
+impl DaySource {
+    /// Parse a `--day-version` spec:
+    ///
+    /// * `latest` — ask crates.io for the newest published day-cli (the only form that needs the
+    ///   network; a lookup failure is an error rather than a silent fallback, because every other
+    ///   answer would build against something the caller did not ask for)
+    /// * `0.2.0` / `v0.2.0` — that release
+    /// * 7–40 hex characters — that commit
+    /// * anything else — a branch name (`main`, `my/feature`)
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let spec = spec.trim();
+        if spec.is_empty() {
+            return Err("--day-version needs a value (main, 0.2.0, latest, …)".into());
+        }
+        if spec.eq_ignore_ascii_case("latest") {
+            let v = crate::update::fetch_latest().ok_or(
+                "could not reach crates.io to resolve `latest` — name a version (e.g. \
+                 --day-version 0.2.0) or a branch (--day-version main)",
+            )?;
+            return Ok(DaySource::Release(v));
+        }
+        let bare = spec.strip_prefix('v').unwrap_or(spec);
+        if is_release(bare) {
+            return Ok(DaySource::Release(bare.to_string()));
+        }
+        if (7..=40).contains(&spec.len()) && spec.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Ok(DaySource::Rev(spec.to_string()));
+        }
+        Ok(DaySource::Branch(spec.to_string()))
+    }
+
+    /// How the spec reads back in a status line (`0.2.0`, `branch main`, `commit abc1234`).
+    pub fn label(&self) -> String {
+        match self {
+            DaySource::Release(v) => v.clone(),
+            DaySource::Branch(b) => format!("branch {b}"),
+            DaySource::Rev(r) => format!("commit {r}"),
+        }
+    }
+
+    /// The spec to hand a child `day new`, with `latest` already resolved — the caller and the
+    /// child must agree on one concrete version, not each resolve `latest` at its own moment.
+    pub fn spec(&self) -> String {
+        match self {
+            DaySource::Release(v) => v.clone(),
+            DaySource::Branch(b) => b.clone(),
+            DaySource::Rev(r) => r.clone(),
+        }
+    }
+
+    /// The cargo key that pins a git dependency to this source.
+    fn git_pin(&self) -> String {
+        match self {
+            DaySource::Release(v) => format!(", tag = \"v{v}\""),
+            DaySource::Branch(b) => format!(", branch = \"{b}\""),
+            DaySource::Rev(r) => format!(", rev = \"{r}\""),
+        }
+    }
+}
+
+/// `x.y.z`, all numeric — the shape crates.io publishes and the release tags carry.
+fn is_release(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+#[derive(Debug)]
 enum Deps {
-    /// Versioned crates.io deps pinned to this CLI's version (`--registry`) — `day = { version =
-    /// "x.y.z" }`. Becomes the default once the day framework crates are published to crates.io.
-    Version(&'static str),
+    /// Versioned crates.io deps (`--registry`), pinned to this CLI's version or to
+    /// `--day-version <x.y.z>` — `day = { version = "x.y.z" }`. Becomes the default once the day
+    /// framework crates are published to crates.io.
+    Version(String),
     /// The `day` git remote (the CURRENT default — the framework crates are not yet on
-    /// crates.io) — `day = { git = "https://github.com/daybrite/day.git" }`.
-    Git,
+    /// crates.io) — `day = { git = "https://github.com/daybrite/day.git" }`, with the
+    /// `--day-version` pin (tag/branch/rev) when one was given, and the remote's default branch
+    /// when none was.
+    Git(Option<DaySource>),
     /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`) — `day = { path = "<root>/<sub>" }`. A
     /// normalized, forward-slash, TOML-safe absolute path. Used by CI and framework development.
     Local(String),
@@ -50,26 +139,49 @@ enum Deps {
 
 impl Deps {
     /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then
-    /// `--registry` (versioned crates.io deps pinned to this CLI's own version, so a `day-cli
-    /// x.y.z` binary scaffolds an app depending on `day x.y.z`), otherwise the default — the
-    /// git remote, because the day framework crates are NOT yet published to crates.io. Flip
-    /// the default back to Version (and retire `--git`) when they are.
-    fn resolve(local: Option<&Path>, git: bool, registry: bool) -> Self {
+    /// `--registry` (versioned crates.io deps — `--day-version x.y.z` if given, else this CLI's
+    /// own version, so a `day-cli x.y.z` binary scaffolds an app depending on `day x.y.z`),
+    /// otherwise the default — the git remote, because the day framework crates are NOT yet
+    /// published to crates.io. Flip the default back to Version (and retire `--git`) when they are.
+    ///
+    /// The combinations that name two different days are refused rather than silently ranked.
+    fn resolve(
+        local: Option<&Path>,
+        git: bool,
+        registry: bool,
+        day: Option<DaySource>,
+    ) -> Result<Self, String> {
         let picked = local
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("DAY_LOCAL").map(PathBuf::from));
         if let Some(p) = picked {
+            if day.is_some() {
+                return Err(
+                    "--day-version names a published day; --local (or DAY_LOCAL) builds against \
+                     the checkout at that path. Pass one, not both."
+                        .into(),
+                );
+            }
             // Cargo accepts forward slashes on every host; normalize separators and strip Windows'
             // `\\?\` verbatim prefix so the path is a valid (unescaped) TOML basic string.
             let p = p.canonicalize().unwrap_or(p);
             let s = p.to_string_lossy().replace('\\', "/");
             let s = s.strip_prefix("//?/").map(str::to_string).unwrap_or(s);
-            return Deps::Local(s);
+            return Ok(Deps::Local(s));
         }
         if registry && !git {
-            return Deps::Version(env!("CARGO_PKG_VERSION"));
+            return match day {
+                None => Ok(Deps::Version(env!("CARGO_PKG_VERSION").to_string())),
+                Some(DaySource::Release(v)) => Ok(Deps::Version(v)),
+                // A branch or a commit has no crates.io version to ask for.
+                Some(other) => Err(format!(
+                    "--registry needs a released version; --day-version named a {}. \
+                     Drop --registry to take it from the git remote.",
+                    other.label()
+                )),
+            };
         }
-        Deps::Git
+        Ok(Deps::Git(day))
     }
 
     /// A full dependency line for a day workspace crate, with `extra` (e.g. `, optional = true`)
@@ -77,7 +189,10 @@ impl Deps {
     fn dep(&self, name: &str, extra: &str) -> String {
         match self {
             Deps::Version(v) => format!("{name} = {{ version = \"{v}\"{extra} }}"),
-            Deps::Git => format!("{name} = {{ git = \"{GIT_URL}\"{extra} }}"),
+            Deps::Git(pin) => format!(
+                "{name} = {{ git = \"{GIT_URL}\"{pin}{extra} }}",
+                pin = pin.as_ref().map(DaySource::git_pin).unwrap_or_default()
+            ),
             Deps::Local(root) => format!(
                 "{name} = {{ path = \"{root}/{sub}\"{extra} }}",
                 sub = subpath(name)
@@ -218,13 +333,14 @@ pub fn interactive() -> i32 {
             None,
             false,
             false,
+            None, // the dialog scaffolds against the day this CLI ships with (--day-version's job)
             false,
             false, // interactive scaffolds keep the website — opting out is the flag's job
             &[],   // extra locales are the flag's job too — the scaffold's own default is en
             None,  // icon seed defaults to the app id (docs/icons.md#generate)
         ),
-        1 => part(None, None, None, None, false, false, false),
-        _ => piece(None, None, false, None, None, false, false, false),
+        1 => part(None, None, None, None, false, false, None, false),
+        _ => piece(None, None, false, None, None, false, false, None, false),
     }
 }
 
@@ -377,6 +493,30 @@ fn target_menu_label(t: &targets::Target) -> String {
     }
 }
 
+/// Parse `--day-version` (if any) and resolve the dependency source, reporting a bad spec or a
+/// contradictory combination as a usage error. Shared by the three scaffold entry points.
+fn resolve_deps(
+    local: Option<&Path>,
+    git: bool,
+    registry: bool,
+    day_version: Option<&str>,
+) -> Result<Deps, i32> {
+    let day = match day_version.map(DaySource::parse).transpose() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return Err(2);
+        }
+    };
+    if let Some(d) = &day {
+        ops::status("Day", &format!("scaffolding against {}", d.label()));
+    }
+    Deps::resolve(local, git, registry, day).map_err(|e| {
+        eprintln!("error: {e}");
+        2
+    })
+}
+
 /// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a COMPOSITE piece.
 #[allow(clippy::too_many_arguments)] // one arg per `day new piece` flag, resolved in order
 pub fn piece(
@@ -387,6 +527,7 @@ pub fn piece(
     local: Option<&Path>,
     git: bool,
     registry: bool,
+    day_version: Option<&str>,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -398,7 +539,10 @@ pub fn piece(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local, git, registry);
+    let deps = match resolve_deps(local, git, registry, day_version) {
+        Ok(d) => d,
+        Err(code) => return code,
+    };
 
     // Toolkits: an explicit --toolkits list wins; --composite forces empty; otherwise ask (or, when
     // non-interactive, default to a composite piece — the zero-config choice).
@@ -458,6 +602,7 @@ pub fn piece(
 }
 
 /// Scaffold a headless part. No `--platforms` (and not interactively chosen) ⇒ all platforms.
+#[allow(clippy::too_many_arguments)] // one arg per `day new part` flag, resolved in order
 pub fn part(
     name: Option<&str>,
     platforms_csv: Option<&str>,
@@ -465,6 +610,7 @@ pub fn part(
     local: Option<&Path>,
     git: bool,
     registry: bool,
+    day_version: Option<&str>,
     no_input: bool,
 ) -> i32 {
     let p = Prompt::new(no_input);
@@ -476,7 +622,10 @@ pub fn part(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local, git, registry);
+    let deps = match resolve_deps(local, git, registry, day_version) {
+        Ok(d) => d,
+        Err(code) => return code,
+    };
 
     let platforms: Vec<String> = if let Some(csv) = platforms_csv {
         match parse_platforms(csv) {
@@ -527,6 +676,7 @@ pub fn app(
     local: Option<&Path>,
     git: bool,
     registry: bool,
+    day_version: Option<&str>,
     no_input: bool,
     no_website: bool,
     locales: &[String],
@@ -541,7 +691,10 @@ pub fn app(
         eprintln!("error: {name:?} already exists");
         return 1;
     }
-    let deps = Deps::resolve(local, git, registry);
+    let deps = match resolve_deps(local, git, registry, day_version) {
+        Ok(d) => d,
+        Err(code) => return code,
+    };
 
     // --locales, comma/space-splittable like --toolkit. Validated BEFORE anything is written,
     // so a bad tag is a clean error rather than a half-localized scaffold.
@@ -825,7 +978,9 @@ pub fn add_toolkit(
         .title
         .clone()
         .unwrap_or_else(|| default_title(&app.name));
-    let deps = Deps::resolve(None, false, false);
+    // `add-toolkit` only materializes host projects into an app that already declares its own day
+    // dependency, so there is no version to pick here — the plain remote form is never written.
+    let deps = Deps::resolve(None, false, false, None).unwrap_or(Deps::Git(None));
     let all_targets: Vec<String> = existing.iter().chain(new_targets.iter()).cloned().collect();
     let ctx = template_context(&repl, title, &deps, &all_targets);
 
@@ -909,11 +1064,8 @@ pub fn add_toolkit(
     let first = &wanted[0];
     // `day doctor` groups by its own toolkit ids, which differ from the backend feature names
     // for the two mobile toolkits.
-    let toolkit = match targets::find(first).map(|t| t.toolkit).unwrap_or_default() {
-        "mdc" => "android",
-        "arkui" => "harmonyos",
-        other => other,
-    };
+    let toolkit =
+        crate::doctor::group_id(targets::find(first).map(|t| t.toolkit).unwrap_or_default());
     eprintln!("\n  next:\n    day doctor --toolkit {toolkit}\n    day launch -p {first}\n");
     0
 }
@@ -2456,5 +2608,115 @@ mod tests {
             add_targets_to_day_toml("schema = 1\n[app]\ntargets = 3\n", &["macos-qt"]).is_err()
         );
         assert!(add_targets_to_day_toml("not [ valid toml", &["macos-qt"]).is_err());
+    }
+}
+
+#[cfg(test)]
+mod day_version_tests {
+    use super::*;
+
+    /// The spec forms `--day-version` accepts, and what each pins. `latest` is not tested here:
+    /// it is the one form that asks crates.io, and a unit test must not depend on the network.
+    #[test]
+    fn specs_parse_into_the_right_pin() {
+        assert_eq!(
+            DaySource::parse("0.2.0").unwrap(),
+            DaySource::Release("0.2.0".into())
+        );
+        assert_eq!(
+            DaySource::parse("v1.10.3").unwrap(),
+            DaySource::Release("1.10.3".into())
+        );
+        assert_eq!(
+            DaySource::parse("main").unwrap(),
+            DaySource::Branch("main".into())
+        );
+        assert_eq!(
+            DaySource::parse("release/2.x").unwrap(),
+            DaySource::Branch("release/2.x".into())
+        );
+        assert_eq!(
+            DaySource::parse("a1b2c3d").unwrap(),
+            DaySource::Rev("a1b2c3d".into())
+        );
+        // Hex-looking but too short to be a commit — a branch may well be called `abc`.
+        assert_eq!(
+            DaySource::parse("abc").unwrap(),
+            DaySource::Branch("abc".into())
+        );
+        assert!(DaySource::parse("   ").is_err());
+    }
+
+    /// Each source renders the cargo key that actually pins it, and the plain remote form is
+    /// unchanged when no version was asked for.
+    #[test]
+    fn deps_render_the_pin() {
+        let git = |spec: Option<&str>| {
+            Deps::resolve(
+                None,
+                true,
+                false,
+                spec.map(|s| DaySource::parse(s).unwrap()),
+            )
+            .unwrap()
+            .dep("day", "")
+        };
+        assert_eq!(
+            git(None),
+            "day = { git = \"https://github.com/daybrite/day.git\" }"
+        );
+        assert_eq!(
+            git(Some("0.2.0")),
+            "day = { git = \"https://github.com/daybrite/day.git\", tag = \"v0.2.0\" }"
+        );
+        assert_eq!(
+            git(Some("main")),
+            "day = { git = \"https://github.com/daybrite/day.git\", branch = \"main\" }"
+        );
+        assert_eq!(
+            git(Some("a1b2c3d4")),
+            "day = { git = \"https://github.com/daybrite/day.git\", rev = \"a1b2c3d4\" }"
+        );
+        // `extra` still lands inside the braces, after the pin.
+        assert_eq!(
+            Deps::resolve(None, true, false, Some(DaySource::Branch("main".into())))
+                .unwrap()
+                .dep("day-gtk", ", optional = true"),
+            "day-gtk = { git = \"https://github.com/daybrite/day.git\", branch = \"main\", optional = true }"
+        );
+    }
+
+    /// `--registry` asks crates.io for a version, so it takes a release and refuses a git ref
+    /// rather than silently ignoring it.
+    #[test]
+    fn registry_takes_a_release_and_refuses_a_ref() {
+        let d = Deps::resolve(None, false, true, Some(DaySource::Release("0.3.1".into()))).unwrap();
+        assert_eq!(d.dep("day", ""), "day = { version = \"0.3.1\" }");
+
+        let e =
+            Deps::resolve(None, false, true, Some(DaySource::Branch("main".into()))).unwrap_err();
+        assert!(e.contains("--registry"), "{e}");
+        assert!(e.contains("branch main"), "{e}");
+
+        // No --day-version: the CLI's own version, as before.
+        let d = Deps::resolve(None, false, true, None).unwrap();
+        assert_eq!(
+            d.dep("day", ""),
+            format!("day = {{ version = \"{}\" }}", env!("CARGO_PKG_VERSION"))
+        );
+    }
+
+    /// A local checkout and a named version are two different days; asking for both is refused.
+    #[test]
+    fn local_and_day_version_together_are_refused() {
+        let dir = std::env::temp_dir();
+        let e = Deps::resolve(
+            Some(&dir),
+            false,
+            false,
+            Some(DaySource::Release("0.2.0".into())),
+        )
+        .unwrap_err();
+        assert!(e.contains("--local"), "{e}");
     }
 }
