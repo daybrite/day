@@ -1673,7 +1673,9 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
                 WUXC::Grid row;
                 row.ColumnDefinitions().Append(WUXC::ColumnDefinition());
                 WUXC::ColumnDefinition auto_col;
-                auto_col.Width(WUXC::GridLengthHelper::Auto());
+                // GridLengthHelper lives in Windows.UI.Xaml, not .Controls — GridLength is a
+                // framework struct, and only its helper's statics can build one from C++.
+                auto_col.Width(WUX::GridLengthHelper::Auto());
                 row.ColumnDefinitions().Append(auto_col);
                 WUXC::TextBlock label;
                 label.Text(hs(titles[i].c_str()));
