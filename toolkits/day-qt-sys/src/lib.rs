@@ -252,6 +252,8 @@ unsafe extern "C" {
         joined: *const c_char,
         icons: *const c_char,
         tints: *const c_char,
+        badge_icons: *const c_char,
+        badge_tints: *const c_char,
     );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     pub fn day_qt_splitter_new() -> *mut c_void;

@@ -1558,6 +1558,13 @@ mod imp {
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let joined_tints = nav_tints_joined(&p.tints);
+                    let joined_badge_icons = p
+                        .badge_icons
+                        .iter()
+                        .map(|o| o.clone().unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
+                    let joined_badge_tints = nav_tints_joined(&p.badge_tints);
                     let joined_menus = nav_menus_joined(&p.menus);
                     with_env(|env| {
                         let s = jstr(env, &joined);
@@ -1577,6 +1584,19 @@ mod imp {
                             "setNavMenuTints",
                             "(Landroid/view/View;Ljava/lang/String;)V",
                             &[JValue::Object(handle.0.as_obj()), JValue::Object(&st)],
+                        );
+                        // The trailing status glyph (docs/navigation.md), same best-effort rule.
+                        let sb = jstr(env, &joined_badge_icons);
+                        let sbt = jstr(env, &joined_badge_tints);
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setNavMenuBadges",
+                            "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
+                            &[
+                                JValue::Object(handle.0.as_obj()),
+                                JValue::Object(&sb),
+                                JValue::Object(&sbt),
+                            ],
                         );
                         // Per-row context menus (docs/menus.md): same best-effort follow-up.
                         let sm = jstr(env, &joined_menus);
@@ -1780,6 +1800,8 @@ mod imp {
                             icons,
                             tints,
                             menus,
+                            badge_icons,
+                            badge_tints,
                             ..
                         }) => {
                             let joined = items.join("\u{1f}");
@@ -1789,6 +1811,12 @@ mod imp {
                                 .collect::<Vec<_>>()
                                 .join("\u{1f}");
                             let joined_tints = nav_tints_joined(tints);
+                            let joined_badge_icons = badge_icons
+                                .iter()
+                                .map(|o| o.clone().unwrap_or_default())
+                                .collect::<Vec<_>>()
+                                .join("\u{1f}");
+                            let joined_badge_tints = nav_tints_joined(badge_tints);
                             let joined_menus = nav_menus_joined(menus);
                             with_env(|env| {
                                 let s = jstr(env, &joined);
@@ -1809,6 +1837,18 @@ mod imp {
                                     "setNavMenuTints",
                                     "(Landroid/view/View;Ljava/lang/String;)V",
                                     &[JValue::Object(h.0.as_obj()), JValue::Object(&st)],
+                                );
+                                let sb = jstr(env, &joined_badge_icons);
+                                let sbt = jstr(env, &joined_badge_tints);
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "setNavMenuBadges",
+                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
+                                    &[
+                                        JValue::Object(h.0.as_obj()),
+                                        JValue::Object(&sb),
+                                        JValue::Object(&sbt),
+                                    ],
                                 );
                                 let sm = jstr(env, &joined_menus);
                                 let _ = env.dcall_static(

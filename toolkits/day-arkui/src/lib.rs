@@ -162,6 +162,8 @@ mod imp {
         items: &[String],
         icons: &[Option<String>],
         tints: &[Option<day_spec::Color>],
+        badge_icons: &[Option<String>],
+        badge_tints: &[Option<day_spec::Color>],
     ) -> AHandle {
         let scroll = new_node(K_SCROLL);
         let col = new_node(K_COLUMN);
@@ -213,7 +215,38 @@ mod imp {
                 ffi::day_ark_set_font_size(chevron.0, 20.0);
                 ffi::day_ark_set_font_color(chevron.0, theme_color(0x4D00_0000, 0x66FF_FFFF));
                 ffi::day_ark_insert_child(row.0, label.0, child);
-                ffi::day_ark_insert_child(row.0, chevron.0, child + 1);
+            }
+            // The trailing status glyph (docs/navigation.md), between the growing label and the
+            // chevron so it sits at the row's end without displacing the disclosure arrow.
+            let mut after_label = child + 1;
+            if let Some(Some(name)) = badge_icons.get(i) {
+                let badge = new_node(K_IMAGE);
+                let svg = format!("day/{name}.svg");
+                let is_vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
+                unsafe {
+                    if is_vector {
+                        let src = format!("resource://RAWFILE/{svg}");
+                        ffi::day_ark_set_image_src(badge.0, cstr(&src).as_ptr());
+                        let fill = badge_tints
+                            .get(i)
+                            .copied()
+                            .flatten()
+                            .map(argb)
+                            .unwrap_or_else(|| theme_color(0x9900_0000, 0x99FF_FFFF));
+                        ffi::day_ark_set_image_fill(badge.0, fill);
+                    } else {
+                        let src = format!("resource://RAWFILE/day/{name}.png");
+                        ffi::day_ark_set_image_src(badge.0, cstr(&src).as_ptr());
+                    }
+                    ffi::day_ark_set_image_fit(badge.0, 0);
+                    ffi::day_ark_set_size(badge.0, 16.0, 16.0);
+                    ffi::day_ark_set_margin(badge.0, 4.0);
+                    ffi::day_ark_insert_child(row.0, badge.0, after_label);
+                }
+                after_label += 1;
+            }
+            unsafe {
+                ffi::day_ark_insert_child(row.0, chevron.0, after_label);
                 ffi::day_ark_style_row(row.0, 52.0);
                 ffi::day_ark_register_event(row.0, 0, synth);
                 ffi::day_ark_insert_child(col.0, row.0, pos);
@@ -997,7 +1030,14 @@ mod imp {
                 // against this menu host (via a synthetic click id, see day_arkui_on_event).
                 Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    build_nav_menu(id, &p.items, &p.icons, &p.tints)
+                    build_nav_menu(
+                        id,
+                        &p.items,
+                        &p.icons,
+                        &p.tints,
+                        &p.badge_icons,
+                        &p.badge_tints,
+                    )
                 }
                 // Tabs: a native Swiper pager (swipe + dot indicator). Each TABS_PAGE is a Swiper
                 // child (the Swiper owns their horizontal layout, so their set_frame skips position).

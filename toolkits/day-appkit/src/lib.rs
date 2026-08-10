@@ -703,6 +703,11 @@ struct NavMenuIvars {
     tints: RefCell<Vec<Option<day_spec::Color>>>,
     /// Trailing accessory per item row (an unread count), `None` where a row has none.
     badges: RefCell<Vec<Option<Retained<NSString>>>>,
+    /// Trailing accessory GLYPH per row, in the same slot as `badges` and drawn after it —
+    /// a starred page's star. Resolved to images once per rebuild, like `icons`.
+    badge_icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
+    /// Tint for `badge_icons`; `None` keeps the neutral template tint.
+    badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
     /// Per-row context menu (docs/menus.md), empty = none. Built into an NSMenu and attached
     /// to the row's cell view, so a secondary click pops it like any native sidebar menu.
     menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
@@ -901,6 +906,19 @@ define_class!(
                     .borrow()
                     .get(index)
                     .and_then(|o| o.clone());
+                let badge_icon = self
+                    .ivars()
+                    .badge_icons
+                    .borrow()
+                    .get(index)
+                    .and_then(|o| o.clone());
+                let badge_tint = self
+                    .ivars()
+                    .badge_tints
+                    .borrow()
+                    .get(index)
+                    .copied()
+                    .flatten();
                 // Indent the label past the icon when there is one, so labels align icon-to-text.
                 let label_x = if icon.is_some() { 26.0 } else { 0.0 };
                 let cell = unsafe { objc2_app_kit::NSTableCellView::new(mtm) };
@@ -921,6 +939,16 @@ define_class!(
                     // The badge sits at the trailing edge and keeps its intrinsic width; the
                     // label truncates into whatever is left, so a long feed name never pushes
                     // its own unread count off the pane.
+                    // Both accessories share the trailing slot: the count (if any) and then
+                    // the status glyph (if any), in a stack so a row can carry either or both
+                    // without the constraints below caring which it got.
+                    let accessory = objc2_app_kit::NSStackView::new(mtm);
+                    accessory.setTranslatesAutoresizingMaskIntoConstraints(false);
+                    accessory.setOrientation(
+                        objc2_app_kit::NSUserInterfaceLayoutOrientation::Horizontal,
+                    );
+                    accessory.setSpacing(4.0);
+                    let mut has_accessory = false;
                     let trailing: Retained<NSView> = match &badge {
                         Some(text) => {
                             let b = NSTextField::labelWithString(text, mtm);
@@ -937,18 +965,39 @@ define_class!(
                                 objc2_app_kit::NSLayoutPriorityRequired,
                                 objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
                             );
-                            cell.addSubview(&b);
+                            accessory.addArrangedSubview(&objc2::rc::Retained::into_super(
+                                objc2::rc::Retained::into_super(b),
+                            ));
+                            has_accessory = true;
                             let v: Retained<NSView> =
-                                objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(b));
+                                objc2::rc::Retained::into_super(accessory.clone());
                             v
                         }
-                        None => {
-                            let spacer = NSView::new(mtm);
-                            spacer.setTranslatesAutoresizingMaskIntoConstraints(false);
-                            cell.addSubview(&spacer);
-                            spacer
-                        }
+                        None => objc2::rc::Retained::into_super(accessory.clone()),
                     };
+                    // The status glyph, tinted where the app gave it a meaning-bearing colour
+                    // (a star is yellow because that is what a star IS, not because the theme
+                    // says so). Template images take contentTintColor exactly as the row's
+                    // leading icon does.
+                    if let Some(img) = &badge_icon {
+                        let iv = objc2_app_kit::NSImageView::new(mtm);
+                        iv.setImage(Some(img));
+                        iv.setTranslatesAutoresizingMaskIntoConstraints(false);
+                        if let Some(c) = badge_tint {
+                            iv.setContentTintColor(Some(&nscolor(c)));
+                        }
+                        iv.setContentCompressionResistancePriority_forOrientation(
+                            objc2_app_kit::NSLayoutPriorityRequired,
+                            objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
+                        );
+                        accessory.addArrangedSubview(&objc2::rc::Retained::into_super(iv));
+                        has_accessory = true;
+                    }
+                    // Added either way: with no accessory the stack is zero-width, and it still
+                    // anchors the label's trailing constraint, so the layout below needs no
+                    // special case for a bare row.
+                    let _ = has_accessory;
+                    cell.addSubview(&trailing);
                     label.setContentCompressionResistancePriority_forOrientation(
                         objc2_app_kit::NSLayoutPriorityDefaultLow,
                         objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
@@ -1058,6 +1107,8 @@ impl DayNavMenuData {
         items: &[String],
         icons: &[Option<String>],
         badges: &[Option<String>],
+        badge_icons: &[Option<String>],
+        badge_tints: &[Option<day_spec::Color>],
         sections: &[Option<String>],
         tints: &[Option<day_spec::Color>],
         menus: &[Vec<day_spec::MenuItem>],
@@ -1069,6 +1120,8 @@ impl DayNavMenuData {
             tints: RefCell::new(tints.to_vec()),
             menus: RefCell::new(menus.to_vec()),
             badges: RefCell::new(ns_badges(badges)),
+            badge_icons: RefCell::new(resolve_nav_icons(badge_icons)),
+            badge_tints: RefCell::new(badge_tints.to_vec()),
             rows: RefCell::new(Vec::new()),
             row_objects: RefCell::new(Vec::new()),
             suppress: std::cell::Cell::new(false),
@@ -1084,6 +1137,8 @@ impl DayNavMenuData {
         items: &[String],
         icons: &[Option<String>],
         badges: &[Option<String>],
+        badge_icons: &[Option<String>],
+        badge_tints: &[Option<day_spec::Color>],
         sections: &[Option<String>],
         tints: &[Option<day_spec::Color>],
         menus: &[Vec<day_spec::MenuItem>],
@@ -1093,6 +1148,8 @@ impl DayNavMenuData {
         *self.ivars().tints.borrow_mut() = tints.to_vec();
         *self.ivars().menus.borrow_mut() = menus.to_vec();
         *self.ivars().badges.borrow_mut() = ns_badges(badges);
+        *self.ivars().badge_icons.borrow_mut() = resolve_nav_icons(badge_icons);
+        *self.ivars().badge_tints.borrow_mut() = badge_tints.to_vec();
         self.rebuild_rows(items, sections);
     }
 
@@ -2621,6 +2678,8 @@ impl Toolkit for AppKit {
                     &p.items,
                     &p.icons,
                     &p.badges,
+                    &p.badge_icons,
+                    &p.badge_tints,
                     &p.sections,
                     &p.tints,
                     &p.menus,
@@ -2973,6 +3032,8 @@ impl Toolkit for AppKit {
                     items,
                     icons,
                     badges,
+                    badge_icons,
+                    badge_tints,
                     sections,
                     tints,
                     menus,
@@ -2984,7 +3045,16 @@ impl Toolkit for AppKit {
                         let Some((outline, data)) = m.get(&ptr_of(h)) else {
                             return;
                         };
-                        data.set_items(items, icons, badges, sections, tints, menus);
+                        data.set_items(
+                            items,
+                            icons,
+                            badges,
+                            badge_icons,
+                            badge_tints,
+                            sections,
+                            tints,
+                            menus,
+                        );
                         data.ivars().suppress.set(true);
                         unsafe {
                             outline.reloadData();

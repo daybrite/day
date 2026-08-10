@@ -1068,12 +1068,23 @@ impl Toolkit for Xaml {
                             .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
                             .collect::<Vec<_>>()
                             .join("\n");
+                        // The trailing status glyph rides the same three channels the leading
+                        // icon does: staged file name, vector geometry, tint.
+                        let badge_icons_joined = p
+                            .badge_icons
+                            .iter()
+                            .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .join("\n");
                         ffi::day_xaml_nav_set_items(
                             pending,
                             cstr(&p.items.join("\n")).as_ptr(),
                             cstr(&icons_joined).as_ptr(),
                             cstr(&join_geoms(&p.icons)).as_ptr(),
                             cstr(&join_tints(&p.tints)).as_ptr(),
+                            cstr(&badge_icons_joined).as_ptr(),
+                            cstr(&join_geoms(&p.badge_icons)).as_ptr(),
+                            cstr(&join_tints(&p.badge_tints)).as_ptr(),
                         );
                         ffi::day_xaml_nav_set_selected(
                             pending,
@@ -1400,12 +1411,15 @@ impl Toolkit for Xaml {
                         // The row set changed (a filtered sidebar, a data-driven list). Without
                         // this the pane kept its original rows for the life of the window, and
                         // NAV_MENU_ROWS — which `measure` sizes the list from — went stale.
-                        // Badges and sections have no NavigationView counterpart yet, so they are
-                        // dropped here as they are at realize.
+                        // Text badges and sections still have no NavigationView counterpart and
+                        // are dropped here as at realize; the trailing status GLYPH does have one
+                        // (it composes into the item's Content) and rides along below.
                         Some(NavMenuPatch::Items {
                             items,
                             icons,
                             tints,
+                            badge_icons,
+                            badge_tints,
                             selected,
                             ..
                         }) => {
@@ -1426,6 +1440,20 @@ impl Toolkit for Xaml {
                                         cstr(&icons_joined).as_ptr(),
                                         cstr(&join_geoms(icons)).as_ptr(),
                                         cstr(&join_tints(tints)).as_ptr(),
+                                        cstr(
+                                            &badge_icons
+                                                .iter()
+                                                .map(|ic| {
+                                                    ic.as_deref()
+                                                        .map(icon_file_name)
+                                                        .unwrap_or_default()
+                                                })
+                                                .collect::<Vec<_>>()
+                                                .join("\n"),
+                                        )
+                                        .as_ptr(),
+                                        cstr(&join_geoms(badge_icons)).as_ptr(),
+                                        cstr(&join_tints(badge_tints)).as_ptr(),
                                     );
                                     ffi::day_xaml_nav_set_selected(nav, idx);
                                 }

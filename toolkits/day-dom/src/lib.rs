@@ -445,6 +445,8 @@ fn navmenu_json(
     items: &[String],
     icons: &[Option<String>],
     tints: &[Option<day_spec::Color>],
+    badge_icons: &[Option<String>],
+    badge_tints: &[Option<day_spec::Color>],
     selected: Option<usize>,
 ) -> String {
     let mut json = String::from("{\"items\":[");
@@ -464,6 +466,27 @@ fn navmenu_json(
             // instead of currentColor.
             if let Some(Some(t)) = tints.get(i) {
                 json.push_str(",\"tint\":");
+                json_str(
+                    &mut json,
+                    &format!(
+                        "#{:02x}{:02x}{:02x}",
+                        (t.r * 255.0) as u8,
+                        (t.g * 255.0) as u8,
+                        (t.b * 255.0) as u8
+                    ),
+                );
+            }
+        }
+        // The trailing status glyph (docs/navigation.md), in the same shape as `icon`/`tint` so
+        // the shim paints it with one code path at the other end of the row.
+        if let Some(Some(badge)) = badge_icons.get(i) {
+            json.push_str(",\"badgeIcon\":");
+            json_str(
+                &mut json,
+                &format!("assets/images/{badge}.{}", image_ext(badge)),
+            );
+            if let Some(Some(t)) = badge_tints.get(i) {
+                json.push_str(",\"badgeTint\":");
                 json_str(
                     &mut json,
                     &format!(
@@ -873,7 +896,14 @@ impl Toolkit for Dom {
             Some(Builtin::NavMenu) => {
                 let p = props.downcast_ref::<NavMenuProps>().unwrap();
                 let el = unsafe { day_dom_create(EL_NAVMENU) };
-                let json = navmenu_json(&p.items, &p.icons, &p.tints, p.selected);
+                let json = navmenu_json(
+                    &p.items,
+                    &p.icons,
+                    &p.tints,
+                    &p.badge_icons,
+                    &p.badge_tints,
+                    p.selected,
+                );
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 el
             }
@@ -1110,11 +1140,14 @@ impl Toolkit for Dom {
                     items,
                     icons,
                     tints,
+                    badge_icons,
+                    badge_tints,
                     selected,
                     ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
-                    let json = navmenu_json(items, icons, tints, *selected);
+                    let json =
+                        navmenu_json(items, icons, tints, badge_icons, badge_tints, *selected);
                     unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()

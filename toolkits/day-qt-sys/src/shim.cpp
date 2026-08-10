@@ -18,7 +18,9 @@
 #include <QFrame>
 #include <QGraphicsEffect>
 #include <QHBoxLayout>
+#include <QFileInfo>
 #include <QPainter>
+#include <QStyledItemDelegate>
 #include <QPainterPath>
 #include <QPropertyAnimation>
 #include <QVariantAnimation>
@@ -885,8 +887,36 @@ static QIcon day_qt_tinted_icon(const QString &path, const QColor &color) {
     p.end();
     return QIcon(tinted);
 }
+
+// A nav row's trailing status glyph (docs/navigation.md). QListWidgetItem carries ONE icon, and
+// that slot is the row's leading icon — so the badge rides a custom data role and a delegate
+// paints it at the trailing edge after the stock item. Painting it rather than embedding a widget
+// keeps the list's native row rendering, selection highlight and keyboard handling untouched.
+static constexpr int DAY_NAV_BADGE_ROLE = Qt::UserRole + 17;
+
+class DayNavBadgeDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override {
+        QStyledItemDelegate::paint(painter, option, index);
+        const QVariant v = index.data(DAY_NAV_BADGE_ROLE);
+        if (!v.canConvert<QIcon>()) return;
+        const QIcon badge = v.value<QIcon>();
+        if (badge.isNull()) return;
+        const int sz = qMin(16, option.rect.height() - 6);
+        if (sz <= 0) return;
+        // Trailing edge, mirrored under RTL like every other trailing affordance.
+        const bool rtl = option.direction == Qt::RightToLeft;
+        const int x = rtl ? option.rect.left() + 6 : option.rect.right() - sz - 6;
+        const int y = option.rect.top() + (option.rect.height() - sz) / 2;
+        badge.paint(painter, QRect(x, y, sz, sz));
+    }
+};
+
 void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
-                              const char *tints) {
+                              const char *tints, const char *badge_icons,
+                              const char *badge_tints) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
     // Split titles WITHOUT SkipEmptyParts so the icon list stays row-aligned; the icon
@@ -897,7 +927,18 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
         QString::fromUtf8(icons).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QStringList tintStrs =
         QString::fromUtf8(tints).split(QChar(0x1f), Qt::KeepEmptyParts);
+    const QStringList badgePaths =
+        QString::fromUtf8(badge_icons).split(QChar(0x1f), Qt::KeepEmptyParts);
+    const QStringList badgeTintStrs =
+        QString::fromUtf8(badge_tints).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QColor textColor = l->palette().color(QPalette::Text);
+    // Installed once, tracked by a dynamic property: `qobject_cast` would need Q_OBJECT and
+    // therefore moc, which this shim is deliberately built without (plain cc-rs, no code
+    // generation step). The delegate is inert on rows carrying no badge data.
+    if (!l->property("dayBadgeDelegate").toBool()) {
+        l->setItemDelegate(new DayNavBadgeDelegate(l));
+        l->setProperty("dayBadgeDelegate", true);
+    }
     l->blockSignals(true);
     l->clear();
     for (int i = 0; i < titles.size(); ++i) {
@@ -911,6 +952,15 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
             }
             QIcon icon = day_qt_tinted_icon(iconPaths.at(i), rowColor);
             if (!icon.isNull()) item->setIcon(icon);
+        }
+        if (i < badgePaths.size() && !badgePaths.at(i).isEmpty()) {
+            QColor badgeColor = textColor;
+            if (i < badgeTintStrs.size() && !badgeTintStrs.at(i).isEmpty()) {
+                QColor c(badgeTintStrs.at(i));
+                if (c.isValid()) badgeColor = c;
+            }
+            QIcon badge = day_qt_tinted_icon(badgePaths.at(i), badgeColor);
+            if (!badge.isNull()) item->setData(DAY_NAV_BADGE_ROLE, QVariant::fromValue(badge));
         }
     }
     l->blockSignals(false);
@@ -1646,6 +1696,15 @@ static std::map<std::string, QAction *> g_toolbar_actions;
 // so a macOS or Windows Qt build still gets real icons for the common commands.
 static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
     QString name = QString::fromUtf8(theme);
+    // A BUNDLED image arrives here as a resolved file path (day-qt's `icon_args`), and it is a
+    // template glyph: black on transparent. Loading it as-is drew a flat black star on the
+    // toolbar, invisible in dark mode and wrong in light. Tint it to the palette text colour,
+    // exactly as the sidebar rows do — the file test is what tells a path from a theme NAME.
+    if (!name.isEmpty() && QFileInfo(name).isFile()) {
+        QColor fg = QApplication::palette().color(QPalette::WindowText);
+        QIcon tinted = day_qt_tinted_icon(name, fg);
+        if (!tinted.isNull()) return tinted;
+    }
     if (!name.isEmpty()) {
         QIcon themed = QIcon::fromTheme(name);
         if (!themed.isNull()) return themed;

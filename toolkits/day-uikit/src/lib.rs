@@ -1308,6 +1308,9 @@ mod imp {
     struct NavCellIvars {
         icon: Retained<objc2_ui_kit::UIImageView>,
         title: Retained<UILabel>,
+        /// Trailing status glyph (docs/navigation.md) — a starred page's star. Laid out inside
+        /// the accessory's margin, so it never collides with the disclosure chevron.
+        badge_icon: Retained<objc2_ui_kit::UIImageView>,
     }
 
     define_class!(
@@ -1334,11 +1337,22 @@ mod imp {
                 const GAP: f64 = 12.0;
                 let has_icon = unsafe { iv.icon.image() }.is_some();
                 let text_x = if has_icon { LEADING + ICON + GAP } else { LEADING };
+                // The status glyph takes width off the label's right edge rather than overlaying
+                // it, so a long title truncates instead of running under the star.
+                let has_badge = unsafe { iv.badge_icon.image() }.is_some();
+                let badge_w = if has_badge { ICON + GAP } else { 0.0 };
                 unsafe {
                     iv.title.setFrame(CGRect::new(
                         CGPoint::new(text_x, label_y),
-                        CGSize::new((cw - text_x - 6.0).max(0.0), line_h),
+                        CGSize::new((cw - text_x - 6.0 - badge_w).max(0.0), line_h),
                     ));
+                    iv.badge_icon.setHidden(!has_badge);
+                    if has_badge {
+                        iv.badge_icon.setFrame(CGRect::new(
+                            CGPoint::new((cw - ICON).max(0.0), ((ch - ICON) / 2.0).max(0.0)),
+                            CGSize::new(ICON, ICON),
+                        ));
+                    }
                     iv.icon.setHidden(!has_icon);
                     if has_icon {
                         // Centre the icon on the row, matching the centred label. Bottoming
@@ -1360,6 +1374,7 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(NavCellIvars {
                 icon: unsafe { objc2_ui_kit::UIImageView::new(mtm) },
                 title: unsafe { UILabel::new(mtm) },
+                badge_icon: unsafe { objc2_ui_kit::UIImageView::new(mtm) },
             });
             let none: Option<&NSString> = None;
             let cell: Retained<Self> = unsafe {
@@ -1378,8 +1393,11 @@ mod imp {
                 iv.icon
                     .setContentMode(objc2_ui_kit::UIViewContentMode::ScaleAspectFit);
                 iv.icon.setTintColor(Some(&UIColor::secondaryLabelColor()));
+                iv.badge_icon
+                    .setContentMode(objc2_ui_kit::UIViewContentMode::ScaleAspectFit);
                 cell.contentView().addSubview(&iv.title);
                 cell.contentView().addSubview(&iv.icon);
+                cell.contentView().addSubview(&iv.badge_icon);
                 cell.setAccessoryType(
                     objc2_ui_kit::UITableViewCellAccessoryType::DisclosureIndicator,
                 );
@@ -1392,6 +1410,8 @@ mod imp {
             title: &NSString,
             image: Option<&objc2_ui_kit::UIImage>,
             tint: Option<day_spec::Color>,
+            badge_image: Option<&objc2_ui_kit::UIImage>,
+            badge_tint: Option<day_spec::Color>,
         ) {
             let iv = self.ivars();
             unsafe {
@@ -1402,6 +1422,13 @@ mod imp {
                 match tint {
                     Some(t) => iv.icon.setTintColor(Some(&uicolor(t))),
                     None => iv.icon.setTintColor(Some(&UIColor::secondaryLabelColor())),
+                }
+                iv.badge_icon.setImage(badge_image);
+                match badge_tint {
+                    Some(t) => iv.badge_icon.setTintColor(Some(&uicolor(t))),
+                    None => iv
+                        .badge_icon
+                        .setTintColor(Some(&UIColor::secondaryLabelColor())),
                 }
             }
             self.setNeedsLayout();
@@ -1419,6 +1446,10 @@ mod imp {
         /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
         /// Template mode tints them with the cell's tint colour (the iOS list idiom).
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
+        /// Trailing status glyphs per row, resolved the same way as `icons`.
+        badge_icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
+        /// Tint for `badge_icons`; `None` keeps the neutral template look.
+        badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
         /// Per-row context menu (docs/menus.md), empty = none — served through the table
         /// delegate's row-context hook, the standard iOS long-press row menu.
         menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
@@ -1458,7 +1489,20 @@ mod imp {
                     .unwrap_or_else(|| NSString::from_str(""));
                 let img = self.ivars().icons.borrow().get(row).and_then(|o| o.clone());
                 let tint = self.ivars().tints.borrow().get(row).copied().flatten();
-                cell.configure(&title, img.as_deref(), tint);
+                let bimg = self
+                    .ivars()
+                    .badge_icons
+                    .borrow()
+                    .get(row)
+                    .and_then(|o| o.clone());
+                let btint = self
+                    .ivars()
+                    .badge_tints
+                    .borrow()
+                    .get(row)
+                    .copied()
+                    .flatten();
+                cell.configure(&title, img.as_deref(), tint, bimg.as_deref(), btint);
                 objc2::rc::Retained::into_super(cell)
             }
         }
@@ -1548,6 +1592,21 @@ mod imp {
         None
     }
 
+    /// Resolve nav glyph names to template images once per rebuild (docs/navigation.md).
+    fn resolve_nav_images(
+        names: &[Option<String>],
+    ) -> Vec<Option<Retained<objc2_ui_kit::UIImage>>> {
+        names
+            .iter()
+            .map(|ic| {
+                let img = load_bundled_uiimage(ic.as_deref()?)?;
+                Some(unsafe {
+                    img.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+                })
+            })
+            .collect()
+    }
+
     impl DayNavTableData {
         fn new(
             mtm: MainThreadMarker,
@@ -1556,22 +1615,16 @@ mod imp {
             icons: &[Option<String>],
             tints: &[Option<day_spec::Color>],
             menus: &[Vec<day_spec::MenuItem>],
+            badge_icons: &[Option<String>],
+            badge_tints: &[Option<day_spec::Color>],
         ) -> Retained<Self> {
-            let resolved: Vec<Option<Retained<objc2_ui_kit::UIImage>>> = icons
-                .iter()
-                .map(|ic| {
-                    let img = load_bundled_uiimage(ic.as_deref()?)?;
-                    Some(unsafe {
-                        img.imageWithRenderingMode(
-                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                        )
-                    })
-                })
-                .collect();
+            let resolved = resolve_nav_images(icons);
             let this = Self::alloc(mtm).set_ivars(NavTableIvars {
                 node,
                 items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
                 icons: RefCell::new(resolved),
+                badge_icons: RefCell::new(resolve_nav_images(badge_icons)),
+                badge_tints: RefCell::new(badge_tints.to_vec()),
                 tints: RefCell::new(tints.to_vec()),
                 menus: RefCell::new(menus.to_vec()),
             });
@@ -1585,22 +1638,16 @@ mod imp {
             icons: &[Option<String>],
             tints: &[Option<day_spec::Color>],
             menus: &[Vec<day_spec::MenuItem>],
+            badge_icons: &[Option<String>],
+            badge_tints: &[Option<day_spec::Color>],
         ) {
             *self.ivars().items.borrow_mut() =
                 items.iter().map(|s| NSString::from_str(s)).collect();
             *self.ivars().tints.borrow_mut() = tints.to_vec();
             *self.ivars().menus.borrow_mut() = menus.to_vec();
-            *self.ivars().icons.borrow_mut() = icons
-                .iter()
-                .map(|ic| {
-                    let img = load_bundled_uiimage(ic.as_deref()?)?;
-                    Some(unsafe {
-                        img.imageWithRenderingMode(
-                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                        )
-                    })
-                })
-                .collect();
+            *self.ivars().icons.borrow_mut() = resolve_nav_images(icons);
+            *self.ivars().badge_icons.borrow_mut() = resolve_nav_images(badge_icons);
+            *self.ivars().badge_tints.borrow_mut() = badge_tints.to_vec();
         }
     }
 
@@ -2673,8 +2720,16 @@ mod imp {
                 }
                 Some(Builtin::NavMenu) => {
                     let p = props.downcast_ref::<NavMenuProps>().unwrap();
-                    let data =
-                        DayNavTableData::new(mtm, id, &p.items, &p.icons, &p.tints, &p.menus);
+                    let data = DayNavTableData::new(
+                        mtm,
+                        id,
+                        &p.items,
+                        &p.icons,
+                        &p.tints,
+                        &p.menus,
+                        &p.badge_icons,
+                        &p.badge_tints,
+                    );
                     let table = unsafe {
                         objc2_ui_kit::UITableView::initWithFrame_style(
                             objc2_ui_kit::UITableView::alloc(mtm),
@@ -3003,12 +3058,21 @@ mod imp {
                         icons,
                         tints,
                         menus,
+                        badge_icons,
+                        badge_tints,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
                         NAV_MENUS.with(|m| {
                             if let Some((data, n)) = m.borrow_mut().get_mut(&ptr_of(h)) {
-                                data.set_items(items, icons, tints, menus);
+                                data.set_items(
+                                    items,
+                                    icons,
+                                    tints,
+                                    menus,
+                                    badge_icons,
+                                    badge_tints,
+                                );
                                 *n = items.len();
                                 if let Some(tv) = h.downcast_ref::<objc2_ui_kit::UITableView>() {
                                     unsafe { tv.reloadData() };

@@ -865,6 +865,19 @@ fn exec(step: Step) -> Reply {
                         false,
                     ));
                 }
+                // A TOGGLE's action lives in the value registry, not the menu-action one, so a
+                // bare `toolbar: { item }` on one used to dispatch into the wrong registry and
+                // do nothing at all — the step passed, the app did not move, and the script was
+                // left asserting against a state it never reached. Say what is missing instead.
+                if matches!(found.kind, day_spec::ToolbarItemKind::Toggle { .. })
+                    && on.is_none()
+                    && text.is_none()
+                {
+                    return Err(Reply::fail(
+                        format!("toolbar: {item:?} is a toggle — say `on: true` or `on: false`"),
+                        false,
+                    ));
+                }
                 match (text, on) {
                     (Some(t), _) => day_core::toolbar::dispatch_toolbar_value(
                         found.action,

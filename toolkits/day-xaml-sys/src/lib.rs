@@ -146,6 +146,9 @@ unsafe extern "C" {
         icons_joined: *const c_char,
         geoms_joined: *const c_char,
         tints_joined: *const c_char,
+        badge_icons_joined: *const c_char,
+        badge_geoms_joined: *const c_char,
+        badge_tints_joined: *const c_char,
     );
     pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
     pub fn day_xaml_nav_set_header(nav: *mut c_void, title: *const c_char);

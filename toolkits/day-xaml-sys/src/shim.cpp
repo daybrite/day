@@ -1634,7 +1634,9 @@ void day_xaml_delete(void* h);
 // A row draws as PathIcon geometry wherever it can, so the sidebar is vector at any DPI and its
 // tint is a brush; only unconvertible art falls back to the monochrome raster.
 void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* icons_joined,
-                            const char* geoms_joined, const char* tints_joined) {
+                            const char* geoms_joined, const char* tints_joined,
+                            const char* badge_icons_joined, const char* badge_geoms_joined,
+                            const char* badge_tints_joined) {
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
@@ -1643,9 +1645,66 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
         auto icons = split_lines(icons_joined);
         auto geoms = split_lines(geoms_joined ? geoms_joined : "");
         auto tints = split_lines(tints_joined ? tints_joined : "");
+        auto badge_icons = split_lines(badge_icons_joined ? badge_icons_joined : "");
+        auto badge_geoms = split_lines(badge_geoms_joined ? badge_geoms_joined : "");
+        auto badge_tints = split_lines(badge_tints_joined ? badge_tints_joined : "");
         for (size_t i = 0; i < titles.size(); ++i) {
             WUXC::NavigationViewItem nvi;
-            nvi.Content(winrt::box_value(hs(titles[i].c_str())));
+            // The trailing status glyph (docs/navigation.md). NavigationViewItem has ONE Icon
+            // slot and it is the leading one, so a badge has to ride the Content: a row with one
+            // becomes [title][stretch][glyph] instead of a bare string. A row without one keeps
+            // the plain boxed string, so nothing changes for the common case.
+            void* badge_el = nullptr;
+            unsigned int badge_argb =
+                i < badge_tints.size()
+                    ? static_cast<unsigned int>(std::strtoul(badge_tints[i].c_str(), nullptr, 10))
+                    : 0u;
+            bool badge_tinted = (badge_argb >> 24) != 0;
+            if (i < badge_geoms.size() && !badge_geoms[i].empty()) {
+                std::string spec = badge_geoms[i];
+                for (auto& c : spec)
+                    if (c == '\x1f') c = '\n';
+                badge_el = day_xaml_vector_icon_new(spec.c_str(), badge_argb,
+                                                    badge_tinted ? 1 : 0, 14.0);
+            }
+            bool has_badge_bitmap =
+                !badge_el && i < badge_icons.size() && !badge_icons[i].empty();
+            if (badge_el || has_badge_bitmap) {
+                WUXC::Grid row;
+                row.ColumnDefinitions().Append(WUXC::ColumnDefinition());
+                WUXC::ColumnDefinition auto_col;
+                auto_col.Width(WUXC::GridLengthHelper::Auto());
+                row.ColumnDefinitions().Append(auto_col);
+                WUXC::TextBlock label;
+                label.Text(hs(titles[i].c_str()));
+                label.VerticalAlignment(WUX::VerticalAlignment::Center);
+                row.Children().Append(label);
+                WUXC::Grid::SetColumn(label, 0);
+                WUX::FrameworkElement glyph{ nullptr };
+                if (badge_el) {
+                    glyph = elem(badge_el).try_as<WUX::FrameworkElement>();
+                } else {
+                    WUXC::BitmapIcon bicon;
+                    bicon.UriSource(
+                        WF::Uri{ hs(("ms-appx:///images/" + badge_icons[i]).c_str()) });
+                    bicon.ShowAsMonochrome(true);
+                    if (badge_tinted)
+                        bicon.Foreground(WUXM::SolidColorBrush(color_argb(badge_argb)));
+                    bicon.Width(14.0);
+                    bicon.Height(14.0);
+                    glyph = bicon;
+                }
+                if (glyph) {
+                    glyph.VerticalAlignment(WUX::VerticalAlignment::Center);
+                    glyph.Margin(WUX::ThicknessHelper::FromLengths(8.0, 0.0, 0.0, 0.0));
+                    row.Children().Append(glyph);
+                    WUXC::Grid::SetColumn(glyph, 1);
+                }
+                if (badge_el) day_xaml_delete(badge_el); // the Grid owns it now
+                nvi.Content(row);
+            } else {
+                nvi.Content(winrt::box_value(hs(titles[i].c_str())));
+            }
             unsigned int argb =
                 i < tints.size()
                     ? static_cast<unsigned int>(std::strtoul(tints[i].c_str(), nullptr, 10))

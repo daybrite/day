@@ -701,6 +701,8 @@ fn fill_nav_menu(
     items: &[String],
     icons: &[Option<String>],
     badges: &[Option<String>],
+    badge_icons: &[Option<String>],
+    badge_tints: &[Option<day_spec::Color>],
     sections: &[Option<String>],
     tints: &[Option<day_spec::Color>],
     menus: &[Vec<day_spec::MenuItem>],
@@ -741,7 +743,15 @@ fn fill_nav_menu(
             b.set_halign(gtk4::Align::End);
             b
         });
-        let row_widget: gtk4::Widget = if icon.is_some() || badge.is_some() {
+        // The trailing status glyph, tinted where the app gave it a meaning-bearing colour —
+        // the same `tinted_template_icon` path the leading icon takes, so a symbol resolves and
+        // recolors identically at either end of the row.
+        let badge_icon = badge_icons
+            .get(i)
+            .and_then(|o| o.as_deref())
+            .and_then(|name| tinted_template_icon(name, badge_tints.get(i).copied().flatten()));
+        let row_widget: gtk4::Widget = if icon.is_some() || badge.is_some() || badge_icon.is_some()
+        {
             let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
             if let Some(image) = icon {
                 image.set_margin_start(2);
@@ -750,6 +760,10 @@ fn fill_nav_menu(
             row.append(&label);
             if let Some(b) = badge {
                 row.append(&b);
+            }
+            if let Some(g) = badge_icon {
+                g.set_halign(gtk4::Align::End);
+                row.append(&g);
             }
             listbox.append(&row);
             row.upcast()
@@ -1725,6 +1739,8 @@ impl Toolkit for Gtk {
                     &p.items,
                     &p.icons,
                     &p.badges,
+                    &p.badge_icons,
+                    &p.badge_tints,
                     &p.sections,
                     &p.tints,
                     &p.menus,
@@ -2179,6 +2195,8 @@ impl Toolkit for Gtk {
                     items,
                     icons,
                     badges,
+                    badge_icons,
+                    badge_tints,
                     sections,
                     tints,
                     menus,
@@ -2194,7 +2212,17 @@ impl Toolkit for Gtk {
                         while let Some(row) = state.listbox.first_child() {
                             state.listbox.remove(&row);
                         }
-                        fill_nav_menu(&state.listbox, items, icons, badges, sections, tints, menus);
+                        fill_nav_menu(
+                            &state.listbox,
+                            items,
+                            icons,
+                            badges,
+                            badge_icons,
+                            badge_tints,
+                            sections,
+                            tints,
+                            menus,
+                        );
                         state.rows = items.len();
                         match selected {
                             Some(i) => state

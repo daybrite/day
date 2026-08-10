@@ -1015,6 +1015,45 @@ public final class DayBridge {
         }
     }
 
+    /** Per-row trailing status glyphs (docs/navigation.md) — a starred page's star. Index-aligned
+     *  names ("" = none) with matching ARGB tints ("0" = keep the row's text-colour template
+     *  tint). The glyph goes in the compound drawable's END slot, so the row needs no new layout
+     *  and the label still ellipsizes into what is left.
+     *
+     *  Best-effort and called AFTER makeNavMenu/updateNavMenu, exactly like setNavMenuTints: a
+     *  throw on the nav host's own build path takes the whole tree down with it, and a decoration
+     *  is never worth that. */
+    public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints) {
+        try {
+            if (!(navMenu instanceof android.widget.ScrollView)) return;
+            android.view.ViewGroup list =
+                    (android.view.ViewGroup) ((android.widget.ScrollView) navMenu).getChildAt(0);
+            if (list == null) return;
+            String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
+            String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
+            float d = ctx.getResources().getDisplayMetrics().density;
+            for (int i = 0; i < list.getChildCount() && i < icons.length; i++) {
+                if (!(list.getChildAt(i) instanceof TextView)) continue;
+                TextView row = (TextView) list.getChildAt(i);
+                android.graphics.drawable.Drawable[] ds = row.getCompoundDrawablesRelative();
+                android.graphics.drawable.Drawable badge = drawableByName(ctx, icons[i]);
+                if (badge != null) {
+                    int sz = (int) (18 * d);
+                    badge = badge.mutate();
+                    badge.setBounds(0, 0, sz, sz);
+                    long tint = 0;
+                    if (i < tints.length) {
+                        try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { tint = 0; }
+                    }
+                    badge.setTint(tint != 0 ? (int) tint : row.getCurrentTextColor());
+                }
+                row.setCompoundDrawablesRelative(ds.length > 0 ? ds[0] : null, null, badge, null);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu badges skipped", t);
+        }
+    }
+
     // --- imperative presentation (docs/dialogs.md) ---
     static final java.util.HashMap<Long, android.app.Dialog> presents = new java.util.HashMap<>();
 

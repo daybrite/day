@@ -430,6 +430,8 @@ type DerivedRows<K> = (
     Vec<Option<String>>,
     Vec<Option<day_spec::Color>>,
     Vec<Vec<day_spec::MenuItem>>,
+    Vec<Option<String>>,
+    Vec<Option<day_spec::Color>>,
 );
 
 struct SelItem<K> {
@@ -445,6 +447,10 @@ struct SelItem<K> {
     /// Trailing accessory (an unread count). A `TextSource` so a live count retitles on its
     /// own signal, and so a localized badge follows `set_locale`.
     badge: Option<TextSource>,
+    /// Trailing accessory GLYPH, in the same slot as `badge` (docs/navigation.md).
+    badge_icon: Option<String>,
+    /// Tint for `badge_icon`; `None` leaves it at the backend's neutral template tint.
+    badge_tint: Option<day_spec::Color>,
     /// Header introducing the group this item opens (docs/navigation.md).
     section: Option<TextSource>,
     /// Immersive-chrome page (docs/navigation.md): keeps the floating transparent bar on
@@ -463,6 +469,8 @@ pub struct NavItem<K = String> {
     icon_tint: Option<day_spec::Color>,
     menu: Vec<day_spec::MenuItem>,
     badge: Option<TextSource>,
+    badge_icon: Option<String>,
+    badge_tint: Option<day_spec::Color>,
     section: Option<TextSource>,
     immersive: bool,
 }
@@ -478,6 +486,8 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
         title: title.into_text(),
         icon: None,
         badge: None,
+        badge_icon: None,
+        badge_tint: None,
         section: None,
         immersive: false,
     }
@@ -511,6 +521,23 @@ impl<K> NavItem<K> {
         self.badge = Some(badge.into_text());
         self
     }
+    /// A trailing accessory GLYPH for this row, in the same slot as [`Self::badge`] and drawn
+    /// after it. Takes a bundled image name exactly as [`Self::icon`] does, so a symbol
+    /// (`Symbol::Star`) or an app image both work.
+    ///
+    /// This is what a row-level STATUS gets drawn with — a starred page's star — where `badge`
+    /// carries a count or a word. Pair it with [`Self::badge_tint`] when the glyph's colour is
+    /// part of its meaning; left untinted it takes the backend's neutral template tint and reads
+    /// as another piece of chrome.
+    pub fn badge_icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
+        self.badge_icon = Some(icon.into().to_string());
+        self
+    }
+    /// The colour for [`Self::badge_icon`]. `None` (the default) keeps the neutral template tint.
+    pub fn badge_tint(mut self, color: day_spec::Color) -> Self {
+        self.badge_tint = Some(color);
+        self
+    }
     /// Open a new section with this header, immediately before this row.
     pub fn section<M>(mut self, title: impl IntoText<M>) -> Self {
         self.section = Some(title.into_text());
@@ -526,6 +553,11 @@ impl<K> NavItem<K> {
 
 /// A source of selector items: a fixed item, or a signal-driven block that re-derives its items
 /// when the signal changes (docs/navigation.md).
+// Boxing `Static` would trade a real allocation PER ROW for a saving that is nominal here: these
+// enums live in one `Vec` built once when a selector is constructed, a few dozen entries at most,
+// and the static case is the overwhelmingly common one. The gap is only this wide because a row
+// carries its decorations inline (icon, tint, badge text, badge glyph, section, menu).
+#[allow(clippy::large_enum_variant)]
 enum ItemSource<K> {
     Static(SelItem<K>),
     /// Reads a signal (tracked) and maps its elements to items. Called to (re)derive the block.
@@ -537,6 +569,11 @@ enum ItemSource<K> {
 // blocks) that `derive` walks to produce the live row list, and the `.destination` fallback
 // for data-driven keys. `derive` is called untracked for the first build and tracked inside a
 // reactive effect that re-patches the native rows when a dynamic block's signal changes.
+// Boxing `Static` would trade a real allocation PER ROW for a saving that is nominal here: these
+// enums live in one `Vec` built once when a selector is constructed, a few dozen entries at most,
+// and the static case is the overwhelmingly common one. The gap is only this wide because a row
+// carries its decorations inline (icon, tint, badge text, badge glyph, section, menu).
+#[allow(clippy::large_enum_variant)]
 enum MetaSource<K> {
     Static(K, TextSource, RowMeta, bool),
     Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
@@ -549,6 +586,8 @@ struct RowMeta {
     tint: Option<day_spec::Color>,
     menu: Vec<day_spec::MenuItem>,
     badge: Option<TextSource>,
+    badge_icon: Option<String>,
+    badge_tint: Option<day_spec::Color>,
     section: Option<TextSource>,
 }
 
@@ -558,6 +597,8 @@ struct NavRows<K> {
     titles: Vec<String>,
     icons: Vec<Option<String>>,
     badges: Vec<Option<String>>,
+    badge_icons: Vec<Option<String>>,
+    badge_tints: Vec<Option<day_spec::Color>>,
     sections: Vec<Option<String>>,
     tints: Vec<Option<day_spec::Color>>,
     menus: Vec<Vec<day_spec::MenuItem>>,
@@ -587,6 +628,8 @@ impl<K: Route> SelItems<K> {
                             tint: it.tint,
                             menu: it.menu,
                             badge: it.badge,
+                            badge_icon: it.badge_icon,
+                            badge_tint: it.badge_tint,
                             section: it.section,
                         },
                         it.immersive,
@@ -614,6 +657,8 @@ impl<K: Route> SelItems<K> {
             titles: Vec::new(),
             icons: Vec::new(),
             badges: Vec::new(),
+            badge_icons: Vec::new(),
+            badge_tints: Vec::new(),
             sections: Vec::new(),
             tints: Vec::new(),
             menus: Vec::new(),
@@ -623,6 +668,8 @@ impl<K: Route> SelItems<K> {
             r.titles.push(title);
             r.icons.push(m.icon.clone());
             r.badges.push(m.badge.as_ref().map(|b| b.resolve()));
+            r.badge_icons.push(m.badge_icon.clone());
+            r.badge_tints.push(m.badge_tint);
             r.sections.push(m.section.as_ref().map(|s| s.resolve()));
             r.tints.push(m.tint);
             r.menus.push(m.menu.clone());
@@ -637,6 +684,8 @@ impl<K: Route> SelItems<K> {
                             tint: it.tint,
                             menu: it.menu,
                             badge: it.badge,
+                            badge_icon: it.badge_icon,
+                            badge_tint: it.badge_tint,
                             section: it.section,
                         };
                         let title = it.title.resolve();
@@ -969,6 +1018,26 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         }
         self
     }
+    /// The static-item counterpart of [`NavItem::badge_icon`]: a trailing glyph on the item just
+    /// added. `.item(…).badge_icon(Symbol::Star).badge_tint(STAR)`.
+    ///
+    /// Ignored (in release) when no static item precedes it.
+    pub fn badge_icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
+        let name = icon.into().to_string();
+        match self.sources.last_mut() {
+            Some(ItemSource::Static(it)) => it.badge_icon = Some(name),
+            _ => debug_assert!(false, "day: `.badge_icon(…)` needs a preceding `.item…(…)`"),
+        }
+        self
+    }
+    /// The colour for [`Self::badge_icon`] on the item just added.
+    pub fn badge_tint(mut self, color: day_spec::Color) -> Self {
+        match self.sources.last_mut() {
+            Some(ItemSource::Static(it)) => it.badge_tint = Some(color),
+            _ => debug_assert!(false, "day: `.badge_tint(…)` needs a preceding `.item…(…)`"),
+        }
+        self
+    }
     /// An optional piece shown above the sidebar list (a logo, app name…).
     pub fn header<P: Piece>(mut self, build: impl FnOnce() -> P + 'static) -> Self {
         self.header = Some(Box::new(move || AnyPiece::new(build())));
@@ -991,6 +1060,8 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             tint: None,
             menu: Vec::new(),
             badge: None,
+            badge_icon: None,
+            badge_tint: None,
             section,
             immersive: false,
             build: Some(Box::new(move || AnyPiece::new(build()))),
@@ -1016,6 +1087,8 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
             tint: None,
             menu: Vec::new(),
             badge: None,
+            badge_icon: None,
+            badge_tint: None,
             section,
             immersive: false,
             build: Some(Box::new(move || AnyPiece::new(build()))),
@@ -1066,6 +1139,8 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
                         tint: ni.icon_tint,
                         menu: ni.menu,
                         badge: ni.badge,
+                        badge_icon: ni.badge_icon,
+                        badge_tint: ni.badge_tint,
                         section: ni.section,
                         immersive: ni.immersive,
                         build: None,
@@ -1373,6 +1448,8 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
                     titles: t,
                     icons: i,
                     badges: b,
+                    badge_icons: bi,
+                    badge_tints: bt,
                     sections: sc,
                     tints: tn,
                     menus: mn,
@@ -1386,13 +1463,24 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
                     sc,
                     tn,
                     mn,
+                    bi,
+                    bt,
                 )
             },
             // Tabs render neither badges, sections, nor row menus; the derive carries them
             // for the selector's sake, so they are deliberately unused here.
-            move |(key_strs, keys, ts, ics, _badges, _sections, _tints, _menus): &DerivedRows<
-                K,
-            >| {
+            move |(
+                key_strs,
+                keys,
+                ts,
+                ics,
+                _badges,
+                _sections,
+                _tints,
+                _menus,
+                _bicons,
+                _btints,
+            ): &DerivedRows<K>| {
                 // Drop pages whose key vanished (dispose scope + remove subtree).
                 pages_e.borrow_mut().retain(|(k, page, scope)| {
                     if key_strs.contains(k) {
@@ -1569,6 +1657,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         );
         let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
         let (badges_init, sections_init) = (rows0.badges.clone(), rows0.sections.clone());
+        let (badge_icons_init, badge_tints_init) =
+            (rows0.badge_icons.clone(), rows0.badge_tints.clone());
         let tints_init = rows0.tints.clone();
         let menus_init = rows0.menus.clone();
         let menu_piece = piece_fn(move |mcx| {
@@ -1578,6 +1668,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     items: titles_init,
                     icons: icons_init,
                     badges: badges_init,
+                    badge_icons: badge_icons_init,
+                    badge_tints: badge_tints_init,
                     sections: sections_init,
                     tints: tints_init,
                     menus: menus_init,
@@ -1765,6 +1857,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     titles: t,
                     icons: i,
                     badges: b,
+                    badge_icons: bi,
+                    badge_tints: bt,
                     sections: sc,
                     tints: tn,
                     menus: mn,
@@ -1778,9 +1872,11 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     sc,
                     tn,
                     mn,
+                    bi,
+                    bt,
                 )
             },
-            move |(key_strs, keys, ts, ics, bs, scs, tns, mns): &DerivedRows<K>| {
+            move |(key_strs, keys, ts, ics, bs, scs, tns, mns, bis, bts): &DerivedRows<K>| {
                 *typed_e.borrow_mut() = keys.clone();
                 *titles_e.borrow_mut() = ts.clone();
                 // If the selected key is gone, reset (Option key → None); else keep it selected.
@@ -1809,6 +1905,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                                 items: ts.clone(),
                                 icons: ics.clone(),
                                 badges: bs.clone(),
+                                badge_icons: bis.clone(),
+                                badge_tints: bts.clone(),
                                 sections: scs.clone(),
                                 tints: tns.clone(),
                                 menus: mns.clone(),

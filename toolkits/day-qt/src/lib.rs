@@ -1079,11 +1079,22 @@ impl Toolkit for Qt {
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let tints_joined = nav_tints_joined(&p.tints);
+                    // The trailing status glyph rides the same resolve-then-tint path as the
+                    // leading icon; the shim's delegate paints it at the row's far edge.
+                    let badge_icons_joined = p
+                        .badge_icons
+                        .iter()
+                        .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
+                    let badge_tints_joined = nav_tints_joined(&p.badge_tints);
                     ffi::day_qt_navlist_set_items(
                         w,
                         cstr(&joined).as_ptr(),
                         cstr(&icons_joined).as_ptr(),
                         cstr(&tints_joined).as_ptr(),
+                        cstr(&badge_icons_joined).as_ptr(),
+                        cstr(&badge_tints_joined).as_ptr(),
                     );
                     navlist_apply_row_menus(w, &p.menus);
                     ffi::day_qt_navlist_set_selected(
@@ -1257,6 +1268,8 @@ impl Toolkit for Qt {
                         icons,
                         tints,
                         menus,
+                        badge_icons,
+                        badge_tints,
                         selected,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
@@ -1270,11 +1283,19 @@ impl Toolkit for Qt {
                             .collect::<Vec<_>>()
                             .join("\u{1f}");
                         let tints_joined = nav_tints_joined(tints);
+                        let badge_icons_joined = badge_icons
+                            .iter()
+                            .map(|ic| ic.as_deref().map(icon_file_path).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .join("\u{1f}");
+                        let badge_tints_joined = nav_tints_joined(badge_tints);
                         ffi::day_qt_navlist_set_items(
                             h.0,
                             cstr(&joined).as_ptr(),
                             cstr(&icons_joined).as_ptr(),
                             cstr(&tints_joined).as_ptr(),
+                            cstr(&badge_icons_joined).as_ptr(),
+                            cstr(&badge_tints_joined).as_ptr(),
                         );
                         navlist_apply_row_menus(h.0, menus);
                         ffi::day_qt_navlist_set_selected(

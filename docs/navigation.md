@@ -125,7 +125,26 @@ rows in place, static `.item`s included.
 `item(key, title).icon(name)` is the row spec; `.icon_tint(color)` recolors the row's glyph
 (docs/vectors.md), `.context_menu(vec![…])` attaches a per-row context menu (docs/menus.md),
 and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
-form above. A selector used as a self-contained widget inside a
+form above.
+
+`.badge_icon(name)` puts a GLYPH at the row's trailing edge, with `.badge_tint(color)` for a
+colour that carries meaning (a starred page's yellow star). It shares the trailing slot with the
+text `.badge(…)` and is drawn after it, so a row can show a count and a status at once:
+
+```rust
+item(section, title)
+    .icon(res::vectors::nav_grid)
+    .badge_icon(res::vectors::star)
+    .badge_tint(AMBER)
+```
+
+Both are template glyphs, so an untinted one takes the backend's neutral row colour and follows
+the theme; a tinted one keeps its colour because the colour is the point. Every backend draws it:
+the trailing slot of the AppKit cell, the GTK row box, a `QStyledItemDelegate` on Qt (a
+`QListWidgetItem` has only the leading icon slot), the `end` compound drawable on Android, the
+composed `NavigationViewItem.Content` on XAML, between label and chevron on ArkUI, a masked
+element on web-dom, and a trailing `UIImageView` on UIKit — which is also where the nav BADGE slot
+first appeared on that backend. A selector used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 

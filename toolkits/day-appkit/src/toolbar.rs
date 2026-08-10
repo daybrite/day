@@ -94,9 +94,16 @@ fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Retained
         }
         // A bundled image, as a template so the system tints it for the title bar the way it
         // tints its own symbols.
+        //
+        // The glyph SVG comes FIRST, exactly as the sidebar's `resolve_nav_icons` does it: on this
+        // backend a `resource/vectors/` asset stages as an SVG and nothing else, so looking only
+        // for a raster found nothing and the item silently fell back to drawing its LABEL — a
+        // toolbar button reading "Star" where a star belonged. NSImage renders the SVG at whatever
+        // size the bar asks for, which is the better result anyway.
         Icon::Image(name) => {
             let _ = mtm;
-            let path = day_spec::resource::resolve_image_file(name)?;
+            let path = day_spec::resource::resolve_vector_svg(name)
+                .or_else(|| day_spec::resource::resolve_image_file(name))?;
             use objc2::AllocAnyThread as _;
             let img = unsafe {
                 NSImage::initWithContentsOfFile(

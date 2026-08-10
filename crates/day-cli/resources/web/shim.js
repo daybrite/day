@@ -307,6 +307,15 @@ const env = {
         row.append(icon);
       }
       const t = document.createElement('span'); t.textContent = item.title; row.append(t);
+      // The trailing status glyph (docs/navigation.md), masked like the leading icon so it
+      // follows the row's text color unless the app named a colour that means something.
+      if (item.badgeIcon) {
+        const badge = div('day-navmenu-badge');
+        badge.style.maskImage = `url("${item.badgeIcon}")`;
+        badge.style.webkitMaskImage = `url("${item.badgeIcon}")`;
+        if (item.badgeTint) badge.style.backgroundColor = item.badgeTint;
+        row.append(badge);
+      }
       if (i === spec.selected) row.classList.add('selected');
       row.addEventListener('click', () => wasm.day_dom_event(id, 6, i, 0, 0, 0));
       el.append(row);

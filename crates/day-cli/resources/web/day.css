@@ -294,6 +294,21 @@ body {
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
 }
+/* The trailing status glyph — the same mask treatment as the leading icon, pushed to the row's
+   end. `margin-left: auto` rather than a spacer so a row without one is unchanged. */
+.day-navmenu-badge {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-left: auto;
+  background-color: currentColor;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+}
 .day-navmenu-row:hover { background: var(--day-control-bg); }
 .day-navmenu-row.selected { background: var(--day-accent); color: var(--day-accent-fg); }
 

@@ -240,11 +240,19 @@ impl Gtk {
                     // button itself shadows the window's menu-bar group rather than replacing it.
                     b.insert_action_group("daymenu", Some(&group));
                     b.set_menu_model(Some(&model));
-                    match item.icon.as_ref().and_then(|i| match i {
-                        Icon::Symbol(s) => icon_name(*s),
-                        Icon::Image(_) => None,
-                    }) {
-                        Some(name) => b.set_icon_name(name),
+                    // A pull-down takes the same two icon sources a plain button does. It used
+                    // to accept only a themed symbol and fall back to the LABEL for a bundled
+                    // image, so an app that dressed its menu button with its own artwork got a
+                    // word instead — on this backend alone.
+                    match item.icon.as_ref() {
+                        Some(Icon::Symbol(s)) => match icon_name(*s) {
+                            Some(name) => b.set_icon_name(name),
+                            None => b.set_label(&item.label),
+                        },
+                        Some(Icon::Image(name)) => match crate::tinted_template_icon(name, None) {
+                            Some(img) => b.set_child(Some(&img)),
+                            None => b.set_label(&item.label),
+                        },
                         None => b.set_label(&item.label),
                     }
                     b.add_css_class("flat");

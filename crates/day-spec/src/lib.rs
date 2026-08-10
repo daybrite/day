@@ -1971,6 +1971,15 @@ pub mod props {
         /// A trailing accessory per row — an unread count, a status. Rendered right-aligned and
         /// de-emphasized, opposite the label. Parallel to `items`; `None` draws nothing.
         pub badges: Vec<Option<String>>,
+        /// A trailing SYMBOL accessory per row, in the same slot as [`Self::badges`] and drawn
+        /// after it: a BUNDLED IMAGE NAME resolved the way [`Self::icons`] is. This is what a
+        /// row-level status GLYPH rides on — a starred page's star — where `badges` carries only
+        /// text. Parallel to `items`; `None` draws nothing.
+        pub badge_icons: Vec<Option<String>>,
+        /// The tint for [`Self::badge_icons`], parallel to `items`. `None` leaves the glyph at
+        /// the backend's neutral template tint; a status glyph that means something (a yellow
+        /// star) names its own color here, exactly as [`Self::tints`] does for the leading icon.
+        pub badge_tints: Vec<Option<Color>>,
         /// A per-row icon tint (docs/vectors.md): the row's glyph recolored to this instead of
         /// the backend's neutral template tint. Parallel to `items`; `None` keeps the default.
         pub tints: Vec<Option<Color>>,
@@ -1997,6 +2006,8 @@ pub mod props {
             items: Vec<String>,
             icons: Vec<Option<String>>,
             badges: Vec<Option<String>>,
+            badge_icons: Vec<Option<String>>,
+            badge_tints: Vec<Option<Color>>,
             sections: Vec<Option<String>>,
             tints: Vec<Option<Color>>,
             menus: Vec<Vec<crate::MenuItem>>,
