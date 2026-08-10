@@ -349,7 +349,13 @@ jobs:
   publish:
     name: publish (crates.io)
     needs: [release]
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    # `!cancelled()` is load-bearing, and the reason v0.1.5 and v0.2.0 never reached crates.io: a
+    # job whose `if` carries no status function gets an implicit `success()`, and that is false when
+    # ANY ancestor was skipped — `toolkit` skips itself on tags (the lean tag lane), so `publish`
+    # was skipped too, even though `release` ran and succeeded on its own `!cancelled()`. Overriding
+    # the propagation here means the real gate has to be spelled out: publish only when `release`
+    # actually succeeded, on a semantic tag.
+    if: ${{ !cancelled() && needs.release.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
