@@ -1,6 +1,6 @@
 ---
 title: "Tutorial: A part with native platform code"
-description: Build a headless capability crate (a battery monitor) with a shared Rust API and per-platform native implementations (Rust FFI, Android Java, and more), selected by cfg. Includes how to contribute a Java shim and iOS framework to the app build.
+description: Build a headless capability crate (a battery monitor) with a shared Rust API and per-platform native implementations (Rust FFI, Android Java, and more), selected by cfg. Includes how to contribute a Java shim and iOS framework to the app build, and how a bridge generates that same glue.
 order: 43
 section: Extend
 ---
@@ -306,6 +306,15 @@ Android is special: reading `BatteryManager` cleanly wants a `Context` and a sti
 far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
 over the bridge. This is the one platform where a part runs on the Day runtime; it borrows the JVM
 and `Context` that `day-android` already caches.
+
+> [!NOTE] The shipped crate does this with a bridge now
+> Everything in this section is the mechanism underneath, and it still works exactly as described —
+> but `day-part-battery` itself has since moved its Android half to a
+> [daybridge](/docs/internal/bridge) arm: the Java lives inline in `src/android.rs` beside the Rust
+> declaration it implements, and the JNI call and the packed-`long` protocol below are generated,
+> so the checked-in `.java` file and the `java = [...]` table are gone. Read this section to
+> understand what a bridge generates for you; read [speech](/docs/internal/speech) for what
+> writing one looks like.
 
 The Java shim reads the sticky `ACTION_BATTERY_CHANGED` intent and packs the reading into a `long` so
 it crosses the JNI boundary as a single primitive (no object marshalling):

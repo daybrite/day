@@ -73,6 +73,10 @@ const PLATFORMS: &[&str] = &[
     "ios", "macos", "android", "ohos", "web", "linux", "windows", "other",
 ];
 
+/// Every option an arm may carry beside `platforms` (docs/bridge.md). Closed, so a typo fails the
+/// build instead of being ignored.
+const ARM_OPTIONS: &[&str] = &["src", "link", "pkg_config", "encoding", "support"];
+
 /// The `cfg` predicate for one platform. `linux` and `ohos` both report `target_os = "linux"`,
 /// so they are told apart by `target_env` exactly as day-part-battery's hand-written arms do.
 fn cfg_for(platform: &str) -> &'static str {
@@ -111,6 +115,11 @@ pub struct Arm {
     pub platforms: Vec<String>,
     /// Inline body (the raw string's contents), or `None` when the arm names a file.
     pub body: Option<String>,
+    /// The arm's file-level preamble — imports only, and only where the language needs them
+    /// outside the body (a JVM arm's body sits inside the generated class). Per ARM, not per
+    /// language: imports are usually platform-specific, and two arms of one language claiming
+    /// different platforms must not receive each other's.
+    pub prelude: Option<String>,
     /// `src = "…"`, relative to the crate root.
     pub src: Option<String>,
     /// Extra keys: `encoding`, `link`, `pkg_config`, `support`.
@@ -124,20 +133,11 @@ pub struct Arm {
     pub body_line: usize,
 }
 
-/// A language's file-level preamble: imports only.
-#[derive(Clone, Debug)]
-pub struct Prelude {
-    pub lang: Lang,
-    pub body: String,
-    pub line: usize,
-}
-
 /// Everything one crate declares.
 #[derive(Default, Debug)]
 pub struct Bridge {
     pub decls: Vec<Decl>,
     pub arms: Vec<Arm>,
-    pub preludes: Vec<Prelude>,
 }
 
 /// Read `src/**/*.rs`, generate `$OUT_DIR/day-bridge/{mod.rs,manifest.json}`.
@@ -184,7 +184,7 @@ pub fn swift_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 /// Kotlin plugin (see the check in `day lint` and the error in `day build`).
 pub fn jvm_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     match arm.lang {
-        Lang::Java => render_java(bridge, arm, crate_name),
+        Lang::Java => render_java(arm, crate_name),
         _ => render_kotlin(bridge, arm, crate_name),
     }
 }
@@ -430,7 +430,13 @@ fn parse_body(body: &str, base_line: usize, bridge: &mut Bridge) -> Result<(), S
             .trim();
         let consumed = match kind {
             "declare" => parse_declare(rest, line, bridge)?,
-            "prelude" => parse_prelude(attr, rest, line, bridge)?,
+            "prelude" => {
+                return Err(format!(
+                    "line {line}: a standalone `prelude` attribute no longer exists — write it as \
+                     `lang!(prelude = r#\" … \"#, body = r#\" … \"#)` on the arm it belongs to \
+                     (docs/bridge.md \"The file\")"
+                ));
+            }
             "impl" => parse_impl(attr, rest, line, bridge)?,
             "data" => 0, // the struct is ordinary Rust; day-cli reads it from the manifest's decls
             other => return Err(format!("line {line}: unknown bridge attribute `{other}`")),
@@ -488,27 +494,6 @@ fn parse_declare(rest: &str, line: usize, bridge: &mut Bridge) -> Result<usize, 
     Ok(close + 1)
 }
 
-fn parse_prelude(
-    attr: &str,
-    rest: &str,
-    line: usize,
-    bridge: &mut Bridge,
-) -> Result<usize, String> {
-    let lang = attr_lang(attr, line)?;
-    let (body, consumed, _) = raw_string_after(rest, line)?;
-    for bad in ["package ", "namespace ", "module "] {
-        if body.lines().any(|l| l.trim_start().starts_with(bad)) {
-            return Err(format!(
-                "line {line}: a `{}` line belongs to the generator, not a prelude — daybridge \
-                 derives it from the crate name (docs/bridge.md \"Names\")",
-                bad.trim()
-            ));
-        }
-    }
-    bridge.preludes.push(Prelude { lang, body, line });
-    Ok(consumed)
-}
-
 fn parse_impl(attr: &str, rest: &str, line: usize, bridge: &mut Bridge) -> Result<usize, String> {
     let lang = attr_lang(attr, line)?;
     let inner = attr
@@ -542,6 +527,25 @@ fn parse_impl(attr: &str, rest: &str, line: usize, bridge: &mut Bridge) -> Resul
                 platforms.push(p.to_string());
             }
         } else {
+            // A misspelled key used to be accepted and then ignored, which is the worst outcome:
+            // `linkk = ["sapi"]` links nothing and surfaces as an undefined symbol somewhere else
+            // entirely. The known set is small and closed, so an unknown key is an error.
+            if !ARM_OPTIONS.contains(&key) {
+                return Err(format!(
+                    "line {line}: unknown arm option `{key}` (expected one of {})",
+                    ARM_OPTIONS.join(", ")
+                ));
+            }
+            if key == "encoding" && value != "utf8" && value != "utf16" {
+                return Err(format!(
+                    "line {line}: `encoding = \"{value}\"` — expected \"utf8\" or \"utf16\""
+                ));
+            }
+            if key == "support" && value != "native" && value != "emulated" {
+                return Err(format!(
+                    "line {line}: `support = \"{value}\"` — expected \"native\" or \"emulated\""
+                ));
+            }
             options.insert(key.to_string(), value.to_string());
         }
     }
@@ -549,22 +553,39 @@ fn parse_impl(attr: &str, rest: &str, line: usize, bridge: &mut Bridge) -> Resul
         return Err(format!("line {line}: an arm must name `platforms = [ … ]`"));
     }
 
-    // A rust arm is ordinary Rust captured verbatim; every other language rides a raw string, or
-    // names a file with `src = "…"`.
-    let (body, consumed, body_line) = if lang == Lang::Rust {
+    // A rust arm is ordinary Rust captured verbatim; every other language rides one or two named
+    // raw strings, or names a file with `src = "…"`.
+    let (prelude, body, consumed, body_line) = if lang == Lang::Rust {
         let (body, consumed) = rust_item_after(rest, line)?;
-        (Some(body), consumed, line)
+        (None, Some(body), consumed, line)
     } else if options.contains_key("src") {
-        (None, 0, line)
+        (None, None, 0, line)
     } else {
-        let (body, consumed, skipped) = raw_string_after(rest, line)?;
-        (Some(body), consumed, line + skipped + 1)
+        let call = macro_call_after(rest, line)?;
+        (
+            call.prelude,
+            Some(call.body),
+            call.consumed,
+            line + call.body_skipped + 1,
+        )
     };
+    if let Some(text) = &prelude {
+        for bad in ["package ", "namespace ", "module "] {
+            if text.lines().any(|l| l.trim_start().starts_with(bad)) {
+                return Err(format!(
+                    "line {line}: a `{}` line belongs to the generator, not a prelude — daybridge \
+                     derives it from the crate name (docs/bridge.md \"Names\")",
+                    bad.trim()
+                ));
+            }
+        }
+    }
 
     bridge.arms.push(Arm {
         lang,
         platforms,
         body,
+        prelude,
         src: options.get("src").cloned(),
         options,
         source: None,
@@ -580,19 +601,100 @@ fn attr_lang(attr: &str, line: usize) -> Result<Lang, String> {
     Lang::parse(first).ok_or_else(|| format!("line {line}: unknown bridge language `{first}`"))
 }
 
-/// Take the raw-string body of the `lang!(r#"…"#)` invocation that follows an attribute, with the
-/// number of lines skipped to reach it (the marker and the opener), so `#line` can be exact.
-fn raw_string_after(rest: &str, line: usize) -> Result<(String, usize, usize), String> {
-    let open = rest.find("r#\"").ok_or_else(|| {
-        format!("line {line}: expected a raw-string body, e.g. `kotlin!(r#\" … \"#)`")
+/// One `lang!( … )` invocation's raw-string arguments.
+struct MacroCall {
+    /// `prelude = r#"…"#`, when the arm has one.
+    prelude: Option<String>,
+    /// The arm itself: the sole argument, or `body = r#"…"#`.
+    body: String,
+    /// Bytes of `rest` the whole invocation consumed.
+    consumed: usize,
+    /// Newlines before the body's first character, so `#line` can be exact.
+    body_skipped: usize,
+}
+
+/// Parse the `lang!( … )` that follows an `impl` attribute.
+///
+/// Two spellings, because most arms need no preamble and should not pay for one:
+///
+/// ```text
+/// swift!(r#" … "#)                                  // body only
+/// swift!(prelude = r#" … "#, body = r#" … "#)       // both, in either order
+/// ```
+///
+/// Any hash count is accepted for each raw string, because one is not always enough: an arm
+/// containing the two characters `"#` — `document.querySelector("#speech")` is the everyday
+/// example — ends an `r#"…"#` string early and takes the rest of the file with it. Writing that
+/// arm as `r##"…"##` is the fix, and it only works if the parser counts hashes as rustc does.
+fn macro_call_after(rest: &str, line: usize) -> Result<MacroCall, String> {
+    let open = rest.find('(').ok_or_else(|| {
+        format!("line {line}: expected a language macro, e.g. `java!(r#\" … \"#)`")
     })?;
-    let start = open + 3;
-    let end = rest[start..]
-        .find("\"#")
-        .map(|i| start + i)
-        .ok_or_else(|| format!("line {line}: unterminated raw string"))?;
-    let skipped = rest[..start].matches('\n').count();
-    Ok((dedent(&rest[start..end]), end + 2, skipped))
+    let close = match_delim(rest, open, b'(', b')')
+        .ok_or_else(|| format!("line {line}: unterminated language macro"))?;
+
+    let mut prelude: Option<String> = None;
+    let mut body: Option<(String, usize)> = None;
+    let mut at = open + 1;
+    while let Some(rel) = find_raw_open(&rest[at..close]) {
+        let r = at + rel;
+        let hashes = rest[r + 1..].bytes().take_while(|b| *b == b'#').count();
+        let start = r + 1 + hashes + 1; // `r` + hashes + `"`
+        let terminator = format!("\"{}", "#".repeat(hashes));
+        let end = rest[start..close]
+            .find(&terminator)
+            .map(|i| start + i)
+            .ok_or_else(|| format!("line {line}: unterminated raw string"))?;
+        // Whatever sits between the previous argument and this raw string names it.
+        let key = rest[at..r]
+            .trim()
+            .trim_start_matches(',')
+            .trim()
+            .trim_end_matches('=')
+            .trim()
+            .to_string();
+        let text = dedent(&rest[start..end]);
+        match key.as_str() {
+            "prelude" => prelude = Some(text),
+            "body" | "" => body = Some((text, rest[..start].matches('\n').count())),
+            other => {
+                return Err(format!(
+                    "line {line}: unknown argument `{other}` — a language macro takes `prelude` \
+                     and `body` (docs/bridge.md \"The file\")"
+                ));
+            }
+        }
+        at = end + terminator.len();
+    }
+
+    let (body, body_skipped) = body.ok_or_else(|| {
+        format!("line {line}: expected a raw-string body, e.g. `java!(r#\" … \"#)`")
+    })?;
+    Ok(MacroCall {
+        prelude,
+        body,
+        consumed: close + 1,
+        body_skipped,
+    })
+}
+
+/// Offset of the `r` opening the next raw string (`r"`, `r#"`, `r##"`, …), or `None`.
+fn find_raw_open(text: &str) -> Option<usize> {
+    let b = text.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'r' {
+            let mut j = i + 1;
+            while j < b.len() && b[j] == b'#' {
+                j += 1;
+            }
+            if b.get(j) == Some(&b'"') {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Take one complete Rust item (`fn … { … }`) following an attribute, verbatim.
@@ -617,12 +719,18 @@ fn match_delim(text: &str, from: usize, open: u8, close: u8) -> Option<usize> {
     let mut i = from;
     while i < b.len() {
         match b[i] {
-            b'r' if b[i..].starts_with(b"r#\"") => {
-                i += 3;
-                while i < b.len() && !b[i..].starts_with(b"\"#") {
+            // A raw string of any hash count, skipped whole: its contents are another language and
+            // may hold unbalanced braces, quotes, and `//` (docs/bridge.md).
+            b'r' if raw_open_hashes(b, i).is_some() => {
+                let hashes = raw_open_hashes(b, i).unwrap_or(0);
+                let terminator: Vec<u8> = std::iter::once(b'"')
+                    .chain(std::iter::repeat_n(b'#', hashes))
+                    .collect();
+                i += 1 + hashes + 1;
+                while i < b.len() && !b[i..].starts_with(&terminator) {
                     i += 1;
                 }
-                i += 2;
+                i += terminator.len();
                 continue;
             }
             b'"' => {
@@ -648,6 +756,19 @@ fn match_delim(text: &str, from: usize, open: u8, close: u8) -> Option<usize> {
         i += 1;
     }
     None
+}
+
+/// The hash count of the raw string opening at `i` (`r"` is 0, `r#"` is 1, …), or `None` when this
+/// `r` does not open one.
+fn raw_open_hashes(b: &[u8], i: usize) -> Option<usize> {
+    if b.get(i) != Some(&b'r') {
+        return None;
+    }
+    let mut j = i + 1;
+    while b.get(j) == Some(&b'#') {
+        j += 1;
+    }
+    (b.get(j) == Some(&b'"')).then_some(j - i - 1)
 }
 
 /// Split on `sep` at nesting depth zero.
@@ -692,8 +813,10 @@ fn dedent(body: &str) -> String {
         .min()
         .unwrap_or(0);
     body.lines()
+        // `indent` is a byte count of ASCII-space/tab indentation in the common case; the boundary
+        // check keeps a line indented with a multi-byte Unicode space from panicking the build.
         .map(|l| {
-            if l.len() >= indent {
+            if l.len() >= indent && l.is_char_boundary(indent) {
                 &l[indent..]
             } else {
                 l.trim_start()
@@ -722,7 +845,7 @@ fn dedent_item(item: &str) -> String {
     let mut out = String::from(first);
     for line in rest {
         out.push('\n');
-        out.push_str(if line.len() >= indent {
+        out.push_str(if line.len() >= indent && line.is_char_boundary(indent) {
             &line[indent..]
         } else {
             line.trim_start()
@@ -909,8 +1032,8 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         arm.line
     );
     let _ = writeln!(out, "#include <stdint.h>");
-    for prelude in bridge.preludes.iter().filter(|p| p.lang == arm.lang) {
-        let _ = writeln!(out, "{}", prelude.body);
+    if let Some(prelude) = &arm.prelude {
+        let _ = writeln!(out, "{}", prelude);
     }
     let _ = writeln!(out, "\n#line {} {}", arm.body_line, quote(source));
     let _ = writeln!(out, "{}\n", arm.body.as_deref().unwrap_or(""));
@@ -968,8 +1091,8 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         arm.line
     );
     let _ = writeln!(out, "import Foundation");
-    for prelude in bridge.preludes.iter().filter(|p| p.lang == Lang::Swift) {
-        let _ = writeln!(out, "{}", prelude.body);
+    if let Some(prelude) = &arm.prelude {
+        let _ = writeln!(out, "{}", prelude);
     }
     // swiftc maps every following line back to the crate's own source, so a type error in an arm
     // names the file its author opened (docs/bridge.md "Diagnostics").
@@ -1047,8 +1170,8 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
          //# sourceURL={source}",
         arm.line
     );
-    for prelude in bridge.preludes.iter().filter(|p| p.lang == Lang::Js) {
-        let _ = writeln!(out, "{}", prelude.body);
+    if let Some(prelude) = &arm.prelude {
+        let _ = writeln!(out, "{}", prelude);
     }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
 
@@ -1118,8 +1241,8 @@ fn render_arkts(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         "// @generated by day-build from {source}:{} — edit the arm, never this file.",
         arm.line
     );
-    for prelude in bridge.preludes.iter().filter(|p| p.lang == Lang::ArkTs) {
-        let _ = writeln!(out, "{}", prelude.body);
+    if let Some(prelude) = &arm.prelude {
+        let _ = writeln!(out, "{}", prelude);
     }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
     let _ = writeln!(
@@ -1244,8 +1367,8 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         arm.line, arm.body_line
     );
     let _ = writeln!(out, "package {pkg}\n");
-    for prelude in bridge.preludes.iter().filter(|p| p.lang == Lang::Kotlin) {
-        let _ = writeln!(out, "{}", prelude.body);
+    if let Some(prelude) = &arm.prelude {
+        let _ = writeln!(out, "{}", prelude);
     }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
 
@@ -1291,7 +1414,7 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 /// The generated Java class for one arm — the same shape the Kotlin emitter produces, for a
 /// project whose Gradle build has no Kotlin plugin. Java needs none: `com.android.application`
 /// compiles `.java` out of any `srcDir`, which is what makes this the arm that always works.
-fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
+fn render_java(arm: &Arm, crate_name: &str) -> String {
     let pkg = kotlin_package(crate_name);
     let class = kotlin_object(crate_name);
     let source = arm.source.as_deref().unwrap_or("src/lib.rs");
@@ -1303,8 +1426,8 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         arm.line, arm.body_line
     );
     let _ = writeln!(out, "package {pkg};\n");
-    for prelude in bridge.preludes.iter().filter(|p| p.lang == Lang::Java) {
-        let _ = writeln!(out, "{}", prelude.body);
+    if let Some(prelude) = &arm.prelude {
+        let _ = writeln!(out, "{}", prelude);
     }
     let _ = writeln!(out, "\npublic final class {class} {{");
     let _ = writeln!(out, "    private {class}() {{}}\n");
@@ -1335,6 +1458,20 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         };
         let _ = writeln!(out, "fn {}({}){ret} {{", decl.name, args.join(", "));
         let _ = writeln!(out, "    use day_android::{{DayEnv, with_env}};");
+        // A headless part is ordinary Rust anyone may call, including before (or without) a Day
+        // app's init — where `with_env` would panic on the missing JVM. Asking first makes that
+        // an ordinary `Runtime` error.
+        let _ = writeln!(out, "    if !day_android::vm_ready() {{");
+        let _ = writeln!(
+            out,
+            "        return{};",
+            if decl.ret.is_empty() {
+                String::new()
+            } else {
+                " Err(day_bridge::Error::Runtime)".to_string()
+            }
+        );
+        let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "    let called = with_env(|env| {{");
         // Marshal arguments into JNI values; a String has to become a local ref first.
         let mut jvalues: Vec<String> = Vec::new();
@@ -1356,23 +1493,31 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         }
         let _ = writeln!(
             out,
-            "        env.dcall_static({}, {}, {}, &[{}])",
+            "        let outcome = env.dcall_static({}, {}, {}, &[{}]);",
             quote(&class),
             quote(&decl.name),
             quote(&jni_signature(decl)),
             jvalues.join(", ")
         );
+        // A throwing arm leaves the exception PENDING on this thread. `with_env`'s attach guard
+        // treats a pending exception as fatal and panics, which would turn the contract's
+        // "an exception becomes Error::Foreign" into a contained panic that leaves the UI's
+        // reactive state suspect. Logging and clearing it here is what keeps it an ordinary error.
+        let _ = writeln!(out, "        if env.exception_check() {{");
+        let _ = writeln!(out, "            env.exception_describe(); // → logcat");
+        let _ = writeln!(out, "            env.exception_clear();");
+        let _ = writeln!(out, "        }}");
         // Three shapes, not two: a bare unit call drops failures, `Result<(), _>` reports them,
         // and `Result<T, _>` also carries a value back.
         match (decl.ret.is_empty(), result_value(&decl.ret)) {
             (true, _) => {
-                let _ = writeln!(out, "            .ok()?;");
+                let _ = writeln!(out, "        outcome.ok()?;");
                 let _ = writeln!(out, "        Some(())");
                 let _ = writeln!(out, "    }});");
                 let _ = writeln!(out, "    let _ = called;");
             }
             (false, None) => {
-                let _ = writeln!(out, "            .ok()?;");
+                let _ = writeln!(out, "        outcome.ok()?;");
                 let _ = writeln!(out, "        Some(())");
                 let _ = writeln!(out, "    }});");
                 let _ = writeln!(
@@ -1390,9 +1535,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
                 let _ = writeln!(out, "    }}");
             }
             (false, Some(ty)) => {
-                let _ = writeln!(out, "            .ok()?");
-                let _ = writeln!(out, "            .{}()", jvalue_accessor(&ty));
-                let _ = writeln!(out, "            .ok()");
+                let _ = writeln!(out, "        outcome.ok()?.{}().ok()", jvalue_accessor(&ty));
                 let _ = writeln!(out, "    }});");
                 let _ = writeln!(
                     out,
@@ -1841,15 +1984,15 @@ day_bridge::bridge! {
         fn stop_native();
     }
 
-    #[day_bridge::prelude(kotlin)]
-    kotlin!(r#"
-        import android.speech.tts.TextToSpeech
-    "#);
-
     #[day_bridge::impl(kotlin, platforms = [android])]
-    kotlin!(r#"
-        fun speak_native(text: String) { engine?.speak(text) }
-    "#);
+    kotlin!(
+        prelude = r#"
+            import android.speech.tts.TextToSpeech
+        "#,
+        body = r#"
+            fun speak_native(text: String) { engine?.speak(text) }
+        "#,
+    );
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn speak_native(_text: &str) -> Result<(), day_bridge::Error> {
@@ -1867,8 +2010,13 @@ day_bridge::bridge! {
         b
     }
 
+    fn parse_err(src: &str) -> String {
+        let mut b = Bridge::default();
+        parse_into(src, "src/lib.rs", &mut b).expect_err("should not parse")
+    }
+
     #[test]
-    fn parses_declarations_arms_and_preludes() {
+    fn parses_declarations_and_arms() {
         let b = parse(SPEECH);
         assert_eq!(b.decls.len(), 2);
         assert_eq!(b.decls[0].name, "speak_native");
@@ -1876,9 +2024,12 @@ day_bridge::bridge! {
         assert_eq!(b.decls[0].ret, "Result<(), day_bridge::Error>");
         assert_eq!(b.decls[1].name, "stop_native");
         assert!(b.decls[1].args.is_empty());
-        assert_eq!(b.preludes.len(), 1);
-        assert_eq!(b.preludes[0].lang, Lang::Kotlin);
         assert_eq!(b.arms.len(), 3);
+        assert_eq!(
+            b.arms[0].prelude.as_deref(),
+            Some("import android.speech.tts.TextToSpeech"),
+            "the prelude belongs to the arm that declared it"
+        );
         assert_eq!(b.arms[0].lang, Lang::Kotlin);
         assert_eq!(b.arms[0].platforms, vec!["android".to_string()]);
         assert!(
@@ -1962,23 +2113,152 @@ day_bridge::bridge! {
         assert!(validate(&b).unwrap_err().contains("already claimed"));
     }
 
+    /// `"#` is ordinary in JavaScript, CSS selectors and C format strings, and it ends an `r#"…"#`
+    /// body early — silently, taking the rest of the arm with it. More hashes is the author's fix,
+    /// so the parser counts them the way rustc does.
     #[test]
-    fn rejects_a_package_line_in_a_prelude() {
-        let mut b = Bridge::default();
-        let err = parse_into(
+    fn a_body_containing_a_quote_hash_needs_more_hashes() {
+        let b = parse(
+            r####"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn focus_native(); }
+                #[day_bridge::impl(js, platforms = [web])]
+                js!(r##"
+                    export function focus_native() { document.querySelector("#speech").focus(); }
+                "##);
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn focus_native() {}
+            }
+            "####,
+        );
+        let arm = b.arms.iter().find(|a| a.lang == Lang::Js).unwrap();
+        let body = arm.body.as_deref().unwrap();
+        assert!(
+            body.contains("querySelector(\"#speech\")") && body.ends_with("}"),
+            "the whole body survives:\n{body}"
+        );
+        // The arm after it still parses, which is what an early terminator would have eaten.
+        assert!(b.arms.iter().any(|a| a.lang == Lang::Rust), "{:?}", b.arms);
+    }
+
+    /// A misspelled option used to be ignored, which surfaced far from the mistake.
+    #[test]
+    fn rejects_unknown_arm_options_and_values() {
+        let bad_key = parse_err(
             r###"
             day_bridge::bridge! {
-                #[day_bridge::prelude(kotlin)]
-                kotlin!(r#"
-                    package dev.example.mine
-                "#);
+                #[day_bridge::impl(c, platforms = [linux], linkk = ["speechd"])]
+                c!(r#" void f(void) {} "#);
             }
             "###,
-            "src/lib.rs",
-            &mut b,
-        )
-        .unwrap_err();
+        );
+        assert!(bad_key.contains("unknown arm option `linkk`"), "{bad_key}");
+
+        let bad_encoding = parse_err(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::impl(cpp, platforms = [windows], encoding = "utf-16")]
+                cpp!(r#" void f(void) {} "#);
+            }
+            "###,
+        );
+        assert!(
+            bad_encoding.contains("expected \"utf8\" or \"utf16\""),
+            "{bad_encoding}"
+        );
+
+        let bad_support = parse_err(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::impl(arkts, platforms = [ohos], support = "partial")]
+                arkts!(r#" export function f() {} "#);
+            }
+            "###,
+        );
+        assert!(
+            bad_support.contains("expected \"native\" or \"emulated\""),
+            "{bad_support}"
+        );
+    }
+
+    #[test]
+    fn rejects_a_package_line_in_a_prelude() {
+        let err = parse_err(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::impl(kotlin, platforms = [android])]
+                kotlin!(
+                    prelude = r#"
+                        package dev.example.mine
+                    "#,
+                    body = r#"
+                        fun f() {}
+                    "#,
+                );
+            }
+            "###,
+        );
         assert!(err.contains("belongs to the generator"), "{err}");
+    }
+
+    /// The prelude is per ARM, so two arms of one language claiming different platforms cannot
+    /// receive each other's imports — the bug the old per-language prelude had by construction.
+    #[test]
+    fn a_prelude_reaches_only_its_own_arm() {
+        let b = parse(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn f(); }
+
+                #[day_bridge::impl(c, platforms = [linux])]
+                c!(
+                    prelude = r#"
+                        #include <linux_only.h>
+                    "#,
+                    body = r#" void f(void) {} "#,
+                );
+
+                #[day_bridge::impl(c, platforms = [windows])]
+                c!(
+                    prelude = r#"
+                        #include <windows.h>
+                    "#,
+                    body = r#" void f(void) {} "#,
+                );
+
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn f() {}
+            }
+            "###,
+        );
+        let windows = b
+            .arms
+            .iter()
+            .find(|a| a.platforms.iter().any(|p| p == "windows"))
+            .unwrap();
+        let c = render_c(&b, windows, "day-part-demo");
+        assert!(c.contains("#include <windows.h>"), "{c}");
+        assert!(
+            !c.contains("linux_only.h"),
+            "no leak from the other arm:\n{c}"
+        );
+    }
+
+    /// The old spelling was a separate item; the error says where it went.
+    #[test]
+    fn a_standalone_prelude_attribute_says_what_replaced_it() {
+        let err = parse_err(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::prelude(swift)]
+                swift!(r#" import AVFoundation "#);
+            }
+            "###,
+        );
+        assert!(err.contains("no longer exists"), "{err}");
+        assert!(err.contains("prelude = r#"), "{err}");
     }
 
     #[test]
@@ -2031,7 +2311,7 @@ day_bridge::bridge! {
         // descriptors — only the syntax and the file name differ (docs/bridge.md "Android").
         let b = parse(&SPEECH.replace("kotlin", "java"));
         let arm = b.arms.iter().find(|a| a.lang == Lang::Java).unwrap();
-        let java = render_java(&b, arm, "day-part-speech");
+        let java = render_java(arm, "day-part-speech");
         assert!(
             java.contains("package dev.daybrite.day.bridge.day_part_speech;"),
             "{java}"

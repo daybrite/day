@@ -626,6 +626,15 @@ mod imp {
             .expect("attach_current_thread")
     }
 
+    /// Whether the JVM has been cached — i.e. whether [`with_env`] can run at all.
+    ///
+    /// Public because a bridged part (docs/bridge.md) may be called before, or entirely outside, a
+    /// Day app's `init`: a headless `day-part-*` crate is ordinary Rust that anyone can depend on.
+    /// Asking first turns "no runtime" from a panic into `day_bridge::Error::Runtime`.
+    pub fn vm_ready() -> bool {
+        JAVA_VM.get().is_some()
+    }
+
     /// Read a Java `String` local ref into a Rust `String` (`None` when the ref is null). Public:
     /// the `day` crate's JNI native methods use it to decode incoming string args.
     pub fn read_jstring(env: &Env, s: &JString) -> Option<String> {

@@ -37,6 +37,7 @@ plugin registry or runtime lookup; the target selects the implementation at comp
 | `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
 | `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
 | `day-part-timezone` | the wall clock (works on web too) and DST-correct IANA time-zone offsets | [timezone](/docs/internal/timezone) |
+| `day-part-speech` | text to speech through each platform's own voice | [speech](/docs/internal/speech) |
 
 ## Using parts
 
@@ -89,12 +90,50 @@ you write a part. The pattern scales from trivial to involved:
   aggregated into the app's Gradle project by `day build` — no manual scaffold edits.
 - The same channel covers the other platforms: system frameworks and Swift for iOS and macOS
   (`[package.metadata.day.ios]` / `[package.metadata.day.macos]`), ArkTS sources for HarmonyOS.
+- Or write the platform half **inline in your Rust file**, one arm per platform, and let the build
+  generate both sides of the call — see below.
 - Permissions a part needs (say, vibration) are declared in the part's metadata and merged into
   each platform's manifest the same way.
 
 `day new part my-part` scaffolds the whole shape with per-OS stubs. The
 [part tutorial](/docs/tutorial-part) walks through a complete real example (a battery part with
 six platform implementations) and is the best template for your own.
+
+### Foreign code, inline
+
+A part whose platform half is a *function* rather than a directory of shims can declare it once in
+Rust and implement it per platform in the language that platform speaks, in the same file:
+
+```rust
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        fn speak_native(text: &str) -> Result<(), day_bridge::Error>;
+    }
+
+    #[day_bridge::impl(swift, platforms = [ios, macos])]
+    swift!(
+        prelude = r#"
+            import AVFoundation
+        "#,
+        body = r#"
+            func speak_native(text: String) throws { … }
+        "#,
+    );
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn speak_native(_text: &str) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+}
+```
+
+The build generates the Swift adapter, the JNI binding, the ES module, or the C translation unit,
+plus the Rust that calls it — and the crate still compiles with plain `cargo test` on a machine
+with none of those toolchains, because the last arm answers everywhere else.
+`day-part-speech` carries six languages in one file this way; the
+[bridge reference](/docs/internal/bridge) is the contract, and
+[speech](/docs/internal/speech) is the worked example.
 
 One boundary worth respecting: parts are for *headless* capabilities. The moment your capability
 needs to render something, it's a [piece](/docs/extending), and a different set of tools applies.

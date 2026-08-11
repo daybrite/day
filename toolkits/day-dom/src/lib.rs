@@ -304,12 +304,12 @@ thread_local! {
     static PICKER_SIZE: RefCell<HashMap<u32, Size>> = RefCell::new(HashMap::new());
 }
 
-/// Measure one string in the control font with no wrap limit. The size MUST stay in sync
-/// with the `body` font in day.css — controls (`font: inherit`) render at that size, so
-/// measuring at anything else would mis-size pickers.
+/// Measure one string in the control font with no wrap limit. The expression is day.css's `body`
+/// font-size, named rather than copied — controls (`font: inherit`) render at that size, so
+/// measuring at anything else would mis-size pickers. The shim measures with a real DOM element,
+/// so `var(--day-text-scale)` resolves against the document exactly as it does for the control.
 fn measure_str(txt: &str) -> Size {
-    // Matches the day.css control font: `0.875rem * --day-text-scale`.
-    let css = format!("{}rem {SYSTEM_STACK}", 0.875 * TEXT_SCALE);
+    let css = format!("{} {SYSTEM_STACK}", scaled_rem(1.0));
     let mut out = [0.0f64; 2];
     unsafe {
         day_dom_measure_text(
@@ -341,20 +341,27 @@ fn remember(el: u32, id: NodeId) {
 }
 
 // ---------------------------------------------------------------------------
-// Fonts: FontSpec → a CSS font shorthand. The ramp is rem-based. On desktop 1rem is the browser's
-// font-size preference; on touch devices day.css anchors `html` to `-apple-system-body`, so on iOS
-// 1rem tracks Dynamic Type — every Day font grows with the user's "Larger Text" setting, like the
-// native backends' `preferredFont(forTextStyle:)`. `TEXT_SCALE` mirrors day.css's `--day-text-scale`:
-// it lifts the whole ramp a touch so the UI doesn't read as miniscule next to native (docs/web.md).
-// Body = 1rem × scale; other styles follow the Apple text-style ratios. Custom families fall back
-// to the system stack.
+// Fonts: FontSpec → a CSS font shorthand. The ramp is the Apple text-style ratios with Body = 1,
+// and a step becomes a length through day.css's `--day-text-scale`: `calc(<step>rem * var(…))`.
+// Naming the variable rather than baking a number in is what keeps ONE definition of the size —
+// the stylesheet's — and lets it differ per form factor (docs/web.md): a desktop scale of 0.8125
+// puts Body on 13px, one CSS pixel per Apple point, while a touch browser anchors `html` to
+// `-apple-system-body` and takes a scale of 1, so every step lands on the iOS ramp and tracks the
+// user's Dynamic Type setting. Either way `1rem` is the browser's own preference, so page zoom and
+// a larger default font scale the whole UI.
+//
+// An explicit `System(pt)`/`Custom(_, pt)` size is NOT a ramp step: it means that many pixels at
+// the default preference (the Apple pt == logical-px convention), so it skips the scale and stays
+// in rem — still scaling with the browser preference, per docs/text.md.
 // ---------------------------------------------------------------------------
 
 const SYSTEM_STACK: &str =
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
-/// Baseline lift over the platform's raw text size — MUST equal day.css's `--day-text-scale`.
-const TEXT_SCALE: f64 = 1.12;
+/// A ramp step as a CSS length: the step in rem, scaled by the stylesheet's `--day-text-scale`.
+fn scaled_rem(step: f64) -> String {
+    format!("calc({step}rem * var(--day-text-scale))")
+}
 
 fn font_rem(style: Font) -> (f64, u32) {
     match style {
@@ -392,17 +399,21 @@ fn weight_css(w: FontWeight) -> u32 {
 }
 
 /// `font` CSS shorthand: `style weight size/line-height family`. The unitless line-height
-/// (1.3, matching the old px ramp's ratio) rides the rem size, so it scales too.
+/// (1.3, matching the old px ramp's ratio) rides the size, so it scales too.
 fn font_css(f: &FontSpec) -> String {
     let (rem, default_weight) = font_rem(f.style);
-    let rem = rem * TEXT_SCALE;
+    // A ramp step takes the stylesheet's scale; an explicit pt size is already a size.
+    let size = match f.style {
+        Font::System(_) | Font::Custom(_, _) => format!("{rem}rem"),
+        _ => scaled_rem(rem),
+    };
     let weight = f.weight.map(weight_css).unwrap_or(default_weight);
     let italic = if f.italic { "italic " } else { "" };
     let family = match f.style {
         Font::Custom(name, _) => format!("'{name}', {SYSTEM_STACK}"),
         _ => SYSTEM_STACK.to_string(),
     };
-    format!("{italic}{weight} {rem}rem/1.3 {family}")
+    format!("{italic}{weight} {size}/1.3 {family}")
 }
 
 fn color_css(c: day_spec::Color) -> String {

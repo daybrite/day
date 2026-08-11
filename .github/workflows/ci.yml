@@ -410,7 +410,7 @@ jobs:
       day-source: artifact
       artifact-prefix: canary-
       app-id: dev.daybrite.showcase
-      scripts: dayscript/walkthrough.yaml
+      scripts: dayscript/walkthrough.yaml dayscript/speech.yaml
       themes: light dark
       locales: en fr
       # Off for the canary: the inline linux job already runs the scaffold rebuild check for this
@@ -622,6 +622,14 @@ jobs:
           if [ "${{ matrix.toolkit }}" != qt ]; then
             $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/windows-theme.yaml --skip-build
           fi
+      # Text to speech (docs/speech.md): the daybridge reference part, driven on every combo. The
+      # script asserts the section's own state rather than the audio — a v1 bridge call reports
+      # nothing about the engine after it accepts (docs/bridge.md) — so a CI box with no voice
+      # installed still gates what it can: the arm is linked, the call runs, the UI survives it.
+      - name: Speech (${{ matrix.combo }})
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        working-directory: showcase-src
+        run: $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/speech.yaml --skip-build
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
       # combo (headless Linux has no system clipboard — see dayscript/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
@@ -747,6 +755,13 @@ jobs:
           "$DAY_BIN" build -p ios-uikit
           "$DAY_BIN" launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
+      # Text to speech (docs/speech.md): AVSpeechSynthesizer through the Swift bridge arm, reusing
+      # the .app the walkthrough just built.
+      - name: Speech (ios-uikit)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        working-directory: showcase-src
+        run: |
+          "$DAY_BIN" launch -p ios-uikit --skip-build --script dayscript/speech.yaml
       - name: Dump the most recent crash report (walkthrough failed)
         if: ${{ failure() }}
         run: |
@@ -1151,7 +1166,7 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
-          script: cd showcase-src && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
+          script: cd showcase-src && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml && $DAY_BIN launch -p android-mdc --script dayscript/speech.yaml
       # The tablet capture set (`screenshots-android-mdc-tablet`): the same variants on the stock
       # Pixel Tablet profile, whose 600dp+ width tiles the navigation split
       # (docs/size-classes.md). The phone captures are stashed around the run (the
@@ -1836,6 +1851,15 @@ jobs:
         run: |
           $DAY_BIN launch -p web-dom --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
+      # Text to speech (docs/speech.md): the JavaScript arm, staged as this crate's own ES module
+      # and merged into the wasm import table — the leg that proves per-crate JS staging works.
+      - name: Speech (web-dom)
+        working-directory: showcase-src
+        env:
+          DAY_WEB_DRIVER: node ${{ github.workspace }}/scripts/ci/webdom-driver.mjs
+          DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
+          DAY_WEB_DRIVER_BROWSER: chromium
+        run: $DAY_BIN launch -p web-dom --script dayscript/speech.yaml
       # Headless WebKit has no motion hardware, so the walkthrough above can only prove the
       # "unavailable" path. Serve the built page, dispatch a synthetic `devicemotion` with known
       # values, and assert the CONVERTED numbers — the deg/s → rad/s conversion and the

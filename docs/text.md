@@ -44,7 +44,7 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 | **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
 | **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
 | **Qt** | QFont point sizes | Honors the system DPI/font (no separate large-text toggle) |
-| **Web** (`web-dom`) | rem-based ramp — `Body` = 1rem, the rest follow the Apple text-style ratios (`font_rem` in day-dom) | Yes — 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it; page zoom applies on top |
+| **Web** (`web-dom`) | rem-based ramp — the Apple text-style ratios with `Body` = 1, scaled by day.css's `--day-text-scale`: 0.8125 on a desktop pointer, so one Apple point is one CSS pixel and `Body` is 13px like AppKit; 1 on a touch pointer, where `html` is anchored to `-apple-system-body` and every step lands on the iOS ramp | Yes — 1rem is the browser's default-font-size preference (day.css pins `html` at `font-size: 100%`), so every style tracks it, and on iOS the anchor makes it track Dynamic Type; page zoom applies on top |
 
 ## Weight & style
 

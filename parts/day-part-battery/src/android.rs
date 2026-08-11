@@ -47,50 +47,50 @@ day_bridge::bridge! {
     // Java, not Kotlin: a `.java` arm compiles in any Android project, while a `.kt` arm needs the
     // project to have the Kotlin plugin (docs/bridge.md). A part published for other people's apps
     // has no say in that, so it uses the language every app can already build.
-    #[day_bridge::prelude(java)]
-    java!(r#"
-        import android.content.Context;
-        import android.content.Intent;
-        import android.content.IntentFilter;
-        import android.os.BatteryManager;
-        import dev.daybrite.day.bridge.DayBridge;
-    "#);
-
     #[day_bridge::impl(java, platforms = [android])]
-    java!(r#"
-        private static Intent batteryIntent() {
-            Context ctx = DayBridge.ctx;
-            if (ctx == null) {
-                return null;
+    java!(
+        prelude = r#"
+            import android.content.Context;
+            import android.content.Intent;
+            import android.content.IntentFilter;
+            import android.os.BatteryManager;
+            import dev.daybrite.day.bridge.DayBridge;
+        "#,
+        body = r#"
+            private static Intent batteryIntent() {
+                Context ctx = DayBridge.ctx;
+                if (ctx == null) {
+                    return null;
+                }
+                return ctx.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
             }
-            return ctx.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-        }
 
-        public static int level_native() {
-            Intent intent = batteryIntent();
-            if (intent == null) {
-                return -1;
+            public static int level_native() {
+                Intent intent = batteryIntent();
+                if (intent == null) {
+                    return -1;
+                }
+                int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                return (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
             }
-            int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-            int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-            return (level >= 0 && scale > 0) ? Math.round(level * 100f / scale) : -1;
-        }
 
-        public static int state_native() {
-            Intent intent = batteryIntent();
-            if (intent == null) {
-                return 0;
+            public static int state_native() {
+                Intent intent = batteryIntent();
+                if (intent == null) {
+                    return 0;
+                }
+                switch (intent.getIntExtra(BatteryManager.EXTRA_STATUS,
+                                           BatteryManager.BATTERY_STATUS_UNKNOWN)) {
+                    case BatteryManager.BATTERY_STATUS_CHARGING: return 1;
+                    case BatteryManager.BATTERY_STATUS_DISCHARGING: return 2;
+                    case BatteryManager.BATTERY_STATUS_FULL: return 3;
+                    case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return 4;
+                    default: return 0;
+                }
             }
-            switch (intent.getIntExtra(BatteryManager.EXTRA_STATUS,
-                                       BatteryManager.BATTERY_STATUS_UNKNOWN)) {
-                case BatteryManager.BATTERY_STATUS_CHARGING: return 1;
-                case BatteryManager.BATTERY_STATUS_DISCHARGING: return 2;
-                case BatteryManager.BATTERY_STATUS_FULL: return 3;
-                case BatteryManager.BATTERY_STATUS_NOT_CHARGING: return 4;
-                default: return 0;
-            }
-        }
-    "#);
+        "#,
+    );
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so these
     // are never actually compiled — they satisfy the rule that a bridge always has an answer for

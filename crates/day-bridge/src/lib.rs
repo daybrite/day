@@ -58,7 +58,7 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// Declare a crate's bridge: the API, its per-platform implementations, and their preludes.
+/// Declare a crate's bridge: the API and its per-platform implementations.
 ///
 /// **The body is discarded.** This macro expands to nothing but an `include!` of the code
 /// day-build generated from the same source text, which is what lets an arm contain Swift, Kotlin,

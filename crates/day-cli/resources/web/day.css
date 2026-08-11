@@ -45,27 +45,35 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Type sizing (docs/web.md). Two goals: match the generosity of a native app's default text, and
-   respect the OS accessibility text size the way the native backends' `preferredFont(forTextStyle:)`
-   does. `--day-text-scale` lifts the whole rem ramp a touch so the UI doesn't read as miniscule
-   next to native; day-dom's ramp applies the SAME factor.
-     - Desktop keeps a FIXED base (1rem = the browser's font-size preference), so Safari and Chrome
-       on the same Mac render identically and nothing shrinks to the bare 13px system size.
-     - Touch devices anchor `html` to `-apple-system-body`, whose value IS iOS Dynamic Type: every
-       rem grows and shrinks with the user's "Larger Text" setting. Non-Apple mobile browsers drop
-       the unknown keyword and keep the fixed base (Android web has no Dynamic Type to track). */
-:root { --day-text-scale: 1.12; }
+/* Type sizing (docs/web.md). Day's font ramp is the Apple text-style ratios with Body = 1, and
+   `--day-text-scale` is the one number that turns a ramp step into a length: `size = step × scale ×
+   1rem`. day-dom emits `calc(<step>rem * var(--day-text-scale))`, so this declaration is the ONLY
+   place the size is decided — there is no second copy in Rust to drift from.
+
+   The scale is per form factor, because a "point" means different things on a desktop and a phone:
+     - Desktop (default): 0.8125 = 13/16, so one Apple point renders as one CSS pixel and Body
+       lands on 13px — the size AppKit gives a desktop app, rather than the 17px phone ramp the
+       web build used to show. `1rem` stays the browser's own font-size preference, so a reader who
+       sets a larger default (or zooms) scales the whole UI with it.
+     - Touch: `html` is anchored to `-apple-system-body`, whose value IS iOS Dynamic Type — so 1rem
+       is the 17pt body iOS itself would use, and a scale of 1 puts every step exactly on the iOS
+       ramp, growing and shrinking with the user's "Larger Text" setting. Non-Apple mobile browsers
+       drop the unknown keyword and keep the fixed base (Android web has no Dynamic Type to track),
+       which leaves them a comfortable 16px body. */
+:root { --day-text-scale: 0.8125; }
 html { font-size: 100%; }
 @media (pointer: coarse) {
   html { font: -apple-system-body; }
+  :root { --day-text-scale: 1; }
 }
 
 /* The control font — buttons, fields, pickers, sidebar rows, and chrome inherit this (labels
-   carry their own rem ramp). Must stay in sync with measure_str() in day-dom (same rem × scale). */
+   carry their own ramp step). Body-sized, as on every native toolkit, where a button's caption and
+   a label are the same system font. day-dom's measure_str() names the same expression. */
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     sans-serif;
-  font-size: calc(0.875rem * var(--day-text-scale));
+  font-size: calc(1rem * var(--day-text-scale));
 }
 
 #day-root {
@@ -270,21 +278,25 @@ body {
 .day-page { position: absolute; inset: 0; overflow: hidden; }
 
 .day-navmenu { overflow-y: auto; padding: 8px; box-sizing: border-box; }
+/* Row height is set by the icon and the padding, not the caption — so both are in `em` and follow
+   the control font. A desktop row lands near the 24px AppKit gives a sidebar; a touch browser,
+   whose font is Dynamic Type's larger body, gets the roomier row a finger needs, with no second
+   set of numbers to keep in step. */
 .day-navmenu-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 10px;
+  gap: 0.65em;
+  padding: 0.4em 0.75em;
   border-radius: 7px;
   cursor: default;
   user-select: none;
 }
-.day-navmenu-row img { width: 18px; height: 18px; object-fit: contain; }
+.day-navmenu-row img { width: 1.25em; height: 1.25em; object-fit: contain; }
 /* Sidebar icons are template images (shim.js sets the PNG as this element's mask): painted
    with currentColor, they track the row — dark on light, light on dark, white when selected. */
 .day-navmenu-icon {
-  width: 18px;
-  height: 18px;
+  width: 1.25em;
+  height: 1.25em;
   flex: none;
   background-color: currentColor;
   mask-repeat: no-repeat;
@@ -297,8 +309,8 @@ body {
 /* The trailing status glyph — the same mask treatment as the leading icon, pushed to the row's
    end. `margin-left: auto` rather than a spacer so a row without one is unchanged. */
 .day-navmenu-badge {
-  width: 16px;
-  height: 16px;
+  width: 1.1em;
+  height: 1.1em;
   flex: none;
   margin-left: auto;
   background-color: currentColor;

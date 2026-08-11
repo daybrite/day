@@ -36,7 +36,7 @@ an OS concern rather than a toolkit one. `parts/day-part-battery/examples/batter
 | Windows | `GetSystemPowerStatus` | raw FFI (kernel32) |
 | Linux | `/sys/class/power_supply` | std only |
 | HarmonyOS | native `OH_BatteryInfo_GetCapacity` / `GetPluggedType` (`libohbattery_info.so`) | raw FFI (BasicServicesKit) |
-| Android | `BatteryManager` via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| Android | `BatteryManager` via the inline Java arm in `src/android.rs` | `day-android` + `day-bridge` ([bridge.md](bridge.md)) |
 
 iOS reads on the main thread (`UIDevice` is `MainThreadOnly`); off it, `status()` returns `None`. The
 simulator has no battery, so you get `level: None, state: Unknown` (the API path still runs).
@@ -52,7 +52,14 @@ Device & sensors page shows a live readout (docs/harmonyos.md).
 This is the first headless external crate: it has no UI Piece and registers nothing into any
 backend's `RENDERERS` slice. It demonstrates that the standalone-piece backend-contribution
 mechanism (see [extending.md](extending.md)) already accommodates headless capability crates:
-`day-part-battery` contributes its Android Java through `[package.metadata.day.android]` exactly
-like the UI pieces, but registers no renderer; the Java staging is independent of rendering. On
-Android the crate rides on the Day runtime (it uses day-android's cached JVM + `DayBridge.ctx`); on
-every other platform it is fully day-independent.
+`day-part-battery` contributes an Android implementation exactly like the UI pieces, but registers
+no renderer; the staging is independent of rendering. On Android the crate rides on the Day runtime
+(it uses day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully
+day-independent.
+
+The Android half is a **daybridge** arm ([bridge.md](bridge.md)): the Java that reads
+`BatteryManager` lives inline in `parts/day-part-battery/src/android.rs`, beside the declaration it
+implements, and `day build` stages it into the app's Gradle build. It replaced a checked-in
+`DayBattery.java`, a `[package.metadata.day.android] java = [...]` table, and a packed-`i64` wire
+format that was written twice and kept in agreement by comment. `day-part-speech`
+([speech.md](speech.md)) is the fuller demonstration — six languages in one file.

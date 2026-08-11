@@ -94,6 +94,15 @@ text)` (kind 12 = the open Custom channel). `day-piece-webview` reports its URL 
 A piece often needs native code the Rust FFI alone can't express. Day gives each toolkit a local
 extension path so that code lives in the piece crate:
 
+> [!NOTE]
+> **Implementing a *function* in another language? Use a bridge instead** ([bridge.md](bridge.md)).
+> The per-toolkit paths below stage whole directories of hand-written shims, which is the right
+> shape for a native **view** — a renderer wiring a `UIView`, a `QWidget`, an ArkUI component.
+> daybridge is the shape for a native **call**: one Rust declaration, an implementation per
+> platform written inline in the crate's own `.rs`, and generated glue on both sides.
+> `parts/day-part-speech` ([speech.md](speech.md)) does six languages in one file that way, and
+> `parts/day-part-battery` migrated its Android half off the `java = [...]` mechanism below.
+
 ### C++ shims: Qt & XAML (`build.rs`)
 
 The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-xaml-shim.cpp` and compiles them in `build.rs`
@@ -310,7 +319,9 @@ shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust 
 ### The Android bridging contract
 
 Guarantees a part or piece can rely on when its Rust calls its Java sidecar (all provided by
-`day-android`, all exercised in production by `day-part-http`):
+`day-android`, all exercised in production by `day-part-http`). A [daybridge](bridge.md) arm rides
+these same guarantees — its generated JNI wrapper is written against them — so this list is what
+that generated code does on your behalf, and what to know when you write the call by hand:
 
 - **Any thread may call.** `day_android::with_env(|env| …)` attaches the calling thread to the
   JVM (and detaches scoped attachments). Blocking Java work runs on the CALLER's thread; keep
@@ -479,11 +490,15 @@ that pulls an external native package on each platform, the lottie-ios SwiftPM p
 `[package.metadata.day.ios]` mechanism above) and `com.airbnb.android:lottie` (Gradle). Its Swift
 and Java shims each wrap a `LottieAnimationView` behind a flat C ABI / static method.
 
+`parts/day-part-speech` (see [speech.md](speech.md)) is the reference for the other mechanism:
+a headless part whose every platform implementation is a [bridge](bridge.md) arm — Swift, Java,
+ArkTS, JavaScript, C++, and C — inline in one `src/lib.rs` beside the Rust declaration they share.
+
 `parts/day-part-battery` (see [battery.md](battery.md)) is a fourth reference, the first **part**:
 a headless crate with no UI Piece at all. Where `pieces/` holds UI-library extensions (each
 registers a renderer), `parts/` is the non-UI counterpart: capability crates (`day-part-*`) that extend
 Day apps with platform services. It shows the backend-contribution mechanism accommodates non-UI
-capabilities: it contributes Android Java through `[package.metadata.day.android]` (for
-`BatteryManager`) but registers nothing into any `RENDERERS` slice, and selects its per-OS impl by
+capabilities: it contributes Android Java (for `BatteryManager`, now through a
+[bridge](bridge.md) arm) but registers nothing into any `RENDERERS` slice, and selects its per-OS impl by
 `#[cfg(target_os)]` rather than a toolkit feature. Any Rust code can depend on it and call
 `day_part_battery::status()`.

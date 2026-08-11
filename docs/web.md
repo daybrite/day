@@ -59,13 +59,29 @@ Synchronous text measurement (the one duty a browser makes hard) uses a hidden m
 element (so wrapping matches real labels), cached per element and invalidated on text or font
 patches.
 
-**Typography is rem-based.** The style ramp (`font_rem` in day-dom) sets `Body` at 1rem with the
-other styles at the Apple text-style ratios; controls inherit the 0.875rem `body` font from
-day.css, and the picker measurer (`measure_str`) must stay in sync with it. `html` is pinned at
-`font-size: 100%` and nothing may redefine it: 1rem *is* the browser's default-font-size
-preference, which is how web-dom delivers the accessibility text scaling docs/text.md promises.
-Canvas draw-op text is the deliberate exception: it renders in the app's coordinate space,
-where scaling text but not geometry would corrupt drawings.
+**Typography is rem-based, scaled per form factor.** The style ramp (`font_rem` in day-dom) is the
+Apple text-style ratios with `Body` = 1, and a step becomes a length through one multiplier:
+day-dom emits `calc(<step>rem * var(--day-text-scale))`, so day.css's `--day-text-scale` is the only
+place the size is decided — nothing in Rust to keep in step with it. Controls (and the picker
+measurer, `measure_str`) take the same expression at `Body`, as on every native toolkit, where a
+button's caption and a label are one size.
+
+The scale differs by pointer type, because a point means different things on a desktop and a phone:
+
+| | `--day-text-scale` | `1rem` | `Body` |
+|---|---|---|---|
+| desktop (default) | 0.8125 = 13/16 | the browser's font-size preference (`html` is pinned at `font-size: 100%`) | 13px — one CSS pixel per Apple point, the size AppKit gives a desktop app |
+| `pointer: coarse` | 1 | `-apple-system-body`, which on iOS *is* Dynamic Type | 17px on iOS and tracking "Larger Text"; 16px where the keyword is unknown (Android has no Dynamic Type to track) |
+
+Before 2026-08 one scale of 1.12 served both, which put a desktop browser on the phone ramp: `Body`
+came out at 17.9px and the whole UI read about a third larger than the same app on macOS. Nothing
+may redefine `html`'s size outside that media query — 1rem *is* the reader's preference, which is
+how web-dom delivers the accessibility text scaling docs/text.md promises, and page zoom applies on
+top of it. Chrome metrics that wrap text (the sidebar row's padding and icon) are in `em` for the
+same reason: they follow the font instead of pinning a desktop row size onto a touch device.
+
+Canvas draw-op text is the deliberate exception: it renders in the app's coordinate space, where
+scaling text but not geometry would corrupt drawings.
 
 ## The main loop, timers, and `day::sleep`
 

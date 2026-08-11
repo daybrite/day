@@ -53,18 +53,23 @@ day_bridge::bridge! {
         fn stop_native();
     }
 
-    // 2. file-level preamble for one language: imports only
-    #[day_bridge::prelude(java)]
-    java!(r#"
-        import android.speech.tts.TextToSpeech;
-        import dev.daybrite.day.bridge.DayBridge;
-    "#);
-
-    // 3. an implementation, inline
+    // 2. an implementation, inline — `body` alone, or with the file-level preamble it needs
     #[day_bridge::impl(java, platforms = [android])]
-    java!(r#"
-        public static void speak_native(String text) { … }
-        public static void stop_native() { … }
+    java!(
+        prelude = r#"
+            import android.speech.tts.TextToSpeech;
+            import dev.daybrite.day.bridge.DayBridge;
+        "#,
+        body = r#"
+            public static void speak_native(String text) { … }
+            public static void stop_native() { … }
+        "#,
+    );
+
+    // 3. an arm with no preamble is the sole argument
+    #[day_bridge::impl(js, platforms = [web])]
+    js!(r#"
+        export function speak_native(text) { speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
     "#);
 
     // 4. or an implementation in its own file, staged like android/java is today
@@ -84,9 +89,21 @@ token at all, and `'zh-CN'` lexes as a malformed lifetime. A raw string accepts 
 **Use a file (`src = "…"`) once an arm passes roughly 25 lines**, where an editor, a formatter,
 and the language's own test runner start to matter more than keeping the crate in one file.
 
-**The prelude holds imports and nothing else.** A `package`, `namespace`, or `module` declaration
-in a prelude is an error, not a passthrough: those are identity, the build integration derives
-them (below), and a hand-written one that disagrees is the drift this system exists to remove.
+**The prelude holds imports and nothing else**, and belongs to the arm that needs it. A `package`,
+`namespace`, or `module` declaration in one is an error, not a passthrough: those are identity, the
+build integration derives them (below), and a hand-written one that disagrees is the drift this
+system exists to remove.
+
+It is a separate argument rather than the first lines of the body because on the JVM the body is
+*inside* the generated class — `package …; imports; final class DayXBridge { your arm }` — and Java
+and Kotlin imports cannot live in a class body. Swift, JavaScript, ArkTS, C and C++ have no such
+split and mostly need no `prelude` at all; write the arm alone and pass it as the sole argument.
+Scoping it to the arm rather than to the language is what keeps a Linux-only `#include` out of a
+Windows arm's translation unit when one crate has two arms in the same language.
+
+**Any hash count works.** `r#"…"#` ends at the first `"#`, which appears in ordinary JavaScript
+(`querySelector("#speech")`), CSS selectors and C format strings. Write those arms as `r##"…"##`;
+the parser counts hashes exactly as rustc does.
 
 ## Names
 
@@ -118,7 +135,7 @@ generated name predictable, which is the property the whole naming table exists 
 
 ## Types
 
-The v1 surface. A declaration using anything outside this table is a `day lint` error.
+The v1 surface. A declaration using anything outside this table fails the crate's build (day-build validates it before generating anything); phase 9 adds the same check to `day lint`, so a mistake surfaces before a compile.
 
 | Rust | Swift | Kotlin | Java | ArkTS | JavaScript | C / C++ |
 |---|---|---|---|---|---|---|
@@ -225,14 +242,18 @@ mode — `catch`, `try`, a status code — and converts it, so an exception neve
 
 `platforms = [...]` accepts `ios`, `macos`, `android`, `ohos`, `web`, `linux`, `windows`, and
 `other`. Exactly one arm may claim a given target; `other` catches the rest, and a crate with no
-`other` arm fails `day lint` because it would not compile under day-mock.
+`other` arm fails its own build — day-build refuses to generate a module that would not compile
+under day-mock.
 
 Each bridged function reports a `Support` per target, and `docs/bridge-matrix.md` is generated from
 the declarations and CI-gated for drift, the way `docs/duty-matrix.md`, `docs/coverage-matrix.md`,
 and `docs/recorder-matrix.md` already are.
 
 ```rust
-pub fn available() -> Support { day_bridge::support!(speak_native) }
+// parts/day-part-speech/src/lib.rs — the generator emits one `<fn>_support()` per declaration.
+pub fn available() -> Support {
+    speak_native_support()
+}
 ```
 
 An arm may report `Emulated` rather than `Native` when the platform implementation is a partial
@@ -306,6 +327,12 @@ pkg-config = ["speech-dispatcher"]
 What disappears is the `java = [...]` / `swift = [...]` / `ets = [...]` directory lists, when the
 code that lived in those directories is inline.
 
+**What the `Foreign` payload holds depends on the boundary.** Swift and JavaScript pass the
+thrown value's message through. A JVM arm's exception is *described to logcat* and cleared by the
+generated wrapper — cleared because a pending exception makes the next thread-attach fatal, which
+would turn a reportable error into a contained panic — so the Rust side carries the function name
+and the detail is in `adb logcat`. A C or C++ arm returns a status code and has no message at all.
+
 ## What fails the build
 
 One list, so an implementer and a reviewer see the same set. Each of these is a hard error, not a
@@ -314,12 +341,14 @@ silently misread value.
 
 | Failure | Raised by |
 |---|---|
-| A declared type outside the [type table](#types) | `day lint`, day-build |
-| No `other` arm in the crate | `day lint` — it could not compile under day-mock |
+| A declared type outside the [type table](#types) | day-build, when the crate compiles |
+| No `other` arm in the crate | day-build — it could not compile under day-mock |
 | Two arms claiming the same target | day-build |
+| An unknown arm option, or an out-of-range `encoding`/`support` value | day-build |
 | A symbol prefix shared by two crates | `day build`, naming both manifests |
 | A file-form arm whose signature disagrees with the declaration | day-cli, per language |
 | A `package`, `namespace`, or `module` line inside a prelude | day-build |
+| An argument to a language macro other than `prelude` / `body` | day-build |
 | Two crates exporting the same name into the web shim's import table | `day build` |
 | A `kotlin` arm in an Android project with no Kotlin plugin | `day build`, `day lint` ([above](#android-java-needs-nothing-kotlin-needs-the-plugin)) |
 

@@ -31,13 +31,12 @@ day_bridge::bridge! {{
         fn reset_native();
     }}
 
-    #[day_bridge::prelude(c)]
-    c!(r#"
-        #include <stddef.h>
-    "#);
-
     #[day_bridge::impl(c, platforms = [{platform}])]
-    c!(r#"
+    c!(
+        prelude = r#"
+        #include <stddef.h>
+    "#,
+        body = r#"
         static int32_t total = 0;
 
         int32_t add_native(int32_t a, int32_t b) {{
@@ -46,7 +45,8 @@ day_bridge::bridge! {{
         }}
 
         void reset_native(void) {{ total = 0; }}
-    "#);
+    "#,
+    );
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn add_native(_a: i32, _b: i32) -> Result<(), day_bridge::Error> {{
