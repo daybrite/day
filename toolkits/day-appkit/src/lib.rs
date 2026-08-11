@@ -4543,8 +4543,12 @@ impl Platform for AppKit {
     }
 
     fn locale_hints(&self) -> Vec<String> {
-        // M6: NSLocale preferredLanguages.
-        Vec::new()
+        // The user's ordered language preference from Settings ("fr-FR", "en-US", …), which is
+        // the ambient locale Day negotiates its catalogs against (§12.2, docs/localization.md).
+        objc2_foundation::NSLocale::preferredLanguages()
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     }
 }
 

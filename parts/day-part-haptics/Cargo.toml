@@ -15,7 +15,7 @@ license.workspace = true
 # target:
 #   iOS      — UIFeedbackGenerator (impact / notification / selection)
 #   macOS    — NSHapticFeedbackManager (generic / alignment / levelChange)
-#   Android  — Vibrator / VibrationEffect via a Java shim staged through [package.metadata.day.android]
+#   Android  — Vibrator / VibrationEffect via the inline Java arm in src/android.rs (docs/bridge.md)
 #   others   — no haptic engine: play() is a no-op and is_supported() == false (Windows, desktop
 #              Linux/GTK/Qt, HarmonyOS)
 # See docs/haptics.md + docs/extending.md.
@@ -41,12 +41,16 @@ objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
 # backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
+# dependency is Android-only too — every other target compiles exactly as it did before.
+day-bridge = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
-# The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages this
-# Java into the app's Gradle build and merges the VIBRATE permission into the app manifest, with zero
-# edits to any core day crate.
+# The Java itself is a daybridge arm in src/android.rs (docs/bridge.md), rendered and staged by
+# `day build`; what stays here is the build-graph fact that arm needs.
 [package.metadata.day.android]
-java = ["android/java"]
 # Vibrator.vibrate(...) requires VIBRATE (a normal, install-time permission — no runtime prompt).
 permissions = ["android.permission.VIBRATE"]
+
+[build-dependencies]
+day-build = { workspace = true }

@@ -299,6 +299,16 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         }
     }
 
+    // A bridged C/C++ arm's `link = [...]` needs the library's dev package on THIS machine, and
+    // the failure without it is a linker wall naming no crate (docs/bridge.md "Linking").
+    let missing = crate::bridge::unresolved_link_libs(project);
+    if !missing.is_empty() {
+        findings.push(Finding {
+            code: "day::lint::bridge-link-missing",
+            message: crate::bridge::link_help(&missing),
+        });
+    }
+
     // --- Day.toml structure ---
     // Syntax + schema are enforced at load (a project that reaches here parsed); lint adds the
     // semantic checks: every [app] target is a known combo, and every [app.<key>] override

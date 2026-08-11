@@ -101,16 +101,43 @@ fn ensure_state() {
 }
 
 thread_local! {
-    /// A launch-locale override set by the platform entry before `install` runs — the seam for
-    /// hosts with no process environment (web-dom seeds it from the page's `?locale=`). The
-    /// `DAY_LOCALE` environment variable, where one exists, still wins.
-    static LAUNCH_LOCALE: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// The host's ordered locale preference, set by the platform entry before `install` runs —
+    /// the seam for hosts with no process environment (web-dom seeds it from the page's
+    /// `?locale=`, native backends from the OS). The `DAY_LOCALE` environment variable, where one
+    /// exists, still wins.
+    static LAUNCH_LOCALES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Record the host's launch locale before [`install`] runs. Platform glue only — apps pick
 /// locales with `set_locale`. No-op once `install` has resolved the initial locale.
 pub fn set_launch_locale(locale: &str) {
-    LAUNCH_LOCALE.with(|l| *l.borrow_mut() = Some(locale.to_string()));
+    set_launch_locales(&[locale.to_string()]);
+}
+
+/// Append the host's ordered preference AFTER anything already recorded.
+///
+/// The two sources arrive in that order and both matter: a host override (web-dom's `?locale=`,
+/// set by the page glue) is a deliberate choice and stays first; the OS preference the backend
+/// reports is the fallback behind it. Duplicates are dropped, so a repeat call cannot reorder.
+pub fn add_launch_locales(locales: &[String]) {
+    LAUNCH_LOCALES.with(|l| {
+        let mut l = l.borrow_mut();
+        for loc in locales {
+            if !l.contains(loc) {
+                l.push(loc.clone());
+            }
+        }
+    });
+}
+
+/// Record the host's ORDERED locale preference (`["fr-CA", "fr", "en"]`) before [`install`] runs.
+///
+/// An OS answers with a list, not a locale, and the app's catalogs are not registered yet — so the
+/// list is kept whole and [`install`] picks the first entry it can actually serve. Taking only the
+/// first would drop a user whose phone reads "Canadian French, then French" for an app that ships
+/// `fr` but not `fr-CA`.
+pub fn set_launch_locales(locales: &[String]) {
+    LAUNCH_LOCALES.with(|l| *l.borrow_mut() = locales.to_vec());
 }
 
 /// Register an app's locales from `.ftl` sources and set the current locale from (1) the `DAY_LOCALE`
@@ -125,20 +152,27 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
         let st = st.as_mut().unwrap();
         st.app = build_bundles(locales);
         st.default = default.to_string();
-        let initial = std::env::var("DAY_LOCALE")
+        // Accept the first candidate that RESOLVES — exactly, sans `-u-…` extension, or by
+        // language half (`fr-FR` → `fr`) — mirroring `message_from`'s lookup, so a regional or
+        // extension-carrying candidate isn't silently dropped to the default.
+        // The APP's catalogs decide the app's language. The core catalog ships more languages
+        // than most apps translate into, and letting it answer would hand a German phone an app
+        // whose own text is English and whose framework strings are German — a mix no user asked
+        // for. Core decides only when the app registered nothing at all.
+        let serves = |l: &str| {
+            let lang = l.split('-').next().unwrap_or(l);
+            let keys = [l, base_locale(l), lang];
+            let catalogs = if st.app.is_empty() { &st.core } else { &st.app };
+            keys.iter().any(|k| catalogs.contains_key(*k)) || l == "en-XA"
+        };
+        let candidates = std::env::var("DAY_LOCALE")
             .ok()
-            .or_else(|| LAUNCH_LOCALE.with(|l| l.borrow().clone()))
+            .map(|l| vec![l])
+            .unwrap_or_else(|| LAUNCH_LOCALES.with(|l| l.borrow().clone()));
+        let initial = candidates
+            .into_iter()
             .map(normalize)
-            .filter(|l| {
-                // Accept anything that RESOLVES — exactly, sans `-u-…` extension, or by language
-                // half (`fr-FR` → `fr`) — mirroring `message_from`'s lookup, so a regional or
-                // extension-carrying launch locale isn't silently dropped to the default.
-                let lang = l.split('-').next().unwrap_or(l);
-                [l.as_str(), base_locale(l), lang]
-                    .iter()
-                    .any(|k| st.app.contains_key(*k) || st.core.contains_key(*k))
-                    || l == "en-XA"
-            })
+            .find(|l| serves(l))
             .unwrap_or_else(|| default.to_string());
         st.locale.set(initial);
     });
@@ -336,6 +370,46 @@ pub fn strip_isolates(s: &str) -> String {
     s.chars()
         .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
         .collect()
+}
+
+#[cfg(test)]
+mod launch_locale_tests {
+    use super::*;
+
+    /// The device answers with a LIST and its first entry is often regional. Both facts have to
+    /// survive: `fr-CA` must reach an app that ships only `fr`, and a language the app does not
+    /// have at all must fall through to the next preference rather than to the default.
+    #[test]
+    fn install_picks_the_first_preference_it_can_serve() {
+        set_launch_locales(&[
+            "de-DE".to_string(), // not shipped
+            "fr-CA".to_string(), // shipped as `fr`
+            "en".to_string(),
+        ]);
+        install(
+            "en",
+            &[("en", "hello = Hello\n"), ("fr", "hello = Bonjour\n")],
+        );
+        assert_eq!(locale().get(), "fr-CA");
+        assert_eq!(
+            t("hello"),
+            "Bonjour",
+            "and it resolves through the language half"
+        );
+    }
+
+    /// An explicit host override stays in front of whatever the OS reports.
+    #[test]
+    fn an_explicit_override_outranks_the_device() {
+        set_launch_locales(&[]);
+        set_launch_locale("fr");
+        add_launch_locales(&["en-US".to_string()]);
+        install(
+            "en",
+            &[("en", "hello = Hello\n"), ("fr", "hello = Bonjour\n")],
+        );
+        assert_eq!(t("hello"), "Bonjour");
+    }
 }
 
 #[cfg(test)]

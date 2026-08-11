@@ -1,81 +1,102 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Android: android.os.Build, read via this crate's OWN Java shim (android/java/…/DayDeviceInfo.java)
-// — staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
-// like the UI pieces, but registering NO renderer. Build.* are static fields (no Context needed), but
-// crossing into Java still rides day-android's re-exported `jni` + attached JVM. No permission needed.
+// Android, whole: the Java that reads `android.os.Build`, the declaration that binds it, and the
+// mapping into [`DeviceInfo`]. Nothing about this platform appears anywhere else in the crate.
 //
-// `read()` returns one string with the four fields joined by U+001F (the ASCII unit separator, which
-// cannot appear in a Build value): model, "Android", VERSION.RELEASE, and "1"/"0" for the emulator
-// flag. We split it back apart here.
+// `Build`'s fields are static (no Context needed) but they are Java constants with no C entry
+// point, so this is the crate's only foreign arm (docs/bridge.md). Written in Java rather than
+// Kotlin so it compiles in any Android project. No permission is needed.
+//
+// Before daybridge the four fields crossed as ONE string joined by U+001F, packed in Java and split
+// in Rust — a wire format written twice. Each field is now its own declaration, which is three JNI
+// calls instead of one against static data read once per launch.
 
 use super::DeviceInfo;
-use day_android::DayEnv;
-use day_android::with_env;
-
-const DEVICEINFO_CLASS: &str = "dev/daybrite/day/deviceinfo/DayDeviceInfo";
-const SEP: char = '\u{1f}';
 
 pub fn get() -> DeviceInfo {
-    let joined: Option<String> = with_env(|env| {
-        let obj = env
-            .dcall_static(DEVICEINFO_CLASS, "read", "()Ljava/lang/String;", &[])
-            .ok()?
-            .l()
-            .ok()?;
-        if obj.is_null() {
-            return None;
-        }
-        env.dstr(&day_android::as_jstring(obj)).ok()
-    });
-    parse(joined.as_deref())
-}
-
-/// Split the packed `model␟Android␟release␟simFlag` string into a [`DeviceInfo`], filling any missing
-/// field with a sensible fallback. Factored out so it is unit-testable off-device.
-fn parse(joined: Option<&str>) -> DeviceInfo {
-    let mut parts = joined.unwrap_or("").split(SEP);
-    let field = |p: Option<&str>, fallback: &str| {
-        p.filter(|s| !s.is_empty()).unwrap_or(fallback).to_string()
-    };
-    let model = field(parts.next(), "Unknown");
-    let system_name = field(parts.next(), "Android");
-    let system_version = field(parts.next(), "Unknown");
-    let is_simulator = parts.next() == Some("1");
     DeviceInfo {
-        model,
-        system_name,
-        system_version,
-        is_simulator,
+        model: model_native().unwrap_or_else(|_| "Unknown".into()),
+        // Not asked of the platform: on Android the answer is Android.
+        system_name: "Android".into(),
+        system_version: system_version_native().unwrap_or_else(|_| "Unknown".into()),
+        is_simulator: is_emulator_native().unwrap_or(false),
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse;
-
-    #[test]
-    fn parses_full_line() {
-        let d = parse(Some("Pixel 7\u{1f}Android\u{1f}14\u{1f}0"));
-        assert_eq!(d.model, "Pixel 7");
-        assert_eq!(d.system_name, "Android");
-        assert_eq!(d.system_version, "14");
-        assert!(!d.is_simulator);
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        /// `MODEL`, prefixed with `MANUFACTURER` when it does not already start with it.
+        fn model_native() -> Result<String, day_bridge::Error>;
+        /// `VERSION.RELEASE`, or `"Unknown"`.
+        fn system_version_native() -> Result<String, day_bridge::Error>;
+        /// Whether this build looks like the AOSP/Google emulator.
+        fn is_emulator_native() -> Result<bool, day_bridge::Error>;
     }
 
-    #[test]
-    fn parses_emulator_flag() {
-        let d = parse(Some("sdk_gphone64_arm64\u{1f}Android\u{1f}15\u{1f}1"));
-        assert!(d.is_simulator);
+    #[day_bridge::impl(java, platforms = [android])]
+    java!(
+        prelude = r#"
+            import android.os.Build;
+        "#,
+        body = r#"
+            public static String model_native() {
+                String model = nonEmpty(Build.MODEL);
+                String manufacturer = Build.MANUFACTURER;
+                if (manufacturer != null && !manufacturer.isEmpty()
+                        && !model.toLowerCase().startsWith(manufacturer.toLowerCase())
+                        && !model.equals("Unknown")) {
+                    return manufacturer + " " + model;
+                }
+                return model;
+            }
+
+            public static String system_version_native() {
+                return nonEmpty(Build.VERSION.RELEASE);
+            }
+
+            // Heuristic emulator detection from the standard AOSP/Google build fingerprints.
+            public static boolean is_emulator_native() {
+                String fingerprint = lower(Build.FINGERPRINT);
+                String product = lower(Build.PRODUCT);
+                String model = lower(Build.MODEL);
+                String hardware = lower(Build.HARDWARE);
+                return fingerprint.contains("generic")
+                        || fingerprint.contains("emulator")
+                        || product.contains("sdk")
+                        || product.contains("emulator")
+                        || model.contains("emulator")
+                        || model.contains("android sdk")
+                        || hardware.contains("goldfish")
+                        || hardware.contains("ranchu");
+            }
+
+            private static String nonEmpty(String s) {
+                return (s == null || s.isEmpty()) ? "Unknown" : s;
+            }
+
+            private static String lower(String s) {
+                return s == null ? "" : s.toLowerCase();
+            }
+        "#,
+    );
+
+    // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
+    // never compiled — it satisfies the rule that a bridge always has an answer for an unclaimed
+    // target.
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn model_native() -> Result<String, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
     }
 
-    #[test]
-    fn fills_fallbacks_when_empty() {
-        let d = parse(None);
-        assert_eq!(d.model, "Unknown");
-        assert_eq!(d.system_name, "Android");
-        assert_eq!(d.system_version, "Unknown");
-        assert!(!d.is_simulator);
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn system_version_native() -> Result<String, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn is_emulator_native() -> Result<bool, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
     }
 }

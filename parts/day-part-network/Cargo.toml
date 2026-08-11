@@ -17,7 +17,7 @@ license.workspace = true
 #   Windows  — GetNetworkConnectivityHint (iphlpapi, resolved dynamically; Windows 10 2004+)
 #   Linux    — /sys/class/net interface scan
 #   HarmonyOS— native libnet_connection.so (NetworkKit), gated on target_env = "ohos"
-#   Android  — ConnectivityManager via a Java shim staged through [package.metadata.day.android]
+#   Android  — ConnectivityManager via the inline Java arm in src/android.rs (docs/bridge.md)
 # See docs/network.md + docs/extending.md.
 
 [dependencies]
@@ -28,13 +28,15 @@ license.workspace = true
 # one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
+# dependency is Android-only too — every other target compiles exactly as it did before.
+day-bridge = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 # The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages this
 # Java into the app's Gradle build and merges the permission into the app manifest, without touching
 # any core day crate.
 [package.metadata.day.android]
-java = ["android/java"]
 # ConnectivityManager.getActiveNetwork/getNetworkCapabilities require ACCESS_NETWORK_STATE (a normal,
 # install-time permission — no runtime prompt).
 permissions = ["android.permission.ACCESS_NETWORK_STATE"]
@@ -54,3 +56,6 @@ frameworks = ["SystemConfiguration"]
 # package declares the framework for xcodebuild.
 [package.metadata.day.macos]
 frameworks = ["SystemConfiguration"]
+
+[build-dependencies]
+day-build = { workspace = true }

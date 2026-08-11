@@ -18,7 +18,7 @@ license.workspace = true
 #   Windows  — Win32 OpenClipboard/CF_UNICODETEXT (raw FFI)
 #   Linux    — wl-copy/wl-paste (Wayland) falling back to xclip (X11), via std::process
 #   HarmonyOS— native libpasteboard.so + libudmf.so (BasicServicesKit), gated on target_env = "ohos"
-#   Android  — ClipboardManager via a Java shim staged through [package.metadata.day.android]
+#   Android  — ClipboardManager via the inline Java arm in src/android.rs (docs/bridge.md)
 # See docs/clipboard.md + docs/extending.md.
 
 [dependencies]
@@ -35,9 +35,9 @@ objc2-foundation = { version = "0.3", features = ["NSString"] }
 # one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
+# dependency is Android-only too — every other target compiles exactly as it did before.
+day-bridge = { workspace = true }
 
-# --- Android backend contribution (docs/extending.md) ---
-# The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages
-# this Java and adds it to the app's Gradle build, without touching any core day crate.
-[package.metadata.day.android]
-java = ["android/java"]
+[build-dependencies]
+day-build = { workspace = true }

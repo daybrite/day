@@ -1,47 +1,113 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Android: ConnectivityManager, read via this crate's OWN Java shim (android/java/…/DayNetwork.java) —
-// staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
-// like the UI pieces, but registering NO renderer (and contributing the ACCESS_NETWORK_STATE manifest
-// permission through the same overlay). The Java uses day-android's cached Context (DayBridge.ctx);
-// Rust calls it through day-android's re-exported `jni`. So on Android this headless crate rides on
-// the Day runtime (it needs the app's JVM + Context).
+// Android, whole: the Java that reads ConnectivityManager, the declaration that binds it, and the
+// mapping into [`NetworkStatus`]. Nothing about this platform appears anywhere else in the crate.
+//
+// ConnectivityManager needs a `Context` and has no C entry point, so it is this crate's only
+// foreign arm (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android
+// project. The ACCESS_NETWORK_STATE permission stays a build-graph fact in Cargo.toml.
+//
+// Before daybridge the snapshot crossed as ONE packed `long` — `(online << 16) | (kind << 8) |
+// expensiveByte`, with -1 and 255 sentinels — written in Java and unpacked in Rust. Three
+// declarations replace it, and every sentinel with it.
 
 use super::{NetworkKind, NetworkStatus};
-use day_android::DayEnv;
-use day_android::with_env;
-
-const NETWORK_CLASS: &str = "dev/daybrite/day/network/DayNetwork";
 
 pub fn status() -> Option<NetworkStatus> {
-    // `read()` packs the snapshot into a long: (online << 16) | (kind << 8) | expensiveByte,
-    // or -1 when unavailable (no Context / no ConnectivityManager).
-    let packed: i64 = with_env(|env| {
-        env.dcall_static(NETWORK_CLASS, "read", "()J", &[])
-            .ok()
-            .and_then(|v| v.j().ok())
-    })?;
-    if packed < 0 {
-        return None;
-    }
-
-    let online = (packed >> 16) & 0xFF != 0;
-    let kind = match (packed >> 8) & 0xFF {
+    // No Context or no ConnectivityManager means no reading at all, which is what `None` is for.
+    // The three calls read the same live snapshot; a network that changes between them yields a
+    // mixed reading no worse than the one a caller would get a millisecond later.
+    let kind = match kind_native().ok()? {
         1 => NetworkKind::Wifi,
         2 => NetworkKind::Cellular,
         3 => NetworkKind::Ethernet,
         4 => NetworkKind::Other,
         _ => NetworkKind::None,
     };
-    let expensive = match packed & 0xFF {
-        0 => Some(false),
-        1 => Some(true),
-        _ => None, // 255 = unknown
-    };
     Some(NetworkStatus {
-        online,
+        online: online_native().unwrap_or(false),
         kind,
-        expensive,
+        expensive: match expensive_native() {
+            Ok(0) => Some(false),
+            Ok(1) => Some(true),
+            _ => None, // unknown: no active network, or capabilities unreadable
+        },
     })
+}
+
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        /// The system's INTERNET + VALIDATED verdict.
+        fn online_native() -> Result<bool, day_bridge::Error>;
+        /// 0 none, 1 wifi, 2 cellular, 3 ethernet, 4 other.
+        fn kind_native() -> Result<i32, day_bridge::Error>;
+        /// 0 not metered, 1 metered, -1 unknown.
+        fn expensive_native() -> Result<i32, day_bridge::Error>;
+    }
+
+    #[day_bridge::impl(java, platforms = [android])]
+    java!(
+        prelude = r#"
+            import android.content.Context;
+            import android.net.ConnectivityManager;
+            import android.net.Network;
+            import android.net.NetworkCapabilities;
+            import dev.daybrite.day.bridge.DayBridge;
+        "#,
+        body = r#"
+            /** The active network's capabilities, or null when there is nothing to read. */
+            private static NetworkCapabilities caps() {
+                Context ctx = DayBridge.ctx;
+                if (ctx == null) return null;
+                ConnectivityManager cm =
+                        (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+                if (cm == null) return null;
+                Network net = cm.getActiveNetwork();
+                if (net == null) return null;
+                return cm.getNetworkCapabilities(net);
+            }
+
+            public static boolean online_native() {
+                NetworkCapabilities caps = caps();
+                return caps != null
+                        && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                        && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+            }
+
+            public static int kind_native() {
+                NetworkCapabilities caps = caps();
+                if (caps == null) return 0;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return 1;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return 2;
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return 3;
+                return 4;
+            }
+
+            public static int expensive_native() {
+                NetworkCapabilities caps = caps();
+                if (caps == null) return -1;
+                return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED) ? 0 : 1;
+            }
+        "#,
+    );
+
+    // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
+    // never compiled — it satisfies the rule that a bridge always has an answer for an unclaimed
+    // target.
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn online_native() -> Result<bool, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn kind_native() -> Result<i32, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn expensive_native() -> Result<i32, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
 }

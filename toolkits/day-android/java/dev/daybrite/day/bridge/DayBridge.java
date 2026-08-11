@@ -163,6 +163,27 @@ public final class DayBridge {
     }
 
     // --- factories + setters (called from Rust over JNI) ---
+    /**
+     * The device's ordered language preference as BCP-47 tags, comma-joined ("fr-FR,en-US").
+     *
+     * The CONFIGURATION's list, not `Locale.getDefault()`: it carries every language the user
+     * ranked in Settings, and it honours a per-app language override (Android 13+). Day negotiates
+     * its catalogs against the whole list (docs/localization.md).
+     */
+    public static String localeTags() {
+        android.os.LocaleList list = ctx != null
+                ? ctx.getResources().getConfiguration().getLocales()
+                : android.os.LocaleList.getDefault();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(list.get(i).toLanguageTag());
+        }
+        return sb.toString();
+    }
+
     public static View makeContainer() { return new DayFixed(ctx); }
 
     /** A `background`/`corner_radius` surface: a GradientDrawable (rounded rect) as the view's

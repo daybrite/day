@@ -453,9 +453,11 @@ fn parse_declare(rest: &str, line: usize, bridge: &mut Bridge) -> Result<usize, 
         .ok_or_else(|| format!("line {line}: `declare` needs an `extern \"day\" {{ … }}` block"))?;
     let close = match_delim(rest, open, b'{', b'}')
         .ok_or_else(|| format!("line {line}: unterminated `extern \"day\"` block"))?;
-    for raw in rest[open + 1..close].split(';') {
-        let sig = strip_comments(raw);
-        let sig = sig.trim();
+    // Comments come out BEFORE the split: a `;` inside a doc comment would otherwise end the
+    // declaration early and leave prose where the next `fn` should be.
+    let block = strip_comments(&rest[open + 1..close]);
+    for raw in block.split(';') {
+        let sig = raw.trim();
         if sig.is_empty() {
             continue;
         }
@@ -884,25 +886,46 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
         }
     }
 
-    // Value returns ride the JVM's exception channel; C and Swift would need an out-parameter,
-    // which v1 has no spelling for. Catch it here rather than generate an adapter that cannot
-    // compile.
-    for decl in &bridge.decls {
-        if result_value(&decl.ret).is_none() {
-            continue;
-        }
-        if let Some(arm) = bridge
-            .arms
-            .iter()
-            .find(|a| matches!(a.lang, Lang::C | Lang::Cpp | Lang::Swift))
-        {
-            return Err(format!(
-                "line {}: `{}` returns a value, which the {} arm cannot express yet — return \
-                 `Result<(), day_bridge::Error>` there, or split the value into its own function",
-                arm.line,
-                decl.name,
-                arm.lang.key()
-            ));
+    // The v1 type table is the DESIGN surface; `implemented` is the built one. A gap between them
+    // must fail here rather than emit an adapter that cannot compile — or, worse, one that
+    // compiles and marshals the wrong bytes.
+    for arm in &bridge.arms {
+        for decl in &bridge.decls {
+            for (arg, ty) in &decl.args {
+                if !implemented(arm.lang, ty, true) {
+                    return Err(format!(
+                        "line {}: `{}`'s `{arg}: {ty}` is in the type table but the {} generator \
+                         does not marshal it yet (docs/bridge.md \"Types\")",
+                        arm.line,
+                        decl.name,
+                        arm.lang.key()
+                    ));
+                }
+            }
+            let Some(ty) = result_value(&decl.ret) else {
+                continue;
+            };
+            if !implemented(arm.lang, &ty, false) {
+                return Err(match arm.lang {
+                    // The status code owns the return slot on these, and v1 has no spelling for
+                    // an out-parameter.
+                    Lang::C | Lang::Cpp | Lang::Swift => format!(
+                        "line {}: `{}` returns a value, which the {} arm cannot express yet — \
+                         return `Result<(), day_bridge::Error>` there, or split the value into \
+                         its own function",
+                        arm.line,
+                        decl.name,
+                        arm.lang.key()
+                    ),
+                    _ => format!(
+                        "line {}: `{}` returns `{ty}`, which the {} generator does not marshal \
+                         yet (docs/bridge.md \"Types\")",
+                        arm.line,
+                        decl.name,
+                        arm.lang.key()
+                    ),
+                });
+            }
         }
     }
 
@@ -955,6 +978,26 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Whether `lang`'s generator marshals `ty` today, as an argument or as the value of a
+/// `Result<T, Error>` return. Narrower than [`check_type`] on purpose: that one polices the v1
+/// design surface, this one polices what is actually built (docs/bridge.md "Types").
+fn implemented(lang: Lang, ty: &str, argument: bool) -> bool {
+    let ty = ty.trim();
+    if lang == Lang::Rust {
+        return true;
+    }
+    if argument {
+        return SCALARS.contains(&ty) || ty == "&str";
+    }
+    match lang {
+        // The JVM's error channel is the exception, so the return slot is free for a value.
+        Lang::Kotlin | Lang::Java => SCALARS.contains(&ty) || ty == "String",
+        Lang::Js | Lang::ArkTs => SCALARS.contains(&ty),
+        // C, C++ and Swift spend the return slot on the status code.
+        _ => false,
+    }
 }
 
 fn check_type(ty: &str, argument: bool) -> Result<(), String> {
@@ -1535,7 +1578,18 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
                 let _ = writeln!(out, "    }}");
             }
             (false, Some(ty)) => {
-                let _ = writeln!(out, "        outcome.ok()?.{}().ok()", jvalue_accessor(&ty));
+                if ty == "String" {
+                    // Copied out of the JVM immediately (docs/bridge.md "Ownership"); a null
+                    // return is the arm saying "nothing", which the caller sees as an empty
+                    // string rather than a foreign failure.
+                    let _ = writeln!(out, "        let obj = outcome.ok()?.l().ok()?;");
+                    let _ = writeln!(out, "        if obj.is_null() {{");
+                    let _ = writeln!(out, "            return Some(String::new());");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        env.dstr(&day_android::as_jstring(obj)).ok()");
+                } else {
+                    let _ = writeln!(out, "        outcome.ok()?.{}().ok()", jvalue_accessor(&ty));
+                }
                 let _ = writeln!(out, "    }});");
                 let _ = writeln!(
                     out,
@@ -1601,6 +1655,7 @@ fn jni_signature(decl: &Decl) -> String {
         Some("i64") => "J",
         Some("f32") => "F",
         Some("f64") => "D",
+        Some("String") => "Ljava/lang/String;",
         Some(_) => "Ljava/lang/Object;",
     };
     format!("({args}){ret}")
@@ -1613,7 +1668,7 @@ fn kotlin_type(ty: &str) -> &'static str {
         "i64" => "Long",
         "f32" => "Float",
         "f64" => "Double",
-        "&str" => "String",
+        "&str" | "String" => "String",
         _ => "Any",
     }
 }

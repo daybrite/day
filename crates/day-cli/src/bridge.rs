@@ -270,6 +270,103 @@ pub fn kotlin_arm_crates(project: &Project) -> Vec<String> {
     out
 }
 
+/// Libraries a bridged C/C++ arm asks the linker for that this host cannot resolve, as
+/// `(crate, library)`.
+///
+/// `link = ["speechd"]` becomes `-lspeechd`, which needs the library's development package at
+/// build time — and, once linked, at every launch. A missing one surfaces as a wall of linker
+/// output naming no crate at all, usually on a CI machine rather than the author's. Probing here
+/// turns that into a sentence.
+///
+/// Only the arms claiming THIS host's platform are probed: a Windows arm's `ole32` says nothing
+/// about a Linux box. If there is no C compiler to probe with, nothing is reported — a missing
+/// toolchain is a different problem with its own message.
+pub fn unresolved_link_libs(project: &Project) -> Vec<(String, String)> {
+    let host = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, root) in bridged_crates(project) {
+        let Ok(bridge) = day_build::bridge::parse_crate(&root) else {
+            continue;
+        };
+        for arm in bridge.arms.iter().filter(|a| {
+            matches!(
+                a.lang,
+                day_build::bridge::Lang::C | day_build::bridge::Lang::Cpp
+            ) && a.platforms.iter().any(|p| p == host)
+        }) {
+            for lib in arm
+                .options
+                .get("link")
+                .map(|v| v.trim_matches(['[', ']']).to_string())
+                .unwrap_or_default()
+                .split(',')
+                .map(|l| l.trim().trim_matches('"').to_string())
+                .filter(|l| !l.is_empty())
+            {
+                if !links(&lib) {
+                    out.push((name.clone(), lib));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether the host's C compiler can link `-l<lib>`. Any failure to RUN the probe answers `true`,
+/// so a machine with no compiler produces no findings rather than a false one.
+fn links(lib: &str) -> bool {
+    let dir = std::env::temp_dir().join(format!("day-linkprobe-{}", std::process::id()));
+    if std::fs::create_dir_all(&dir).is_err() {
+        return true;
+    }
+    let src = dir.join("probe.c");
+    if std::fs::write(&src, "int main(void) { return 0; }\n").is_err() {
+        return true;
+    }
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
+    let ok = std::process::Command::new(cc)
+        .arg(&src)
+        .arg(format!("-l{lib}"))
+        .arg("-o")
+        .arg(dir.join("probe"))
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(true);
+    let _ = std::fs::remove_dir_all(&dir);
+    ok
+}
+
+/// What to do about a library the linker cannot find.
+pub fn link_help(missing: &[(String, String)]) -> String {
+    let list = missing
+        .iter()
+        .map(|(krate, lib)| format!("{krate} → -l{lib}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "a bridged C/C++ arm links a library this host does not have: {list}.\n\
+         \n\
+         Install the DEVELOPMENT package that provides it — on Debian/Ubuntu that is usually \
+         `lib<name>-dev`, on Fedora `<name>-devel`, on macOS a Homebrew formula. The runtime \
+         package alone is not enough: the linker needs the unversioned `lib<name>.so` symlink \
+         that only the -dev package installs.\n\
+         \n\
+         Consider whether the arm should link it at all. `link = [...]` writes a hard dependency \
+         into the binary, so the app will not START on a machine without that library — right for \
+         a system component, wrong for an optional service. Loading it with `dlopen` at first use \
+         keeps the app launchable everywhere and lets the feature report Unsupported instead \
+         (docs/bridge.md \"Linking\"; parts/day-part-speech's Linux arm is the worked example)."
+    )
+}
+
 /// The fix, spelled out — the same text `day lint` and `day build` both print, so a developer who
 /// hits it once recognizes it wherever it appears.
 pub fn kotlin_plugin_help(crates: &[String]) -> String {
@@ -408,6 +505,28 @@ day_bridge::bridge! {
             help.find("impl(java").unwrap() < help.find("org.jetbrains.kotlin.android").unwrap(),
             "Java is the first option offered:\n{help}"
         );
+    }
+
+    /// The probe has to be right in both directions: a false positive fails a build that would
+    /// have linked, and a false negative is the linker wall this rule exists to replace.
+    #[test]
+    #[cfg(unix)]
+    fn the_link_probe_tells_present_from_missing() {
+        // libm is on every unix with a C compiler; if there is no compiler at all the probe
+        // answers `true` by design, which this assertion also accepts.
+        assert!(super::links("m"));
+        assert!(
+            !super::links("day-no-such-library-anywhere"),
+            "a nonexistent library must not probe as linkable"
+        );
+
+        let help = super::link_help(&[("day-part-demo".into(), "speechd".into())]);
+        assert!(help.contains("day-part-demo → -lspeechd"), "{help}");
+        assert!(
+            help.contains("-dev"),
+            "names the package to install:\n{help}"
+        );
+        assert!(help.contains("dlopen"), "offers the alternative:\n{help}");
     }
 
     #[test]

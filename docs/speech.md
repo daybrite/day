@@ -9,7 +9,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > One Rust API, six foreign implementations, one file. Verified by driving the Showcase's Platform
 > services page: macOS, iOS simulator, Android emulator, and headless WebKit all reach a real
 > engine. The Windows arm compiles on CI's `windows-xaml` leg; Linux needs speech-dispatcher
-> installed to say anything.
+> installed to say anything, and says so through `available()` when it is missing.
 
 > [!IMPORTANT]
 > **The code below is copied from `parts/day-part-speech/src/lib.rs`, which is the authority.**
@@ -33,7 +33,7 @@ Three functions, and no platform conditionals anywhere in calling code:
 |---|---|
 | `speak(&str) -> Result<(), day_bridge::Error>` | say it, interrupting anything already speaking |
 | `stop()` | stop immediately; a silent no-op where speech is unsupported |
-| `available() -> Support` | `Native`, `Emulated`, or `Unsupported` for the target this was built for |
+| `available() -> Support` | `Native`, `Emulated`, or `Unsupported` — for this HOST, not just this target |
 
 **`Ok` means accepted, not finished.** A v1 bridge call is synchronous and one-shot, so nothing
 reports completion — the boundary has no callback tier yet (bridge.md, "After v1"). Anything that
@@ -81,7 +81,7 @@ included by the `bridge!` macro; nothing in the crate declares them by hand.
 | HarmonyOS | Core Speech Kit | ArkTS | ArkTS-only API, no C entry point (reports `Emulated`: zh-CN voices only) |
 | Web | `speechSynthesis` | JavaScript | wasm cannot touch browser APIs |
 | Windows | SAPI 5 `ISpVoice` | C++ | COM; the SDK header is shorter than a hand-declared vtable |
-| Linux | speech-dispatcher | C | reachable from Rust, but the connection handle belongs with the API |
+| Linux | speech-dispatcher (`dlopen`) | C | reachable from Rust, but the connection handle belongs with the API |
 | everywhere else | — | Rust | the fallback that keeps `cargo test` and day-mock compiling |
 
 Two arms are worth reading in full, because they are the two shapes every bridge takes.
@@ -144,6 +144,24 @@ cpp!(
 ```
 
 `SPF_ASYNC` is the contract, not a shortcut: `speak` must return once the utterance is queued.
+
+## A missing engine is not a crash
+
+Linux is the platform where the engine is a separate package, and the crate is built so that a host
+without it degrades in the mildest way available:
+
+- **The app still builds.** The arm declares no `link`, so no development package is needed on any
+  build machine (docs/bridge.md "Linking"). This is what a `link = ["speechd"]` cost before: CI
+  runners failed at the link step with `unable to find library -lspeechd`.
+- **The app still launches.** A linked library is a `DT_NEEDED` entry and the loader enforces it
+  before `main`; a `dlopen`ed one is looked up when speech is first used, and not before.
+- **The UI tells the truth.** `available()` asks the arm at run time through `engine_ready_native`,
+  so a desktop with no speech-dispatcher shows `Unsupported` rather than `Native` followed by
+  silence. `speak()` there returns `Err`, and the Showcase demo ignores it exactly as it ignores
+  every other failure.
+
+The same three properties are why the Windows arm *does* link `ole32` and `sapi`: both ship with
+Windows, so there is nothing to be missing.
 
 ## What it shows about the extension system
 

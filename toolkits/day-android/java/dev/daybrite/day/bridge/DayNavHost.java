@@ -281,9 +281,32 @@ public class DayNavHost extends LinearLayout {
         }
     }
 
+    /**
+     * Slide back to the list once the stack is empty.
+     *
+     * `push` opens the detail pane; nothing but this closes it. A pop that leaves the pane open
+     * shows the emptied detail container — a blank screen under the app bar, with the top-level
+     * list sitting off to the side, present and laid out and not on screen. The system back
+     * button hides the bug: SlidingPaneLayout installs its own back callback and closes the pane
+     * itself, so only the routes that go through Rust (`navigate`, the toolbar up arrow, a
+     * dayscript `nav_back`) ever showed it.
+     *
+     * Tiled, both panes are on screen and there is nothing to slide.
+     */
+    private void syncPane(int depth) {
+        // Unconditional, not `if (isOpen())`: `push` opens the pane with an ANIMATION, and a pop
+        // that lands while it is still sliding sees `isOpen() == false` and would skip — leaving
+        // the slide to finish afterwards, ending open over an emptied detail container. `close`
+        // on an already-closed pane does nothing, so asking every time is the cheap correct rule.
+        if (depth == 0 && split != null && split.isSlideable()) {
+            split.close();
+        }
+    }
+
     private void resync() {
         int now = myEntries();
         syncSearchVisibility(now);
+        syncPane(now);
         while (knownEntries > now) {
             knownEntries--;
             if (!titles.isEmpty()) titles.remove(titles.size() - 1);

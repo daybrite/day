@@ -309,6 +309,51 @@ consumers have Kotlin, and the JVM half of a bridge is a handful of static metho
 languages differ little. `day-part-battery` and `day-part-speech` both do this. An app's own crate,
 which controls its Gradle build, can use either.
 
+## Linking
+
+`link = ["ole32", "sapi"]` becomes `-lole32 -lsapi` on the crate that owns the arm. That is a
+**hard dependency in two places**: the library's development package must exist on every machine
+that builds the app, and the library itself must exist on every machine that RUNS it — a linked
+library is a `DT_NEEDED` entry, so the dynamic loader refuses to start the process without it,
+before `main`, whatever the user was trying to do.
+
+That is correct for a system component the platform guarantees (`ole32` and `sapi` ship with
+Windows). It is wrong for anything a user might not have installed. Desktop Linux is the usual
+case: speech-dispatcher is a separate package, and linking it would mean an app that will not
+launch at all on a machine with no speech engine — to protect a feature the user may never press.
+
+**Load an optional service at first use instead.** `parts/day-part-speech`'s Linux arm declares no
+`link`, `dlopen`s `libspeechd.so.2`, and answers "no engine here" when it is absent:
+
+```c
+static int day_speech_load(void) {
+    if (day_speech_looked) {
+        return day_spd_open != NULL;
+    }
+    day_speech_looked = 1;
+    void* lib = dlopen("libspeechd.so.2", RTLD_LAZY);
+    if (lib == NULL) {
+        lib = dlopen("libspeechd.so", RTLD_LAZY);
+    }
+    if (lib == NULL) {
+        return 0;
+    }
+    day_spd_open = (day_spd_open_fn) dlsym(lib, "spd_open");
+    …
+}
+```
+
+The build then needs no development package at all, and the app launches everywhere.
+
+**Report it in `Support`, not just in errors.** A crate whose arm may find nothing at runtime
+should ask before answering: `day-part-speech`'s declaration carries an `engine_ready_native`
+beside `speak_native`, and `available()` demotes the arm's compile-time claim to `Unsupported`
+when the engine is missing — so the UI says so instead of swallowing every press.
+
+`day lint` reports `day::lint::bridge-link-missing` when an arm for the host's own platform links
+a library the host cannot resolve, naming the crate and the library rather than leaving a linker
+wall to interpret.
+
 ## What stays in `Cargo.toml`
 
 Source moves into the `.rs`; build-graph facts do not.
@@ -351,6 +396,10 @@ silently misread value.
 | An argument to a language macro other than `prelude` / `body` | day-build |
 | Two crates exporting the same name into the web shim's import table | `day build` |
 | A `kotlin` arm in an Android project with no Kotlin plugin | `day build`, `day lint` ([above](#android-java-needs-nothing-kotlin-needs-the-plugin)) |
+
+A linked library the host cannot resolve is a **warning**, not a failure: `day lint` reports
+`day::lint::bridge-link-missing` ([Linking](#linking)) and the build still runs, because the
+linker's own error is the authority on whether it can be satisfied.
 
 ## Diagnostics
 

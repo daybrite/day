@@ -5492,6 +5492,15 @@ mod imp {
             dispatch2::DispatchQueue::main().exec_async(f);
         }
 
+        fn locale_hints(&self) -> Vec<String> {
+            // The user's ordered language preference from Settings ("fr-FR", "en-US", …), which is
+            // the ambient locale Day negotiates its catalogs against (§12.2, docs/localization.md).
+            objc2_foundation::NSLocale::preferredLanguages()
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        }
+
         /// Frame clock (§8.4): store the pending callback and un-pause the shared CADisplayLink,
         /// creating it (paused) on first use and attaching it to the main run loop in common modes
         /// so it keeps firing during scroll/tracking. `DayFrameTarget::step` delivers it.

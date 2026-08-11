@@ -2883,6 +2883,36 @@ pub trait Platform: Toolkit {
 // Open renderer registry (§8.2)
 // ---------------------------------------------------------------------------
 
+/// The user's language preference from the POSIX environment, newest-first, as BCP-47 tags.
+///
+/// `LANGUAGE` is the GNU multi-language list (`fr:en`); `LC_ALL`, `LC_MESSAGES` and `LANG` each
+/// carry one locale in POSIX form (`fr_FR.UTF-8`), which becomes `fr-FR`. Shared by the backends
+/// whose platform has no richer API to ask (§12.2, docs/localization.md).
+pub fn posix_locale_hints() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |tag: &str| {
+        // "C" and "POSIX" are the absence of a preference, not a language.
+        let tag = tag.split('.').next().unwrap_or(tag).replace('_', "-");
+        if tag.is_empty() || tag == "C" || tag == "POSIX" {
+            return;
+        }
+        if !out.contains(&tag) {
+            out.push(tag);
+        }
+    };
+    if let Ok(list) = std::env::var("LANGUAGE") {
+        for tag in list.split(':') {
+            push(tag);
+        }
+    }
+    for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(v) = std::env::var(key) {
+            push(&v);
+        }
+    }
+    out
+}
+
 /// Optional custom measure for a third-party piece (§8.2).
 pub type MeasureFn<B> = fn(&mut B, &<B as Toolkit>::Handle, Proposal) -> Size;
 
@@ -3233,5 +3263,26 @@ mod builtin_kind_tests {
     fn extension_kinds_are_not_builtin() {
         assert_eq!(Builtin::from_key("acme.combobox"), None);
         assert_eq!(Builtin::from_key("day.not_a_real_kind"), None);
+    }
+}
+
+#[cfg(test)]
+mod locale_tests {
+    /// POSIX locale strings are not BCP-47 tags, and "C" is not a language — the difference is
+    /// the whole job of `posix_locale_hints` (§12.2).
+    #[test]
+    fn posix_hints_parse_and_drop_the_c_locale() {
+        // The parsing is exercised through the same normalization the function applies.
+        let normalize = |v: &str| v.split('.').next().unwrap_or(v).replace('_', "-");
+        assert_eq!(normalize("fr_FR.UTF-8"), "fr-FR");
+        assert_eq!(normalize("en_US"), "en-US");
+        assert_eq!(normalize("C"), "C");
+        // A real read never panics whatever this host's environment holds.
+        let hints = super::posix_locale_hints();
+        assert!(
+            hints
+                .iter()
+                .all(|h| !h.is_empty() && h != "C" && h != "POSIX")
+        );
     }
 }

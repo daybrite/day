@@ -3812,6 +3812,12 @@ impl Platform for Gtk {
         app.run_with_args::<&str>(&[]);
     }
 
+    fn locale_hints(&self) -> Vec<String> {
+        // No desktop-wide API here that beats the environment every session sets
+        // (§12.2, docs/localization.md).
+        day_spec::posix_locale_hints()
+    }
+
     fn post(f: Box<dyn FnOnce() + Send>) {
         gtk4::glib::MainContext::default().invoke(f);
     }

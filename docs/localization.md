@@ -221,6 +221,29 @@ dead-code-eliminated regardless. Bare `cargo` builds simply embed the full data.
 one-time CLDR source fetch (~100 MB, cached); `DAY_NO_ICU_FETCH` / `DAY_ICU_FULL_DATA` opt out.
 See docs/environment.md "Locale data".
 
+## Which language an app opens in
+
+The initial locale is the first of these that the app can actually serve:
+
+1. **`DAY_LOCALE`** — the launch override. `day launch --locales fr` sets it (on a device too:
+   through an intent extra on Android, `SIMCTL_CHILD_DAY_LOCALE` on the iOS simulator), which is
+   what makes CI's per-locale screenshot variants deterministic.
+2. **A host override** — web-dom's `?locale=` query parameter, set by the page glue.
+3. **The device's own language preference**, in the user's ranked order. Each backend reports it
+   through `Toolkit::locale_hints`: `NSLocale.preferredLanguages` on iOS and macOS, the
+   configuration's `LocaleList` on Android (which honours a per-app language override), the
+   browser's languages on the web, `LANGUAGE`/`LC_ALL`/`LC_MESSAGES`/`LANG` on Linux.
+4. **The catalog default** passed to `install`.
+
+"Can serve" is decided against **your** catalogs, not the core one: a device set to a language your
+app has not been translated into falls through to the next preference rather than opening with your
+English text under German dialog buttons. A regional tag resolves through its language half, so a
+phone set to `fr-CA` reaches an app that ships `fr`.
+
+> [!NOTE]
+> A locale the user picks in-app (`set_locale`, or a settings piece that persists one) overrides
+> all of this on the next launch — it is stored by the app, not by Day.
+
 ## Two layers: the app catalog and the core catalog
 
 There are two tiers of Fluent bundles:

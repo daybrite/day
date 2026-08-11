@@ -274,48 +274,64 @@ pub fn launch_external<P: day_spec::Platform>(
     day_core::launch_with(backend, options, root);
 }
 
+/// Start `backend`, seeding the ambient locale first.
+///
+/// The ORDER is the whole point: the OS's language preference has to reach day-l10n before the
+/// app's `res::locales::install()` runs, and that call lives inside the root builder — so the
+/// hints are read from the live backend here, one step before it is handed the root. Without this
+/// step `Toolkit::locale_hints` is a trait method nobody calls, and every native app opens in its
+/// default language whatever the device is set to (docs/localization.md).
+fn start<P: day_spec::Platform>(
+    backend: P,
+    options: WindowOptions,
+    root: impl FnOnce() -> AnyPiece + 'static,
+) {
+    day_fluent::add_launch_locales(&backend.locale_hints());
+    day_core::launch_with(backend, options, root);
+}
+
 /// Launch the app on the selected backend (blocks; owns the native main loop).
 #[cfg(feature = "appkit")]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
-    day_core::launch_with(day_appkit::AppKit::new(), options, root);
+    start(day_appkit::AppKit::new(), options, root);
 }
 
 #[cfg(feature = "gtk")]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
-    day_core::launch_with(day_gtk::Gtk::new(), options, root);
+    start(day_gtk::Gtk::new(), options, root);
 }
 
 #[cfg(feature = "qt")]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
-    day_core::launch_with(day_qt::Qt::new(), options, root);
+    start(day_qt::Qt::new(), options, root);
 }
 
 #[cfg(all(feature = "uikit", target_os = "ios"))]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
-    day_core::launch_with(day_uikit::Uikit::new(), options, root);
+    start(day_uikit::Uikit::new(), options, root);
 }
 
 #[cfg(all(feature = "xaml", windows))]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     day_script::init();
-    day_core::launch_with(day_xaml::Xaml::new(), options, root);
+    start(day_xaml::Xaml::new(), options, root);
 }
 
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     // No day_script::init(): dayscript's TCP transport has no wasm equivalent yet
     // (a WebSocket transport is planned; see docs/web.md).
-    day_core::launch_with(day_dom::Dom::new(), options, root);
+    start(day_dom::Dom::new(), options, root);
 }
 
 #[cfg(feature = "mock")]
 pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
     let (mock, _probe) = day_mock::MockToolkit::new();
-    day_core::launch_with(mock, options, root);
+    start(mock, options, root);
 }
 
 // ---------------------------------------------------------------------------
@@ -572,7 +588,10 @@ pub mod android {
         }
         day_android::init(env, root, density, w, h);
         day_script::init();
-        day_core::launch_with(
+        // Through `crate::start`, not `launch_with`: that is where the device's language
+        // preference is read off the backend and handed to the localization engine, and this
+        // entry is the app's only door on Android (docs/localization.md).
+        crate::start(
             day_android::Android::new(),
             crate::WindowOptions::default(),
             root_piece,
@@ -688,7 +707,10 @@ pub mod arkui {
     ) {
         day_arkui::init(content, w_vp, h_vp, density);
         day_script::init();
-        day_core::launch_with(
+        // `crate::start` seeds the device's language preference before the root builds
+        // (docs/localization.md); ArkUI's own hint list arrives once day-arkui implements
+        // `locale_hints`.
+        crate::start(
             day_arkui::ArkUi::new(),
             crate::WindowOptions::default(),
             root,

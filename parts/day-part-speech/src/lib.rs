@@ -33,10 +33,19 @@ pub fn stop() {
     stop_native();
 }
 
-/// What this build's target promises, from the arm the bridge selected: `Native` where the
-/// platform's own engine is driven, `Unsupported` where no arm claims the target.
+/// What speech can actually do here, right now.
+///
+/// Two questions in one answer. The bridge knows at COMPILE time whether this target has an arm at
+/// all (`speak_native_support`), but on some platforms the engine is a separate package the user
+/// may not have installed — desktop Linux ships without speech-dispatcher more often than with it
+/// — so the arm is also asked at RUN time whether it can reach one. A target with an arm but no
+/// engine reports `Unsupported`, because that is what the caller can act on.
 pub fn available() -> Support {
-    speak_native_support()
+    match speak_native_support() {
+        Support::Unsupported => Support::Unsupported,
+        claimed if engine_ready_native().is_ok() => claimed,
+        _ => Support::Unsupported,
+    }
 }
 
 day_bridge::bridge! {
@@ -45,6 +54,9 @@ day_bridge::bridge! {
     extern "day" {
         fn speak_native(text: &str) -> Result<(), day_bridge::Error>;
         fn stop_native();
+        /// Whether this host can reach a speech engine at all. `Ok` means [`available`] may report
+        /// what the arm claims; an `Err` demotes it to `Unsupported`.
+        fn engine_ready_native() -> Result<(), day_bridge::Error>;
     }
 
     // Apple: AVSpeechSynthesizer. `objc2` could reach it, but the synthesizer has to outlive the
@@ -72,41 +84,86 @@ day_bridge::bridge! {
             func stop_native() {
                 daySynthesizer.stopSpeaking(at: .immediate)
             }
+
+            // AVFoundation is part of the OS; there is nothing to be missing.
+            func engine_ready_native() throws {}
         "#,
     );
 
-    // Linux: speech-dispatcher's C API. Rust could `#[link]` this directly — it is a C library —
-    // so the arm is here to keep the connection handle in the language that owns it, and because
-    // it is the smallest honest example of a C arm.
-    #[day_bridge::impl(c, platforms = [linux], link = ["speechd"])]
+    // Linux: speech-dispatcher's C API, loaded at RUNTIME rather than linked.
+    //
+    // `link = ["speechd"]` would be the obvious spelling and it is the wrong one twice over: it
+    // needs the -dev package on every build machine, and it writes a DT_NEEDED entry that stops
+    // the whole app from starting on any desktop without libspeechd — for a feature the user may
+    // never press. A speech engine is exactly the kind of optional platform service `dlopen`
+    // exists for (docs/bridge.md "Linking"). The arm keeps the connection handle in the language
+    // that owns it, which is why it is C rather than Rust.
+    #[day_bridge::impl(c, platforms = [linux])]
     c!(
         prelude = r#"
+            #include <dlfcn.h>
             #include <stddef.h>
         "#,
         body = r#"
-            /* speech-dispatcher's own header, when the dev package is installed. The declarations
-               below keep the arm compiling on a machine that only has the runtime library. */
+            /* speech-dispatcher's own declarations, so the arm compiles with no headers
+               installed — it never includes libspeechd.h and never links against it. */
             typedef struct SPDConnection SPDConnection;
             typedef enum { SPD_MODE_SINGLE = 0, SPD_MODE_THREADED = 1 } SPDConnectionMode;
             typedef enum { SPD_IMPORTANT = 1, SPD_MESSAGE = 3 } SPDPriority;
-            extern SPDConnection* spd_open(const char*, const char*, const char*,
-                                           SPDConnectionMode);
-            extern int spd_say(SPDConnection*, SPDPriority, const char*);
-            extern int spd_stop(SPDConnection*);
 
+            typedef SPDConnection* (*day_spd_open_fn)(const char*, const char*, const char*,
+                                                      SPDConnectionMode);
+            typedef int (*day_spd_say_fn)(SPDConnection*, SPDPriority, const char*);
+            typedef int (*day_spd_stop_fn)(SPDConnection*);
+
+            static day_spd_open_fn day_spd_open = NULL;
+            static day_spd_say_fn day_spd_say = NULL;
+            static day_spd_stop_fn day_spd_stop = NULL;
             static SPDConnection* day_speech_conn = NULL;
+            static int day_speech_looked = 0;
+
+            /* Resolve the library once. The soname first, then the -dev symlink, so a host with
+               only the runtime package still works. */
+            static int day_speech_load(void) {
+                if (day_speech_looked) {
+                    return day_spd_open != NULL;
+                }
+                day_speech_looked = 1;
+                void* lib = dlopen("libspeechd.so.2", RTLD_LAZY);
+                if (lib == NULL) {
+                    lib = dlopen("libspeechd.so", RTLD_LAZY);
+                }
+                if (lib == NULL) {
+                    return 0;
+                }
+                day_spd_open = (day_spd_open_fn) dlsym(lib, "spd_open");
+                day_spd_say = (day_spd_say_fn) dlsym(lib, "spd_say");
+                day_spd_stop = (day_spd_stop_fn) dlsym(lib, "spd_stop");
+                return day_spd_open != NULL && day_spd_say != NULL && day_spd_stop != NULL;
+            }
+
+            int32_t engine_ready_native(void) {
+                return day_speech_load() ? 0 : 1;
+            }
 
             int32_t speak_native(const char* text) {
-                if (!day_speech_conn) {
-                    day_speech_conn = spd_open("day", "speech", NULL, SPD_MODE_SINGLE);
-                    if (!day_speech_conn) return 1;
+                if (!day_speech_load()) {
+                    return 1;
                 }
-                spd_stop(day_speech_conn);
-                return spd_say(day_speech_conn, SPD_MESSAGE, text) < 0 ? 1 : 0;
+                if (day_speech_conn == NULL) {
+                    day_speech_conn = day_spd_open("day", "speech", NULL, SPD_MODE_SINGLE);
+                    if (day_speech_conn == NULL) {
+                        return 1;
+                    }
+                }
+                day_spd_stop(day_speech_conn);
+                return day_spd_say(day_speech_conn, SPD_MESSAGE, text) < 0 ? 1 : 0;
             }
 
             void stop_native(void) {
-                if (day_speech_conn) spd_stop(day_speech_conn);
+                if (day_speech_conn != NULL) {
+                    day_spd_stop(day_speech_conn);
+                }
             }
         "#,
     );
@@ -154,6 +211,10 @@ day_bridge::bridge! {
                 HRESULT hr = voice->Speak(reinterpret_cast<const WCHAR*>(text),
                                           SPF_ASYNC | SPF_PURGEBEFORESPEAK, nullptr);
                 return SUCCEEDED(hr) ? 0 : 1;
+            }
+
+            int32_t engine_ready_native(void) {
+                return day_speech_open() != nullptr ? 0 : 1;
             }
 
             /* A null utterance with PURGEBEFORESPEAK is SAPI's documented stop. */
@@ -220,6 +281,12 @@ day_bridge::bridge! {
                     engine.stop();
                 }
             }
+
+            public static void engine_ready_native() {
+                if (DayBridge.ctx == null) {
+                    throw new IllegalStateException("no Context");
+                }
+            }
         "#,
     );
 
@@ -249,6 +316,9 @@ day_bridge::bridge! {
             export function stop_native(): void {
                 dayEngine?.stop();
             }
+
+            // Core Speech Kit is part of the system; the engine is created on first speak.
+            export function engine_ready_native(): void {}
         "#,
     );
 
@@ -266,6 +336,13 @@ day_bridge::bridge! {
         export function stop_native() {
             speechSynthesis.cancel();
         }
+
+        // Not every browser has the Web Speech API — Firefox on some platforms ships without it.
+        export function engine_ready_native() {
+            if (typeof speechSynthesis === "undefined") {
+                throw new Error("no speechSynthesis");
+            }
+        }
     "#);
 
     // Everywhere without a platform arm — and the arm `cargo test` and day-mock compile against.
@@ -276,6 +353,11 @@ day_bridge::bridge! {
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn stop_native() {}
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn engine_ready_native() -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
 }
 
 #[cfg(test)]
@@ -286,6 +368,14 @@ mod tests {
     fn speaking_is_never_fatal() {
         let _ = super::speak("");
         super::stop();
+    }
+
+    /// A host with no engine installed must report `Unsupported` rather than claim `Native` and
+    /// then do nothing — the case desktop Linux hits whenever speech-dispatcher is absent.
+    #[test]
+    fn available_answers_for_this_host_not_just_this_target() {
+        // Never panics, and never claims more than the fallback on a target with no arm.
+        let _ = super::available();
     }
 
     /// `available()` and `speak()` must agree: an `Unsupported` target cannot succeed.

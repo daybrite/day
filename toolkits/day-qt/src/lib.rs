@@ -2188,6 +2188,12 @@ impl Platform for Qt {
         }
     }
 
+    fn locale_hints(&self) -> Vec<String> {
+        // No desktop-wide API here that beats the environment every session sets
+        // (§12.2, docs/localization.md).
+        day_spec::posix_locale_hints()
+    }
+
     fn post(f: Box<dyn FnOnce() + Send>) {
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
         unsafe { ffi::day_qt_post(run_posted, data) };

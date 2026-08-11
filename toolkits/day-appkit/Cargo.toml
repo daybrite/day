@@ -23,7 +23,7 @@ dispatch2 = "0.3"
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", features = ["CGImage"] }
 objc2-quartz-core = { version = "0.3", features = ["CAMediaTimingFunction"] }
-objc2-foundation = { version = "0.3", features = [
+objc2-foundation = { version = "0.3", features = ["NSLocale", 
     "NSString", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }

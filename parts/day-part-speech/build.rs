@@ -1,3 +1,6 @@
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: MPL-2.0
+
 //! Generates this crate's daybridge glue (docs/bridge.md).
 //!
 //! `day-build` reads the `day_bridge::bridge!` block in `src/lib.rs` and writes

@@ -35,6 +35,76 @@ const DAY_GIT: &str = "https://github.com/daybrite/day.git";
 ///
 /// Read from the checkout's own workspace members rather than a hardcoded list, so a crate added
 /// to the framework needs no change here.
+/// One triple per platform Day targets. A day crate reaches an app THROUGH the umbrella and the
+/// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself — so the set to
+/// patch is the resolved graph of every platform, not the app's own manifest. Resolving for the
+/// host alone is what let `day-android` build from the git cache while a local checkout sat
+/// patched in beside it, silently, on every Android build.
+const PATCH_TRIPLES: &[&str] = &[
+    "aarch64-apple-darwin",
+    "aarch64-apple-ios",
+    "aarch64-linux-android",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "wasm32-unknown-unknown",
+    "aarch64-unknown-linux-ohos",
+];
+
+/// Every day crate in `project`'s resolved graph for one platform, whether it comes from the day
+/// git remote or (on a re-run, when the patch is already in place) from the checkout itself.
+fn day_crates_for(project: &Project, triple: &str, checkout: Option<&Path>) -> Vec<String> {
+    let Ok(out) = Command::new("cargo")
+        .current_dir(&project.root)
+        .args([
+            "metadata",
+            "--format-version",
+            "1",
+            "--filter-platform",
+            triple,
+            // Backends are OPTIONAL dependencies behind per-toolkit features, so the default
+            // resolve sees none of them: an app's gtk build would take day-gtk from the git
+            // cache while every other crate came from the checkout.
+            "--all-features",
+        ])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let Ok(doc) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    for pkg in doc
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+        if !name.starts_with("day") {
+            continue;
+        }
+        let from_git = pkg.get("source").and_then(|s| s.as_str()).is_some_and(|s| {
+            s.trim_start_matches("git+")
+                .starts_with(DAY_GIT.trim_end_matches(".git"))
+        });
+        // Already patched to the checkout: keep it, or a second `day patch` would shrink the
+        // table it wrote the first time.
+        let from_checkout = checkout.is_some_and(|root| {
+            pkg.get("manifest_path")
+                .and_then(|m| m.as_str())
+                .is_some_and(|m| Path::new(m).starts_with(root))
+        });
+        if from_git || from_checkout {
+            names.push(name.to_string());
+        }
+    }
+    names
+}
+
 fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
     let manifest = root.join("Cargo.toml");
     let text = std::fs::read_to_string(&manifest)
@@ -71,7 +141,23 @@ fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
 }
 
 /// The project's DIRECT dependencies that come from the day git repository.
-fn git_deps(project: &Project) -> Result<Vec<String>, String> {
+fn git_deps(project: &Project, checkout: Option<&Path>) -> Result<Vec<String>, String> {
+    let mut names = manifest_git_deps(project)?;
+    for triple in PATCH_TRIPLES {
+        for name in day_crates_for(project, triple, checkout) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
+/// The app's OWN git-sourced day dependencies, read straight from its manifest. The floor under
+/// [`git_deps`]: it needs no resolver, so a project that cannot resolve offline still patches the
+/// crates it names itself.
+fn manifest_git_deps(project: &Project) -> Result<Vec<String>, String> {
     let manifest = project.root.join("Cargo.toml");
     let text =
         std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
@@ -119,7 +205,7 @@ fn write_patch(project: &Project, checkout: &Path) -> Result<usize, String> {
         .canonicalize()
         .map_err(|e| format!("{}: {e}", checkout.display()))?;
     let available = checkout_crates(&checkout)?;
-    let wanted = git_deps(project)?;
+    let wanted = git_deps(project, Some(&checkout))?;
     if wanted.is_empty() {
         return Err(
             "this project has no dependencies from the day git repository — nothing to patch \
@@ -173,38 +259,54 @@ fn write_patch(project: &Project, checkout: &Path) -> Result<usize, String> {
 /// the git cache and builds green, so a build that believes it is testing this checkout may be
 /// testing a published crate for part of the graph. Resolution is asked of cargo rather than read
 /// out of `Cargo.lock`, so it is correct for a project that has not locked yet.
+/// Day crates still resolving from git, across EVERY platform — not just the host's. A check that
+/// asks only the host says "all local" while the Android, Linux, Windows, web, and HarmonyOS
+/// builds quietly use the git cache, which is a stale-toolkit bug that looks like the fix not
+/// working.
 pub fn check(project: &Project) -> Result<Vec<String>, String> {
-    let out = Command::new("cargo")
-        .current_dir(&project.root)
-        .args(["metadata", "--format-version", "1"])
-        .output()
-        .map_err(|e| format!("cargo metadata: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "cargo metadata failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
-    }
-    let doc: serde_json::Value =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
-    let mut from_git = Vec::new();
-    for pkg in doc
-        .get("packages")
-        .and_then(|p| p.as_array())
-        .into_iter()
-        .flatten()
-    {
-        let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-        if !name.starts_with("day") {
+    let mut from_git: Vec<String> = Vec::new();
+    let mut asked = false;
+    for triple in PATCH_TRIPLES {
+        let out = Command::new("cargo")
+            .current_dir(&project.root)
+            .args([
+                "metadata",
+                "--format-version",
+                "1",
+                "--filter-platform",
+                triple,
+                "--all-features",
+            ])
+            .output()
+            .map_err(|e| format!("cargo metadata: {e}"))?;
+        if !out.status.success() {
             continue;
         }
-        if pkg
-            .get("source")
-            .and_then(|s| s.as_str())
-            .is_some_and(|s| s.starts_with("git+"))
+        asked = true;
+        let doc: serde_json::Value =
+            serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
+        for pkg in doc
+            .get("packages")
+            .and_then(|p| p.as_array())
+            .into_iter()
+            .flatten()
         {
-            from_git.push(name.to_string());
+            let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+            if !name.starts_with("day") {
+                continue;
+            }
+            if pkg
+                .get("source")
+                .and_then(|s| s.as_str())
+                .is_some_and(|s| s.starts_with("git+"))
+                && !from_git.iter().any(|n| n == name)
+            {
+                from_git.push(name.to_string());
+            }
         }
+    }
+    if !asked {
+        return Err("cargo metadata failed for every platform".into());
     }
     from_git.sort();
     Ok(from_git)
@@ -283,10 +385,43 @@ day-local = { path = "../elsewhere" }
 day-part-battery = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
-        let deps = git_deps(&project).expect("deps");
+        // The manifest floor alone (no resolver: this fixture has no lockfile and no network).
+        let deps = manifest_git_deps(&project).expect("deps");
         assert_eq!(deps, ["day", "day-part-battery", "day-part-http"]);
         // A path dependency is already local, and a non-day crate is none of our business.
         assert!(!deps.iter().any(|d| d == "day-local" || d == "serde"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The manifest floor is a floor, not the answer: a toolkit crate reaches an app only
+    /// through the umbrella, under a `cfg(target_os)` table nobody writes by hand, and patching
+    /// just what the manifest names is what let a stale `day-android` build for months.
+    #[test]
+    fn the_manifest_floor_does_not_see_transitive_toolkits() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-transitive-{}", std::process::id()));
+        let project = fixture(
+            &tmp,
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+"#,
+        );
+        let deps = manifest_git_deps(&project).expect("deps");
+        assert_eq!(deps, ["day"], "the manifest names one crate");
+        assert!(
+            !deps.iter().any(|d| d == "day-android"),
+            "and the toolkit it pulls in per platform is invisible here — which is why \
+             `git_deps` also resolves each platform's graph"
+        );
+        assert!(
+            PATCH_TRIPLES.contains(&"aarch64-linux-android")
+                && PATCH_TRIPLES.contains(&"wasm32-unknown-unknown"),
+            "every platform Day ships has to be asked"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

@@ -2672,6 +2672,34 @@ mod imp {
             ready(self, root, size);
         }
 
+        fn locale_hints(&self) -> Vec<String> {
+            // The device's ordered language preference, which is the ambient locale Day
+            // negotiates its catalogs against (§12.2, docs/localization.md). Comma-joined on the
+            // Java side because a `String[]` return would need array marshalling for a list that
+            // is never more than a handful of tags.
+            if !vm_ready() {
+                return Vec::new();
+            }
+            let joined = with_env(|env| {
+                let obj = env
+                    .dcall_static(BRIDGE, "localeTags", "()Ljava/lang/String;", &[])
+                    .ok()?
+                    .l()
+                    .ok()?;
+                if obj.is_null() {
+                    return None;
+                }
+                env.dstr(&as_jstring(obj)).ok()
+            });
+            joined
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string)
+                .collect()
+        }
+
         fn post(f: Box<dyn FnOnce() + Send>) {
             let token = Box::into_raw(Box::new(f)) as i64;
             with_env(|env| {
