@@ -37,6 +37,14 @@ const sensorState = { started: false, startedAt: 0, saw: false, accel: null, gyr
 const mem = () => new Uint8Array(wasm.memory.buffer);
 const f64 = (ptr, len) => new Float64Array(wasm.memory.buffer, ptr, len);
 const str = (ptr, len) => utf8.decode(new Uint8Array(wasm.memory.buffer, ptr, len));
+// Copy a JS string into wasm memory at `ptr` (capacity `cap`), returning the bytes written — the
+// counterpart of `str` for bridge arms that hand a value back (docs/bridge.md).
+const memWrite = (ptr, cap, text) => {
+  const bytes = utf8enc.encode(text);
+  const n = Math.min(bytes.length, cap);
+  new Uint8Array(wasm.memory.buffer, ptr, n).set(bytes.subarray(0, n));
+  return n;
+};
 
 // Send a JS string into wasm: allocate, copy, return [ptr, len].
 function intoWasm(s) {
@@ -1055,6 +1063,21 @@ async function boot(wasmUrl) {
 
   // Streaming instantiation needs the server to answer `application/wasm`; fall back to a
   // buffered instantiate so the page also works on static hosts with looser MIME tables.
+  // daybridge (docs/bridge.md): each bridged crate's web arm ships as its own ES module beside
+  // this shim, rather than being hand-written into it. `day build` lists them in
+  // `window.__DAY_BRIDGES`; each exports `register(rt)` returning the imports it implements, which
+  // join `env` before instantiation. A name collision between two crates is impossible — every
+  // import is `day_bridge_<crate>_<fn>` — but a module that fails to load must not take the app
+  // down with it, so a failure is logged and its arm simply stays unimplemented.
+  for (const url of window.__DAY_BRIDGES ?? []) {
+    try {
+      const mod = await import(url);
+      Object.assign(env, mod.register({ str, mem, memWrite }));
+    } catch (e) {
+      console.error(`day-bridge: ${url} failed to load`, e);
+    }
+  }
+
   let instance;
   try {
     ({ instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), { env }));

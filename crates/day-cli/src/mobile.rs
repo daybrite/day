@@ -250,6 +250,9 @@ pub fn xcode_backend_build() -> i32 {
             )
             .env("CARGO_TARGET_DIR", &target_dir);
         crate::ops::apply_app_identity(&mut cmd, &project);
+        // The DayPieces package staged before this build carries every bridged crate's Swift arm,
+        // so the cfg that switches those arms on rides the same cargo run (docs/bridge.md).
+        crate::bridge::apply_staged(&mut cmd, &project, target_dir_name);
         cmd
             // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see
             // the `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this
@@ -1610,6 +1613,7 @@ fn build_android_so(
         .env("CARGO_TARGET_DIR", &target_dir)
         .env("ANDROID_NDK_HOME", &ndk_home);
     crate::ops::apply_app_identity(&mut cmd, project);
+    crate::bridge::apply_staged(&mut cmd, project, "android-mdc");
     cmd.arg("ndk");
     for abi in abis {
         cmd.args(["-t", abi]);

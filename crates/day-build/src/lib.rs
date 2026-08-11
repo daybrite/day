@@ -35,6 +35,7 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod bridge;
 pub mod permissions;
 pub mod swiftui;
 

@@ -12,6 +12,9 @@
        shim answers day-dom's `vector:` env keys from this list so vector names resolve to
        their staged .svg files. -->
   <script>window.__DAY_VECTORS = [/*day:vectors*/];</script>
+  <!-- daybridge web arms (docs/bridge.md): one ES module per bridged crate, imported by shim.js
+       before instantiation. Empty in an app with no bridged crate. -->
+  <script>window.__DAY_BRIDGES = [/*day:bridges*/];</script>
   <script type="module">
     import { start } from './shim.js';
     start('app.wasm');

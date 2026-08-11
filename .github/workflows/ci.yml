@@ -502,11 +502,12 @@ jobs:
           # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
           cargo clippy $TARGET ${{ matrix.clippy }} \
             --no-default-features --features ${{ matrix.toolkit }}
-      # day-part-battery's Windows implementation compiles only here, so its lint rides the xaml row
-      # rather than needing a Windows job of its own.
-      - name: Clippy (day-part-battery, Windows impl)
+      # The Windows implementations of these parts compile only here, so their lint rides the xaml
+      # row rather than needing a Windows job of its own. day-part-speech's arm is C++ against SAPI
+      # (docs/bridge.md), which means this leg is also where that translation unit is first built.
+      - name: Clippy (day-part-battery, day-part-speech — Windows impls)
         if: matrix.toolkit == 'xaml'
-        run: cargo clippy --locked -p day-part-battery --all-targets
+        run: cargo clippy --locked -p day-part-battery -p day-part-speech --all-targets
       - name: Scaffold smoke-test (${{ matrix.combo }})
         run: |
           set -euo pipefail
@@ -751,11 +752,14 @@ jobs:
         run: |
           ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
             | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
-      # The gallery's iPad column (website/gallery.config.mjs `ios-uikit-ipad`): the same
-      # variants on a booted iPad — `day launch` targets every booted simulator, so the iPhone
-      # shuts down first. The phone captures are stashed around the run (the variant names
-      # collide) and restored whatever happens, so `screenshots-ios-uikit` never carries a mix.
-      # Best-effort, like the Android emulator leg.
+      # The iPad capture set (`screenshots-ios-uikit-ipad`): the same variants on a booted iPad —
+      # `day launch` targets every booted simulator, so the iPhone shuts down first. The phone
+      # captures are stashed around the run (the variant names collide) and restored whatever
+      # happens, so `screenshots-ios-uikit` never carries a mix. Best-effort, like the Android
+      # emulator leg.
+      # The gallery no longer shows an iPad column (2026-08): this leg has been delivering nothing,
+      # so the column was only ever placeholders. The artifact is still uploaded — add
+      # `ios-uikit-ipad` back to website/gallery.config.mjs's `platforms` once it carries shots.
       - name: Walkthrough (iPad)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         continue-on-error: true
@@ -1148,11 +1152,15 @@ jobs:
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
           script: cd showcase-src && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml
-      # The gallery's tablet column (website/gallery.config.mjs `android-mdc-tablet`): the same
-      # variants on the stock Pixel Tablet profile, whose 600dp+ width tiles the navigation
-      # split (docs/size-classes.md). The phone captures are stashed around the run (the
+      # The tablet capture set (`screenshots-android-mdc-tablet`): the same variants on the stock
+      # Pixel Tablet profile, whose 600dp+ width tiles the navigation split
+      # (docs/size-classes.md). The phone captures are stashed around the run (the
       # variant names collide) and restored whatever happens, so `screenshots-android-mdc`
-      # never carries a mix. Best-effort, like the phone emulator leg. The wrapper is a FILE
+      # never carries a mix. Best-effort, like the phone emulator leg.
+      # The gallery no longer shows a tablet column (2026-08): this leg has been delivering
+      # nothing, so the column was only ever placeholders. The artifact is still uploaded — add
+      # `android-mdc-tablet` back to website/gallery.config.mjs's `platforms` once it carries
+      # shots. The wrapper is a FILE
       # because the emulator action runs each `script` line as its own `sh -c` — a trap or
       # function would not survive to the next line.
       - name: Stage the tablet walkthrough wrapper

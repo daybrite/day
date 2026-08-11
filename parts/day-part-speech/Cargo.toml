@@ -1,0 +1,25 @@
+[package]
+name = "day-part-speech"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): text to speech through each platform's own engine.
+# It is daybridge's reference sample (docs/bridge.md) — every platform's TTS lives in a different
+# language, so the crate carries one Swift, Java, ArkTS, JavaScript, C++ (Windows SAPI), and C arm
+# beside the Rust fallback, all in `src/lib.rs`.
+
+[dependencies]
+day-bridge = { workspace = true }
+
+# A JVM arm is called through JNI, so the generated code needs day-android's cached JVM and
+# Context — the same dependency day-part-battery's Android arm has always had (docs/bridge.md).
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+[build-dependencies]
+day-build = { workspace = true }

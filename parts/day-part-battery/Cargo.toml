@@ -17,7 +17,7 @@ license.workspace = true
 #   Windows  — GetSystemPowerStatus
 #   Linux    — /sys/class/power_supply
 #   HarmonyOS— native libohbattery_info.so (BasicServicesKit), gated on target_env = "ohos"
-#   Android  — BatteryManager via a Java shim staged through [package.metadata.day.android]
+#   Android  — BatteryManager via the inline Java arm in src/android.rs (docs/bridge.md)
 # See docs/battery.md + docs/extending.md.
 
 [dependencies]
@@ -30,14 +30,17 @@ core-foundation-sys = "0.8"
 objc2 = "0.6"
 objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
 
-# Android reads BatteryManager through a Java shim + day-android's cached JVM/Context. This is the one
-# platform where the headless crate rides on the day runtime (like the pieces' Android backends).
+# Android reads BatteryManager through the generated JNI call into this crate's Java arm, using
+# day-android's cached JVM/Context. This is the one platform where the headless crate rides on the
+# Day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
+# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
+# dependency is Android-only too — every other target compiles exactly as it did before.
+day-bridge = { workspace = true }
 
-# --- Android backend contribution (docs/extending.md) ---
-# The SAME mechanism the UI pieces use — but this crate registers NO renderer. It shows the
-# backend-contribution system accommodates headless capability crates: `day build` stages this Java
-# and adds it to the app's Gradle build, without touching any core day crate.
-[package.metadata.day.android]
-java = ["android/java"]
+# No `[package.metadata.day.android].java` any more: the Android half is the Java arm in
+# src/android.rs, which `day build` renders and stages into the app's Gradle build (docs/bridge.md).
+
+[build-dependencies]
+day-build = { workspace = true }

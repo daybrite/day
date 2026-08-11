@@ -13,7 +13,7 @@
 //! Platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]` (a battery is an OS concern,
 //! not a widget-toolkit one): macOS uses IOKit, iOS `UIDevice`, Windows `GetSystemPowerStatus`, Linux
 //! `/sys/class/power_supply`, HarmonyOS the native `libohbattery_info.so`, and Android
-//! `BatteryManager` (via a Java shim staged by `day build`). Platforms without a battery API — or
+//! `BatteryManager` (via the inline Java arm staged by `day build`). Platforms without a battery API — or
 //! devices with no battery — return `None`.
 
 /// A snapshot of the device battery.

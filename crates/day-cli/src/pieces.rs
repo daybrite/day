@@ -116,7 +116,7 @@ pub(crate) struct Metadata {
 pub(crate) struct Package {
     id: String,
     pub(crate) name: String,
-    manifest_path: String,
+    pub(crate) manifest_path: String,
     #[serde(default)]
     pub(crate) metadata: Option<serde_json::Value>,
 }
@@ -497,6 +497,21 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
     pieces.permissions = entries.iter().map(|e| e.name.clone()).collect();
+
+    // daybridge adapters (docs/bridge.md): rendered from each bridged crate's source and staged
+    // into a generated root, which joins the piece java dirs Gradle already reads. Nothing else in
+    // the scaffold changes — a bridged crate contributes exactly like a piece with a Java shim.
+    // A Kotlin arm with no Kotlin plugin builds a working-looking APK whose bridge class does not
+    // exist. Fail here, with the fix, rather than let it install and crash on first use.
+    let kotlin_arms = crate::bridge::kotlin_arm_crates(project);
+    if !kotlin_arms.is_empty() && !crate::bridge::android_compiles_kotlin(project) {
+        return Err(crate::bridge::kotlin_plugin_help(&kotlin_arms));
+    }
+    match crate::bridge::write_jvm(project, &crate::bridge::stage(project, "android")) {
+        Ok(Some(dir)) => pieces.java_src_dirs.push(dir.display().to_string()),
+        Ok(None) => {}
+        Err(e) => eprintln!("day: bridge staging failed ({e}); building without bridged Kotlin"),
+    }
 
     // day-pieces.json is written AFTER the merge so Gradle sees the full list.
     let json = serde_json::to_string_pretty(&pieces).map_err(|e| e.to_string())?;
@@ -882,6 +897,9 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
         sync_swift_dir(Path::new(dir), &sources.join(namespace), &mut expected)?;
     }
 
+    // daybridge adapters (docs/bridge.md), staged per crate exactly as on the macOS leg.
+    stage_bridge_swift(project, "ios", &sources, &mut expected)?;
+
     // Exported SwiftUI views (docs/swiftui.md): scan local packages, generate provider glue.
     if let Some(glue) = render_view_glue(&pieces) {
         let path = sources.join("_DayViews.swift");
@@ -1103,6 +1121,10 @@ pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String
     write_if_changed(&aggregator, &day_pieces_ets(&pieces))?;
     expected.push(aggregator);
     prune_except(&dir, &expected.into_iter().collect());
+
+    // daybridge ArkTS arms (docs/bridge.md) live in their own tree beside the pieces, with their
+    // own aggregator, so the two generators never contend over one directory.
+    crate::bridge::write_arkts(harmony, &crate::bridge::stage(project, "ohos"))?;
     Ok(())
 }
 
@@ -1339,6 +1361,10 @@ pub fn write_macos_pieces(
         sync_swift_dir(Path::new(dir), &sources.join(namespace), &mut expected)?;
     }
 
+    // daybridge adapters (docs/bridge.md): generated per crate into its OUT_DIR, staged here under
+    // the crate's own namespace so two bridged crates cannot collide in the one Swift module.
+    stage_bridge_swift(project, "macos", &sources, &mut expected)?;
+
     if let Some(glue) = render_view_glue(&pieces) {
         let path = sources.join("_DayViews.swift");
         write_if_changed(&path, &glue)?;
@@ -1367,6 +1393,36 @@ pub fn write_macos_pieces(
         frameworks: pieces.frameworks,
         platform,
     }))
+}
+
+/// Every package in the app's dependency graph, as `(name, crate root)` — what the bridge stager
+/// walks to find crates declaring a `bridge!` block (docs/bridge.md).
+pub(crate) fn dependency_roots(project: &Project) -> Vec<(String, std::path::PathBuf)> {
+    let Ok(meta) = cargo_metadata_all_features(project) else {
+        return Vec::new();
+    };
+    meta.packages
+        .iter()
+        .filter_map(|pkg| {
+            Path::new(&pkg.manifest_path)
+                .parent()
+                .map(|dir| (pkg.name.clone(), dir.to_path_buf()))
+        })
+        .collect()
+}
+
+/// Stage every bridged crate's generated Swift for `platform` into the DayPieces sources, one
+/// namespace directory per crate. Returns quietly when no crate in the build declares a bridge.
+///
+/// The adapters are found by scanning the build's own target directory (see `crate::bridge`),
+/// which is where day-build wrote them during the cargo run that preceded this staging.
+fn stage_bridge_swift(
+    project: &Project,
+    platform: &str,
+    sources: &Path,
+    expected: &mut Vec<std::path::PathBuf>,
+) -> Result<(), String> {
+    crate::bridge::stage(project, platform).write_swift(sources, expected)
 }
 
 /// Write `content` only when the file's bytes differ — generated trees must not churn mtimes, or

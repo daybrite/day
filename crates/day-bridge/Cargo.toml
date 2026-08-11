@@ -1,0 +1,18 @@
+[package]
+name = "day-bridge"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# The runtime half of daybridge (docs/bridge.md): the `bridge!` macro whose body day-build reads,
+# the error type crossing every boundary, and the re-exported `Support` an arm reports. The
+# GENERATOR is day-build (build-time, host-only); this crate is what the bridged crate links.
+
+[dependencies]
+# `Support` is day-spec's, not a second copy: a bridged crate's `available()` must return the same
+# type `day::capability()` does, or callers end up matching two enums that mean the same thing.
+day-spec = { workspace = true }

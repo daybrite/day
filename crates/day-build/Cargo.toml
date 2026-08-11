@@ -16,6 +16,9 @@ license.workspace = true
 # name → identifier mapping that the CLI stagers (`day-cli/src/resources`) reuse, so the generated
 # constant string can never drift from the staged native name.
 [dependencies]
+# Compiles a bridge crate's generated C/C++ arm (docs/bridge.md). Already the workspace's
+# C compiler driver — day-qt-sys, day-xaml-sys and day-arkui-sys build their shims with it.
+cc = "1"
 day-fonts = { workspace = true }
 # Parse app `.ftl` files to extract each message's parameters (§18.5 `res::str`) — the same parser
 # `fluent-bundle` (the runtime engine) is built on, so the keys/params we generate match what

@@ -644,9 +644,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-bridge"
+version = "0.2.1"
+dependencies = [
+ "day-spec",
+]
+
+[[package]]
 name = "day-build"
 version = "0.2.1"
 dependencies = [
+ "cc",
  "day-fonts",
  "fluent-syntax",
  "toml 1.1.4+spec-1.1.0",
@@ -791,6 +799,8 @@ dependencies = [
  "core-foundation",
  "core-foundation-sys",
  "day-android",
+ "day-bridge",
+ "day-build",
  "objc2",
  "objc2-ui-kit",
 ]
@@ -898,6 +908,15 @@ dependencies = [
  "objc2",
  "objc2-core-motion",
  "windows",
+]
+
+[[package]]
+name = "day-part-speech"
+version = "0.2.1"
+dependencies = [
+ "day-android",
+ "day-bridge",
+ "day-build",
 ]
 
 [[package]]

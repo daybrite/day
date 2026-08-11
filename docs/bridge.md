@@ -5,16 +5,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # daybridge: foreign-language implementations of a Rust API (§15.6)
 
-> [!IMPORTANT]
-> **Status: designed, not implemented (2026-08).** Nothing described here exists in the tree yet.
-> This file is the contract the implementation is written against — the type table, the ownership
-> rule, the threading rule, and the naming derivation are the API surface, and changing them later
-> invalidates every arm written against them. Unlike [§15.3's dayffi](../DESIGN.md), this is a
-> design in progress, not a superseded one. Review this document before the first backend lands.
+> [!NOTE]
+> **Status: v1 shipped through phase 7 (2026-08).** The synchronous surface described here is in
+> the tree — every arm language, both generators, and `parts/day-part-speech` as the reference
+> crate. What remains is [phase 8](#implementation-phases), migrating the other synchronous parts,
+> and phase 9's gates; async, callbacks, and streams are [after v1](#after-v1). The type table,
+> the ownership rule, the threading rule, and the naming derivation are the API surface — changing
+> them now invalidates every arm written against them.
 
-A **bridge** lets one Rust function have implementations in Swift, Kotlin, ArkTS, JavaScript, C, or
-C++, chosen per target at build time. The Rust signature is the contract; the foreign code is an
-implementation of it. Calling code sees an ordinary Rust function and contains no platform
+A **bridge** lets one Rust function have implementations in Swift, Kotlin, Java, ArkTS, JavaScript,
+C, or C++, chosen per target at build time. The Rust signature is the contract; the foreign code is
+an implementation of it. Calling code sees an ordinary Rust function and contains no platform
 conditionals.
 
 ```rust
@@ -53,17 +54,17 @@ day_bridge::bridge! {
     }
 
     // 2. file-level preamble for one language: imports only
-    #[day_bridge::prelude(kotlin)]
-    kotlin!(r#"
-        import android.speech.tts.TextToSpeech
-        import dev.daybrite.day.bridge.DayBridge
+    #[day_bridge::prelude(java)]
+    java!(r#"
+        import android.speech.tts.TextToSpeech;
+        import dev.daybrite.day.bridge.DayBridge;
     "#);
 
     // 3. an implementation, inline
-    #[day_bridge::impl(kotlin, platforms = [android])]
-    kotlin!(r#"
-        fun speakNative(text: String) { … }
-        fun stopNative() { … }
+    #[day_bridge::impl(java, platforms = [android])]
+    java!(r#"
+        public static void speak_native(String text) { … }
+        public static void stop_native() { … }
     "#);
 
     // 4. or an implementation in its own file, staged like android/java is today
@@ -95,14 +96,19 @@ Everything is derived from the crate name, so nothing has to be kept in agreemen
 |---|---|---|
 | Symbol prefix | `day_bridge_<crate_snake>_<fn>` | `day_bridge_day_part_speech_speak_native` |
 | JNI package | `dev.daybrite.day.bridge.<crate_snake>` | `dev.daybrite.day.bridge.day_part_speech` |
-| Kotlin object | `Day<CrateCamel>Bridge` | `DayPartSpeechBridge` |
+| JVM class | `Day<CrateCamel>Bridge` — a Kotlin `object`, or a Java `final class` of statics | `DayPartSpeechBridge` |
+| Java file | `<Class>.java`, because javac requires the match | `DayPartSpeechBridge.java` |
 | Swift file | `<CrateCamel>Bridge.swift` in `DayPieces` | `DayPartSpeechBridge.swift` |
 | ES module | `build/day/web/bridge/<crate>.js` | `bridge/day-part-speech.js` |
 | ArkTS module | `<crate>/Index.ets` under the ohos host | `day-part-speech/Index.ets` |
 | C/C++ unit | `OUT_DIR/day-bridge/<crate>.c` \| `.cpp` | — |
 
-A foreign function's name is the lowerCamelCase of the Rust name (`speak_native` →
-`speakNative`) in Swift, Kotlin, ArkTS, and JavaScript, and the snake_case name in C and C++.
+**A bridged function has one name in every language: the declared one.** `speak_native` is
+`speak_native` in Rust, Swift, Kotlin, Java, ArkTS, JavaScript, and C alike. That is deliberately
+not idiomatic on the JVM or in Swift, and it buys something worth more than idiom in glue code: one
+grep finds the declaration, every arm, and the generated adapter, and no one has to map a name in
+their head while reading a stack trace. Expect a Kotlin or Swift linter to have an opinion; the
+generated adapters carry the suppression where a project's linter needs one.
 
 **A collision is a build error.** Two crates with the same package name — a vendored copy beside a
 git dependency, say — derive the same prefix, and the CLI fails the build naming both manifest
@@ -114,17 +120,17 @@ generated name predictable, which is the property the whole naming table exists 
 
 The v1 surface. A declaration using anything outside this table is a `day lint` error.
 
-| Rust | Swift | Kotlin | ArkTS | JavaScript | C / C++ |
-|---|---|---|---|---|---|
-| `bool` | `Bool` | `Boolean` | `boolean` | `boolean` | `bool` / `int32_t` |
-| `i32`, `i64` | `Int32`, `Int64` | `Int`, `Long` | `number` | `number` | `int32_t`, `int64_t` |
-| `f32`, `f64` | `Float`, `Double` | `Float`, `Double` | `number` | `number` | `float`, `double` |
-| `&str` (argument) | `String` | `String` | `string` | `string` | `const char*` (UTF-8) |
-| `String` (return) | `String` | `String` | `string` | `string` | `char*`, callee-allocated |
-| `&[u8]` (argument) | `Data` | `ByteArray` | `Uint8Array` | `Uint8Array` | `const uint8_t*` + `size_t` |
-| `Vec<u8>` (return) | `Data` | `ByteArray` | `Uint8Array` | `Uint8Array` | `uint8_t*` + out `size_t` |
-| `#[day_bridge::data] struct` of the above | `struct` | `data class` | interface | object | `struct` |
-| `Result<T, day_bridge::Error>` | `throws` | exception | thrown | thrown | status code + out-param |
+| Rust | Swift | Kotlin | Java | ArkTS | JavaScript | C / C++ |
+|---|---|---|---|---|---|---|
+| `bool` | `Bool` | `Boolean` | `boolean` | `boolean` | `boolean` | `bool` / `int32_t` |
+| `i32`, `i64` | `Int32`, `Int64` | `Int`, `Long` | `int`, `long` | `number` | `number` | `int32_t`, `int64_t` |
+| `f32`, `f64` | `Float`, `Double` | `Float`, `Double` | `float`, `double` | `number` | `number` | `float`, `double` |
+| `&str` (argument) | `String` | `String` | `String` | `string` | `string` | `const char*` (UTF-8) |
+| `String` (return) | `String` | `String` | `String` | `string` | `string` | `char*`, callee-allocated |
+| `&[u8]` (argument) | `Data` | `ByteArray` | `byte[]` | `Uint8Array` | `Uint8Array` | `const uint8_t*` + `size_t` |
+| `Vec<u8>` (return) | `Data` | `ByteArray` | `byte[]` | `Uint8Array` | `Uint8Array` | `uint8_t*` + out `size_t` |
+| `#[day_bridge::data] struct` of the above | `struct` | `data class` | `final class` | interface | object | `struct` |
+| `Result<T, day_bridge::Error>` | `throws` | exception | exception | thrown | thrown | status code + out-param |
 
 Four rules the table doesn't show:
 
@@ -208,7 +214,7 @@ every platform, so the sync contract costs it nothing.
 | Variant | Raised when |
 |---|---|
 | `Unsupported` | no arm for this target — what the `rust`/`other` fallback returns |
-| `Foreign(String)` | the arm threw: a Swift `throws`, a Kotlin exception, a rejected promise, a nonzero C status |
+| `Foreign(String)` | the arm threw: a Swift `throws`, a JVM exception, a rejected promise, a nonzero C status |
 | `Encoding` | an argument or result was not valid UTF-8 |
 | `Runtime` | the platform runtime was unavailable (no JVM, no `Context`, COM init failed) |
 
@@ -234,14 +240,27 @@ answer — HarmonyOS Core Speech Kit's zh-CN-only voices, for instance.
 
 ## What the build does
 
-day-build runs in the crate's `build.rs` on any host, with no foreign toolchain, and emits the Rust
-side plus a manifest. `day build` reads the manifest and emits the foreign side into the project
-that target already builds from — no new host-build machinery is introduced.
+Two generators, each with exactly one artifact to own. **day-build**, in the crate's `build.rs` on
+any host with no foreign toolchain, emits the Rust side — the arm bodies, the externs, the safe
+wrappers, `<fn>_support()` — plus the C/C++ translation units cargo itself compiles through `cc`.
+**`day build`** emits the foreign side into the project that target already builds from.
+
+The CLI renders those adapters **from the crate's own sources**, using the same parser day-build
+uses, rather than reading anything the build script produced. That is not a preference: a prepass
+has to finish before cargo links, and a build script's output only exists once cargo has already
+run. Reading sources makes staging independent of build order, exactly as the Swift prepass already
+treats `[package.metadata.day.macos]` shims.
+
+An arm whose foreign half the CLI stages — Swift, Kotlin, Java, ArkTS, JavaScript — is compiled under a
+`day_bridge_staged` cfg the CLI sets. Without it (a plain `cargo build`, or a target this arm does
+not claim) the crate falls back to its `other` arm and reports `Unsupported`, so **a bridged crate
+always compiles under bare cargo** instead of failing to link a symbol nobody produced. C and C++
+need no such gate: cargo compiles them itself.
 
 | Arm | Adapter lands in | Existing mechanism it rides |
 |---|---|---|
 | `swift` | the generated `DayPieces` SwiftPM module | the Swift prepass, `swift build`, `-force_load` (docs/swiftui.md) |
-| `kotlin` | a Gradle `srcDirs` entry | the checked-in Gradle host project, JNI, `day-pieces.json` |
+| `kotlin`, `java` | a Gradle `srcDirs` entry | the checked-in Gradle host project, JNI, `day-pieces.json` |
 | `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor (docs/harmonyos.md) |
 | `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it (docs/web.md) |
 | `c`, `cpp` | `OUT_DIR/daybridge/<crate>.c` \| `.cpp` | `cc` from the crate's `build.rs` |
@@ -249,6 +268,25 @@ that target already builds from — no new host-build machinery is introduced.
 
 Bridge contributions are carried in the existing `day-pieces.json` aggregation rather than a second
 manifest file, so Gradle keeps reading one contract.
+
+### Android: `java` needs nothing, `kotlin` needs the plugin
+
+Both languages produce the same `Day<CrateCamel>Bridge` class and the same JNI registration; what
+differs is what the app's Gradle build can compile. AGP compiles `.java` from the staged source
+directory in any project. It compiles `.kt` only from the *Kotlin* source set, which exists when the
+project applies a Kotlin plugin — so a `.kt` arm in a project without one is silently skipped, and
+the app dies at the first call with `ClassNotFoundException` for a class the build never produced.
+
+That failure is caught before it can happen. `day build` fails, and `day lint` reports
+`day::lint::bridge-kotlin-plugin`, when a dependency has a `kotlin` arm and the app's
+`platform/android/app/build.gradle.kts` applies no Kotlin plugin. The message names the crates and
+gives the three ways out: write the arm in Java, apply `org.jetbrains.kotlin.android`, or wire the
+staged root into the Kotlin source set the project already has and mark the file `day: kotlin-ok`.
+
+**A part published for other people's apps should use `java`.** It cannot know whether its
+consumers have Kotlin, and the JVM half of a bridge is a handful of static methods where the two
+languages differ little. `day-part-battery` and `day-part-speech` both do this. An app's own crate,
+which controls its Gradle build, can use either.
 
 ## What stays in `Cargo.toml`
 
@@ -283,6 +321,7 @@ silently misread value.
 | A file-form arm whose signature disagrees with the declaration | day-cli, per language |
 | A `package`, `namespace`, or `module` line inside a prelude | day-build |
 | Two crates exporting the same name into the web shim's import table | `day build` |
+| A `kotlin` arm in an Android project with no Kotlin plugin | `day build`, `day lint` ([above](#android-java-needs-nothing-kotlin-needs-the-plugin)) |
 
 ## Diagnostics
 
@@ -338,8 +377,10 @@ restamps, and the second restamps *and* drops the source mtime.
 
 ## Worked example
 
-`parts/day-part-speech` is the reference crate: one file, six arms (Swift, Kotlin, ArkTS,
-JavaScript, C++, C), a Rust fallback, and a Showcase page that speaks a line on every target.
+`parts/day-part-speech` is the reference crate: one file, six foreign arms (Swift, Java, ArkTS,
+JavaScript, C++, C), a Rust fallback, and a Showcase page that speaks a line on every target. The
+C++ arm is the one that drove the `encoding = "utf16"` option — SAPI speaks `WCHAR`, so the same
+`&str` declaration is converted for Windows and left as UTF-8 everywhere else.
 Read it before writing a bridge of your own.
 
 ## Non-goals

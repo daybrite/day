@@ -45,6 +45,7 @@ pub fn build_web(
         .args(["--features", &features])
         .args(["--target", "wasm32-unknown-unknown"]);
     apply_app_identity(&mut cmd, project);
+    crate::bridge::apply_staged(&mut cmd, project, "web-dom");
     crate::intl::apply(&mut cmd, project);
     if profile == "release" {
         cmd.arg("--release");
@@ -72,6 +73,9 @@ pub fn build_web(
     let dist = cargo_dir.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| format!("dist dir: {e}"))?;
     std::fs::write(dist.join("shim.js"), HOST_SHIM).map_err(|e| format!("shim: {e}"))?;
+    // daybridge web arms (docs/bridge.md): one ES module per bridged crate, listed for the shim to
+    // import and merge into the wasm imports before instantiation.
+    let bridges = crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web"))?;
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
@@ -124,9 +128,16 @@ pub fn build_web(
         .map(|n| format!("\"{n}\""))
         .collect::<Vec<_>>()
         .join(",");
+    let bridges_json = bridges
+        .iter()
+        .map(|m| format!("\"{m}\""))
+        .collect::<Vec<_>>()
+        .join(",");
     std::fs::write(
         dist.join("index.html"),
-        HOST_INDEX.replace("[/*day:vectors*/]", &format!("[{vectors_json}]")),
+        HOST_INDEX
+            .replace("[/*day:vectors*/]", &format!("[{vectors_json}]"))
+            .replace("[/*day:bridges*/]", &format!("[{bridges_json}]")),
     )
     .map_err(|e| format!("index: {e}"))?;
     // Bundled images, flat under assets/images/ — the paths day-dom writes into `src` attrs.

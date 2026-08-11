@@ -278,6 +278,7 @@ fn build_native(
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
             apply_app_identity(&mut cmd, project);
+            crate::bridge::apply_staged(&mut cmd, project, target.name);
             // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
             crate::intl::apply(&mut cmd, project);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`

@@ -17,6 +17,10 @@
 // the gallery layout is fully visible without any screenshots. The design is extensible: adding a
 // sample app or a component-snapshot set is a gallery.config.mjs change, not a code change here.
 //
+// A run that DID capture something drops the platforms it captured nothing for: no column, no
+// tiles, and their ids listed in the suite's `hidden` — a full column of placeholders reports a
+// broken CI leg to a reader who came to compare toolkits.
+//
 // Runnable standalone (`node scripts/assemble-gallery.mjs [artifactsDir]`) and from the Astro
 // integration (integrations/gallery.mjs). No third-party dependencies.
 
@@ -60,7 +64,7 @@ function findVariantShot(artifactDir, shotId, variant) {
 
 /**
  * @param {{ artifactsDir?: string, quiet?: boolean }} [opts]
- * @returns {{ hasArtifacts: boolean, manifestPath: string, unreadable: string[] }}
+ * @returns {{ hasArtifacts: boolean, manifestPath: string, unreadable: string[], hidden: string[] }}
  */
 export function assembleGallery(opts = {}) {
   const artifactsDir = resolve(WEBSITE_ROOT, opts.artifactsDir ?? process.env.GALLERY_ARTIFACTS_DIR ?? 'artifacts');
@@ -74,6 +78,8 @@ export function assembleGallery(opts = {}) {
 
   let realShots = 0;
   const unreadable = [];
+  /** `<suite>/<platform>` for every column dropped for want of captures (reported by the caller). */
+  const hidden = [];
   const suites = galleryConfig.suites.map((suite) => {
     const suitePlatforms = suite.platforms
       .map((platformId) => galleryConfig.platforms.find((p) => p.id === platformId))
@@ -121,6 +127,28 @@ export function assembleGallery(opts = {}) {
       return { id: shot.id, label: shot.label, source: shot.source ?? null, byPlatform };
     });
 
+    // A platform that captured NOTHING gets no column: a strip of "preview" placeholders down the
+    // whole page says only that a CI leg produced no artifact, which is not what a reader came for.
+    // The one exception is a build with no artifacts AT ALL (a local preview, `hasArtifacts` false
+    // below) — there the placeholders ARE the point, so every column stays and the layout can be
+    // seen without downloading anything.
+    const withShots = suitePlatforms.filter((p) => (captureCount.get(p.id) ?? 0) > 0);
+    const shownPlatforms = withShots.length > 0 ? withShots : suitePlatforms;
+    const shown = new Set(shownPlatforms.map((p) => p.id));
+    const dropped = suitePlatforms.filter((p) => !shown.has(p.id));
+    if (dropped.length > 0) {
+      // Never silently: a column vanishing from the gallery is a CI leg that stopped delivering,
+      // and the build log is where that gets noticed.
+      log(`hiding ${dropped.length} column(s) with no captures: ${dropped.map((p) => p.id).join(', ')}`);
+      for (const p of dropped) hidden.push(`${suite.id}/${p.id}`);
+    }
+    // Tiles follow the columns, so the page's row/column indices (the lightbox's 2-D navigation)
+    // stay contiguous and every tile's platform is still in `platforms`.
+    const shownShots =
+      dropped.length === 0
+        ? shots
+        : shots.map((s) => ({ ...s, byPlatform: s.byPlatform.filter((t) => shown.has(t.platform)) }));
+
     return {
       id: suite.id,
       label: suite.label,
@@ -132,7 +160,7 @@ export function assembleGallery(opts = {}) {
       sourceRepo: suite.sourceRepo ?? null,
       hero: suite.hero,
       variants: suite.variants.map(({ id, label }) => ({ id, label })),
-      platforms: suitePlatforms.map((p) => ({
+      platforms: shownPlatforms.map((p) => ({
         id: p.id,
         label: p.label,
         os: p.os,
@@ -140,7 +168,10 @@ export function assembleGallery(opts = {}) {
         captured: (captureCount.get(p.id) ?? 0) > 0,
         shotCount: captureCount.get(p.id) ?? 0,
       })),
-      shots,
+      // The columns this run had nothing for, by id — the page shows none of them; the field
+      // exists so a consumer can say what is missing rather than having to diff against the config.
+      hidden: dropped.map((p) => p.id),
+      shots: shownShots,
     };
   });
 
@@ -160,7 +191,7 @@ export function assembleGallery(opts = {}) {
       ? `assembled ${realShots} screenshot(s) across ${capturedPlatforms} platform-suite(s) from ${artifactsDir}`
       : `no artifacts under ${artifactsDir} — emitted placeholders for every shot (local build)`,
   );
-  return { hasArtifacts, manifestPath, unreadable };
+  return { hasArtifacts, manifestPath, unreadable, hidden };
 }
 
 // Standalone entry point.

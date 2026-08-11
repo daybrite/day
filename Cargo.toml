@@ -10,6 +10,7 @@ members = [
     "crates/day-fonts",
     "crates/day-reactive",
     "crates/day-spec",
+    "crates/day-bridge",
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
@@ -34,6 +35,7 @@ members = [
     "pieces/day-piece-lottie",
     "pieces/day-piece-media",
     "pieces/day-piece-swiftui",
+    "parts/day-part-speech",
     "parts/day-part-battery",
     "parts/day-part-sensors",
     "parts/day-part-clipboard",
@@ -115,6 +117,7 @@ day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.2.1" }
 day-piece-webview = { path = "pieces/day-piece-webview", version = "0.2.1" }
 day-piece-lottie = { path = "pieces/day-piece-lottie", version = "0.2.1" }
 day-part-battery = { path = "parts/day-part-battery", version = "0.2.1" }
+day-part-speech = { path = "parts/day-part-speech", version = "0.2.1" }
 day-part-sensors = { path = "parts/day-part-sensors", version = "0.2.1" }
 day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.2.1" }
 day-part-network = { path = "parts/day-part-network", version = "0.2.1" }
@@ -142,6 +145,7 @@ day-tweak-tooltip = { path = "tweaks/day-tweak-tooltip", version = "0.2.1" }
 day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks", version = "0.2.1" }
 day-toolchain = { path = "crates/day-toolchain", version = "0.2.1" }
 day-build = { path = "crates/day-build", version = "0.2.1" }
+day-bridge = { path = "crates/day-bridge", version = "0.2.1" }
 day-lite = { path = "crates/day-lite", version = "0.2.1" }
 day-break = { path = "crates/day-break", version = "0.2.1" }
 day-appkit = { path = "toolkits/day-appkit", version = "0.2.1" }

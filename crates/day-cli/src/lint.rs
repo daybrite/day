@@ -279,6 +279,26 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     // ships as a raster fallback on Android — worth knowing, not an error).
     lint_vectors(project, &mut findings);
 
+    // --- daybridge (docs/bridge.md) ---
+    // A Kotlin arm needs the Kotlin Gradle plugin; without it Gradle ignores the generated .kt
+    // and the failure surfaces as a runtime ClassNotFoundException on a device, which is the
+    // worst possible place to learn it.
+    if project
+        .manifest
+        .app
+        .targets
+        .iter()
+        .any(|t| t == "android-mdc")
+    {
+        let kotlin_arms = crate::bridge::kotlin_arm_crates(project);
+        if !kotlin_arms.is_empty() && !crate::bridge::android_compiles_kotlin(project) {
+            findings.push(Finding {
+                code: "day::lint::bridge-kotlin-plugin",
+                message: crate::bridge::kotlin_plugin_help(&kotlin_arms),
+            });
+        }
+    }
+
     // --- Day.toml structure ---
     // Syntax + schema are enforced at load (a project that reaches here parsed); lint adds the
     // semantic checks: every [app] target is a known combo, and every [app.<key>] override

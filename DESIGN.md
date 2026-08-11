@@ -76,7 +76,7 @@ the architecture-level view and the rationale.
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | docs/async.md | [§4.5](#45-async) |
 | tweaks — per-toolkit configuration of built-ins | docs/tweaks.md | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | docs/extending.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/ArkTS/JS/C/C++), designed only | docs/bridge.md | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
+| daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | docs/bridge.md | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | docs/agent.md, website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | docs/battery.md, docs/network.md, docs/sensors.md, docs/clipboard.md, docs/prefs.md, docs/haptics.md, docs/deviceinfo.md, docs/http.md, docs/permissions.md, docs/location.md, docs/fs.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | docs/webview.md, docs/media.md, docs/map.md, docs/lottie.md, docs/searchfield.md, docs/combobox.md | [§15](#15-extensibility-pieces-parts-and-tweaks) |
@@ -2338,15 +2338,17 @@ repository in 2026-08; the runtime crate remains, with no in-repo app building a
 
 ### §15.6 daybridge: foreign-language implementations of a Rust API
 
-> [!IMPORTANT]
-> **Status: designed, not implemented (2026-08).** None of this is in the tree. docs/bridge.md is
-> the normative contract — the type table, ownership rule, threading rule, and name derivation —
-> and this section is the architecture-level view. Unlike [§15.3](#153-dayffi-the-c-abi-superseded--never-built), this is a design in
-> progress rather than a superseded one. **v1 bridges synchronous functions only**: callbacks,
-> futures, and streams are sketched in docs/bridge.md's "After v1" but deliberately unbuilt, and
-> line-number remapping is best-effort per language (Swift, C/C++, JS, and ArkTS have it; Kotlin
-> and Java do not, so long arms there stay in their own files). The phased plan lands the Swift,
-> Kotlin, and C/C++ backends first, with per-crate JS modules and ArkTS behind them.
+> [!NOTE]
+> **Status: v1 in the tree through phase 7 (2026-08).** Every arm language ships — Swift, Kotlin,
+> Java, ArkTS, JavaScript, C, C++ — with `parts/day-part-speech` as the reference crate and a
+> Showcase demo driven by a dayscript walkthrough on each target. docs/bridge.md is the normative
+> contract (type table, ownership rule, threading rule, name derivation) and remains the place to
+> read before writing an arm; this section is the architecture-level view. What is left is
+> migrating the remaining synchronous parts and the CI gates (phases 8–9). **v1 bridges
+> synchronous functions only**: callbacks, futures, and streams are sketched in docs/bridge.md's
+> "After v1" but deliberately unbuilt, and line-number remapping is best-effort per language
+> (Swift, C/C++, JS, and ArkTS have it; Kotlin and Java do not, so long arms there stay in their
+> own files).
 
 **The problem, measured.** Eleven parts (battery, clipboard, deviceinfo, haptics, http,
 local-notify, location, network, permissions, prefs, sensors) each carry an Android shim, and every
@@ -2384,20 +2386,28 @@ day-build reading the crate's own source text, exactly as `day-build/src/swiftui
 crate that uses no bridge sees nothing.
 
 **Two generators, no new host machinery.** day-build (in `build.rs`, on any host, with no foreign
-toolchain) emits the Rust externs, wrappers, and a manifest, so plain `cargo check` and day-mock
-keep working. `day build` reads the manifest and emits each arm's adapter into the project that
-target already builds from: the generated `DayPieces` SwiftPM module, a Gradle `srcDirs` entry, an
+toolchain) emits the Rust externs, wrappers, and the C/C++ translation units cargo compiles, so
+plain `cargo check` and day-mock keep working. `day build` emits each arm's adapter into the
+project that target already builds from — parsing the crate's own sources with the same parser, not
+reading build output, since a prepass has to finish before cargo runs: the generated `DayPieces` SwiftPM module, a Gradle `srcDirs` entry, an
 hvigor ArkTS module with its `Index.ets`, a per-crate ES module the day-dom shim imports, or a `cc`
 translation unit. Contributions ride the existing `day-pieces.json` aggregation rather than a
 second manifest. Build-graph facts — Gradle coordinates, permissions, frameworks, `pkg-config`
 names, deployment floors — stay in `[package.metadata.day.*]`, where the CLI already reads them.
+
+**Android takes Java or Kotlin.** Both generate the same `Day<CrateCamel>Bridge` class and the
+same JNI binding; the difference is that AGP compiles `.java` from any source directory, while a
+`.kt` needs the project to have a Kotlin plugin. A `.kt` arm in a project without one is skipped
+silently and dies at the first call with `ClassNotFoundException`, so `day build` and `day lint`
+refuse that combination and name the fix. The shipped parts use Java, which cannot make an
+assumption about someone else's Gradle build.
 
 **Reporting.** Each bridged function answers a `Support` per target, and `docs/bridge-matrix.md` is
 generated from the declarations and CI-gated for drift alongside the duty, coverage, and recorder
 matrices ([§8.1](#81-the-toolkit-trait), [§8.2](#82-the-open-renderer-registry)). A crate with no `other` arm fails `day lint`, because it could not
 compile under the mock toolkit.
 
-`parts/day-part-speech` is the reference crate: one file, six arms (Swift, Kotlin, ArkTS,
+`parts/day-part-speech` is the reference crate: one file, six arms (Swift, Java, ArkTS,
 JavaScript, C++, C) over each platform's text-to-speech API, plus the Rust fallback.
 
 ### §16.1 Design goals
