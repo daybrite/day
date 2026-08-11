@@ -65,6 +65,7 @@
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
 #include <winrt/Windows.UI.Xaml.Shapes.h>
 #include <winrt/Windows.UI.Xaml.Hosting.h>
+#include <winrt/Windows.UI.Composition.h> // rounded corner clip (see day_xaml_container_set_corner)
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Markup.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
@@ -86,6 +87,7 @@ namespace WUXM = winrt::Windows::UI::Xaml::Media;
 namespace WUXMA = winrt::Windows::UI::Xaml::Media::Animation;
 namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
 namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
+namespace WUComp = winrt::Windows::UI::Composition;
 namespace WUXIn = winrt::Windows::UI::Xaml::Input;
 namespace WUIIn = winrt::Windows::UI::Input;
 namespace WS = winrt::Windows::System;
@@ -2059,10 +2061,42 @@ void day_xaml_container_set_card(void* h, double radius) {
 // Rounded corners for a container's background (login card, chat bubbles, avatar/badge discs).
 // RadiusX/RadiusY live on the Rectangle SHAPE, not on RectangleGeometry.
 void day_xaml_container_set_corner(void* h, double radius) {
-    if (auto c = elem(h).try_as<WUXC::Canvas>()) {
-        auto r = ensure_bg_rect(c);
-        r.RadiusX(radius);
-        r.RadiusY(radius);
+    auto c = elem(h).try_as<WUXC::Canvas>();
+    if (!c) return;
+    // The container's OWN fill, for the case where this container also carries the background.
+    auto r = ensure_bg_rect(c);
+    r.RadiusX(radius);
+    r.RadiusY(radius);
+
+    // …and a real rounded CLIP over the children, which is what `ContainerProps.clips` asks for
+    // and what the common case actually needs. `corner_radius(r)` is its own container in the
+    // piece tree, wrapping the `background(c)` container rather than sharing one with it:
+    //
+    //   corner_radius container   (transparent, radius r, clips)
+    //     └── background container  (opaque fill, square)
+    //
+    // so rounding only this container's own — invisible — rect left the child's square fill
+    // painting over the top, and every `.background(…).corner_radius(…)` surface came out sharp.
+    //
+    // It has to be a COMPOSITION clip: XAML's `UIElement.Clip` is typed as RectangleGeometry,
+    // which has no corner radius, so the rounded shape is unreachable from the XAML side.
+    try {
+        auto visual = WUXH::ElementCompositionPreview::GetElementVisual(c);
+        if (!visual) return;
+        auto compositor = visual.Compositor();
+        auto geo = compositor.CreateRoundedRectangleGeometry();
+        auto rf = static_cast<float>(radius);
+        geo.CornerRadius({ rf, rf });
+        geo.Size({ static_cast<float>(c.ActualWidth()), static_cast<float>(c.ActualHeight()) });
+        visual.Clip(compositor.CreateGeometricClip(geo));
+        // day sizes the container after realize, so the clip has to track it the way the
+        // background rect does — a clip left at 0×0 would hide the whole subtree.
+        c.SizeChanged([geo](WF::IInspectable const&, WUX::SizeChangedEventArgs const& e) mutable {
+            geo.Size({ e.NewSize().Width, e.NewSize().Height });
+        });
+    } catch (...) {
+        // CreateGeometricClip needs 1809+; on older builds the corners stay square, which is the
+        // behaviour this backend already had.
     }
 }
 
