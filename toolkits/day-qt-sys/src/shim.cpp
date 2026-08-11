@@ -56,6 +56,7 @@
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QCompleter>
+#include <QStringListModel> // the completer's model, reused rather than rebuilt (see set_suggestions)
 #include <QListWidget>
 #include <QResizeEvent>
 #include <QSplitter>
@@ -1838,15 +1839,28 @@ void day_qt_toolbar_set_suggestions(const char *id, const char *joined) {
     auto *edit = qobject_cast<QLineEdit *>(it->second);
     if (!edit) return;
     QString all = QString::fromUtf8(joined);
-    if (all.isEmpty()) {
-        if (QCompleter *old = edit->completer()) { edit->setCompleter(nullptr); old->deleteLater(); }
-        return;
+    QStringList items = all.isEmpty() ? QStringList{} : all.split(QLatin1Char('\n'));
+
+    // ONE completer and ONE model per field, for the life of the field: only the string list is
+    // replaced. The previous version built a new QCompleter on every keystroke and `deleteLater`d
+    // the one the QLineEdit was still wired to — and clearing the query took that branch while the
+    // very same edit was being torn down, because emptying the search also un-filters the sidebar,
+    // which re-lowers the toolbar and `bar->clear()`s the widget out from under the pending
+    // deletion. The process died with no Qt diagnostic at all.
+    //
+    // Reusing the model removes the whole class of problem: nothing is destroyed on a patch, so
+    // there is no lifetime to get wrong, and it stops allocating two objects per keystroke.
+    auto *c = edit->completer();
+    if (!c) {
+        auto *model = new QStringListModel(edit);
+        c = new QCompleter(model, edit);
+        c->setCaseSensitivity(Qt::CaseInsensitive);
+        c->setCompletionMode(QCompleter::PopupCompletion);
+        edit->setCompleter(c);
     }
-    auto *c = new QCompleter(all.split(QLatin1Char('\n')), edit);
-    c->setCaseSensitivity(Qt::CaseInsensitive);
-    c->setCompletionMode(QCompleter::PopupCompletion);
-    if (QCompleter *old = edit->completer()) { edit->setCompleter(nullptr); old->deleteLater(); }
-    edit->setCompleter(c);
+    if (auto *model = qobject_cast<QStringListModel *>(c->model())) {
+        model->setStringList(items);
+    }
 }
 
 void day_qt_toolbar_add_label(void *bar, const char *id, const char *text) {
