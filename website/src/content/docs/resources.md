@@ -93,12 +93,56 @@ resolution-independent through the `vector` piece:
 vector(res::vectors::home).tint(accent).frame(24.0, 24.0)
 ```
 
-Each backend loads the glyph natively where it can: a VectorDrawable on Android, the SVG itself
-on macOS (`NSImage` renders it), a vector-preserving imageset on iOS, the SVG on the web and
-HarmonyOS. A pre-rendered raster cache is the universal fallback (Qt uses it). Vector names
-share the image namespace, so nav items, tab icons, and toolbar buttons accept them unchanged.
-The [vectors reference](/docs/internal/vectors) documents the accepted source forms (plain SVG,
-SF Symbol templates, `.symbolset` bundles) and the per-backend staging.
+Vector names share the image namespace, so nav items, tab icons, and toolbar buttons accept them
+unchanged. Source art can be a plain `.svg`, an SF Symbols template export, or a `.symbolset`
+bundle; text has to be outlined, since Day compiles in no text shaping.
+
+### What each target ships
+
+`day build` stages every glyph into the form its toolkit loads natively, and prints the split as
+it goes — `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and none fell back.
+
+| Target | Ships as | Tint |
+|---|---|---|
+| [ios-uikit](/docs/platforms/ios-uikit) | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
+| [macos-appkit](/docs/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
+| [android-mdc](/docs/platforms/android-mdc) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
+| [windows-xaml](/docs/platforms/windows-xaml) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
+| [web-dom](/docs/platforms/web-dom) | the SVG, rendered by the browser | as authored |
+| [harmony-arkui](/docs/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
+| [linux-gtk](/docs/platforms/linux-gtk) | the 256 px raster cache — no vector arm yet | pixel recolor |
+| [linux-qt](/docs/platforms/linux-qt) | the 256 px raster cache — no vector arm yet | as authored in the `vector` piece; nav rows and tab icons tint |
+
+### Where a vector degrades to a raster
+
+Two toolkits draw the art themselves rather than handing an SVG to the platform, and both accept
+the same subset: **solid fills and strokes, in either fill rule**. Art outside it — gradients,
+clipping paths, masks, filters — stages no geometry, and that glyph alone ships as a raster
+instead:
+
+- **Android** falls back at xxxhdpi. `day lint` reports it as `day::lint::vector-raster-fallback`
+  whenever `android-mdc` is a declared target, so a gradient in an icon is something you hear
+  about at lint time rather than discover on a device.
+- **Windows** falls back the same way, and the tint degrades with it: a monochrome `BitmapIcon`
+  over the raster rather than a brush on geometry.
+
+The fallback is per glyph, not per app, and it is deliberately not a blanket safety net. Day ships
+the raster only for art that could not convert — bundling one for every glyph would double the
+payload and let a broken vector path hide behind a raster that still looks right.
+
+> [!NOTE]
+> A gradient in an icon is usually worth removing rather than shipping. Two flat glyphs read
+> better at 24 pt than one gradient glyph, and they stay crisp on the two targets that would
+> otherwise rasterize them.
+
+### Weights
+
+`.weight(VectorWeight::Light | Bold)` selects per-weight art on every backend. Template sources
+(SF Symbols exports, `.symbolset` bundles) carry real Light and Bold variants; a plain SVG aliases
+all three to the same glyph, so the call degrades to Regular rather than to a missing asset.
+
+The [vectors reference](/docs/internal/vectors) covers the staging in full, including how packed
+apps carry these forms without the launch environment.
 
 ## Custom fonts: `resource/fonts/`
 

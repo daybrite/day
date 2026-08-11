@@ -694,6 +694,9 @@ thread_local! {
     static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
     static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// Each tab page's bundled icon NAME, resolved to a file path when the tab is inserted —
+    /// QTabWidget draws it beside the label (docs/tabs.md).
+    static TABS_PAGE_ICONS: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
 }
 
 extern "C" fn tabs_changed(id: u64, index: c_int) {
@@ -1140,6 +1143,10 @@ impl Toolkit for Qt {
                     TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
                     TABS_PAGE_TITLES
                         .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
+                    if let Some(icon) = p.icon.as_deref() {
+                        TABS_PAGE_ICONS
+                            .with(|m| m.borrow_mut().insert(page.0 as usize, icon.to_string()));
+                    }
                     page
                 }
                 Some(Builtin::NavMenu) => {
@@ -1688,6 +1695,17 @@ impl Toolkit for Qt {
                     index as c_int,
                 )
             };
+            // The icon rides the same bundled-name channel the nav rows use, so a tab shows the
+            // same template vector here that it shows on a phone's tab bar.
+            let icon = TABS_PAGE_ICONS
+                .with(|m| m.borrow().get(&(child.0 as usize)).cloned())
+                .map(|name| icon_file_path(&name))
+                .unwrap_or_default();
+            if !icon.is_empty() {
+                unsafe {
+                    ffi::day_qt_tabs_set_icon(state.tabs, index as c_int, cstr(&icon).as_ptr())
+                };
+            }
             let at = index.min(state.pages.len());
             state.pages.insert(at, (*child, id));
             if index == state.initial {

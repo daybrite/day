@@ -15,3 +15,8 @@ entry/src/main/resources/rawfile/day/
 # Standalone pieces' ArkTS + the generated aggregator, staged per-build by the day CLI
 # (docs/extending.md).
 entry/src/main/ets/daypieces/
+
+# Bridged crates' ArkTS arms + the generated DayBridges.ets aggregator, staged per-build by the
+# day CLI (docs/bridge.md). hvigor compiles ArkTS only from inside the module, so these land in
+# the project rather than under build/ — the same reason daypieces/ above is here.
+entry/src/main/ets/daybridge/

@@ -987,6 +987,21 @@ void day_qt_tabs_add_page(void *tabs, void *page, const char *title, int index) 
     t->insertTab(index, static_cast<QWidget *>(page), QString::fromUtf8(title));
     t->blockSignals(b);
 }
+// A tab's leading glyph (docs/tabs.md). QTabWidget draws an icon beside the label when one is
+// set, so a bundled template vector shows here exactly as it does on the phones' tab bars —
+// tinted to the palette text color like every other template glyph in this shim.
+void day_qt_tabs_set_icon(void *tabs, int index, const char *path) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    if (index < 0 || index >= t->count()) {
+        return;
+    }
+    if (path == nullptr || *path == '\0') {
+        t->setTabIcon(index, QIcon());
+        return;
+    }
+    t->setTabIcon(index, day_qt_tinted_icon(QString::fromUtf8(path),
+                                            t->palette().color(QPalette::WindowText)));
+}
 // Data-driven tabs (docs/navigation.md): drop a page's tab; relabel a tab.
 void day_qt_tabs_remove_page(void *tabs, void *page) {
     auto *t = static_cast<QTabWidget *>(tabs);

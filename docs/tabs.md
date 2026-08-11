@@ -50,7 +50,8 @@ dayscript `navigate {route: settings}` / `assert_route {route: settings}` drive 
   native-owned, like a nav page).
 - `props::TabsProps { titles: Vec<String>, selected: usize }`; `TabsPatch::Selected(usize)`
   (programmatic sync, applied without echoing a `SelectionChanged` back, per the from-native rule).
-- `props::TabsPageProps { title }`: the page's tab label, read by the host on insert.
+- `props::TabsPageProps { title, icon }`: the page's tab label and its optional bundled icon
+  name, both read by the host on insert.
 
 The framework side (`day-pieces`) registers a `NavController` whose `push` selects a tab by key,
 `current` reports the active tab key, and `pop` is a no-op (tabs have no back-stack). Native tab
@@ -68,13 +69,20 @@ toggle group) over an `AdwViewStack`, since Adwaita has no icon-free tab widget)
 | AppKit  | `NSTabView` (`NSTabViewItem` per page) | `NSTabViewDelegate` reports selection |
 | UIKit   | `UITabBarController` | bottom tab bar; each page is a child `UIViewController` |
 | GTK 4   | `AdwViewStack` + a `.linked` grouped-toggle switcher | libadwaita; label-only segmented control drives the stack |
-| Qt      | `QTabWidget` (shim) | `currentChanged` reports selection |
+| Qt      | `QTabWidget` (shim) | `currentChanged` reports selection; `setTabIcon` draws the item icon, tinted to the palette |
 | Android | `BottomNavigationView` (M3 navigation bar) | bottom tab bar + content `FrameLayout`, mirroring the iOS `UITabBarController` mapping; all pages resident |
 | XAML | `Pivot` (shim) | `SelectionChanged` reports selection |
 
 Each page reports its allocated content size (`FrameChanged`) so Day lays out the tab's content
 at native size, the same mechanism nav pages use. Pages with native-owned frames are skipped by
 `set_frame`.
+
+**Icons are drawn where the tab widget has a slot for one.** `item_icon` names a bundled image or
+vector (docs/vectors.md), which UIKit's tab bar, Android's navigation bar, and Qt's `QTabWidget`
+all render beside the label. `NSTabView` and the Adwaita switcher have no icon slot, so they show
+the label alone — the same call is correct everywhere, and a backend that cannot honour it ignores
+it rather than failing. Prefer a **vector**: a tab bar picks its own icon size, and a bitmap
+scaled to it is visibly soft on a phone.
 
 ## Deep links & dayscript
 

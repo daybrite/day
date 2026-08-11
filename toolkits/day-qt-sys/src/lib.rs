@@ -131,6 +131,8 @@ unsafe extern "C" {
         title: *const c_char,
         index: c_int,
     );
+    /// Set (or clear, with an empty path) a tab's leading icon.
+    pub fn day_qt_tabs_set_icon(tabs: *mut c_void, index: c_int, path: *const c_char);
     pub fn day_qt_tabs_remove_page(tabs: *mut c_void, page: *mut c_void);
     pub fn day_qt_tabs_set_title(tabs: *mut c_void, index: c_int, title: *const c_char);
     pub fn day_qt_tabs_set_current(tabs: *mut c_void, index: c_int);
