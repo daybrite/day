@@ -711,18 +711,10 @@ fn fill_nav_menu(
     tints: &[Option<day_spec::Color>],
     menus: &[Vec<day_spec::MenuItem>],
 ) {
-    // Unparent the previous rows' context popovers first: a PopoverMenu holds its parent
-    // row, and a rebuild (locale switch, data-driven items) that drops rows without
-    // unparenting warns at dispose and leaks the pair.
-    NAV_ROW_POPOVERS.with(|m| {
-        for pop in m
-            .borrow_mut()
-            .remove(&(listbox.as_ptr() as usize))
-            .unwrap_or_default()
-        {
-            pop.unparent();
-        }
-    });
+    // Idempotent: a caller that clears the ListBox itself must call this BEFORE doing so (the
+    // popovers are parented to the rows it is about to destroy), and the map entry is taken, so
+    // running it twice is a no-op.
+    unparent_nav_popovers(listbox);
     for (i, item) in items.iter().enumerate() {
         let label = gtk4::Label::new(Some(item));
         label.set_halign(gtk4::Align::Fill);
@@ -808,6 +800,28 @@ thread_local! {
     /// unparented before every row rebuild so popovers never outlive their rows.
     static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
         RefCell::new(HashMap::new());
+}
+
+/// Release this listbox's row popovers, and do it BEFORE the rows themselves go.
+///
+/// A `PopoverMenu` is parented to its row's label, and GTK4 requires a popover to be unparented
+/// while that parent is still alive. Destroying the rows first leaves each popover pointing at
+/// freed memory — GTK says so at the time ("Finalizing GtkLabel, but it still has children left:
+/// GtkPopoverMenu") — and the later `unparent()` then walks a dead parent chain inside
+/// `gtk_widget_unparent` → `gtk_accessible_update_children`, which is where the
+/// `gtk_widget_is_ancestor`/`gtk_accessible_get_accessible_role` criticals came from.
+///
+/// Taking the entry makes this idempotent, so callers can be defensive without double-unparenting.
+fn unparent_nav_popovers(listbox: &gtk4::ListBox) {
+    NAV_ROW_POPOVERS.with(|m| {
+        for pop in m
+            .borrow_mut()
+            .remove(&(listbox.as_ptr() as usize))
+            .unwrap_or_default()
+        {
+            pop.unparent();
+        }
+    });
 }
 
 /// Attach a context menu to one nav row (docs/menus.md): the same gio-menu + PopoverMenu +
@@ -2230,6 +2244,8 @@ impl Toolkit for Gtk {
                             return;
                         };
                         state.suppress.set(true);
+                        // Before the rows go, not after: their labels own the popovers.
+                        unparent_nav_popovers(&state.listbox);
                         while let Some(row) = state.listbox.first_child() {
                             state.listbox.remove(&row);
                         }
