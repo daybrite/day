@@ -105,7 +105,7 @@ fn clean(s: &str) -> String {
 
 /// Serialize the toolbar model to the shim's line format — one item per line:
 ///
-/// `kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder \t suggestions`
+/// `kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder \t suggestions \t geom`
 ///
 /// with kinds `B` button, `T` toggle, `M` menu, `F` search field, `L` label, `-` separator,
 /// `_` fixed space and `>` flexible space (the Content/PrimaryCommands split). `on` seeds a
@@ -147,8 +147,24 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             Some(Icon::Image(name)) => ("", icon_file_name(name)),
             None => ("", String::new()),
         };
+        // …and its VECTOR form rides a 13th field, exactly as a nav row's does: the shim prefers
+        // geometry and keeps `image` as the fallback for art that would not convert. Without this
+        // a vector-only icon had nothing to draw at all — the raster is deliberately not staged
+        // for a toolkit that renders vectors (docs/vectors.md), so the slot came out empty.
+        //
+        // BOTH of this line format's separators have to be escaped, because a `.xamlgeom` spec
+        // contains both: newlines between shapes, and a TAB between a shape's paint attributes
+        // and its path data. Passing it through `clean` instead (which turns them into spaces)
+        // silently destroys the path data and the geometry parses to nothing at all — a blank
+        // icon slot, which is not distinguishable from "this glyph did not convert".
+        let geom = match &item.icon {
+            Some(Icon::Image(name)) => crate::vector_geometry(name)
+                .map(|s| s.replace('\n', "\x1f").replace('\t', "\x1e"))
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
         out.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             kind,
             clean(&item.id),
             item.action,
@@ -161,6 +177,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             clean(text),
             clean(placeholder),
             clean(&sug),
+            geom, // already escaped above; `clean` would eat the spec's own tabs
         ));
         if let ToolbarItemKind::Menu { items } = &item.kind {
             serialize_menu_xaml(items, &mut out);

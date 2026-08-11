@@ -29,6 +29,8 @@
 #include <string>
 #include <limits>
 #include <algorithm> // std::sort — radial-gradient stop ordering
+#include <cwctype>   // towupper / iswalpha — menu access keys
+#include <cwchar>    // wcscmp — WM_SETTINGCHANGE area name
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
@@ -441,6 +443,44 @@ static void day_xaml_relayout_chrome(AppWindow* app) {
     if (g_resize_cb) g_resize_cb(w, h);
 }
 
+/// Effective light/dark: a DAY_THEME force wins, else the system's CURRENT setting.
+///
+/// Read from the registry rather than from `Application::RequestedTheme()`. That property is
+/// resolved when the XAML app object is constructed and does NOT track a later system flip under
+/// Islands — the XAML tree still re-themes itself (its brushes are theme resources), so the
+/// property looks right up to the moment you ask it during a change, which is exactly when the
+/// title bar needs the new value. `AppsUseLightTheme` is what the ImmersiveColorSet broadcast is
+/// announcing, so it is both current and authoritative.
+static bool effective_dark() try {
+    if (g_forced_theme) return g_forced_theme == 2;
+    DWORD light = 1, size = sizeof(light);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size)
+        == ERROR_SUCCESS) {
+        return light == 0;
+    }
+    // Absent on a machine that never set it: fall back to what XAML resolved at startup.
+    return WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark;
+} catch (...) {
+    return false;
+}
+
+/// Match the Win32 title bar to the effective theme. `DWMWA_USE_IMMERSIVE_DARK_MODE` is a
+/// ONE-SHOT attribute, not a binding: a window opened in light mode keeps a light title bar over
+/// a dark app until this is set again, which is why WM_SETTINGCHANGE re-runs it. The XAML tree
+/// needs no such help — its brushes are theme resources and follow on their own.
+static void apply_dark_titlebar(HWND host) {
+    BOOL dark = effective_dark() ? TRUE : FALSE;
+    DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+}
+
+/// True for the broadcast Windows sends when the light/dark setting flips.
+static bool is_color_scheme_change(LPARAM lp) {
+    auto area = reinterpret_cast<const wchar_t*>(lp);
+    return area && std::wcscmp(area, L"ImmersiveColorSet") == 0;
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_SIZE:
@@ -467,6 +507,22 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         // Window gained/lost foreground focus → active / resign-active.
         if (g_lifecycle_cb) g_lifecycle_cb(LOWORD(wp) == WA_INACTIVE ? 3 : 2);
         break; // let DefWindowProc handle focus normally
+    case WM_SETFOCUS:
+        // Hand keyboard focus to the ISLAND. The host is a bare Win32 frame with nothing
+        // focusable in it, so without this the caret sits on the host and XAML never sees a
+        // keystroke unless a click put focus inside the island first. That is what made the
+        // menu bar unreachable from the keyboard: AccessKeyManager only enters access-key
+        // display mode (Alt, then Alt+letter) for a focused XAML tree, and Alt on the host went
+        // to DefWindowProc, which opens the window's system menu instead.
+        if (g_app && g_app->island) {
+            SetFocus(g_app->island);
+            return 0;
+        }
+        break;
+    case WM_SETTINGCHANGE:
+        // The user flipped Windows between light and dark while the app was running.
+        if (is_color_scheme_change(lp)) apply_dark_titlebar(hwnd);
+        break;
     case WM_CLOSE:
         // Report the close and STOP: no destroy here, no lifecycle-terminate. This window is
         // an ordinary primary window (docs/windows.md close policy), so day-core decides what
@@ -582,11 +638,8 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
 
     // Dark title bars are opt-in for Win32 windows; match the app theme (no-op pre-1809).
-    {
-        BOOL dark_titlebar = app_dark ? TRUE : FALSE;
-        DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_titlebar,
-                              sizeof(dark_titlebar));
-    }
+    // WM_SETTINGCHANGE re-runs this when the system theme flips.
+    apply_dark_titlebar(host);
 
     // Mica: the Windows 11 window material, and the counterpart of the sidebar material AppKit
     // supplies (docs/navigation.md). DWMSBT_MAINWINDOW is the backdrop a document-shaped app
@@ -803,6 +856,17 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (sw && g_win_closed) g_win_closed(sw->node);
         ShowWindow(hwnd, SW_HIDE);
         return 0;
+    case WM_SETFOCUS:
+        // Same routing as the primary: the island, not the bare host frame, takes the keyboard.
+        if (sw && sw->island) {
+            SetFocus(sw->island);
+            return 0;
+        }
+        break;
+    case WM_SETTINGCHANGE:
+        // Every window owns its own title bar, so each one re-applies the attribute.
+        if (is_color_scheme_change(lp)) apply_dark_titlebar(hwnd);
+        break;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
@@ -850,11 +914,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     interop->get_WindowHandle(&island);
     RECT rc; GetClientRect(host, &rc);
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
-    {
-        BOOL dark_titlebar = app_dark ? TRUE : FALSE;
-        DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark_titlebar,
-                              sizeof(dark_titlebar));
-    }
+    apply_dark_titlebar(host); // re-applied on WM_SETTINGCHANGE, as for the primary
     WUXC::Canvas root;
     switch (g_forced_theme) {
         case 2: root.RequestedTheme(WUX::ElementTheme::Dark); break;
@@ -1522,20 +1582,10 @@ static void prune_navviews() {
                      g_navviews.end());
 }
 
-// Toggle the sidebar in the SAME window as `origin` — the toolbar button that was clicked.
-// Returns false when that window has no split nav, which is how the caller disables the item.
-static bool toggle_sidebar_near(WUX::FrameworkElement const& origin) try {
-    prune_navviews();
-    if (!origin) return false;
-    auto root = origin.XamlRoot();
-    if (!root) return false;
-    for (auto const& nv : g_navviews) {
-        if (nv.XamlRoot() == root) return toggle_nav_pane(nv);
-    }
-    return false;
-} catch (...) {
-    return false;
-}
+// (A per-window `toggle_sidebar_near(origin)` lived here, resolving the nav from the clicked
+// toolbar button's XamlRoot. The bar no longer draws a sidebar command — NavigationView's own
+// PaneToggleButton is that affordance on Windows, and each window's built-in button already acts
+// on its own pane — so nothing needs to resolve a window from a click any more.)
 
 // The window-less entry point (day-xaml's `toggle_sidebar` duty, and dayscript's step): no click
 // to locate a window from, so it drives the primary window's nav — the first one still alive,
@@ -2980,6 +3030,24 @@ extern "C" void day_xaml_set_context_menu(void* h, const char* spec) try {
 /// window, so the same spec is installed into each. `global_accels` is reserved for the primary:
 /// the OEM shortcuts it registers dispatch app-level action ids, so registering them once is both
 /// sufficient and what keeps a second window from clearing the first window's set.
+/// The Alt-key letter for one menu title. Windows menu bars are reachable from the keyboard —
+/// Alt lights the KeyTips, Alt+<letter> opens that menu — and XAML drives all of it from
+/// `AccessKey`. Day's menu model carries no mnemonic (no `&File` convention), so derive one the
+/// way a Win32 app conventionally would: the title's first letter that is still free. Dedup
+/// matters more than the choice — two menus sharing a key leaves BOTH unreachable, and localized
+/// titles collide readily ("Affichage"/"Aide" both want A).
+static winrt::hstring pick_access_key(const std::string& label, std::vector<wchar_t>& taken) {
+    std::wstring w{ hs(label.c_str()).c_str() };
+    for (wchar_t c : w) {
+        wchar_t up = static_cast<wchar_t>(std::towupper(c));
+        if (!std::iswalpha(static_cast<wint_t>(up))) continue;
+        if (std::find(taken.begin(), taken.end(), up) != taken.end()) continue;
+        taken.push_back(up);
+        return winrt::hstring{ std::wstring(1, up) };
+    }
+    return winrt::hstring{}; // every letter taken: no key rather than a stolen one
+}
+
 static WUXC::MenuBar install_menu_bar(WUXC::Canvas const& root, const char* spec,
                                       bool global_accels) {
     // Remove any prior MenuBar we docked (named "day_menubar"). `Children()` returns the
@@ -2996,6 +3064,7 @@ static WUXC::MenuBar install_menu_bar(WUXC::Canvas const& root, const char* spec
     bar.Name(L"day_menubar");
     // Top-level "S" groups become MenuBarItems; a bare item wraps in an unnamed MenuBarItem.
     auto lines = split_lines(spec);
+    std::vector<wchar_t> access_taken;
     size_t i = 0;
     while (i < lines.size()) {
         if (lines[i].empty()) { ++i; continue; }
@@ -3005,6 +3074,7 @@ static WUXC::MenuBar install_menu_bar(WUXC::Canvas const& root, const char* spec
             std::string label = f.size() > 6 ? f[6] : "";
             WUXC::MenuBarItem mbi;
             mbi.Title(hs(label.c_str()));
+            if (auto key = pick_access_key(label, access_taken); !key.empty()) mbi.AccessKey(key);
             int depth = 1;
             std::string inner;
             ++i;
@@ -3138,7 +3208,8 @@ static winrt::hstring const& toolbar_icon_font() {
 // An item's icon: the standard symbol's glyph, else a bundled image staged next to the exe (an
 // ms-appx BitmapIcon, as the nav icons load), else none — an AppBarButton without an Icon shows
 // its label alone, which is exactly what an unmapped symbol should look like.
-static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::string& image) {
+static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::string& image,
+                                      const std::string& geom = std::string()) {
     if (!glyph.empty()) {
         // Every code point day maps is in the BMP private-use area: one UTF-16 unit.
         wchar_t ch = static_cast<wchar_t>(std::strtoul(glyph.c_str(), nullptr, 16));
@@ -3147,6 +3218,25 @@ static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::strin
             fi.FontFamily(WUXM::FontFamily(toolbar_icon_font()));
             fi.Glyph(winrt::hstring{ std::wstring(1, ch) });
             return fi;
+        }
+    }
+    // Vector before raster, as the nav pane does: a PathIcon is resolution-independent and takes
+    // the bar's Foreground, so it themes itself. No tint channel here — a toolbar command is
+    // monochrome chrome by definition, and the CommandBar's own foreground is the right colour in
+    // both schemes and in the disabled/pressed visuals.
+    if (!geom.empty()) {
+        std::string spec = geom;
+        // Undo both escapes day-xaml applied: this line format owns \t and \n, and a geometry
+        // spec uses both (\n between shapes, \t before a shape's path data).
+        for (auto& c : spec) {
+            if (c == '\x1f') c = '\n';
+            else if (c == '\x1e') c = '\t';
+        }
+        // 16 px is the AppBarButton icon box the default template lays out.
+        if (void* h = day_xaml_vector_icon_new(spec.c_str(), 0u, 0, 16.0)) {
+            auto ie = elem(h).try_as<WUXC::IconElement>();
+            day_xaml_delete(h); // the command owns it now
+            if (ie) return ie;
         }
     }
     if (!image.empty()) {
@@ -3211,8 +3301,8 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         bool enabled = fld(3) != "0";
         bool on = fld(4) == "1";
         std::string glyph = fld(5), image = fld(6), label = fld(7), tip = fld(8), text = fld(9),
-                    placeholder = fld(10), suggestions = fld(11);
-        bool has_icon = !glyph.empty() || !image.empty();
+                    placeholder = fld(10), suggestions = fld(11), geom = fld(12);
+        bool has_icon = !glyph.empty() || !image.empty() || !geom.empty();
 
         if (kind == ">") {
             trailing = true;
@@ -3262,22 +3352,21 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             lead.Children().Append(box);
             if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, box);
         } else if (kind == "S") {
-            // The sidebar toggle. E700 is GlobalNavButton, the hamburger every Windows app uses
-            // for exactly this, so the item needs no icon from the app. It carries no action id:
-            // the click drives the NavigationView directly (docs/toolbars.md).
-            WUXC::AppBarButton toggle;
-            toggle.Label(hs(label.c_str()));
-            toggle.Icon(toolbar_icon(glyph.empty() ? std::string("E700") : glyph, image));
-            toggle.IsEnabled(enabled);
-            compact(toggle, true);
-            WUXC::ToolTipService::SetToolTip(toggle, winrt::box_value(hs(tip.c_str())));
-            // Resolved from the SENDER, not from a process-wide global: the button and the nav it
-            // drives must be in the same window, or a second window steals the primary's toggle.
-            toggle.Click([](WF::IInspectable const& s, WUX::RoutedEventArgs const&) {
-                auto b = s.try_as<WUXC::AppBarButton>();
-                if (!toggle_sidebar_near(b) && b) b.IsEnabled(false);
-            });
-            place_command(toggle, id);
+            // The sidebar toggle is REALIZED BY THE NAVIGATIONVIEW, not by a bar command: its
+            // built-in PaneToggleButton is the hamburger Windows puts at the head of the pane,
+            // and drawing our own beside it left the window with two stacked hamburgers doing the
+            // same thing. A split nav in this window already shows one, so drop the bar copy.
+            //
+            // Only the ELEMENT goes: the item stays in day's toolbar model, so `toolbar:` in
+            // dayscript still resolves it and still dispatches through the toggle-sidebar duty
+            // (which drives `g_navviews` directly, never this button).
+            //
+            // Unconditional rather than "only when this window has a split nav": the toolbar can
+            // be installed before the nav is realized, so the conditional would depend on order.
+            // Nothing is lost by always dropping it — in a window with a split nav the built-in
+            // button does the job, and in a window WITHOUT one this button drove nothing anyway
+            // (`day_xaml_toggle_sidebar` no-ops on an empty `g_navviews`).
+            continue;
         } else if (kind == "L") {
             WUXC::TextBlock caption;
             caption.Text(hs(label.c_str()));
@@ -3288,7 +3377,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         } else if (kind == "T") {
             WUXC::AppBarToggleButton toggle;
             toggle.Label(hs(label.c_str()));
-            toggle.Icon(toolbar_icon(glyph, image));
+            toggle.Icon(toolbar_icon(glyph, image, geom));
             toggle.IsEnabled(enabled);
             toggle.IsChecked(on);
             if (!trailing && has_icon)
@@ -3318,7 +3407,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             i = j; // resume after the terminator (or at the end of the spec)
             WUXC::AppBarButton button;
             button.Label(hs(label.c_str()));
-            button.Icon(toolbar_icon(glyph, image));
+            button.Icon(toolbar_icon(glyph, image, geom));
             button.IsEnabled(enabled);
             compact(button, has_icon);
             WUXC::ToolTipService::SetToolTip(button, winrt::box_value(hs(tip.c_str())));
@@ -3329,7 +3418,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         } else { // "B", and anything a later model adds: a plain command
             WUXC::AppBarButton button;
             button.Label(hs(label.c_str()));
-            button.Icon(toolbar_icon(glyph, image));
+            button.Icon(toolbar_icon(glyph, image, geom));
             button.IsEnabled(enabled);
             compact(button, has_icon);
             WUXC::ToolTipService::SetToolTip(button, winrt::box_value(hs(tip.c_str())));

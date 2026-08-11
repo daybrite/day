@@ -2194,7 +2194,7 @@ fn join_tints(tints: &[Option<day_spec::Color>]) -> String {
 
 /// A vector NAME's staged XAML geometry (docs/vectors.md), or `None` when the name is not a
 /// vector or its art was outside the convertible subset — the caller then draws the raster.
-fn vector_geometry(name: &str) -> Option<String> {
+pub(crate) fn vector_geometry(name: &str) -> Option<String> {
     let path = day_spec::resource::resolve_vector_xaml(name)?;
     std::fs::read_to_string(path).ok()
 }
