@@ -1137,6 +1137,13 @@ pub fn run() -> i32 {
                     .push(("DAY_RECORD".into(), abs.to_string_lossy().into_owned()));
             }
             if script_mode {
+                // A scripted run is unattended, so a panic's backtrace has to be in the log the
+                // first time — nobody is there to re-run it with RUST_BACKTRACE set. The app's
+                // stderr is already streamed, so this is what turns "thread panicked at …" into
+                // a stack. An explicit `--env RUST_BACKTRACE=…` wins (it is in `envs` already).
+                if !envs.iter().any(|kv| kv.starts_with("RUST_BACKTRACE=")) {
+                    spec.envs.push(("RUST_BACKTRACE".into(), "1".into()));
+                }
                 // The app is launched once and the scripts run in sequence against it, so the
                 // title names all of them.
                 let names: Vec<String> = scripts
@@ -1214,6 +1221,9 @@ pub fn run() -> i32 {
                             // way `day stop` does before the next instance binds.
                             crate::script::terminate(project, target);
                         }
+                        // Stamped before the launch so the post-mortem can tell this run's
+                        // crash report from one an earlier run left in the same directory.
+                        let launched_at = std::time::SystemTime::now();
                         match ops::launch(project, target, &outcome, &run_spec) {
                             Ok(h) => {
                                 crate::sessions::record(
@@ -1287,6 +1297,9 @@ pub fn run() -> i32 {
                                          app-death) — retrying the script once"
                                     );
                                 }
+                                // Say WHY it died before retrying: the retry usually passes, and
+                                // then the only record of the flake is this one line.
+                                crate::diagnose::after_app_death(project, target, launched_at);
                                 attempt += 1;
                             }
                             // An engine loss that survived the retry policy: count it and
@@ -1299,6 +1312,7 @@ pub fn run() -> i32 {
                                 eprintln!(
                                     "error: engine connection lost — abandoning this variant"
                                 );
+                                crate::diagnose::after_app_death(project, target, launched_at);
                                 script_failures += steps_failed.max(1);
                                 break;
                             }

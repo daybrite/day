@@ -35,9 +35,10 @@ staged glyph SVG (`build/day/vectors/svg/`), and — where the art converts — 
 (`build/day/vectors/xaml/`).
 
 The raster cache is a build INPUT, not a shipping form. What a target carries is
-`build/day/vectors/fallback/<toolkit>/`: on gtk and qt that is still every glyph (their vector arm
-covers the icon channels, not the `vector` piece — below), and on a toolkit that draws vectors
-throughout it is only the art the vector pipeline could not express — usually nothing. Bundling the rest would ship a second copy of every glyph AND let a broken
+`build/day/vectors/fallback/<toolkit>/`: on gtk that is every glyph, on qt every glyph the
+`vector` piece may draw (its icon channels read the staged SVG instead), and on a toolkit that
+draws vectors throughout it is only the art the vector pipeline could not express — usually
+nothing. Bundling the rest would ship a second copy of every glyph AND let a broken
 vector path go unnoticed behind a raster that still looks right, which is how two XAML bugs
 survived their first review. `day build` reports the split per target
 (`Vectors xaml: 81/81 glyph(s) vector`). What ships on top:

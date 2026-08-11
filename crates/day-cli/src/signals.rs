@@ -33,6 +33,13 @@ pub fn register_child(pid: u32) {
     }
 }
 
+/// The most recently spawned child's pid — the app itself on a desktop launch. The crash
+/// post-mortem uses it to pick THIS run's report out of a directory where every build of the app
+/// files under the same process name (`crate::diagnose`).
+pub fn last_child() -> Option<u32> {
+    CHILDREN.lock().ok().and_then(|c| c.last().copied())
+}
+
 /// Track an app that is NOT a child of this process — one running on a device, emulator or
 /// simulator — as the command line that stops it (`adb shell am force-stop <id>`).
 ///

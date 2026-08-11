@@ -48,6 +48,7 @@
 #include <map>
 #include <vector>
 #include <QIcon>
+#include <QPointer>
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
@@ -1715,7 +1716,12 @@ static void (*g_toolbar_cb)(uint64_t, int, int, const char *) = nullptr;
 void day_qt_set_toolbar_cb(void (*cb)(uint64_t, int, int, const char *)) { g_toolbar_cb = cb; }
 
 // Item widgets by id, for the targeted patches (search text, toggle state, enabled).
-static std::map<std::string, QWidget *> g_toolbar_widgets;
+// QPointer, not a raw pointer: a toolbar REBUILD destroys these widgets, and any patch that
+// arrives between the destroy and the rebuild's re-add would otherwise `qobject_cast` a freed
+// QObject — undefined behaviour that showed up as a crash inside `deleteLater` when a search
+// clear raced a re-install. A QPointer reads null once its object dies, so a stale patch is a
+// no-op instead.
+static std::map<std::string, QPointer<QWidget>> g_toolbar_widgets;
 static std::map<std::string, QAction *> g_toolbar_actions;
 
 // The icon for a standard symbol: the freedesktop theme first (Linux, where KDE and GNOME
@@ -1835,8 +1841,8 @@ void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
 // the completer rather than leaving an empty popup armed.
 void day_qt_toolbar_set_suggestions(const char *id, const char *joined) {
     auto it = g_toolbar_widgets.find(std::string(id));
-    if (it == g_toolbar_widgets.end()) return;
-    auto *edit = qobject_cast<QLineEdit *>(it->second);
+    if (it == g_toolbar_widgets.end() || !it->second) return;
+    auto *edit = qobject_cast<QLineEdit *>(it->second.data());
     if (!edit) return;
     QString all = QString::fromUtf8(joined);
     QStringList items = all.isEmpty() ? QStringList{} : all.split(QLatin1Char('\n'));
@@ -1886,8 +1892,8 @@ void day_qt_toolbar_add_space(void *bar, int expand) {
 
 void day_qt_toolbar_set_text(const char *id, const char *text) {
     auto it = g_toolbar_widgets.find(std::string(id));
-    if (it == g_toolbar_widgets.end()) return;
-    if (auto *edit = qobject_cast<QLineEdit *>(it->second)) {
+    if (it == g_toolbar_widgets.end() || !it->second) return;
+    if (auto *edit = qobject_cast<QLineEdit *>(it->second.data())) {
         QString next = QString::fromUtf8(text);
         if (edit->text() == next) return;
         // textChanged fires on a programmatic set too, which would echo into the signal.
@@ -1910,7 +1916,7 @@ void day_qt_toolbar_set_enabled(const char *id, int on) {
     auto a = g_toolbar_actions.find(std::string(id));
     if (a != g_toolbar_actions.end()) a->second->setEnabled(on != 0);
     auto w = g_toolbar_widgets.find(std::string(id));
-    if (w != g_toolbar_widgets.end()) w->second->setEnabled(on != 0);
+    if (w != g_toolbar_widgets.end() && w->second) w->second->setEnabled(on != 0);
 }
 
 void *day_qt_menu_new() { return new QMenu(); }

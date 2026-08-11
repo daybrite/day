@@ -126,6 +126,17 @@ struct WinToolbar {
     /// Guards the programmatic search sync: GtkSearchEntry re-emits `search-changed` on
     /// `set_text`, which would echo straight back into the bound signal.
     suppress: std::rc::Rc<std::cell::Cell<bool>>,
+    /// The last text DAY put in the search field, whether by seeding a freshly built bar or by
+    /// patching the live one.
+    ///
+    /// `suppress` alone cannot cover a seed: `search-changed` is DEBOUNCED (~150 ms), so the
+    /// signal arrives long after the flag has been lowered — and a rebuild seeds the field from
+    /// the stored item, which is kept current deliberately (day-core `set_window_search_state`).
+    /// The echo then reports the seeded text as if the user had typed it, overwriting whatever
+    /// the app's query became in the meantime: a query cleared right after a rebuild came back.
+    /// Comparing against what Day last wrote drops exactly that echo — if the field already holds
+    /// the value Day pushed, the app knows it, so there is nothing to report.
+    seeded: std::rc::Rc<RefCell<String>>,
 }
 
 thread_local! {
@@ -175,6 +186,7 @@ impl Gtk {
         }
 
         let suppress = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seeded: std::rc::Rc<RefCell<String>> = std::rc::Rc::new(RefCell::new(String::new()));
         let mut widgets: HashMap<String, gtk4::Widget> = HashMap::new();
         let mut packed: Vec<gtk4::Widget> = Vec::new();
 
@@ -267,6 +279,7 @@ impl Gtk {
                 } => {
                     let e = gtk4::SearchEntry::new();
                     e.set_text(text);
+                    *seeded.borrow_mut() = text.clone();
                     if !placeholder.is_empty() {
                         e.set_placeholder_text(Some(placeholder));
                     }
@@ -277,8 +290,13 @@ impl Gtk {
                     let action = item.action;
                     if action != 0 {
                         let suppress = suppress.clone();
+                        let seeded = seeded.clone();
                         e.connect_search_changed(move |entry| {
                             if suppress.get() {
+                                return;
+                            }
+                            // The debounced echo of a value Day itself wrote (see `seeded`).
+                            if *seeded.borrow() == entry.text().as_str() {
                                 return;
                             }
                             emit(
@@ -337,6 +355,7 @@ impl Gtk {
                     widgets,
                     packed,
                     suppress,
+                    seeded,
                 },
             )
         });
@@ -359,7 +378,9 @@ impl Gtk {
                         && e.text() != text.as_str()
                     {
                         // GtkSearchEntry re-emits `search-changed` on a programmatic set, which
-                        // would write the value straight back into the signal.
+                        // would write the value straight back into the signal — synchronously
+                        // here, and again on its debounce timer, which `seeded` catches.
+                        *bar.seeded.borrow_mut() = text.clone();
                         bar.suppress.set(true);
                         e.set_text(text);
                         bar.suppress.set(false);

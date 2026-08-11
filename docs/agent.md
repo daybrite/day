@@ -46,6 +46,31 @@ Steps use the walkthrough vocabulary (single-key mapping form, or flattened `{"o
 Device targets get their engine port forwarded automatically (adb / hdc), exactly like
 scripted runs.
 
+## When the app dies mid-script
+
+A scripted run whose app crashes ends in `engine connection lost`, which says only that the app is
+gone. The runner then prints a post-mortem (`crates/day-cli/src/diagnose.rs`) from whatever this
+host can produce:
+
+- **day-break's own artifacts** (docs/break.md), when the app arms it: the kind of death, the
+  panic message and location, the signal, how long the app lived, and the backtrace it captured.
+  Reports are finalized on the app's NEXT launch, so a fresh crash shows its raw session artifacts
+  instead — either way, only the ones whose backend and session start match the run that just
+  failed, because the store is keyed by app id and every target shares it.
+- **The OS crash report**: on macOS and the iOS simulator, the `.ips` from
+  `~/Library/Logs/DiagnosticReports`, rendered as the exception, the termination reason, and the
+  faulting thread's frames rather than its several hundred lines of loaded-image addresses. It is
+  matched by pid on a desktop launch, and the runner waits up to 30 s for it — ReportCrash writes
+  it well after the process dies, so looking once finds the previous run's or nothing.
+- **Android**: the emulator's crash buffer (`adb logcat -b crash`).
+
+Scripted launches also default `RUST_BACKTRACE=1`, so a panic's stack is in the streamed log the
+first time — nobody is watching an unattended run to re-run it with the variable set. An explicit
+`--env RUST_BACKTRACE=…` wins.
+
+Under GitHub Actions the headline also becomes an `::error::` annotation, so the job page names the
+crash without anyone opening the log.
+
 ## `day stop` / `day relaunch`
 
 - `day stop -p <target>… | --all` — terminate launches (per-platform: pkill / taskkill /

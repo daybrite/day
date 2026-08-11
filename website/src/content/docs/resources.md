@@ -114,10 +114,10 @@ it goes — `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted an
 | [linux-qt](/docs/platforms/linux-qt) | the SVG for icons, rendered at icon size by Qt's SVG icon engine; the raster cache for the `vector` piece | nav rows, tab icons and toolbar images tint; the `vector` piece draws as authored |
 
 > [!NOTE]
-> GTK and Qt render icons from the SVG, not from a bitmap: librsvg backs gdk-pixbuf on one and the
+> GTK and Qt render icons from the SVG, not from a bitmap: librsvg backs gdk-pixbuf on one, the
 > `libqsvg` plugin backs `QIcon` on the other, and both render the glyph at the size each icon
-> asks for. Their `vector` piece still draws the 256 px cache, which is the remaining gap on those
-> two toolkits.
+> asks for. Their `vector` piece still draws the 256 px cache, which is the remaining gap on
+> those two toolkits.
 
 ### Where a vector degrades to a raster
 
