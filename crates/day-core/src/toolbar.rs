@@ -195,6 +195,35 @@ pub fn set_window_search(root: RNode, item: Option<ToolbarItem>) {
     }
 }
 
+/// Keep the STORED search item's live state current, without re-installing the bar.
+///
+/// [`merge_search`] clones this item into every toolbar install, so the stored snapshot is what a
+/// REBUILD re-seeds the field from — and the bar rebuilds for reasons that have nothing to do with
+/// search (any other item re-lowering, a route change, a language change). Left stale, the field
+/// silently reverted to whatever it held when `.searchable()` was installed while the query signal
+/// kept the real value: an empty box that is still filtering, with no way to clear it.
+///
+/// Deliberately does NOT re-install: this runs on every keystroke, and rebuilding the bar under
+/// the caret is the very thing the targeted patch path exists to avoid.
+pub fn set_window_search_state(root: RNode, text: Option<&str>, suggestions: Option<&[String]>) {
+    SEARCH_ITEMS.with(|m| {
+        if let Some((_, item)) = m.borrow_mut().iter_mut().find(|(r, _)| *r == root)
+            && let day_spec::ToolbarItemKind::Search {
+                text: t,
+                suggestions: s,
+                ..
+            } = &mut item.kind
+        {
+            if let Some(v) = text {
+                *t = v.to_string();
+            }
+            if let Some(v) = suggestions {
+                *s = v.to_vec();
+            }
+        }
+    });
+}
+
 /// The app's items plus this window's search field, if it has one.
 ///
 /// The merged model IS what gets stored, so dayscript's `toolbar:` step can resolve the field the

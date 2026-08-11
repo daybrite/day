@@ -894,6 +894,11 @@ impl SearchSpec {
             seed.text.clone(),
             move || query.get(),
             move |t: &String| {
+                // Before the guard, because this has to happen for BOTH directions: the stored
+                // item is what a toolbar REBUILD re-seeds the field from, and a rebuild can be
+                // triggered by anything else on the bar. Skipping it on the field-originated
+                // path is what left the box empty while the query kept filtering.
+                day_core::toolbar::set_window_search_state(window, Some(t.as_str()), None);
                 if guard.borrow_mut().take().as_deref() == Some(t.as_str()) {
                     return; // came from the field; patching it back would fight the caret
                 }
@@ -930,13 +935,18 @@ impl SearchSpec {
                 seed.suggestions.clone(),
                 move || f(&query.get()),
                 move |list| match placement {
-                    P::Toolbar => day_core::patch_window_toolbar(
-                        window,
-                        day_spec::ToolbarPatch::Suggestions {
-                            item: SEARCH_ITEM_ID.to_string(),
-                            list: list.clone(),
-                        },
-                    ),
+                    P::Toolbar => {
+                        // Same staleness as the text: a rebuild re-seeds completions from the
+                        // stored item, so it has to carry the current list too.
+                        day_core::toolbar::set_window_search_state(window, None, Some(list));
+                        day_core::patch_window_toolbar(
+                            window,
+                            day_spec::ToolbarPatch::Suggestions {
+                                item: SEARCH_ITEM_ID.to_string(),
+                                list: list.clone(),
+                            },
+                        )
+                    }
                     _ => {
                         let p = SearchPatch::Suggestions(list.clone());
                         with_tree(|t| t.patch(host, Box::new(p), false));
