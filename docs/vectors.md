@@ -35,9 +35,9 @@ staged glyph SVG (`build/day/vectors/svg/`), and — where the art converts — 
 (`build/day/vectors/xaml/`).
 
 The raster cache is a build INPUT, not a shipping form. What a target carries is
-`build/day/vectors/fallback/<toolkit>/`: on a toolkit with no vector arm (gtk, qt) that is every
-glyph, and on one that draws vectors it is only the art the vector pipeline could not express —
-usually nothing. Bundling the rest would ship a second copy of every glyph AND let a broken
+`build/day/vectors/fallback/<toolkit>/`: on gtk and qt that is still every glyph (their vector arm
+covers the icon channels, not the `vector` piece — below), and on a toolkit that draws vectors
+throughout it is only the art the vector pipeline could not express — usually nothing. Bundling the rest would ship a second copy of every glyph AND let a broken
 vector path go unnoticed behind a raster that still looks right, which is how two XAML bugs
 survived their first review. `day build` reports the split per target
 (`Vectors xaml: 81/81 glyph(s) vector`). What ships on top:
@@ -45,6 +45,8 @@ survived their first review. `day build` reports the split per target
 | Backend | Native form |
 |---|---|
 | android-mdc | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules; gradients/clips/masks/filters fall back to the raster at xxxhdpi, loudly) |
+| linux-gtk, macos-gtk | the staged **SVG** for the ICON channels — gdk-pixbuf loads SVG through librsvg, and `from_file_at_size` renders the glyph at the row's icon size rather than downsampling the 256 px cache. The `vector` piece still draws the raster |
+| linux-qt, macos-qt | the staged **SVG** for the ICON channels — Qt's SVG icon engine (the `libqsvg` imageformats plugin) renders at the size each icon asks for, so nav rows, tab icons and toolbar images stay sharp at any scale. The `vector` piece still draws the raster |
 | macos-appkit | the staged **SVG** via `DAY_VECTOR_SVG_ROOT` (`NSImage` renders SVG files at display size on macOS 11+); other desktop dev launches use the raster cache via `DAY_VECTOR_RASTER_ROOT` (probed by `resolve_image_file`) |
 | ios-uikit | the **SVG** in a DayPieces asset-catalog imageset with `preserves-vector-representation` (Xcode 12+), so `UIImage(named:)` renders at display size |
 | web-dom | the **SVG** beside `assets/images/` — day-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
@@ -77,7 +79,8 @@ to a missing asset — on every backend, since the suffixed names ride the same 
 Android, pixel recolor on GTK, SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI, and a brush on
 the `Path` shapes on XAML — composed over the geometry when the glyph is realized, so one staged
 glyph serves every tint at every size with no second asset and no recoloured copy. Backends
-without a tint arm yet (Qt, web) draw the authored colours — the coverage-honest degradation.
+without a tint arm yet (the `vector` piece on Qt, and web) draw the authored colours — the
+coverage-honest degradation.
 `None` (and every raster `image(…)`) means "as authored".
 
 A tint follows the art it was authored with: the colour fills where the glyph filled and strokes

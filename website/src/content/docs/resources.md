@@ -110,8 +110,14 @@ it goes — `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted an
 | [windows-xaml](/docs/platforms/windows-xaml) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
 | [web-dom](/docs/platforms/web-dom) | the SVG, rendered by the browser | as authored |
 | [harmony-arkui](/docs/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
-| [linux-gtk](/docs/platforms/linux-gtk) | the 256 px raster cache — no vector arm yet | pixel recolor |
-| [linux-qt](/docs/platforms/linux-qt) | the 256 px raster cache — no vector arm yet | as authored in the `vector` piece; nav rows and tab icons tint |
+| [linux-gtk](/docs/platforms/linux-gtk) | the SVG for icons, rendered at icon size by librsvg through gdk-pixbuf; the raster cache for the `vector` piece | pixel recolor |
+| [linux-qt](/docs/platforms/linux-qt) | the SVG for icons, rendered at icon size by Qt's SVG icon engine; the raster cache for the `vector` piece | nav rows, tab icons and toolbar images tint; the `vector` piece draws as authored |
+
+> [!NOTE]
+> GTK and Qt render icons from the SVG, not from a bitmap: librsvg backs gdk-pixbuf on one and the
+> `libqsvg` plugin backs `QIcon` on the other, and both render the glyph at the size each icon
+> asks for. Their `vector` piece still draws the 256 px cache, which is the remaining gap on those
+> two toolkits.
 
 ### Where a vector degrades to a raster
 

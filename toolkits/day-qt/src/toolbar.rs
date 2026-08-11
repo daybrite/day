@@ -101,7 +101,8 @@ fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
         // icon engine renders it at the toolbar's icon size (docs/vectors.md). The raster cache
         // answers for names with no vector.
         Some(Icon::Image(name)) => (
-            day_spec::resource::resolve_image_file(name)
+            day_spec::resource::resolve_vector_svg(name)
+                .or_else(|| day_spec::resource::resolve_image_file(name))
                 .map(|p| p.to_string_lossy().into_owned())
                 .unwrap_or_default(),
             sp::NONE as c_int,
