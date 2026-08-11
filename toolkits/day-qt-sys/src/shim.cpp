@@ -877,8 +877,19 @@ void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
 }
 // Template glyphs are black-on-transparent; tint to the palette text color so they show
 // in both light and dark mode (raw black is invisible on a dark sidebar).
-static QIcon day_qt_tinted_icon(const QString &path, const QColor &color) {
-    QPixmap pm(path);
+static QIcon day_qt_tinted_icon(const QString &path, const QColor &color, int px = 0) {
+    QPixmap pm;
+    if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
+        // Qt's SVG icon engine (the `libqsvg` imageformats plugin) RENDERS at the size asked for,
+        // rather than scaling a cached bitmap — so a glyph stays sharp at any icon size and on
+        // any display scale (docs/vectors.md).
+        const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+        const int target = px > 0 ? px : 64;
+        pm = QIcon(path).pixmap(QSize(target, target) * dpr);
+        pm.setDevicePixelRatio(dpr);
+    } else {
+        pm = QPixmap(path);
+    }
     if (pm.isNull()) return QIcon();
     QPixmap tinted = pm;
     QPainter p(&tinted);

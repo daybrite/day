@@ -140,6 +140,16 @@ if [ -d parts ]; then
     leg "clippy $P (host)" cargo clippy --locked -p "$P" --all-targets
     if have_target aarch64-linux-android; then
       leg "clippy $P (android)" cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
+      # …and AGAIN with the staged-bridge cfg, which compiles the other half of a bridged part.
+      # A daybridge arm in a staged language (Java/Kotlin/Swift/ArkTS/JS) is behind
+      # `cfg(day_bridge_staged)`, set only when `day build` has staged the foreign half into the
+      # host project; a bare cargo build compiles the `platforms = [other]` fallback instead. So
+      # each configuration hides the other's warnings, and the leg above sees only the fallback —
+      # which is how an unused import in day-part-clipboard's android arm reached CI as a build
+      # failure inside `cargo ndk`, having passed every lint here.
+      RUSTFLAGS="$RUSTFLAGS --cfg day_bridge_staged" \
+        leg "clippy $P (android, staged bridge)" \
+        cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
     else skip "clippy $P (android)" "rustup target add aarch64-linux-android"; fi
   done
 fi

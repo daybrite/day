@@ -97,6 +97,9 @@ fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
             let (name, fallback) = icon_for(*s);
             (name.to_string(), fallback as c_int)
         }
+        // The staged glyph SVG first, like every other name-based icon channel here — Qt's SVG
+        // icon engine renders it at the toolbar's icon size (docs/vectors.md). The raster cache
+        // answers for names with no vector.
         Some(Icon::Image(name)) => (
             day_spec::resource::resolve_image_file(name)
                 .map(|p| p.to_string_lossy().into_owned())

@@ -806,7 +806,11 @@ extern "C" fn on_menu_action(id: u64) {
 /// Resolve a bundled image NAME to a loadable file path (or "" if it doesn't resolve).
 /// Used for per-row nav-menu icons, which the shim loads + tints to the palette text color.
 fn icon_file_path(name: &str) -> String {
-    day_spec::resource::resolve_image_file(name)
+    // The staged glyph SVG first (docs/vectors.md): Qt's SVG icon engine renders it at the icon
+    // size asked for, which keeps a nav row or tab glyph sharp at any scale. The raster cache is
+    // the fallback for names that have no vector — ordinary bundled images.
+    day_spec::resource::resolve_vector_svg(name)
+        .or_else(|| day_spec::resource::resolve_image_file(name))
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default()
 }

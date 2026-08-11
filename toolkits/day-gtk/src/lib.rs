@@ -873,11 +873,28 @@ fn recolor_pixbuf(pixbuf: &gtk4::gdk_pixbuf::Pixbuf, fr: u8, fg: u8, fb: u8) {
 /// is kept as the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage`
 /// or `None` if the name doesn't resolve / the file can't be decoded. Used by the sidebar rows and
 /// by a toolbar button whose icon is a bundled `Icon::Image` (docs/toolbars.md).
+/// Display size of a sidebar / toolbar template glyph, in points.
+const ICON_PX: i32 = 20;
+
 fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk4::Image> {
-    let path = day_spec::resource::resolve_image_file(name)?;
-    // Ensure an alpha channel exists so the recolor loop always sees RGBA groups (template PNGs
-    // normally already carry alpha; add_alpha is a cheap no-op-shaped copy otherwise).
-    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
+    // The staged glyph SVG first (docs/vectors.md). gdk-pixbuf loads SVG through librsvg, and
+    // `from_file_at_size` RENDERS at the size asked for rather than scaling a cached bitmap — so
+    // the row glyph is drawn for this icon size instead of downsampled from the 256 px cache.
+    // Rendered at 2× the 20 px display size to stay sharp on a HiDPI display. Where no vector is
+    // staged (an ordinary bundled image, or a host with no SVG loader) the raster is the answer.
+    let svg = day_spec::resource::resolve_vector_svg(name);
+    let pixbuf = svg.as_deref().and_then(|p| {
+        gtk4::gdk_pixbuf::Pixbuf::from_file_at_size(p, ICON_PX * 2, ICON_PX * 2).ok()
+    });
+    let pixbuf = match pixbuf {
+        Some(p) => p,
+        None => {
+            let path = day_spec::resource::resolve_image_file(name)?;
+            // Ensure an alpha channel exists so the recolor loop always sees RGBA groups (template
+            // PNGs normally already carry alpha; add_alpha is a cheap no-op-shaped copy otherwise).
+            gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?
+        }
+    };
     let pixbuf = if pixbuf.has_alpha() {
         pixbuf
     } else {
@@ -905,7 +922,7 @@ fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk
 
     let texture = gtk4::gdk::Texture::for_pixbuf(&pixbuf);
     let image = gtk4::Image::from_paintable(Some(&texture));
-    image.set_pixel_size(20);
+    image.set_pixel_size(ICON_PX);
     Some(image)
 }
 

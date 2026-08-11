@@ -10,8 +10,6 @@
 // Note: since Android 10, apps can only READ the clipboard while they hold input focus —
 // `get_text`/`has_text` answer empty/false in the background. Writing is always allowed.
 
-use day_bridge::Error;
-
 pub fn set_text(text: &str) -> bool {
     set_text_native(text).unwrap_or(false)
 }
@@ -93,16 +91,16 @@ day_bridge::bridge! {
     // target.
     #[day_bridge::impl(rust, platforms = [other])]
     fn set_text_native(_text: &str) -> Result<bool, day_bridge::Error> {
-        Err(Error::Unsupported)
+        Err(day_bridge::Error::Unsupported)
     }
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn get_text_native() -> Result<String, day_bridge::Error> {
-        Err(Error::Unsupported)
+        Err(day_bridge::Error::Unsupported)
     }
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn has_text_native() -> Result<bool, day_bridge::Error> {
-        Err(Error::Unsupported)
+        Err(day_bridge::Error::Unsupported)
     }
 }
