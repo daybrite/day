@@ -225,6 +225,13 @@ fn scan(root: &Path) -> Result<Bridge, String> {
             .unwrap_or(path)
             .display()
             .to_string();
+        // Forward slashes always. This string is baked into every generated artifact — the C
+        // `#line`, Swift's `#sourceLocation`, the Kotlin header, the `@generated` banner — so a
+        // host separator would make the generated files differ byte-for-byte between Windows and
+        // everywhere else, against the determinism this module already sorts its inputs for.
+        // Windows-only: a backslash is a legal character in a POSIX filename.
+        #[cfg(windows)]
+        let rel = rel.replace('\\', "/");
         parse_into(&text, &rel, &mut bridge).map_err(|e| format!("{rel}: {e}"))?;
     }
     Ok(bridge)

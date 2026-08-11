@@ -72,7 +72,7 @@ fn with_build_env(out: &Path, platform: &str, f: impl FnOnce()) {
         ("OPT_LEVEL", "0".into()),
         ("DEBUG", "false".into()),
         ("CARGO_CFG_TARGET_OS", platform.to_string()),
-        ("CARGO_CFG_TARGET_ENV", String::new()),
+        ("CARGO_CFG_TARGET_ENV", target_env().to_string()),
         ("CARGO_CFG_TARGET_ARCH", std::env::consts::ARCH.to_string()),
     ];
     for (k, v) in &vars {
@@ -84,19 +84,39 @@ fn with_build_env(out: &Path, platform: &str, f: impl FnOnce()) {
     }
 }
 
+/// The host's `target_env`. `cc` picks the compiler FAMILY from cargo's cfg environment, not from
+/// the triple, so leaving this empty on a `windows-msvc` host reads as GNU and sends it looking
+/// for `gcc.exe` — which is not what builds this workspace, and is not installed on the runner.
+fn target_env() -> &'static str {
+    if cfg!(target_env = "msvc") {
+        "msvc"
+    } else if cfg!(target_env = "gnu") {
+        "gnu"
+    } else if cfg!(target_env = "musl") {
+        "musl"
+    } else {
+        "" // apple targets report no env
+    }
+}
+
 fn current_target() -> String {
-    // Good enough for `cc`: it only needs a triple it can parse.
-    format!(
-        "{}-{}",
-        std::env::consts::ARCH,
-        if cfg!(target_os = "macos") {
-            "apple-darwin"
-        } else if cfg!(target_os = "windows") {
-            "pc-windows-msvc"
-        } else {
-            "unknown-linux-gnu"
-        }
-    )
+    // Good enough for `cc`: it only needs a triple it can parse. Built from the same cfgs
+    // `target_env` reads, so the triple and the cfg environment can never disagree.
+    let sys = if cfg!(target_os = "macos") {
+        "apple-darwin".to_string()
+    } else if cfg!(target_os = "windows") {
+        format!("pc-windows-{}", target_env())
+    } else {
+        format!(
+            "unknown-linux-{}",
+            if target_env().is_empty() {
+                "gnu"
+            } else {
+                target_env()
+            }
+        )
+    };
+    format!("{}-{sys}", std::env::consts::ARCH)
 }
 
 #[test]
