@@ -68,8 +68,20 @@ Scripted launches also default `RUST_BACKTRACE=1`, so a panic's stack is in the 
 first time — nobody is watching an unattended run to re-run it with the variable set. An explicit
 `--env RUST_BACKTRACE=…` wins.
 
+The same post-mortem runs on a PLAIN `day launch` (no script): an attached launch whose app dies on
+a fatal signal prints it before returning, and the command's own exit code carries the signal
+(`128 + signo` — SIGABRT is 134), where it used to report 0 and look like a clean quit.
+
 Under GitHub Actions the headline also becomes an `::error::` annotation, so the job page names the
 crash without anyone opening the log.
+
+> [!NOTE]
+> **Desktop targets only, for now.** The diagnosis triggers where day can observe the app's death:
+> the desktop launches, whose app IS day's own child, and any target whose engine connection drops
+> mid-script. On `ios-uikit` and `android-mdc` the app runs on a simulator/device and the process
+> day waits on is a log pump that outlives it, so an interactive crash there still passes
+> unnoticed. Closing that needs a liveness poll (`simctl spawn booted launchctl list <bundle-id>`,
+> `adb shell pidof <app-id>`) while a launch is attached.
 
 ## `day stop` / `day relaunch`
 

@@ -24,6 +24,23 @@ thread_local! {
 
 /// Register an app closure for a menu item and return its dispatch id (nonzero). The `day-pieces`
 /// menu builder calls this while lowering a menu tree to the [`day_spec::MenuItem`] model.
+/// Move the closure registered under `from` onto `to`, dropping `from`.
+///
+/// Used when a toolbar install turns out to be the same bar with new closures: the native side
+/// keeps dispatching the ids it already has, and this points them at the current handlers
+/// (`day_core::toolbar::set_window_toolbar`).
+pub fn rebind_action(from: u64, to: u64) {
+    if from == 0 || to == 0 || from == to {
+        return;
+    }
+    ACTIONS.with(|m| {
+        let mut m = m.borrow_mut();
+        if let Some(f) = m.remove(&from) {
+            m.insert(to, f);
+        }
+    });
+}
+
 pub fn register_menu_action(f: Rc<dyn Fn()>) -> u64 {
     let id = next_action_id();
     ACTIONS.with(|m| m.borrow_mut().insert(id, f));
@@ -53,8 +70,66 @@ pub fn dispatch_menu_action(id: u64) {
 /// model (post-injection — [`app_menu_model`]), injects the auto Preferences item when one
 /// is registered (docs/windows.md), drops the PREVIOUS app menu's action closures (context
 /// menus share the map and are untouched), and forwards to the backend.
+/// Whether two menu models describe the same MENU — labels, shortcuts, roles, enablement and
+/// nesting — ignoring the action ids, which are re-registered on every build.
+fn same_shape(a: &[day_spec::MenuItem], b: &[day_spec::MenuItem]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| shape_of(x) == shape_of(y))
+}
+
+fn shape_of(item: &day_spec::MenuItem) -> day_spec::MenuItem {
+    let mut i = item.clone();
+    blank_ids(std::slice::from_mut(&mut i));
+    i
+}
+
+fn blank_ids(items: &mut [day_spec::MenuItem]) {
+    for item in items {
+        match item {
+            day_spec::MenuItem::Action { id, .. } => *id = 0,
+            day_spec::MenuItem::Submenu { items, .. } => blank_ids(items),
+            day_spec::MenuItem::Separator => {}
+        }
+    }
+}
+
+/// Move `next`'s closures onto the ids `prev` already published to the platform.
+fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
+    for (new, old) in next.iter_mut().zip(prev) {
+        match (new, old) {
+            (
+                day_spec::MenuItem::Action { id: new_id, .. },
+                day_spec::MenuItem::Action { id: old_id, .. },
+            ) => {
+                if new_id != old_id {
+                    rebind_action(*new_id, *old_id);
+                    *new_id = *old_id;
+                }
+            }
+            (
+                day_spec::MenuItem::Submenu { items: n, .. },
+                day_spec::MenuItem::Submenu { items: o, .. },
+            ) => rebind_menu(n, o),
+            _ => {}
+        }
+    }
+}
+
 pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
-    let items = inject_preferences(items);
+    let mut items = inject_preferences(items);
+
+    // The same rule the toolbar follows (`day_core::toolbar::set_window_toolbar`,
+    // docs/toolbars.md): an app declares its menu inside the page build, so every route change
+    // re-installs the same menu with freshly registered closures. Rebuilding the native menu bar
+    // for that is churn at best — and on macOS it closes a menu the user has open — so a menu
+    // that differs only in its action ids rebinds onto the ids the platform already holds.
+    let unchanged = APP_MENU_MODEL.with(|m| same_shape(&m.borrow(), &items));
+    if unchanged {
+        let installed = APP_MENU_MODEL.with(|m| m.borrow().clone());
+        rebind_menu(&mut items, &installed);
+        APP_MENU_MODEL.with(|m| *m.borrow_mut() = items);
+        return;
+    }
+
     let new_ids = collect_action_ids(&items);
     // The prefs/new-window dispatch ids are registered by `day::register_*` (not by menu
     // lowering) and outlive any menu install — never sweep them.

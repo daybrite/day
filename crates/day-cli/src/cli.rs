@@ -1171,6 +1171,8 @@ pub fn run() -> i32 {
                 }
             };
             let mut handles = Vec::new();
+            let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
+                Vec::new();
             let mut script_failures = 0usize;
             for (ti, p) in platforms.iter().enumerate() {
                 let port = crate::script::pick_port(ti);
@@ -1226,6 +1228,10 @@ pub fn run() -> i32 {
                         let launched_at = std::time::SystemTime::now();
                         match ops::launch(project, target, &outcome, &run_spec) {
                             Ok(h) => {
+                                // Kept beside the handle so a crash can be diagnosed when it is
+                                // joined: a plain `day launch` has no script to lose its engine,
+                                // so the join is the ONLY place the app's death is observed.
+                                launched.push((target, launched_at));
                                 crate::sessions::record(
                                     &project.root,
                                     crate::sessions::Session {
@@ -1349,8 +1355,17 @@ pub fn run() -> i32 {
             }
             if spec.attached {
                 let mut code = 0;
-                for h in handles {
-                    code = code.max(h.join().unwrap_or(1));
+                for (i, h) in handles.into_iter().enumerate() {
+                    let one = h.join().unwrap_or(1);
+                    // A fatal signal is a crash, not a quit: say what happened while the crash
+                    // artifacts are still fresh. Closing the window exits 0 and prints nothing.
+                    if ops::died_on_signal(one)
+                        && let Some((target, at)) = launched.get(i)
+                    {
+                        eprintln!("error: {} died on a fatal signal (exit {one})", target.name);
+                        crate::diagnose::after_app_death(project, target, *at);
+                    }
+                    code = code.max(one);
                 }
                 // A target that exited on its own leaves its siblings' log watchers (and
                 // any child that outlives its stream) running — reap them before we go.

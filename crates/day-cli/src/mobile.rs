@@ -1256,7 +1256,7 @@ fn launch_ios_device(
         let l2 = label.clone();
         let t1 = stdout.map(|s| stream_devicectl(label, LogStream::Out, s));
         let t2 = stderr.map(|s| stream_devicectl(l2, LogStream::Err, s));
-        let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
+        let code = child.wait().map(crate::ops::exit_code_of).unwrap_or(1);
         if let Some(t) = t1 {
             let _ = t.join();
         }
@@ -1402,7 +1402,7 @@ pub fn launch_ios(
             log_threads.push(std::thread::spawn(move || {
                 let t1 = stdout.map(|s| stream_logs_labeled(out_label, LogStream::Out, s));
                 let t2 = stderr.map(|s| stream_logs_labeled(err_label, LogStream::Err, s));
-                let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
+                let code = child.wait().map(crate::ops::exit_code_of).unwrap_or(1);
                 if let Some(t) = t1 {
                     let _ = t.join();
                 }
@@ -1987,7 +1987,7 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
                 emit_log(&label, stream, msg);
             }
         }
-        child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0)
+        child.wait().map(crate::ops::exit_code_of).unwrap_or(0)
     })
 }
 

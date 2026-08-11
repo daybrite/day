@@ -854,17 +854,29 @@ impl SearchSpec {
         use day_spec::props::{SearchPatch, SearchPlacement as P};
         let placement = Self::resolve(self.placement);
         let query = self.query;
-        // Controlled input with origin tracking (§4.4): the guard remembers the value that came
-        // FROM the field so the binding does not patch it straight back, which some toolkits
-        // re-emit as another change. One guard, because there is one writer.
-        let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        // Controlled input (§4.4), tracked by VALUE rather than by origin.
+        //
+        // This used to be a one-shot origin guard: the inbound handler armed it with the text the
+        // field reported, and the outbound binding consumed it to avoid patching that same text
+        // back. One-shot is the wrong shape for a two-way sync. Whether it is armed at the moment
+        // the binding runs depends on how many changes arrived first and whether the binding ran
+        // at all, so it swallowed patches it should have sent (a cleared query that never reached
+        // the field) and let through patches it should have skipped (rewriting the field mid-type,
+        // which resets the caret and drops focus on AppKit).
+        //
+        // What the field HOLDS is the fact that matters, and it is knowable: the field reports
+        // every value it takes, and Day knows every value it pushes. Comparing against it is
+        // idempotent and order-independent — no arming, nothing to consume, no way to get out of
+        // step. Equal means the field already shows it, so there is nothing to push and no caret
+        // to disturb.
+        let shown: Rc<RefCell<String>> = Rc::new(RefCell::new(seed.text.clone()));
 
         if placement == P::Toolbar {
-            let g = guard.clone();
+            let g = shown.clone();
             let action =
                 day_core::register_toolbar_value(Rc::new(move |v: &day_spec::ToolbarValue| {
                     if let day_spec::ToolbarValue::Text(t) = v {
-                        *g.borrow_mut() = Some(t.clone());
+                        *g.borrow_mut() = t.clone();
                         query.set(t.clone());
                     }
                 }));
@@ -894,14 +906,15 @@ impl SearchSpec {
             seed.text.clone(),
             move || query.get(),
             move |t: &String| {
-                // Before the guard, because this has to happen for BOTH directions: the stored
-                // item is what a toolbar REBUILD re-seeds the field from, and a rebuild can be
-                // triggered by anything else on the bar. Skipping it on the field-originated
+                // Before the comparison, because this has to happen for BOTH directions: the
+                // stored item is what a toolbar REBUILD re-seeds the field from, and a rebuild can
+                // be triggered by anything else on the bar. Skipping it on the field-originated
                 // path is what left the box empty while the query kept filtering.
                 day_core::toolbar::set_window_search_state(window, Some(t.as_str()), None);
-                if guard.borrow_mut().take().as_deref() == Some(t.as_str()) {
-                    return; // came from the field; patching it back would fight the caret
+                if *shown.borrow() == *t {
+                    return; // the field already shows this; patching it back fights the caret
                 }
+                *shown.borrow_mut() = t.clone();
                 match placement {
                     P::Toolbar => day_core::patch_window_toolbar(
                         window,

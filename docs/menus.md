@@ -162,6 +162,18 @@ resolve to the toolkit's own command instead. This keeps the crossing minimal (a
 holding native handles across the FFI boundary, and lets any backend add menu support by implementing
 just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 
+## Re-installing the same menu
+
+`set_app_menu` compares the incoming model with the installed one, ignoring the action ids — an app
+declares its menu inside the page build, so every route change re-installs the same commands behind
+freshly registered closures. A menu that differs only in those ids rebinds them onto the ids the
+platform already holds and makes no toolkit call, which keeps a menu the user has open from closing
+under them and stops the menu bar being rebuilt on every navigation. Anything else — a label, a
+shortcut, an enablement, a new command — installs as before.
+
+This is the rule the toolbar follows for the same reason (docs/toolbars.md, "Re-installing the same
+bar"), where the rebuild also took the keyboard focus out of the search field.
+
 ## Nav-row context menus
 
 A selector's rows can each carry their OWN context menu — `item(…).context_menu(vec![…])`

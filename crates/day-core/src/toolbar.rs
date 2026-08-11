@@ -88,6 +88,37 @@ pub fn set_toolbar(items: Vec<ToolbarItem>) {
 /// [`set_toolbar`] against an explicit window root.
 pub fn set_window_toolbar(root: RNode, items: Vec<ToolbarItem>) {
     let items = merge_search(root, items);
+
+    // An install that changes nothing the user can see REBINDS rather than rebuilds.
+    //
+    // An app declares its toolbar inside the page build, so every route change re-installs the
+    // same bar with freshly registered closures — and a rebuild destroys and recreates the native
+    // widgets. That is invisible for a button, and destructive for the search field: it takes the
+    // keyboard focus and the caret with it. Typing a letter that moves the nav selection re-ran
+    // the page build, which re-installed the bar, which threw away the field being typed into —
+    // on every backend, because they all rebuild what they are handed (docs/toolbars.md).
+    //
+    // The remedy is to notice that only the CLOSURES are new. Same items, same order, same
+    // labels, icons, kinds and enablement means the native bar is already correct; moving the new
+    // closures onto the action ids it already carries makes it current without touching a widget.
+    let prev = MODELS.with(|m| {
+        m.borrow()
+            .iter()
+            .find(|(r, _)| *r == root)
+            .map(|(_, items)| items.clone())
+    });
+    if let Some(prev) = prev
+        && same_shape(&prev, &items)
+    {
+        let rebound = rebind(&prev, items);
+        MODELS.with(|m| {
+            if let Some(entry) = m.borrow_mut().iter_mut().find(|(r, _)| *r == root) {
+                entry.1 = rebound;
+            }
+        });
+        return;
+    }
+
     sweep_values(root, &items);
     MODELS.with(|m| {
         let mut m = m.borrow_mut();
@@ -275,6 +306,88 @@ fn sweep_values(root: RNode, next: &[ToolbarItem]) {
             .unwrap_or_default()
     });
     drop_values(&prev, next);
+}
+
+/// Whether two models describe the same BAR — everything the toolkit renders or dispatches by
+/// position, ignoring the action ids (new closures every build) and the search field's live text
+/// and completions (kept current through [`ToolbarPatch`], never through a rebuild).
+fn same_shape(a: &[ToolbarItem], b: &[ToolbarItem]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| shape_of(x) == shape_of(y))
+}
+
+fn shape_of(item: &ToolbarItem) -> ToolbarItem {
+    let mut i = item.clone();
+    i.action = 0;
+    match &mut i.kind {
+        day_spec::ToolbarItemKind::Search {
+            text, suggestions, ..
+        } => {
+            text.clear();
+            suggestions.clear();
+        }
+        day_spec::ToolbarItemKind::Menu { items } => blank_menu_ids(items),
+        _ => {}
+    }
+    i
+}
+
+fn blank_menu_ids(items: &mut [day_spec::MenuItem]) {
+    for item in items {
+        match item {
+            day_spec::MenuItem::Action { id, .. } => *id = 0,
+            day_spec::MenuItem::Submenu { items, .. } => blank_menu_ids(items),
+            day_spec::MenuItem::Separator => {}
+        }
+    }
+}
+
+/// Move `next`'s closures onto `prev`'s action ids, so the ids the native bar already holds keep
+/// dispatching. Returns the model to store: `next`'s content under `prev`'s ids.
+fn rebind(prev: &[ToolbarItem], next: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
+    next.into_iter()
+        .zip(prev)
+        .map(|(mut new, old)| {
+            if new.action != old.action {
+                VALUE_ACTIONS.with(|m| {
+                    let mut m = m.borrow_mut();
+                    if let Some(f) = m.remove(&new.action) {
+                        m.insert(old.action, f);
+                    }
+                });
+                crate::menu::rebind_action(new.action, old.action);
+                new.action = old.action;
+            }
+            if let (
+                day_spec::ToolbarItemKind::Menu { items: new_items },
+                day_spec::ToolbarItemKind::Menu { items: old_items },
+            ) = (&mut new.kind, &old.kind)
+            {
+                rebind_menu(new_items, old_items);
+            }
+            new
+        })
+        .collect()
+}
+
+fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
+    for (new, old) in next.iter_mut().zip(prev) {
+        match (new, old) {
+            (
+                day_spec::MenuItem::Action { id: new_id, .. },
+                day_spec::MenuItem::Action { id: old_id, .. },
+            ) => {
+                if new_id != old_id {
+                    crate::menu::rebind_action(*new_id, *old_id);
+                    *new_id = *old_id;
+                }
+            }
+            (
+                day_spec::MenuItem::Submenu { items: n, .. },
+                day_spec::MenuItem::Submenu { items: o, .. },
+            ) => rebind_menu(n, o),
+            _ => {}
+        }
+    }
 }
 
 fn drop_values(prev: &[ToolbarItem], next: &[ToolbarItem]) {

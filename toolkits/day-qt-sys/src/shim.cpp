@@ -2029,7 +2029,15 @@ void day_qt_navlist_set_row_menus(void *w, void *const *menus, int32_t n) {
         QMenu *m = static_cast<QMenu *>(menus[i]);
         if (m) {
             m->setObjectName(QStringLiteral("day_nav_row_menu"));
-            m->setParent(l);
+            // Reparent KEEPING the window flags. A QMenu is a `Qt::Popup` top-level; the
+            // one-argument `setParent` clears that, turning it into an ordinary child widget of
+            // the list — which Qt then shows with its parent, drawing the menu's entries inline
+            // over the top-left of the sidebar. The list is only its owner for lifetime, never
+            // its layout parent.
+            m->setParent(l, m->windowFlags());
+            // Belt and braces: a child that has never been explicitly hidden is shown with its
+            // parent, so say it once here.
+            m->hide();
         }
         rows->append(m);
     }

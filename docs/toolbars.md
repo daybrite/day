@@ -167,6 +167,25 @@ Notes that are not obvious from the table:
   CI rather than on a developer's Mac or Linux box. Secondary windows get no toolbar there, the
   same as the menu bar: this shim's chrome lives on the primary window only.
 
+## Re-installing the same bar
+
+An app declares its toolbar inside the page build, so a route change re-installs it — with freshly
+registered closures every time, since the ids come from `register_toolbar_value` /
+`register_menu_action`. Handing that to a backend rebuilds the native bar, which is invisible for a
+button and destructive for the search field: recreating the widget takes the keyboard focus and the
+caret with it. Typing a letter that moved the nav selection re-ran the page build and threw away the
+field being typed into, on every backend that rebuilds what it is handed — which is all of them.
+
+`set_window_toolbar` therefore compares the incoming model with the installed one, ignoring what
+cannot matter to the widgets: the action ids, and the search field's live text and completions
+(kept current through `ToolbarPatch::Text`/`Suggestions`, never through a rebuild). Same items in
+the same order, with the same kinds, labels, icons and enablement, means the native bar is already
+correct — so the new closures are moved onto the ids it already carries and no toolkit call is made
+at all. Anything else is a real change and installs as before.
+
+This is why a backend never has to preserve focus across an install: an install that would have
+disturbed the focus does not happen.
+
 ## Events
 
 A button and a menu item ride the **menu action rail**: they emit `Event::MenuAction(id)` from the

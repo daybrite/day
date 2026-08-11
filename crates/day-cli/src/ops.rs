@@ -115,6 +115,32 @@ pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process:
     })
 }
 
+/// The exit code to report for a finished child, with a signal death made VISIBLE.
+///
+/// `ExitStatus::code()` is `None` when a process was killed by a signal, and mapping that to 0 —
+/// which every call site here used to do — turned an app that aborted or segfaulted into a clean
+/// exit: `day launch` returned success after a crash, and nothing downstream could tell that the
+/// app had died badly. `128 + signo` is the shell's convention (SIGABRT ⇒ 134, SIGSEGV ⇒ 139).
+pub fn exit_code_of(status: std::process::ExitStatus) -> i32 {
+    if let Some(code) = status.code() {
+        return code;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signo) = status.signal() {
+            return 128 + signo;
+        }
+    }
+    1
+}
+
+/// Whether an exit code says the process was killed by a fatal signal — a crash, not a quit.
+pub fn died_on_signal(code: i32) -> bool {
+    // 128 + {SIGILL, SIGABRT, SIGBUS(both spellings), SIGFPE, SIGSEGV, SIGSYS}
+    matches!(code, 132 | 134 | 135 | 136 | 138 | 139 | 141)
+}
+
 /// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-break's
 /// `build.rs` bakes these into the binary so crash reports carry id/version/build without
 /// reading platform manifests at runtime (docs/break.md); on launch commands they double as the
@@ -605,7 +631,7 @@ pub fn launch(
             let h = std::thread::spawn(move || {
                 let t1 = stdout.map(|s| stream_logs(name, LogStream::Out, s));
                 let t2 = stderr.map(|s| stream_logs(name, LogStream::Err, s));
-                let code = child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(1);
+                let code = child.wait().map(exit_code_of).unwrap_or(1);
                 if let Some(t) = t1 {
                     let _ = t.join();
                 }
