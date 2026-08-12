@@ -3474,9 +3474,12 @@ impl Toolkit for Gtk {
                     .build();
                 apply_gtk_filters(&dialog, filters);
                 let cancellable = gtk4::gio::Cancellable::new();
-                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable.clone()));
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, FileOp::queued(&cancellable)));
                 let window = file_dialog_window(&parent);
                 gtk4::glib::idle_add_local_once(move || {
+                    if !claim_file_dialog(req) {
+                        return;
+                    }
                     dialog.open(window.as_ref(), Some(&cancellable), move |res| {
                         emit_file_result(req, res.map(|f| f.path()))
                     });
@@ -3494,10 +3497,13 @@ impl Toolkit for Gtk {
                     .build();
                 apply_gtk_filters(&dialog, spec.filters());
                 let cancellable = gtk4::gio::Cancellable::new();
-                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, cancellable.clone()));
+                FILE_DIALOGS.with(|m| m.borrow_mut().insert(req, FileOp::queued(&cancellable)));
                 let window = file_dialog_window(&parent);
                 // The pieces layer copies the staged bytes to the chosen local path.
                 gtk4::glib::idle_add_local_once(move || {
+                    if !claim_file_dialog(req) {
+                        return;
+                    }
                     dialog.save(window.as_ref(), Some(&cancellable), move |res| {
                         emit_file_result(req, res.map(|f| f.path()))
                     });
@@ -3513,10 +3519,7 @@ impl Toolkit for Gtk {
         if let Some(handle) = handle {
             (handle.finish)(day_spec::present::PresentResult::Dismissed);
         }
-        // GtkFileDialog: cancel the in-flight operation (its callback then no-ops in day-core).
-        if let Some(c) = FILE_DIALOGS.with(|m| m.borrow_mut().remove(&req)) {
-            c.cancel();
-        }
+        end_file_dialog(req);
     }
 
     fn open_url(&mut self, url: &str) {
@@ -3550,6 +3553,54 @@ fn apply_gtk_filters(dialog: &gtk4::FileDialog, filters: &[day_spec::present::Fi
         store.append(&ff);
     }
     dialog.set_filters(Some(&store));
+}
+
+/// A file picker between `present()` and its result. `present()` records it as queued and defers
+/// the picker itself to an idle (see the OpenFile arm); the idle then `claim`s it.
+struct FileOp {
+    cancellable: gtk4::gio::Cancellable,
+    /// Whether GTK has been handed the picker yet. `dismiss` cancels only a shown one.
+    shown: bool,
+}
+
+impl FileOp {
+    fn queued(cancellable: &gtk4::gio::Cancellable) -> Self {
+        Self {
+            cancellable: cancellable.clone(),
+            shown: false,
+        }
+    }
+}
+
+/// Take ownership of a deferred picker on behalf of GTK: `true` to open it, `false` if the
+/// request was answered while the idle sat in the queue (`dismiss` removed the entry).
+///
+/// Answering that fast is ordinary — a dayscript `respond` does it, and so does any app that
+/// resolves its own presentation — and the picker MUST NOT open then: Day considers the request
+/// closed, so a window appearing after it is a ghost whose result belongs to nothing. GTK gives
+/// a second reason to skip it. Opening with an already-cancelled GCancellable leaves the
+/// operation in a state GTK never completes: it drops the callback outright on macOS, and on
+/// Linux (GTK 4.14) its completion runs against portal data the cancel already freed and
+/// dereferences null — the SIGSEGV that took down the linux-gtk walkthrough.
+fn claim_file_dialog(req: u64) -> bool {
+    FILE_DIALOGS.with(|m| match m.borrow_mut().get_mut(&req) {
+        Some(op) => {
+            op.shown = true;
+            true
+        }
+        None => false,
+    })
+}
+
+/// Drop a file picker on dismissal, cancelling it only if GTK is showing it. A still-queued one
+/// needs no cancelling — removing the entry is what makes its idle skip the picker — and must not
+/// be cancelled, for the reasons in `claim_file_dialog`.
+fn end_file_dialog(req: u64) {
+    if let Some(op) = FILE_DIALOGS.with(|m| m.borrow_mut().remove(&req))
+        && op.shown
+    {
+        op.cancellable.cancel();
+    }
 }
 
 /// Turn a GtkFileDialog result into a `PresentResult` and enqueue it.
@@ -3592,9 +3643,9 @@ fn dialog_finisher(
 thread_local! {
     /// Live modals keyed by request id (for programmatic dismissal).
     static NAV_DIALOGS: RefCell<HashMap<u64, DialogHandle>> = RefCell::new(HashMap::new());
-    /// In-flight GtkFileDialog operations keyed by request id (cancelled on dismiss).
-    static FILE_DIALOGS: RefCell<HashMap<u64, gtk4::gio::Cancellable>> =
-        RefCell::new(HashMap::new());
+    /// In-flight GtkFileDialog operations keyed by request id (dropped or cancelled on dismiss,
+    /// depending on whether the picker has opened yet — `FileOp`).
+    static FILE_DIALOGS: RefCell<HashMap<u64, FileOp>> = RefCell::new(HashMap::new());
 }
 
 /// Adwaita's default header-bar height, used to size Day's content area before the header is
@@ -3908,3 +3959,43 @@ impl Platform for Gtk {
 }
 
 use day_spec::WindowOptions;
+
+/// File-picker bookkeeping — the queued/shown distinction that keeps a dismissal from handing
+/// GTK a cancelled operation. Pure map state, so it runs without a display.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The dayscript ordering that crashed the linux-gtk walkthrough: `respond` resolves the
+    /// request before the deferred idle runs. Dismissal leaves the GCancellable untouched, and
+    /// the idle then declines to open a picker nothing is waiting for.
+    #[test]
+    fn a_picker_answered_before_it_opens_never_opens() {
+        let cancellable = gtk4::gio::Cancellable::new();
+        FILE_DIALOGS.with(|m| m.borrow_mut().insert(1, FileOp::queued(&cancellable)));
+
+        end_file_dialog(1);
+
+        assert!(
+            !cancellable.is_cancelled(),
+            "a queued picker is dropped, not cancelled"
+        );
+        assert!(
+            !claim_file_dialog(1),
+            "the idle must skip an answered request"
+        );
+    }
+
+    /// The other ordering: the picker is up, so dismissal has to cancel it to take it down.
+    #[test]
+    fn a_picker_already_showing_is_cancelled() {
+        let cancellable = gtk4::gio::Cancellable::new();
+        FILE_DIALOGS.with(|m| m.borrow_mut().insert(2, FileOp::queued(&cancellable)));
+
+        assert!(claim_file_dialog(2), "a live request opens its picker");
+        end_file_dialog(2);
+
+        assert!(cancellable.is_cancelled());
+        assert!(FILE_DIALOGS.with(|m| m.borrow().is_empty()));
+    }
+}

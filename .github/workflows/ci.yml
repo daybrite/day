@@ -380,9 +380,13 @@ jobs:
   # with `day-source: artifact` so the CLI under test is the one this run just built rather than a
   # published release — the property day's inline jobs have and app repos previously could not get.
   #
-  # It runs BESIDE the inline `linux` job (different artifact prefix, so nothing collides), which
-  # is the point: the two produce the same package from the same commit, and any difference is a
-  # gap in the shared workflow to close before the inline jobs are deleted.
+  # The app it builds is a FRESH SCAFFOLD, not Day-Showcase. What a red check here means is that
+  # the shared workflow's contract with the CLI broke — that `day build` / `pack` / `launch
+  # --script` stopped answering to the flags, paths, and artifact names build-day-app.yml passes
+  # them — and `day new app` exercises that contract as well as a real app does, without a second
+  # repository to clone, a second full Showcase build beside the inline `linux` job's, or a
+  # 400-step walkthrough that job already runs across eight theme/locale variants. Showcase still
+  # goes through this same workflow every night in its own CI, across eight targets.
   build-day-app:
     # Named for the workflow under test, because that is what a red check here means: the shared
     # pipeline broke, not this repository's own build. `(canary)` says the single target is
@@ -395,24 +399,24 @@ jobs:
     uses: daybrite/actions/.github/workflows/build-day-app.yml@main
     with:
       targets: linux-gtk
-      project-path: showcase-src
-      # The app is a different repository, and a reusable workflow only checks out the caller's.
-      # `setup-command` is the generic hook for materializing the project, so the canary uses it
-      # rather than the shared workflow growing an input for one caller. `day patch` then points
-      # the app's day dependencies at THIS commit, so the canary exercises the CLI and the crates
-      # from this run — the same thing the inline jobs do through .github/actions/showcase.
-      # (Setting it also skips the pristine assertion, which is right: the app checkout is
-      # generated here, and `day patch` writes a config file into it.)
+      project-path: canary-app
+      # The project is generated rather than checked out, and `setup-command` is the shared
+      # workflow's hook for exactly that (a reusable workflow only checks out the caller's
+      # repository). `day patch` then points the scaffold's day dependencies at THIS commit, so
+      # the canary builds the CLI and the crates from this run against each other.
+      # (Setting it also skips the pristine assertion, which is right: the project is generated
+      # here, and `day patch` writes a config file into it.)
       setup-command: |
-        git clone --depth 1 --branch "${{ vars.DAY_SHOWCASE_REF || 'main' }}" \
-          https://github.com/daybrite/Day-Showcase.git showcase-src
-        "$DAY_BIN" --project showcase-src patch --local "$GITHUB_WORKSPACE" --check
+        "$DAY_BIN" new app canary-app --toolkit linux-gtk \
+          --appid dev.daybrite.canary --git --no-input
+        "$DAY_BIN" --project canary-app patch --local "$GITHUB_WORKSPACE" --check
       day-source: artifact
       artifact-prefix: canary-
-      app-id: dev.daybrite.showcase
-      scripts: dayscript/walkthrough.yaml dayscript/speech.yaml
-      themes: light dark
-      locales: en fr
+      app-id: dev.daybrite.canary
+      # scripts / themes / locales stay at their defaults: the scaffold ships one dayscript
+      # (dayscript/smoke.yaml), which `auto` runs once in the app's own theme and locale. Driving
+      # the runner at all is the check; how many variants it drives is the inline job's business.
+      #
       # Off for the canary: the inline linux job already runs the scaffold rebuild check for this
       # target (scripts/ci/scaffold-check.sh), and running both would double a full build for no
       # extra signal.
