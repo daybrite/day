@@ -91,6 +91,11 @@ public class DayNavHost extends LinearLayout {
     /// Fragment cannot change containers without its view being destroyed and rebuilt, which is
     /// exactly what a re-presentation must not do. NULL alongside `split`.
     final FrameLayout listPane;
+    /// The list pane's column: the inline search field over {@link #listPane}. It is the pane the
+    /// SlidingPaneLayout sizes and slides, so the field travels WITH the list it filters instead
+    /// of spanning the whole host — tiled, a full-width field above both panes reads as searching
+    /// the detail page. NULL alongside `split`, where the list is the whole width anyway.
+    final LinearLayout listColumn;
     private final int listContainerId;
     /// The last presentation reported to Rust, so only real changes are emitted.
     private boolean lastSlideable;
@@ -151,6 +156,12 @@ public class DayNavHost extends LinearLayout {
         if (adaptive) {
             listPane = new FrameLayout(ctx);
             listPane.setId(listContainerId);
+            // The pane is a column so an inline search field can sit above the list INSIDE it
+            // (see setSearch); the list itself takes the remaining height.
+            listColumn = new LinearLayout(ctx);
+            listColumn.setOrientation(VERTICAL);
+            listColumn.addView(listPane, new LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
             split = new androidx.slidingpanelayout.widget.SlidingPaneLayout(ctx);
             // A fixed-width list beside a weighted detail. SlidingPaneLayout tiles them when
             // both minimum widths fit and overlaps them when they do not — the whole adaptive
@@ -160,7 +171,7 @@ public class DayNavHost extends LinearLayout {
                     new androidx.slidingpanelayout.widget.SlidingPaneLayout.LayoutParams(
                             Math.round(NAV_SIDEBAR_DP * density),
                             ViewGroup.LayoutParams.MATCH_PARENT);
-            split.addView(listPane, lp);
+            split.addView(listColumn, lp);
             // The detail pane carries a REAL width, not `0dp + weight`. SlidingPaneLayout
             // decides whether it can tile by measuring children at their LayoutParams width
             // BEFORE weights are distributed, so a zero-width detail always "fits" — a portrait
@@ -191,6 +202,7 @@ public class DayNavHost extends LinearLayout {
         } else {
             // A permanent stack: pages only, no list pane, no tiling decision to observe.
             listPane = null;
+            listColumn = null;
             split = null;
             content = pages;
         }
@@ -416,9 +428,15 @@ public class DayNavHost extends LinearLayout {
         box.setLayoutParams(lp);
         searchLayout = box;
         searchEdit = edit;
-        // Directly under the app bar, so it reads as part of the list's own chrome.
-        int at = indexOfChild(appBar) + 1;
-        addView(box, at < 0 ? 0 : at);
+        if (listColumn != null) {
+            // Inside the list pane, above the list: the field belongs to the surface it filters
+            // (docs/search.md), and tiled that surface is one pane rather than the whole window.
+            listColumn.addView(box, 0);
+        } else {
+            // No pane to belong to — directly under the app bar, part of the list's own chrome.
+            int at = indexOfChild(appBar) + 1;
+            addView(box, at < 0 ? 0 : at);
+        }
         // A surface can be built with pages already stacked (a launch deep link), so start from
         // the current depth rather than assuming the root.
         syncSearchVisibility(myEntries());

@@ -873,7 +873,10 @@ jobs:
           # walkthrough variants render every Chinese glyph as a tofu box on both toolkits.
           case "${{ matrix.toolkit }}" in
             qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config fonts-noto-cjk ;;
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk ;;
+            # dbus supplies `dbus-run-session`: GTK's file dialogs are portal-backed and a
+            # runner has no session bus, so `day launch` starts a private one. Without it GTK
+            # reaches the portal through a NULL GDBusConnection and segfaults on the 2nd dialog.
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk dbus ;;
           esac
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8

@@ -131,6 +131,7 @@ public final class DayBridge {
     public static final int K_SEARCH_CHANGED = 23;
     /** A nav host's SlidingPaneLayout settled on a presentation (docs/size-classes.md). */
     public static final int K_NAV_PRESENTATION = 24;
+    public static final int K_APPEARANCE_CHANGED = 25;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -891,6 +892,13 @@ public final class DayBridge {
         return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
+    /** Report a light/dark switch to native (event kind 25), once the app has started.
+     *  DayActivity calls this from onConfigurationChanged; day-core restyles what it owns and
+     *  rebuilds app-painted surfaces. */
+    public static void appearanceChanged() {
+        if (started) nativeOnEvent(0L, K_APPEARANCE_CHANGED, 0, "");
+    }
+
     /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
      *  is mounted, enter swipe-to-reveal immersive mode — the platform's "first swipe shows
      *  the bars, second swipe acts" behavior, the closest analogue of iOS's screen-edge
@@ -1467,6 +1475,26 @@ public final class DayBridge {
     /** Forward an Activity lifecycle phase to native, once the app has started. */
     public static void lifecycle(int code) {
         if (started) nativeOnEvent(0L, K_LIFECYCLE, code, "");
+    }
+
+    // --- Navigation state (docs/navigation.md) --------------------------------
+    // A nav surface's `.restore(key)` persists through here, and DayActivity carries the map in
+    // the activity's SAVED INSTANCE STATE. That is deliberately not the same lifetime as prefs:
+    // Android reclaims a backgrounded process routinely, and a user returning through Recents
+    // expects the page they left, so the map has to survive process death. It must NOT survive
+    // the task, though — swiping the app off Recents, or launching it fresh, is the user asking
+    // for a clean start, and instance state is discarded in exactly those cases. Persisting to
+    // prefs instead would restore stale navigation onto a cold launch.
+    public static final java.util.HashMap<String, String> navState = new java.util.HashMap<>();
+
+    /** Read a `.restore` key (null when this launch carried no saved state). Called from Rust. */
+    public static String navLoad(String key) {
+        return navState.get(key);
+    }
+
+    /** Persist a `.restore` key for the next restore of this task instance. Called from Rust. */
+    public static void navSave(String key, String value) {
+        navState.put(key, value);
     }
 
     /** Forward a root size change (px) to native as a window resize (event kind 18). Posted:

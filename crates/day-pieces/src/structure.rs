@@ -272,6 +272,10 @@ pub struct List<T: 'static, K: 'static> {
     reorderable: bool,
     on_reorder: Option<Rc<dyn Fn(usize, usize)>>,
     reorder_guard: Option<Rc<dyn Fn(usize, usize) -> Reorder>>,
+    deletable: bool,
+    delete_label: String,
+    on_delete: Option<Rc<dyn Fn(usize)>>,
+    delete_guard: Option<Rc<dyn Fn(usize) -> bool>>,
 }
 
 /// A reorder guard's verdict on a proposed row move (docs/list.md): consulted synchronously from
@@ -290,6 +294,10 @@ pub enum Reorder {
 /// The `Event::Custom` tag carrying a committed reorder from the native drop back to the piece
 /// (`num` = the source row, `text` = the accepted target row).
 const REORDER_TAG: &str = "day.list.reorder";
+
+/// The `Event::Custom` tag carrying a committed delete from the native swipe back to the piece
+/// (`num` = the deleted row).
+const DELETE_TAG: &str = "day.list.delete";
 
 /// Build a recycling list from a reactive items closure, a key function, and a row builder.
 pub fn list<T, K, P>(
@@ -317,6 +325,10 @@ where
         reorderable: false,
         on_reorder: None,
         reorder_guard: None,
+        deletable: false,
+        delete_label: String::new(),
+        on_delete: None,
+        delete_guard: None,
     }
 }
 
@@ -407,6 +419,44 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> List<T, K> {
         self.reorder_guard = Some(Rc::new(g));
         self
     }
+
+    /// Let the user delete rows with the platform's own delete gesture — the iOS trailing swipe
+    /// action, Android's `ItemTouchHelper` swipe, ArkUI's `ListItem` swipe action — where the
+    /// backend supports it (probe `Cap::ListDelete`; docs/list.md has the matrix). Pair with
+    /// [`on_delete`](Self::on_delete) so the app's data follows, and optionally
+    /// [`delete_guard`](Self::delete_guard) to protect individual rows.
+    ///
+    /// The DESKTOP toolkits have no swipe idiom and answer `Unsupported`, so a list that must be
+    /// editable everywhere pairs this with an explicit control — a menu item or a button — rather
+    /// than leaving desktop users with no way to delete.
+    pub fn deletable(mut self, on: bool) -> Self {
+        self.deletable = on;
+        self
+    }
+
+    /// The label the platform puts on its delete affordance, localized by the app (`res::str::…`
+    /// formatted to a `String`). Left unset, each backend falls back to a trash glyph rather than
+    /// shipping an English word into every locale.
+    pub fn delete_label(mut self, text: impl Into<String>) -> Self {
+        self.delete_label = text.into();
+        self
+    }
+
+    /// A committed delete: row `index` is gone. Apply the same removal to the backing data
+    /// (`v.remove(index)`) — and persist it if the change should survive a relaunch. Runs on the
+    /// main thread at the next event drain, never inside the native swipe callback.
+    pub fn on_delete(mut self, f: impl Fn(usize) + 'static) -> Self {
+        self.on_delete = Some(Rc::new(f));
+        self
+    }
+
+    /// Protect individual rows: called synchronously before the affordance is offered, so a row
+    /// that answers `false` shows no delete action rather than one that fails on use. Keep it
+    /// pure — it runs inside the platform's swipe callback.
+    pub fn delete_guard(mut self, g: impl Fn(usize) -> bool + 'static) -> Self {
+        self.delete_guard = Some(Rc::new(g));
+        self
+    }
 }
 
 impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
@@ -416,6 +466,8 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
             selectable: self.on_select.is_some() || self.on_selection.is_some(),
             multi_select: self.multi_select,
             reorderable: self.reorderable,
+            deletable: self.deletable,
+            delete_label: self.delete_label.clone(),
         };
         let node = cx.leaf(
             kinds::LIST,
@@ -482,6 +534,18 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
             });
         }
 
+        // A committed native delete, deferred to the event drain (never run inside the
+        // platform's swipe callback): hand the app the row the native side animated away.
+        if let Some(on_delete) = self.on_delete.clone() {
+            cx.on(node, move |ev| {
+                if let Event::Custom { tag, num, .. } = ev
+                    && *tag == DELETE_TAG
+                {
+                    on_delete(*num as usize);
+                }
+            });
+        }
+
         // The type-erased driver day-core drives on cell pulls.
         let driver = ListDriver {
             row_height: self.row_height,
@@ -519,6 +583,39 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                     BuiltRow { scope, rebind }
                 })
             },
+            delete: self.deletable.then(|| ListDeleteDriver {
+                can_delete: {
+                    let guard = self.delete_guard.clone();
+                    Box::new(move |i| guard.as_ref().is_none_or(|g| g(i)))
+                },
+                // Commit: drop the row from the snapshot + tokens NOW (subsequent
+                // len/token_at/bind_row serve the shorter list while the native removal
+                // animates), arm the echo skip, and defer the app's callback.
+                deleted: {
+                    let (snapshot, tokens, echo) =
+                        (snapshot.clone(), tokens.clone(), pending_echo.clone());
+                    Box::new(move |index| {
+                        {
+                            let mut snap = snapshot.borrow_mut();
+                            let mut toks = tokens.borrow_mut();
+                            if index >= snap.len() {
+                                return;
+                            }
+                            snap.remove(index);
+                            toks.remove(index);
+                            *echo.borrow_mut() = Some(toks.clone());
+                        }
+                        enqueue_event(
+                            rnode_to_id(node),
+                            Event::Custom {
+                                tag: DELETE_TAG,
+                                num: index as f64,
+                                text: String::new(),
+                            },
+                        );
+                    })
+                },
+            }),
             reorder: self.reorderable.then(|| ListReorderDriver {
                 // The guard's verdict, encoded for the sync seam: accepted index or -1.
                 can_move: {

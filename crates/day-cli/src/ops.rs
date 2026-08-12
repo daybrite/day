@@ -483,11 +483,43 @@ pub fn launch(
                     // with the toolkit's own display error, which is more actionable than
                     // "No such file or directory" from the wrapper.
                     if Command::new("xvfb-run").arg("--help").output().is_ok() {
-                        status("Headless", "wrapping in xvfb-run (no DISPLAY on this host)");
-                        let mut c = Command::new("xvfb-run");
-                        c.args(["-a", "-s", &format!("-screen 0 {width}x{height}x24")])
-                            .arg(&outcome.artifact)
-                            .env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
+                        // …and under a session bus, when one can be had. A headless runner has no
+                        // D-Bus session, and GTK's file dialogs are portal-backed: with no bus
+                        // `g_bus_get` yields NULL and GTK carries on with it, which shows up as
+                        //   g_dbus_connection_send_message_with_reply_finish:
+                        //     assertion 'G_IS_DBUS_CONNECTION (connection)' failed
+                        // and then SIGSEGV on the NEXT dialog. `dbus-run-session` starts a private
+                        // bus for the app's lifetime and tears it down after, so the portal call
+                        // gets a real connection — and fails cleanly (no portal service answers)
+                        // instead of dereferencing nothing.
+                        let bus = Command::new("dbus-run-session")
+                            .arg("--version")
+                            .output()
+                            .is_ok_and(|o| o.status.success());
+                        let screen = format!("-screen 0 {width}x{height}x24");
+                        let mut c = if bus {
+                            status(
+                                "Headless",
+                                "wrapping in dbus-run-session + xvfb-run (no DISPLAY, no session bus)",
+                            );
+                            let mut c = Command::new("dbus-run-session");
+                            c.arg("--")
+                                .arg("xvfb-run")
+                                .args(["-a", "-s", &screen])
+                                .arg(&outcome.artifact);
+                            c
+                        } else {
+                            // No dbus-run-session: still better off under xvfb than not running at
+                            // all, and an app that never opens a file dialog is unaffected.
+                            status(
+                                "Headless",
+                                "wrapping in xvfb-run (no DISPLAY on this host; no                                  dbus-run-session — GTK file dialogs may be unstable)",
+                            );
+                            let mut c = Command::new("xvfb-run");
+                            c.args(["-a", "-s", &screen]).arg(&outcome.artifact);
+                            c
+                        };
+                        c.env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
                             .env("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
                         c
                     } else {

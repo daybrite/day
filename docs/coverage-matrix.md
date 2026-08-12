@@ -64,6 +64,7 @@ An app branches on this rather than on the target name.
 |---|---|---|---|---|---|---|---|---|
 | `ListRecycling` | – | – | – | – | E | – | – | E |
 | `ListReorder` | N | N | N | N | N | N | N | E |
+| `ListDelete` | – | N | – | – | – | – | – | – |
 | `Lottie` | – | – | – | – | – | – | – | – |
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | – | N | N | N | – | – | – |

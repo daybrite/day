@@ -37,6 +37,20 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // first frame.
 
         DayBridge.ctx = this;
+        lastNightMode = DayBridge.isDarkMode();
+        // Navigation state saved before this process was reclaimed (DayBridge.navState). Restored
+        // BEFORE native starts, so the first build of a `.restore(key)` surface reads it. A cold
+        // launch has no saved state and the map stays empty, which is how a fresh start stays
+        // fresh.
+        if (savedInstanceState != null) {
+            Bundle nav = savedInstanceState.getBundle("day.nav");
+            if (nav != null) {
+                for (String key : nav.keySet()) {
+                    String value = nav.getString(key);
+                    if (value != null) DayBridge.navState.put(key, value);
+                }
+            }
+        }
         final DayFixed root = new DayFixed(this);
         // A focusable root gives "focus nowhere" a home (docs/focus.md): resigning a field
         // hands focus here instead of snapping to the first focusable view.
@@ -221,6 +235,42 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         if (isFinishing()) DayBridge.lifecycle(7); // WillTerminate
         super.onDestroy();
     }
+
+    /** Carry Day's navigation state (DayBridge.navState) into the task's saved instance state, so
+     *  a process the system reclaims while backgrounded comes back on the page the user left. */
+    @Override protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        if (DayBridge.navState.isEmpty()) return;
+        Bundle nav = new Bundle();
+        for (java.util.Map.Entry<String, String> e : DayBridge.navState.entrySet()) {
+            nav.putString(e.getKey(), e.getValue());
+        }
+        out.putBundle("day.nav", nav);
+    }
+
+    /** Configuration changes the manifest keeps us alive through (orientation, uiMode, density,
+     *  fontScale …). Size changes already ride the root's onSizeChanged, but a light/dark switch
+     *  has no size to report, so without this nothing downstream learns it happened and
+     *  `day::dark_mode()` stays stuck on the scheme the app launched in.
+     *
+     *  This reports the transition; it does not re-theme the window. A Material widget resolves
+     *  its colors from theme attributes when it is inflated and does not re-resolve them, so the
+     *  already-built view tree keeps the scheme it was born with — which is why this backend
+     *  answers `Cap::Appearance` with Unsupported. Applying a scheme to live views is the
+     *  platform's activity-recreation path, and day-android does not yet survive a second
+     *  nativeStart in one process. What this does buy: `dark_mode()` is a reactive signal, so app
+     *  code reading it recolors, and it is correct at the moment it is read rather than stale. */
+    @Override public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        boolean night = (newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        if (night == lastNightMode) return;
+        lastNightMode = night;
+        DayBridge.appearanceChanged();
+    }
+
+    /** The night-mode bit the window is currently themed for; seeded in onCreate. */
+    private boolean lastNightMode = false;
 
     @Override public void onTrimMemory(int level) {
         super.onTrimMemory(level);

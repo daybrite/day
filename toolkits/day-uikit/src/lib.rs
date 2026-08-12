@@ -1984,6 +1984,8 @@ mod imp {
         source: RefCell<Option<ListSource>>,
         row_height: std::cell::Cell<f64>,
         selectable: std::cell::Cell<bool>,
+        /// The app's localized word for the swipe action (docs/list.md); empty ⇒ trash glyph.
+        delete_label: RefCell<String>,
     }
 
     define_class!(
@@ -2100,6 +2102,82 @@ mod imp {
                 }
             }
 
+            // --- swipe-to-delete (docs/list.md). `UISwipeActionsConfiguration` is the modern
+            // spelling: it gives the full native UX — the row tracking the finger, the red
+            // action revealing behind it, the full-swipe shortcut — where the older
+            // `commitEditingStyle` pair only offered a fixed Delete button. Returning `None`
+            // means this row has no swipe action, which is exactly how a guarded row declines.
+            #[unsafe(method_id(tableView:trailingSwipeActionsConfigurationForRowAtIndexPath:))]
+            fn trailing_swipe_actions(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                // The whole body runs inside a closure: `define_class!`'s `method_id` return
+                // shim leaves no room for an early `return None`, but a closure gives `?` back.
+                (|| -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                    let row = unsafe { index_path.row() } as usize;
+                    let del = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.delete.clone())?;
+                    // A guarded row offers NO action rather than one that fails on use.
+                    if !(del.can_delete)(row) {
+                        return None;
+                    }
+                    let mtm = MainThreadMarker::new()?;
+                    let label = self.ivars().delete_label.borrow().clone();
+                    let title = (!label.is_empty()).then(|| NSString::from_str(&label));
+                    let tv: Retained<objc2_ui_kit::UITableView> = Retained::from(tv);
+                    let path: Retained<objc2_foundation::NSIndexPath> = Retained::from(index_path);
+                    let handler = block2::RcBlock::new(
+                        move |_a: NonNull<objc2_ui_kit::UIContextualAction>,
+                              _v: NonNull<UIView>,
+                              done: NonNull<block2::DynBlock<dyn Fn(objc2::runtime::Bool)>>| {
+                            // Commit through the seam FIRST — it shortens Day's snapshot
+                            // synchronously — then let the table animate the row away. Deleting
+                            // the row natively (rather than reloading) keeps the swipe's own
+                            // animation continuous into the removal.
+                            (del.delete_row)(row);
+                            let paths =
+                                objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(&path));
+                            unsafe {
+                                tv.deleteRowsAtIndexPaths_withRowAnimation(
+                                    &paths,
+                                    objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                                );
+                                // Report the action finished; the row is gone, so the swipe must
+                                // not spring back.
+                                done.as_ref().call((objc2::runtime::Bool::YES,));
+                            }
+                        },
+                    );
+                    let action = unsafe {
+                        objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
+                            objc2_ui_kit::UIContextualActionStyle::Destructive,
+                            title.as_deref(),
+                            block2::RcBlock::as_ptr(&handler),
+                            mtm,
+                        )
+                    };
+                    // No app label ⇒ the wordless idiom: a trash glyph, legible in every locale.
+                    if title.is_none()
+                        && let Some(img) =
+                            objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str("trash"))
+                    {
+                        unsafe { action.setImage(Some(&img)) };
+                    }
+                    Some(
+                        objc2_ui_kit::UISwipeActionsConfiguration::configurationWithActions(
+                            &objc2_foundation::NSArray::from_retained_slice(&[action]),
+                            mtm,
+                        ),
+                    )
+                })()
+            }
+
             // The guard's live veto/override: UIKit proposes a landing slot while the finger
             // moves; returning the source path refuses it (the gap stays home), another path
             // retargets it — the affordance mirrors the app's answer before the drop.
@@ -2166,12 +2244,14 @@ mod imp {
             node: NodeId,
             selectable: bool,
             row_height: f64,
+            delete_label: String,
         ) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(ListIvars {
                 node,
                 source: RefCell::new(None),
                 row_height: std::cell::Cell::new(row_height),
                 selectable: std::cell::Cell::new(selectable),
+                delete_label: RefCell::new(delete_label),
             });
             unsafe { msg_send![super(this), init] }
         }
@@ -2812,6 +2892,9 @@ mod imp {
                 | Cap::TextSpellCheck
                 // UITableView's own drag pipeline: long-press lift + gap, no editing mode.
                 | Cap::ListReorder
+                // Trailing swipe actions: the row tracks the finger, the destructive action
+                // reveals behind it, and a full swipe commits (docs/list.md).
+                | Cap::ListDelete
                 // A `UISplitViewController` hosts every `selector(Sidebar)`, so two columns are
                 // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
                 // iPhone in landscape (docs/size-classes.md).
@@ -3174,7 +3257,8 @@ mod imp {
                             objc2_ui_kit::UITableViewStyle::Plain,
                         )
                     };
-                    let data = DayListData::new(mtm, id, p.selectable, row_height);
+                    let data =
+                        DayListData::new(mtm, id, p.selectable, row_height, p.delete_label.clone());
                     unsafe {
                         table.setRowHeight(row_height);
                         table.setDataSource(Some(ProtocolObject::from_ref(&*data)));

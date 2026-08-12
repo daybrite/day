@@ -30,6 +30,8 @@ pub struct ListDriver {
     pub build: Box<dyn Fn(usize, RNode) -> BuiltRow>,
     /// Drag-to-reorder half, present when the piece is `.reorderable()` (docs/list.md).
     pub reorder: Option<ListReorderDriver>,
+    /// Swipe-to-delete half, present when the piece is `.deletable()` (docs/list.md).
+    pub delete: Option<ListDeleteDriver>,
 }
 
 /// The reorder closures the `list()` piece supplies (docs/list.md). Exposed to the backend as
@@ -41,6 +43,17 @@ pub struct ListReorderDriver {
     /// Commit an accepted move: rotates the piece's snapshot + tokens synchronously and defers
     /// the app's `on_reorder` callback to the next event drain.
     pub moved: Box<dyn Fn(usize, usize)>,
+}
+
+/// The delete closures the `list()` piece supplies (docs/list.md). Exposed to the backend as
+/// [`day_spec::ListDelete`] by [`make_source`]; also driven directly by [`list_try_delete`]
+/// (the dayscript `delete_row` step and the mock probe).
+pub struct ListDeleteDriver {
+    /// Consult the app's guard: may this row be deleted?
+    pub can_delete: Box<dyn Fn(usize) -> bool>,
+    /// Commit an accepted delete: drops the row from the piece's snapshot + tokens synchronously
+    /// and defers the app's `on_delete` callback to the next event drain.
+    pub deleted: Box<dyn Fn(usize)>,
 }
 
 /// A freshly built row: its `Scope` (owns the row's reactive graph) and a rebind writer that
@@ -132,11 +145,37 @@ pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'
     Ok(accepted)
 }
 
+/// Programmatically delete a list row through the same guard → commit path a native swipe takes
+/// (docs/list.md): consult the piece's guard, drop the row from the snapshot, defer the app's
+/// `on_delete`, and tell the native host to re-query. This is how the dayscript `delete_row` step
+/// and the mock probe drive deletion without a native gesture. Call with no borrow held.
+pub fn list_try_delete(node: RNode, index: usize) -> Result<(), &'static str> {
+    let driver = with_tree(|t| t.list_driver(node)).ok_or("no list at this node")?;
+    let Some(del) = driver.delete.as_ref() else {
+        return Err("list is not deletable");
+    };
+    if index >= (driver.len)() {
+        return Err("row index out of bounds");
+    }
+    if !(del.can_delete)(index) {
+        return Err("delete denied by the guard");
+    }
+    (del.deleted)(index);
+    // No native animation on this path — a reload re-binds the visible rows without the deleted one.
+    list_reload(node);
+    Ok(())
+}
+
 /// Build the `ListSource` the backend calls from its data-source. `len`/`token_at` read the driver
 /// directly (no tree). `bind_row` phases the tree borrow around the build + flush (see module doc).
 pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
-    let (d_len, d_tok, d_reorder, d_bind) =
-        (driver.clone(), driver.clone(), driver.clone(), driver);
+    let (d_len, d_tok, d_reorder, d_delete, d_bind) = (
+        driver.clone(),
+        driver.clone(),
+        driver.clone(),
+        driver.clone(),
+        driver,
+    );
     ListSource {
         len: Rc::new(move || (d_len.len)()),
         token_at: Rc::new(move |i| (d_tok.token_at)(i)),
@@ -162,6 +201,16 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
             with_tree(|t| t.list_layout_cell(node, key));
         }),
         recycle: Rc::new(|_cell| { /* v1: cells stay cached in the reuse pool */ }),
+        delete: d_delete.delete.as_ref().map(|_| day_spec::ListDelete {
+            can_delete: {
+                let d = d_delete.clone();
+                Rc::new(move |i| (d.delete.as_ref().expect("mapped from Some").can_delete)(i))
+            },
+            delete_row: {
+                let d = d_delete.clone();
+                Rc::new(move |i| (d.delete.as_ref().expect("mapped from Some").deleted)(i))
+            },
+        }),
         reorder: d_reorder.reorder.as_ref().map(|_| day_spec::ListReorder {
             can_move: {
                 let d = d_reorder.clone();

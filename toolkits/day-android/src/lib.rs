@@ -832,6 +832,7 @@ mod imp {
     const K_SAFE_AREA: i32 = bridge::BridgeKind::SafeArea as i32;
     const K_WINDOW_CLOSED: i32 = bridge::BridgeKind::WindowClosed as i32;
     const K_WINDOW_FOCUSED: i32 = bridge::BridgeKind::WindowFocused as i32;
+    const K_APPEARANCE_CHANGED: i32 = bridge::BridgeKind::AppearanceChanged as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table.
@@ -967,6 +968,12 @@ mod imp {
                     leading: p[2] / d,
                     trailing: p[3] / d,
                 });
+                return;
+            }
+            // Light/dark switch (DayActivity.onConfigurationChanged). Not an Event — nothing to
+            // route to a node; day-core restyles what it owns and rebuilds app-painted surfaces.
+            K_APPEARANCE_CHANGED => {
+                day_core::note_appearance_changed();
                 return;
             }
             K_WINDOW_RESIZED => {
@@ -2676,6 +2683,55 @@ mod imp {
         }
     }
 
+    /// Navigation persistence backed by the Activity's saved instance state (docs/navigation.md).
+    /// The map lives on the Java side (`DayBridge.navState`) because that is where the platform
+    /// hands it out and takes it back — DayActivity restores it in `onCreate` before native
+    /// starts, and writes it into the outgoing Bundle in `onSaveInstanceState`. Its lifetime is
+    /// the TASK: a process the system reclaims comes back on the page the user left, while a
+    /// cold launch, or a task the user swiped off Recents, starts clean.
+    struct InstanceNavStore;
+
+    impl day_core::NavStore for InstanceNavStore {
+        fn load(&self, key: &str) -> Option<String> {
+            if !vm_ready() {
+                return None;
+            }
+            with_env(|env| {
+                let k = jstr(env, key);
+                let obj = env
+                    .dcall_static(
+                        BRIDGE,
+                        "navLoad",
+                        "(Ljava/lang/String;)Ljava/lang/String;",
+                        &[JValue::Object(&k)],
+                    )
+                    .ok()?
+                    .l()
+                    .ok()?;
+                if obj.is_null() {
+                    return None;
+                }
+                env.dstr(&as_jstring(obj)).ok()
+            })
+        }
+
+        fn save(&self, key: &str, value: &str) {
+            if !vm_ready() {
+                return;
+            }
+            with_env(|env| {
+                let k = jstr(env, key);
+                let v = jstr(env, value);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "navSave",
+                    "(Ljava/lang/String;Ljava/lang/String;)V",
+                    &[JValue::Object(&k), JValue::Object(&v)],
+                );
+            });
+        }
+    }
+
     impl Platform for Android {
         const TARGET: &'static str = "android-mdc";
         const TOOLKIT: &'static str = "mdc";
@@ -2685,6 +2741,12 @@ mod imp {
             let (root, size) = ROOT
                 .with(|r| r.borrow_mut().take())
                 .expect("day-android: init() not called");
+            // Navigation restore is the platform's own instance-state contract here, not an app
+            // opt-in (docs/navigation.md): every Android app is expected to come back where the
+            // user left it after the system reclaims its process. Installed before `ready` builds
+            // the tree, so the first build of a `.restore(key)` surface reads it; an app that
+            // installs its own store later still replaces this one.
+            day_core::set_nav_store(std::rc::Rc::new(InstanceNavStore));
             ready(self, root, size);
         }
 

@@ -270,11 +270,15 @@ pub mod bridge {
         /// The toolkit's own adaptive nav container changed presentation and is reporting it
         /// (docs/size-classes.md). `num` = 1.0 for split, 0.0 for stacked.
         NavPresentation = 24,
+        /// The system switched between light and dark appearance. No payload; node id ignored
+        /// and no `Event` is emitted — Rust calls `day_core::note_appearance_changed`, the same
+        /// thing AppKit's and GTK's own scheme observers do.
+        AppearanceChanged = 25,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 23] = [
+        pub const ALL: [BridgeKind; 26] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -298,6 +302,9 @@ pub mod bridge {
             BridgeKind::WindowClosed,
             BridgeKind::WindowFocused,
             BridgeKind::ValueCommitted,
+            BridgeKind::SearchChanged,
+            BridgeKind::NavPresentation,
+            BridgeKind::AppearanceChanged,
         ];
     }
 
@@ -318,6 +325,21 @@ pub mod bridge {
                 );
             }
             assert_eq!(seen.len(), BridgeKind::ALL.len());
+        }
+
+        /// `ALL` is what the uniqueness check above sees, so a variant left out of it is a variant
+        /// nothing checks — which is how `SearchChanged` and `NavPresentation` sat outside the
+        /// table. The wire numbers are assigned densely from 0, so demanding the set be exactly
+        /// `0..len` catches both a gap and an omission.
+        #[test]
+        fn table_covers_every_wire_number() {
+            let mut nums: Vec<i32> = BridgeKind::ALL.iter().map(|k| *k as i32).collect();
+            nums.sort_unstable();
+            let dense: Vec<i32> = (0..BridgeKind::ALL.len() as i32).collect();
+            assert_eq!(
+                nums, dense,
+                "bridge kinds must be dense from 0 — a missing entry means a variant no test sees"
+            );
         }
     }
 }
@@ -862,6 +884,9 @@ pub struct ListSource {
     /// Drag-to-reorder seam, present when `ListProps::reorderable` (docs/list.md). `None` on
     /// non-reorderable lists — backends must not enable their drag machinery without it.
     pub reorder: Option<ListReorder>,
+    /// Swipe-to-delete seam, present when `ListProps::deletable` (docs/list.md). `None` on
+    /// non-deletable lists — backends must not offer their delete affordance without it.
+    pub delete: Option<ListDelete>,
 }
 
 /// The synchronous drag-to-reorder half of [`ListSource`] (docs/list.md). Both closures follow
@@ -878,6 +903,24 @@ pub struct ListReorder {
     /// snapshot BEFORE returning — so `len`/`token_at`/`bind_row` reflect the new order while the
     /// native move animates — and defers the app's own callback to the next event drain.
     pub move_row: std::rc::Rc<dyn Fn(usize, usize)>,
+}
+
+/// The synchronous swipe-to-delete half of [`ListSource`] (docs/list.md), shaped exactly like
+/// [`ListReorder`]: both closures are called on the UI thread from inside native swipe callbacks,
+/// outside any day-core borrow, and run to completion synchronously.
+///
+/// Each platform spells the gesture its own way — a trailing swipe action on iOS, an
+/// `ItemTouchHelper` swipe on Android, a `ListItem` swipe action on ArkUI — but all three ask the
+/// same two questions, so the seam is one pair of closures rather than three shapes.
+#[derive(Clone)]
+pub struct ListDelete {
+    /// May row `index` be deleted? Called before the affordance is offered, so a row the app
+    /// protects shows no delete action at all rather than one that fails on use.
+    pub can_delete: std::rc::Rc<dyn Fn(usize) -> bool>,
+    /// Commit: delete row `index`. Removes it from Day's row snapshot BEFORE returning — so
+    /// `len`/`token_at`/`bind_row` already reflect the shorter list while the native row-removal
+    /// animates — and defers the app's own callback to the next event drain.
+    pub delete_row: std::rc::Rc<dyn Fn(usize)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -994,6 +1037,12 @@ pub enum Cap {
     /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
     /// list renders normally but rows cannot be dragged (docs/list.md).
     ListReorder,
+    /// The toolkit realizes `ListProps::deletable` as the platform's own delete gesture —
+    /// `Native` where the platform ships one (UIKit's trailing swipe actions, Android's
+    /// `ItemTouchHelper`, ArkUI's `ListItem.swipeAction`), `Unsupported` on the desktop toolkits,
+    /// whose lists have no swipe idiom and where deletion belongs to a menu or a button
+    /// (docs/list.md).
+    ListDelete,
     Lottie,
     NativeSymbols,
     Snapshot,
@@ -2255,6 +2304,18 @@ pub mod props {
         /// drives the `ListSource::reorder` seam (validate via `can_move`, commit via `move_row`);
         /// probe `Cap::ListReorder` for per-backend support (docs/list.md).
         pub reorderable: bool,
+        /// Whether rows can be deleted by the platform's own delete gesture — a trailing swipe on
+        /// iOS and ArkUI, an `ItemTouchHelper` swipe on Android. The toolkit drives the
+        /// `ListSource::delete` seam (offer via `can_delete`, commit via `delete_row`); probe
+        /// `Cap::ListDelete` for per-backend support (docs/list.md). Desktop toolkits have no such
+        /// gesture and answer `Unsupported`; an app that must delete everywhere pairs this with an
+        /// explicit control (a menu item, a button) rather than relying on the swipe.
+        pub deletable: bool,
+        /// The label on that affordance, ALREADY LOCALIZED by the app. A toolkit cannot invent
+        /// translated text — it has no access to the app's catalog — so the string arrives with
+        /// the props. Empty means "no text": each backend falls back to its platform's own
+        /// wordless idiom (a trash glyph), which is honest in every language.
+        pub delete_label: String,
     }
 
     #[derive(Clone, Debug, PartialEq)]

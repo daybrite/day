@@ -293,6 +293,61 @@ fn os_crash_findings(
                 break; // the newest match is this run's
             }
         }
+        // Linux has no per-crash report file: what exists is a core, if the kernel was asked for
+        // one, and a debugger to read it with. day-break's artifact already names the signal and
+        // the faulting address; this is the half that gets FRAMES.
+        TargetKind::Desktop if cfg!(target_os = "linux") => {
+            looked.push("systemd-coredump (coredumpctl)".into());
+            let stem = process_stem(project, target);
+            if let Ok(o) = Command::new("coredumpctl")
+                .args(["info", "--no-pager", &stem])
+                .output()
+                && o.status.success()
+            {
+                let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if !text.is_empty() {
+                    out.push(Finding {
+                        source: format!("coredumpctl info {stem}"),
+                        body: head(&text, MAX_LINES),
+                    });
+                    return;
+                }
+            }
+            // No systemd-coredump (the GitHub runners use apport, and containers often disable
+            // both). Say what to turn on rather than leave a Linux crash with no frames at all —
+            // the kernel wrote "core dumped", so the core exists somewhere the pattern decides.
+            looked.push("a core file beside the app".into());
+            let core = newest_files(&project.root, 12).into_iter().find(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "core" || n.starts_with("core."))
+                    && modified_since(p, since)
+            });
+            match (core, which("gdb")) {
+                (Some(core), true) => {
+                    if let Ok(o) = Command::new("gdb")
+                        .args(["-batch", "-ex", "thread apply all bt"])
+                        .arg(process_path(project, target).unwrap_or_default())
+                        .arg(&core)
+                        .output()
+                    {
+                        out.push(Finding {
+                            source: format!("gdb backtrace ({})", core.display()),
+                            body: head(&String::from_utf8_lossy(&o.stdout), MAX_LINES),
+                        });
+                    }
+                }
+                (Some(core), false) => out.push(Finding {
+                    source: format!("core file ({})", core.display()),
+                    body: "no gdb on this host to read it — `apt install gdb`, then                            `gdb -batch -ex bt <exe> <core>`"
+                        .into(),
+                }),
+                (None, _) => crate::ops::status(
+                    "Diagnosis",
+                    "no core file — a Linux crash carries no frames without one. In CI:                      `ulimit -c unlimited` and `sudo sysctl -w kernel.core_pattern=core.%p`                      before the launch, then re-run.",
+                ),
+            }
+        }
         TargetKind::Android => {
             looked.push("adb logcat -b crash".into());
             let out_cmd = Command::new("adb")
@@ -371,6 +426,22 @@ fn wait_for_fresh_ips(dir: &Path, stem: &str, since: SystemTime, pid: Option<u32
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     false
+}
+
+/// Whether `bin` resolves on PATH.
+fn which(bin: &str) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(bin).is_file()))
+}
+
+/// The built executable, for a debugger that needs symbols to go with a core.
+fn process_path(project: &Project, target: &'static Target) -> Option<PathBuf> {
+    let stamp = project
+        .root
+        .join("build/day/artifacts")
+        .join(format!("{}-debug.path", target.name));
+    let path = std::fs::read_to_string(stamp).ok()?.trim().to_string();
+    (!path.is_empty()).then(|| PathBuf::from(path))
 }
 
 /// The process name a crash report is filed under: the built artifact's own file name, with a

@@ -27,13 +27,31 @@ public class DayFixed extends ViewGroup {
     }
 
     public void setChildFrame(View v, int x, int y, int w, int h) {
+        // Day recomputes every rect on a relayout and hands back the ones that did not move, so
+        // most calls here ask for the frame the child already has. Re-measuring and scheduling a
+        // pass for those is pure churn — and when the request arrives DURING a layout pass (day's
+        // engine runs off onSizeChanged), a requestLayout() also makes Android run a whole second
+        // pass and log "requestLayout() improperly called ... during layout".
+        int[] prev = frames.get(v);
+        if (prev != null && prev[0] == x && prev[1] == y && prev[2] == w && prev[3] == h
+                && v.getLeft() == x && v.getTop() == y
+                && v.getWidth() == w && v.getHeight() == h) {
+            return;
+        }
         frames.put(v, new int[]{x, y, w, h});
         v.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY),
                   MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY));
-        requestLayout();
+        if (isInLayout()) {
+            // Place it now, exactly as onLayout would from the same frames map: the position is
+            // already final, so a second pass would only arrive at it again.
+            v.layout(x, y, x + w, y + h);
+        } else {
+            requestLayout();
+        }
     }
 
     public void setContentSize(int w, int h) {
+        if (contentW == w && contentH == h) return;
         contentW = w;
         contentH = h;
         requestLayout();
