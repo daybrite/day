@@ -1323,6 +1323,11 @@ pub fn run() -> i32 {
                                 );
                                 let crashed =
                                     crate::diagnose::after_app_death(project, target, launched_at);
+                                // A device that no longer answers takes every remaining variant
+                                // with it: the next launch would install onto it, and `adb` and
+                                // `hdc` wait for a wedged device rather than failing. That wait
+                                // is what turned this arm's diagnosis into a six-hour job.
+                                let device_lost = !crate::script::device_alive(target);
                                 script_failures += steps_failed.max(1);
                                 losses += 1;
                                 // A CRASH ends the run. Every remaining variant would relaunch a
@@ -1332,9 +1337,11 @@ pub fn run() -> i32 {
                                 // A loss with no crash artifact stays per-variant (a slow emulator
                                 // drops the connection and the next variant often passes), but not
                                 // forever: two in a row is a pattern, not a hiccup.
-                                if crashed || losses >= 2 {
+                                if crashed || device_lost || losses >= 2 {
                                     let why = if crashed {
                                         "the app crashed"
+                                    } else if device_lost {
+                                        "the device stopped answering"
                                     } else {
                                         "the engine was lost twice"
                                     };

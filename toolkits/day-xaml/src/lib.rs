@@ -950,6 +950,9 @@ impl Toolkit for Xaml {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // TextBlock.BaselineOffset for text, font-derived for templated controls
+            // (docs/baseline.md).
+            Cap::BaselineAlignment => Support::Emulated,
             // text_area attributes (docs/textarea.md): editable and spell-check are plain TextBox
             // properties (IsReadOnly / IsSpellCheckEnabled).
             Cap::TextEditable | Cap::TextSpellCheck => Support::Native,
@@ -1847,6 +1850,18 @@ impl Toolkit for Xaml {
         unsafe {
             ffi::day_xaml_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve)
         };
+    }
+
+    /// A `TextBlock` publishes `BaselineOffset`; every other control keeps its text inside a
+    /// template that is not built until the control is in the visual tree, so the shim derives
+    /// those from the control's font size and its own padding/border (docs/baseline.md). Hence
+    /// `Emulated` — accurate for the Segoe faces XAML ships, not read off the platform.
+    fn first_baseline(&mut self, h: &WinHandle, kind: PieceKind, size: Size) -> Option<f64> {
+        if !day_spec::kind_has_baseline(kind) {
+            return None;
+        }
+        let b = unsafe { ffi::day_xaml_baseline(h.0, size.height) };
+        (b >= 0.0).then_some(b)
     }
 
     fn set_frame(&mut self, h: &WinHandle, frame: Rect, _anim: Option<&AnimSpec>) {

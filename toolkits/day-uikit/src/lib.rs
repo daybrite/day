@@ -2900,6 +2900,9 @@ mod imp {
                 // iPhone in landscape (docs/size-classes.md).
                 | Cap::NavSplit
                 | Cap::Appearance => Support::Native,
+                // Derived from the control's font: UIKit publishes baselines only as constraint
+                // anchors, with no number to read (docs/baseline.md).
+                Cap::BaselineAlignment => Support::Emulated,
                 // EMULATED, and the distinction is the whole design: UIKit owns the collapse and
                 // expand, on its own schedule and with its own animation, so Day observes it
                 // through `Event::NavPresentationChanged` rather than pushing a presentation
@@ -4226,6 +4229,36 @@ mod imp {
                     }
                 }
             }
+        }
+
+        /// UIKit exposes baselines only as layout ANCHORS (`firstBaselineAnchor`), which are
+        /// constraint endpoints with no readable number, so this derives the offset from the
+        /// view's own font instead (docs/baseline.md — `Cap::BaselineAlignment` is `Emulated`
+        /// here for exactly that reason).
+        ///
+        /// The model is the one UIKit itself uses for a single-line control: center the font's
+        /// line box in the view's height, and the baseline sits an ascender below the line's
+        /// top. For a label day has sized to its text that reduces to the ascender, and for a
+        /// bordered field it accounts for the inset the border adds.
+        fn first_baseline(&mut self, h: &Handle, kind: PieceKind, size: Size) -> Option<f64> {
+            if !day_spec::kind_has_baseline(kind) {
+                return None;
+            }
+            let font = unsafe {
+                if let Some(l) = (**h).downcast_ref::<UILabel>() {
+                    l.font()
+                } else if let Some(f) = (**h).downcast_ref::<UITextField>() {
+                    f.font()
+                } else if let Some(v) = (**h).downcast_ref::<UITextView>() {
+                    v.font()
+                } else if let Some(b) = (**h).downcast_ref::<UIButton>() {
+                    b.titleLabel().and_then(|l| l.font())
+                } else {
+                    None
+                }
+            }?;
+            let (ascender, line_height) = unsafe { (font.ascender(), font.lineHeight()) };
+            Some(((size.height - line_height) / 2.0).max(0.0) + ascender)
         }
 
         fn set_frame(&mut self, h: &Handle, frame: Rect, anim: Option<&AnimSpec>) {

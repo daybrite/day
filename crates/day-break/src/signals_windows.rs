@@ -143,7 +143,10 @@ pub(crate) fn install(sig_file: &Path) {
     unsafe {
         START_MS.store(GetTickCount64(), Ordering::Release);
         MAIN_TID.store(GetCurrentThreadId(), Ordering::Release);
-        MODULE_BASE.store(GetModuleHandleW(std::ptr::null()) as usize, Ordering::Release);
+        MODULE_BASE.store(
+            GetModuleHandleW(std::ptr::null()) as usize,
+            Ordering::Release,
+        );
         SetUnhandledExceptionFilter(Some(seh_filter));
         // Through a fn POINTER first: casting the zero-sized fn ITEM straight to an integer is a
         // different (and lint-rejected) operation. Same dance as the POSIX handler's sa_sigaction.
@@ -172,7 +175,12 @@ unsafe extern "system" fn seh_filter(info: *mut ExceptionPointers) -> i32 {
         } else {
             (*rec).exception_address as usize
         };
-        write_record(posix_signo(code), code as i64, addr, (*rec).exception_address as usize);
+        write_record(
+            posix_signo(code),
+            code as i64,
+            addr,
+            (*rec).exception_address as usize,
+        );
     }
     EXCEPTION_CONTINUE_SEARCH
 }
@@ -195,15 +203,15 @@ extern "C" fn abort_handler(_sig: i32) {
 /// The POSIX signal an exception corresponds to, so one reader serves both platforms.
 fn posix_signo(code: u32) -> i64 {
     match code {
-        0xC000_0005 => POSIX_SIGSEGV, // ACCESS_VIOLATION
-        0xC000_00FD => POSIX_SIGSEGV, // STACK_OVERFLOW — a fault on the guard page
-        0x8000_0002 => POSIX_SIGBUS,  // DATATYPE_MISALIGNMENT
-        0xC000_001D => POSIX_SIGILL,  // ILLEGAL_INSTRUCTION
-        0xC000_001E => POSIX_SIGILL,  // INVALID_DISPOSITION
+        0xC000_0005 => POSIX_SIGSEGV,              // ACCESS_VIOLATION
+        0xC000_00FD => POSIX_SIGSEGV,              // STACK_OVERFLOW — a fault on the guard page
+        0x8000_0002 => POSIX_SIGBUS,               // DATATYPE_MISALIGNMENT
+        0xC000_001D => POSIX_SIGILL,               // ILLEGAL_INSTRUCTION
+        0xC000_001E => POSIX_SIGILL,               // INVALID_DISPOSITION
         0xC000_0094..=0xC000_009A => POSIX_SIGFPE, // the INT_/FLT_ arithmetic family
-        0x8000_0003 => POSIX_SIGTRAP, // BREAKPOINT
-        0x8000_0004 => POSIX_SIGTRAP, // SINGLE_STEP
-        _ => POSIX_SIGSEGV,           // unknown fault: SEGV is the least misleading default
+        0x8000_0003 => POSIX_SIGTRAP,              // BREAKPOINT
+        0x8000_0004 => POSIX_SIGTRAP,              // SINGLE_STEP
+        _ => POSIX_SIGSEGV, // unknown fault: SEGV is the least misleading default
     }
 }
 
@@ -224,7 +232,10 @@ fn write_record(signo: i64, code: i64, addr: usize, pc: usize) {
     b.kv_i(b"main=", (tid == MAIN_TID.load(Ordering::Relaxed)) as i64);
     // SAFETY: parameterless Win32 query; saturating so a wrapped tick count cannot underflow.
     let now = unsafe { GetTickCount64() };
-    b.kv_u(b"up_ms=", now.saturating_sub(START_MS.load(Ordering::Relaxed)));
+    b.kv_u(
+        b"up_ms=",
+        now.saturating_sub(START_MS.load(Ordering::Relaxed)),
+    );
     // SAFETY: `file` is a valid handle owned for the process's life; the buffer outlives the call.
     unsafe {
         let bytes = b.as_bytes();

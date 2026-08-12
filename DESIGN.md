@@ -51,6 +51,7 @@ the architecture-level view and the rationale.
 | navigation — `routes!`, `selector`, `stack`, deep links, predictive back | docs/navigation.md | [§10.5](#105-navigation-and-presentation) |
 | native recycling lists | docs/list.md | [§10](#10-native-list-integration) |
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | docs/scroll.md | [§7.6](#76-scroll) |
+| baseline alignment — form rows and `VAlign::FirstBaseline` sitting text on one line | docs/baseline.md | [§7.10](#710-baseline-alignment) |
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | docs/duty-matrix.md | [§8.1](#81-the-toolkit-trait) |
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | docs/coverage-matrix.md | [§8.2](#82-the-open-renderer-registry) |
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | docs/recorder-matrix.md | [§14.6](#146-recording) |
@@ -1124,6 +1125,32 @@ engine's job:
   bumps the epoch and marks the tree `needs_measure` (Android delivery via [§9](#9-the-eight-toolkits-and-the-extra-combinations)'s configuration
   plumbing; frames are re-multiplied on the new scale).
 
+### §7.10 Baseline alignment
+
+> [!NOTE]
+> Shipped 2026-08. Normative detail: **docs/baseline.md**.
+
+Rows align text on its **baseline**, not on the middle of its box. The two agree only when both
+children put their text at the same height inside their own boxes, which real controls do not: a
+bordered field insets its text, an `NSDatePicker` is taller than the text it shows, and a
+Title-size number has a taller ascent than the Caption beside it.
+
+- One new duty, `Toolkit::first_baseline(handle, kind, size) -> Option<f64>` ([§8.1](#81-the-toolkit-trait)), reporting
+  the distance from the top of the widget's frame to its first text baseline. Defaulted to
+  `None`, which means "no baseline" and falls back to box alignment — so a backend that never
+  implements it renders exactly as it did before.
+- A **measurement**, not a layout mode. Day places every frame itself ([§7.1](#71-day-owns-layout)) and never hands a
+  row to a native baseline-aligning container, so what it needs is where the text sits inside the
+  box. That is also why nearly every toolkit can answer: AppKit, GTK and Android publish a
+  baseline directly; UIKit, Qt, XAML, ArkUI and the DOM derive one from the widget's font.
+- `Layout::baseline` lets a container answer for its content, and every single-child wrapper
+  forwards its child's. Without that, `.width(90)` on a label would silently remove it from the
+  alignment — decorators are invisible at the call site.
+- `labeled()` rows are baseline-aligned by default; `row(..).align(VAlign::FirstBaseline)` is the
+  explicit opt-in. `Cap::BaselineAlignment` reports where it is real.
+- Deliberately not done: baseline alignment between grid cells (docs/grid.md), and last-baseline
+  alignment — `labeled` uses the FIRST baseline, matching AppKit and CSS.
+
 ---
 
 ## §8 The Toolkit specification (`day-spec`)
@@ -1159,6 +1186,7 @@ pub trait Toolkit: Sized + 'static {
 
     // geometry (§7)
     fn measure(&mut self, h, kind: PieceKind, p: Proposal) -> Size;
+    fn first_baseline(&mut self, h, kind: PieceKind, size: Size) -> Option<f64> { None } // §7.10
     fn set_frame(&mut self, h, frame: Rect, anim: Option<&AnimSpec>);
 
     // scroll (§7.6)

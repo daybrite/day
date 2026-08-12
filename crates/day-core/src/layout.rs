@@ -16,6 +16,16 @@ use crate::tree::{Flex, RNode, Tree, TreeOps};
 pub trait Layout: 'static {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size;
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect);
+    /// Where this node's own first text baseline falls, measured from the top of a box of
+    /// `size` (docs/baseline.md). `None` — the default — means the node has no baseline to
+    /// offer, so a baseline-aligned parent falls back to box alignment for it.
+    ///
+    /// A container answers on behalf of its content: a column reports its first
+    /// baseline-bearing child's, shifted by where that child sits. Leaves never reach here —
+    /// [`LayoutOps::baseline_of`] asks the toolkit for those.
+    fn baseline(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], _size: Size) -> Option<f64> {
+        None
+    }
 }
 
 /// The engine surface visible to `Layout` implementations.
@@ -31,6 +41,10 @@ pub trait LayoutOps {
     fn children_of(&self, node: RNode) -> Vec<RNode>;
     /// Native intrinsic measurement of the CURRENT node (leaves).
     fn measure_leaf(&mut self, p: Proposal) -> Size;
+    /// A child's first text baseline at `size`, from the top of its box (docs/baseline.md):
+    /// the toolkit answers for a native leaf, the child's own [`Layout::baseline`] for a
+    /// container. `None` ⇒ no baseline to align to.
+    fn baseline_of(&mut self, child: RNode, size: Size) -> Option<f64>;
     /// Report scroll content size for the CURRENT node (§7.6).
     fn set_scroll_content(&mut self, content: Size);
 }
@@ -87,6 +101,9 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         };
         self.tree.toolkit.measure(&h, kind, p)
     }
+    fn baseline_of(&mut self, child: RNode, size: Size) -> Option<f64> {
+        baseline_node(self.tree, child, size)
+    }
     fn set_scroll_content(&mut self, content: Size) {
         let current = self.current;
         let Some(n) = self.tree.node_mut(current) else {
@@ -127,6 +144,51 @@ pub(crate) fn measure_node<B: Toolkit>(tree: &mut Tree<B>, node: RNode, p: Propo
         n.cache.push((key, size));
     }
     size
+}
+
+/// A node's first text baseline at `size`, from the top of its box (docs/baseline.md). A native
+/// leaf asks the toolkit; anything else asks its own `Layout`, which answers for its content.
+///
+/// Cached per size and invalidated with the measure cache, so a baseline-aligned row costs one
+/// toolkit call per child per measure generation rather than one per layout pass.
+pub(crate) fn baseline_node<B: Toolkit>(
+    tree: &mut Tree<B>,
+    node: RNode,
+    size: Size,
+) -> Option<f64> {
+    let key = Proposal::exact(size).cache_key();
+    let (layout, children, handle, kind) = {
+        let n = tree.node(node)?;
+        if !n.needs_measure
+            && let Some((k, b)) = n.baseline_cache
+            && k == key
+        {
+            return b;
+        }
+        (
+            n.layout.clone(),
+            n.children.clone(),
+            n.handle.clone(),
+            n.kind,
+        )
+    };
+    // A realized leaf's baseline is the toolkit's to report; a container's is its layout's.
+    let baseline = match handle {
+        Some(h) if children.is_empty() => tree.toolkit.first_baseline(&h, kind, size),
+        _ => {
+            let mut cx = EngineCx {
+                tree,
+                offset: Point::ZERO,
+                current: node,
+                parent_size: Size::ZERO,
+            };
+            layout.baseline(&mut cx, &children, size)
+        }
+    };
+    if let Some(n) = tree.node_mut(node) {
+        n.baseline_cache = Some((key, baseline));
+    }
+    baseline
 }
 
 /// `rect` is in the parent NODE's coordinates; `offset` is the parent's origin in the nearest
@@ -214,6 +276,24 @@ pub(crate) fn place_node<B: Toolkit>(
 // Built-in layouts
 // ---------------------------------------------------------------------------
 
+/// A single-child wrapper's baseline is its child's, moved by where the child sits inside it
+/// (docs/baseline.md).
+///
+/// Every wrapper below places its one child at its own top-left, so `dy` is 0 for all of them
+/// but padding. Without this a decorated piece reports NO baseline, and since decorators are
+/// invisible in the source — `.width(90)` on a label is still "a label" to the reader — a row
+/// would silently center the very children the author asked to align. That is exactly what
+/// happened to the showcase's first baseline demo.
+fn wrapper_baseline(
+    cx: &mut dyn LayoutOps,
+    children: &[RNode],
+    child_size: Size,
+    dy: f64,
+) -> Option<f64> {
+    let &c = children.first()?;
+    Some(cx.baseline_of(c, child_size)? + dy)
+}
+
 /// Single-child pass-through (root, wrappers, group fallback): top-leading.
 pub struct PassThrough;
 
@@ -229,6 +309,18 @@ impl Layout for PassThrough {
             let s = cx.measure_child(c, Proposal::exact(bounds.size));
             cx.place_child(c, Rect::from_size(s));
         }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
+    }
+}
+
+impl PassThrough {
+    /// Shared by every wrapper whose child measures at the wrapper's own size.
+    fn forward(cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        let &c = children.first()?;
+        let cs = cx.measure_child(c, Proposal::exact(size));
+        wrapper_baseline(cx, children, cs, 0.0)
     }
 }
 
@@ -251,6 +343,9 @@ impl Layout for FillThrough {
         if let Some(&c) = children.first() {
             cx.place_child(c, Rect::from_size(bounds.size));
         }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        wrapper_baseline(cx, children, size, 0.0)
     }
 }
 
@@ -276,6 +371,11 @@ pub enum CrossAlign {
     #[default]
     Center,
     Trailing,
+    /// Align children on their first text baseline rather than on their boxes
+    /// (docs/baseline.md). Horizontal rows only — a column's children are stacked along the
+    /// axis a baseline lives on, so there is nothing to align. A child whose toolkit reports no
+    /// baseline is centered, so a row of text and an image still looks right.
+    FirstBaseline,
 }
 
 impl CrossAlign {
@@ -283,7 +383,9 @@ impl CrossAlign {
     fn fraction(self) -> f64 {
         match self {
             CrossAlign::Leading => 0.0,
-            CrossAlign::Center => 0.5,
+            // No baseline to align to at this level (a column, or every child reported None):
+            // centering is the fallback the variant promises.
+            CrossAlign::Center | CrossAlign::FirstBaseline => 0.5,
             CrossAlign::Trailing => 1.0,
         }
     }
@@ -422,6 +524,40 @@ impl StackLayout {
         }
         sizes
     }
+
+    /// Each child's first baseline at the size it settled on, or `None` where it has none
+    /// (docs/baseline.md). Only a horizontal row aligns on baselines — down a column the
+    /// baselines sit on the stacking axis, where aligning them would pile the children up.
+    fn baselines(
+        &self,
+        cx: &mut dyn LayoutOps,
+        kids: &[RNode],
+        sizes: &[Size],
+    ) -> Vec<Option<f64>> {
+        if self.align != CrossAlign::FirstBaseline || self.axis != Axis::Horizontal {
+            return vec![None; kids.len()];
+        }
+        kids.iter()
+            .zip(sizes)
+            .map(|(&k, &s)| cx.baseline_of(k, s))
+            .collect()
+    }
+
+    /// The row's own cross-axis extent once its children are baseline-shifted: the deepest
+    /// baseline plus the deepest descent below one. A row measured at the tallest child's
+    /// height would clip whichever child got shifted furthest down.
+    fn baseline_cross_extent(&self, baselines: &[Option<f64>], sizes: &[Size]) -> Option<f64> {
+        let deepest = baselines.iter().flatten().copied().fold(f64::MIN, f64::max);
+        if deepest == f64::MIN {
+            return None;
+        }
+        let below = baselines
+            .iter()
+            .zip(sizes)
+            .filter_map(|(b, s)| b.map(|b| self.cross(*s) - b))
+            .fold(0.0, f64::max);
+        Some(deepest + below)
+    }
 }
 
 impl Layout for StackLayout {
@@ -440,11 +576,51 @@ impl Layout for StackLayout {
             _ => sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total,
         };
         let grows_cross = kids.iter().any(|&k| self.grows_cross(cx.flex_of(k)));
+        let tallest = sizes.iter().map(|&s| self.cross(s)).fold(0.0, f64::max);
+        // Baseline shifting can push a child below the tallest one's bottom edge, so the row
+        // takes the extent the shifted children actually occupy (docs/baseline.md).
+        let stacked = self
+            .baseline_cross_extent(&self.baselines(cx, &kids, &sizes), &sizes)
+            .unwrap_or(0.0)
+            .max(tallest);
         let cross_total = match cross_p {
             Some(cp) if grows_cross => cp,
-            _ => sizes.iter().map(|&s| self.cross(s)).fold(0.0, f64::max),
+            _ => stacked,
         };
         self.mk(main_total, cross_total)
+    }
+
+    /// A stack's own baseline is its first baseline-bearing child's, moved by where that child
+    /// sits: down a column that is the child's offset along the axis, across a row every
+    /// aligned child already shares the deepest baseline (docs/baseline.md).
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        let mut kids = Vec::new();
+        Self::flatten(cx, children, &mut kids);
+        if kids.is_empty() {
+            return None;
+        }
+        let sizes = self.negotiate(cx, &kids, Proposal::exact(size));
+        match self.axis {
+            Axis::Horizontal => {
+                let baselines: Vec<Option<f64>> = kids
+                    .iter()
+                    .zip(&sizes)
+                    .map(|(&k, &s)| cx.baseline_of(k, s))
+                    .collect();
+                let deepest = baselines.iter().flatten().copied().fold(f64::MIN, f64::max);
+                (deepest != f64::MIN).then_some(deepest)
+            }
+            Axis::Vertical => {
+                let mut pos = 0.0;
+                for (&k, &s) in kids.iter().zip(&sizes) {
+                    if let Some(b) = cx.baseline_of(k, s) {
+                        return Some(pos + b);
+                    }
+                    pos += self.main(s) + self.spacing;
+                }
+                None
+            }
+        }
     }
 
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
@@ -455,13 +631,21 @@ impl Layout for StackLayout {
         }
         let sizes = self.negotiate(cx, &kids, Proposal::exact(bounds.size));
         let bounds_cross = self.cross(bounds.size);
+        // Baseline row (docs/baseline.md): every child that has a baseline is shifted down so
+        // they all land on the deepest one, which is the offset that keeps every child inside
+        // the row. Children without one keep the centered fallback below.
+        let baselines = self.baselines(cx, &kids, &sizes);
+        let deepest = baselines.iter().flatten().copied().fold(f64::MIN, f64::max);
         let mut pos = 0.0;
         for (i, &k) in kids.iter().enumerate() {
             let s = sizes[i];
-            let cross_off = match self.align {
-                CrossAlign::Leading => 0.0,
-                CrossAlign::Center => ((bounds_cross - self.cross(s)) / 2.0).max(0.0),
-                CrossAlign::Trailing => (bounds_cross - self.cross(s)).max(0.0),
+            let cross_off = match (self.align, baselines[i]) {
+                (CrossAlign::FirstBaseline, Some(b)) => deepest - b,
+                (CrossAlign::Leading, _) => 0.0,
+                (CrossAlign::Center | CrossAlign::FirstBaseline, _) => {
+                    ((bounds_cross - self.cross(s)) / 2.0).max(0.0)
+                }
+                (CrossAlign::Trailing, _) => (bounds_cross - self.cross(s)).max(0.0),
             };
             let rect = match self.axis {
                 Axis::Vertical => Rect::new(cross_off, pos, s.width, s.height),
@@ -937,6 +1121,14 @@ impl Layout for PaddingLayout {
             );
         }
     }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        // The one wrapper with a real offset: its child starts below the top inset.
+        let inner = Size::new(
+            (size.width - self.insets.horizontal()).max(0.0),
+            (size.height - self.insets.vertical()).max(0.0),
+        );
+        wrapper_baseline(cx, children, inner, self.insets.top)
+    }
 }
 
 /// The `grow`/`grow_w`/`grow_h` decorators (§5.2): a single-child wrapper carrying grow [`Flex`]
@@ -979,6 +1171,9 @@ impl Layout for GrowLayout {
             cx.place_child(c, Rect::from_size(Size::new(w, h)));
         }
     }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
+    }
 }
 
 /// The `.max_width(w)` decorator (docs/layout.md): proposes at most `w` to the child, so
@@ -1008,6 +1203,9 @@ impl Layout for MaxWidthLayout {
             let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
             cx.place_child(c, Rect::from_size(Size::new(s.width.min(w), s.height)));
         }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
     }
 }
 
@@ -1072,6 +1270,9 @@ impl Layout for FrameLayout {
         if let Some(&c) = children.first() {
             cx.place_child(c, bounds);
         }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
     }
 }
 

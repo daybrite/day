@@ -2855,6 +2855,38 @@ void day_xaml_widget_size(void* h, double* ow, double* oh) {
     });
 }
 
+// First text baseline from the element's top, in DIPs, for a box `box_h` tall
+// (docs/baseline.md). A TextBlock publishes `BaselineOffset` directly; every other control keeps
+// its text in a TextBlock somewhere inside its template, but that template is not built until the
+// control is in the visual tree, so the general case derives the baseline the way XAML lays a
+// single line out: center the line box in the control's height, with the baseline an ascent below
+// its top. Returns -1 for an element with no text.
+double day_xaml_baseline(void* h, double box_h) {
+    double out = -1;
+    guard([&] {
+        auto el = elem(h);
+        if (auto tb = el.try_as<WUX::Controls::TextBlock>()) {
+            // The element's own answer, and it already accounts for the font in use.
+            out = tb.BaselineOffset();
+            return;
+        }
+        auto ctl = el.try_as<WUX::Controls::Control>();
+        if (!ctl) return;
+        const double size = ctl.FontSize();
+        if (!(size > 0)) return;
+        // The metrics ratios of the Windows UI font family; XAML exposes no per-font ascent
+        // outside a laid-out TextBlock, and these hold across the Segoe faces it ships with.
+        const double ascent = size * 0.86;
+        const double line = size * 1.33;
+        const auto pad = ctl.Padding();
+        const auto border = ctl.BorderThickness();
+        const double top = border.Top + pad.Top;
+        const double inner = box_h - top - pad.Bottom - border.Bottom;
+        out = top + (inner > line ? (inner - line) / 2.0 : 0.0) + ascent;
+    });
+    return out;
+}
+
 void day_xaml_set_name(void* h, const char* name) {
     guard([&] { WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name)); });
 }

@@ -263,6 +263,9 @@ unsafe extern "C" {
     pub fn day_xaml_set_enabled(w: *mut c_void, enabled: c_int);
     pub fn day_xaml_set_visible(w: *mut c_void, visible: c_int);
     pub fn day_xaml_widget_size(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
+    /// First text baseline from the element's top for a box `box_h` tall; `-1` ⇒ no text
+    /// (docs/baseline.md).
+    pub fn day_xaml_baseline(w: *mut c_void, box_h: f64) -> f64;
     pub fn day_xaml_set_name(w: *mut c_void, name: *const c_char);
 
     // gestures (docs/shapes.md): attach a native recognizer. kind 0 Tap / 1 LongPress / 2 Drag;

@@ -771,45 +771,11 @@ jobs:
         run: |
           ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1 \
             | xargs -I{} sh -c 'echo "--- most recent crash report: {} ---"; head -60 "{}"' || true
-      # The iPad capture set (`screenshots-ios-uikit-ipad`): the same variants on a booted iPad —
-      # `day launch` targets every booted simulator, so the iPhone shuts down first. The phone
-      # captures are stashed around the run (the variant names collide) and restored whatever
-      # happens, so `screenshots-ios-uikit` never carries a mix. Best-effort, like the Android
-      # emulator leg.
-      # The gallery no longer shows an iPad column (2026-08): this leg has been delivering nothing,
-      # so the column was only ever placeholders. The artifact is still uploaded — add
-      # `ios-uikit-ipad` back to website/gallery.config.mjs's `platforms` once it carries shots.
-      - name: Walkthrough (iPad)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        continue-on-error: true
-        working-directory: showcase-src
-        run: |
-          set -euo pipefail
-          SHOTS=build/day/screenshots/ios-uikit
-          if [ -d "$SHOTS" ]; then mv "$SHOTS" "$RUNNER_TEMP/shots-iphone"; fi
-          restore() {
-            rm -rf "$SHOTS"
-            if [ -d "$RUNNER_TEMP/shots-iphone" ]; then
-              mv "$RUNNER_TEMP/shots-iphone" "$SHOTS"
-            fi
-          }
-          trap restore EXIT
-          xcrun simctl shutdown all
-          UDID=$(xcrun simctl list devices available --json \
-            | jq -r '[.devices[] | .[] | select(.name | test("^iPad"))][0].udid')
-          echo "booting iPad $UDID"
-          xcrun simctl boot "$UDID"
-          xcrun simctl bootstatus "$UDID" -b
-          "$DAY_BIN" launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml \
-            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
-          mv "$SHOTS" "$RUNNER_TEMP/shots-ipad"
-      - name: Upload screenshots (iPad)
-        if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: screenshots-ios-uikit-ipad
-          path: ${{ runner.temp }}/shots-ipad
-          if-no-files-found: ignore
+      # No iPad leg (2026-08). It was the same walkthrough on a booted iPad, and it had stopped
+      # earning its ~19 minutes a run: the gallery dropped its column because the leg was
+      # delivering no screenshots to put in it. Bring a tablet back as its own parallel job rather
+      # than as extra minutes on the phone job, and re-add `ios-uikit-ipad` to
+      # website/gallery.config.mjs's `platforms` when it carries shots again.
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
       # the secrets these no-op and pack produces the unsigned device .ipa (dev tier, §20).
       - name: Import the distribution certificate
@@ -1174,58 +1140,12 @@ jobs:
           # The action runs each script line as its own `sh -c`, so `cd` must share the line.
           # Screenshot variants: light/dark × en/fr/ar/zh-CN (DAY_THEME rides the intent extras).
           script: cd showcase-src && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml && $DAY_BIN launch -p android-mdc --script dayscript/speech.yaml
-      # The tablet capture set (`screenshots-android-mdc-tablet`): the same variants on the stock
-      # Pixel Tablet profile, whose 600dp+ width tiles the navigation split
-      # (docs/size-classes.md). The phone captures are stashed around the run (the
-      # variant names collide) and restored whatever happens, so `screenshots-android-mdc`
-      # never carries a mix. Best-effort, like the phone emulator leg.
-      # The gallery no longer shows a tablet column (2026-08): this leg has been delivering
-      # nothing, so the column was only ever placeholders. The artifact is still uploaded — add
-      # `android-mdc-tablet` back to website/gallery.config.mjs's `platforms` once it carries
-      # shots. The wrapper is a FILE
-      # because the emulator action runs each `script` line as its own `sh -c` — a trap or
-      # function would not survive to the next line.
-      - name: Stage the tablet walkthrough wrapper
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          cat > "$RUNNER_TEMP/tablet-walkthrough.sh" <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          cd showcase-src
-          SHOTS=build/day/screenshots/android-mdc
-          if [ -d "$SHOTS" ]; then mv "$SHOTS" "$RUNNER_TEMP/shots-phone"; fi
-          restore() {
-            rm -rf "$SHOTS"
-            if [ -d "$RUNNER_TEMP/shots-phone" ]; then
-              mv "$RUNNER_TEMP/shots-phone" "$SHOTS"
-            fi
-          }
-          trap restore EXIT
-          "$DAY_BIN" launch -p android-mdc --script dayscript/walkthrough.yaml \
-            --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
-          mv "$SHOTS" "$RUNNER_TEMP/shots-tablet"
-          EOF
-          chmod +x "$RUNNER_TEMP/tablet-walkthrough.sh"
-      - name: Emulator walkthrough (android tablet)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        continue-on-error: true
-        uses: reactivecircus/android-emulator-runner@v2
-        env:
-          DAY_ANDROID_ABI: x86_64
-        with:
-          api-level: 34
-          arch: x86_64
-          profile: pixel_tablet
-          disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: bash $RUNNER_TEMP/tablet-walkthrough.sh
-      - name: Upload screenshots (android tablet)
-        if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: screenshots-android-mdc-tablet
-          path: ${{ runner.temp }}/shots-tablet
-          if-no-files-found: ignore
+      # No tablet leg (2026-08), for the iPad leg's reasons plus one of its own: a second emulator
+      # boot per run, for screenshots the gallery has no column for, and the leg that wedges. A
+      # hung pixel_tablet emulator is what left this job sitting until the six-hour timeout — `day
+      # launch` now gives up on a device that stopped answering, but the cheapest fix is not to
+      # boot a second emulator for nothing. Same restoration path as iOS: its own parallel job,
+      # and `android-mdc-tablet` back in website/gallery.config.mjs's `platforms`.
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7

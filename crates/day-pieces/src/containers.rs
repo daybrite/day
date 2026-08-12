@@ -28,6 +28,12 @@ pub enum VAlign {
     #[default]
     Center,
     Bottom,
+    /// Sit the children's text on one line rather than centering their boxes
+    /// (docs/baseline.md) — what a label beside a bordered field or a larger-type value wants,
+    /// since those put their text at different heights inside their own boxes. A child with no
+    /// text (an image, a slider) has no baseline and stays centered. Rows only; on a `column`
+    /// it reads as `Center`.
+    FirstBaseline,
 }
 
 pub struct Column<C: PieceSeq> {
@@ -101,6 +107,7 @@ impl<C: PieceSeq> Row<C> {
             VAlign::Top => CrossAlign::Leading,
             VAlign::Center => CrossAlign::Center,
             VAlign::Bottom => CrossAlign::Trailing,
+            VAlign::FirstBaseline => CrossAlign::FirstBaseline,
         };
         self
     }
@@ -209,6 +216,7 @@ impl<C: PieceSeq> GridRow<C> {
             VAlign::Top => CrossAlign::Leading,
             VAlign::Center => CrossAlign::Center,
             VAlign::Bottom => CrossAlign::Trailing,
+            VAlign::FirstBaseline => CrossAlign::FirstBaseline,
         });
         self
     }

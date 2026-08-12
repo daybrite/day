@@ -85,6 +85,10 @@ pub struct NodeData<H> {
     pub a11y: day_spec::A11yProps,
     // --- layout state (§7.4) ---
     pub cache: Vec<((u64, u64), Size)>,
+    /// The last `(size, first baseline)` this node answered (docs/baseline.md). One slot, not a
+    /// list: a baseline is asked for at the size the row already settled on, so the query
+    /// repeats at one size per pass. Invalidated with `needs_measure`, alongside `cache`.
+    pub baseline_cache: Option<((u64, u64), Option<f64>)>,
     pub probe: NodeProbe,
     pub needs_measure: bool,
     pub last_native_frame: Option<Rect>,
@@ -164,6 +168,7 @@ impl<B: Toolkit> Tree<B> {
             id: None,
             a11y: Default::default(),
             cache: Vec::new(),
+            baseline_cache: None,
             probe: NodeProbe::default(),
             needs_measure: true,
             last_native_frame: None,
@@ -201,6 +206,7 @@ impl<B: Toolkit> Tree<B> {
             id: None,
             a11y: Default::default(),
             cache: Vec::new(),
+            baseline_cache: None,
             probe: NodeProbe::default(),
             needs_measure: true,
             last_native_frame: None,
@@ -789,6 +795,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             id: None,
             a11y: Default::default(),
             cache: Vec::new(),
+            baseline_cache: None,
             probe,
             needs_measure: true,
             last_native_frame: None,
@@ -1302,6 +1309,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             id: None,
             a11y: Default::default(),
             cache: Vec::new(),
+            baseline_cache: None,
             probe: NodeProbe::default(),
             needs_measure: true,
             last_native_frame: None,

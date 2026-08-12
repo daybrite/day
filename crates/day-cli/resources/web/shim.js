@@ -189,6 +189,26 @@ const env = {
     const [w, h] = measure(text2, font, maxW);
     f64(out, 2).set([w, h]);
   },
+  // First text baseline from the element's top, in px, for a box `boxH` tall
+  // (docs/baseline.md). The browser knows the exact metrics: a canvas TextMetrics reports the
+  // font's ascent, and the element's own computed padding/border says where its text box starts
+  // — so an <input> with a border reports a lower baseline than a bare <div>, which is the
+  // whole point. Returns -1 when the element has no text of its own.
+  day_dom_baseline(id, boxH) {
+    const el = E(id);
+    if (!el) return -1;
+    const cs = getComputedStyle(el);
+    const m = baselineMetrics(cs.font);
+    if (!m) return -1;
+    // Content box: what the border and padding leave for the line.
+    const top = parseFloat(cs.borderTopWidth) || 0;
+    const padT = parseFloat(cs.paddingTop) || 0;
+    const padB = parseFloat(cs.paddingBottom) || 0;
+    const borderB = parseFloat(cs.borderBottomWidth) || 0;
+    const inner = Math.max(0, boxH - top - padT - padB - borderB);
+    // One line, centered in the content box — the same model every control uses for its text.
+    return top + padT + Math.max(0, (inner - m.line) / 2) + m.ascent;
+  },
   day_dom_width: (id) => E(id).clientWidth,
 
   day_dom_scroll_to(id, x, y, animated) {
@@ -897,6 +917,27 @@ const resizeObserver = new ResizeObserver((entries) => {
 // ---------------------------------------------------------------------------
 
 let measurer = null;
+// Font ascent + line height for a CSS `font` shorthand, from a canvas TextMetrics (the only
+// place the browser exposes real font metrics). Cached per font string — a form asks for the
+// same two or three fonts on every layout pass.
+let metricsCtx = null;
+const metricsCache = new Map();
+function baselineMetrics(font) {
+  if (!font) return null;
+  const hit = metricsCache.get(font);
+  if (hit !== undefined) return hit;
+  if (!metricsCtx) metricsCtx = document.createElement('canvas').getContext('2d');
+  metricsCtx.font = font;
+  const m = metricsCtx.measureText('Hxg');
+  // fontBoundingBox* is the font's own ascent/descent; actualBoundingBox* is this string's ink,
+  // which would make the answer depend on which letters happen to be in the label.
+  const ascent = m.fontBoundingBoxAscent;
+  const descent = m.fontBoundingBoxDescent;
+  const out = ascent > 0 ? { ascent, line: ascent + descent } : null;
+  metricsCache.set(font, out);
+  return out;
+}
+
 function measure(text, font, maxW) {
   if (!measurer) {
     measurer = div('');

@@ -32,6 +32,14 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+// Baseline derivation (day_qt_baseline): the text-bearing classes it asks about, plus the
+// float-precision metrics it derives from.
+#include <QAbstractButton>
+#include <QAbstractSpinBox>
+#include <QComboBox>
+#include <QDateTimeEdit>
+#include <QFontMetrics>
+#include <QTextEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QDrag>
@@ -691,6 +699,27 @@ void day_qt_size_hint(void *w, double *out_w, double *out_h) {
     *out_w = s.width();
     *out_h = s.height();
 }
+// First text baseline from the widget's top, in device-independent px, for a widget laid out
+// `h` tall (docs/baseline.md). Qt has no baseline-alignment protocol — QFormLayout aligns
+// boxes, not text — so this derives it the way Qt's own painters do: center one line of the
+// widget's font in the box, and the baseline sits an ascent below the line's top. Widgets with
+// no text return -1, which day reads as "no baseline, keep centering".
+double day_qt_baseline(void *w, double h) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    // A widget with no text has nothing to sit on a line. Qt has no "has text" predicate, so
+    // ask the layout-relevant classes directly and let everything else opt out.
+    const bool texty = qobject_cast<QLabel *>(widget) || qobject_cast<QLineEdit *>(widget) ||
+                       qobject_cast<QAbstractButton *>(widget) ||
+                       qobject_cast<QComboBox *>(widget) || qobject_cast<QTextEdit *>(widget) ||
+                       qobject_cast<QDateTimeEdit *>(widget) ||
+                       qobject_cast<QAbstractSpinBox *>(widget);
+    if (!texty) return -1.0;
+    QFontMetricsF fm(widget->font());
+    const double line = fm.height();
+    const double top = h > line ? (h - line) / 2.0 : 0.0;
+    return top + fm.ascent();
+}
+
 void day_qt_set_enabled(void *w, int enabled) {
     static_cast<QWidget *>(w)->setEnabled(enabled != 0);
 }

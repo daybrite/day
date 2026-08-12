@@ -2886,6 +2886,139 @@ fn form_aligns_labels_and_sections_carry_the_card_surface() {
     );
 }
 
+// ── Baseline alignment (docs/baseline.md) ──────────────────────────────────────────────────
+// The mock's text sits 12pt below the top of a bare label and (box - 16)/2 + 12 below the top of
+// a framed control, which is the same fact every real toolkit reports: a field insets its text.
+// Centering the two BOXES leaves those two text lines apart; these pin that they meet.
+
+#[test]
+fn labeled_rows_put_their_label_and_control_on_one_baseline() {
+    let name = Signal::new(String::new());
+    let probe = boot(move || form((section((labeled("Name", text_field(name).id("f1")),)),)));
+    flush_sync();
+
+    let (_, lbl) = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == "Name")
+        .expect("the label");
+    let (_, field) = probe.find_by_kind("day.text_field")[0].clone();
+
+    // Label: 16 tall, baseline 12 from its top. Field: 24 tall, baseline (24-16)/2 + 12 = 16.
+    // So the label has to sit 4pt lower than the field for the text to line up.
+    let label_baseline = lbl.frame.origin.y + 12.0;
+    let field_baseline = field.frame.origin.y + (field.frame.size.height - 16.0) / 2.0 + 12.0;
+    assert!(
+        (label_baseline - field_baseline).abs() < 0.01,
+        "label baseline {label_baseline} vs field baseline {field_baseline} \
+         (label at y={}, field at y={})",
+        lbl.frame.origin.y,
+        field.frame.origin.y
+    );
+    assert!(
+        lbl.frame.origin.y > field.frame.origin.y,
+        "the shorter label drops to meet the framed field's inset text"
+    );
+}
+
+#[test]
+fn a_control_with_no_baseline_keeps_its_row_centered() {
+    // A toggle has no text, so the mock reports no baseline for it and the row must fall back
+    // to centering — the guarantee that makes baseline-by-default safe on every backend.
+    let on = Signal::new(true);
+    let probe = boot(move || form((section((labeled("Sound", toggle(on).id("t1")),)),)));
+    flush_sync();
+
+    let (_, lbl) = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == "Sound")
+        .expect("the label");
+    let (_, tog) = probe.find_by_kind("day.toggle")[0].clone();
+    let label_mid = lbl.frame.origin.y + lbl.frame.size.height / 2.0;
+    let toggle_mid = tog.frame.origin.y + tog.frame.size.height / 2.0;
+    assert!(
+        (label_mid - toggle_mid).abs() < 0.01,
+        "no baseline on either side ⇒ centered: label mid {label_mid}, toggle mid {toggle_mid}"
+    );
+}
+
+#[test]
+fn decorated_children_keep_their_baseline() {
+    // `.width(..)`, `.padding(..)` and friends wrap the piece in a layout-only node. If those
+    // wrappers reported no baseline the row would silently center the very children the author
+    // asked to align — and because a decorator is invisible at the call site (`.width(90)` on a
+    // label still reads as "a label"), the failure looks like the feature simply not working.
+    let name = Signal::new(String::new());
+    let probe = boot(move || {
+        row((
+            label("Qty").width(90.0),
+            text_field(name).width(70.0).id("d-field"),
+            label("items").padding(4.0),
+        ))
+        .align(VAlign::FirstBaseline)
+        .any()
+    });
+    flush_sync();
+
+    let by = |text: &str| {
+        probe
+            .find_by_kind("day.label")
+            .into_iter()
+            .find(|(_, w)| w.text == text)
+            .map(|(_, w)| w.frame)
+            .expect("label present")
+    };
+    let lead = by("Qty");
+    let unit = by("items");
+    let field = probe.find_by_kind("day.text_field")[0].1.frame;
+
+    // All three carry the mock's 12pt ascent; the field's box adds its own inset, and the
+    // padded label starts 4pt into its wrapper — every one of those has to be accounted for.
+    let lead_baseline = lead.origin.y + 12.0;
+    let field_baseline = field.origin.y + (field.size.height - 16.0) / 2.0 + 12.0;
+    let unit_baseline = unit.origin.y + 12.0;
+    assert!(
+        (lead_baseline - field_baseline).abs() < 0.01
+            && (unit_baseline - field_baseline).abs() < 0.01,
+        "decorated children share the row's baseline: lead {lead_baseline}, \
+         field {field_baseline}, unit {unit_baseline}"
+    );
+}
+
+#[test]
+fn a_baseline_row_aligns_text_and_leaves_baseline_less_children_centered() {
+    // The public opt-in: `row(..).align(VAlign::FirstBaseline)`. A label, a framed field whose
+    // text is inset, and an image with no text at all.
+    let name = Signal::new(String::new());
+    let probe = boot(move || {
+        row((
+            label("Qty").id("b-label"),
+            text_field(name).id("b-field"),
+            image("icon".to_string()).id("b-image"),
+        ))
+        .align(VAlign::FirstBaseline)
+        .any()
+    });
+    flush_sync();
+
+    let (_, lbl) = probe.find_by_kind("day.label")[0].clone();
+    let (_, field) = probe.find_by_kind("day.text_field")[0].clone();
+    let (_, img) = probe.find_by_kind("day.image")[0].clone();
+
+    let label_baseline = lbl.frame.origin.y + 12.0;
+    let field_baseline = field.frame.origin.y + (field.frame.size.height - 16.0) / 2.0 + 12.0;
+    assert!(
+        (label_baseline - field_baseline).abs() < 0.01,
+        "row baselines meet: {label_baseline} vs {field_baseline}"
+    );
+    // The image reports no baseline, so it keeps the centered placement it always had.
+    assert!(
+        img.frame.origin.y >= 0.0 && img.frame.size.height > 0.0,
+        "the baseline-less child is still placed"
+    );
+}
+
 #[test]
 fn scroll_target_signal_drives_offset() {
     // A 400x600 window; 40 rows of ~20+ tall labels overflow the viewport for sure.

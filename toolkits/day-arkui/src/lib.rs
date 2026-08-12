@@ -1491,6 +1491,16 @@ mod imp {
             None
         }
 
+        /// Derived from the node's font size in the shim (docs/baseline.md): the ArkUI C
+        /// API publishes no baseline, so `Cap::BaselineAlignment` is `Emulated` here.
+        fn first_baseline(&mut self, h: &AHandle, kind: PieceKind, size: Size) -> Option<f64> {
+            if !day_spec::kind_has_baseline(kind) {
+                return None;
+            }
+            let b = unsafe { ffi::day_ark_baseline(h.0, size.height) };
+            (b >= 0.0).then_some(b)
+        }
+
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
             // A Swiper owns its pages' horizontal placement — size them, but don't position them
             // (a NODE_POSITION would fight the pager transform).
@@ -1658,6 +1668,8 @@ mod imp {
                 Cap::ListReorder => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
+                // Derived from NODE_FONT_SIZE — ArkUI publishes no baseline (docs/baseline.md).
+                Cap::BaselineAlignment => Support::Emulated,
                 // Multiton DayWindowAbility instances (docs/windows.md) — Native only when
                 // the ArkTS host registered the launchers; an older host degrades to the
                 // cover fallback.

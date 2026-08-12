@@ -151,6 +151,9 @@ unsafe extern "C" {
     pub fn day_qt_delete(w: *mut c_void);
     pub fn day_qt_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);
     pub fn day_qt_size_hint(w: *mut c_void, out_w: *mut c_double, out_h: *mut c_double);
+    /// First text baseline from the widget's top for a widget `h` tall; `-1` ⇒ no text
+    /// (docs/baseline.md).
+    pub fn day_qt_baseline(w: *mut c_void, h: c_double) -> c_double;
     pub fn day_qt_set_enabled(w: *mut c_void, enabled: c_int);
     pub fn day_qt_set_object_name(w: *mut c_void, name: *const c_char);
     pub fn day_qt_set_tooltip(w: *mut c_void, text: *const c_char);

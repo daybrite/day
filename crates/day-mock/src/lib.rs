@@ -360,14 +360,17 @@ fn fmt_rect(r: Rect) -> String {
 }
 
 /// Deterministic text metrics: 8pt per char, 16pt line height, greedy wrap.
+/// The mock's line box: one line of text is this tall, whatever it says.
+pub const MOCK_LINE_H: f64 = 16.0;
+
 pub fn text_size(text: &str, proposal: Proposal, wraps: bool) -> Size {
     let needed = 8.0 * text.chars().count() as f64;
     match (proposal.width, wraps) {
         (Some(w), true) if needed > w && w > 0.0 => {
             let lines = (needed / w).ceil();
-            Size::new(w, 16.0 * lines)
+            Size::new(w, MOCK_LINE_H * lines)
         }
-        _ => Size::new(needed, 16.0),
+        _ => Size::new(needed, MOCK_LINE_H),
     }
 }
 
@@ -377,6 +380,8 @@ impl Toolkit for MockToolkit {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // The mock answers `first_baseline` from its synthetic metrics (see below).
+            Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             // The mock "runs" backend-executed animation by recording the intent (probe-visible).
@@ -764,6 +769,24 @@ impl Toolkit for MockToolkit {
             fmt_size(size)
         ));
         size
+    }
+
+    /// A synthetic first baseline (docs/baseline.md), modelling the one fact that matters for
+    /// the layout math: text sits at different heights inside different widgets. The mock's
+    /// line box is 16pt with a 12pt ascent, and a widget that frames its text (a field, a
+    /// button) insets it — so a label beside a text field must drop by exactly that inset for
+    /// the two to share a line. Widgets with no text report `None`.
+    fn first_baseline(&mut self, h: &MockHandle, kind: PieceKind, size: Size) -> Option<f64> {
+        const ASCENT: f64 = 12.0;
+        let framed_inset = |box_h: f64| (box_h - MOCK_LINE_H) / 2.0 + ASCENT;
+        let s = self.state.borrow();
+        let w = s.widgets.get(&h.0).cloned().unwrap_or_default();
+        match kind {
+            kinds::LABEL => (!w.text.is_empty() || size.height > 0.0).then_some(ASCENT),
+            kinds::BUTTON | kinds::TEXT_FIELD | kinds::TEXT_AREA => Some(framed_inset(size.height)),
+            // No text, so no baseline — these are the children that keep centering.
+            _ => None,
+        }
     }
 
     fn set_frame(&mut self, h: &MockHandle, frame: Rect, anim: Option<&AnimSpec>) {

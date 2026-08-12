@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anstream::eprintln;
 
@@ -27,6 +27,16 @@ use crate::term::DIM;
 /// How much of a crash report to print. Enough for the header and the faulting thread, which is
 /// where the answer is; the whole `.ips` is hundreds of lines of loaded-image addresses.
 const MAX_LINES: usize = 60;
+
+/// Deadlines for the two kinds of tool this reaches for. Every one of them is optional to the
+/// diagnosis — a post-mortem that cannot finish must not outlive the crash it is describing, and
+/// a missing section says so in the output.
+///
+/// `DEVICE_CMD` covers `adb` and `simctl`, which wait indefinitely for a device that stopped
+/// answering (the emulator wedge this whole path exists to report on). `DEBUGGER` covers the
+/// host-side readers, where a large core legitimately takes a while.
+const DEVICE_CMD: Duration = Duration::from_secs(30);
+const DEBUGGER: Duration = Duration::from_secs(90);
 /// Stack frames to print from the faulting thread — past this it is runtime plumbing.
 const MAX_FRAMES: usize = 25;
 
@@ -206,10 +216,16 @@ fn break_store_dir(project: &Project, target: &'static Target, app_id: &str) -> 
             }
         }
         TargetKind::IosSim => {
-            let out = Command::new("xcrun")
-                .args(["simctl", "get_app_container", "booted", app_id, "data"])
-                .output()
-                .ok()?;
+            let out = crate::ops::output_within(
+                Command::new("xcrun").args([
+                    "simctl",
+                    "get_app_container",
+                    "booted",
+                    app_id,
+                    "data",
+                ]),
+                DEVICE_CMD,
+            )?;
             if !out.status.success() {
                 return None;
             }
@@ -299,10 +315,10 @@ fn os_crash_findings(
         TargetKind::Desktop if cfg!(target_os = "linux") => {
             looked.push("systemd-coredump (coredumpctl)".into());
             let stem = process_stem(project, target);
-            if let Ok(o) = Command::new("coredumpctl")
-                .args(["info", "--no-pager", &stem])
-                .output()
-                && o.status.success()
+            if let Some(o) = crate::ops::output_within(
+                Command::new("coredumpctl").args(["info", "--no-pager", &stem]),
+                DEBUGGER,
+            ) && o.status.success()
             {
                 let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 if !text.is_empty() {
@@ -325,12 +341,13 @@ fn os_crash_findings(
             });
             match (core, which("gdb")) {
                 (Some(core), true) => {
-                    if let Ok(o) = Command::new("gdb")
-                        .args(["-batch", "-ex", "thread apply all bt"])
-                        .arg(process_path(project, target).unwrap_or_default())
-                        .arg(&core)
-                        .output()
-                    {
+                    if let Some(o) = crate::ops::output_within(
+                        Command::new("gdb")
+                            .args(["-batch", "-ex", "thread apply all bt"])
+                            .arg(process_path(project, target).unwrap_or_default())
+                            .arg(&core),
+                        DEBUGGER,
+                    ) {
                         out.push(Finding {
                             source: format!("gdb backtrace ({})", core.display()),
                             body: head(&String::from_utf8_lossy(&o.stdout), MAX_LINES),
@@ -365,7 +382,11 @@ fn os_crash_findings(
             if let Some(dir) = dumps.as_ref() {
                 looked.push(format!("WER local dumps ({})", dir.display()));
                 for path in newest_files(dir, 8) {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let name = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
                     let mine = name.starts_with(&stem)
                         || pid.is_some_and(|p| name.contains(&format!(".{p}.")));
                     if mine && modified_since(&path, since) {
@@ -398,14 +419,16 @@ fn os_crash_findings(
                  ForEach-Object {{ $_.TimeCreated.ToString('s') + '  ' + $_.ProviderName; \
                  $_.Message }}"
             );
-            if let Ok(o) = Command::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
-                .output()
-            {
+            if let Some(o) = crate::ops::output_within(
+                Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", &ps]),
+                DEBUGGER,
+            ) {
                 let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
                 // Only OUR process: the runner's other apps file here too.
                 let mine = text.contains(&stem)
-                    || pid.is_some_and(|p| text.contains(&format!("{p:x}")) || text.contains(&p.to_string()));
+                    || pid.is_some_and(|p| {
+                        text.contains(&format!("{p:x}")) || text.contains(&p.to_string())
+                    });
                 if !text.is_empty() && mine {
                     out.push(Finding {
                         source: "Windows Error Reporting (Application event log)".into(),
@@ -433,10 +456,11 @@ fn os_crash_findings(
         }
         TargetKind::Android => {
             looked.push("adb logcat -b crash".into());
-            let out_cmd = Command::new("adb")
-                .args(["logcat", "-b", "crash", "-d", "-t", "200"])
-                .output();
-            if let Ok(o) = out_cmd
+            let out_cmd = crate::ops::output_within(
+                Command::new("adb").args(["logcat", "-b", "crash", "-d", "-t", "200"]),
+                DEVICE_CMD,
+            );
+            if let Some(o) = out_cmd
                 && o.status.success()
             {
                 let text = String::from_utf8_lossy(&o.stdout).trim().to_string();

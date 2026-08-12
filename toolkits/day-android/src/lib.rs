@@ -1263,7 +1263,9 @@ mod imp {
                 | Cap::ListReorder
                 // Document-style DayWindowActivity instances (docs/windows.md): separate
                 // recents entries; side-by-side in split-screen/freeform/desktop windowing.
-                | Cap::MultiWindow => Support::Native,
+                | Cap::MultiWindow
+                // View.getBaseline() — the platform's own answer (docs/baseline.md).
+                | Cap::BaselineAlignment => Support::Native,
                 // EMULATED: SlidingPaneLayout decides at MEASURE time whether both panes fit, so
                 // the platform owns the presentation and Day observes it through
                 // `Event::NavPresentationChanged` rather than pushing one in
@@ -2346,6 +2348,32 @@ mod imp {
                     )
                 }
             }
+        }
+
+        /// `View.getBaseline()` — the same answer `LinearLayout`'s `baselineAligned` uses
+        /// (docs/baseline.md). TextView and everything built on it override it; the base View
+        /// returns -1, which is "no baseline".
+        fn first_baseline(&mut self, h: &AHandle, kind: PieceKind, size: Size) -> Option<f64> {
+            if !day_spec::kind_has_baseline(kind) {
+                return None;
+            }
+            let d = density();
+            let px = with_env(|env| {
+                env.dcall_static(
+                    BRIDGE,
+                    "baselineAt",
+                    "(Landroid/view/View;II)I",
+                    &[
+                        JValue::Object(h.0.as_obj()),
+                        JValue::Int((size.width * d).round() as i32),
+                        JValue::Int((size.height * d).round() as i32),
+                    ],
+                )
+                .ok()?
+                .i()
+                .ok()
+            })?;
+            (px >= 0).then(|| px as f64 / d)
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {

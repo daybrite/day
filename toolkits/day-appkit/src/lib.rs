@@ -2489,7 +2489,9 @@ impl Toolkit for AppKit {
             | Cap::AppBadgeCount
             | Cap::AppBadgeText
             | Cap::AppBadgeDot
-            | Cap::Appearance => Support::Native,
+            | Cap::Appearance
+            // firstBaselineOffsetFromTop — the platform's own answer (docs/baseline.md).
+            | Cap::BaselineAlignment => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
             Cap::Cover => Support::Emulated,
@@ -3778,6 +3780,50 @@ impl Toolkit for AppKit {
             unsafe { tf.setSelectable(selectable) };
         }
         None
+    }
+
+    /// Where the control actually draws its first line of text (docs/baseline.md).
+    ///
+    /// AppKit publishes `firstBaselineOffsetFromTop`, but it is measured from the top of the
+    /// view's ALIGNMENT RECT and it is rounded to whole points — and that rounding is visible.
+    /// An `NSDatePicker` in a 26pt frame insets its alignment rect 4pt and answers 15, i.e. 19
+    /// in frame terms, while it paints at 19.9; a label beside it then sits a point high, which
+    /// is exactly the drift baseline alignment exists to remove.
+    ///
+    /// So derive it from the metrics AppKit rounded: a single line of the control's own font,
+    /// centred in its alignment rect, with the baseline an ascender below the line's top. That
+    /// reproduces AppKit's own numbers for a plain label and a bezeled field (12.91 → its 13,
+    /// 19.91 → its 20) while keeping the fractional part that makes a picker land on the line.
+    /// Controls with no font of their own keep AppKit's answer.
+    fn first_baseline(&mut self, h: &Handle, kind: PieceKind, size: Size) -> Option<f64> {
+        if !day_spec::kind_has_baseline(kind) {
+            return None;
+        }
+        // The view has to be at the height the row settled on before it answers: a control
+        // that centers its text vertically moves its baseline with its box.
+        let current = unsafe { h.frame() };
+        if (current.size.height - size.height).abs() > 0.5 {
+            unsafe { h.setFrameSize(NSSize::new(current.size.width.max(size.width), size.height)) };
+        }
+        let insets = unsafe { h.alignmentRectInsets() };
+        let reported = unsafe { h.firstBaselineOffsetFromTop() } + insets.top;
+        let font = h
+            .downcast_ref::<NSControl>()
+            .and_then(|c| unsafe { c.font() });
+        let offset = match font {
+            // A multi-line editor's first line sits at the TOP of its text container, not
+            // centred in it, so the centring model would put its baseline half a box too low.
+            Some(_) if kind == kinds::TEXT_AREA => reported,
+            Some(f) => {
+                let (ascender, descender) = unsafe { (f.ascender(), f.descender()) };
+                let line = ascender - descender;
+                let align_h = (size.height - insets.top - insets.bottom).max(0.0);
+                insets.top + ((align_h - line) / 2.0).max(0.0) + ascender
+            }
+            None => reported,
+        };
+        // AppKit's documented "no baseline" answer is the view's own height.
+        (offset > 0.0 && offset < size.height).then_some(offset)
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {

@@ -771,25 +771,72 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                 let _ = await_exit(&pattern, Duration::from_secs(5));
             }
         }
+        // The three device branches are bounded (`status_within`): each talks to a device over a
+        // tool that waits for an unresponsive one indefinitely, and this runs BETWEEN a matrix
+        // run's variants — so a wedged emulator here stops the run rather than the app.
         TargetKind::IosSim => {
-            let _ = Command::new("xcrun")
-                .args(["simctl", "terminate", "booted", &project.manifest.app.id])
-                .status();
+            let _ = crate::ops::status_within(
+                Command::new("xcrun").args([
+                    "simctl",
+                    "terminate",
+                    "booted",
+                    &project.manifest.app.id,
+                ]),
+                DEVICE_CMD,
+            );
         }
         TargetKind::Android => {
-            let _ = Command::new("adb")
-                .args(["shell", "am", "force-stop", &project.manifest.app.id])
-                .status();
+            let _ = crate::ops::status_within(
+                Command::new("adb").args(["shell", "am", "force-stop", &project.manifest.app.id]),
+                DEVICE_CMD,
+            );
         }
         TargetKind::HarmonyOs => {
-            let _ = crate::ohos::hdc()
-                .args(["shell", "aa", "force-stop", &project.manifest.app.id])
-                .status();
+            let _ = crate::ops::status_within(
+                crate::ohos::hdc().args(["shell", "aa", "force-stop", &project.manifest.app.id]),
+                DEVICE_CMD,
+            );
         }
         // Stop the DAY_WEB_DRIVER browser when one is running; an interactively opened
         // browser tab is the user's own, and the dev server dies with `day`.
         TargetKind::Web => crate::web::stop_driver(),
     }
+}
+
+/// How long a single device command gets before it is treated as a device that stopped
+/// answering. Force-stopping an app or asking a shell to echo is a sub-second operation; a
+/// multiple of that leaves room for a loaded runner without leaving room for a hang.
+const DEVICE_CMD: Duration = Duration::from_secs(30);
+
+/// Whether this target's device still answers — asked after the engine is lost, to decide
+/// whether there is any point running the next variant.
+///
+/// The probe is the device's own shell rather than a host-side listing: a wedged emulator is
+/// still *connected*, so `adb get-state` cheerfully reports `device` for one that will never
+/// answer another command. Running something on it is the only question worth asking, and
+/// `status_within` supplies the deadline the tools do not have.
+///
+/// A desktop or web target has no device to lose, so it is always live.
+pub(crate) fn device_alive(target: &Target) -> bool {
+    let mut probe = match target.kind {
+        TargetKind::Android => {
+            let mut c = Command::new("adb");
+            c.args(["shell", "true"]);
+            c
+        }
+        TargetKind::HarmonyOs => {
+            let mut c = crate::ohos::hdc();
+            c.args(["shell", "echo", "ok"]);
+            c
+        }
+        TargetKind::IosSim => {
+            let mut c = Command::new("xcrun");
+            c.args(["simctl", "list", "devices", "booted"]);
+            c
+        }
+        TargetKind::Desktop | TargetKind::Web => return true,
+    };
+    crate::ops::output_within(&mut probe, DEVICE_CMD).is_some_and(|o| o.status.success())
 }
 
 pub fn pick_port(index: usize) -> u16 {

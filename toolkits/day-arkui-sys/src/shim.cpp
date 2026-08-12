@@ -545,6 +545,23 @@ void day_ark_measure(void* n, double max_w, double max_h, double* out_w, double*
     *out_h = sz.height / g_density;
 }
 
+// First text baseline from the node's top, in vp, for a box `box_h` tall (docs/baseline.md).
+// The ArkUI C API exposes no baseline: NODE_FONT_SIZE is the only type metric a native node will
+// answer, so this centres one line box of that font in the node's height and puts the baseline an
+// ascent below its top — the same model the Qt and XAML shims use. `-1` ⇒ the node carries no
+// font attribute, which is how a container or an image opts out.
+double day_ark_baseline(void* n, double box_h) {
+    if (!g_api || !n) return -1;
+    const ArkUI_AttributeItem* it = g_api->getAttribute((ArkUI_NodeHandle)n, NODE_FONT_SIZE);
+    if (!it || it->size < 1) return -1;
+    const double size = it->value[0].f32;
+    if (!(size > 0)) return -1;
+    // HarmonyOS Sans metrics, matching the ratios the other font-derived shims use.
+    const double ascent = size * 0.86;
+    const double line = size * 1.33;
+    return (box_h > line ? (box_h - line) / 2.0 : 0.0) + ascent;
+}
+
 // kind: 0=click 1=text-change 2=toggle-change 3=slider-change. `id` is delivered back as userData.
 void day_ark_register_event(void* n, int32_t kind, uint64_t id) {
     if (!g_api) return;

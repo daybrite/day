@@ -194,6 +194,30 @@ impl LabeledLayout {
     }
 }
 
+impl LabeledLayout {
+    /// How far to push each of the two children down so their text sits on ONE line
+    /// (docs/baseline.md), plus the height the row needs to hold them once pushed.
+    ///
+    /// `None` when either side has no baseline to offer — a toolkit that does not report them,
+    /// or a control with no text at all (a toggle, a slider, an image). The row then keeps the
+    /// centering it has always done, which is what makes this safe to have on by default.
+    fn baseline_shift(
+        &self,
+        cx: &mut dyn day_core::LayoutOps,
+        lbl: RNode,
+        ls: Size,
+        ctl: RNode,
+        cs: Size,
+    ) -> Option<(f64, f64, f64)> {
+        let lb = cx.baseline_of(lbl, ls)?;
+        let cb = cx.baseline_of(ctl, cs)?;
+        let deepest = lb.max(cb);
+        // Descent below the shared line decides the rest of the height.
+        let height = deepest + (ls.height - lb).max(cs.height - cb);
+        Some((deepest - lb, deepest - cb, height))
+    }
+}
+
 impl day_core::Layout for LabeledLayout {
     fn measure(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let (Some(&lbl), Some(&ctl)) = (children.first(), children.get(1)) else {
@@ -204,12 +228,35 @@ impl day_core::Layout for LabeledLayout {
         let avail = p.width.map(|w| (w - colw - LABELED_GAP).max(0.0));
         let cs = cx.measure_child(ctl, Proposal::new(avail, None));
         let natural = colw + LABELED_GAP + cs.width;
-        // The row spans the proposed width (labels align form-wide; controls may stretch),
-        // and hugs the taller of its two children vertically.
-        Size::new(
-            p.width.unwrap_or(natural).max(natural),
-            ls.height.max(cs.height),
-        )
+        // The row spans the proposed width (labels align form-wide; controls may stretch), and
+        // hugs its content vertically — the taller child, or, once the two are sitting on one
+        // baseline, whatever the shifted pair needs.
+        let boxes = ls.height.max(cs.height);
+        let height = match self.baseline_shift(cx, lbl, ls, ctl, cs) {
+            Some((_, _, h)) => h.max(boxes),
+            None => boxes,
+        };
+        Size::new(p.width.unwrap_or(natural).max(natural), height)
+    }
+
+    /// The row's own baseline is the line its label and control were put on, so a `labeled`
+    /// nested inside another baseline-aligned row joins that line too (docs/baseline.md).
+    fn baseline(
+        &self,
+        cx: &mut dyn day_core::LayoutOps,
+        children: &[RNode],
+        size: Size,
+    ) -> Option<f64> {
+        let (Some(&lbl), Some(&ctl)) = (children.first(), children.get(1)) else {
+            return None;
+        };
+        let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
+        let colw = self.column_width(ls.width);
+        let avail = (size.width - colw - LABELED_GAP).max(0.0);
+        let cs = cx.measure_child(ctl, Proposal::new(Some(avail), None));
+        let lb = cx.baseline_of(lbl, ls)?;
+        let (shift, _, _) = self.baseline_shift(cx, lbl, ls, ctl, cs)?;
+        Some(shift + lb)
     }
     fn place(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], bounds: Rect) {
         let (Some(&lbl), Some(&ctl)) = (children.first(), children.get(1)) else {
@@ -220,14 +267,26 @@ impl day_core::Layout for LabeledLayout {
         let avail = (bounds.size.width - colw - LABELED_GAP).max(0.0);
         let cs = cx.measure_child(ctl, Proposal::new(Some(avail), None));
         let h = bounds.size.height;
+        // Baseline first, centering as the fallback (docs/baseline.md): a label beside a
+        // bordered field or a stepper has its text a few points off from the field's, because
+        // the two put their text at different heights inside boxes of different heights.
+        // Centering the boxes preserves that offset; this removes it.
+        let (lbl_y, ctl_y) = match self.baseline_shift(cx, lbl, ls, ctl, cs) {
+            Some((dl, dc, used)) => {
+                // Center the aligned PAIR in whatever height the row was actually given, so a
+                // row stretched by a taller sibling keeps its text group centered rather than
+                // pinned to the top.
+                let slack = ((h - used) / 2.0).max(0.0);
+                (slack + dl, slack + dc)
+            }
+            None => (
+                ((h - ls.height) / 2.0).max(0.0),
+                ((h - cs.height) / 2.0).max(0.0),
+            ),
+        };
         cx.place_child(
             lbl,
-            Rect::new(
-                (colw - ls.width).max(0.0),
-                ((h - ls.height) / 2.0).max(0.0),
-                ls.width,
-                ls.height,
-            ),
+            Rect::new((colw - ls.width).max(0.0), lbl_y, ls.width, ls.height),
         );
         // `.grow()` controls fill the remaining width (text fields, sliders); others hug.
         let cw = if cx.flex_of(ctl).grow_w {
@@ -235,14 +294,6 @@ impl day_core::Layout for LabeledLayout {
         } else {
             cs.width.min(avail)
         };
-        cx.place_child(
-            ctl,
-            Rect::new(
-                colw + LABELED_GAP,
-                ((h - cs.height) / 2.0).max(0.0),
-                cw,
-                cs.height,
-            ),
-        );
+        cx.place_child(ctl, Rect::new(colw + LABELED_GAP, ctl_y, cw, cs.height));
     }
 }

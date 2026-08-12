@@ -8,6 +8,7 @@
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
@@ -114,6 +115,78 @@ pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process:
         stderr,
     })
 }
+
+/// Run a command to completion, giving up after `limit` and killing the child. `None` means it
+/// never finished — or never started.
+///
+/// Device tooling is what this exists for. `adb`, `hdc` and `simctl` do not fail against a
+/// device that has stopped answering; they wait for it, with no deadline of their own. So the
+/// cleanup that follows a lost engine — force-stop the app, read the crash buffer — is exactly
+/// where a run stops making progress, and a CI job then sits until its own timeout hours later,
+/// having already printed the diagnosis it was asked for.
+pub fn status_within(cmd: &mut Command, limit: Duration) -> Option<std::process::ExitStatus> {
+    let mut child = cmd.spawn().ok()?;
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Err(_) => return None,
+            Ok(None) => {}
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+/// [`status_within`] for a command whose output is wanted. The pipes are drained on their own
+/// threads: a child that fills a pipe buffer would otherwise never exit, and the poll below
+/// would wait out the whole limit for a command that had already said everything.
+pub fn output_within(cmd: &mut Command, limit: Duration) -> Option<std::process::Output> {
+    use std::io::Read;
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let (mut out, mut err) = (child.stdout.take()?, child.stderr.take()?);
+    let o = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = out.read_to_end(&mut buf);
+        buf
+    });
+    let e = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = err.read_to_end(&mut buf);
+        buf
+    });
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Err(_) => return None,
+            Ok(None) => {}
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(POLL);
+    };
+    Some(std::process::Output {
+        status,
+        stdout: o.join().unwrap_or_default(),
+        stderr: e.join().unwrap_or_default(),
+    })
+}
+
+/// How often the two waits above look at the child. Short enough that a fast command is not
+/// noticeably delayed, long enough that a slow one costs nothing to watch.
+const POLL: Duration = Duration::from_millis(50);
 
 /// The exit code to report for a finished child, with a signal death made VISIBLE.
 ///
@@ -777,5 +850,39 @@ mod headless_tests {
             headless_wrap("wxwidgets", "linux", false, 1.0, 1.0),
             HeadlessWrap::None
         );
+    }
+}
+
+/// The deadline the device paths depend on: a tool that waits forever must not be able to make
+/// `day launch` wait forever. Unix-only, because the fixtures are `sleep` and `echo`.
+#[cfg(all(test, unix))]
+mod wait_tests {
+    use super::*;
+
+    #[test]
+    fn a_command_that_will_not_finish_is_killed_and_reported_unfinished() {
+        let start = Instant::now();
+        assert!(
+            status_within(Command::new("sleep").arg("30"), Duration::from_millis(300)).is_none()
+        );
+        assert!(
+            output_within(Command::new("sleep").arg("30"), Duration::from_millis(300)).is_none()
+        );
+        // Both waits together, nowhere near the 30s the children asked for.
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "waited {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_command_that_finishes_reports_its_status_and_output() {
+        let status = status_within(&mut Command::new("true"), Duration::from_secs(30));
+        assert!(status.is_some_and(|s| s.success()));
+        let out = output_within(Command::new("echo").arg("ok"), Duration::from_secs(30))
+            .expect("echo finishes well inside 30s");
+        assert!(out.status.success());
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
     }
 }

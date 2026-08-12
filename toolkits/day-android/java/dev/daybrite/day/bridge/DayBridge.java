@@ -1377,6 +1377,19 @@ public final class DayBridge {
         return v.getMeasuredWidth();
     }
 
+    /** First text baseline from the view's top, in px, for a view laid out at `wPx` x `hPx`
+     *  (docs/baseline.md). `View.getBaseline()` is the platform's own answer — TextView and its
+     *  subclasses (so EditText, MaterialButton, the pickers) override it, and the base View
+     *  returns -1 for "no baseline", which is exactly the distinction day wants.
+     *
+     *  Measured at the size day settled on first: a TextView's baseline moves with its height
+     *  whenever gravity centers its text in a taller box. */
+    public static int baselineAt(View v, int wPx, int hPx) {
+        v.measure(View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.EXACTLY),
+                  View.MeasureSpec.makeMeasureSpec(hPx, View.MeasureSpec.EXACTLY));
+        return v.getBaseline();
+    }
+
     public static void setEnabled(View v, boolean b) { v.setEnabled(b); }
 
     public static View makeCanvas() { return new DayCanvasView(ctx); }

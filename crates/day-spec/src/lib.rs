@@ -130,6 +130,37 @@ builtin_kinds! {
     Cover = COVER => "day.cover",
 }
 
+/// Whether a kind is worth asking [`Toolkit::first_baseline`] about (docs/baseline.md).
+///
+/// A BLOCKLIST, not an allowlist: the structural and graphic kinds below have no text of their
+/// own, and everything else — including extension pieces like the date/time pickers, whose kinds
+/// day-spec has never heard of — is assumed to be worth asking. An extension piece that turns
+/// out to have no baseline simply answers `None`, which costs one query; an allowlist would
+/// instead silently leave every extension piece centered, which is the bug this shape avoids.
+pub fn kind_has_baseline(kind: PieceKind) -> bool {
+    !matches!(
+        Builtin::from_key(kind),
+        Some(
+            Builtin::Container
+                | Builtin::Scroll
+                | Builtin::Divider
+                | Builtin::Image
+                | Builtin::Canvas
+                | Builtin::Slider
+                | Builtin::Toggle
+                | Builtin::Progress
+                | Builtin::Nav
+                | Builtin::NavPage
+                | Builtin::NavMenu
+                | Builtin::Tabs
+                | Builtin::TabsPage
+                | Builtin::List
+                | Builtin::ListCell
+                | Builtin::Cover
+        )
+    )
+}
+
 /// Placeholder leaves: the one hole in Day's rendering that is invisible to a screenshot.
 ///
 /// When a backend has no renderer for a kind it realizes a visible `⟨kind⟩` label rather than
@@ -1043,6 +1074,13 @@ pub enum Cap {
     /// whose lists have no swipe idiom and where deletion belongs to a menu or a button
     /// (docs/list.md).
     ListDelete,
+    /// The toolkit answers [`Toolkit::first_baseline`], so rows can align text on its baseline
+    /// rather than on the middle of its box (docs/baseline.md). `Native` where the platform
+    /// reports the baseline itself (`NSView.firstBaselineOffsetFromTop`, `View.getBaseline`,
+    /// `gtk_widget_measure`), `Emulated` where Day derives it from the widget's font metrics,
+    /// `Unsupported` ⇒ baseline-aligned rows fall back to centering and look exactly as they do
+    /// today.
+    BaselineAlignment,
     Lottie,
     NativeSymbols,
     Snapshot,
@@ -2599,6 +2637,17 @@ pub trait Toolkit: Sized + 'static {
 
     // geometry (§7): frames are in the nearest realized native ancestor's space, in points.
     fn measure(&mut self, h: &Self::Handle, kind: PieceKind, p: Proposal) -> Size;
+    /// Distance from the top of the widget's frame to its FIRST text baseline, in points, when
+    /// the widget is `size` (docs/baseline.md). `None` ⇒ it has no text baseline — an image, a
+    /// slider, a bare container — and a baseline-aligned row falls back to box alignment for it.
+    ///
+    /// This is a MEASUREMENT, not a layout mode: day places every frame itself (§7.1) and never
+    /// hands a row to a native baseline-aligning container, so what it needs from the toolkit is
+    /// where the text sits inside the box. Backends that cannot answer keep the default and rows
+    /// stay centered, which is what every row did before this existed.
+    fn first_baseline(&mut self, _h: &Self::Handle, _kind: PieceKind, _size: Size) -> Option<f64> {
+        None
+    }
     fn set_frame(&mut self, h: &Self::Handle, frame: Rect, anim: Option<&AnimSpec>);
 
     // animatable visual channels (§8.4): cheap per-node opacity + transform that DON'T relayout.

@@ -153,7 +153,11 @@ future lazy grid (§7).
 - **`gridCellUnsizedAxes`**: a third sizing mode whose interaction with flexible columns is
   subtle; `grow_w`/`grow_h` + spans cover the motivating cases.
 - **`UnitPoint` cell anchors, numeric layout priority / weighted distribution, explicit column
-  templates, baseline alignment** (Day has no baseline concept anywhere yet).
+  templates**.
+- **Baseline alignment between cells.** Day does have a baseline concept now
+  (docs/baseline.md) and rows use it, but a grid would have to reconcile one baseline per row
+  across cells that span rows — `grid_row(..).align(VAlign::FirstBaseline)` therefore reads as
+  `Center` for the moment.
 - **Lazy/adaptive grid** — SwiftUI itself splits eager `Grid` from `LazyVGrid`. A future
   `vgrid(grid_items, …)` needs viewport-driven realization (the `list` machinery), a different
   data flow entirely; nothing in this design blocks it.

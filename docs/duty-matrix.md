@@ -19,6 +19,7 @@ implement them, and this table proves it.
 | `remove` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `move_child` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `measure` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `first_baseline` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_frame` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_opacity` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_transform` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
@@ -58,4 +59,4 @@ implement them, and this table proves it.
 | `quit_app` | · | · | · | · | · | ✓ | · | · | · | ✓ |
 | `focus_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `set_window_title` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| `snapshot_window_of` | · | ✓ | · | ✓ | ✓ | · | · | · | · | ✓ |
+| `snapshot_window_of` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |

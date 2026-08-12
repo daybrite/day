@@ -1606,7 +1606,9 @@ impl Toolkit for Gtk {
             | Cap::MultiWindow
             // The window's AdwHeaderBar — GNOME's toolbar (docs/toolbars.md).
             | Cap::Toolbar
-            | Cap::Appearance => Support::Native,
+            | Cap::Appearance
+            // gtk_widget_measure reports baselines itself (docs/baseline.md).
+            | Cap::BaselineAlignment => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
@@ -2905,6 +2907,25 @@ impl Toolkit for Gtk {
             l.set_selectable(selectable);
         }
         None
+    }
+
+    /// GTK reports baselines from its own measure protocol (docs/baseline.md): the third and
+    /// fourth out-params of `gtk_widget_measure` are the minimum and natural baselines, which is
+    /// what `GTK_ALIGN_BASELINE` containers align on. `-1` means the widget has none.
+    ///
+    /// The baseline is reported for the widget's NATURAL height, which is the height day
+    /// allocates it, so the two agree without any correction.
+    fn first_baseline(&mut self, h: &Handle, kind: PieceKind, size: Size) -> Option<f64> {
+        if !day_spec::kind_has_baseline(kind) {
+            return None;
+        }
+        let for_width = if size.width > 0.0 {
+            size.width.round() as i32
+        } else {
+            -1
+        };
+        let (_, _, _, nat_baseline) = h.measure(gtk4::Orientation::Vertical, for_width);
+        (nat_baseline >= 0).then_some(nat_baseline as f64)
     }
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {

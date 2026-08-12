@@ -88,6 +88,20 @@ body {
   user-select: none;
 }
 
+/* The toolbar strip shares the body's flow with the root, so the root has to GIVE UP the strip's
+   height. `height: 100%` alongside it means a full viewport starting 44px down, whose last 44px
+   fall past the bottom of the window — and `body { overflow: hidden }` then hides them with no
+   way to scroll there. On any page long enough to scroll, the end of the content is rendered,
+   reachable by neither the scrollbar nor the wheel, and every page is clipped by exactly the
+   strip's height. The root's ResizeObserver reports the corrected height, so day relayouts. */
+:root {
+  --day-toolbar-h: 44px;
+}
+
+body.day-has-toolbar #day-root {
+  height: calc(100% - var(--day-toolbar-h));
+}
+
 .day-container, .day-page, .day-cell { box-sizing: border-box; }
 
 /* A rounded, clipping surface (`.day-clip`) inside a transformed/animated ancestor (`.day-xform`)
@@ -467,7 +481,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 44px;
+  height: var(--day-toolbar-h);
   padding: 0 8px;
   box-sizing: border-box;
   background: var(--day-bar-bg);

@@ -114,6 +114,10 @@ unsafe extern "C" {
         out_h: *mut f64,
     );
 
+    /// First text baseline from the node's top for a box `box_h` tall, in vp; `-1` ⇒ the node
+    /// has no font attribute and so no baseline (docs/baseline.md).
+    pub fn day_ark_baseline(node: *mut c_void, box_h: f64) -> f64;
+
     /// Register a native event (0=click 1=text 2=toggle 3=slider 6=swiper); `id` returns as userData.
     pub fn day_ark_register_event(node: *mut c_void, kind: c_int, id: u64);
     // Focus (docs/focus.md): observe gain/blur (+ text-input submit); drive via

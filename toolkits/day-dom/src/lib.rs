@@ -72,6 +72,9 @@ unsafe extern "C" {
         out: *mut f64,
     );
     fn day_dom_width(el: u32) -> f64;
+    /// First text baseline from the element's top for a box `box_h` tall; `-1` ⇒ no text
+    /// (docs/baseline.md).
+    fn day_dom_baseline(el: u32, box_h: f64) -> f64;
     fn day_dom_scroll_to(el: u32, x: f64, y: f64, animated: u32);
     fn day_dom_scroll_edge(el: u32, edge: u32, animated: u32);
     /// Arm the shim's pointer-drag reorder on a list host (docs/list.md): the drag calls back
@@ -775,6 +778,9 @@ impl Toolkit for Dom {
             // and focus (docs/size-classes.md).
             Cap::NavRepresent => Support::Native,
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
+            // Exact metrics from a canvas TextMetrics, but derived rather than read off a
+            // baseline the platform publishes (docs/baseline.md).
+            Cap::BaselineAlignment => Support::Emulated,
             // A strip docked above the app root, not window chrome the OS draws — a browser tab
             // has no title bar to hang one on. Emulated is the honest answer, and it is enough
             // for an app to decide the commands belong in the bar rather than in the content
@@ -1425,6 +1431,19 @@ impl Toolkit for Dom {
                 Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
             }
         }
+    }
+
+    /// The browser reports exact font metrics through a canvas `TextMetrics`, and the
+    /// element's own border/padding says where its text box begins — so an `<input>` reports a
+    /// lower baseline than a bare `<div>`, which is what makes a row line up (docs/baseline.md).
+    /// `Emulated` rather than `Native`: CSS `align-items: baseline` would do this natively, but
+    /// day positions every element absolutely and needs the number, not the alignment mode.
+    fn first_baseline(&mut self, h: &DomHandle, kind: PieceKind, size: Size) -> Option<f64> {
+        if !day_spec::kind_has_baseline(kind) {
+            return None;
+        }
+        let b = unsafe { day_dom_baseline(h.0, size.height) };
+        (b >= 0.0).then_some(b)
     }
 
     fn set_frame(&mut self, h: &DomHandle, frame: Rect, _anim: Option<&AnimSpec>) {

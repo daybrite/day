@@ -1049,6 +1049,9 @@ impl Toolkit for Qt {
             | Cap::Toolbar => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
+            // Derived from QFontMetrics — Qt publishes no baseline of its own
+            // (docs/baseline.md).
+            Cap::BaselineAlignment => Support::Emulated,
             _ => Support::Unsupported,
         }
     }
@@ -1872,6 +1875,17 @@ impl Toolkit for Qt {
         // The shim qobject_casts to QLabel, so a non-label handle is a safe no-op (docs/text.md).
         unsafe { ffi::day_qt_label_set_selectable(h.0, selectable as c_int) };
         None
+    }
+
+    /// Derived from the widget's own font metrics in the shim (docs/baseline.md): Qt has no
+    /// baseline protocol to ask — `QFormLayout` aligns boxes, not text — so `Cap` reports this
+    /// as `Emulated`.
+    fn first_baseline(&mut self, h: &QtHandle, kind: PieceKind, size: Size) -> Option<f64> {
+        if !day_spec::kind_has_baseline(kind) {
+            return None;
+        }
+        let b = unsafe { ffi::day_qt_baseline(h.0, size.height) };
+        (b >= 0.0).then_some(b)
     }
 
     fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {
