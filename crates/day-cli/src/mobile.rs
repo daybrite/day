@@ -488,10 +488,30 @@ pub fn macos_xcode_enabled(project: &Project) -> bool {
 /// was measured and never appears on its command line — because a package target takes its link
 /// settings from the generated Package.swift. Closing the last entry means putting the flag there
 /// (day writes that manifest, so it can), which is tracked separately.
+///
+/// # `-objc_stubs_small`, and why a reproducibility fix rides along here
+///
+/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<selector>` stub its OWN GOT slot
+/// for `_objc_msgSend`, so a binary carrying both kinds of call ends up with two slots bound to
+/// that one symbol: one the ordinary `__stubs` entry reads, one the `__objc_stubs` entry reads.
+/// The two are interchangeable — same symbol, same value — so nothing decides which consumer gets
+/// which except ld's internal ordering, and that ordering follows a `.llvm.<N>` local-symbol
+/// suffix LLVM derives from the build directory. Same commit, two directories, two assignments:
+/// three bytes of `__TEXT` differ and `day rebuild` reports a payload mismatch with no cause
+/// anyone can read off it. Measured on the `day new` scaffold: of 736 archive members exactly one
+/// differed, and only in that suffix.
+///
+/// `-objc_stubs_small` emits one shared `_objc_msgSend` stub for the selector stubs to branch to,
+/// so there is one slot and nothing left to order. It costs a branch per objc dispatch on a path
+/// Day barely uses, and it buys a byte-identical relink from any directory.
+///
+/// The suffix itself is left alone: it names local symbols `strip -S` removes before the
+/// comparison, so it never reaches the payload on its own — only through the tie-break this flag
+/// deletes.
 fn oso_prefix_setting(project_root: &Path) -> String {
     let root = std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     format!(
-        "OTHER_LDFLAGS=$(inherited) -Wl,-oso_prefix,{}/",
+        "OTHER_LDFLAGS=$(inherited) -Wl,-oso_prefix,{}/ -Wl,-objc_stubs_small",
         root.display()
     )
 }

@@ -72,7 +72,7 @@ An app branches on this rather than on the target name.
 | `NavSplit` | N | N | N | N | N | N | – | N |
 | `NavRepresent` | N | E | – | N | – | E | – | N |
 | `NavHeader` | – | N | – | – | N | N | N | – |
-| `Appearance` | N | N | N | – | – | – | – | N |
+| `Appearance` | N | N | N | – | N | – | – | N |
 | `Dialogs` | N | N | N | N | N | N | – | N |
 | `FileDialogs` | N | N | N | N | N | N | N | – |
 | `Animation` | N | N | – | – | – | N | – | N |

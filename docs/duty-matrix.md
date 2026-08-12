@@ -47,8 +47,8 @@ implement them, and this table proves it.
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
-| `dark_mode` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | · |
-| `set_appearance` | · | ✓ | ✓ | ✓ | · | · | · | · | ✓ | · |
+| `dark_mode` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `set_appearance` | · | ✓ | ✓ | ✓ | · | ✓ | · | · | ✓ | · |
 | `set_app_badge` | · | ✓ | ✓ | · | · | · | · | · | ✓ | · |
 | `on_suspend` | · | · | · | · | · | · | · | · | · | ✓ |
 | `on_resume` | · | · | · | · | · | · | · | · | · | ✓ |
