@@ -2564,8 +2564,28 @@ impl Toolkit for Gtk {
         LIST_STATE.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        NAV_MENUS.with(|m| {
-            m.borrow_mut().remove(&key);
+        // A nav menu's row popovers are parented to its ROWS, so they have to be unparented
+        // while those rows are still alive — and `release` is the last moment day holds a
+        // reference to any of them. Dropping the state without doing so leaves live popovers
+        // pointing at rows GTK is about to finalize, and because NAV_ROW_POPOVERS is keyed by
+        // the LISTBOX POINTER, the next listbox the allocator puts at that address inherits the
+        // dead entry: `unparent_nav_popovers` then walks a freed parent chain inside
+        // `gtk_widget_unparent` → `gtk_accessible_update_children` → `gtk_widget_is_ancestor`.
+        // That is a use-after-free whose crash lands wherever the heap happens to be — the CI
+        // segfault (`addr=36`, a type-header read off a dangling pointer) reported from a
+        // different page on every run.
+        if let Some(state) = NAV_MENUS.with(|m| m.borrow_mut().remove(&key)) {
+            unparent_nav_popovers(&state.listbox);
+        }
+        // The same rule for a piece's own `.context_menu()` popover, which is parented to THIS
+        // widget: unparent it here or GTK finalizes the widget with the popover still attached,
+        // and the stale map entry — keyed by widget pointer — is then inherited by whatever the
+        // allocator puts at that address next, whose `set_context_menu` unparents a popover
+        // whose parent is long gone.
+        MENU_POPOVERS.with(|m| {
+            if let Some(pop) = m.borrow_mut().remove(&key) {
+                pop.unparent();
+            }
         });
         TABS_STATE.with(|m| {
             m.borrow_mut().remove(&key);
