@@ -30,6 +30,7 @@
 #include <limits>
 #include <algorithm> // std::sort — radial-gradient stop ordering
 #include <cwctype>   // towupper / iswalpha — menu access keys
+#include <memory>    // shared_ptr — the segmented picker's group state, the textarea's flag
 #include <cwchar>    // wcscmp — WM_SETTINGCHANGE area name
 #include <charconv>
 #include <cstdio>
@@ -2831,49 +2832,73 @@ static int png_encoder_clsid(CLSID* clsid) {
 // independent of whether the host window is visible/foreground/composed (so it works for a
 // background-launched app and on headless CI, unlike PrintWindow). Pixels are BGRA8 — which is
 // exactly Gdiplus PixelFormat32bppARGB's in-memory byte order. Returns 0 on success.
+// One window's REAL pixels, frame included, encoded as a PNG.
+//
+// Deliberately not `RenderTargetBitmap` (which this used to use). RTB re-renders the XAML tree
+// into an offscreen surface, and what comes back is not what the user sees: templated control
+// chrome — TextBox and ComboBox borders, the date/time pickers — arrived as flat grey blocks,
+// so the CI gallery misreported styling on every page that has an input. It also cannot capture
+// anything the compositor draws outside the tree. Reading the window back is the only way a
+// screenshot can be evidence of what shipped.
+//
+// It also makes a per-window capture trivial, which is what `window:` screenshots need: an
+// island's HWND is the whole story, so the primary and a secondary differ only in which handle
+// they pass.
+static int snapshot_hwnd_png(HWND hwnd, const char* path) {
+    if (!hwnd || !IsWindow(hwnd)) return 1;
+    RECT r{};
+    if (!GetWindowRect(hwnd, &r)) return 1;
+    int w = r.right - r.left, h = r.bottom - r.top;
+    if (w <= 0 || h <= 0) return 2;
+
+    HDC screen = GetDC(nullptr);
+    if (!screen) return 3;
+    HDC mem = CreateCompatibleDC(screen);
+    HBITMAP bmp = CreateCompatibleBitmap(screen, w, h);
+    int rc_out = 4;
+    if (mem && bmp) {
+        HGDIOBJ old = SelectObject(mem, bmp);
+        // PW_RENDERFULLCONTENT: without it a DirectComposition-hosted surface (which every XAML
+        // island is) comes back blank. Screen-reading is the fallback for the cases PrintWindow
+        // still refuses; it needs the window unobscured, which the walkthrough's own raise gives.
+        BOOL ok = PrintWindow(hwnd, mem, 0x00000002 /* PW_RENDERFULLCONTENT */);
+        if (!ok) ok = BitBlt(mem, 0, 0, w, h, screen, r.left, r.top, SRCCOPY | CAPTUREBLT);
+        if (ok) {
+            ULONG_PTR token = 0;
+            Gdiplus::GdiplusStartupInput si;
+            if (Gdiplus::GdiplusStartup(&token, &si, nullptr) == Gdiplus::Ok) {
+                {
+                    Gdiplus::Bitmap bitmap(bmp, nullptr);
+                    CLSID clsid;
+                    if (png_encoder_clsid(&clsid) >= 0) {
+                        std::wstring wpath = hs(path).c_str();
+                        if (bitmap.Save(wpath.c_str(), &clsid, nullptr) == Gdiplus::Ok) rc_out = 0;
+                    }
+                } // bitmap destroyed before GdiplusShutdown
+                Gdiplus::GdiplusShutdown(token);
+            }
+        }
+        SelectObject(mem, old);
+    }
+    if (bmp) DeleteObject(bmp);
+    if (mem) DeleteDC(mem);
+    ReleaseDC(nullptr, screen);
+    return rc_out;
+}
+
 int day_xaml_snapshot_png(void* win, const char* path) try {
     auto app = reinterpret_cast<AppWindow*>(win);
-    if (!app || !app->root) return 1;
+    return app ? snapshot_hwnd_png(app->host, path) : 1;
+} catch (...) {
+    return 9;
+}
 
-    WUXM::Imaging::RenderTargetBitmap rtb;
-    pump_until_complete(rtb.RenderAsync(app->root));
-    int pw = rtb.PixelWidth(), ph = rtb.PixelHeight();
-    if (pw <= 0 || ph <= 0) return 2;
-
-    auto pixelsOp = rtb.GetPixelsAsync();
-    pump_until_complete(pixelsOp);
-    auto buffer = pixelsOp.GetResults();
-
-    auto access = buffer.as<::Windows::Storage::Streams::IBufferByteAccess>();
-    uint8_t* bytes = nullptr;
-    access->Buffer(&bytes);
-    if (!bytes || buffer.Length() < static_cast<uint32_t>(pw) * ph * 4) return 5;
-
-    int rc_out = 3;
-    ULONG_PTR token = 0;
-    Gdiplus::GdiplusStartupInput si;
-    if (Gdiplus::GdiplusStartup(&token, &si, nullptr) == Gdiplus::Ok) {
-        {
-            Gdiplus::Bitmap bitmap(pw, ph, PixelFormat32bppARGB);
-            Gdiplus::Rect rect(0, 0, pw, ph);
-            Gdiplus::BitmapData bd;
-            if (bitmap.LockBits(&rect, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &bd) ==
-                Gdiplus::Ok) {
-                for (int y = 0; y < ph; ++y) {
-                    memcpy(static_cast<uint8_t*>(bd.Scan0) + y * bd.Stride,
-                           bytes + static_cast<size_t>(y) * pw * 4, static_cast<size_t>(pw) * 4);
-                }
-                bitmap.UnlockBits(&bd);
-                CLSID clsid;
-                if (png_encoder_clsid(&clsid) >= 0) {
-                    std::wstring wpath = hs(path).c_str();
-                    if (bitmap.Save(wpath.c_str(), &clsid, nullptr) == Gdiplus::Ok) rc_out = 0;
-                }
-            }
-        } // bitmap destroyed before GdiplusShutdown
-        Gdiplus::GdiplusShutdown(token);
-    }
-    return rc_out;
+// The same capture for a SECONDARY window (docs/windows.md) — what a dayscript
+// `screenshot: { window: … }` step targets. Without this the backend fell back to the primary
+// and the walkthrough's `preferences` capture silently showed the main window instead.
+int day_xaml_snapshot_png2(void* win, const char* path) try {
+    auto sw = reinterpret_cast<SecWindow*>(win);
+    return sw ? snapshot_hwnd_png(sw->host, path) : 1;
 } catch (...) {
     return 9;
 }
@@ -3740,3 +3765,227 @@ extern "C" void day_xaml_dismiss_present(uint64_t req) try {
     else if (it->second.op) it->second.op.Cancel();
 } catch (...) {
 }
+
+// ---- picker (docs/pickers.md) ---------------------------------------------
+// Three stylings behind a flat C ABI: 0 = menu (ComboBox), 1 = segmented (a row of flush
+// ToggleButtons), 2 = inline (a vertical RadioButton group). This lived in shim-picker.cpp until
+// it was folded in here — the split predated this file and bought nothing: `cc` recompiles every
+// source whenever build.rs re-runs, so a one-line edit to the satellite cost a FULL rebuild
+// anyway, while the separate translation unit still needed its own copies of `hs`, the namespace
+// aliases and the boxing externs.
+
+/// Options arrive newline-joined; empties are dropped (an empty label is not a choice).
+static std::vector<std::string> split_items(const char* joined) {
+    std::vector<std::string> out;
+    std::string all = joined ? joined : "";
+    size_t start = 0;
+    while (true) {
+        size_t nl = all.find('\n', start);
+        std::string item =
+            all.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
+        if (!item.empty()) out.push_back(item);
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    return out;
+}
+
+extern "C" {
+
+void* day_picker_xaml_new(int style, const char* items_joined, int selected, uint64_t id,
+                          void (*cb)(uint64_t, int)) {
+    auto items = split_items(items_joined);
+    if (style == 0) {
+        WUXC::ComboBox box;
+        for (auto& it : items) {
+            WUXC::ComboBoxItem cbi;
+            cbi.Content(winrt::box_value(hs(it.c_str())));
+            box.Items().Append(cbi);
+        }
+        box.SelectedIndex(selected);
+        box.SelectionChanged(
+            [id, cb](WF::IInspectable const& s, WUXC::SelectionChangedEventArgs const&) {
+                cb(id, s.as<WUXC::ComboBox>().SelectedIndex());
+            });
+        return day_xaml_box(winrt::get_abi(box));
+    }
+    if (style == 1) {
+        // SEGMENTED: a row of flush ToggleButtons, which is what Windows uses for a small
+        // either/or choice (the Settings app's own segmented pickers, and what WinUI later named
+        // SelectorBar). This used to be horizontal RadioButtons — identical to the `Inline` style
+        // bar its orientation, so the two rendered the same and neither read as segmented.
+        //
+        // Mutual exclusion is manual: ToggleButton has no GroupName. `guard` keeps the
+        // programmatic un-checking of the siblings from re-entering as a user selection, and
+        // re-checking a button the user tried to toggle OFF keeps the group always-one-selected,
+        // which is what a segmented control means (and what the picker model promises).
+        WUXC::StackPanel row;
+        row.Orientation(WUXC::Orientation::Horizontal);
+        auto buttons = std::make_shared<std::vector<WUXCP::ToggleButton>>();
+        auto guard = std::make_shared<bool>(false);
+        for (size_t i = 0; i < items.size(); i++) {
+            WUXCP::ToggleButton tb;
+            tb.Content(winrt::box_value(hs(items[i].c_str())));
+            tb.Margin(WUX::ThicknessHelper::FromLengths(0, 0, 0, 0)); // flush = reads as one control
+            tb.IsChecked(static_cast<int>(i) == selected);
+            buttons->push_back(tb);
+            row.Children().Append(tb);
+        }
+        for (size_t i = 0; i < buttons->size(); i++) {
+            int idx = static_cast<int>(i);
+            auto tb = (*buttons)[i];
+            tb.Checked([id, cb, idx, buttons, guard](WF::IInspectable const&,
+                                                     WUX::RoutedEventArgs const&) {
+                if (*guard) return;
+                *guard = true;
+                for (size_t j = 0; j < buttons->size(); j++) {
+                    if (static_cast<int>(j) != idx) (*buttons)[j].IsChecked(false);
+                }
+                *guard = false;
+                cb(id, idx);
+            });
+            tb.Unchecked([buttons, idx, guard](WF::IInspectable const&,
+                                               WUX::RoutedEventArgs const&) {
+                if (*guard) return;
+                // The user pressed the ALREADY selected segment: keep it on rather than leaving
+                // the group with nothing chosen.
+                *guard = true;
+                (*buttons)[idx].IsChecked(true);
+                *guard = false;
+            });
+        }
+        return day_xaml_box(winrt::get_abi(row));
+    }
+    // Inline (vertical): RadioButtons sharing a per-instance GroupName so they are mutually
+    // exclusive. `Checked` fires on user selection AND programmatic IsChecked, but the front-end's
+    // bind only re-patches on a real change, so no runaway loop.
+    WUXC::StackPanel panel;
+    panel.Orientation(WUXC::Orientation::Vertical);
+    winrt::hstring group{ std::to_wstring(id) }; // per-instance group = mutually exclusive
+    for (size_t i = 0; i < items.size(); i++) {
+        WUXC::RadioButton rb;
+        rb.Content(winrt::box_value(hs(items[i].c_str())));
+        rb.GroupName(group);
+        if (static_cast<int>(i) == selected) rb.IsChecked(true);
+        int idx = static_cast<int>(i);
+        rb.Checked([id, cb, idx](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+            cb(id, idx);
+        });
+        panel.Children().Append(rb);
+    }
+    return day_xaml_box(winrt::get_abi(panel));
+}
+
+void day_picker_xaml_set_selected(void* handle, int idx) {
+    WUX::UIElement e{ nullptr };
+    winrt::copy_from_abi(e, day_xaml_unbox(handle));
+    if (auto box = e.try_as<WUXC::ComboBox>()) {
+        if (box.SelectedIndex() != idx) box.SelectedIndex(idx);
+        return;
+    }
+    if (auto panel = e.try_as<WUXC::Panel>()) {
+        auto kids = panel.Children();
+        if (idx < 0 || static_cast<uint32_t>(idx) >= kids.Size()) return;
+        if (auto rb = kids.GetAt(idx).try_as<WUXC::RadioButton>()) {
+            rb.IsChecked(true);
+            return;
+        }
+        // Segmented: set only the TARGET and let its own `Checked` handler clear the siblings.
+        // Clearing them here instead would trip each one's `Unchecked` handler, which re-checks to
+        // keep the group non-empty — the two would fight. XAML raises `Checked` only on an actual
+        // change, so re-selecting the current segment is a no-op.
+        if (auto tb = kids.GetAt(idx).try_as<WUXCP::ToggleButton>()) tb.IsChecked(true);
+    }
+}
+
+} // extern "C"
+
+// ---- textarea (docs/text.md) ----------------------------------------------
+// A multi-line TextBox (AcceptsReturn, wrapping, native PlaceholderText). Also folded in from its
+// own file; see the note on the picker section above.
+//
+// TextChanged reports edits back to Rust as a UTF-8 C string (valid only during the callback; Rust
+// copies it). Programmatic Text(...) re-fires TextChanged, but the front-end's bind only re-patches
+// on a real change and guards the echo, so there is no runaway loop.
+
+// `editable` and `spell-check` are plain TextBox properties (IsReadOnly / IsSpellCheckEnabled).
+// `selectable` is NOT: IsTextSelectionEnabled lives on TextBlock and RichTextBlock, and TextBox
+// carries no equivalent — so it is EMULATED here. While selection is off, every selection that
+// forms is collapsed as it is reported, and the context menu (the other route to Copy / Select All)
+// is suppressed. `Cap::TextSelectable` reports `Emulated` for precisely this reason.
+//
+// The flag is shared with the handlers registered at construction rather than looked up inside
+// them, so toggling it costs nothing and the handlers never touch this map.
+static std::map<void*, std::shared_ptr<bool>> g_selectable;
+
+static WUXC::TextBox textarea_box_of(void* handle) {
+    WUX::UIElement e{ nullptr };
+    winrt::copy_from_abi(e, day_xaml_unbox(handle));
+    return e.try_as<WUXC::TextBox>();
+}
+
+extern "C" {
+
+void* day_textarea_xaml_new(const char* placeholder, const char* initial, uint64_t id,
+                            void (*cb)(uint64_t, const char*)) {
+    WUXC::TextBox box;
+    box.AcceptsReturn(true);
+    box.TextWrapping(WUX::TextWrapping::Wrap);
+    box.PlaceholderText(hs(placeholder));
+    if (initial && *initial) box.Text(hs(initial));
+    box.TextChanged([id, cb](WF::IInspectable const& sender, WUXC::TextChangedEventArgs const&) {
+        if (auto tb = sender.try_as<WUXC::TextBox>()) {
+            std::string t = u8(tb.Text());
+            cb(id, t.c_str());
+        }
+    });
+
+    auto selectable = std::make_shared<bool>(true);
+    box.SelectionChanged([selectable](WF::IInspectable const& sender, WUX::RoutedEventArgs const&) {
+        if (*selectable) return;
+        if (auto tb = sender.try_as<WUXC::TextBox>()) {
+            // Collapsing re-enters this handler once with a zero length, which then falls through
+            // the guard above — so it converges without needing a re-entrancy flag. The caret
+            // (SelectionStart with length 0) is left where the user put it.
+            if (tb.SelectionLength() > 0) tb.SelectionLength(0);
+        }
+    });
+    box.ContextMenuOpening(
+        [selectable](WF::IInspectable const&, WUXC::ContextMenuEventArgs const& args) {
+            if (!*selectable) args.Handled(true);
+        });
+
+    void* handle = day_xaml_box(winrt::get_abi(box));
+    g_selectable[handle] = selectable;
+    return handle;
+}
+
+void day_textarea_xaml_set_editable(void* handle, int on) {
+    if (auto box = textarea_box_of(handle)) box.IsReadOnly(on == 0);
+}
+
+void day_textarea_xaml_set_spellcheck(void* handle, int on) {
+    if (auto box = textarea_box_of(handle)) box.IsSpellCheckEnabled(on != 0);
+}
+
+void day_textarea_xaml_set_selectable(void* handle, int on) {
+    auto it = g_selectable.find(handle);
+    if (it == g_selectable.end()) return;
+    *it->second = on != 0;
+    // Turning it off with a selection already on screen has to clear that one too — the handler
+    // only ever sees selections made from here on.
+    if (on == 0) {
+        if (auto box = textarea_box_of(handle)) {
+            if (box.SelectionLength() > 0) box.SelectionLength(0);
+        }
+    }
+}
+
+void day_textarea_xaml_set_text(void* handle, const char* text) {
+    if (auto box = textarea_box_of(handle)) {
+        auto nt = hs(text);
+        if (box.Text() != nt) box.Text(nt);
+    }
+}
+
+} // extern "C"

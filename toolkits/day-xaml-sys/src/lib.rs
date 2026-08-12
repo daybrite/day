@@ -275,6 +275,8 @@ unsafe extern "C" {
 
     /// Capture the window's client area to a PNG file. Returns 0 on success.
     pub fn day_xaml_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;
+    /// The same capture against a SECONDARY window's token — a `screenshot: { window: … }` step.
+    pub fn day_xaml_snapshot_png2(win: *mut c_void, path: *const c_char) -> c_int;
 
     // lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
     pub fn day_xaml_set_lifecycle_cb(cb: extern "C" fn(c_int));

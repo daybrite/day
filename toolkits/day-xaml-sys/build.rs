@@ -26,10 +26,12 @@ fn main() {
         // <experimental/coroutine> a hard error (STL1011).
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
+        // ONE translation unit. The picker and textarea shims (moved in from their satellite
+        // crates in 2026-07) were separate files until they were folded into shim.cpp: `cc`
+        // recompiles every source whenever this script re-runs, so the split gave no incremental
+        // win — editing the 177-line picker cost the same full rebuild as editing shim.cpp — while
+        // each satellite still carried duplicate includes, namespace aliases and `hs`/`u8` copies.
         .file("src/shim.cpp")
-        // Built-in leaf shims moved in from their satellite crates (2026-07).
-        .file("src/shim-picker.cpp")
-        .file("src/shim-textarea.cpp")
         .include(&cppwinrt)
         .flag("/EHsc") // C++/WinRT uses exceptions
         .flag("/bigobj") // the XAML cppwinrt headers blow past the default section limit
@@ -43,7 +45,5 @@ fn main() {
     println!("cargo:rustc-link-lib=gdiplus"); // window snapshot PNG encoding
     println!("cargo:rustc-link-lib=dwmapi"); // dark title bar opt-in (DwmSetWindowAttribute)
     println!("cargo:rerun-if-changed=src/shim.cpp");
-    println!("cargo:rerun-if-changed=src/shim-picker.cpp");
-    println!("cargo:rerun-if-changed=src/shim-textarea.cpp");
     println!("cargo:rerun-if-changed=build.rs");
 }

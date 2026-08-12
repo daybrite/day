@@ -2147,9 +2147,17 @@ impl Toolkit for Xaml {
         }
     }
 
-    // `snapshot_window_of` keeps the default (primary capture): a per-SecWindow
-    // RenderTargetBitmap is a follow-up — dayscript `window:` screenshots on xaml show the
-    // primary meanwhile (docs/windows.md).
+    /// A SECONDARY window's own pixels (docs/windows.md). Previously this kept the trait default,
+    /// which captures the primary — so a `screenshot: { window: day.preferences }` step passed
+    /// while writing an image of the main window, with nothing to indicate the target was ignored.
+    fn snapshot_window_of(&mut self, host: &WinHandle) -> Result<Vec<u8>, String> {
+        let Some(w) = self.secondary.iter().find(|w| w.content == host.0) else {
+            // Not one of ours: the primary's own root arrives here too.
+            return self.snapshot_window();
+        };
+        let win = w.win;
+        snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png2(win, path) })
+    }
 
     fn toggle_sidebar(&mut self) -> bool {
         // The same call the toolbar's own AppBarButton makes, so a dayscript walkthrough drives
@@ -2161,16 +2169,25 @@ impl Toolkit for Xaml {
         if self.window.is_null() {
             return Err("no window".into());
         }
-        let path = std::env::temp_dir().join(format!("day-xaml-snap-{}.png", std::process::id()));
-        let cpath = cstr(&path.to_string_lossy());
-        let rc = unsafe { ffi::day_xaml_snapshot_png(self.window, cpath.as_ptr()) };
-        if rc != 0 {
-            return Err(format!("snapshot failed (rc={rc})"));
-        }
-        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        let _ = std::fs::remove_file(&path);
-        Ok(bytes)
+        let win = self.window;
+        snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png(win, path) })
     }
+}
+
+/// Run one of the shim's PNG writers into a temp file and hand back the bytes. The primary and
+/// secondary captures differ only in which entry point they call, so the file dance lives here.
+/// One name per process is enough: captures are sequential, and the file is read and removed
+/// before the next one starts.
+fn snapshot_via(capture: impl FnOnce(*const c_char) -> c_int) -> Result<Vec<u8>, String> {
+    let path = std::env::temp_dir().join(format!("day-xaml-snap-{}.png", std::process::id()));
+    let cpath = cstr(&path.to_string_lossy());
+    let rc = capture(cpath.as_ptr());
+    if rc != 0 {
+        return Err(format!("snapshot failed (rc={rc})"));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&path);
+    Ok(bytes)
 }
 
 fn argb(c: day_spec::Color) -> u32 {
