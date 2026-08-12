@@ -348,6 +348,89 @@ fn os_crash_findings(
                 ),
             }
         }
+        // Windows writes nothing on its own: no core file, no crash report on disk. What it DOES
+        // record is a WER event in the Application log naming the faulting module and the
+        // exception code, which is most of the diagnosis — and a full minidump if (and only if)
+        // LocalDumps was switched on beforehand. Both are read here, and the advice for enabling
+        // dumps is printed when there is none, exactly as the Linux arm does for core files.
+        TargetKind::Desktop if cfg!(windows) => {
+            let stem = process_stem(project, target);
+            let pid = crate::signals::last_child();
+
+            // 1. The minidump, if this machine opted in.
+            let dumps = std::env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .map(|p| p.join("CrashDumps"));
+            let mut have_dump = false;
+            if let Some(dir) = dumps.as_ref() {
+                looked.push(format!("WER local dumps ({})", dir.display()));
+                for path in newest_files(dir, 8) {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    let mine = name.starts_with(&stem)
+                        || pid.is_some_and(|p| name.contains(&format!(".{p}.")));
+                    if mine && modified_since(&path, since) {
+                        have_dump = true;
+                        out.push(Finding {
+                            source: format!("minidump ({})", path.display()),
+                            body: format!(
+                                "open in WinDbg/Visual Studio for frames:\n  \
+                                 windbg -z \"{}\" -c \"!analyze -v; q\"",
+                                path.display()
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // 2. The WER event: faulting module + exception code, which is what a Windows crash
+            //    reports without a debugger attached. Scoped to this run by start time so a stale
+            //    record from an earlier crash cannot be read as this one's.
+            looked.push("Windows Application event log (Application Error)".into());
+            let secs = SystemTime::now()
+                .duration_since(since)
+                .map(|d| d.as_secs() + 5)
+                .unwrap_or(120);
+            let ps = format!(
+                "$s=(Get-Date).AddSeconds(-{secs}); \
+                 Get-WinEvent -FilterHashtable @{{LogName='Application'; \
+                 ProviderName='Application Error','Windows Error Reporting','.NET Runtime'; \
+                 StartTime=$s}} -MaxEvents 5 -ErrorAction SilentlyContinue | \
+                 ForEach-Object {{ $_.TimeCreated.ToString('s') + '  ' + $_.ProviderName; \
+                 $_.Message }}"
+            );
+            if let Ok(o) = Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", &ps])
+                .output()
+            {
+                let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                // Only OUR process: the runner's other apps file here too.
+                let mine = text.contains(&stem)
+                    || pid.is_some_and(|p| text.contains(&format!("{p:x}")) || text.contains(&p.to_string()));
+                if !text.is_empty() && mine {
+                    out.push(Finding {
+                        source: "Windows Error Reporting (Application event log)".into(),
+                        body: head(&text, MAX_LINES),
+                    });
+                } else if !have_dump {
+                    crate::ops::status(
+                        "Diagnosis",
+                        "no WER record for this process yet — the event log can lag a few \
+                         seconds behind the exit",
+                    );
+                }
+            }
+
+            if !have_dump {
+                crate::ops::status(
+                    "Diagnosis",
+                    "no minidump — Windows writes one only when LocalDumps is enabled. In CI, \
+                     before the launch:\r\n    reg add \
+                     \"HKCU\\Software\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps\" \
+                     /v DumpType /t REG_DWORD /d 2 /f\r\n  then re-run; the .dmp lands in \
+                     %LOCALAPPDATA%\\CrashDumps and carries full frames.",
+                );
+            }
+        }
         TargetKind::Android => {
             looked.push("adb logcat -b crash".into());
             let out_cmd = Command::new("adb")

@@ -35,6 +35,9 @@ mod transport;
 #[cfg(unix)]
 mod signals_unix;
 
+#[cfg(windows)]
+mod signals_windows;
+
 #[cfg(target_os = "android")]
 mod java_android;
 
@@ -289,6 +292,13 @@ impl Config {
         #[cfg(unix)]
         if self.signals {
             signals_unix::install(&store::sig_path(&dir, &sid));
+        }
+
+        // The same capture on Windows: SEH for faults, the CRT's SIGABRT for `abort()`. Writes the
+        // same raw record, so nothing downstream knows which platform produced it.
+        #[cfg(windows)]
+        if self.signals {
+            signals_windows::install(&store::sig_path(&dir, &sid));
         }
 
         #[cfg(target_os = "android")]
@@ -625,7 +635,9 @@ mod tests {
         assert!(STATE.get().is_some());
         // Sentinel exists.
         let s = STATE.get().unwrap();
-        assert!(store::report_paths(&s.dir).is_empty() || true);
+        // `|| true` here made this assert nothing at all. The dir is wiped above, so a freshly
+        // armed store really does hold no reports — and the call proves it copes with an empty one.
+        assert!(store::report_paths(&s.dir).is_empty());
         // Second init is rejected.
         assert!(matches!(
             Config::new().dir(&d).init(),
