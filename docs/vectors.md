@@ -75,14 +75,20 @@ to a missing asset — on every backend, since the suffixed names ride the same 
 
 ## Tint
 
-`.tint(color)` recolors a monochrome glyph where the backend can: template rendering +
+`.tint(color)` recolors a monochrome glyph on **every backend**: template rendering +
 `contentTintColor` on AppKit, `alwaysTemplate` + `tintColor` on UIKit, `setImageTintList` on
-Android, pixel recolor on GTK, SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI, and a brush on
-the `Path` shapes on XAML — composed over the geometry when the glyph is realized, so one staged
-glyph serves every tint at every size with no second asset and no recoloured copy. Backends
-without a tint arm yet (the `vector` piece on Qt, and web) draw the authored colours — the
-coverage-honest degradation.
+Android, pixel recolor on GTK, a `QPainter` `SourceIn` fill over the rendered glyph on Qt, a CSS mask
+painted with the tint on web (a tinted glyph is a masked element, not an `<img>` — the browser
+cannot recolor an image's own pixels), SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI, and a brush
+on the `Path` shapes on XAML — composed over the geometry when the glyph is realized, so one
+staged glyph serves every tint at every size with no second asset and no recoloured copy.
 `None` (and every raster `image(…)`) means "as authored".
+
+**A tint can follow a signal.** `.tint(…)` takes a plain colour or anything reactive; a change
+repaints the realized view through `ImagePatch::Tint` rather than rebuilding it, so a glyph that
+recolors with the selection or the theme keeps its native view (and its layout, and any animation
+in flight). Implemented on AppKit, UIKit, Android, GTK, Qt and web; XAML and ArkUI still take the
+tint at realize only, so a reactive tint there lands on the next rebuild.
 
 A tint follows the art it was authored with: the colour fills where the glyph filled and strokes
 where it stroked, so an outline glyph stays an outline rather than becoming a silhouette. Where

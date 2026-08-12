@@ -796,6 +796,31 @@ fn fill_nav_menu(
 }
 
 thread_local! {
+    /// Each realized image's bundled source NAME, so a tint patch can re-render it. The widget
+    /// holds a texture, not a path, and re-reading the file is what a recolor needs.
+    static IMAGE_SOURCE: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+}
+
+/// The bundled glyph `source`, recolored to `t` with its alpha kept as the mask — the recolor
+/// both the image piece and the sidebar template icons use (docs/vectors.md "Tint").
+fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::Texture> {
+    let path = day_spec::resource::resolve_image_file(source)?;
+    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
+    let pixbuf = if pixbuf.has_alpha() {
+        pixbuf
+    } else {
+        pixbuf.add_alpha(false, 0, 0, 0).ok()?
+    };
+    recolor_pixbuf(
+        &pixbuf,
+        (t.r * 255.0) as u8,
+        (t.g * 255.0) as u8,
+        (t.b * 255.0) as u8,
+    );
+    Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
+}
+
+thread_local! {
     /// Per-listbox context popovers for the nav rows (docs/menus.md), keyed by listbox ptr —
     /// unparented before every row rebuild so popovers never outlive their rows.
     static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
@@ -2112,22 +2137,11 @@ impl Toolkit for Gtk {
                 });
                 // Vector-glyph tint (docs/vectors.md): recolor every pixel to the tint,
                 // keeping alpha as the mask — same recolor the sidebar template icons use.
-                let tinted = p.tint.and_then(|t| {
-                    let path = day_spec::resource::resolve_image_file(&p.source)?;
-                    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
-                    let pixbuf = if pixbuf.has_alpha() {
-                        pixbuf
-                    } else {
-                        pixbuf.add_alpha(false, 0, 0, 0).ok()?
-                    };
-                    recolor_pixbuf(
-                        &pixbuf,
-                        (t.r * 255.0) as u8,
-                        (t.g * 255.0) as u8,
-                        (t.b * 255.0) as u8,
-                    );
-                    Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
+                IMAGE_SOURCE.with(|m| {
+                    m.borrow_mut()
+                        .insert(widget_key(pic.upcast_ref()), p.source.clone())
                 });
+                let tinted = p.tint.and_then(|t| tinted_image_texture(&p.source, t));
                 if let Some(texture) = tinted {
                     pic.set_paintable(Some(&texture));
                 } else {
@@ -2213,6 +2227,26 @@ impl Toolkit for Gtk {
                                 c.borrow_mut().retain(|(w, _)| w != &cover);
                             });
                             emit(node, Event::custom("cover-hidden", ""));
+                        }
+                    }
+                }
+            }
+            kinds::IMAGE => {
+                if let (Some(day_spec::props::ImagePatch::Tint(c)), Some(pic)) = (
+                    patch.downcast_ref::<day_spec::props::ImagePatch>(),
+                    h.downcast_ref::<gtk4::Picture>(),
+                ) {
+                    let source = IMAGE_SOURCE.with(|m| m.borrow().get(&widget_key(h)).cloned());
+                    if let Some(source) = source {
+                        match c.and_then(|t| tinted_image_texture(&source, t)) {
+                            Some(texture) => pic.set_paintable(Some(&texture)),
+                            // Back to the authored colours: reload the file untinted.
+                            None => {
+                                if let Some(path) = day_spec::resource::resolve_image_file(&source)
+                                {
+                                    pic.set_filename(Some(&path));
+                                }
+                            }
                         }
                     }
                 }
@@ -3850,7 +3884,26 @@ impl Platform for Gtk {
     }
 
     fn post(f: Box<dyn FnOnce() + Send>) {
-        gtk4::glib::MainContext::default().invoke(f);
+        // `idle_add_once`, NOT `MainContext::invoke`. glib's invoke runs the closure INLINE when
+        // the calling thread owns the context — and a thread that calls it while nobody owns the
+        // context BECOMES the owner. Before `g_application_run()` acquires it, that window is
+        // open: a dayscript step arriving during startup (day-script's engine listens from its
+        // own thread) ran `exec` on the engine thread, which panicked in `with_tree` with "no
+        // tree installed on this thread" and left that thread owning the default context, so the
+        // main thread's `g_application_run()` then failed with "cannot acquire the default main
+        // context because it is already acquired by another thread". An idle source always
+        // queues, whoever posts and whenever.
+        //
+        // At DEFAULT priority, not the idle default: `invoke` ran at G_PRIORITY_DEFAULT, and
+        // dropping posted work below GTK's own redraws would quietly reorder every reactive
+        // flush and dayscript dispatch against frames. Only the thread rules change here.
+        let mut once = Some(f);
+        gtk4::glib::idle_add_full(gtk4::glib::Priority::DEFAULT, move || {
+            if let Some(f) = once.take() {
+                f();
+            }
+            gtk4::glib::ControlFlow::Break
+        });
     }
 }
 

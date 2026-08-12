@@ -3433,6 +3433,23 @@ mod imp {
             anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::IMAGE => {
+                    if let (Some(day_spec::props::ImagePatch::Tint(c)), Some(iv)) = (
+                        patch.downcast_ref::<day_spec::props::ImagePatch>(),
+                        h.downcast_ref::<objc2_ui_kit::UIImageView>(),
+                    ) {
+                        // Template rendering + the view's tint, as at realize (docs/vectors.md).
+                        if let Some(img) = unsafe { iv.image() } {
+                            let mode = match c {
+                                Some(_) => objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                None => objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal,
+                            };
+                            let next = unsafe { img.imageWithRenderingMode(mode) };
+                            unsafe { iv.setImage(Some(&next)) };
+                        }
+                        unsafe { iv.setTintColor(c.map(uicolor).as_deref()) };
+                    }
+                }
                 kinds::CONTAINER => {
                     if let Some(ContainerPatch::Background(c)) =
                         patch.downcast_ref::<ContainerPatch>()

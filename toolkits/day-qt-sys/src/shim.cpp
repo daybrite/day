@@ -879,7 +879,9 @@ void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
 }
 // Template glyphs are black-on-transparent; tint to the palette text color so they show
 // in both light and dark mode (raw black is invisible on a dark sidebar).
-static QIcon day_qt_tinted_icon(const QString &path, const QColor &color, int px = 0) {
+// Load a glyph at a usable size. An SVG goes through Qt's SVG icon engine, which RENDERS at the
+// size asked for instead of scaling a cached bitmap (docs/vectors.md).
+static QPixmap day_qt_load_glyph(const QString &path, int px) {
     QPixmap pm;
     if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
         // Qt's SVG icon engine (the `libqsvg` imageformats plugin) RENDERS at the size asked for,
@@ -892,13 +894,24 @@ static QIcon day_qt_tinted_icon(const QString &path, const QColor &color, int px
     } else {
         pm = QPixmap(path);
     }
-    if (pm.isNull()) return QIcon();
-    QPixmap tinted = pm;
+    return pm;
+}
+
+// Recolor a template glyph: keep the alpha, replace every colour (docs/vectors.md "Tint").
+static QPixmap day_qt_tint_glyph(const QPixmap &src, const QColor &color) {
+    if (src.isNull()) return src;
+    QPixmap tinted = src;
     QPainter p(&tinted);
     p.setCompositionMode(QPainter::CompositionMode_SourceIn);
     p.fillRect(tinted.rect(), color);
     p.end();
-    return QIcon(tinted);
+    return tinted;
+}
+
+static QIcon day_qt_tinted_icon(const QString &path, const QColor &color, int px = 0) {
+    QPixmap pm = day_qt_load_glyph(path, px);
+    if (pm.isNull()) return QIcon();
+    return QIcon(day_qt_tint_glyph(pm, color));
 }
 
 // A nav row's trailing status glyph (docs/navigation.md). QListWidgetItem carries ONE icon, and
@@ -1354,11 +1367,34 @@ protected:
     }
 };
 
-void *day_qt_image_new(const char *path, int mode) {
+void *day_qt_image_new(const char *path, int mode, const char *tint) {
     DayImageLabel *l = new DayImageLabel(mode);
-    QPixmap pm(QString::fromUtf8(path)); // ":/day/images/<name>" (resource) or a file path
+    const QString file = QString::fromUtf8(path); // ":/day/images/<name>" or a file path
+    // 512 px so an upscaled glyph still has pixels to spare; an SVG renders at that size rather
+    // than being blown up from the 256 px cache.
+    QPixmap pm = day_qt_load_glyph(file, 512);
+    if (tint != nullptr && *tint != '\0') {
+        const QColor c(QString::fromUtf8(tint));
+        if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
+    }
     if (!pm.isNull()) l->setImage(pm);
+    l->setProperty("dayGlyphPath", file);
     return l;
+}
+
+// `ImagePatch::Tint`: repaint the realized glyph from its source, so a tint that follows a signal
+// never rebuilds the view. An empty tint restores the authored colours.
+void day_qt_image_set_tint(void *w, const char *tint) {
+    auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    const QString file = l->property("dayGlyphPath").toString();
+    if (file.isEmpty()) return;
+    QPixmap pm = day_qt_load_glyph(file, 512);
+    if (tint != nullptr && *tint != '\0') {
+        const QColor c(QString::fromUtf8(tint));
+        if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
+    }
+    if (!pm.isNull()) l->setImage(pm);
 }
 
 // App icon (§18.2): the window icon doubles as the Dock icon on macOS and the taskbar icon on

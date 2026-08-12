@@ -837,6 +837,16 @@ fn navlist_apply_row_menus(w: *mut c_void, menus: &[Vec<day_spec::MenuItem>]) {
 /// Per-row nav icon tints as a U+001F-joined list of "#rrggbb" entries (empty entry = no
 /// row tint, the shim falls back to the palette text color), parallel to the icon list
 /// (docs/vectors.md).
+/// A color as the `"#rrggbb"` the shim's `QColor` parses.
+fn hex_rgb(c: day_spec::Color) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (c.r * 255.0) as u8,
+        (c.g * 255.0) as u8,
+        (c.b * 255.0) as u8
+    )
+}
+
 fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
     tints
         .iter()
@@ -1264,9 +1274,9 @@ impl Toolkit for Qt {
                     let path = if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0 {
                         res_path
                     } else {
-                        day_spec::resource::resolve_image_file(&p.source)
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_default()
+                        // The staged glyph SVG first (docs/vectors.md), the raster cache after —
+                        // `icon_file_path`'s rule, so the piece and the icon channels agree.
+                        icon_file_path(&p.source)
                     };
                     // Scaling: 0=fit, 1=fill (crop), 2=stretch.
                     let mode = match p.content_mode {
@@ -1274,7 +1284,14 @@ impl Toolkit for Qt {
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 2,
                     };
-                    QtHandle(ffi::day_qt_image_new(cstr(&path).as_ptr(), mode))
+                    // Vector-glyph tint (docs/vectors.md): the same SourceIn recolor the nav
+                    // rows use, over a glyph the SVG engine renders at size.
+                    let tint = p.tint.map(hex_rgb).unwrap_or_default();
+                    QtHandle(ffi::day_qt_image_new(
+                        cstr(&path).as_ptr(),
+                        mode,
+                        cstr(&tint).as_ptr(),
+                    ))
                 }
                 Some(Builtin::List) => {
                     let p = props.downcast_ref::<ListProps>().unwrap();
@@ -1340,6 +1357,14 @@ impl Toolkit for Qt {
     ) {
         unsafe {
             match kind {
+                kinds::IMAGE => {
+                    if let Some(day_spec::props::ImagePatch::Tint(c)) =
+                        patch.downcast_ref::<day_spec::props::ImagePatch>()
+                    {
+                        let tint = c.map(hex_rgb).unwrap_or_default();
+                        ffi::day_qt_image_set_tint(h.0, cstr(&tint).as_ptr());
+                    }
+                }
                 kinds::CONTAINER => {
                     if let Some(ContainerPatch::Background(c)) =
                         patch.downcast_ref::<ContainerPatch>()

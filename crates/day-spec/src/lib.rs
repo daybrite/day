@@ -1918,6 +1918,18 @@ pub mod props {
         pub tint: Option<Color>,
     }
 
+    /// A live change to a realized image or vector glyph.
+    ///
+    /// Only the tint: `source`, `content_mode` and the rest describe which art this is and how it
+    /// fills its frame, which a rebuild expresses better than a patch. The tint is the one that
+    /// wants to follow a signal — a glyph that recolors with the selection or the theme should
+    /// repaint, not be torn down and realized again (docs/vectors.md "Tint").
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum ImagePatch {
+        /// Recolor the glyph, or `None` to draw the authored colors again.
+        Tint(Option<Color>),
+    }
+
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct CanvasProps {
         pub ops: Vec<DrawOp>,

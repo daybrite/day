@@ -39,7 +39,12 @@ struct Finding {
 
 /// Print everything this host can say about an app that just died. `since` bounds the search to
 /// artifacts this run produced — an `.ips` from last week describes a different crash.
-pub fn after_app_death(project: &Project, target: &'static Target, since: SystemTime) {
+///
+/// Returns whether it found EVIDENCE OF A CRASH, which is a different question from "did the
+/// engine connection drop": a dropped connection can be a slow emulator, and the caller keeps
+/// going for that; a crash artifact means this build dies on this machine, and relaunching it for
+/// every remaining variant only spends minutes to fail the same way.
+pub fn after_app_death(project: &Project, target: &'static Target, since: SystemTime) -> bool {
     let app_id = project.manifest.resolve(target.name).id;
     let mut findings = Vec::new();
     let mut looked: Vec<String> = Vec::new();
@@ -56,7 +61,7 @@ pub fn after_app_death(project: &Project, target: &'static Target, since: System
                 looked.join(", ")
             ),
         );
-        return;
+        return false;
     }
     for f in &findings {
         crate::ops::status("Diagnosis", &f.source);
@@ -74,6 +79,7 @@ pub fn after_app_death(project: &Project, target: &'static Target, since: System
             crate::ops::gha_escape(&headline)
         );
     }
+    true
 }
 
 /// The app's own day-break store (docs/break.md). Richest when it is there: the panic message or

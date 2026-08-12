@@ -1820,6 +1820,22 @@ mod imp {
             _anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::IMAGE => {
+                    if let Some(day_spec::props::ImagePatch::Tint(c)) =
+                        patch.downcast_ref::<day_spec::props::ImagePatch>()
+                    {
+                        // Drawable tint, as at realize (docs/vectors.md); 0 = authored colours.
+                        let tint = c.map(argb_i32).unwrap_or(0);
+                        with_env(|env| {
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setImageTint",
+                                "(Landroid/view/View;I)V",
+                                &[JValue::Object(&h.0), JValue::Int(tint)],
+                            );
+                        });
+                    }
+                }
                 kinds::CONTAINER => {
                     if let Some(ContainerPatch::Background(c)) =
                         patch.downcast_ref::<ContainerPatch>()

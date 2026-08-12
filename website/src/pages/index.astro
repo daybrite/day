@@ -132,8 +132,12 @@ const compare = [
     <div class="container hero-grid">
       <div class="hero-copy">
         <h1 class="hero-title">
-          <span class="hero-day">Day:</span> create native apps for every platform{' '}
-          <span class="sun-text">under the sun</span> from a single Rust codebase
+          <span class="hero-line"><span class="hero-day">Day:</span> create</span>{' '}
+          <span class="hero-line">native apps for</span>{' '}
+          <span class="hero-line">every platform</span>{' '}
+          <span class="hero-line sun-text">under the sun</span>{' '}
+          <span class="hero-line">from a single</span>{' '}
+          <span class="hero-line">Rust codebase</span>
         </h1>
         <p class="lead hero-lead">{site.description}</p>
         <div class="hero-cta">
@@ -362,6 +366,14 @@ const compare = [
      code block scrolls inside its own box instead of stretching the page. */
   .hero-grid > *, .how-grid > * { min-width: 0; }
   .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; line-height: 1.08; }
+  /* Break the headline into its six intended lines — "Day: create / native apps for / every
+     platform / under the sun / from a single / Rust codebase" — by making each phrase one
+     inline-block unit. Line breaking then happens at the unit boundaries, so the phrases stay
+     whole and the headline reads in sense groups instead of wherever the column edge lands.
+     ENCOURAGED, not forced: an inline-block still wraps INSIDE itself once a phrase alone is
+     wider than the column, so a narrow window degrades to ordinary word wrapping rather than
+     overflowing (which is what `&nbsp;` or `<br>` would do here). */
+  .hero-line { display: inline-block; }
   /* "Day:" wears the carousel's active platform accent — HeroCarousel sets --hero-accent on
      the .hero section at every slide change, and transitioning `color` makes the hue glide
      between platforms instead of jumping. The duration is ~¾ of the carousel's 3400ms

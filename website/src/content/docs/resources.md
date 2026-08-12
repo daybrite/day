@@ -108,16 +108,16 @@ it goes — `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted an
 | [macos-appkit](/docs/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
 | [android-mdc](/docs/platforms/android-mdc) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
 | [windows-xaml](/docs/platforms/windows-xaml) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
-| [web-dom](/docs/platforms/web-dom) | the SVG, rendered by the browser | as authored |
+| [web-dom](/docs/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
 | [harmony-arkui](/docs/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
 | [linux-gtk](/docs/platforms/linux-gtk) | the SVG for icons, rendered at icon size by librsvg through gdk-pixbuf; the raster cache for the `vector` piece | pixel recolor |
-| [linux-qt](/docs/platforms/linux-qt) | the SVG for icons, rendered at icon size by Qt's SVG icon engine; the raster cache for the `vector` piece | nav rows, tab icons and toolbar images tint; the `vector` piece draws as authored |
+| [linux-qt](/docs/platforms/linux-qt) | the SVG, rendered at the size asked for by Qt's SVG icon engine | a `SourceIn` fill over the rendered glyph |
 
 > [!NOTE]
-> GTK and Qt render icons from the SVG, not from a bitmap: librsvg backs gdk-pixbuf on one, the
-> `libqsvg` plugin backs `QIcon` on the other, and both render the glyph at the size each icon
-> asks for. Their `vector` piece still draws the 256 px cache, which is the remaining gap on
-> those two toolkits.
+> Every backend recolors a template glyph, and on six of them — AppKit, UIKit, Android, GTK, Qt
+> and web — a tint bound to a signal repaints the realized view instead of rebuilding it. XAML and
+> ArkUI take the tint when the glyph is realized, so a reactive tint there lands on the next
+> rebuild.
 
 ### Where a vector degrades to a raster
 

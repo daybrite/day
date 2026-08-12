@@ -1375,6 +1375,15 @@ public final class DayBridge {
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {
         ((DayCanvasView) v).setOps(nums, textsJoined);
     }
+    /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colours. */
+    public static void setImageTint(View v, int tint) {
+        if (!(v instanceof android.widget.ImageView)) {
+            return;
+        }
+        ((android.widget.ImageView) v).setImageTintList(
+                tint == 0 ? null : android.content.res.ColorStateList.valueOf(tint));
+    }
+
     public static View makeImage(String name, int mode, int tint) {
         View v = makeImageInner(name, mode);
         // Vector-glyph tint (docs/vectors.md): drawable tint keeps a VectorDrawable/PNG's alpha

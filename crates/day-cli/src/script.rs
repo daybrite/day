@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
@@ -86,6 +86,39 @@ fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
         steps.push((op.clone(), serde_json::Value::Object(step)));
     }
     Ok(steps)
+}
+
+/// Sleep for `total`, returning early with a reason if the engine connection closes meanwhile.
+///
+/// The dayscript protocol is strictly request/response, so nothing is readable on an idle healthy
+/// connection: a zero-byte peek means the peer is gone (the app died), and a timeout means it is
+/// alive and idle. Unexpected readable bytes are left for the next roundtrip to interpret rather
+/// than guessed at here.
+fn sleep_watching_engine(stream: &TcpStream, total: Duration) -> Option<String> {
+    const SLICE: Duration = Duration::from_millis(250);
+    let deadline = Instant::now() + total;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return None;
+        }
+        std::thread::sleep(SLICE.min(deadline - now));
+        let previous = stream.read_timeout().ok().flatten();
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(1)));
+        let mut byte = [0u8; 1];
+        let peeked = stream.peek(&mut byte);
+        let _ = stream.set_read_timeout(previous);
+        match peeked {
+            Ok(0) => return Some("the app closed the dayscript connection".into()),
+            Ok(_) => {}
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(e) => return Some(e.to_string()),
+        }
+    }
 }
 
 /// How long to keep (re)trying the engine connection, in seconds. Override with
@@ -403,7 +436,19 @@ pub fn run_scripts(
             // `pause` sleeps runner-side (the engine must not block the UI thread).
             if op == "pause" {
                 let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
-                std::thread::sleep(Duration::from_secs_f64(secs));
+                // Sleeping runner-side means a pause touches nothing, so a dead app used to go
+                // unnoticed for the whole tail of a walkthrough: every remaining `pause` and every
+                // step this target skips reported ✓ against a process that was already gone, and
+                // the loss only surfaced minutes later at the next step that needed the app.
+                // Watching the socket while we wait ends the run where the app actually died.
+                if let Some(detail) = sleep_watching_engine(&stream, Duration::from_secs_f64(secs))
+                {
+                    eprintln!("  {ERROR}✗{ERROR:#} pause {secs}s — {detail}");
+                    return Err(ScriptError::EngineLost {
+                        steps_failed: run.steps_failed,
+                        detail,
+                    });
+                }
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} pause {secs}s");
                 continue;
             }

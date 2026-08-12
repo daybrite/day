@@ -1174,6 +1174,9 @@ pub fn run() -> i32 {
             let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
                 Vec::new();
             let mut script_failures = 0usize;
+            // Engine losses across the whole run — the cap that keeps a dead app from
+            // relaunching once per variant until the job's own timeout kills it.
+            let mut losses = 0usize;
             for (ti, p) in platforms.iter().enumerate() {
                 let port = crate::script::pick_port(ti);
                 // The dayscript engine rides EVERY launch (loopback, token-gated): scripted runs
@@ -1318,8 +1321,32 @@ pub fn run() -> i32 {
                                 eprintln!(
                                     "error: engine connection lost — abandoning this variant"
                                 );
-                                crate::diagnose::after_app_death(project, target, launched_at);
+                                let crashed =
+                                    crate::diagnose::after_app_death(project, target, launched_at);
                                 script_failures += steps_failed.max(1);
+                                losses += 1;
+                                // A CRASH ends the run. Every remaining variant would relaunch a
+                                // build that just died and fail the same way, minutes at a time —
+                                // which is how a crashed walkthrough used to run out the job's
+                                // timeout instead of reporting the crash it had already found.
+                                // A loss with no crash artifact stays per-variant (a slow emulator
+                                // drops the connection and the next variant often passes), but not
+                                // forever: two in a row is a pattern, not a hiccup.
+                                if crashed || losses >= 2 {
+                                    let why = if crashed {
+                                        "the app crashed"
+                                    } else {
+                                        "the engine was lost twice"
+                                    };
+                                    eprintln!(
+                                        "error: {why} — abandoning the remaining variants \
+                                         ({} of {} run)",
+                                        ri + 1,
+                                        matrix.len()
+                                    );
+                                    crate::signals::kill_all();
+                                    return 5;
+                                }
                                 break;
                             }
                             // Anything else is a runner/config error (bad script, bad flags):

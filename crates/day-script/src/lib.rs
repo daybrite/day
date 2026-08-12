@@ -560,6 +560,16 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
         if flag.load(Ordering::SeqCst) {
             return;
         }
+        // The engine listens from the moment `day_script::init` runs, which is BEFORE the
+        // backend has built the tree — a runner that connects during a slow startup (day-break
+        // reconciling a crash from the previous launch is the reliable way to be slow) can land
+        // a step in that window. Answering "retryable" hands it back to the bounded wait, which
+        // is exactly the "not there yet" case that machinery exists for; running it anyway would
+        // panic inside `with_tree`.
+        if !day_core::has_tree() {
+            let _ = tx.send(Reply::fail("the app is still starting", true));
+            return;
+        }
         let _ = tx.send(exec(step));
     });
     match rx.recv_timeout(budget) {

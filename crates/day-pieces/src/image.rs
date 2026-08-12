@@ -133,7 +133,7 @@ impl day_core::Layout for AspectRatioLayout {
 /// GTK; backends without a tint path draw the authored colors).
 pub struct Vector {
     source: String,
-    tint: Option<day_spec::Color>,
+    tint: Option<crate::Reactive<day_spec::Color>>,
     weight: VectorWeight,
     decorative: bool,
 }
@@ -159,9 +159,13 @@ pub fn vector(name: impl Into<day_spec::VectorName>) -> Vector {
 }
 
 impl Vector {
-    /// Recolor the glyph (monochrome art) to `color` where the backend supports tinting.
-    pub fn tint(mut self, color: day_spec::Color) -> Self {
-        self.tint = Some(color);
+    /// Recolor the glyph (monochrome art) where the backend supports tinting.
+    ///
+    /// Takes a plain [`Color`](day_spec::Color) or anything reactive: a signal or closure repaints
+    /// the realized glyph through [`ImagePatch::Tint`](day_spec::props::ImagePatch) instead of
+    /// rebuilding it, so a glyph that follows the selection or the theme keeps its native view.
+    pub fn tint<M>(mut self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self {
+        self.tint = Some(color.into_reactive());
         self
     }
     /// Select the glyph's weight (template-form sources render true weights; plain SVGs
@@ -185,13 +189,35 @@ impl Piece for Vector {
             VectorWeight::Light => format!("{}__light", self.source),
             VectorWeight::Bold => format!("{}__bold", self.source),
         };
+        let tint = self.tint;
+        let seed = tint.as_ref().map(|t| t.get_untracked());
         let props = ImageProps {
             source,
             decorative: self.decorative,
             content_mode: ContentMode::Fit,
             aspect_ratio: None,
-            tint: self.tint,
+            tint: seed,
         };
-        cx.leaf(kinds::IMAGE, &props, Flex::default())
+        let node = cx.leaf(kinds::IMAGE, &props, Flex::default());
+        // A constant tint reads the same value forever, so this seeds once and never patches; a
+        // signal or closure re-runs and repaints the realized glyph.
+        if let Some(tint) = tint
+            && let Some(seed) = seed
+        {
+            day_reactive::bind_seeded(
+                seed,
+                move || tint.get(),
+                move |c: &day_spec::Color| {
+                    day_core::with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::ImagePatch::Tint(Some(*c))),
+                            false,
+                        )
+                    });
+                },
+            );
+        }
+        node
     }
 }

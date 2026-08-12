@@ -3038,6 +3038,20 @@ impl Toolkit for AppKit {
 
     fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
         match kind {
+            kinds::IMAGE => {
+                if let Some(day_spec::props::ImagePatch::Tint(c)) =
+                    patch.downcast_ref::<day_spec::props::ImagePatch>()
+                {
+                    // Template rendering + the view's content tint, exactly as at realize — the
+                    // glyph repaints in place rather than being rebuilt (docs/vectors.md).
+                    if let Ok(iv) = h.clone().downcast::<objc2_app_kit::NSImageView>() {
+                        if let Some(img) = unsafe { iv.image() } {
+                            unsafe { img.setTemplate(c.is_some()) };
+                        }
+                        unsafe { iv.setContentTintColor(c.map(nscolor).as_deref()) };
+                    }
+                }
+            }
             kinds::CONTAINER => {
                 if let (Some(ContainerPatch::Background(c)), Ok(v)) = (
                     patch.downcast_ref::<ContainerPatch>(),

@@ -172,6 +172,66 @@ fn env(key: &str) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+thread_local! {
+    /// Each realized image's `src`, so a tint patch can rebuild the mask from the same URL. The
+    /// DOM bridge writes attributes but does not read them back, and keeping the string here is
+    /// cheaper than adding a getter to the shim for one caller.
+    static IMAGE_SRC: RefCell<HashMap<u32, String>> = RefCell::new(HashMap::new());
+}
+
+/// Recolor a template glyph (docs/vectors.md "Tint").
+///
+/// The browser cannot recolor the pixels of an `<img>`, so a tinted glyph becomes a MASK painted
+/// with the tint — the same technique the nav rows use for their icons. The element keeps its
+/// `src` so the untinted path, the alt text and the layout are unchanged; a `None` tint puts the
+/// image back exactly as it was.
+fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>) {
+    match tint {
+        Some(c) => {
+            let mask = format!("url(\"{src}\")");
+            s(el, "mask-image", &mask);
+            s(el, "-webkit-mask-image", &mask);
+            // The mask scales the way the untinted image would: `object-fit` and `mask-size`
+            // share contain/cover, and Stretch's `fill` is `100% 100%`.
+            let size = if fit == "fill" { "100% 100%" } else { fit };
+            for prop in ["mask-size", "-webkit-mask-size"] {
+                s(el, prop, size);
+            }
+            for prop in ["mask-repeat", "-webkit-mask-repeat"] {
+                s(el, prop, "no-repeat");
+            }
+            for prop in ["mask-position", "-webkit-mask-position"] {
+                s(el, prop, "center");
+            }
+            s(
+                el,
+                "background-color",
+                &format!(
+                    "#{:02x}{:02x}{:02x}",
+                    (c.r * 255.0) as u8,
+                    (c.g * 255.0) as u8,
+                    (c.b * 255.0) as u8
+                ),
+            );
+        }
+        None => {
+            for prop in [
+                "mask-image",
+                "-webkit-mask-image",
+                "mask-size",
+                "-webkit-mask-size",
+                "mask-repeat",
+                "-webkit-mask-repeat",
+                "mask-position",
+                "-webkit-mask-position",
+                "background-color",
+            ] {
+                s(el, prop, "");
+            }
+        }
+    }
+}
+
 /// The staged file extension for a bare image NAME: `svg` when the name is a bundled vector
 /// glyph (docs/vectors.md — the browser then renders it at display size), `png` otherwise.
 /// The page carries the vector-name list (`window.__DAY_VECTORS`, injected at assemble) and
@@ -847,26 +907,39 @@ impl Toolkit for Dom {
             }
             Some(Builtin::Image) => {
                 let p = props.downcast_ref::<ImageProps>().unwrap();
-                let el = unsafe { day_dom_create(EL_IMAGE) };
                 let src = if p.source.contains('/') {
                     p.source.clone()
                 } else {
                     format!("assets/images/{}.{}", p.source, image_ext(&p.source))
                 };
-                attr(el, "src", &src);
-                s(
-                    el,
-                    "object-fit",
-                    match p.content_mode {
-                        ContentMode::Fit => "contain",
-                        ContentMode::Fill => "cover",
-                        ContentMode::Stretch => "fill",
-                    },
-                );
+                let fit = match p.content_mode {
+                    ContentMode::Fit => "contain",
+                    ContentMode::Fill => "cover",
+                    ContentMode::Stretch => "fill",
+                };
+                // A TINTED glyph is a masked div, not an `<img>`: the browser cannot recolor an
+                // image's pixels, and an `<img>` paints its own art over whatever sits behind it,
+                // so masking one only clips it — the tint shows through as a faint edge. Painting
+                // the mask with the tint is what the nav rows do, and it is the only technique
+                // here that actually recolors (docs/vectors.md "Tint").
+                let el =
+                    unsafe { day_dom_create(if p.tint.is_some() { EL_DIV } else { EL_IMAGE }) };
+                if p.tint.is_some() {
+                    if !p.decorative {
+                        attr(el, "role", "img");
+                    }
+                } else {
+                    attr(el, "src", &src);
+                    s(el, "object-fit", fit);
+                    if p.decorative {
+                        attr(el, "alt", "");
+                    }
+                }
                 if p.decorative {
-                    attr(el, "alt", "");
                     attr(el, "aria-hidden", "true");
                 }
+                IMAGE_SRC.with(|m| m.borrow_mut().insert(el, src.clone()));
+                apply_image_tint(el, &src, fit, p.tint);
                 el
             }
             Some(Builtin::Canvas) => unsafe { day_dom_create(EL_CANVAS) },
@@ -1012,6 +1085,19 @@ impl Toolkit for Dom {
     ) {
         let el = h.0;
         match kind {
+            kinds::IMAGE => {
+                if let Some(day_spec::props::ImagePatch::Tint(c)) =
+                    patch.downcast_ref::<day_spec::props::ImagePatch>()
+                {
+                    // The mask needs the same URL the element already loads.
+                    let src = IMAGE_SRC.with(|m| m.borrow().get(&el).cloned());
+                    if let Some(src) = src {
+                        // Only the colour changes here: an element realized with a tint is
+                        // already the masked div, so this repaints the mask's fill.
+                        apply_image_tint(el, &src, "contain", *c);
+                    }
+                }
+            }
             kinds::CONTAINER => {
                 if let Some(ContainerPatch::Background(c)) = patch.downcast_ref::<ContainerPatch>()
                 {
@@ -1218,6 +1304,7 @@ impl Toolkit for Dom {
     fn release(&mut self, h: DomHandle) {
         let el = h.0;
         NODE_OF.with(|m| m.borrow_mut().remove(&el));
+        IMAGE_SRC.with(|m| m.borrow_mut().remove(&el));
         CSS_FRAMED.with(|s| s.borrow_mut().remove(&el));
         PAGE_SIDEBAR.with(|m| m.borrow_mut().remove(&el));
         NAV_STATE.with(|m| m.borrow_mut().remove(&el));
