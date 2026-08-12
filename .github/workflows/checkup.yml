@@ -46,11 +46,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # See ci.yml: the runner images' aws/tap trips Homebrew's tap-trust warning on every
-  # brew install; the flag (deprecated upstream) silences it on these ephemeral runners.
-  HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
-
 jobs:
   checkup:
     name: ${{ matrix.combo }} · day ${{ matrix.day-version }}
@@ -74,25 +69,25 @@ jobs:
           - windows-xaml
           - windows-qt
           - windows-gtk
+        # Only the runner each combo needs: the toolkit column went with the setup ladder, which
+        # is now one action that derives what a target needs from the target itself.
         include:
-          - { combo: macos-appkit,  os: macos-latest,   toolkit: appkit }
-          - { combo: macos-gtk,     os: macos-latest,   toolkit: gtk }
-          - { combo: macos-qt,      os: macos-latest,   toolkit: qt }
-          - { combo: ios-uikit,     os: macos-latest,   toolkit: uikit }
-          - { combo: linux-gtk,     os: ubuntu-latest,  toolkit: gtk }
-          - { combo: linux-qt,      os: ubuntu-latest,  toolkit: qt }
-          - { combo: android-mdc,   os: ubuntu-latest,  toolkit: android }
-          - { combo: harmony-arkui, os: ubuntu-latest,  toolkit: harmonyos }
-          - { combo: windows-xaml,  os: windows-latest, toolkit: xaml }
-          - { combo: windows-qt,    os: windows-latest, toolkit: qt }
-          - { combo: windows-gtk,   os: windows-latest, toolkit: gtk }
+          - { combo: macos-appkit,  os: macos-latest }
+          - { combo: macos-gtk,     os: macos-latest }
+          - { combo: macos-qt,      os: macos-latest }
+          - { combo: ios-uikit,     os: macos-latest }
+          - { combo: linux-gtk,     os: ubuntu-latest }
+          - { combo: linux-qt,      os: ubuntu-latest }
+          - { combo: android-mdc,   os: ubuntu-latest }
+          - { combo: harmony-arkui, os: ubuntu-latest }
+          - { combo: windows-xaml,  os: windows-latest }
+          - { combo: windows-qt,    os: windows-latest }
+          - { combo: windows-gtk,   os: windows-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90 # a cell now builds AND packages; the slowest (ios, linux flatpak) run long
     defaults:
       run:
         shell: bash
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: "1"
     steps:
       # --- the one true user step: install the published CLI with stock Rust ---------------
       # windows-qt/gtk build apps with the windows-gnu toolchain, but the CLI itself installs
@@ -100,169 +95,23 @@ jobs:
       - name: cargo install day-cli
         run: cargo install day-cli
 
-      # --- per-combo toolkit prerequisites (what the docs tell users to install) ------------
-      - name: Toolkit deps (brew)
-        if: ${{ runner.os == 'macOS' && (matrix.toolkit == 'gtk' || matrix.toolkit == 'qt') }}
-        run: |
-          case "${{ matrix.toolkit }}" in
-            qt) brew install qt pkg-config ;;
-            gtk) brew install gtk4 libadwaita pkg-config ;;
-          esac
-
-      - name: Toolkit deps (apt)
-        if: ${{ matrix.combo == 'linux-gtk' || matrix.combo == 'linux-qt' }}
-        run: |
-          sudo apt-get update
-          case "${{ matrix.toolkit }}" in
-            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev pkg-config ;;
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev pkg-config ;;
-          esac
-
-      - name: iOS cross targets
-        if: ${{ matrix.combo == 'ios-uikit' }}
-        run: rustup target add aarch64-apple-ios-sim
-
-      # No setup-java: the runner's preinstalled default JDK (17+) builds fine — Day accepts 17+
-      # and Gradle 9.6 runs on 17…26 (the old "must be 21" restriction was an AGP-8-era quirk).
-      - name: Android cross targets + NDK env
-        if: ${{ matrix.combo == 'android-mdc' }}
-        run: |
-          rustup target add aarch64-linux-android
-          # The runner preinstalls the Android SDK + a recent NDK.
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
-      - name: Android cargo-ndk
-        if: ${{ matrix.combo == 'android-mdc' }}
-        uses: taiki-e/install-action@v2
+      # --- everything this combo needs, in one step ----------------------------------------
+      # The toolkit's dev libraries, the Rust std for its cross-compile, the SDK a mobile target
+      # builds through, and the tools `day pack` needs — all of it is a property of the TARGET, so
+      # it lives in one action every Day workflow calls (daybrite/actions), not in a ladder of
+      # `if: matrix.combo == …` steps copied between three repositories.
+      #
+      # `java: false` on purpose: this workflow's whole claim is "what a new user on a stock
+      # machine gets", and pinning a JDK it would not have weakens that. Day accepts 17+, which
+      # every runner image already has. `extras: false` for the same reason — checkup builds and
+      # packs a scaffolded app, it runs no walkthrough, so it needs no display or screenshot tools.
+      - name: Set up ${{ matrix.combo }} dependencies
+        uses: daybrite/actions/.github/actions/setup-day-deps@main
         with:
-          tool: cargo-ndk
-
-      # The OpenHarmony SDK (NDK for the Rust cross-compile) + hvigor/ohpm/node from the
-      # command-line-tools — the same recipe ci.yml's harmony-arkui job uses.
-      - name: OHOS SDK
-        if: ${{ matrix.combo == 'harmony-arkui' }}
-        uses: openharmony-rs/setup-ohos-sdk@v1
-        id: ohos-sdk
-        with:
-          version: "6.1"
-      - name: OHOS toolchain env + hvigor
-        if: ${{ matrix.combo == 'harmony-arkui' }}
-        env:
-          CLT_URL: "https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip"
-        run: |
-          set -euo pipefail
-          rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
-          NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
-          echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
-          echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          mkdir -p ~/ohos-clt && cd ~/ohos-clt
-          [ -d command-line-tools ] || { curl -sSL "$CLT_URL" -o clt.zip && unzip -q clt.zip && rm clt.zip; }
-          echo "$HOME/ohos-clt/command-line-tools/bin" >> "$GITHUB_PATH"
-          echo "$HOME/ohos-clt/command-line-tools/tool/node/bin" >> "$GITHUB_PATH"
-          echo "DEVECO_SDK_HOME=$HOME/ohos-clt/command-line-tools/sdk" >> "$GITHUB_ENV"
-          # hvigor's OpenHarmony mode (runtimeOS: "OpenHarmony") REJECTS the CLT's flat sdk
-          # layout with "The SDK management mode has changed" — it wants the NEW versioned view
-          # (<base>/<api>/{ets,native,toolchains,…}). Build one from the CLT's bundled API-18
-          # OpenHarmony SDK (matching the app template's compileSdkVersion), the same recipe as
-          # ci.yml's harmony-arkui job.
-          OH="$HOME/ohos-clt/command-line-tools/sdk/default/openharmony"
-          BASE="$HOME/ohos-ohsdk"
-          mkdir -p "$BASE"
-          ln -sfn "$OH" "$BASE/18"
-          echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
-
-      # windows-qt / windows-gtk build against MSYS2's MINGW64 libraries with the windows-gnu
-      # toolchain (same shape as ci.yml's windows-msys2 job).
-      - name: MSYS2 (windows qt/gtk)
-        if: ${{ matrix.combo == 'windows-qt' || matrix.combo == 'windows-gtk' }}
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          path-type: inherit
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkgconf
-            ${{ matrix.combo == 'windows-qt' && 'mingw-w64-x86_64-qt6-base' || 'mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita' }}
-      - name: Pin the MSYS2 mingw toolchain
-        if: ${{ matrix.combo == 'windows-qt' || matrix.combo == 'windows-gtk' }}
-        shell: msys2 {0}
-        run: |
-          rustup toolchain install stable-x86_64-pc-windows-gnu
-          rustup default stable-x86_64-pc-windows-gnu
-          cygpath -w "$MINGW_PREFIX/bin" >> "$GITHUB_PATH"
-          GCC="$(cygpath -m "$MINGW_PREFIX/bin/gcc.exe")"
-          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$GCC" >> "$GITHUB_ENV"
-          echo "CC=$GCC" >> "$GITHUB_ENV"
-          echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
-
-      # --- packaging prerequisites -----------------------------------------------------------
-      # Only the combos whose `day pack` needs a tool the runner doesn't ship. macOS packs with
-      # hdiutil/codesign, iOS exports an unsigned .ipa, Android signs with the debug keystore,
-      # HarmonyOS dev-signs through the hvigor scaffold installed above, and Windows' makeappx
-      # comes with the preinstalled SDK — none of those need a step here. checkup treats a missing
-      # packaging tool as a SKIPPED pack stage, which `--strict` then fails on, so a step that
-      # stops working shows up as a red cell rather than a quietly shortened check.
-      - name: Flatpak tooling (linux pack)
-        if: ${{ matrix.combo == 'linux-gtk' || matrix.combo == 'linux-qt' }}
-        run: |
-          sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-      # linuxdeploy + its toolkit plugin build the .appimage (§16.5). They ship as downloaded
-      # AppImages, so they go to $RUNNER_TEMP and are named through DAY_LINUXDEPLOY* rather than
-      # PATH (the same variables `day doctor` probes).
-      - name: linuxdeploy tooling (linux pack)
-        if: ${{ matrix.combo == 'linux-gtk' || matrix.combo == 'linux-qt' }}
-        env:
-          TOOLKIT: ${{ matrix.toolkit }}
-        run: |
-          set -euo pipefail
-          # appimagetool needs FUSE, which a runner does not have; APPIMAGE_EXTRACT_AND_RUN is the
-          # documented way round it. dpkg-dev supplies dpkg-architecture, which the GTK plugin
-          # exits on when missing.
-          sudo apt-get install -y --no-install-recommends fuse3 libfuse2t64 || \
-            sudo apt-get install -y --no-install-recommends fuse libfuse2 || true
-          sudo apt-get install -y --no-install-recommends dpkg-dev
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy" \
-            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          # The two plugins are NOT distributed the same way: qt ships an AppImage on a rolling
-          # `continuous` release; gtk has no releases at all and is a shell script in its
-          # repository (pinned to a commit — an unpinned branch is a third party editing this
-          # job's behaviour without a pull request).
-          case "$TOOLKIT" in
-            qt)
-              PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-qt"
-              curl -fsSL --retry 3 -o "$PLUGIN" \
-                "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
-              ;;
-            gtk)
-              PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-gtk.sh"
-              curl -fsSL --retry 3 -o "$PLUGIN" \
-                "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh"
-              ;;
-            *)
-              echo "::error::no linuxdeploy plugin known for toolkit '$TOOLKIT'"; exit 1 ;;
-          esac
-          chmod +x "$RUNNER_TEMP/linuxdeploy" "$PLUGIN"
-          {
-            echo "DAY_LINUXDEPLOY=$RUNNER_TEMP/linuxdeploy"
-            echo "DAY_LINUXDEPLOY_PLUGIN_${TOOLKIT^^}=$PLUGIN"
-            echo "APPIMAGE_EXTRACT_AND_RUN=1"
-          } >> "$GITHUB_ENV"
-      - name: NSIS (windows-xaml pack)
-        if: ${{ matrix.combo == 'windows-xaml' }}
-        shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          # `choco` edits the MACHINE PATH, which does not reach later steps: Actions hands every
-          # step the environment captured when the job started. So locate makensis.exe now and hand
-          # it to `day pack` explicitly (DAY_MAKENSIS is what `day doctor` probes too).
-          $roots = @("$env:ProgramFiles\NSIS", "${env:ProgramFiles(x86)}\NSIS", "$env:ChocolateyInstall\bin", "$env:ChocolateyInstall\lib\nsis") | Where-Object { $_ -and (Test-Path $_) }
-          $exe = Get-ChildItem -Path $roots -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
-          "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "makensis: $($exe.FullName)"
+          target: ${{ matrix.combo }}
+          pack: true
+          extras: false
+          java: false
 
       # --- the check: doctor → new → build → pack, for this combo --------------------------
       # `--day-version` decides BOTH halves of what is under test: checkup installs that day-cli
