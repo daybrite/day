@@ -30,7 +30,7 @@ oxc_codegen = "0.143"
 oxc_span = "0.143"
 
 # Built-in persistence (docs/lite.md §7): bundled so every mobile target has the same sqlite.
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Per-miniapp Fluent bundles (docs/lite.md §7) — same crate/version day-l10n builds on.
 fluent-bundle = "0.16"
