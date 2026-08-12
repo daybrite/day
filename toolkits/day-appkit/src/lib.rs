@@ -2167,6 +2167,15 @@ impl AppKit {
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         let content = view_of(DayFlipped::new(mtm));
         window.setContentView(Some(&content));
+        // Tab / Shift-Tab (docs/focus.md). AppKit does NOT derive the key view loop from the view
+        // hierarchy: `nextKeyView` is nil on a programmatically built window and the loop stays
+        // empty, so Tab moves focus OUT of a text field and onto nothing — measured on the
+        // showcase's Focus page, where three Tabs in a row left every field unfocused. Every other
+        // Day backend gets traversal from its widget order for free; this is the one that has to
+        // ask. Autorecalculation rather than a call at the end of each layout because Day's tree
+        // is reactive: fields appear, move, and vanish between passes, and AppKit rebuilding the
+        // loop on hierarchy changes is the same rule expressed once.
+        window.setAutorecalculatesKeyViewLoop(true);
         (window, delegate, content)
     }
 }
