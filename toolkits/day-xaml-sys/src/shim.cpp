@@ -336,6 +336,10 @@ static int day_theme_env() {
 // captured at window creation. Read by the code-behind theme-brush fills below, which resolve per
 // the SYSTEM theme and would otherwise mis-color a forced scheme.
 static int g_forced_theme = 0;
+/// The APP's own appearance override (docs/appearance.md): 0 follow the system, 1 light, 2 dark.
+/// Distinct from `g_forced_theme`, which is the DAY_THEME env force a screenshot run pins — that
+/// one still wins, so a themed CI capture cannot be knocked off its scheme by the app's own picker.
+static int g_app_override = 0;
 
 struct DayApp : WUX::ApplicationT<DayApp, WUXMk::IXamlMetadataProvider> {
     WUXH::WindowsXamlManager manager{ nullptr };
@@ -456,6 +460,7 @@ static void day_xaml_relayout_chrome(AppWindow* app) {
 /// announcing, so it is both current and authoritative.
 static bool effective_dark() try {
     if (g_forced_theme) return g_forced_theme == 2;
+    if (g_app_override) return g_app_override == 2;
     DWORD light = 1, size = sizeof(light);
     if (RegGetValueW(HKEY_CURRENT_USER,
                      L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
@@ -476,6 +481,18 @@ static bool effective_dark() try {
 static void apply_dark_titlebar(HWND host) {
     BOOL dark = effective_dark() ? TRUE : FALSE;
     DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+}
+
+/// Fired when the system light/dark setting flips, so day can re-evaluate its own palette
+/// (docs/appearance.md). Set once from Rust; null until then.
+static void (*g_appearance_cb)() = nullptr;
+
+/// Re-theme and re-ground every live window. Defined below, once `SecWindow` is a complete type;
+/// declared here because the window procedure calls it on WM_SETTINGCHANGE. The `extern "C"`
+/// matches the definition's — it lands inside this file's big C-linkage block, and a declaration
+/// with C++ linkage would contradict it.
+extern "C" {
+static void apply_appearance_everywhere();
 }
 
 /// True for the broadcast Windows sends when the light/dark setting flips.
@@ -524,7 +541,16 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         break;
     case WM_SETTINGCHANGE:
         // The user flipped Windows between light and dark while the app was running.
-        if (is_color_scheme_change(lp)) apply_dark_titlebar(hwnd);
+        if (is_color_scheme_change(lp)) {
+            // Everything, not just this window's title bar: the roots' grounds are as stale as the
+            // chrome after a system flip, and other windows get no broadcast of their own.
+            apply_appearance_everywhere();
+            // …and tell day, so APP-PAINTED colour follows too. XAML's own controls re-theme
+            // themselves from theme resources, which is why the window looked like it was
+            // following all along — but every palette closure day evaluates reads day's dark
+            // signal, and nothing was ever updating it here.
+            if (g_appearance_cb) g_appearance_cb();
+        }
         break;
     case WM_CLOSE:
         // Report the close and STOP: no destroy here, no lifecycle-terminate. This window is
@@ -551,6 +577,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 extern "C" void day_xaml_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = cb; }
 
 extern "C" void day_xaml_set_primary_closed_cb(void (*cb)()) { g_primary_closed = cb; }
+
+// Appearance (docs/appearance.md): the system light/dark setting, and a notification when the
+// user changes it. `day_xaml_is_dark` answers the `dark_mode` duty — a DAY_THEME force wins,
+// else the live system value — so day's palette resolves the same way the window chrome does.
+extern "C" void day_xaml_set_appearance_cb(void (*cb)()) { g_appearance_cb = cb; }
+extern "C" int day_xaml_is_dark() { return effective_dark() ? 1 : 0; }
 
 // Destroy the primary window's host, once day-core has torn its content down (the released
 // root handle is the signal). The counterpart of day_xaml_window_destroy2 for window zero.
@@ -1593,6 +1625,69 @@ static void prune_navviews() {
 // The window-less entry point (day-xaml's `toggle_sidebar` duty, and dayscript's step): no click
 // to locate a window from, so it drives the primary window's nav — the first one still alive,
 // which is the one the app opened with.
+/// The ElementTheme every live root should carry right now.
+static WUX::ElementTheme element_theme_now() {
+    int mode = g_forced_theme ? g_forced_theme : g_app_override;
+    switch (mode) {
+        case 2: return WUX::ElementTheme::Dark;
+        case 1: return WUX::ElementTheme::Light;
+        default: return WUX::ElementTheme::Default; // follow the system
+    }
+}
+
+/// Re-theme EVERY window in place — the `set_appearance` duty (docs/appearance.md).
+///
+/// Per-element rather than `Application::RequestedTheme`, which is unsupported under XAML Islands:
+/// ElementTheme on a root cascades to every descendant control and its {ThemeResource} lookups, so
+/// the whole tree re-renders in the chosen scheme. Secondary windows are separate islands with
+/// their own roots, so each is set individually — a preferences window that restyled only itself
+/// (or only the main window) is exactly the half-applied result this avoids.
+/// Re-ground one root for the scheme now in force.
+///
+/// The GROUND is the half `RequestedTheme` cannot reach. A Canvas paints nothing of its own and the
+/// HWND behind the island is white, so each root is given a background at creation — either the
+/// system's `ApplicationPageBackgroundThemeBrush` or a solid neutral — computed from the scheme AT
+/// THAT MOMENT and never revisited. Re-theming without this left every control correctly dark on a
+/// still-light ground: the menu bar drew white-on-white and the page area stayed white, while the
+/// toolbar and nav (which paint their own backgrounds) looked right. That mismatch IS the bug.
+///
+/// A null Background means Mica was accepted and the root is deliberately transparent so the
+/// material shows through — that one is left alone.
+static void ground_root(WUXC::Canvas const& root, bool dark) {
+    if (!root || !root.Background()) return;
+    root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+}
+
+static void apply_appearance_everywhere() {
+    auto theme = element_theme_now();
+    bool dark = effective_dark();
+    if (g_app) {
+        if (g_app->root) {
+            g_app->root.RequestedTheme(theme);
+            ground_root(g_app->root, dark);
+        }
+        if (g_app->host) apply_dark_titlebar(g_app->host);
+    }
+    for (auto const& [hwnd, sw] : g_sec_windows) {
+        if (!sw) continue;
+        if (sw->root) {
+            sw->root.RequestedTheme(theme);
+            ground_root(sw->root, dark);
+        }
+        if (sw->host) apply_dark_titlebar(sw->host);
+        (void)hwnd;
+    }
+}
+
+/// `mode`: 0 follow the system, 1 light, 2 dark. Deliberately does NOT fire `g_appearance_cb` —
+/// day-core calls `note_appearance_changed()` itself once its tree borrow has ended, and firing
+/// from in here would land inside that borrow and be skipped.
+extern "C" void day_xaml_set_appearance(int mode) try {
+    g_app_override = (mode == 1 || mode == 2) ? mode : 0;
+    apply_appearance_everywhere();
+} catch (...) {
+}
+
 extern "C" int day_xaml_toggle_sidebar() try {
     prune_navviews();
     if (g_navviews.empty()) return 0;
@@ -2017,18 +2112,21 @@ void day_xaml_cover_ground(void* h) {
     auto c = elem(h).try_as<WUXC::Canvas>();
     if (!c) return;
     auto rect = ensure_bg_rect(c);
-    auto res = WUX::Application::Current().Resources();
-    auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
-    if (res.HasKey(key)) {
-        if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
-            rect.Fill(brush);
-            return;
+    // The named brush resolves per the SYSTEM theme, so it is only correct while nothing overrides
+    // it — under a DAY_THEME force or the app's own Appearance pick it would ground the cover in
+    // the wrong scheme. `effective_dark` already ranks those, so ask it first and only fall back to
+    // the resource when the app is genuinely following the system.
+    if (!g_forced_theme && !g_app_override) {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                rect.Fill(brush);
+                return;
+            }
         }
     }
-    bool dark = g_forced_theme == 2 ||
-        (g_forced_theme == 0 &&
-         WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark);
-    rect.Fill(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+    rect.Fill(WUXM::SolidColorBrush(color_argb(effective_dark() ? 0xFF'202020u : 0xFF'F3F3F3u)));
 }
 
 // SurfaceRole::SectionCard: the grouped-card fill from the theme resources — resolved per the

@@ -969,6 +969,10 @@ impl Toolkit for Xaml {
             Cap::NavSplit => Support::Native,
             // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
             Cap::Dialogs | Cap::FileDialogs => Support::Native,
+            // The system light/dark setting, read live and re-reported when the user changes it
+            // (docs/appearance.md). XAML's own controls follow theme resources by themselves; this
+            // is what makes DAY's palette follow too.
+            Cap::Appearance => Support::Native,
             // A topmost child of the content Canvas — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             // The NavigationView shows the current destination in its Header, so pages needn't
@@ -2165,6 +2169,29 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_toggle_sidebar() != 0 }
     }
 
+    /// The app's appearance override (docs/appearance.md) — what the showcase's Preferences
+    /// Appearance picker drives. Without this the backend took the trait default, which ignores
+    /// the call: picking Light or Dark changed nothing at all, while `Cap::Appearance` promised
+    /// the opposite. `dark_mode` below answers from the same override, so day's palette and the
+    /// native controls agree.
+    fn set_appearance(&mut self, dark: Option<bool>) {
+        let mode = match dark {
+            None => 0,        // follow the system again
+            Some(false) => 1, // light
+            Some(true) => 2,  // dark
+        };
+        unsafe { ffi::day_xaml_set_appearance(mode) };
+    }
+
+    /// The system's light/dark setting (a `DAY_THEME` force wins). Previously this took the trait
+    /// default, which reads DAY_THEME and nothing else — so on Windows every palette closure day
+    /// evaluated resolved LIGHT no matter what the system was set to, while the XAML controls
+    /// around it themed themselves correctly. That mismatch is what made a dark-mode window show
+    /// app-painted surfaces in light colours.
+    fn dark_mode(&mut self) -> bool {
+        unsafe { ffi::day_xaml_is_dark() != 0 }
+    }
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {
             return Err("no window".into());
@@ -2276,6 +2303,11 @@ extern "C" fn win_closed(node: u64) {
 /// root node day-core adopted it under (docs/windows.md close policy).
 extern "C" fn primary_closed() {
     emit(day_spec::WINDOW_NODE, Event::WindowClosed);
+}
+/// The user flipped Windows between light and dark: re-read the setting into day's dark signal so
+/// palette closures recolor live, the same way GTK's StyleManager `dark` notify drives it.
+extern "C" fn appearance_changed() {
+    day_core::note_appearance_changed();
 }
 extern "C" fn win_focused(node: u64, active: c_int) {
     emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
@@ -2408,6 +2440,7 @@ impl Platform for Xaml {
             ready(self, WinHandle(root), options.size);
             ffi::day_xaml_window_on_resize(win, window_resized);
             ffi::day_xaml_set_primary_closed_cb(primary_closed);
+            ffi::day_xaml_set_appearance_cb(appearance_changed);
             ffi::day_xaml_set_window_events_cb(win_resized, win_closed, win_focused);
             ffi::day_xaml_window_show(win);
             ffi::day_xaml_run(win);
