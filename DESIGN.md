@@ -2136,6 +2136,30 @@ inverse of day-cli's `parse_flow`), so a recorded script replays cross-toolkit t
 `day::play_script(yaml)` in-process **or** `day launch -p <other-target> --script <file>` — record
 on one backend, replay on any.
 
+### §14.7 Screenshot metadata and the gallery index
+
+A `screenshot:` step may carry gallery metadata beside its capture keys: `title:` and
+`caption:` (a plain string, or a locale-keyed map — `title: { en: "Home", fr: "Accueil" }`)
+and `source:` (the path of the code the screen renders from, relative to the app repository).
+The metadata lives on the step because that is where the capture is declared; it is
+**runner-side only** — day-cli strips the keys before the step reaches the engine, so apps and
+the day-script protocol are untouched (Appendix C lists the keys).
+
+The runner folds every capture it saves into `build/day/screenshots/<target>/gallery.json`
+(upserted across runs and variants; entries whose files are gone are pruned), carrying the
+step's metadata plus the file's facts — pixel dimensions, byte size, sha-256, and the run's
+actual locale. `day screenshot index` (§16.5) merges those per-target files into one
+`gallery.json`: shot order is the dayscript's declaration order, titles/captions ship as
+locale maps in `shots[]` and resolved per-capture (each entry's own locale, falling back by
+primary language then English), and `website/site.toml`'s `host` turns paths into published
+URLs. App sites serve the result at `<host>/gallery/gallery.json` — the machine-readable
+index other sites and tools reference (crates/day-cli/src/screenshot.rs).
+
+A shot **with** a `title:` is gallery-curated: the daysite gallery shows the curated set when
+one exists, and untitled captures stay machine-readable in the index. `day lint`
+cross-references each title/caption map's locale keys against the app's translation locales
+(missing = that page silently falls back to English; unknown = usually a typo).
+
 ---
 
 ## §15 Extensibility: pieces, parts, and tweaks
@@ -2562,6 +2586,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads (docs/store.md) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
+| `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256. App sites serve it at `/gallery/gallery.json`; `--out` places it |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
@@ -4150,7 +4175,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated docs/coverage-matrix.md is its static twin |
-| `screenshot` | name, `window?` | waits for `ui_idle`; `window` captures the secondary window opened under that key (docs/windows.md). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one (docs/window-image.md) |
+| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key (docs/windows.md). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one (docs/window-image.md). `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
 | `pause` | `secs` | demos only |
 | `expect_exit` | `within?` | MUST be last: tolerates the app terminating — a dropped connection within `within` s (default 15) is success, surviving is failure. Runner-side; drives crash-reporting tests (docs/break.md) |
 

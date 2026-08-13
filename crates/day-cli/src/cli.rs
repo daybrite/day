@@ -300,6 +300,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: LocalizeCmd,
     },
+    /// Screenshot tooling: the machine-readable gallery index (DESIGN.md §14.7)
+    Screenshot {
+        #[command(subcommand)]
+        cmd: ScreenshotCmd,
+    },
     /// Stop running launches (and drop their sessions)
     Stop {
         /// Target(s) to stop (repeatable)
@@ -377,6 +382,22 @@ pub enum StoreCmd {
 
 /// `day localize …` — the four places a conventional project spells its locale set
 /// (`resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`), kept in step.
+#[derive(Subcommand)]
+pub enum ScreenshotCmd {
+    /// Merge captured screenshot trees into gallery.json — the published machine-readable
+    /// index of every capture (URL, localized title/caption, theme, locale, platform,
+    /// dimensions, byte size, sha-256), which app sites serve at /gallery/gallery.json
+    Index {
+        /// Capture tree(s), `<target>/<variant>/<shot>.png` (repeatable).
+        /// Default: build/day/screenshots
+        #[arg(long = "screenshot-paths", value_name = "PATH", num_args = 1..)]
+        screenshot_paths: Vec<PathBuf>,
+        /// Output file (default: gallery.json at the first tree's root)
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+}
+
 #[derive(Subcommand)]
 pub enum LocalizeCmd {
     /// Print each surface's locales, then any out-of-sync warnings (always exits 0)
@@ -740,6 +761,24 @@ pub fn run() -> i32 {
         }),
         Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::store::run(project, &cmd)
+        }),
+        Cmd::Screenshot { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
+            ScreenshotCmd::Index {
+                screenshot_paths,
+                out,
+            } => {
+                let opts = crate::screenshot::IndexOptions {
+                    screenshot_paths,
+                    out,
+                };
+                match crate::screenshot::index(project, &opts) {
+                    Ok(_) => 0,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        1
+                    }
+                }
+            }
         }),
         Cmd::Localize { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::localize::run(project, &cmd)

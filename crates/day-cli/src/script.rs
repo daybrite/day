@@ -413,6 +413,8 @@ pub fn run_scripts(
         steps_failed: 0,
         screenshots: Vec::new(),
     };
+    // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
+    let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     for script in scripts {
         let steps = parse_flow(script).map_err(ScriptError::Other)?;
         // `expect_exit` tolerates the app dying, so it must be terminal — a step after it could
@@ -518,9 +520,16 @@ pub fn run_scripts(
                 }
             }
             let mut step = step;
+            let mut shot_meta = crate::screenshot::ShotMeta::default();
             if let Some(map) = step.as_object_mut() {
                 map.remove("skip_on");
                 map.remove("only_on");
+                // A screenshot step's gallery metadata (`title:`/`caption:`/`source:`, §14.7)
+                // is the RUNNER's: it feeds the per-target gallery.json below and must not
+                // reach the engine — apps predate it and never need it.
+                if op == "screenshot" {
+                    shot_meta = crate::screenshot::extract_meta(map);
+                }
             }
             let req = serde_json::json!({"token": token, "step": step});
             let mut line = serde_json::to_string(&req).unwrap();
@@ -608,6 +617,19 @@ pub fn run_scripts(
                     }
                 }
                 if saved {
+                    // Record the capture in the target's gallery index (screenshot.rs): the
+                    // step's metadata plus the saved file's facts. The subdir name is the
+                    // variant key the published index uses.
+                    let vname = variant.or(locale).unwrap_or("default");
+                    if let Some(entry) = crate::screenshot::target_entry(
+                        &path,
+                        vname,
+                        name,
+                        locale,
+                        Some(&shot_meta),
+                    ) {
+                        index_entries.push(entry);
+                    }
                     run.screenshots.push(path);
                 }
             }
@@ -642,7 +664,16 @@ pub fn run_scripts(
         crate::sessions::remove(&project.root, target.name);
     }
     // Refresh the machine-local screenshot gallery (an at-a-glance index of every capture
-    // set under build/day/screenshots/) after each run that saved captures.
+    // set under build/day/screenshots/) after each run that saved captures, and fold this
+    // run's captures into the target's machine-readable gallery index (screenshot.rs) —
+    // `day screenshot index` merges those per-target files into the published gallery.json.
+    if !index_entries.is_empty() {
+        crate::screenshot::record_target_entries(
+            &project.root.join("build/day/screenshots"),
+            target.name,
+            index_entries,
+        );
+    }
     if !run.screenshots.is_empty() {
         write_gallery(&project.root.join("build/day/screenshots"));
     }

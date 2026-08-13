@@ -32,6 +32,7 @@ mod plist;
 mod provenance;
 mod rebuild;
 mod resources;
+mod screenshot;
 mod script;
 mod sessions;
 mod shortcuts;

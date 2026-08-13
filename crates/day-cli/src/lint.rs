@@ -195,6 +195,59 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<String>) {
     }
 }
 
+/// Cross-reference every dayscript `screenshot:` step's localized `title:`/`caption:` locale
+/// keys against the app's translation locales (see the caller's comment for the rules).
+fn check_screenshot_locales(dir: &Path, app_locales: &[String], findings: &mut Vec<Finding>) {
+    let lang = |t: &str| t.split(['-', '_']).next().unwrap_or(t).to_ascii_lowercase();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            check_screenshot_locales(&p, app_locales, findings);
+            continue;
+        }
+        if !p.extension().is_some_and(|x| x == "yaml" || x == "yml") {
+            continue;
+        }
+        let file = p.file_name().map(|f| f.to_string_lossy().into_owned());
+        let file = file.as_deref().unwrap_or("dayscript");
+        for (shot, meta) in crate::screenshot::script_screenshot_meta(&p) {
+            for (kind, text) in [("title", &meta.title), ("caption", &meta.caption)] {
+                let Some(text) = text else { continue };
+                let keys = text.locales();
+                if keys.is_empty() {
+                    continue; // a plain string localizes nothing — nothing to check
+                }
+                for l in app_locales {
+                    if !keys.iter().any(|k| lang(k) == lang(l)) {
+                        findings.push(Finding {
+                            code: "day::lint::screenshot-locales",
+                            message: format!(
+                                "{file}: screenshot {shot:?} {kind} has no {l:?} — that \
+                                 locale's gallery page falls back to English"
+                            ),
+                        });
+                    }
+                }
+                for k in &keys {
+                    if !app_locales.iter().any(|l| lang(l) == lang(k)) {
+                        findings.push(Finding {
+                            code: "day::lint::screenshot-locales",
+                            message: format!(
+                                "{file}: screenshot {shot:?} {kind} names {k:?}, which is not \
+                                 one of the app's locales ({})",
+                                app_locales.join(", ")
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps — and the
 /// route inside every `deep_link:` step's `url:` (docs/deep-links.md) — in
 /// `dayscript/*.yaml`: the same route namespace `navigate()` uses (docs/navigation.md).
@@ -376,6 +429,22 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                 code: "day::lint::locale-sync",
                 message: format!("{message} — {advice}"),
             });
+        }
+
+        // --- Screenshot gallery metadata locales (DESIGN.md §14.7) ---
+        // A `screenshot:` step's localized `title:`/`caption:` feeds the published gallery
+        // index (`day screenshot index`), so its locale keys must track the app's translation
+        // locales: an app locale the map lacks silently ships the English title on that
+        // locale's gallery page, and a key naming a locale the app does not have is dead
+        // weight — usually a typo. Comparison is by primary language (`fr` covers `fr-FR`),
+        // the same rule the gallery's own resolution uses. A plain-string title is fine: an
+        // app that does not localize its gallery has nothing to keep in sync.
+        if !survey.fluent.is_empty() {
+            check_screenshot_locales(
+                &project.root.join("dayscript"),
+                &survey.fluent,
+                &mut findings,
+            );
         }
     }
 

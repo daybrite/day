@@ -4,7 +4,7 @@
 // Assemble the screenshots gallery into a static manifest.
 //
 // Inputs  : per suite, ONE of —
-//           · the suite's published screenshot index (`suite.metadata`, daysite's
+//           · the suite's published screenshot index (`suite.metadata`, `day screenshot index`'s
 //             gallery.json): the manifest then references those hosted images by absolute
 //             URL and nothing is copied — the app's own site owns the bytes, and adding
 //             another Day app site's index adds another suite to the gallery;
@@ -68,7 +68,7 @@ function findVariantShot(artifactDir, shotId, variant) {
   return null;
 }
 
-/** Fetch a suite's published screenshot index (daysite's gallery.json) and key its entries by
+/** Fetch a suite's published screenshot index (gallery.json) and key its entries by
  *  `(shot, platform, variant)` for the assembly loop. Returns null on any failure — the caller
  *  falls back to CI artifacts, so an unreachable site degrades rather than fails the build. */
 async function fetchRemoteIndex(url, log) {

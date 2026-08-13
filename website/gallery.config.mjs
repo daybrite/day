@@ -14,7 +14,8 @@
 // Where the images come from
 // --------------------------
 // A suite with a `metadata` URL references the screenshots its own site publishes: the URL
-// names a daysite gallery.json (the machine-readable index every Day app site emits), and the
+// names a gallery.json (`day screenshot index`'s machine-readable index, which every Day app
+// site serves at /gallery/gallery.json), and the
 // gallery links those hosted images directly — which is what lets this page show any Day app's
 // screenshots without hosting a copy. Without `metadata`, or when the fetch fails, images come
 // from CI artifacts: each job uploads `screenshots-<platform>` containing `<variant>/<shot>.png`
@@ -61,8 +62,8 @@ export const suites = [
     // spelled here because this config is also imported by plain node scripts that cannot read a
     // .ts module.
     sourceRepo: 'https://github.com/daybrite/Day-Showcase',
-    // The published machine-readable index of this suite's screenshots (daysite's
-    // gallery.json). When it fetches, the gallery REFERENCES those hosted images instead of
+    // The published machine-readable index of this suite's screenshots (`day screenshot
+    // index`'s gallery.json). When it fetches, the gallery REFERENCES those hosted images instead of
     // copying CI artifacts into this site — one copy of the bytes, owned by the app's own
     // site, and any Day app site publishing the same index can join as another suite. The
     // artifact path below remains the fallback for when the fetch fails (offline builds, a
