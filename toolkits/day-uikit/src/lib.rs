@@ -2559,6 +2559,20 @@ mod imp {
             }
         })
         .ok_or("no window to capture")?;
+        snapshot_view(&view)
+    }
+
+    /// Rasterize one view (a window's content container — the primary root, or a secondary
+    /// "window"'s host view, which on iOS is a fullscreen cover's content).
+    fn snapshot_view(view: &UIView) -> Result<Vec<u8>, String> {
+        // A view outside any window cannot be drawn with `afterScreenUpdates: true`: UIKit
+        // moves it into a temporary window to force the commit, and when the view is
+        // controller-backed its hierarchy check raises an NSException — which is foreign to
+        // Rust and aborts the process. This happens to the PRIMARY root while a fullscreen
+        // cover is presented (UIKit detaches the underlay), so refuse rather than raise.
+        if unsafe { view.window() }.is_none() {
+            return Err("view is not in a window".into());
+        }
         let bounds = view.bounds();
         if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
             return Err("zero-size window".into());
@@ -2570,7 +2584,7 @@ mod imp {
                 objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
                 bounds,
             );
-            let v = view.clone();
+            let v: Retained<UIView> = Retained::from(view);
             let block = block2::RcBlock::new(
                 move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
                     v.drawViewHierarchyInRect_afterScreenUpdates(v.bounds(), true);
@@ -4519,6 +4533,14 @@ mod imp {
         /// system, not to this process, and no in-app API can draw it (docs/window-image.md).
         fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
             snapshot_uikit(true)
+        }
+
+        /// A secondary "window" on iOS is a fullscreen cover (`open_window` below answers
+        /// Unsupported for the Preferences kind), so `host` is the cover's content view —
+        /// capture IT, not the key scene's root, which the cover's presentation has
+        /// detached from the window (drawing a detached root raises, see `snapshot_view`).
+        fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
+            snapshot_view(host)
         }
 
         fn open_window(

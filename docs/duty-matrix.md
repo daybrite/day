@@ -60,4 +60,4 @@ implement them, and this table proves it.
 | `quit_app` | · | · | · | · | · | ✓ | · | · | · | ✓ |
 | `focus_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `set_window_title` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| `snapshot_window_of` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |
+| `snapshot_window_of` | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ |
