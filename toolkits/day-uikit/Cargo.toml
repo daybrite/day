@@ -29,6 +29,8 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIScene", "UIWindowScene", "UISceneSession", "UISceneConfiguration", "UISceneOptions", "UISceneDefinitions",
     # Deep-link + launcher-shortcut intake at the scene delegate (docs/deep-links.md).
     "UIApplicationShortcutItem", "UIOpenURLContext", "block2",
+    # Window capture (docs/window-image.md): UIGraphicsImageRenderer + UIImagePNGRepresentation.
+    "UIGraphicsRenderer", "UIGraphicsImageRenderer", "UIImage",
     "UIButtonConfiguration", "UIBackgroundConfiguration",
     "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch", "UISlider", "UIColor",
     "UIAlertController",

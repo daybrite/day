@@ -3297,6 +3297,15 @@ impl Toolkit for Gtk {
         snapshot_widget(fixed.upcast_ref())
     }
 
+    fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
+        // GTK draws its own decorations (CSD), so the HeaderBar is a widget INSIDE the window —
+        // rendering the root instead of the content Fixed is the whole difference between the
+        // two captures (docs/window-image.md). The compositor's drop shadow stays out either way.
+        let fixed = self.window_fixed.as_ref().ok_or("no window")?;
+        let root = fixed.root().ok_or("no window root")?;
+        snapshot_widget(root.upcast_ref())
+    }
+
     fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
         snapshot_widget(host)
     }

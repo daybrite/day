@@ -617,6 +617,10 @@ pub trait TreeOps {
         false
     }
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
+    /// The same capture with the window's own chrome (see `Toolkit::snapshot_window_chrome`).
+    fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
+    /// Whether the toolkit can rasterize its own window at all (`Cap::Snapshot`).
+    fn window_image_support(&mut self) -> day_spec::Support;
     /// Whether native transitions have settled (see `Toolkit::ui_idle`).
     fn ui_idle(&mut self) -> bool;
     fn root_node(&self) -> RNode;
@@ -1285,6 +1289,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {
         self.toolkit.snapshot_window()
+    }
+
+    fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String> {
+        self.toolkit.snapshot_window_chrome()
+    }
+
+    fn window_image_support(&mut self) -> day_spec::Support {
+        self.toolkit.capability(day_spec::Cap::Snapshot)
     }
 
     fn ui_idle(&mut self) -> bool {

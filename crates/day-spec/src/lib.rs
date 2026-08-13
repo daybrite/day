@@ -1083,6 +1083,12 @@ pub enum Cap {
     BaselineAlignment,
     Lottie,
     NativeSymbols,
+    /// The toolkit can rasterize its OWN window and hand back the pixels
+    /// (`Toolkit::snapshot_window`) — what the dayscript `screenshot` step captures in-process
+    /// and what `day::window_image()` offers the app (docs/window-image.md). `Unsupported` where
+    /// a backend cannot draw itself into a bitmap: web-dom, which would need a rasterizer
+    /// shipped with it. Probe it before offering a "save a screenshot" affordance, rather than
+    /// offering one that fails when pressed.
     Snapshot,
     /// The toolkit CAN present `nav()` as sidebar+detail split panes — a statement about the
     /// toolkit, not about the window it is currently drawing. Whether a given host is split right
@@ -2755,6 +2761,17 @@ pub trait Toolkit: Sized + 'static {
     fn replay(&mut self, _h: &Self::Handle, _ops: &[DrawOp], _size: Size) {}
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
+    }
+    /// The same capture WITH the window's own chrome — title bar, toolbar, whatever the platform
+    /// draws around the content (docs/window-image.md).
+    ///
+    /// Defaulted to [`Self::snapshot_window`] on purpose: a backend that cannot separate the two
+    /// (or has no chrome to speak of — a phone) answers with the content shot rather than an
+    /// error, so an app asking for chrome degrades to "what there was" instead of failing. The
+    /// dayscript `screenshot` step never calls this, which is what keeps every captured gallery
+    /// baseline byte-identical to before it existed.
+    fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
+        self.snapshot_window()
     }
     /// Show/hide this window's `selector(Sidebar)` pane — what a
     /// [`ToolbarItemKind::SidebarToggle`] item drives. `false` when there is no split host to

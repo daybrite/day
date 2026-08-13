@@ -392,6 +392,22 @@ mod imp {
         AHandle(unsafe { ffi::day_ark_node_new(kind) })
     }
 
+    /// Render a mounted node to PNG bytes (docs/window-image.md). The shim owns the buffer until
+    /// it is copied out here, so the free is unconditional past a successful call.
+    fn snapshot_node(node: *mut c_void) -> Result<Vec<u8>, String> {
+        let mut data: *mut u8 = std::ptr::null_mut();
+        let mut len: usize = 0;
+        let ok = unsafe { ffi::day_ark_snapshot_png(node, &mut data, &mut len) };
+        if ok == 0 || data.is_null() || len == 0 {
+            return Err("the node has no snapshot".into());
+        }
+        // SAFETY: the shim reports `len` bytes written into its own malloc'd buffer, and this is
+        // the only reader; the copy ends the borrow before the matching free.
+        let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
+        unsafe { ffi::day_ark_snapshot_free(data as *mut c_void) };
+        Ok(bytes)
+    }
+
     /// The theme-adaptive pick: `light` under the light theme, `dark` under dark.
     fn theme_color(light: u32, dark: u32) -> u32 {
         if IS_DARK.with(|d| d.get()) {
@@ -659,6 +675,34 @@ mod imp {
         if from != to {
             (r.move_row)(from as usize, to as usize);
         }
+        1
+    }
+
+    /// May this row be swiped away? Called from the shim as it builds a cell's swipe action,
+    /// so a guarded row is given no action at all (docs/list.md).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_list_can_delete(host_id: u64, index: u32) -> u32 {
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(source) = source else { return 0 };
+        let Some(d) = source.delete.as_ref() else {
+            return 0;
+        };
+        let index = index as usize;
+        (index < (source.len)() && (d.can_delete)(index)) as u32
+    }
+
+    /// Commit a swipe-to-delete through the sync seam (shortens day's snapshot, defers the app
+    /// callback); the shim reloads the adapter afterwards. Returns 1 on commit.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_list_delete(host_id: u64, index: u32) -> u32 {
+        if day_arkui_list_can_delete(host_id, index) == 0 {
+            return 0;
+        }
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(d) = source.and_then(|s| s.delete) else {
+            return 0;
+        };
+        (d.delete_row)(index as usize);
         1
     }
 
@@ -1072,7 +1116,18 @@ mod imp {
                     };
                     let n = new_node(K_LIST);
                     LIST_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
-                    unsafe { ffi::day_ark_list_init(n.0, id.0, row_h, p.reorderable as u32) };
+                    let del_label = std::ffi::CString::new(p.delete_label.as_str())
+                        .unwrap_or_else(|_| std::ffi::CString::new("").expect("empty is valid"));
+                    unsafe {
+                        ffi::day_ark_list_init(
+                            n.0,
+                            id.0,
+                            row_h,
+                            p.reorderable as u32,
+                            p.deletable as u32,
+                            del_label.as_ptr(),
+                        )
+                    };
                     n
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
@@ -1603,8 +1658,15 @@ mod imp {
             unsafe { ffi::day_ark_list_reload(host.0) };
         }
 
+        /// In-process capture of the window root (docs/window-image.md). `hdc shell
+        /// snapshot_display` remains what a dayscript screenshot uses on a device — it is the
+        /// whole display, including the system status bar this cannot see — but the app itself
+        /// needs an answer that does not shell out, and this is it.
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
-            Err("use `hdc shell snapshot_display` on harmony-arkui".into())
+            let (root, _, _) = ROOT_KEEP
+                .with(|r| r.get())
+                .ok_or("no window root to capture")?;
+            snapshot_node(root as *mut c_void)
         }
 
         /// The color mode resolved at startup (DAY_THEME override, else the host-reported
@@ -1660,12 +1722,18 @@ mod imp {
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::FileDialogs => Support::Native,
+                // OH_ArkUI_GetNodeSnapshot + the native image packer, both synchronous
+                // (docs/window-image.md).
+                Cap::Snapshot => Support::Native,
                 // Every pushed page is an ArkTS NavDestination with a native title bar
                 // (Index.ets) — content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
                 // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift
                 // with the system preview; a denied drop springs back natively (docs/list.md).
                 Cap::ListReorder => Support::Native,
+                // `NODE_LIST_ITEM_SWIPE_ACTION`: the row slides to reveal the app's delete
+                // button, ArkUI's own idiom for the gesture (docs/list.md).
+                Cap::ListDelete => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
                 // Derived from NODE_FONT_SIZE — ArkUI publishes no baseline (docs/baseline.md).

@@ -4278,3 +4278,86 @@ fn searchable_binds_the_query_both_ways() {
         "scope choice wrote the app signal"
     );
 }
+
+/// A `.deletable()` list over `seed()`, recording each committed delete and mirroring the
+/// removal into the backing signal the way an app's `on_delete` would.
+fn deletable_list(
+    deletes: std::rc::Rc<std::cell::RefCell<Vec<usize>>>,
+    order: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    guard: Option<fn(usize) -> bool>,
+) -> AnyPiece {
+    let items = Signal::new(seed());
+    let mut l = list(
+        move || items.get(),
+        |s: &String| s.clone(),
+        |row: ItemSlot<String, String>| label(move || row.get()),
+    )
+    .row_height(RowHeight::Uniform(20.0))
+    .deletable(true)
+    .on_delete(move |index| {
+        deletes.borrow_mut().push(index);
+        items.update(|v| {
+            v.remove(index);
+        });
+        *order.borrow_mut() = items.get_untracked();
+    });
+    if let Some(g) = guard {
+        l = l.delete_guard(g);
+    }
+    l.any()
+}
+
+#[test]
+fn list_delete_commits_shortens_and_defers_callback() {
+    let deletes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
+    let (d, o) = (deletes.clone(), order.clone());
+    let probe = boot(move || deletable_list(d, o, None));
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    // No guard: every row is offered.
+    assert_eq!(probe.list_can_delete(host, 1), Some(true));
+
+    assert!(probe.list_delete(host, 1));
+    // The snapshot is ALREADY shorter when the commit returns — that is the seam's contract, so
+    // a backend animating the removal reads the new length while the animation runs.
+    assert_eq!(probe.list_len(host), 4);
+    // The app's callback rides the event queue (never the swipe callback itself); the probe
+    // pumps it, exactly as the reorder commit above does.
+    assert_eq!(deletes.borrow().as_slice(), [1]);
+    assert_eq!(
+        order.borrow().as_slice(),
+        ["a".to_string(), "c".into(), "d".into(), "e".into()]
+    );
+}
+
+#[test]
+fn list_delete_refused_by_guard_and_unsupported_without_optin() {
+    let deletes = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
+    let (d, o) = (deletes.clone(), order.clone());
+    // The pinned-first-row pattern the Showcase demonstrates.
+    let probe = boot(move || deletable_list(d, o, Some(|i: usize| i != 0)));
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    // The guard answers BEFORE the affordance is offered, so row 0 shows no action at all.
+    assert_eq!(probe.list_can_delete(host, 0), Some(false));
+    assert!(!probe.list_delete(host, 0));
+    assert!(deletes.borrow().is_empty());
+    assert_eq!(probe.list_len(host), 5, "a refused delete changes nothing");
+
+    // A list that never opted in has no seam at all — a backend must not offer the gesture.
+    let probe2 = boot(|| {
+        let items = Signal::new(seed());
+        list(
+            move || items.get(),
+            |s: &String| s.clone(),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .row_height(RowHeight::Uniform(20.0))
+        .any()
+    });
+    let host2 = probe2.find_by_kind("day.list")[0].0;
+    assert_eq!(probe2.list_can_delete(host2, 0), None);
+    assert!(!probe2.list_delete(host2, 0));
+}

@@ -2542,6 +2542,46 @@ mod imp {
     #[distributed_slice]
     pub static RENDERERS: [fn() -> Renderer<Uikit>];
 
+    /// Rasterize this app's own window to PNG (docs/window-image.md).
+    ///
+    /// `UIGraphicsImageRenderer` + `drawViewHierarchyInRect:afterScreenUpdates:` — the standard iOS
+    /// way, and SYNCHRONOUS, which is what lets `day::window_image()` stay a plain call on every
+    /// backend. `afterScreenUpdates: true` so a capture taken right after a state change shows the
+    /// change rather than the frame before it.
+    ///
+    /// `chrome` picks the whole window over Day's content view; both are views in the same tree.
+    fn snapshot_uikit(chrome: bool) -> Result<Vec<u8>, String> {
+        let view: Retained<UIView> = with_key_scene(|e| {
+            if chrome {
+                Retained::from(&*e.window as &UIView)
+            } else {
+                e.root_view.clone()
+            }
+        })
+        .ok_or("no window to capture")?;
+        let bounds = view.bounds();
+        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
+            return Err("zero-size window".into());
+        }
+        // SAFETY: main thread (a Toolkit duty); the renderer draws synchronously inside the block.
+        let image: Retained<objc2_ui_kit::UIImage> = unsafe {
+            use objc2::AllocAnyThread as _;
+            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds(
+                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+                bounds,
+            );
+            let v = view.clone();
+            let block = block2::RcBlock::new(
+                move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                    v.drawViewHierarchyInRect_afterScreenUpdates(v.bounds(), true);
+                },
+            );
+            renderer.imageWithActions(&*block as *const _ as *mut _)
+        };
+        let data = image.png_representation().ok_or("png encode failed")?;
+        Ok(data.to_vec())
+    }
+
     pub struct Uikit {
         registry: Registry<Uikit>,
     }
@@ -2876,8 +2916,11 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                // UIGraphicsImageRenderer draws this app's own window into a bitmap
+                // (docs/window-image.md).
+                Cap::Snapshot
                 // UITextView natively honors editable / selectable / spell-check.
-                Cap::Dialogs
+                | Cap::Dialogs
                 | Cap::FileDialogs
                 | Cap::Animation
                 | Cap::Cover
@@ -4467,7 +4510,15 @@ mod imp {
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
-            Err("use `simctl io booted screenshot` (device-level capture) on ios-uikit".into())
+            snapshot_uikit(false)
+        }
+
+        /// The window rather than Day's content view. On iOS the "chrome" is the navigation bar,
+        /// which lives IN the window's own hierarchy — so this is a wider capture of the same
+        /// tree, not a different mechanism. The status bar is not in it: that belongs to the
+        /// system, not to this process, and no in-app API can draw it (docs/window-image.md).
+        fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
+            snapshot_uikit(true)
         }
 
         fn open_window(

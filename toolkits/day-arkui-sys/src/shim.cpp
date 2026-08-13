@@ -29,6 +29,9 @@
 #include <arkui/native_type.h>
 #include <arkui/ui_input_event.h>
 #include <hilog/log.h>
+#include <multimedia/image_framework/image/image_common.h>
+#include <multimedia/image_framework/image/image_packer_native.h>
+#include <multimedia/image_framework/image/pixelmap_native.h>
 #include <napi/native_api.h>
 #include <rawfile/raw_file.h>
 #include <rawfile/raw_file_manager.h>
@@ -91,6 +94,8 @@ extern "C" void day_arkui_list_bind(uint64_t host_id, uint32_t index, void* cell
 // both synchronous Rust exports like day_arkui_list_count.
 extern "C" int32_t day_arkui_list_can_move(uint64_t host_id, uint32_t from, uint32_t to);
 extern "C" uint32_t day_arkui_list_move(uint64_t host_id, uint32_t from, uint32_t to);
+extern "C" uint32_t day_arkui_list_can_delete(uint64_t host_id, uint32_t index);
+extern "C" uint32_t day_arkui_list_delete(uint64_t host_id, uint32_t index);
 
 // The ArkTS-registered file-picker callback (docs/files.md): `(req, mode, name, src, filters)`.
 // Held as a napi_ref because HarmonyOS file pickers live in the ArkTS @kit.CoreFileKit layer,
@@ -932,6 +937,74 @@ void day_ark_res_close(void* handle) {
     delete tok;
 }
 
+// ---- window image (docs/window-image.md) -----------------------------------
+// Capturing a node is entirely native and SYNCHRONOUS here: OH_ArkUI_GetNodeSnapshot renders a
+// mounted node into an OH_PixelmapNative, and the image kit's native packer encodes the PNG in
+// place. The ArkTS route was the obvious one and is the wrong one — @ohos.multimedia.image has no
+// synchronous packer at all (packToData/packing are Promise/callback only), so bridging through
+// the host would have forced `day::window_image()` to be async on EVERY backend to satisfy this
+// one. The equivalent native calls have no such limitation.
+//
+// Returns 1 with a malloc'd PNG in *out_data (release with day_ark_snapshot_free), else 0.
+int32_t day_ark_snapshot_png(void* node, uint8_t** out_data, size_t* out_len) {
+    *out_data = nullptr;
+    *out_len = 0;
+    if (!node) return 0;
+    OH_PixelmapNative* pm = nullptr;
+    if (OH_ArkUI_GetNodeSnapshot((ArkUI_NodeHandle)node, nullptr, &pm) != ARKUI_ERROR_CODE_NO_ERROR
+        || !pm) {
+        return 0;
+    }
+
+    // The packer writes into a caller-sized buffer and reports what it used, so the capacity has
+    // to be an upper bound: the raw RGBA size plus room for the PNG's own headers/chunks. A PNG
+    // of a real UI compresses far below that.
+    uint32_t w = 0, h = 0;
+    OH_Pixelmap_ImageInfo* info = nullptr;
+    if (OH_PixelmapImageInfo_Create(&info) == IMAGE_SUCCESS) {
+        if (OH_PixelmapNative_GetImageInfo(pm, info) == IMAGE_SUCCESS) {
+            OH_PixelmapImageInfo_GetWidth(info, &w);
+            OH_PixelmapImageInfo_GetHeight(info, &h);
+        }
+        OH_PixelmapImageInfo_Release(info);
+    }
+    if (w == 0 || h == 0) {
+        OH_PixelmapNative_Release(pm);
+        return 0;
+    }
+
+    OH_ImagePackerNative* packer = nullptr;
+    OH_PackingOptions* opts = nullptr;
+    uint8_t* buf = nullptr;
+    int32_t ok = 0;
+    if (OH_ImagePackerNative_Create(&packer) == IMAGE_SUCCESS
+        && OH_PackingOptions_Create(&opts) == IMAGE_SUCCESS) {
+        char png_mime[] = "image/png";
+        Image_MimeType mime{png_mime, sizeof(png_mime) - 1};
+        OH_PackingOptions_SetMimeType(opts, &mime);
+        OH_PackingOptions_SetQuality(opts, 100);
+        size_t cap = (size_t)w * (size_t)h * 4 + 65536;
+        buf = (uint8_t*)malloc(cap);
+        if (buf) {
+            size_t len = cap;
+            if (OH_ImagePackerNative_PackToDataFromPixelmap(packer, opts, pm, buf, &len)
+                    == IMAGE_SUCCESS
+                && len > 0) {
+                *out_data = buf;
+                *out_len = len;
+                ok = 1;
+            }
+        }
+    }
+    if (!ok && buf) free(buf);
+    if (opts) OH_PackingOptions_Release(opts);
+    if (packer) OH_ImagePackerNative_Release(packer);
+    OH_PixelmapNative_Release(pm);
+    return ok;
+}
+
+void day_ark_snapshot_free(void* p) { free(p); }
+
 } // extern "C"
 
 // ---- canvas (§11): ARKUI_NODE_CUSTOM + on-draw via OH_Drawing --------------
@@ -1227,8 +1300,77 @@ struct DayList {
     bool reorderable;
     ArkUI_NodeHandle list_node;
     std::map<ArkUI_NodeHandle, int> rows;
+    // Swipe-to-delete (docs/list.md): whether rows swipe, and the app's already-localized word
+    // for the action (empty ⇒ no text, matching the other backends' wordless fallback).
+    bool deletable;
+    std::string delete_label;
+    // Per-cell swipe bookkeeping, so the action callback can find which ROW the cell is bound
+    // to at the moment it fires — cells recycle, so the row is not fixed at creation.
+    std::map<ArkUI_NodeHandle, ArkUI_ListItemSwipeActionOption*> swipe_opts;
 };
 static std::map<void*, DayList*> g_lists; // list node → its adapter binding
+
+/// Userdata for a cell's swipe action. The row is NOT captured here: cells recycle, so the
+/// bound row is read from `dl->rows` when the action actually fires.
+struct DaySwipeCell {
+    DayList* dl;
+    ArkUI_NodeHandle cell;
+};
+static std::vector<DaySwipeCell*> g_swipe_cells; // owned; freed with the list
+
+/// The user completed the swipe's delete action on this cell.
+static void day_list_swipe_action(void* user_data) {
+    auto* sc = (DaySwipeCell*)user_data;
+    if (!sc || !sc->dl) return;
+    auto it = sc->dl->rows.find(sc->cell);
+    if (it == sc->dl->rows.end()) return;
+    if (day_arkui_list_delete(sc->dl->host_id, (uint32_t)it->second)) {
+        // The seam already shortened day's snapshot; re-query so the adapter drops the row.
+        uint32_t count = day_arkui_list_count(sc->dl->host_id);
+        OH_ArkUI_NodeAdapter_SetTotalNodeCount(sc->dl->adapter, count);
+    }
+}
+
+/// Build the trailing swipe action for a cell: a text button carrying the app's own word (or a
+/// bare destructive area when it supplied none), revealed as the row slides.
+static void day_list_attach_swipe(DayList* dl, ArkUI_NodeHandle cell) {
+    if (!dl->deletable || !g_api) return;
+    if (dl->swipe_opts.count(cell)) return; // already built for this (recycled) cell
+    ArkUI_NodeHandle btn = g_api->createNode(ARKUI_NODE_TEXT);
+    if (!dl->delete_label.empty()) set_str(btn, NODE_TEXT_CONTENT, dl->delete_label.c_str());
+    set_f32(btn, NODE_WIDTH, 96.0f);
+    if (dl->row_h > 0) set_f32(btn, NODE_HEIGHT, dl->row_h / g_density);
+    // The M3/HarmonyOS destructive red, matching the other backends' delete field.
+    ArkUI_NumberValue bg{.u32 = 0xFFB3261E};
+    ArkUI_AttributeItem bgi{};
+    bgi.value = &bg;
+    bgi.size = 1;
+    g_api->setAttribute(btn, NODE_BACKGROUND_COLOR, &bgi);
+    ArkUI_NumberValue fg{.u32 = 0xFFFFFFFF};
+    ArkUI_AttributeItem fgi{};
+    fgi.value = &fg;
+    fgi.size = 1;
+    g_api->setAttribute(btn, NODE_FONT_COLOR, &fgi);
+    ArkUI_NumberValue align{.i32 = ARKUI_TEXT_ALIGNMENT_CENTER};
+    ArkUI_AttributeItem ali{};
+    ali.value = &align;
+    ali.size = 1;
+    g_api->setAttribute(btn, NODE_TEXT_ALIGN, &ali);
+
+    auto* sc = new DaySwipeCell{dl, cell};
+    g_swipe_cells.push_back(sc);
+    ArkUI_ListItemSwipeActionItem* item = OH_ArkUI_ListItemSwipeActionItem_Create();
+    OH_ArkUI_ListItemSwipeActionItem_SetContent(item, btn);
+    OH_ArkUI_ListItemSwipeActionItem_SetOnActionWithUserData(item, sc, day_list_swipe_action);
+    ArkUI_ListItemSwipeActionOption* opt = OH_ArkUI_ListItemSwipeActionOption_Create();
+    // END, not START: the trailing edge, which is what UIKit and ItemTouchHelper both use and
+    // what RTL mirrors for free.
+    OH_ArkUI_ListItemSwipeActionOption_SetEnd(opt, item);
+    ArkUI_AttributeItem sw{};
+    sw.object = opt;
+    g_api->setAttribute(cell, NODE_LIST_ITEM_SWIPE_ACTION, &sw);
+    dl->swipe_opts[cell] = opt;
+}
 
 // The in-flight reorder drag (one at a time; day lists accept only their OWN rows).
 static DayList* g_drag_list = nullptr;
@@ -1315,8 +1457,11 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
                     OH_ArkUI_SetNodeDraggable(cell, true);
                     g_api->registerNodeEvent(cell, NODE_ON_DRAG_START, 0, nullptr);
                 }
+                day_list_attach_swipe(dl, cell);
             }
-            if (dl->reorderable) dl->rows[cell] = (int)idx;
+            // Unconditional: the swipe action resolves its row through this map too, and a
+            // guarded row is filtered at delete time by the seam's own `can_delete`.
+            dl->rows[cell] = (int)idx;
             ArkUI_NodeHandle inner = g_api->getChildAt(cell, 0);
             day_arkui_list_bind(dl->host_id, idx, inner); // build (fresh) or rebind (recycled)
             OH_ArkUI_NodeAdapterEvent_SetItem(ev, cell);
@@ -1333,7 +1478,8 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
     }
 }
 
-void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t reorderable) {
+void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t reorderable,
+                       uint32_t deletable, const char* delete_label) {
     if (!g_api || !node) return;
     DayList* dl = new DayList{OH_ArkUI_NodeAdapter_Create(),
                               host_id,
@@ -1341,6 +1487,9 @@ void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t r
                               {},
                               reorderable != 0,
                               (ArkUI_NodeHandle)node,
+                              {},
+                              deletable != 0,
+                              delete_label ? std::string(delete_label) : std::string(),
                               {}};
     OH_ArkUI_NodeAdapter_RegisterEventReceiver(dl->adapter, dl, list_adapter_receiver);
     g_lists[node] = dl;

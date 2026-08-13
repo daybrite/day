@@ -562,20 +562,53 @@ pub fn run_scripts(
             if op == "screenshot" && ok {
                 let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
                 let path = dir.join(format!("{name}.png"));
-                if let Some(b64) = reply.get("png_base64").and_then(|v| v.as_str()) {
-                    let bytes = day_script_b64::b64decode(b64);
-                    let _ = std::fs::write(&path, bytes);
-                    run.screenshots.push(path);
-                } else if reply
-                    .get("screenshot_unsupported")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-                {
-                    let prev = run.screenshots.last().cloned();
+                let in_process = reply
+                    .get("png_base64")
+                    .and_then(|v| v.as_str())
+                    .map(day_script_b64::b64decode);
+                let write_in_process = |bytes: &[u8]| std::fs::write(&path, bytes).is_ok();
+
+                // On a device or simulator the DEVICE capture stays the source of truth. It is the
+                // whole screen — status bar, home indicator, system chrome — which is what every
+                // published mobile gallery shot shows; the in-process capture frames the app's own
+                // view tree alone, so preferring it would silently re-crop every one of them.
+                //
+                // The mobile backends that grew an in-process capture (docs/window-image.md) are
+                // the FALLBACK instead: a refusing device tool used to abandon the shot outright.
+                // Desktop is the other way round — the in-process render is the real capture there
+                // and `device_screenshot` has no desktop arm at all.
+                let device_first = target.kind != TargetKind::Desktop;
+                let prev = run.screenshots.last().cloned();
+                let mut saved = false;
+                if device_first {
                     match device_screenshot(target, &path, prev.as_deref()) {
-                        Ok(()) => run.screenshots.push(path),
-                        Err(e) => eprintln!("    (device screenshot failed: {e})"),
+                        Ok(()) => saved = true,
+                        Err(e) => match in_process.as_deref() {
+                            Some(bytes) => {
+                                eprintln!(
+                                    "    (device screenshot failed: {e} — captured in-process \
+                                     instead: app content only)"
+                                );
+                                saved = write_in_process(bytes);
+                            }
+                            None => eprintln!("    (device screenshot failed: {e})"),
+                        },
                     }
+                } else {
+                    if let Some(bytes) = in_process.as_deref() {
+                        saved = write_in_process(bytes);
+                    }
+                    // Desktop's own fallback, unchanged: the engine declines (no window on screen,
+                    // or a backend with no capture) and the Linux CI legs read the xvfb root.
+                    if !saved {
+                        match device_screenshot(target, &path, prev.as_deref()) {
+                            Ok(()) => saved = true,
+                            Err(e) => eprintln!("    (desktop screenshot failed: {e})"),
+                        }
+                    }
+                }
+                if saved {
+                    run.screenshots.push(path);
                 }
             }
         }

@@ -64,11 +64,11 @@ An app branches on this rather than on the target name.
 |---|---|---|---|---|---|---|---|---|
 | `ListRecycling` | – | – | – | – | E | – | – | E |
 | `ListReorder` | N | N | N | N | N | N | N | E |
-| `ListDelete` | – | N | – | – | – | – | – | – |
+| `ListDelete` | – | N | – | – | – | N | N | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |
 | `Lottie` | – | – | – | – | – | – | – | – |
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
-| `Snapshot` | N | – | N | N | N | – | – | – |
+| `Snapshot` | N | N | N | N | N | N | N | – |
 | `NavSplit` | N | N | N | N | N | N | – | N |
 | `NavRepresent` | N | E | – | N | – | E | – | N |
 | `NavHeader` | – | N | – | – | N | N | N | – |

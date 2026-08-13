@@ -16,6 +16,7 @@ export function url(path = ''): string {
 // time. Special-case the ids where plain title-casing is wrong; everything else is title-cased.
 const INTERNAL_TITLES: Record<string, string> = {
   'api-style': 'API style',
+  baseline: 'Baseline alignment',
   harmonyos: 'HarmonyOS',
   vscode: 'VS Code extension',
   deviceinfo: 'Device info',
@@ -35,13 +36,33 @@ export function internalTitle(id: string): string {
 }
 
 /** A short one-line description for an internal doc, taken from the first prose paragraph after the
- * leading `# H1` and stripped of markdown syntax. Robust to blockquote "Status:" leads. */
+ * leading `# H1` and stripped of markdown syntax. Robust to blockquote "Status:" leads, and to the
+ * HTML comments these files open with. */
 export function internalExcerpt(body: string, max = 155): string {
   const lines = (body || '').replace(/\r/g, '').split('\n');
   let i = 0;
-  while (i < lines.length && lines[i].trim() === '') i++;
+  const skipBlank = () => {
+    while (i < lines.length && lines[i].trim() === '') i++;
+  };
+  // These docs carry HTML comments — the CC-BY-SA-4.0 header, and a "generated, do not edit" line
+  // on the matrices. Without skipping them the "first prose paragraph" below is the licence, which
+  // is what every card on /docs/internal used to show. Three shapes appear in the tree: `<!--`
+  // alone on its line, an opener with text after it, and a whole comment on one line — so skip to
+  // whichever line closes it, and loop for a doc that leads with two.
+  const skipComments = () => {
+    while (i < lines.length && lines[i].trimStart().startsWith('<!--')) {
+      while (i < lines.length && !lines[i].includes('-->')) i++;
+      i++; // the closing line itself
+      skipBlank();
+    }
+  };
+  skipBlank();
+  // Both sides of the H1: most docs lead with the licence comment, while the generated matrices
+  // put their heading first and the "do not edit" banner under it.
+  skipComments();
   if (i < lines.length && /^#\s/.test(lines[i])) i++; // skip the H1
-  while (i < lines.length && lines[i].trim() === '') i++;
+  skipBlank();
+  skipComments();
   const para: string[] = [];
   while (i < lines.length && lines[i].trim() !== '') {
     para.push(lines[i]);

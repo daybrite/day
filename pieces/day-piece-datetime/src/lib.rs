@@ -188,6 +188,18 @@ impl DayTime {
         }
     }
 
+    /// The current time of day from the system clock in UTC — the twin of [`DayDate::today`],
+    /// and carrying the same caveat: Day ships no time-zone database, so an app that needs LOCAL
+    /// wall-clock time should apply its own offset. Pair the two for a timestamp
+    /// (`Day-Showcase-2026-08-12-14-23-05.png`).
+    pub fn now() -> Self {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        Self::from_seconds_of_day(secs.rem_euclid(86_400))
+    }
+
     /// Seconds since midnight — the numeric interchange form across native boundaries.
     pub fn seconds_of_day(self) -> i64 {
         self.hour as i64 * 3600 + self.minute as i64 * 60 + self.second as i64

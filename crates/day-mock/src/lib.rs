@@ -216,6 +216,45 @@ impl MockProbe {
         f.map(|f| f(from, to)).unwrap_or(i64::MIN)
     }
 
+    /// Consult the list's delete guard the way a native swipe would before offering its action:
+    /// `Some(true)` to offer, `Some(false)` when the guard protects the row, `None` when the
+    /// list has no delete seam (not `.deletable()`).
+    pub fn list_can_delete(&self, host: MockHandle, index: usize) -> Option<bool> {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.delete.as_ref().map(|d| d.can_delete.clone()));
+        f.map(|f| f(index))
+    }
+
+    /// Simulate a native swipe-to-delete: consult the guard, commit on accept (shortening Day's
+    /// snapshot and deferring the app's `on_delete`, exactly as a native backend would). Returns
+    /// whether the delete committed.
+    pub fn list_delete(&self, host: MockHandle, index: usize) -> bool {
+        let d = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.delete.clone());
+        let Some(d) = d else {
+            self.state
+                .borrow_mut()
+                .log(format!("list delete unsupported {index}"));
+            return false;
+        };
+        if !(d.can_delete)(index) {
+            self.state
+                .borrow_mut()
+                .log(format!("list delete denied {index}"));
+            return false;
+        }
+        (d.delete_row)(index);
+        true
+    }
+
     /// Simulate a native drop: consult the guard, commit on accept (rotating Day's snapshot and
     /// deferring the app's `on_reorder`, exactly as a native backend would). Returns whether the
     /// move committed. (Reorder Rcs are cloned out before the call, like [`Self::list_bind`].)

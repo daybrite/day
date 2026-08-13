@@ -63,6 +63,7 @@ the architecture-level view and the rationale.
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint | docs/size-classes.md | [§10.5](#105-navigation-and-presentation) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | docs/icons.md | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | docs/vectors.md | [§18.3](#183-images-and-data) |
+| window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | docs/window-image.md | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | docs/dialogs.md, docs/files.md | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | docs/cover.md | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | docs/forms.md | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -1239,7 +1240,8 @@ pub trait Toolkit: Sized + 'static {
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13
     fn read_a11y(&self, h) -> A11ySnapshot { … }                      // the a11y_audit's native read
     fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11
-    fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14
+    fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14, docs/window-image.md
+    fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> { … } // + titlebar/status bar
     fn ui_idle(&mut self) -> bool { true }                            // transitions settled? (screenshots)
 
     // app lifecycle (docs/lifecycle.md)
@@ -1985,7 +1987,9 @@ release artifacts without the opt-in contain no engine). It:
   and target ids they know to be interactive ([Appendix C](#appendix-c--dayscript-reference-v1) notes this per step).
 - is honest about **what it cannot verify**: the native keyboard and IME, native hit-testing,
   native animations, and out-of-process UI. Manual smokes in M2/M5/M6 acceptance carry that load.
-- serves the **transport** ([§14.5](#145-transport-and-rendezvous)), implements `screenshot` via `Toolkit::snapshot_window`, and
+- serves the **transport** ([§14.5](#145-transport-and-rendezvous)), implements `screenshot` via `Toolkit::snapshot_window` (on a
+  device or simulator the runner prefers the platform's own screen capture and keeps that
+  in-process image as the fallback — docs/window-image.md), and
   implements **`a11y_audit`**: walk the *native* accessibility tree in-process
   (NSAccessibility/UIAccessibility — hop's proven recipe; `AccessibilityNodeInfo` on Android;
   GtkAccessible/QAccessibleInterface where present), diff role/label/identifier against day-core's
@@ -4136,7 +4140,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated docs/coverage-matrix.md is its static twin |
-| `screenshot` | name, `window?` | waits for `ui_idle`; `window` captures the secondary window opened under that key (docs/windows.md) |
+| `screenshot` | name, `window?` | waits for `ui_idle`; `window` captures the secondary window opened under that key (docs/windows.md). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one (docs/window-image.md) |
 | `pause` | `secs` | demos only |
 | `expect_exit` | `within?` | MUST be last: tolerates the app terminating — a dropped connection within `within` s (default 15) is success, surviving is failure. Runner-side; drives crash-reporting tests (docs/break.md) |
 

@@ -159,7 +159,14 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> i32 {
         }
         if op == "screenshot" && ok {
             let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
-            if let Some(b64) = reply.get("png_base64").and_then(|v| v.as_str()) {
+            // Same precedence as a scripted run (script.rs): the device capture is the real
+            // picture on a device or simulator, the in-process one on desktop. Splitting the rule
+            // between the two entry points would frame the same screen two different ways.
+            let in_process = reply
+                .get("png_base64")
+                .and_then(|v| v.as_str())
+                .filter(|_| target.kind == crate::targets::TargetKind::Desktop);
+            if let Some(b64) = in_process {
                 let path = shot_dir.join(format!("{name}.png"));
                 let bytes = script::b64decode_public(b64);
                 let _ = std::fs::write(&path, bytes);
@@ -167,14 +174,11 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> i32 {
                     "path": path.display().to_string(),
                     "pngBase64": b64,
                 });
-            } else if reply
-                .get("screenshot_unsupported")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                // In-process capture unsupported on this toolkit: fall back to a device-side
-                // capture, then inline the bytes for parity with the in-process path.
+            } else {
+                // Device-side capture, inlined for parity with the in-process path. When it
+                // refuses, an in-process capture the backend did supply stands in.
                 let path = shot_dir.join(format!("{name}.png"));
+                let fallback = reply.get("png_base64").and_then(|v| v.as_str());
                 if script::device_screenshot_public(target, &path).is_ok() {
                     let b64 = std::fs::read(&path)
                         .map(|b| script::b64encode_public(&b))
@@ -182,6 +186,14 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> i32 {
                     result["screenshot"] = serde_json::json!({
                         "path": path.display().to_string(),
                         "pngBase64": b64,
+                    });
+                } else if let Some(b64) = fallback {
+                    let bytes = script::b64decode_public(b64);
+                    let _ = std::fs::write(&path, bytes);
+                    result["screenshot"] = serde_json::json!({
+                        "path": path.display().to_string(),
+                        "pngBase64": b64,
+                        "framing": "content",
                     });
                 } else {
                     result["ok"] = serde_json::Value::Bool(false);

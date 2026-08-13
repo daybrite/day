@@ -140,7 +140,14 @@ unsafe extern "C" {
     /// the row callbacks (`day_arkui_list_count` / `_bind`) can find the source. `row_h_vp` is the
     /// uniform row height in vp (0 = content-sized). With `reorderable`, cells become draggable
     /// and drops route through `day_arkui_list_can_move` / `day_arkui_list_move` (docs/list.md).
-    pub fn day_ark_list_init(node: *mut c_void, host_id: u64, row_h_vp: f64, reorderable: u32);
+    pub fn day_ark_list_init(
+        node: *mut c_void,
+        host_id: u64,
+        row_h_vp: f64,
+        reorderable: u32,
+        deletable: u32,
+        delete_label: *const std::os::raw::c_char,
+    );
     /// Re-query the list's row count (the adapter re-fetches its visible cells).
     pub fn day_ark_list_reload(node: *mut c_void);
     /// Scroll the list so its last row is fully visible (docs/list.md).
@@ -200,6 +207,21 @@ unsafe extern "C" {
     /// Release a view previously returned by [`day_ark_res_open`] (munmap or free, then drop the
     /// token). Safe to call with a null handle.
     pub fn day_ark_res_close(handle: *mut c_void);
+
+    /// Render a mounted node to a PNG (`day::window_image()`, docs/window-image.md). On success
+    /// returns 1 and fills `*out_data`/`*out_len` with a heap buffer to release via
+    /// [`day_ark_snapshot_free`]; returns 0 if the node has no snapshot or the encode failed.
+    ///
+    /// Synchronous, unlike the ArkTS image kit — the shim uses `OH_ArkUI_GetNodeSnapshot` plus
+    /// the native image packer.
+    pub fn day_ark_snapshot_png(
+        node: *mut c_void,
+        out_data: *mut *mut u8,
+        out_len: *mut usize,
+    ) -> c_int;
+
+    /// Release a PNG buffer returned by [`day_ark_snapshot_png`]. Safe to call with null.
+    pub fn day_ark_snapshot_free(p: *mut c_void);
 }
 
 /// Parity test for the event-kind wire table: shim.cpp's `DAY_K_*` defines must mirror

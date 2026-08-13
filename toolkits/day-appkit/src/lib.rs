@@ -4177,6 +4177,11 @@ impl Toolkit for AppKit {
         snapshot_view(content)
     }
 
+    fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
+        let content = self.content.as_ref().ok_or("no window content")?;
+        snapshot_view_chrome(content)
+    }
+
     fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
         snapshot_view(host)
     }
@@ -4661,7 +4666,7 @@ fn png_of_rep(rep: &objc2_app_kit::NSBitmapImageRep) -> Result<Vec<u8>, String> 
 /// never-composited window has no image to hand back (verified: hiding the app makes this return
 /// NULL while the offscreen path still produces a frame), so this returns `Err` and the caller
 /// falls back rather than failing the capture.
-fn snapshot_via_window_server(content: &NSView) -> Result<Vec<u8>, String> {
+fn snapshot_via_window_server(content: &NSView, chrome: bool) -> Result<Vec<u8>, String> {
     let window = content.window().ok_or("view is not in a window")?;
     let number = window.windowNumber();
     if number <= 0 {
@@ -4688,6 +4693,18 @@ fn snapshot_via_window_server(content: &NSView) -> Result<Vec<u8>, String> {
     let shot = unsafe {
         objc2_core_foundation::CFRetained::from_raw(std::ptr::NonNull::new_unchecked(shot))
     };
+
+    // A chrome capture is the window image as the server composited it — titlebar, toolbar and
+    // rounded corners included — so it is done here, before the crop.
+    if chrome {
+        let rep = unsafe {
+            objc2_app_kit::NSBitmapImageRep::initWithCGImage(
+                objc2_app_kit::NSBitmapImageRep::alloc(),
+                &shot,
+            )
+        };
+        return png_of_rep(&rep);
+    }
 
     // Crop the window frame down to the content view. Keeping the framing identical to the
     // offscreen path is the point: the titlebar has never been part of a Day capture, and every
@@ -4728,7 +4745,21 @@ fn snapshot_via_window_server(content: &NSView) -> Result<Vec<u8>, String> {
 /// composited materials; the offscreen render when it declines, because it is the only one of the
 /// two that works with no window on screen. See each for why.
 fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
-    match snapshot_via_window_server(content) {
+    match snapshot_via_window_server(content, false) {
+        Ok(bytes) => Ok(bytes),
+        Err(_) => snapshot_view_cache(content),
+    }
+}
+
+/// Capture a window *with* its chrome — the titlebar and toolbar the content capture crops away
+/// (`day::window_image().chrome()`, docs/window-image.md).
+///
+/// Only the window server can produce this: the offscreen path renders the content view's own
+/// hierarchy, which the titlebar is not part of. When it declines (an offscreen or hidden window)
+/// the content capture stands in — a smaller image beats no image, and it is what the caller
+/// would have got from the plain duty.
+fn snapshot_view_chrome(content: &NSView) -> Result<Vec<u8>, String> {
+    match snapshot_via_window_server(content, true) {
         Ok(bytes) => Ok(bytes),
         Err(_) => snapshot_view_cache(content),
     }

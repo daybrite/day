@@ -66,6 +66,65 @@ pub mod prefs {
 pub use day_core::{lifecycle_supported, on_lifecycle};
 pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
 
+/// A PNG of this window, as the app itself sees it (docs/window-image.md).
+///
+/// The same capture the dayscript `screenshot` step takes, offered to the app: the window's
+/// CONTENT — what Day drew — without the platform's chrome around it. [`WindowImage::chrome`]
+/// asks for the chrome as well.
+///
+/// Synchronous, because every backend that can do this at all has a synchronous way to: an
+/// offscreen render on the desktop toolkits, `UIGraphicsImageRenderer` on UIKit, `View.draw` on
+/// Android, `componentSnapshot.getSync` on ArkUI. Feed the bytes straight to
+/// [`save_file`](day_pieces::save_file), which is the async half.
+///
+/// ```no_run
+/// # use day::prelude::*;
+/// day::task(async move {
+///     if let Ok(png) = day::window_image().capture() {
+///         let _ = save_file(png).suggested_name("shot.png").filter("PNG", &["png"]).await;
+///     }
+/// });
+/// ```
+///
+/// `Err` where the toolkit cannot rasterize its own window — today only web-dom, which would need
+/// a rasterizer shipped with it. Ask [`window_image_support`] first when the answer decides
+/// whether to show a button at all.
+pub fn window_image() -> WindowImage {
+    WindowImage { chrome: false }
+}
+
+/// Whether this toolkit can hand the app a picture of its own window (`Cap::Snapshot`).
+pub fn window_image_support() -> day_spec::Support {
+    day_core::with_tree(|t| t.window_image_support())
+}
+
+/// The request built by [`window_image`].
+#[derive(Clone, Copy, Debug)]
+pub struct WindowImage {
+    chrome: bool,
+}
+
+impl WindowImage {
+    /// Include the window's own chrome — title bar, toolbar, whatever the platform draws around
+    /// the content. A backend with nothing to add (or no way to separate the two) answers with
+    /// the content capture rather than failing.
+    pub fn chrome(mut self) -> Self {
+        self.chrome = true;
+        self
+    }
+
+    /// Take the picture.
+    pub fn capture(self) -> Result<Vec<u8>, String> {
+        day_core::with_tree(|t| {
+            if self.chrome {
+                t.snapshot_chrome()
+            } else {
+                t.snapshot()
+            }
+        })
+    }
+}
+
 /// An app-environment value, portably: the process environment on native targets, the page
 /// URL's query string on web-dom (where a browser sandbox has no process environment —
 /// `day launch --env K=V` forwards each pair as a query parameter, docs/web.md). Prefer this
@@ -547,6 +606,28 @@ macro_rules! android_main {
         ) -> $crate::android::jni::sys::jboolean {
             $crate::android::list_move(host_id, from, to) as $crate::android::jni::sys::jboolean
         }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListCanDelete(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            host_id: $crate::android::jni::sys::jlong,
+            index: $crate::android::jni::sys::jint,
+        ) -> $crate::android::jni::sys::jboolean {
+            $crate::android::list_can_delete(host_id, index) as $crate::android::jni::sys::jboolean
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListDelete(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            host_id: $crate::android::jni::sys::jlong,
+            index: $crate::android::jni::sys::jint,
+        ) -> $crate::android::jni::sys::jboolean {
+            $crate::android::list_delete(host_id, index) as $crate::android::jni::sys::jboolean
+        }
     };
 }
 
@@ -555,8 +636,8 @@ macro_rules! android_main {
 pub mod android {
     pub use day_android::jni;
     pub use day_android::{
-        dispatch_event, list_bind, list_can_drop, list_len, list_move, read_jstring, run_frame,
-        run_posted, window_started,
+        dispatch_event, list_bind, list_can_delete, list_can_drop, list_delete, list_len,
+        list_move, read_jstring, run_frame, run_posted, window_started,
     };
 
     #[allow(clippy::too_many_arguments)]

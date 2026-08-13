@@ -114,6 +114,17 @@ pub enum Step {
         from: usize,
         to: usize,
     },
+    /// Delete a list row programmatically: row `row` goes through the same guard → commit path
+    /// a native swipe takes (docs/list.md) — the app's `delete_guard` may refuse it. Fails
+    /// (non-retryably) when the list isn't `.deletable()` or the guard refuses.
+    ///
+    /// This is how a walkthrough asserts deletion on EVERY target, including the desktops whose
+    /// toolkits answer `Cap::ListDelete = Unsupported` and have no gesture to simulate: the step
+    /// drives the seam, not the platform's gesture recognizer.
+    DeleteRow {
+        id: String,
+        row: usize,
+    },
     /// Invoke an app-menu item programmatically (docs/menus.md): match a unique `Action`
     /// leaf in the installed app-menu model by exact `item` label, or by `key` — a Fluent
     /// key resolved in the run's locale (locale-portable; a standard-role item also
@@ -791,6 +802,15 @@ fn exec(step: Step) -> Reply {
                         format!("reorder {id:?} {from}->{to}: {e}"),
                         false,
                     )),
+                }
+            }
+            Step::DeleteRow { id, row } => {
+                let node = find(&id)?;
+                match day_core::list_try_delete(node, row) {
+                    Ok(()) => Ok(Reply::ok()),
+                    // Not retryable: a guard refusal or a non-deletable list won't change by
+                    // waiting — surface it to the runner immediately.
+                    Err(e) => Err(Reply::fail(format!("delete_row {id:?} {row}: {e}"), false)),
                 }
             }
             Step::Menu { item, key, path } => {

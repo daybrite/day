@@ -41,6 +41,7 @@ implement them, and this table proves it.
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | · | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `snapshot_window_chrome` | · | ✓ | ✓ | ✓ | · | · | ✓ | · | · | · |
 | `toggle_sidebar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
 | `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

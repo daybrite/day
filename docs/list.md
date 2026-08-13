@@ -206,6 +206,53 @@ Per-backend affordances:
 | web-dom | pointer-tracked (emulated — no native list reorder in the browser) | lifted cell + animated CSS gap, long-press on touch | live (every hovered slot) |
 | mock | `MockProbe::list_can_move` / `list_move` | op log | live |
 
+## Swipe-to-delete
+
+```rust
+list(items, key, row)
+    .deletable(true)
+    .delete_label(res::str::delete().format())   // optional: the word on the affordance
+    .on_delete(|index| { /* remove from the backing Vec + persist */ })
+    .delete_guard(|index| index != 0)            // optional: protect individual rows
+```
+
+`deletable` turns on the platform's own delete gesture; probe `Cap::ListDelete` for support.
+`on_delete` is the commit: row `index` is gone; apply the identical removal to the backing data
+(`v.remove(index)`) and persist it if the change should survive a relaunch. It runs at the next
+event drain, never inside the native swipe callback.
+
+`delete_guard` is consulted **before the affordance is offered**, not after the gesture: a row
+that answers `false` shows no delete action at all, rather than one that fails on use. Keep it
+pure — it runs inside the platform's swipe callback.
+
+`delete_label` carries the app's own word for the action, already localized. A toolkit has no
+access to the app's Fluent catalog and so cannot translate anything itself; left unset, each
+backend falls back to its platform's wordless idiom (a trash glyph), which is honest in every
+language rather than shipping one language's word everywhere.
+
+The seam is the delete half of `ListSource` (`ListSource::delete`, present only when
+`.deletable()`): `can_delete(index) -> bool` for the offer, and `delete_row(index)` for the
+commit, which drops the row from Day's snapshot **before returning**, so `len`/`token_at`/
+`bind_row` answer for the shorter list while the native removal animates, and defers the app's
+`on_delete` through the event queue — the same discipline the reorder half follows.
+
+**The desktop toolkits answer `Unsupported`**: none of them has a swipe idiom, and inventing one
+would be a Day invention rather than a platform's. A list that must be editable everywhere pairs
+`.deletable()` with an explicit control — a menu item, a per-row button — and lets the mobile
+toolkits add the gesture on top.
+
+The dayscript step `delete_row: { id, row }` drives the same guard → commit path without a
+native gesture (a guard refusal fails the step, non-retryably), which is how CI asserts deletion
+on every target — including the desktops, where there is no gesture to simulate.
+
+| Backend | Mechanism | Affordance |
+|---|---|---|
+| UIKit | `trailingSwipeActionsConfigurationForRowAtIndexPath` | row tracks the finger, destructive action reveals behind it, full swipe commits |
+| Android | `ItemTouchHelper` swipe (`START`, so it is the trailing edge in RTL too) | row slides to reveal a red field carrying the label; `notifyItemRemoved` animates the close-up |
+| AppKit · GTK · Qt · XAML · web | — | `Unsupported`: no swipe idiom; use a menu item or a row button |
+| ArkUI | `NODE_LIST_ITEM_SWIPE_ACTION` | *not yet implemented* — the NDK exposes it; the shim does not build it yet |
+
+
 Rows drag within their own list only; nothing is draggable out of the app. `RowHeight::Automatic`
 lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI; prefer
 `Uniform` heights for reorderable lists there.

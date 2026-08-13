@@ -487,6 +487,32 @@ mod imp {
         true
     }
 
+    /// May this row be swiped away? Consulted from `getMovementFlags`, so a protected row
+    /// simply reports no swipe direction and never moves under the finger (docs/list.md).
+    pub fn list_can_delete(host_id: i64, index: i32) -> bool {
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(source) = source else { return false };
+        let Some(d) = source.delete.as_ref() else {
+            return false;
+        };
+        let index = index.max(0) as usize;
+        index < (source.len)() && (d.can_delete)(index)
+    }
+
+    /// Commit a swipe-to-delete through the sync seam (shortens day's snapshot, defers the app
+    /// callback). Returns whether the delete was accepted.
+    pub fn list_delete(host_id: i64, index: i32) -> bool {
+        if !list_can_delete(host_id, index) {
+            return false;
+        }
+        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+        let Some(d) = source.and_then(|s| s.delete) else {
+            return false;
+        };
+        (d.delete_row)(index as usize);
+        true
+    }
+
     pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
 
     #[derive(Clone)]
@@ -1238,11 +1264,35 @@ mod imp {
         day_spec::placeholder::report(kind, "android");
     }
 
+    /// Ask the bridge for a PNG of this app's window (docs/window-image.md).
+    ///
+    /// The bytes come back as a Java `byte[]` and are copied out with `convert_byte_array` — no
+    /// base64 round trip for what is already binary.
+    fn android_window_image(chrome: bool) -> Result<Vec<u8>, String> {
+        with_env(|env| {
+            let obj = env
+                .dcall_static(BRIDGE, "windowImage", "(Z)[B", &[JValue::Bool(chrome)])
+                .map_err(|e| format!("windowImage: {e}"))?
+                .l()
+                .map_err(|e| format!("windowImage: {e}"))?;
+            if obj.is_null() {
+                return Err("no window to capture".to_string());
+            }
+            // SAFETY: the call above returns a byte[] or null; null is handled just above.
+            let arr: jni::objects::JByteArray = unsafe { std::mem::transmute(obj) };
+            env.convert_byte_array(&arr)
+                .map_err(|e| format!("windowImage: {e}"))
+        })
+    }
+
     impl Toolkit for Android {
         type Handle = AHandle;
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                // `View.draw(Canvas)` renders this app's own window into a bitmap
+                // (docs/window-image.md); surface-backed content is the documented gap.
+                Cap::Snapshot => Support::Native,
                 // EditText honors editable / selectable / spell-check (DayTextArea shim).
                 Cap::Dialogs
                 | Cap::FileDialogs
@@ -1261,6 +1311,9 @@ mod imp {
                 // ItemTouchHelper on the RecyclerView list: long-press lift, elevation,
                 // incremental swaps — the platform's own reorder (docs/list.md).
                 | Cap::ListReorder
+                // ItemTouchHelper's swipe half, with the Material red field revealing behind
+                // the row (docs/list.md).
+                | Cap::ListDelete
                 // Document-style DayWindowActivity instances (docs/windows.md): separate
                 // recents entries; side-by-side in split-screen/freeform/desktop windowing.
                 | Cap::MultiWindow
@@ -1444,15 +1497,18 @@ mod imp {
                         RowHeight::Automatic => 44.0,
                     };
                     let handle = with_env(|env| {
+                        let del_label = jstr(env, &p.delete_label);
                         AHandle(make_view(
                             env,
                             "makeList",
-                            "(JIZZ)Landroid/view/View;",
+                            "(JIZZZLjava/lang/String;)Landroid/view/View;",
                             &[
                                 JValue::Long(id.0 as i64),
                                 JValue::Int((rowh * d).round() as i32),
                                 JValue::Bool(p.selectable),
                                 JValue::Bool(p.reorderable),
+                                JValue::Bool(p.deletable),
+                                JValue::Object(&del_label),
                             ],
                         ))
                     });
@@ -2677,7 +2733,13 @@ mod imp {
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
-            Err("use `adb exec-out screencap -p` (device-level capture) on android-mdc".into())
+            android_window_image(false)
+        }
+
+        /// The decor view rather than the content view — the window with its action bar and
+        /// system-bar backgrounds (docs/window-image.md).
+        fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
+            android_window_image(true)
         }
 
         /// The system color mode, DAY_THEME override first (themed capture runs).

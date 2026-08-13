@@ -144,6 +144,10 @@ public final class DayBridge {
     public static native boolean nativeListCanDrop(long hostId, int from, int to);
     /** Commit one incremental drag swap through day's seam; false = refused, don't move. */
     public static native boolean nativeListMove(long hostId, int from, int to);
+    /** May row `index` be swiped away? (docs/list.md — the delete guard.) */
+    public static native boolean nativeListCanDelete(long hostId, int index);
+    /** Commit a swipe-to-delete through the seam; false if the guard refused. */
+    public static native boolean nativeListDelete(long hostId, int index);
 
     /** Cross-thread → main-thread door for day's scheduler/Setter (§3.3). */
     public static void postMain(final long token) {
@@ -264,7 +268,8 @@ public final class DayBridge {
      *  lift, elevation, incremental row swaps): every hover is vetted synchronously through
      *  nativeListCanDrop (the app's guard) and each swap commits through nativeListMove. */
     public static View makeList(final long hostId, final int rowHeightPx, final boolean selectable,
-                                final boolean reorderable) {
+                                final boolean reorderable, final boolean deletable,
+                                final String deleteLabel) {
         final RecyclerView rv = new RecyclerView(ctx);
         rv.setLayoutManager(new LinearLayoutManager(ctx));
         rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
@@ -289,10 +294,54 @@ public final class DayBridge {
                 }
             }
         });
-        if (reorderable) {
+        if (reorderable || deletable) {
+            // One ItemTouchHelper drives BOTH gestures — the platform arbitrates between a
+            // long-press drag and a swipe itself, which is why they share a callback rather
+            // than fighting over the same touch stream (docs/list.md).
+            final android.graphics.Paint swipePaint = new android.graphics.Paint();
+            swipePaint.setColor(0xFFB3261E); // M3 error container
+            final android.graphics.Paint swipeText = new android.graphics.Paint();
+            swipeText.setColor(0xFFFFFFFF);
+            swipeText.setAntiAlias(true);
+            swipeText.setTextSize(14f * ctx.getResources().getDisplayMetrics().scaledDensity);
             new ItemTouchHelper(new ItemTouchHelper.Callback() {
                 public int getMovementFlags(RecyclerView r, RecyclerView.ViewHolder vh) {
-                    return makeMovementFlags(ItemTouchHelper.UP | ItemTouchHelper.DOWN, 0);
+                    int drag = reorderable ? (ItemTouchHelper.UP | ItemTouchHelper.DOWN) : 0;
+                    // START, not LEFT: it resolves against the layout direction, so the gesture
+                    // is a trailing-edge swipe in both LTR and RTL — the same edge iOS uses.
+                    int swipe = 0;
+                    if (deletable) {
+                        int pos = vh.getBindingAdapterPosition();
+                        // A guarded row reports NO swipe direction, so it never moves under the
+                        // finger rather than sliding back after a refusal.
+                        if (pos != RecyclerView.NO_POSITION && nativeListCanDelete(hostId, pos)) {
+                            swipe = ItemTouchHelper.START;
+                        }
+                    }
+                    return makeMovementFlags(drag, swipe);
+                }
+
+                /** The Material affordance: the row slides to reveal a red field carrying the
+                 *  app's own delete word (or nothing, when it supplied none). */
+                @Override public void onChildDraw(android.graphics.Canvas c, RecyclerView r,
+                        RecyclerView.ViewHolder vh, float dX, float dY, int state,
+                        boolean isActive) {
+                    if (state == ItemTouchHelper.ACTION_STATE_SWIPE && dX != 0f) {
+                        View row = vh.itemView;
+                        float left = dX < 0 ? row.getRight() + dX : row.getLeft();
+                        float right = dX < 0 ? row.getRight() : row.getLeft() + dX;
+                        c.drawRect(left, row.getTop(), right, row.getBottom(), swipePaint);
+                        if (deleteLabel != null && !deleteLabel.isEmpty()) {
+                            float pad = 16f * ctx.getResources().getDisplayMetrics().density;
+                            float ty = row.getTop() + (row.getHeight()
+                                    - (swipeText.descent() + swipeText.ascent())) / 2f;
+                            float tw = swipeText.measureText(deleteLabel);
+                            // Keep the word inside the revealed field as it grows.
+                            float tx = dX < 0 ? row.getRight() - pad - tw : row.getLeft() + pad;
+                            if (Math.abs(dX) > tw + pad * 2f) c.drawText(deleteLabel, tx, ty, swipeText);
+                        }
+                    }
+                    super.onChildDraw(c, r, vh, dX, dY, state, isActive);
                 }
                 @Override public boolean isLongPressDragEnabled() { return true; }
                 @Override public boolean canDropOver(RecyclerView r, RecyclerView.ViewHolder cur,
@@ -314,7 +363,19 @@ public final class DayBridge {
                     if (a != null) a.notifyItemMoved(from, to);
                     return true;
                 }
-                public void onSwiped(RecyclerView.ViewHolder vh, int direction) {}
+                public void onSwiped(RecyclerView.ViewHolder vh, int direction) {
+                    int pos = vh.getBindingAdapterPosition();
+                    if (pos == RecyclerView.NO_POSITION) return;
+                    RecyclerView.Adapter<?> a = rv.getAdapter();
+                    if (nativeListDelete(hostId, pos)) {
+                        // The seam already shortened day's snapshot; tell the adapter so the
+                        // removal animates out of the swipe instead of snapping via a reload.
+                        if (a != null) a.notifyItemRemoved(pos);
+                    } else if (a != null) {
+                        // Refused after the fact: put the row back where it was.
+                        a.notifyItemChanged(pos);
+                    }
+                }
             }).attachToRecyclerView(rv);
         }
         return rv;
@@ -897,6 +958,38 @@ public final class DayBridge {
      *  rebuilds app-painted surfaces. */
     public static void appearanceChanged() {
         if (started) nativeOnEvent(0L, K_APPEARANCE_CHANGED, 0, "");
+    }
+
+    /** A PNG of this app's own window (docs/window-image.md) — `null` when there is nothing
+     *  to draw.
+     *
+     *  `View.draw(Canvas)` rather than `PixelCopy`: it is SYNCHRONOUS, which is what lets
+     *  `day::window_image()` stay a plain call on every backend. The cost is that
+     *  surface-backed content (a `VideoView`, and any future GL or camera view) draws EMPTY —
+     *  those pixels live on a surface the view tree never touches, and only the async PixelCopy
+     *  can read them back.
+     *
+     *  `chrome` picks the decor view (the whole window, action bar and system-bar backgrounds)
+     *  over the app's content view. */
+    public static byte[] windowImage(boolean chrome) {
+        try {
+            if (!(ctx instanceof android.app.Activity)) return null;
+            android.app.Activity act = (android.app.Activity) ctx;
+            View view = chrome
+                    ? act.getWindow().getDecorView()
+                    : act.getWindow().findViewById(android.R.id.content);
+            if (view == null || view.getWidth() <= 0 || view.getHeight() <= 0) return null;
+            android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(
+                    view.getWidth(), view.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
+            view.draw(new android.graphics.Canvas(bmp));
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            bmp.recycle();
+            return out.toByteArray();
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window image failed", t);
+            return null;
+        }
     }
 
     /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
