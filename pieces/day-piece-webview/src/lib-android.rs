@@ -20,14 +20,34 @@ use day_spec::NodeId;
 const WEBVIEW_CLASS: &str = "dev/daybrite/day/piece/webview/DayWebView";
 
 fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
+    // Inline mode (docs/webview.md): the assets tree IS the APK `assets/` root, and WebView
+    // browses it through `file:///android_asset/` (exempt from the API-30 file-access
+    // default). The URL is composed here; the Java side polices navigations against the
+    // prefix and reports external ones back (LINK_REPORT).
+    let (url, prefix) = if p.inline_root.is_empty() {
+        (p.url.clone(), String::new())
+    } else {
+        (
+            format!(
+                "file:///android_asset/{}/{}",
+                p.inline_root, p.inline_start
+            ),
+            format!("file:///android_asset/{}/", p.inline_root),
+        )
+    };
     with_env(|env| {
-        let url = env.new_string(&p.url).expect("url");
+        let url = env.new_string(&url).expect("url");
+        let prefix = env.new_string(&prefix).expect("prefix");
         let view = env
             .dcall_static(
                 WEBVIEW_CLASS,
                 "makeWebView",
-                "(JLjava/lang/String;)Landroid/view/View;",
-                &[JValue::Long(id.0 as i64), JValue::Object(&url)],
+                "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
+                &[
+                    JValue::Long(id.0 as i64),
+                    JValue::Object(&url),
+                    JValue::Object(&prefix),
+                ],
             )
             .expect("DayWebView.makeWebView")
             .l()

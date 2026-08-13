@@ -40,9 +40,27 @@ Font::custom(res::fonts::pacifico, 24.0)  // FontFamily ← resource/fonts/*.ttf
 
 Referencing a resource that isn't bundled is a **compile error**, the available names **autocomplete**,
 and dropping a file into `resource/` makes its constant appear on the next build (`cargo:rerun-if-changed`).
-Symbols are lowercase `[a-z0-9_]`: the file stem for images, the full file name (sanitized, e.g.
+Symbols are lowercase `[a-z0-9_]`: the file stem for images, the file name (sanitized, e.g.
 `numbers.bin` → `numbers_bin`) for assets, and the parsed font family (`"Special Elite"` →
 `special_elite`) for fonts.
+
+`resource/assets/` is a **tree**: directories nest to any depth, ship with their structure
+preserved, and generate a matching *module* tree. Each directory is also itself a constant — a
+typed `AssetDir` sharing its module's name (consts and modules live in different Rust
+namespaces):
+
+```rust
+// resource/assets/web/minisite/css/style.css
+resource(res::assets::web::minisite::css::style_css)   // AssetName, value "web/minisite/css/style.css"
+res::assets::web::minisite                              // AssetDir, value "web/minisite"
+res::assets::web::minisite.join("posts/1.html")         // AssetName composed at runtime
+```
+
+An `AssetName`'s value is the `/`-relative path, which is exactly what every native store
+resolves (`file` paths, `AAssetManager` paths, gresource/qrc aliases, rawfile paths). File and
+directory symbols share one namespace per level, so `site.old` beside `site-old/` is a build
+error. The inline web view builds on directory constants: `web_view_inline(res::assets::web::minisite)`
+serves the subtree as a bundled site (docs/webview.md).
 
 For a name known only at runtime, opt in explicitly; this bypasses the presence guarantee:
 

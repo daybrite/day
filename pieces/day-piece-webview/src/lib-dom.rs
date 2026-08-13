@@ -52,7 +52,18 @@ fn load(backend: &mut Dom, h: &DomHandle, url: &str) {
 
 fn make(backend: &mut Dom, p: &WebProps, _id: NodeId) -> DomHandle {
     let h = backend.element("iframe");
-    if !p.url.is_empty() {
+    if !p.inline_root.is_empty() {
+        // Inline mode (docs/webview.md): the bundled site deploys under `assets/data/` beside
+        // the host page (web.rs), so a RELATIVE src is same-origin and the browser resolves the
+        // site's internal references natively. `inline_support()` is Emulated here: pages and
+        // relative navigation work; the external-link policy does not reach inside the frame
+        // yet (the same-origin click hook is the planned upgrade, docs/webview.md).
+        load(
+            backend,
+            &h,
+            &format!("assets/data/{}/{}", p.inline_root, p.inline_start),
+        );
+    } else if !p.url.is_empty() {
         load(backend, &h, &p.url);
     }
     // No `sandbox` attribute: present-but-empty is deny-everything, which breaks scripts, forms and

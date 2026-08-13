@@ -30,9 +30,15 @@ pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
 
     let mut files = String::new();
     for d in &set.data {
-        // Data path under the project (assets/<name>) → resource /day/assets/<name>.
+        // Alias data to assets/<name> — the exact `/day/assets/<name>` path the opener reads
+        // (day-gtk `open_resource`); `name` is the `/`-relative TREE path (§18.5), which the
+        // alias carries verbatim.
         let rel = d.path.strip_prefix(&project.root).unwrap_or(&d.path);
-        files += &format!("    <file>{}</file>\n", rel.display());
+        files += &format!(
+            "    <file alias=\"assets/{}\">{}</file>\n",
+            d.name,
+            rel.display()
+        );
     }
     for img in &set.images {
         // Alias images to /day/images/<stem> (drop the extension) so the backend loads by name.

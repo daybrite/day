@@ -94,6 +94,51 @@ GTK, Android, XAML, ArkUI and web-dom ignore `session` and rebuild as before. GT
 only detaches, so it is the next one that could carry this; the others would each need the same work
 Qt needed.
 
+## Inline sites: `web_view_inline` (app-embedded content)
+
+A directory under `resource/assets/` can ship a whole site — pages, stylesheets, scripts,
+images, structure preserved (docs/resources.md's asset tree) — and the view serves it from
+inside the app, no network:
+
+```rust
+// resource/assets/web/minisite/{index.html, css/, js/, img/, pages/}
+web_view_inline(res::assets::web::minisite)         // lazy: loads index.html directly
+    .session(WebSession::global("app.embedded"))
+    .start_page("pages/intro.html")                  // optional, instead of index.html
+    .on_external_link(|url| LinkPolicy::OpenSystem)  // optional; this IS the default
+
+// the checked route: index.html presence validated before the view exists
+let site = res::assets::web::minisite.prepare_site().await?;   // InlineSite
+web_view_inline(site)
+```
+
+Two rules define the mode. **Relative references resolve natively**: the arm loads the site
+through the platform's own local-content channel, so the engine itself resolves `css/style.css`
+or `../index.html` — no interception layer rewrites anything. **Navigations that leave the site
+are cancelled in-view** and dispatched per `LinkPolicy`: `OpenSystem` (the default — the OS
+browser for `https://`, the mail client for `mailto:`, whatever the scheme maps to), `InView`
+(allow it after all), or `Ignore` (the `on_external_link` closure already did the in-app work —
+the showcase intercepts `day-showcase://<route>` links and navigates the app itself). The
+decision runs in Rust: events are enqueue-only (§8.3), so the native side always cancels and
+reports (`num = -1` on the shared Custom channel), and the policy's verdict follows as a
+command. `prepare_site()` is a future because backends whose engine cannot read embedded stores
+in place will extract to the platform cache dir here; on every v1 backend it resolves on first
+poll.
+
+Per backend — gate on `inline_support()`:
+
+| Backend | Channel | Support |
+|---|---|---|
+| AppKit / UIKit | `loadFileURL:allowingReadAccessToURL:` into the bundle's assets tree (canonicalized — WebKit reports standardized URLs, so the policed base must match); policy via `decidePolicyForNavigationAction` | Native |
+| Android | `file:///android_asset/<dir>/…` (the assets tree IS the APK `assets/` root; the URL family is exempt from the API-30 file-access default); policy via `shouldOverrideUrlLoading` | Native |
+| web-dom | the deployed `assets/data/<dir>/…` URL — same origin as the host page, so the browser resolves everything; the link policy cannot reach inside the frame yet (the same-origin click hook is the planned upgrade) | Emulated |
+| Qt | `qrc:/day/assets/…` (QWebEngine reads qrc natively) — arm not written yet | Unsupported |
+| GTK / ArkUI | extract-to-cache in `prepare_site`, then a file URL — arms not written yet | Unsupported |
+| XAML | `SetVirtualHostNameToFolderMapping` onto the exe-relative assets dir — arm not written yet | Unsupported |
+
+The showcase's Web View page shows both modes as tabs: **Remote** (the browsing demo above) and
+**Embedded** (`resource/assets/web/minisite/`, with all three link dispositions live).
+
 ## Per-backend native realization
 
 | | AppKit | UIKit | Qt | Android | GTK | XAML |

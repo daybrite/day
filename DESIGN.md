@@ -3074,8 +3074,11 @@ uncompressed where possible so `resource("name")` returns an efficient **zero-co
 view (`as_slice`/`read_at`/`len`), backed by the platform-native data API — mmap of a bundle file on
 Apple, `AAssetManager` on Android, `g_resources_lookup_data` on GTK, `QResource` on Qt, rawfile fd on
 ArkUI. Images map to SwiftPM `.process`→`Assets.car` (iOS), `res/drawable`→`R` (Android), GResource
-(GTK), `.qrc` (Qt), MRT (XAML), rawfile (ArkUI). Core API in `day-core::resource`; build-time
-staging in `crates/day-cli/src/resources/`. Full design + per-platform detail: **docs/resources.md**.
+(GTK), `.qrc` (Qt), MRT (XAML), rawfile (ArkUI). `assets/` is staged as a TREE (names are
+`/`-relative paths — §18.5's nested modules), recreated in every store: recursive bundle/exe/dist
+copies, `assets/`-rooted APK srcDir, path-carrying gresource/qrc aliases, rawfile subdirs. Core
+API in `day-core::resource`; build-time staging in `crates/day-cli/src/resources/`. Full design +
+per-platform detail: **docs/resources.md**.
 
 ### §18.4 Bundled custom fonts (docs/resources.md)
 
@@ -3100,6 +3103,10 @@ checked at compile time instead of failing at runtime on whichever backend can't
 app's `build.rs` calls `day_build::generate_resources()`, which scans `resource/{images,assets,fonts}`
 and emits (into `$OUT_DIR`, surfaced by the scaffold's one-line `pub mod res { include!(…) }`):
 `res::images::<stem>: ImageName`, `res::assets::<file>: AssetName`, `res::fonts::<family>: FontFamily`.
+`resource/assets/` is a TREE: subdirectories generate nested modules, each directory doubling as
+a typed `AssetDir` const of the same name (`res::assets::web::minisite` beside
+`res::assets::web::minisite::index_html`; values are `/`-relative paths, staged verbatim by every
+§18.3 stager) — the handle `web_view_inline` serves bundled sites from (docs/webview.md).
 `image`, `resource`, and `Font::custom` take those newtypes, so `image(res::images::nav_home)` is a
 build error if the file is missing and the available names autocomplete; `cargo:rerun-if-changed`
 regenerates when a file is added or removed. A name known only at runtime uses the explicit

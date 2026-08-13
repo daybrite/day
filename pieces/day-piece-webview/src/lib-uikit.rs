@@ -38,7 +38,15 @@ struct NavIvars {
     /// Mutable: a session-retained view outlives the node that first realized it, and must report
     /// to whichever node is currently showing it.
     node: Cell<NodeId>,
+    /// Inline mode (docs/webview.md): the `file://` URL prefix of the bundled site's root.
+    /// A main-frame navigation outside it is cancelled and reported (`LINK_REPORT`); `None`
+    /// (remote mode) polices nothing.
+    inline_base: RefCell<Option<String>>,
 }
+
+/// WKNavigationActionPolicy, hand-rolled like the class itself: Cancel = 0, Allow = 1.
+const POLICY_CANCEL: isize = 0;
+const POLICY_ALLOW: isize = 1;
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -58,6 +66,47 @@ define_class!(
                 day_uikit::emit(self.ivars().node.get(), Event::custom("webview:url", url));
             }
         }
+
+        // Inline mode's link policy — same contract as the AppKit arm's `decide_policy`: a
+        // main-frame navigation leaving the bundled site is CANCELLED and reported; the piece
+        // runs the app's `LinkPolicy` (events are enqueue-only, the decision can't come back
+        // through this callback). Raw msg_send shapes, like the rest of this hand-rolled arm.
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide_policy(
+            &self,
+            _web_view: &WKWebView,
+            action: &AnyObject,
+            handler: &block2::DynBlock<dyn Fn(isize)>,
+        ) {
+            let policy = match &*self.ivars().inline_base.borrow() {
+                None => POLICY_ALLOW,
+                Some(base) => {
+                    let frame: *mut AnyObject = unsafe { msg_send![action, targetFrame] };
+                    // Subframes stay the page's business; a nil target frame (window.open,
+                    // target=_blank) is external by definition.
+                    let main_frame =
+                        !frame.is_null() && unsafe { msg_send![&*frame, isMainFrame] };
+                    let sub_frame = !frame.is_null() && !main_frame;
+                    let req: Retained<NSURLRequest> = unsafe { msg_send![action, request] };
+                    let url = unsafe { req.URL() }
+                        .and_then(|u| u.absoluteString())
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    let inside = url.starts_with(base.as_str()) || url == "about:blank";
+                    if sub_frame || inside {
+                        POLICY_ALLOW
+                    } else {
+                        day_uikit::emit(self.ivars().node.get(), Event::Custom {
+                            tag: "webview:link",
+                            num: super::LINK_REPORT,
+                            text: url,
+                        });
+                        POLICY_CANCEL
+                    }
+                }
+            };
+            handler.call((policy,));
+        }
     }
 );
 
@@ -65,6 +114,7 @@ impl WebNav {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(NavIvars {
             node: Cell::new(node),
+            inline_base: RefCell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -114,7 +164,27 @@ fn make(_backend: &mut Uikit, p: &WebProps, id: NodeId) -> Retained<UIView> {
     let web: Retained<WKWebView> = unsafe { msg_send![WKWebView::alloc(mtm), init] };
     let nav = WebNav::new(mtm, id);
     let _: () = unsafe { msg_send![&web, setNavigationDelegate: &*nav] };
-    if !p.url.is_empty() {
+    if !p.inline_root.is_empty() {
+        // Inline mode (docs/webview.md): the assets tree is loose files in the app bundle, so
+        // `loadFileURL:allowingReadAccessToURL:` with the site ROOT is the whole load path —
+        // WebKit resolves the page's relative references natively.
+        if let Some(dir) = day_spec::resolve_asset_dir(&p.inline_root) {
+            let root = NSURL::fileURLWithPath(&NSString::from_str(&dir.display().to_string()));
+            let index = NSURL::fileURLWithPath(&NSString::from_str(
+                &dir.join(&p.inline_start).display().to_string(),
+            ));
+            if let Some(base) = root.absoluteString() {
+                *nav.ivars().inline_base.borrow_mut() = Some(base.to_string());
+            }
+            let _: *mut AnyObject =
+                unsafe { msg_send![&web, loadFileURL: &*index, allowingReadAccessToURL: &*root] };
+        } else {
+            eprintln!(
+                "day-piece-webview: inline site {:?} not found in the staged assets",
+                p.inline_root
+            );
+        }
+    } else if !p.url.is_empty() {
         load_url(&web, &p.url);
     }
     let view: Retained<UIView> = Retained::from(<WKWebView as AsRef<UIView>>::as_ref(&web));

@@ -22,11 +22,15 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
+/// Programmatic navigation on the deep-link rail (docs/deep-links.md, docs/navigation.md):
+/// route the app to `route` — buffered before the root is ready, applied after, exactly like a
+/// cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.
+pub use day_core::request_route;
 pub use day_core::{
     AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
     set_appearance, size_class, sleep, task,
 };
-pub use day_core::{AssetName, FontFamily, ImageName, Resource, VectorName, resource};
+pub use day_core::{AssetDir, AssetName, FontFamily, ImageName, Resource, VectorName, resource};
 pub use day_spec::AppBadge;
 /// An app-writable scratch directory. The OS temp dir is NOT app-writable on every target
 /// (Android reports `getCacheDir()`), so a backend records the right location at startup and
@@ -236,7 +240,9 @@ pub mod prelude {
     pub use day_spec::{Lifecycle, Size, WindowOptions};
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
-    pub use day_core::{AssetName, FontFamily, ImageName, Resource, VectorName, resource};
+    pub use day_core::{
+        AssetDir, AssetName, FontFamily, ImageName, Resource, VectorName, resource,
+    };
     pub use day_spec::present::app_temp_dir;
     // Toolkit capability probe (docs): lets app/piece content adapt to the backend, e.g. skip a
     // title the native nav already shows (`Cap::NavHeader`). `capability(cap) -> Support`.

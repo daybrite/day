@@ -83,7 +83,10 @@ pub struct ResourcePlan {
     /// `resource/vectors/` — SVG glyphs (and `.symbolset` bundles), typed as `res::vectors::…`
     /// `VectorName` constants (docs/vectors.md).
     pub vectors: Vec<Entry>,
-    pub assets: Vec<Entry>,
+    /// `resource/assets/` — a TREE (§18.5): directories nest, rendered as nested modules with an
+    /// `AssetDir` const per folder and an `AssetName` const per file (values are `/`-relative
+    /// paths). Top-level files keep the flat form older apps compiled against.
+    pub assets: AssetNode,
     pub fonts: Vec<Entry>,
     /// Localization keys → `res::str::<key>(params…)` functions (§18.5).
     pub strings: Vec<StrEntry>,
@@ -253,23 +256,90 @@ fn plan_images(dir: &Path) -> Result<Vec<Entry>, String> {
         .collect())
 }
 
-/// Data assets: the constant wraps the **full file name** (extension included) — the exact string
-/// `resource("…")` resolves by — with the symbol sanitized for Rust (`numbers.bin` → `numbers_bin`).
-fn plan_assets(dir: &Path) -> Result<Vec<Entry>, String> {
-    let mut entries = Vec::new();
+/// One directory level of the assets tree (§18.5). `path` is the folder's `/`-relative path under
+/// `resource/assets/` (`""` at the root); each child directory renders as an `AssetDir` const AND
+/// a nested module sharing its name, so `res::assets::web::minisite` names the folder and
+/// `res::assets::web::minisite::index_html` a file within it.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct AssetNode {
+    pub path: String,
+    pub files: Vec<Entry>,
+    /// `(module/const symbol, subtree)`, sorted by symbol.
+    pub dirs: Vec<(String, AssetNode)>,
+}
+
+/// Data assets: a recursive tree. Each file constant wraps the `/`-relative path — the exact
+/// string `resource("…")` resolves by — with the symbol sanitized from the file name alone
+/// (`numbers.bin` → `numbers_bin`); each directory yields an `AssetDir` const plus a nested
+/// module. File and directory symbols share one namespace per level (both are consts), so a
+/// collision at any level is a build error naming both sources.
+fn plan_assets(dir: &Path) -> Result<AssetNode, String> {
+    plan_asset_dir(dir, "")
+}
+
+fn plan_asset_dir(dir: &Path, rel: &str) -> Result<AssetNode, String> {
+    let mut files = Vec::new();
     for path in list_files(dir) {
         let fname = path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_default()
             .to_string();
-        entries.push(Entry {
+        let value = if rel.is_empty() {
+            fname.clone()
+        } else {
+            format!("{rel}/{fname}")
+        };
+        files.push(Entry {
             symbol: sanitize_ident(&fname),
-            value: fname,
+            value,
             source: display(&path),
         });
     }
-    dedup_symbols(entries, "asset")
+    let mut dirs = Vec::new();
+    let mut subdirs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_dir()
+                && !p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .starts_with('.')
+        })
+        .collect();
+    subdirs.sort();
+    for sub in subdirs {
+        let dname = sub
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let sub_rel = if rel.is_empty() {
+            dname.clone()
+        } else {
+            format!("{rel}/{dname}")
+        };
+        dirs.push((sanitize_ident(&dname), plan_asset_dir(&sub, &sub_rel)?));
+    }
+    // Files and directories land in one const namespace per module — validate them jointly.
+    let mut probe = files.clone();
+    for (sym, node) in &dirs {
+        probe.push(Entry {
+            symbol: sym.clone(),
+            value: node.path.clone(),
+            source: format!("resource/assets/{} (directory)", node.path),
+        });
+    }
+    dedup_symbols(probe, "asset")?;
+    Ok(AssetNode {
+        path: rel.to_string(),
+        files,
+        dirs,
+    })
 }
 
 /// Fonts: the constant wraps the **family name** parsed from the sfnt `name` table (what
@@ -729,7 +799,7 @@ pub fn render(plan: &ResourcePlan) -> String {
     // `day::ImageName`.
     render_bucket(&mut s, "images", "ImageName", &plan.images);
     render_bucket(&mut s, "vectors", "VectorName", &plan.vectors);
-    render_bucket(&mut s, "assets", "AssetName", &plan.assets);
+    render_assets(&mut s, &plan.assets);
     render_bucket(&mut s, "fonts", "FontFamily", &plan.fonts);
     render_strings(&mut s, &plan.strings);
     render_locales(&mut s, &plan.locales);
@@ -874,6 +944,40 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
     s.push_str("}\n\n");
 }
 
+/// Render the assets TREE (§18.5): one module per directory, an `AssetDir` const beside each
+/// nested module (same name — consts and modules live in different namespaces), an `AssetName`
+/// const per file. The root module is `assets`, matching the flat form apps already compile
+/// against for top-level files.
+fn render_assets(s: &mut String, root: &AssetNode) {
+    s.push_str("#[allow(non_upper_case_globals, dead_code, unused_imports)]\n");
+    render_asset_node(s, "assets", root, 0);
+    s.push('\n');
+}
+
+fn render_asset_node(s: &mut String, module: &str, node: &AssetNode, depth: usize) {
+    let pad = "    ".repeat(depth);
+    s.push_str(&format!("{pad}pub mod {} {{\n", ident_token(module)));
+    s.push_str(&format!("{pad}    use day::{{AssetDir, AssetName}};\n"));
+    for e in &node.files {
+        s.push_str(&format!(
+            "{pad}    /// `{}`\n{pad}    pub const {}: AssetName = AssetName::from_static({:?});\n",
+            e.source,
+            ident_token(&e.symbol),
+            e.value,
+        ));
+    }
+    for (sym, sub) in &node.dirs {
+        s.push_str(&format!(
+            "{pad}    /// `resource/assets/{}` (directory)\n{pad}    pub const {}: AssetDir = AssetDir::from_static({:?});\n",
+            sub.path,
+            ident_token(sym),
+            sub.path,
+        ));
+        render_asset_node(s, sym, sub, depth + 1);
+    }
+    s.push_str(&format!("{pad}}}\n"));
+}
+
 fn render_bucket(s: &mut String, module: &str, ty: &str, entries: &[Entry]) {
     s.push_str("#[allow(non_upper_case_globals, dead_code, unused_imports)]\n");
     s.push_str(&format!("pub mod {module} {{\n    use day::{ty};\n"));
@@ -1014,8 +1118,66 @@ mod tests {
         let root = tmp("assets");
         touch(&root.join("resource/assets"), "numbers.bin", b"x");
         let plan = plan_resources(&root).unwrap();
-        assert_eq!(plan.assets[0].symbol, "numbers_bin");
-        assert_eq!(plan.assets[0].value, "numbers.bin");
+        assert_eq!(plan.assets.files[0].symbol, "numbers_bin");
+        assert_eq!(plan.assets.files[0].value, "numbers.bin");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn asset_tree_nests_modules_and_dir_consts() {
+        let root = tmp("assets-tree");
+        touch(&root.join("resource/assets"), "top.bin", b"x");
+        touch(
+            &root.join("resource/assets/web/minisite"),
+            "index.html",
+            b"x",
+        );
+        touch(
+            &root.join("resource/assets/web/minisite/css"),
+            "style.css",
+            b"x",
+        );
+        let plan = plan_resources(&root).unwrap();
+        // Values are `/`-relative paths; symbols come from the leaf name alone.
+        let web = &plan.assets.dirs[0];
+        assert_eq!(web.0, "web");
+        let mini = &web.1.dirs[0];
+        assert_eq!(mini.1.path, "web/minisite");
+        assert_eq!(mini.1.files[0].value, "web/minisite/index.html");
+        assert_eq!(
+            mini.1.dirs[0].1.files[0].value,
+            "web/minisite/css/style.css"
+        );
+        let code = render(&plan);
+        assert!(
+            code.contains("pub const top_bin: AssetName = AssetName::from_static(\"top.bin\");")
+        );
+        assert!(code.contains("pub const web: AssetDir = AssetDir::from_static(\"web\");"));
+        assert!(code.contains("pub mod web {"));
+        assert!(
+            code.contains(
+                "pub const minisite: AssetDir = AssetDir::from_static(\"web/minisite\");"
+            )
+        );
+        assert!(code.contains(
+            "pub const index_html: AssetName = AssetName::from_static(\"web/minisite/index.html\");"
+        ));
+        assert!(code.contains(
+            "pub const style_css: AssetName = AssetName::from_static(\"web/minisite/css/style.css\");"
+        ));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn asset_file_and_dir_symbol_collision_errors() {
+        // A file and a directory cannot share a literal name on disk, but their SYMBOLS can
+        // collide after sanitization: `site.old` (file) and `site-old/` (dir) both map to
+        // `site_old`, and both land in the same module's const namespace.
+        let root = tmp("assets-collide");
+        touch(&root.join("resource/assets"), "site.old", b"x");
+        touch(&root.join("resource/assets/site-old"), "x.bin", b"x");
+        let err = plan_resources(&root).unwrap_err();
+        assert!(err.contains("site_old"), "{err}");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -1058,7 +1220,8 @@ mod tests {
         let root = tmp("missing-dirs");
         std::fs::create_dir_all(&root).unwrap();
         let plan = plan_resources(&root).unwrap();
-        assert!(plan.images.is_empty() && plan.assets.is_empty() && plan.fonts.is_empty());
+        assert!(plan.images.is_empty() && plan.fonts.is_empty());
+        assert!(plan.assets.files.is_empty() && plan.assets.dirs.is_empty());
         assert!(plan.strings.is_empty());
         std::fs::remove_dir_all(&root).ok();
     }

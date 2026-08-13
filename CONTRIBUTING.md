@@ -27,9 +27,14 @@ Once a discussion lands on "yes, send a patch":
 
 1. Reference the discussion or issue in the PR description.
 2. Build and run through the `day` CLI (`day build`, `day launch`), not bare `cargo`.
-3. Before pushing, run `cargo fmt --all`, `scripts/ci/lint.sh` (the full fmt + clippy matrix CI
+3. To exercise your change in a real app (the showcase, or your own), build that app against
+   your checkout with `day patch --local` —
+   [Developing Day and an app together](https://daybrite.dev/docs/local-development) covers the
+   workflow. A framework feature usually lands with a Day-Showcase screen that demonstrates it,
+   as a second PR that follows the framework change.
+4. Before pushing, run `cargo fmt --all`, `scripts/ci/lint.sh` (the full fmt + clippy matrix CI
    runs), and `cargo test` for the crates you touched.
-4. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
+5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 
 ## Platform support tiers

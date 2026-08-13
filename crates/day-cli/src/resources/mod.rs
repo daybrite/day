@@ -59,14 +59,48 @@ impl ResourceSet {
     pub fn scan(project: &Project, toolkit: &str) -> ResourceSet {
         let mut images = scan_dir(&project.root.join("resource/images"), true);
         images.extend(scan_dir(&vector_fallback_dir(project, toolkit), true));
-        ResourceSet {
-            images,
-            data: scan_dir(&project.root.join("resource/assets"), false),
-        }
+        // Data assets are a TREE (§18.5): names are `/`-relative paths, and each stager
+        // recreates the hierarchy in its native store (gresource/qrc aliases carry the
+        // slashes; file-based stores mkdir the parents).
+        let mut data = Vec::new();
+        scan_data_tree(&project.root.join("resource/assets"), "", &mut data);
+        data.sort_by(|a, b| a.name.cmp(&b.name));
+        ResourceSet { images, data }
     }
 
     pub fn is_empty(&self) -> bool {
         self.images.is_empty() && self.data.is_empty()
+    }
+}
+
+/// Collect the data-asset tree under `dir`: every non-hidden file, recursively, named by its
+/// `/`-relative path (`rel` is the prefix so far, `""` at the root).
+fn scan_data_tree(dir: &std::path::Path, rel: &str, out: &mut Vec<ResourceFile>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        let Some(fname) = path.file_name().and_then(|n| n.to_str()).map(String::from) else {
+            continue;
+        };
+        if fname.starts_with('.') {
+            continue;
+        }
+        let name = if rel.is_empty() {
+            fname
+        } else {
+            format!("{rel}/{fname}")
+        };
+        if path.is_dir() {
+            scan_data_tree(&path, &name, out);
+        } else {
+            out.push(ResourceFile {
+                name,
+                path,
+                scale: 1,
+            });
+        }
     }
 }
 

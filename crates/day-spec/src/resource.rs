@@ -73,10 +73,29 @@ resource_name!(
     "bundled-image name"
 );
 resource_name!(
-    /// The bundled-data name that [`resource`] resolves by (the full file name, extension included).
+    /// The bundled-data name that [`resource`] resolves by: the file's path relative to
+    /// `resource/assets/`, `/`-separated (a top-level file is just its file name, extension
+    /// included).
     AssetName,
     "bundled-asset name"
 );
+resource_name!(
+    /// A bundled-asset DIRECTORY (§18.5): a folder's path relative to `resource/assets/`,
+    /// `/`-separated, no trailing slash. The generated `res::assets::…` tree carries one
+    /// constant per folder, sharing its module's name — `res::assets::web::minisite` is the
+    /// `AssetDir` and `res::assets::web::minisite::index_html` a file within it.
+    AssetDir,
+    "bundled-asset directory"
+);
+
+impl AssetDir {
+    /// Name a file under this directory, for [`resource`] — the escape hatch for paths
+    /// composed at runtime (`dir.join("posts/1.html")`); prefer the generated file constants
+    /// where the path is known.
+    pub fn join(&self, rel: &str) -> AssetName {
+        AssetName::dynamic(format!("{}/{}", self.as_str(), rel.trim_start_matches('/')))
+    }
+}
 resource_name!(
     /// The bundled-vector name that [`vector`](crate::resource) callers resolve by (docs/vectors.md):
     /// the stem of a `resource/vectors/` SVG (or `.symbolset` bundle). Vectors and images share one
@@ -251,6 +270,32 @@ fn resolve_resource_path(name: &str) -> Option<PathBuf> {
         for rel in ["../Resources/assets", "Resources/assets", "assets"] {
             let p = dir.join(rel).join(name);
             if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Resolve a data-asset DIRECTORY (an [`AssetDir`]'s `/`-relative path) to its on-disk
+/// location — for consumers whose local-content channel is a file URL, like the inline web
+/// view on the Apple backends (docs/webview.md). Same probe order as file resolution:
+/// `DAY_ASSET_ROOT` (dev / `day launch`), then the bundle-relative roots.
+pub fn resolve_asset_dir(rel: &str) -> Option<PathBuf> {
+    // Canonicalized: consumers derive URLs from this path, and a literal `..` segment (the
+    // bundle probe below goes through `MacOS/../Resources`) breaks prefix comparison against
+    // the standardized URLs engines report back.
+    let canon = |p: PathBuf| p.canonicalize().ok().filter(|c| c.is_dir());
+    if let Ok(root) = std::env::var("DAY_ASSET_ROOT")
+        && let Some(p) = canon(PathBuf::from(root).join(rel))
+    {
+        return Some(p);
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        for base in ["../Resources/assets", "Resources/assets", "assets"] {
+            if let Some(p) = canon(dir.join(base).join(rel)) {
                 return Some(p);
             }
         }

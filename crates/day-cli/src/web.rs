@@ -155,6 +155,13 @@ pub fn build_web(
         }
     }
 
+    // Bundled data assets, the whole TREE (§18.5), under assets/data/ — same-origin URLs for
+    // anything that browses them (the inline web view's `assets/data/<site>/…` base above all).
+    let data_src = project.root.join("resource/assets");
+    if data_src.is_dir() {
+        crate::pack::copy_tree(&data_src, &dist.join("assets/data"))?;
+    }
+
     // Bundled fonts + the fonts.json manifest (family name from the font's own name table, the
     // same resolution day-build codegen uses) — the shim registers each FontFace before the
     // first layout so custom families measure correctly.

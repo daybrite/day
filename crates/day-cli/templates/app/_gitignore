@@ -2,6 +2,10 @@
 /build
 Cargo.lock
 
+# Machine-local: `day patch --local <day-checkout>` writes this to build against a checkout
+# instead of the git dependency. CI has no such file and resolves git.
+/.cargo/config.toml
+
 # Xcode local state. The .xcodeproj itself is source; what Xcode writes inside it is not —
 # project.xcworkspace holds the SwiftPM resolution for the pieces package day generates under
 # build/, and cannot be relocated out of the project.

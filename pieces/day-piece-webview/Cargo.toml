@@ -65,7 +65,7 @@ objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSRes
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder"] }
 objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSURLRequest", "NSError"] }
 objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
-objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKWebViewConfiguration", "WKNavigationDelegate", "WKNavigation", "WKFrameInfo", "WKError", "block2"] }
+objc2-web-kit = { version = "0.3", optional = true, features = ["WKWebView", "WKWebViewConfiguration", "WKNavigationDelegate", "WKNavigation", "WKNavigationAction", "WKFrameInfo", "WKError", "block2"] }
 
 # WebKitGTK 6 ships as a fast package only on Linux (libwebkitgtk-6.0-dev): MSYS2/MINGW64 has no
 # WebKitGTK at all and it isn't viable on macOS-quartz. Scope `webkit6` to non-macOS + non-Windows so

@@ -66,9 +66,13 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
             fs::copy(svg, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
         }
     }
-    // Data: the rawfile opener reads `day/<name>`.
+    // Data: the rawfile opener reads `day/<name>`; `name` is the `/`-relative tree path
+    // (§18.5), so recreate its parents under the rawfile dir.
     for d in &set.data {
         let dest = dir.join(&d.name);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        }
         fs::copy(&d.path, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
     }
     Ok(())

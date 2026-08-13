@@ -309,7 +309,9 @@ pub fn xcode_backend_build() -> i32 {
         eprintln!("day xcode-backend: {e}");
         return 4;
     }
-    // Stage assets/ into the app bundle (§18.1's copy-phase mechanism).
+    // Stage assets/ into the app bundle (§18.1's copy-phase mechanism). Recursive: assets are
+    // a TREE (§18.5), and `resource("web/minisite/index.html")` resolves the same relative
+    // path inside the bundle.
     if let (Some(tbd), Some(res)) = (
         get("TARGET_BUILD_DIR"),
         get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
@@ -317,11 +319,10 @@ pub fn xcode_backend_build() -> i32 {
         let src = project.root.join("resource/assets");
         if src.exists() {
             let dst = PathBuf::from(tbd).join(res).join("assets");
-            let _ = std::fs::create_dir_all(&dst);
-            if let Ok(entries) = std::fs::read_dir(&src) {
-                for e in entries.flatten() {
-                    let _ = std::fs::copy(e.path(), dst.join(e.file_name()));
-                }
+            let _ = std::fs::remove_dir_all(&dst);
+            if let Err(e) = copy_tree_flat(&src, &dst) {
+                eprintln!("day xcode-backend: stage assets: {e}");
+                return 4;
             }
         }
     }

@@ -14,8 +14,8 @@ pub use day_geometry::*;
 /// Bundled-resource random-access API + the per-backend opener seam (§18.3).
 pub mod resource;
 pub use resource::{
-    AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName, resolve_image_file,
-    resource, set_resource_opener,
+    AssetDir, AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName,
+    resolve_asset_dir, resolve_image_file, resource, set_resource_opener,
 };
 
 /// Bundled custom fonts: name-table parsing, runtime font directory, family → file resolution

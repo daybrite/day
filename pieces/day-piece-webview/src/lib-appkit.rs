@@ -19,12 +19,18 @@ use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSError, NSObject, NSString, NSURL, NSURLRequest};
-use objc2_web_kit::{WKNavigation, WKNavigationDelegate, WKWebView};
+use objc2_web_kit::{
+    WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKWebView,
+};
 
 struct NavIvars {
     /// Mutable: a session-retained view outlives the node that first realized it, and must report
     /// to whichever node is currently showing it.
     node: Cell<NodeId>,
+    /// Inline mode (docs/webview.md): the `file://` URL prefix of the bundled site's root.
+    /// A main-frame navigation outside it is cancelled and reported (`LINK_REPORT`); `None`
+    /// (remote mode) polices nothing.
+    inline_base: RefCell<Option<String>>,
 }
 
 define_class!(
@@ -44,6 +50,48 @@ define_class!(
                 day_appkit::emit(self.ivars().node.get(), Event::custom("webview:url", url));
             }
         }
+
+        // Inline mode's link policy (docs/webview.md): a MAIN-frame navigation leaving the
+        // bundled site is cancelled here and reported to the piece, which runs the app's
+        // `LinkPolicy` (events are enqueue-only, so the decision cannot come back through this
+        // callback — cancel-then-dispatch is the contract). Remote mode allows everything.
+        #[unsafe(method(webView:decidePolicyForNavigationAction:decisionHandler:))]
+        fn decide_policy(
+            &self,
+            _web_view: &WKWebView,
+            action: &WKNavigationAction,
+            handler: &block2::DynBlock<dyn Fn(WKNavigationActionPolicy)>,
+        ) {
+            let policy = match &*self.ivars().inline_base.borrow() {
+                None => WKNavigationActionPolicy::Allow,
+                Some(base) => {
+                    // Subframe navigations stay the page's own business; a nil target frame
+                    // (window.open / target=_blank) is external by definition.
+                    let main_frame = unsafe { action.targetFrame() }
+                        .map(|f| unsafe { f.isMainFrame() })
+                        .unwrap_or(false);
+                    let url = unsafe { action.request() }
+                        .URL()
+                        .and_then(|u| u.absoluteString())
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    let inside = url.starts_with(base.as_str()) || url == "about:blank";
+                    if !main_frame && unsafe { action.targetFrame() }.is_some() {
+                        WKNavigationActionPolicy::Allow
+                    } else if inside {
+                        WKNavigationActionPolicy::Allow
+                    } else {
+                        day_appkit::emit(self.ivars().node.get(), Event::Custom {
+                            tag: "webview:link",
+                            num: super::LINK_REPORT,
+                            text: url,
+                        });
+                        WKNavigationActionPolicy::Cancel
+                    }
+                }
+            };
+            handler.call((policy,));
+        }
     }
 );
 
@@ -51,6 +99,7 @@ impl WebNav {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(NavIvars {
             node: Cell::new(node),
+            inline_base: RefCell::new(None),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -108,7 +157,27 @@ fn make(backend: &mut AppKit, p: &WebProps, id: NodeId) -> Retained<NSView> {
     let web = unsafe { WKWebView::new(mtm) };
     let nav = WebNav::new(mtm, id);
     unsafe { web.setNavigationDelegate(Some(ProtocolObject::from_ref(&*nav))) };
-    if !p.url.is_empty() {
+    if !p.inline_root.is_empty() {
+        // Inline mode (docs/webview.md): the bundled site is loose files (the assets tree in
+        // the bundle, or the project's `resource/assets/` under `day launch`), so a file URL
+        // with read access to the site ROOT is the whole load path — WebKit resolves the
+        // page's relative references against it natively.
+        if let Some(dir) = day_spec::resolve_asset_dir(&p.inline_root) {
+            let root = NSURL::fileURLWithPath(&NSString::from_str(&dir.display().to_string()));
+            let index = NSURL::fileURLWithPath(&NSString::from_str(
+                &dir.join(&p.inline_start).display().to_string(),
+            ));
+            if let Some(base) = root.absoluteString() {
+                *nav.ivars().inline_base.borrow_mut() = Some(base.to_string());
+            }
+            let _ = unsafe { web.loadFileURL_allowingReadAccessToURL(&index, &root) };
+        } else {
+            eprintln!(
+                "day-piece-webview: inline site {:?} not found in the staged assets",
+                p.inline_root
+            );
+        }
+    } else if !p.url.is_empty() {
         load_url(&web, &p.url);
     }
     let view: Retained<NSView> = Retained::from(<WKWebView as AsRef<NSView>>::as_ref(&web));

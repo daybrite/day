@@ -18,16 +18,29 @@ import dev.daybrite.day.bridge.DayBridge;
 public final class DayWebView {
     private DayWebView() {}
 
-    public static View makeWebView(long id, String url) {
+    public static View makeWebView(long id, String url, String inlinePrefix) {
         WebView web = new WebView(DayBridge.ctx);
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
+        final boolean inline = inlinePrefix != null && !inlinePrefix.isEmpty();
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String finishedUrl) {
                 // kind 12 = a piece-defined Custom event (§8.2's open channel): the front-end's
                 // cx.on reads the text payload as the URL. (No longer hijacking kind 1 = TextChanged.)
                 DayBridge.nativeOnEvent(id, 12, 0.0, finishedUrl);
+            }
+
+            @Override
+            @SuppressWarnings("deprecation") // the String overload runs on every API level
+            public boolean shouldOverrideUrlLoading(WebView view, String target) {
+                if (!inline || target.startsWith(inlinePrefix)) {
+                    return false; // in-site (or remote mode): let the WebView navigate
+                }
+                // Inline mode leaving the site: cancel and report (num -1 = the link report);
+                // the Rust side runs the app's LinkPolicy — system browser by default.
+                DayBridge.nativeOnEvent(id, 12, -1.0, target);
+                return true;
             }
         });
         if (url != null && !url.isEmpty()) {

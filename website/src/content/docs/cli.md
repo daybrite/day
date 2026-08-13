@@ -32,10 +32,14 @@ day checkup                  # doctor, then scaffold + build + pack a throwaway 
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
-day patch <day-checkout>     # build against a local day checkout (--check: no day crate from git)
+day patch --local <checkout> # build against a local day checkout (--check: no day crate from git)
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
 day version                  # print the CLI version, build profile, and git ref
 ```
+
+`day patch` switches an app from the published git dependency to a local day checkout and
+verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
+when and how to use it.
 
 `day pack` produces a standalone, installable package per target. See
 [Packaging & distribution](/docs/packaging) for formats, signing, and CI:

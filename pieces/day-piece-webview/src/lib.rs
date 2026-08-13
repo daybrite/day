@@ -33,6 +33,14 @@ pub struct WebProps {
     /// hand back the session's existing native view instead of creating one, so the loaded page
     /// survives being navigated away from (docs/webview.md).
     pub session: u64,
+    /// Inline mode (docs/webview.md): the `/`-relative `resource/assets/` path of the bundled
+    /// site's root directory, or `""` for remote mode. The arm resolves it to its native
+    /// browsable base, loads `<base>/<inline_start>`, and cancels+reports navigations that
+    /// leave the site (`Event::Custom` with `num` = the link-report tag).
+    pub inline_root: String,
+    /// The start page within `inline_root` (`"index.html"` unless overridden). Empty in
+    /// remote mode.
+    pub inline_start: String,
 }
 
 /// A retained browsing session — the thing that outlives the view showing it.
@@ -78,6 +86,152 @@ impl WebSession {
     /// The raw id, as it reaches a backend arm through [`WebProps::session`].
     pub fn id(self) -> u64 {
         self.0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Inline (app-embedded) sites — docs/webview.md. A directory under `resource/assets/` ships a
+// whole site (html/css/js/images, structure preserved, §18.5); the view loads it through the
+// backend's own local-content channel (a file URL into the bundle on Apple,
+// `file:///android_asset/` on Android, the same-origin `assets/data/` URL on web-dom), so the
+// page's RELATIVE references resolve natively. Navigations that leave the site are cancelled
+// in-view and dispatched per [`LinkPolicy`] — the system browser by default.
+// ---------------------------------------------------------------------------
+
+/// The `num` the arms tag an external-link report with on the shared `Event::Custom` channel:
+/// navigation reports are `0`, eval replies are `≥ 1`, link reports are this.
+const LINK_REPORT: f64 = -1.0;
+
+/// What to do with a navigation that leaves an inline site — the answer an
+/// [`WebView::on_external_link`] handler returns. Without a handler, every external link is
+/// [`LinkPolicy::OpenSystem`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkPolicy {
+    /// Hand the URL to the operating system (`day`'s `open_url`): the default browser for
+    /// `https://`, the mail client for `mailto:`, whatever the OS maps the scheme to.
+    OpenSystem,
+    /// Let the navigation proceed inside the web view after all.
+    InView,
+    /// Swallow it. The handler has already done whatever the link means in-app (navigate the
+    /// day app, record it, show UI).
+    Ignore,
+}
+
+/// A bundled site ready for [`web_view_inline`] — the marker [`AssetDirSiteExt::prepare_site`]
+/// resolves to (or an unchecked one via `From`-style [`IntoInlineSite`] on the raw directory).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlineSite {
+    root: String,
+}
+
+impl InlineSite {
+    /// The site root's `/`-relative path under `resource/assets/`.
+    pub fn root(&self) -> &str {
+        &self.root
+    }
+}
+
+/// Why [`AssetDirSiteExt::prepare_site`] declined the directory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PrepareError {
+    /// `<root>/index.html` is not among the bundled assets.
+    MissingIndex(String),
+}
+
+impl std::fmt::Display for PrepareError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PrepareError::MissingIndex(root) => {
+                write!(f, "no index.html under resource/assets/{root}")
+            }
+        }
+    }
+}
+
+/// The future [`AssetDirSiteExt::prepare_site`] returns. Today every v1 backend serves the site
+/// from where it already lives, so this resolves on first poll; the shape is a future because
+/// backends whose engine cannot read embedded stores in place (GTK's GResource, HarmonyOS
+/// rawfile) will extract to the platform cache here, and a large site should not block the UI
+/// thread when they land.
+pub struct PrepareSite {
+    result: Option<Result<InlineSite, PrepareError>>,
+}
+
+impl Future for PrepareSite {
+    type Output = Result<InlineSite, PrepareError>;
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        match self.result.take() {
+            Some(r) => Poll::Ready(r),
+            // Fused: polled again after completion (which day's task runner never does).
+            None => Poll::Pending,
+        }
+    }
+}
+
+/// `res::assets::<dir>.prepare_site()` — validate and prepare a bundled directory as an inline
+/// site (docs/webview.md).
+pub trait AssetDirSiteExt {
+    fn prepare_site(self) -> PrepareSite;
+}
+
+impl AssetDirSiteExt for day_core::AssetDir {
+    fn prepare_site(self) -> PrepareSite {
+        let root = self.as_str().trim_matches('/').to_string();
+        // web-dom has no resource opener (the browser fetches the served tree directly), so the
+        // index probe is skipped there and a missing index surfaces as the frame's own 404.
+        #[cfg(target_arch = "wasm32")]
+        let result = Ok(InlineSite { root });
+        #[cfg(not(target_arch = "wasm32"))]
+        let result = {
+            let index = day_spec::AssetName::dynamic(format!("{root}/index.html"));
+            match day_spec::resource(index) {
+                Some(_) => Ok(InlineSite { root }),
+                None => Err(PrepareError::MissingIndex(root)),
+            }
+        };
+        PrepareSite {
+            result: Some(result),
+        }
+    }
+}
+
+/// What [`web_view_inline`] accepts: a prepared [`InlineSite`], or the raw generated
+/// `res::assets::…` directory constant for the lazy path (no ahead-of-time index check — a
+/// missing page surfaces in the view itself).
+pub trait IntoInlineSite {
+    fn into_inline_site(self) -> InlineSite;
+}
+
+impl IntoInlineSite for InlineSite {
+    fn into_inline_site(self) -> InlineSite {
+        self
+    }
+}
+
+impl IntoInlineSite for day_core::AssetDir {
+    fn into_inline_site(self) -> InlineSite {
+        InlineSite {
+            root: self.as_str().trim_matches('/').to_string(),
+        }
+    }
+}
+
+/// Whether this backend can show an INLINE (app-embedded) site. A separate axis from
+/// [`support`]: web-dom loads inline sites same-origin (`Emulated` — pages and relative
+/// resources work, external-link policy does not reach inside the frame yet), while the
+/// engines without a local-content arm so far report `Unsupported` and realize the
+/// placeholder (docs/webview.md lists the rollout order).
+pub fn inline_support() -> day_spec::Support {
+    if cfg!(any(
+        all(feature = "appkit", target_os = "macos"),
+        all(feature = "uikit", target_os = "ios"),
+        all(feature = "mdc", target_os = "android"),
+    )) {
+        day_spec::Support::Native
+    } else if cfg!(all(feature = "dom", target_arch = "wasm32")) {
+        day_spec::Support::Emulated
+    } else {
+        day_spec::Support::Unsupported
     }
 }
 
@@ -359,6 +513,9 @@ pub struct WebView {
     reload: Option<Trigger>,
     js: Option<JsHandle>,
     session: Option<WebSession>,
+    inline: Option<InlineSite>,
+    inline_start: String,
+    on_link: Option<Rc<dyn Fn(&str) -> LinkPolicy>>,
 }
 
 /// `web_view(url)` — a native web view showing `url`. The initial value loads on creation; call
@@ -377,7 +534,25 @@ pub fn web_view(url: Signal<String>) -> WebView {
         reload: None,
         js: None,
         session: None,
+        inline: None,
+        inline_start: String::new(),
+        on_link: None,
     }
+}
+
+/// `web_view_inline(site)` — a web view showing a site bundled INSIDE the app
+/// (docs/webview.md): a directory under `resource/assets/`, shipped whole. Relative references
+/// within the site resolve natively; navigations that leave it are cancelled and dispatched
+/// per [`LinkPolicy`] — the system browser unless [`WebView::on_external_link`] says otherwise.
+///
+/// Takes a prepared [`InlineSite`] (`res::assets::<dir>.prepare_site().await?`, the checked
+/// route) or the raw `res::assets::<dir>` constant (lazy — a missing page surfaces in the view).
+/// Gate on [`inline_support`].
+pub fn web_view_inline(site: impl IntoInlineSite) -> WebView {
+    let mut v = web_view(Signal::new(String::new()));
+    v.inline = Some(site.into_inline_site());
+    v.inline_start = "index.html".into();
+    v
 }
 
 impl WebView {
@@ -414,6 +589,19 @@ impl WebView {
     /// Show a retained [`WebSession`], so the loaded page survives navigating away and back.
     pub fn session(mut self, session: WebSession) -> Self {
         self.session = Some(session);
+        self
+    }
+    /// Inline mode only: the page within the site to open first, instead of `index.html`.
+    pub fn start_page(mut self, page: impl Into<String>) -> Self {
+        self.inline_start = page.into();
+        self
+    }
+    /// Inline mode only: decide what happens to a navigation that leaves the site. Runs on the
+    /// main thread with the target URL; without it every external link is
+    /// [`LinkPolicy::OpenSystem`]. The closure may do arbitrary in-app work (navigate the day
+    /// app, log) and return [`LinkPolicy::Ignore`].
+    pub fn on_external_link(mut self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self {
+        self.on_link = Some(Rc::new(f));
         self
     }
 }
@@ -458,10 +646,19 @@ impl Piece for WebView {
             reload,
             js,
             session,
+            inline,
+            inline_start,
+            on_link,
         } = self;
         let initial = WebProps {
             url: url.get_untracked(),
             session: session.map(WebSession::id).unwrap_or(0),
+            inline_root: inline.as_ref().map(|s| s.root.clone()).unwrap_or_default(),
+            inline_start: if inline.is_some() {
+                inline_start
+            } else {
+                String::new()
+            },
         };
         // A web view has no intrinsic size — it fills whatever space its container offers.
         let node = cx.leaf(
@@ -513,6 +710,23 @@ impl Piece for WebView {
             if let Event::Custom { num, text, .. } = ev {
                 if *num >= 1.0 {
                     resolve(*num as u64, text);
+                } else if *num == LINK_REPORT {
+                    // An inline site's navigation left the site: the arm already CANCELLED it
+                    // (§8.3 events are enqueue-only, so the native side can't ask), and the
+                    // policy runs here. `InView` re-issues the load as a command.
+                    let policy = on_link
+                        .as_ref()
+                        .map(|f| f(text))
+                        .unwrap_or(LinkPolicy::OpenSystem);
+                    match policy {
+                        LinkPolicy::OpenSystem => day_core::open_url(text),
+                        LinkPolicy::InView => {
+                            with_tree(|t| {
+                                t.patch(node, Box::new(WebPatch::Load(text.clone())), false)
+                            });
+                        }
+                        LinkPolicy::Ignore => {}
+                    }
                 } else {
                     url.set(text.clone());
                 }
