@@ -88,7 +88,8 @@ define_class!(
                         !frame.is_null() && unsafe { msg_send![&*frame, isMainFrame] };
                     let sub_frame = !frame.is_null() && !main_frame;
                     let req: Retained<NSURLRequest> = unsafe { msg_send![action, request] };
-                    let url = unsafe { req.URL() }
+                    let url = req
+                        .URL()
                         .and_then(|u| u.absoluteString())
                         .map(|s| s.to_string())
                         .unwrap_or_default();
