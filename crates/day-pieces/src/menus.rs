@@ -134,7 +134,24 @@ fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
 /// Lower app-side entries to the spec model, registering action closures with day-core. A standard
 /// `role` item with no explicit label gets its label from the localized core catalog here — so the
 /// backends receive a ready, locale-correct label instead of each hardcoding English (day-l10n).
+///
+/// This variant registers PROCESS-lived closures — correct for the app menu and toolbars, whose
+/// ids day-core manages by shape-rebinding and explicit sweeps. Menus owned by a piece build
+/// (a `.context_menu`, a nav row's menu) go through [`lower_menu_scoped`] instead, so their
+/// closures are reclaimed when the registering scope is disposed rather than leaking per remount.
 pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
+    lower_menu_with(entries, &day_core::register_menu_action)
+}
+
+/// [`lower_menu`] with scope-tied action registration (see there for when to use which).
+pub(crate) fn lower_menu_scoped(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
+    lower_menu_with(entries, &day_core::register_scoped_menu_action)
+}
+
+fn lower_menu_with(
+    entries: Vec<MenuEntry>,
+    register: &dyn Fn(Rc<dyn Fn()>) -> u64,
+) -> Vec<day_spec::MenuItem> {
     entries
         .into_iter()
         .map(|e| {
@@ -143,11 +160,11 @@ pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {
             } else if let Some(children) = e.children {
                 day_spec::MenuItem::Submenu {
                     label: e.label,
-                    items: lower_menu(children),
+                    items: lower_menu_with(children, register),
                     role: e.bar_role,
                 }
             } else {
-                let mut id = e.action.map(day_core::register_menu_action).unwrap_or(0);
+                let mut id = e.action.map(register).unwrap_or(0);
                 let mut enabled = e.enabled;
                 let mut shortcut = e.shortcut;
                 // Window roles have no native selector on any platform: an action-less item

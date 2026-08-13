@@ -31,6 +31,29 @@ fn fail(name: &'static str, detail: impl Into<String>) -> FsError {
     }
 }
 
+/// Validate `rel` and join it under `root`. `SecurityError` on any escape attempt:
+/// backslashes, NULs, absolute paths, and `..` components are all refused. The one
+/// path validator for everything that joins untrusted names under a directory —
+/// the sandbox below and the package store both resolve through it.
+pub fn safe_join(root: &Path, rel: &str) -> Result<PathBuf, FsError> {
+    if rel.contains('\\') || rel.contains('\0') {
+        return Err(fail("SecurityError", "invalid characters in path"));
+    }
+    let p = Path::new(rel);
+    if p.is_absolute() {
+        return Err(fail("SecurityError", "absolute paths are not allowed"));
+    }
+    let mut out = root.to_path_buf();
+    for c in p.components() {
+        match c {
+            Component::Normal(seg) => out.push(seg),
+            Component::CurDir => {}
+            _ => return Err(fail("SecurityError", "path escapes the sandbox")),
+        }
+    }
+    Ok(out)
+}
+
 /// The app's sandbox. Cheap to clone; all paths below are RELATIVE to the root.
 #[derive(Clone, Debug)]
 pub struct Sandbox {
@@ -50,22 +73,7 @@ impl Sandbox {
 
     /// Validate + resolve a relative path. `SecurityError` on any escape attempt.
     fn resolve(&self, rel: &str) -> Result<PathBuf, FsError> {
-        if rel.contains('\\') || rel.contains('\0') {
-            return Err(fail("SecurityError", "invalid characters in path"));
-        }
-        let p = Path::new(rel);
-        if p.is_absolute() {
-            return Err(fail("SecurityError", "absolute paths are not allowed"));
-        }
-        let mut out = self.root.clone();
-        for c in p.components() {
-            match c {
-                Component::Normal(seg) => out.push(seg),
-                Component::CurDir => {}
-                _ => return Err(fail("SecurityError", "path escapes the sandbox")),
-            }
-        }
-        Ok(out)
+        safe_join(&self.root, rel)
     }
 
     pub fn read(&self, rel: &str) -> Result<Vec<u8>, FsError> {

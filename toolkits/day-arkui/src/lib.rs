@@ -91,6 +91,10 @@ mod imp {
         /// click back into `SelectionChanged(index)` against the MENU host (day-android does the
         /// same with a per-row listener). See [`day_arkui_on_event`].
         static MENU_ROWS: RefCell<HashMap<u64, (NodeId, i64)>> = RefCell::new(HashMap::new());
+        /// NAV_MENU scroll node ptr → its day NodeId, so `NavMenuPatch::Items` (which only gets
+        /// the handle) can rebuild the rows against the right menu id, and `release` can purge
+        /// the menu's synthetic-row entries from [`MENU_ROWS`].
+        static NAV_MENU_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
         /// Monotonic synthetic-id counter for menu rows (kept out of day's NodeId space by using the
         /// high bit, which day-core never allocates).
         static SYNTH: Cell<u64> = const { Cell::new(1u64 << 63) };
@@ -166,6 +170,25 @@ mod imp {
         badge_tints: &[Option<day_spec::Color>],
     ) -> AHandle {
         let scroll = new_node(K_SCROLL);
+        let col = build_nav_menu_rows(menu, items, icons, tints, badge_icons, badge_tints);
+        unsafe { ffi::day_ark_insert_child(scroll.0, col.0, 0) };
+        // The rows column is owned content: registering it here lets `NavMenuPatch::Items`
+        // swap it wholesale and `release` dispose it with the scroll.
+        SCROLL_CONTENT.with(|m| m.borrow_mut().insert(scroll.0 as usize, col.0 as usize));
+        NAV_MENU_IDS.with(|m| m.borrow_mut().insert(scroll.0 as usize, menu));
+        scroll
+    }
+
+    /// The rows column for a NAV_MENU (see [`build_nav_menu`]): registers one synthetic click
+    /// id per row in [`MENU_ROWS`]. Rebuilt wholesale on `NavMenuPatch::Items`.
+    fn build_nav_menu_rows(
+        menu: NodeId,
+        items: &[String],
+        icons: &[Option<String>],
+        tints: &[Option<day_spec::Color>],
+        badge_icons: &[Option<String>],
+        badge_tints: &[Option<day_spec::Color>],
+    ) -> AHandle {
         let col = new_node(K_COLUMN);
         let mut pos: c_int = 0;
         for (i, title) in items.iter().enumerate() {
@@ -261,8 +284,7 @@ mod imp {
                 pos += 1;
             }
         }
-        unsafe { ffi::day_ark_insert_child(scroll.0, col.0, 0) };
-        scroll
+        col
     }
 
     pub fn emit(id: NodeId, ev: Event) {
@@ -1228,6 +1250,47 @@ mod imp {
                         unsafe { ffi::day_ark_set_bg_color(h.0, argb(*c)) };
                     }
                 }
+                // Data-driven sidebar rebuild (docs/navigation.md): swap the rows column for a
+                // freshly built one. Without this arm the patch was silently dropped — stale
+                // rows kept rendering and their synthetic ids kept firing old indices (the same
+                // bug the Android path documents fixing). Old synthetic ids are retired first so
+                // a late tap on a recycled row cannot emit a wrong SelectionChanged.
+                kinds::NAV_MENU => {
+                    if let Some(NavMenuPatch::Items {
+                        items,
+                        icons,
+                        tints,
+                        badge_icons,
+                        badge_tints,
+                        ..
+                    }) = patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        let key = h.0 as usize;
+                        let Some(menu) = NAV_MENU_IDS.with(|m| m.borrow().get(&key).copied())
+                        else {
+                            return;
+                        };
+                        MENU_ROWS.with(|m| m.borrow_mut().retain(|_, v| v.0 != menu));
+                        if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
+                            unsafe {
+                                ffi::day_ark_remove_child(h.0, old as *mut _);
+                                ffi::day_ark_node_dispose(old as *mut _);
+                            }
+                        }
+                        let col = build_nav_menu_rows(
+                            menu,
+                            items,
+                            icons,
+                            tints,
+                            badge_icons,
+                            badge_tints,
+                        );
+                        unsafe { ffi::day_ark_insert_child(h.0, col.0, 0) };
+                        SCROLL_CONTENT.with(|m| m.borrow_mut().insert(key, col.0 as usize));
+                    }
+                    // NavMenuPatch::Selected: no native highlight on the conventional-rows
+                    // menu (realize renders no selected state either).
+                }
                 kinds::COVER => {
                     if let Some(p) = patch.downcast_ref::<CoverPatch>() {
                         let node = COVER_NODES
@@ -1417,6 +1480,11 @@ mod imp {
                 LIST_SOURCES.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
+            }
+            // A released NAV_MENU retires its rows' synthetic click ids — without this every
+            // menu rebuild leaked its row entries for the process lifetime.
+            if let Some(menu) = NAV_MENU_IDS.with(|m| m.borrow_mut().remove(&key)) {
+                MENU_ROWS.with(|m| m.borrow_mut().retain(|_, v| v.0 != menu));
             }
             // A scroll owns its content container (realize) — dispose it with the scroll.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {

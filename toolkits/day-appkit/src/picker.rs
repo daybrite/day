@@ -76,7 +76,11 @@ fn make_menu(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) -> R
     for opt in &p.options {
         popup.addItemWithTitle(&NSString::from_str(opt));
     }
-    popup.selectItemAtIndex(p.selected as isize);
+    // Out-of-range app state must not reach selectItemAtIndex: it raises an NSException,
+    // which Rust cannot catch — the process aborts (same guard as the segmented arm).
+    if p.selected < p.options.len() {
+        popup.selectItemAtIndex(p.selected as isize);
+    }
     unsafe {
         popup.setTarget(Some(target));
         popup.setAction(Some(sel!(fire:)));
@@ -147,12 +151,14 @@ fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
     let PickerPatch::Selected(i) = patch;
     let i = *i;
+    // Range guards throughout: an out-of-range index raises an NSException in AppKit,
+    // which Rust cannot catch — the process aborts.
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
-        if popup.indexOfSelectedItem() != i as isize {
+        if (i as isize) < popup.numberOfItems() && popup.indexOfSelectedItem() != i as isize {
             popup.selectItemAtIndex(i as isize);
         }
     } else if let Some(seg) = h.downcast_ref::<NSSegmentedControl>() {
-        if seg.selectedSegment() != i as isize {
+        if (i as isize) < seg.segmentCount() && seg.selectedSegment() != i as isize {
             seg.setSelectedSegment(i as isize);
         }
     } else if let Some(stack) = h.downcast_ref::<NSStackView>() {

@@ -30,9 +30,12 @@ fn style_code(s: PickerStyle) -> i32 {
 fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
     let joined = p.options.join("\n");
     with_env(|env| {
-        let s = env.new_string(&joined).expect("items");
-        let view = env
-            .dcall_static(
+        // A Java throw (e.g. the staged DayPicker class missing from the app build) must
+        // not panic inside realize: the panic unwinds the JNI up-call and aborts the
+        // process. Degrade to the bridge's visible placeholder label instead.
+        let made = env.new_string(&joined).ok().and_then(|s| {
+            crate::try_make_view_on(
+                env,
                 PICKER_CLASS,
                 "makePicker",
                 "(JILjava/lang/String;I)Landroid/view/View;",
@@ -43,12 +46,12 @@ fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
                     JValue::Int(p.selected as i32),
                 ],
             )
-            .expect("DayPicker.makePicker")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+            .ok()
+        });
+        AHandle(made.unwrap_or_else(|| {
+            eprintln!("day-android: DayPicker.makePicker failed; substituting a placeholder");
+            crate::placeholder_view(env, "picker")
+        }))
     })
 }
 

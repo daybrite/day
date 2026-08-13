@@ -210,6 +210,7 @@ unsafe extern "C" {
         title: *const c_char,
         index: c_int,
     );
+    pub fn day_xaml_tabs_remove_page(tabs: *mut c_void, page: *mut c_void);
     pub fn day_xaml_tabs_set_current(tabs: *mut c_void, index: c_int);
     pub fn day_xaml_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
 

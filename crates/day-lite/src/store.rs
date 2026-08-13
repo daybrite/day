@@ -15,7 +15,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -94,7 +94,27 @@ impl Manifest {
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Manifest, StoreError> {
-        serde_json::from_slice(bytes).map_err(|e| StoreError::Manifest(e.to_string()))
+        let m: Manifest =
+            serde_json::from_slice(bytes).map_err(|e| StoreError::Manifest(e.to_string()))?;
+        // The app id names the install directory and the files it lists are written under it,
+        // and both come from a fetched (untrusted) manifest — reject anything path-shaped
+        // before either reaches a filesystem join. Reverse-DNS grammar: dot-separated
+        // segments of alphanumerics, `-`, `_`; no empty segments (which also bans "", ".",
+        // and "..").
+        let id_ok = !m.app_id.is_empty()
+            && m.app_id.split('.').all(|seg| {
+                !seg.is_empty()
+                    && seg
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            });
+        if !id_ok {
+            return Err(StoreError::Manifest(format!(
+                "app_id `{}` is not a dot-separated identifier",
+                m.app_id
+            )));
+        }
+        Ok(m)
     }
 }
 
@@ -172,7 +192,7 @@ impl Origin {
     pub fn read(&self, rel: &str) -> Result<Vec<u8>, StoreError> {
         match self {
             Origin::Local(root) => {
-                let p = root.join(rel);
+                let p = safe_rel(root, rel)?;
                 std::fs::read(&p).map_err(|e| StoreError::Fetch {
                     path: p.display().to_string(),
                     detail: e.to_string(),
@@ -236,13 +256,26 @@ fn io<T>(r: std::io::Result<T>) -> Result<T, StoreError> {
     r.map_err(|e| StoreError::Io(e.to_string()))
 }
 
+/// Join a manifest- or app-supplied relative path under `root`, refusing traversal.
+/// Same validator as the sandboxed fs (`fsx`), surfaced as a `StoreError`.
+fn safe_rel(root: &Path, rel: &str) -> Result<PathBuf, StoreError> {
+    crate::fsx::safe_join(root, rel).map_err(|e| StoreError::Fetch {
+        path: rel.into(),
+        detail: e.to_string(),
+    })
+}
+
 impl Store {
     pub fn at(root: impl Into<PathBuf>) -> Store {
         Store { root: root.into() }
     }
 
     pub fn app_dir(&self, app_id: &str) -> PathBuf {
-        // App ids are reverse-domain; keep the path safe regardless.
+        // App ids are reverse-domain, and `Manifest::parse` rejects path-shaped ids before
+        // they reach here; keep the join safe regardless (`remove` feeds this to
+        // `remove_dir_all`). Mapping separators to `_` handles most of it, but a name of
+        // only dots ("..") would survive the map and escape the root — send those to a
+        // sentinel instead.
         let safe: String = app_id
             .chars()
             .map(|c| {
@@ -253,6 +286,9 @@ impl Store {
                 }
             })
             .collect();
+        if safe.is_empty() || safe.bytes().all(|b| b == b'.') {
+            return self.root.join("_invalid");
+        }
         self.root.join(safe)
     }
 
@@ -309,7 +345,7 @@ impl Store {
         if origin.is_local() {
             return origin.read(rel);
         }
-        io(std::fs::read(self.pkg_dir(app_id).join(rel)))
+        io(std::fs::read(safe_rel(&self.pkg_dir(app_id), rel)?))
     }
 
     /// Fetch the manifest and produce the plan the UI confirms. Blocking on https origins.
@@ -389,7 +425,9 @@ impl Store {
             let h = hash(&bytes);
             let unchanged = old_hashes.is_some_and(|m| m.get(rel) == Some(&h));
             if !unchanged {
-                let dest = pkg.join(rel);
+                // `rel` comes from the manifest's file list — untrusted. A listing like
+                // `../../x` must fail the install, not write outside the package dir.
+                let dest = safe_rel(&pkg, rel)?;
                 if let Some(parent) = dest.parent() {
                     io(std::fs::create_dir_all(parent))?;
                 }
@@ -521,5 +559,52 @@ mod tests {
         assert_eq!(store.record("org.example.t").unwrap().version_code, 3);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn manifest_rejects_path_shaped_app_ids() {
+        for id in ["..", ".", "", "a/../b", "a\\b", "a..b/c", "org..example"] {
+            let json = format!(
+                r#"{{ "app_id": "{}", "name": "T", "version": {{ "code": 1, "name": "0.1" }} }}"#,
+                id.replace('\\', "\\\\")
+            );
+            assert!(
+                Manifest::parse(json.as_bytes()).is_err(),
+                "app_id `{id}` should be rejected"
+            );
+        }
+        let ok = br#"{ "app_id": "org.example-2.t_x", "name": "T",
+                       "version": { "code": 1, "name": "0.1" } }"#;
+        assert!(Manifest::parse(ok).is_ok());
+    }
+
+    #[test]
+    fn app_dir_never_escapes_the_root() {
+        let store = Store::at("/store/root");
+        // Path-shaped ids that survive character mapping must still land under the root.
+        for id in ["..", ".", "...", "", "../evil", "a/b"] {
+            let dir = store.app_dir(id);
+            assert!(
+                dir.starts_with("/store/root") && dir != Path::new("/store/root"),
+                "app_dir({id:?}) = {dir:?}"
+            );
+            assert!(
+                !dir.components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir)),
+                "app_dir({id:?}) kept a `..`: {dir:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn store_paths_reject_traversal() {
+        for rel in ["../x", "a/../../x", "/abs", "a\\b", "a\0b"] {
+            assert!(
+                safe_rel(Path::new("/pkg"), rel).is_err(),
+                "rel `{}` should be rejected",
+                rel.escape_default()
+            );
+        }
+        assert!(safe_rel(Path::new("/pkg"), "lib/app.ts").is_ok());
     }
 }

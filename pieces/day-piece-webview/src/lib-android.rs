@@ -36,10 +36,12 @@ fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
         )
     };
     with_env(|env| {
-        let url = env.new_string(&url).expect("url");
-        let prefix = env.new_string(&prefix).expect("prefix");
-        let view = env
-            .dcall_static(
+        // A Java throw (e.g. the staged DayWebView class missing) must not panic inside
+        // realize: the panic unwinds the JNI up-call and aborts. Placeholder instead.
+        let made = env.new_string(&url).ok().and_then(|url| {
+            let prefix = env.new_string(&prefix).ok()?;
+            day_android::try_make_view_on(
+                env,
                 WEBVIEW_CLASS,
                 "makeWebView",
                 "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
@@ -49,12 +51,12 @@ fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
                     JValue::Object(&prefix),
                 ],
             )
-            .expect("DayWebView.makeWebView")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+            .ok()
+        });
+        AHandle(made.unwrap_or_else(|| {
+            eprintln!("day-piece-webview: DayWebView.makeWebView failed; substituting a placeholder");
+            day_android::placeholder_view(env, "web_view")
+        }))
     })
 }
 
@@ -64,7 +66,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &WebPatch) {
     // kind-12 channel keyed by `req`, like every other backend.
     if let WebPatch::Eval { req, script } = patch {
         with_env(|env| {
-            let s = env.new_string(script).expect("script");
+            let Ok(s) = env.new_string(script) else { return };
             let _ = env.dcall_static(
                 WEBVIEW_CLASS,
                 "evalJs",
@@ -88,7 +90,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &WebPatch) {
         WebPatch::Eval { .. } => return, // handled above; keeps the match exhaustive
     };
     with_env(|env| {
-        let s = env.new_string(url).expect("cmd url");
+        let Ok(s) = env.new_string(url) else { return };
         let _ = env.dcall_static(
             WEBVIEW_CLASS,
             "webCommand",

@@ -405,18 +405,31 @@ pub fn flush_sync() {
             let count = run_counts.entry(key).or_insert(0);
             *count += 1;
             if *count > RERUN_CAP {
-                let loc = with_rt(|rt| rt.nodes.get(key).map(|n| n.created_at));
-                if let Some(loc) = loc {
-                    if cfg!(debug_assertions) {
-                        panic!(
-                            "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
-                        );
-                    } else {
-                        eprintln!(
-                            "day-reactive: effect created at {loc} exceeded the re-run cap; deferring"
-                        );
+                if *count == RERUN_CAP + 1 {
+                    let loc = with_rt(|rt| rt.nodes.get(key).map(|n| n.created_at));
+                    if let Some(loc) = loc {
+                        if cfg!(debug_assertions) {
+                            panic!(
+                                "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
+                            );
+                        } else {
+                            eprintln!(
+                                "day-reactive: effect created at {loc} exceeded the re-run cap; skipping it for the rest of this drain (the next source write re-arms it)"
+                            );
+                        }
                     }
                 }
+                // Break the cycle but leave the node runnable. This key was drained out of
+                // `pending` above with `queued` still true; without the reset here,
+                // `mark_observers` would never enqueue it again and the binding would be
+                // silently dead for the rest of the process. Clean + unqueued means the next
+                // source write re-marks and re-enqueues it with a fresh per-drain budget.
+                with_rt(|rt| {
+                    if let Some(n) = rt.nodes.get_mut(key) {
+                        n.queued = false;
+                        n.state = NodeState::Clean;
+                    }
+                });
                 continue;
             }
             run_reaction(key);
@@ -1663,6 +1676,9 @@ mod tests {
         assert_eq!(b.get(), 1);
     }
 
+    // Debug-only: release deliberately warns-and-defers instead of panicking (the release
+    // side is pinned by `unwind_safety_tests::rerun_cap_defers_instead_of_killing_the_binding`).
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "re-ran more than")]
     fn rerun_cap_panics_in_debug() {
@@ -2118,6 +2134,39 @@ mod unwind_safety_tests {
         assert!(
             msg.contains("in flight") && msg.contains("Signal"),
             "message should name the cause, got: {msg}"
+        );
+    }
+
+    /// Release builds must survive a reactive cycle: the capped effect is skipped for the
+    /// rest of the drain but re-arms on the next source write — it must not be permanently
+    /// disabled. Release-only because the same cycle panics (by design) under
+    /// `debug_assertions`; run via `cargo test --release -p day-reactive`.
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn rerun_cap_defers_instead_of_killing_the_binding() {
+        let s = Signal::new(0u32);
+        let runs = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let r2 = runs.clone();
+        Effect::new(move || {
+            let v = s.get();
+            r2.set(r2.get() + 1);
+            if v < 1_000_000 {
+                s.set(v + 1); // self-sustaining cycle: trips the cap every drain
+            }
+        });
+        flush_sync();
+        let after_cycle = runs.get();
+        assert!(
+            after_cycle <= RERUN_CAP + 1,
+            "cap did not bound the drain: {after_cycle} runs"
+        );
+
+        // A fresh external write must re-arm the effect with a new per-drain budget.
+        batch(|| s.set(2_000_000)); // past the cycle threshold: the effect runs once, quietly
+        assert_eq!(
+            runs.get(),
+            after_cycle + 1,
+            "binding stayed dead after hitting the re-run cap"
         );
     }
 }

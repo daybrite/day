@@ -513,7 +513,9 @@ impl<K> NavItem<K> {
     /// entry runs its action exactly like a piece context menu. Backends without per-row
     /// menus drop it (see the matrix in docs/menus.md).
     pub fn context_menu(mut self, entries: Vec<crate::menus::MenuEntry>) -> Self {
-        self.menu = crate::menus::lower_menu(entries);
+        // Scoped: row menus are re-lowered on every derive; the previous build's closures
+        // are reclaimed when the registering scope (the selector's surface) is disposed.
+        self.menu = crate::menus::lower_menu_scoped(entries);
         self
     }
     /// A trailing accessory for this row — an unread count, a status. Rendered right-aligned
@@ -985,7 +987,9 @@ impl BarActionSpec {
     /// value the NAV host carries. Called once, at build.
     fn lower(self) -> day_spec::props::NavBarAction {
         day_spec::props::NavBarAction {
-            action: day_core::register_menu_action(self.action),
+            // Scoped: the id dies with the nav build's scope — bar actions are re-lowered
+            // on every rebuild and were previously never reclaimed.
+            action: day_core::register_scoped_menu_action(self.action),
             label: self.label.initial(),
             icon: self.icon,
         }
@@ -1359,6 +1363,28 @@ fn persist_selection<K: Route, S: SignalRw<K>>(restore: Option<String>, selectio
 
 fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{TabsPageProps, TabsPatch, TabsProps};
+    // Tabs honor only the item list + selection. Report the modifiers this style drops
+    // (debug builds) so a `.searchable(..)` or `.bar_action(..)` that vanishes from the UI
+    // is a diagnosed mismatch, not a mystery — the Sidebar style honors all of these.
+    #[cfg(debug_assertions)]
+    {
+        let title_set = !matches!(&sel.title, TextSource::Static(s) if s.is_empty());
+        for (name, set) in [
+            (".title", title_set),
+            (".header", sel.header.is_some()),
+            (".bar_action", sel.bar_action.is_some()),
+            (".searchable", sel.search.is_some()),
+            (".presentation", sel.presentation.is_some()),
+            (".section (trailing)", sel.pending_section.is_some()),
+        ] {
+            if set {
+                eprintln!(
+                    "day: selector style Tabs ignores `{name}` — a tab bar renders only its \
+                     items; use the Sidebar style or drop the modifier (docs/navigation.md)"
+                );
+            }
+        }
+    }
     let selection = sel.selection;
     let routed = sel.routed;
     let restore = sel.restore;

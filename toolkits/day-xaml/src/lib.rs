@@ -1635,6 +1635,13 @@ impl Toolkit for Xaml {
             unsafe { ffi::day_xaml_delete(content) };
         }
         GESTURES.with(|g| g.borrow_mut().retain(|(ptr, _)| *ptr != key));
+        // A cover torn down while presented (no Dismiss patch first) must leave the
+        // presented set — `window_resized` writes through every entry's raw pointer, and a
+        // stale one is a use-after-free once `day_xaml_delete` runs below.
+        COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
+        COVER_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         unsafe { ffi::day_xaml_delete(h.0) };
     }
 
@@ -1759,6 +1766,20 @@ impl Toolkit for Xaml {
             }
             Some(false) => return,
             None => {}
+        }
+        // Data-driven tabs: drop the page's PivotItem (the page widget survives; Day disposes
+        // it via release). Without this arm the removal fell through to the generic
+        // remove_child against the Pivot handle — a no-op that left the stale tab up and
+        // `TabsState.pages` still syncing frames for the dead node (mirrors day-qt).
+        let tab_host = TABS_STATE.with(|m| {
+            m.borrow_mut().get_mut(&(parent.0 as usize)).map(|state| {
+                state.pages.retain(|(p, _)| p.0 != child.0);
+                state.tabs
+            })
+        });
+        if let Some(tabs) = tab_host {
+            unsafe { ffi::day_xaml_tabs_remove_page(tabs, child.0) };
+            return;
         }
         let target = SCROLL_STATE
             .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
@@ -1986,14 +2007,11 @@ impl Toolkit for Xaml {
     }
 
     fn set_context_menu(&mut self, h: &WinHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
-        // Windows' bar: File, Edit, View, the app's own menus, then Help. No Window menu (MDI
-        // is long gone) and no app menu — Exit lives in File, About in Help.
-        let items = day_core::menu::standard_menu_bar_for(
-            day_core::menu::MenuBarStyle::Windows,
-            items.to_vec(),
-        );
+        // The RAW items, verbatim: a right-click menu is the app's own tree, never the menu
+        // bar — `standard_menu_bar_for` here (a copy-paste from `set_app_menu`) injected
+        // File/Edit/View/Help slot-filling into every context menu.
         let mut spec = String::new();
-        serialize_menu_xaml(&items, &mut spec);
+        serialize_menu_xaml(items, &mut spec);
         unsafe { ffi::day_xaml_set_context_menu(h.0, cstr(&spec).as_ptr()) };
     }
 

@@ -13,7 +13,7 @@ use day_reactive::{Scope, bind};
 use day_spec::props::*;
 use day_spec::{A11yProps, AnimSpec, Color, Event, Insets, Role, Transform, kinds};
 
-use crate::menus::lower_menu;
+use crate::menus::lower_menu_scoped;
 use crate::*;
 
 // ---------------------------------------------------------------------------
@@ -399,7 +399,9 @@ pub trait Decorate: Piece + Sized {
     fn context_menu(self, items: Vec<MenuEntry>) -> AnyPiece {
         piece_fn(move |cx| {
             let n = self.build(cx);
-            let model = lower_menu(items);
+            // Scoped: the action closures die with the build scope, not the process —
+            // an unscoped registration here leaks one closure per remount.
+            let model = lower_menu_scoped(items);
             with_tree(|t| t.set_context_menu(n, model));
             n
         })

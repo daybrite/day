@@ -24,10 +24,12 @@ const TA_CLASS: &str = "dev/daybrite/day/piece/textarea/DayTextArea";
 
 fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
     with_env(|env| {
-        let ph = env.new_string(&p.placeholder).expect("placeholder");
-        let init = env.new_string(&p.text).expect("initial");
-        let view = env
-            .dcall_static(
+        // Same rule as the picker: a Java throw in realize must degrade to a placeholder,
+        // never panic — the panic would unwind the JNI up-call and abort the process.
+        let made = env.new_string(&p.placeholder).ok().and_then(|ph| {
+            let init = env.new_string(&p.text).ok()?;
+            crate::try_make_view_on(
+                env,
                 TA_CLASS,
                 "makeTextArea",
                 "(JLjava/lang/String;Ljava/lang/String;IIZZZZ)Landroid/view/View;",
@@ -43,12 +45,12 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
                     JValue::Bool(p.submit_on_enter),
                 ],
             )
-            .expect("DayTextArea.makeTextArea")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+            .ok()
+        });
+        AHandle(made.unwrap_or_else(|| {
+            eprintln!("day-android: DayTextArea.makeTextArea failed; substituting a placeholder");
+            crate::placeholder_view(env, "text_area")
+        }))
     })
 }
 
@@ -67,7 +69,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &TextPatch) {
     match patch {
         TextPatch::SetText(t) => {
             with_env(|env| {
-                let s = env.new_string(t).expect("text");
+                let Ok(s) = env.new_string(t) else { return };
                 let _ = env.dcall_static(
                     TA_CLASS,
                     "setTextAreaText",
@@ -96,8 +98,8 @@ fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
                 JValue::Int(avail_w.round() as i32),
             ],
         )
-        .expect("DayTextArea.measureHeight")
-        .i()
+        // Layout-pass JNI up-call: degrade to the default row height on a throw, don't panic.
+        .and_then(|v| v.i())
         .unwrap_or(44)
     });
     Size::new(avail_w, (h_dp as f64).max(24.0))

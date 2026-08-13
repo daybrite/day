@@ -330,6 +330,19 @@ mod imp {
         fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>>;
         fn dstr(&self, s: &JString) -> jni::errors::Result<String>;
     }
+    /// After a failed JNI call, a Java exception may be PENDING on the env — and calling
+    /// almost any further JNI function in that state is undefined behavior per the JNI
+    /// spec. Every `DayEnv` wrapper funnels its error path through here (describe = stack
+    /// trace to logcat, then clear), so an `Err` from `dcall`/`dcall_static`/`dfield` is
+    /// always safe to ignore or handle without the call site remembering the clear.
+    fn clear_pending(env: &Env, class: &str, name: &str) {
+        if env.exception_check() {
+            eprintln!("day-android: JNI call {class}.{name} threw (cleared; trace in logcat):");
+            env.exception_describe();
+            env.exception_clear();
+        }
+    }
+
     impl<'l> DayEnv<'l> for Env<'l> {
         fn dcall_static(
             &mut self,
@@ -342,12 +355,16 @@ mod imp {
             // Resolve through dfind, whose app-ClassLoader fallback makes app classes reachable
             // from Rust-spawned threads (a plain name lookup here would use the system loader).
             let cls = self.dfind(class)?;
-            self.call_static_method(
+            let r = self.call_static_method(
                 &cls,
                 JNIString::from(name),
                 MethodSignature::from(&sig),
                 args,
-            )
+            );
+            if r.is_err() {
+                clear_pending(self, class, name);
+            }
+            r
         }
         fn dcall(
             &mut self,
@@ -357,12 +374,16 @@ mod imp {
             args: &[JValue],
         ) -> jni::errors::Result<JValueOwned<'l>> {
             let sig = sig.parse::<RuntimeMethodSignature>()?;
-            self.call_method(
+            let r = self.call_method(
                 obj,
                 JNIString::from(name),
                 MethodSignature::from(&sig),
                 args,
-            )
+            );
+            if r.is_err() {
+                clear_pending(self, "<obj>", name);
+            }
+            r
         }
         fn dfield(
             &mut self,
@@ -373,7 +394,11 @@ mod imp {
             let sig = sig.parse::<RuntimeFieldSignature>()?;
             // Same app-ClassLoader routing as dcall_static — see dfind.
             let cls = self.dfind(class)?;
-            self.get_static_field(&cls, JNIString::from(name), FieldSignature::from(&sig))
+            let r = self.get_static_field(&cls, JNIString::from(name), FieldSignature::from(&sig));
+            if r.is_err() {
+                clear_pending(self, class, name);
+            }
+            r
         }
         fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>> {
             match self.find_class(JNIString::from(name)) {
@@ -680,13 +705,66 @@ mod imp {
     }
 
     /// Call a DayBridge static returning a View, as a shared global ref (public helper).
+    ///
+    /// Never panics on a Java throw: this is the funnel for every builtin realize, and it
+    /// runs inside a JNI up-call — a panic unwinding out of that frame aborts the process,
+    /// which shipped as the "splash-only blank app" failure. On error the pending exception
+    /// is described-and-cleared (stack trace in logcat, via the `DayEnv` wrappers) and a
+    /// visible `⟨method⟩` placeholder label stands in, so one broken view cannot take down
+    /// the whole tree build. [`try_make_view`] is the fallible form for callers that want
+    /// to handle the failure themselves.
     pub fn make_view(env: &mut Env, method: &str, sig: &str, args: &[JValue]) -> Gref {
-        let obj = env
-            .dcall_static(BRIDGE, method, sig, args)
-            .expect("DayBridge call")
-            .l()
-            .expect("View");
-        std::sync::Arc::new(env.new_global_ref(obj).expect("global ref"))
+        match try_make_view(env, method, sig, args) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!(
+                    "day-android: DayBridge.{method} failed ({e}); substituting a placeholder view"
+                );
+                placeholder_view(env, method)
+            }
+        }
+    }
+
+    /// [`make_view`] without the placeholder fallback: `Err` on a Java throw (already
+    /// cleared), a wrong return type, or a null View.
+    pub fn try_make_view(
+        env: &mut Env,
+        method: &str,
+        sig: &str,
+        args: &[JValue],
+    ) -> Result<Gref, jni::errors::Error> {
+        try_make_view_on(env, BRIDGE, method, sig, args)
+    }
+
+    /// [`try_make_view`] against an arbitrary staged class: piece crates calling their OWN
+    /// Java factory (docs/bridge.md) share the same non-panicking path.
+    pub fn try_make_view_on(
+        env: &mut Env,
+        class: &str,
+        method: &str,
+        sig: &str,
+        args: &[JValue],
+    ) -> Result<Gref, jni::errors::Error> {
+        let obj = env.dcall_static(class, method, sig, args)?.l()?;
+        if obj.is_null() {
+            return Err(jni::errors::Error::NullPtr("factory returned a null View"));
+        }
+        Ok(std::sync::Arc::new(env.new_global_ref(obj)?))
+    }
+
+    /// The visible stand-in for a native make that failed: the same `⟨name⟩` label the
+    /// missing-renderer path shows (degrade loudly, keep the tree building).
+    pub fn placeholder_view(env: &mut Env, what: &str) -> Gref {
+        let text = jstr(env, &format!("⟨{what}⟩"));
+        try_make_view(
+            env,
+            "makeLabel",
+            "(Ljava/lang/String;)Landroid/view/View;",
+            &[JValue::Object(&text)],
+        )
+        // The bridge itself cannot build a plain label: nothing can render. Aborting
+        // here is honest — and it is the only remaining panic on this path.
+        .expect("day-android: DayBridge.makeLabel unavailable — bridge not staged?")
     }
 
     fn call_void(method: &str, sig: &str, args: &[JValue]) {
@@ -734,14 +812,15 @@ mod imp {
 
     fn measure_call(h: &AHandle, method: &str) -> f64 {
         with_env(|env| {
+            // Runs inside the layout pass (a JNI up-call): a Java throw must degrade to a
+            // zero measurement, not a panic-abort. The wrapper already cleared the exception.
             env.dcall_static(
                 BRIDGE,
                 method,
                 "(Landroid/view/View;)I",
                 &[JValue::Object(h.0.as_obj())],
             )
-            .expect("measure")
-            .i()
+            .and_then(|v| v.i())
             .unwrap_or(0) as f64
         })
     }
@@ -2352,8 +2431,7 @@ mod imp {
                                     "(Landroid/view/View;I)I",
                                     &[JValue::Object(h.0.as_obj()), JValue::Int(wpx)],
                                 )
-                                .expect("hfw")
-                                .i()
+                                .and_then(|v| v.i())
                                 .unwrap_or(0) as f64
                             });
                             Size::new(pw, hh / d)
@@ -2612,6 +2690,8 @@ mod imp {
             with_env(|env| {
                 let obj = unsafe { JObject::from_raw(env, raw as jni::sys::jobject) };
                 AHandle(std::sync::Arc::new(
+                    // Only fails when the JNI global-ref table is exhausted (a process-fatal
+                    // leak elsewhere); there is no cell to hand back without the ref.
                     env.new_global_ref(&obj).expect("adopt: global ref"),
                 ))
             })
@@ -2716,8 +2796,14 @@ mod imp {
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             let (nums, texts) = day_spec::encode_ops(ops);
             with_env(|env| {
-                let arr = env.new_double_array(nums.len()).expect("double array");
-                arr.set_region(env, 0, &nums).expect("fill array");
+                // Allocation failure (OOM-class) skips the frame instead of panicking out
+                // of a JNI up-call (which aborts); the next replay redraws in full.
+                let Ok(arr) = env.new_double_array(nums.len()) else {
+                    return;
+                };
+                if arr.set_region(env, 0, &nums).is_err() {
+                    return;
+                }
                 let joined = jstr(env, &texts.join("\u{1f}"));
                 let _ = env.dcall_static(
                     BRIDGE,

@@ -23,11 +23,14 @@ const COMBO_CLASS: &str = "dev/daybrite/day/piece/combobox/DayCombo";
 
 fn make(_backend: &mut Android, p: &ComboProps, id: NodeId) -> AHandle {
     with_env(|env| {
-        let items = env.new_string(p.items.join("\n")).expect("items");
-        let text = env.new_string(&p.text).expect("text");
-        let ph = env.new_string(&p.placeholder).expect("placeholder");
-        let view = env
-            .dcall_static(
+        // A Java throw (e.g. the staged DayCombo class missing from the app build) must not
+        // panic inside realize: the panic unwinds the JNI up-call and aborts the process
+        // (the "splash-only blank app" class). Degrade to the visible placeholder instead.
+        let made = env.new_string(p.items.join("\n")).ok().and_then(|items| {
+            let text = env.new_string(&p.text).ok()?;
+            let ph = env.new_string(&p.placeholder).ok()?;
+            day_android::try_make_view_on(
+                env,
                 COMBO_CLASS,
                 "makeCombo",
                 "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/view/View;",
@@ -38,19 +41,21 @@ fn make(_backend: &mut Android, p: &ComboProps, id: NodeId) -> AHandle {
                     JValue::Object(&ph),
                 ],
             )
-            .expect("DayCombo.makeCombo")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+            .ok()
+        });
+        AHandle(made.unwrap_or_else(|| {
+            eprintln!("day-piece-combobox: DayCombo.makeCombo failed; substituting a placeholder");
+            day_android::placeholder_view(env, "combo_box")
+        }))
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &ComboPatch) {
     match patch {
         ComboPatch::Items(items) => with_env(|env| {
-            let s = env.new_string(items.join("\n")).expect("items");
+            let Ok(s) = env.new_string(items.join("\n")) else {
+                return;
+            };
             let _ = env.dcall_static(
                 COMBO_CLASS,
                 "setComboItems",
@@ -59,7 +64,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &ComboPatch) {
             );
         }),
         ComboPatch::SetText(t) => with_env(|env| {
-            let s = env.new_string(t).expect("text");
+            let Ok(s) = env.new_string(t) else { return };
             let _ = env.dcall_static(
                 COMBO_CLASS,
                 "setComboText",

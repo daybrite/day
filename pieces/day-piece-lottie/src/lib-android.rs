@@ -19,9 +19,11 @@ const LOTTIE_CLASS: &str = "dev/daybrite/day/piece/lottie/DayLottie";
 
 fn make(_backend: &mut Android, p: &LottieProps, _id: NodeId) -> AHandle {
     with_env(|env| {
-        let name = env.new_string(&p.name).expect("name");
-        let view = env
-            .dcall_static(
+        // A Java throw (e.g. the Lottie dependency missing from the app build) must not
+        // panic inside realize — the panic unwinds the JNI up-call and aborts. Placeholder.
+        let made = env.new_string(&p.name).ok().and_then(|name| {
+            day_android::try_make_view_on(
+                env,
                 LOTTIE_CLASS,
                 "makeLottie",
                 "(Ljava/lang/String;ZZF)Landroid/view/View;",
@@ -32,12 +34,12 @@ fn make(_backend: &mut Android, p: &LottieProps, _id: NodeId) -> AHandle {
                     JValue::Float(p.speed as f32),
                 ],
             )
-            .expect("DayLottie.makeLottie")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+            .ok()
+        });
+        AHandle(made.unwrap_or_else(|| {
+            eprintln!("day-piece-lottie: DayLottie.makeLottie failed; substituting a placeholder");
+            day_android::placeholder_view(env, "lottie")
+        }))
     })
 }
 

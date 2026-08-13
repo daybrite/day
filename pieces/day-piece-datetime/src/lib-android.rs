@@ -24,27 +24,29 @@ mod date_renderer {
 
     fn make(_backend: &mut Android, p: &DateProps, id: NodeId) -> AHandle {
         with_env(|env| {
-            let view = env
-                .dcall_static(
-                    CLASS,
-                    "makeDatePicker",
-                    "(JZJZJZJ)Landroid/view/View;",
-                    &[
-                        JValue::Long(id.0 as i64),
-                        JValue::Bool(p.style == Style::Inline),
-                        JValue::Long(p.date.to_epoch_days()),
-                        JValue::Bool(p.min.is_some()),
-                        JValue::Long(p.min.map_or(0, DayDate::to_epoch_days)),
-                        JValue::Bool(p.max.is_some()),
-                        JValue::Long(p.max.map_or(0, DayDate::to_epoch_days)),
-                    ],
-                )
-                .expect("DayDateTime.makeDatePicker")
-                .l()
-                .expect("View");
-            AHandle(std::sync::Arc::new(
-                env.new_global_ref(view).expect("global ref"),
-            ))
+            // A Java throw must not panic inside realize (the panic unwinds the JNI
+            // up-call and aborts the process); degrade to the visible placeholder.
+            let made = day_android::try_make_view_on(
+                env,
+                CLASS,
+                "makeDatePicker",
+                "(JZJZJZJ)Landroid/view/View;",
+                &[
+                    JValue::Long(id.0 as i64),
+                    JValue::Bool(p.style == Style::Inline),
+                    JValue::Long(p.date.to_epoch_days()),
+                    JValue::Bool(p.min.is_some()),
+                    JValue::Long(p.min.map_or(0, DayDate::to_epoch_days)),
+                    JValue::Bool(p.max.is_some()),
+                    JValue::Long(p.max.map_or(0, DayDate::to_epoch_days)),
+                ],
+            );
+            AHandle(made.unwrap_or_else(|_| {
+                eprintln!(
+                    "day-piece-datetime: DayDateTime.makeDatePicker failed; substituting a placeholder"
+                );
+                day_android::placeholder_view(env, "date_picker")
+            }))
         })
     }
 
@@ -72,23 +74,24 @@ mod time_renderer {
     fn make(_backend: &mut Android, p: &TimeProps, id: NodeId) -> AHandle {
         // `seconds` is a documented no-op: neither Material nor the framework clock edits seconds.
         with_env(|env| {
-            let view = env
-                .dcall_static(
-                    CLASS,
-                    "makeTimePicker",
-                    "(JZJ)Landroid/view/View;",
-                    &[
-                        JValue::Long(id.0 as i64),
-                        JValue::Bool(p.style == Style::Inline),
-                        JValue::Long(p.time.seconds_of_day()),
-                    ],
-                )
-                .expect("DayDateTime.makeTimePicker")
-                .l()
-                .expect("View");
-            AHandle(std::sync::Arc::new(
-                env.new_global_ref(view).expect("global ref"),
-            ))
+            // Same rule as the date picker: no panic inside realize, placeholder instead.
+            let made = day_android::try_make_view_on(
+                env,
+                CLASS,
+                "makeTimePicker",
+                "(JZJ)Landroid/view/View;",
+                &[
+                    JValue::Long(id.0 as i64),
+                    JValue::Bool(p.style == Style::Inline),
+                    JValue::Long(p.time.seconds_of_day()),
+                ],
+            );
+            AHandle(made.unwrap_or_else(|_| {
+                eprintln!(
+                    "day-piece-datetime: DayDateTime.makeTimePicker failed; substituting a placeholder"
+                );
+                day_android::placeholder_view(env, "time_picker")
+            }))
         })
     }
 

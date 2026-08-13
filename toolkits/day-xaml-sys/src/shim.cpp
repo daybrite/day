@@ -2379,6 +2379,21 @@ void day_xaml_tabs_add_page(void* tabs, void* page, const char* title, int index
     if (index < 0 || static_cast<uint32_t>(index) >= items.Size()) items.Append(item);
     else items.InsertAt(static_cast<uint32_t>(index), item);
 }
+// Data-driven tabs (docs/navigation.md): drop a page's PivotItem. The item must release its
+// Content first — the page widget survives the removal (Day owns and disposes it).
+void day_xaml_tabs_remove_page(void* tabs, void* page) {
+    auto p = elem(tabs).as<WUXC::Pivot>();
+    auto items = p.Items();
+    WF::IInspectable target = elem(page);
+    for (uint32_t i = 0; i < items.Size(); ++i) {
+        auto item = items.GetAt(i).try_as<WUXC::PivotItem>();
+        if (item && item.Content() == target) {
+            item.Content(nullptr);
+            items.RemoveAt(i);
+            return;
+        }
+    }
+}
 void day_xaml_tabs_set_current(void* tabs, int index) {
     elem(tabs).as<WUXC::Pivot>().SelectedIndex(index);
 }

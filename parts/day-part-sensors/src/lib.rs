@@ -100,9 +100,13 @@ impl Drop for Watch {
 type Handler = Box<dyn FnMut(SensorReading) + Send>;
 
 /// Per-sensor state: the live watchers, and the flag their sampling thread checks.
+/// Each handler rides its own `Arc<Mutex<…>>` so [`deliver`] can snapshot the list and run
+/// the callbacks with the feeds lock RELEASED — a callback may call [`watch`] or drop a
+/// [`Watch`], both of which re-enter [`lock_feeds`] and deadlocked when delivery held it.
+/// The per-handler mutex keeps the `FnMut` exclusive.
 #[derive(Default)]
 struct Feed {
-    watchers: Vec<(u64, Handler)>,
+    watchers: Vec<(u64, std::sync::Arc<std::sync::Mutex<Handler>>)>,
     running: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
@@ -134,7 +138,8 @@ fn subscribe(kind: SensorKind, handler: Handler) -> Watch {
     let start = {
         let mut feeds = lock_feeds();
         let feed = feeds.entry(key(kind)).or_default();
-        feed.watchers.push((id, handler));
+        feed.watchers
+            .push((id, std::sync::Arc::new(std::sync::Mutex::new(handler))));
         if feed.running.is_some() {
             None
         } else {
@@ -160,13 +165,29 @@ pub(crate) fn deliver(kind: SensorKind) {
     let Some(reading) = imp::sample(kind) else {
         return;
     };
-    // Hold the lock only to run the callbacks; a handler that blocks delays its own sensor's feed
-    // and nothing else.
-    let mut feeds = lock_feeds();
-    if let Some(feed) = feeds.get_mut(&key(kind)) {
-        for (_, h) in feed.watchers.iter_mut() {
-            h(reading);
+    fan_out(kind, reading);
+}
+
+/// Fan one reading out to every watcher of `kind` (split from [`deliver`] so hosts without
+/// sensors can still exercise the delivery locking in tests).
+fn fan_out(kind: SensorKind, reading: SensorReading) {
+    // Snapshot the handler list, then run the callbacks with the feeds lock RELEASED: a
+    // handler that calls `watch()` or drops a `Watch` re-enters `lock_feeds`, which
+    // deadlocked when delivery held it across the calls. A watcher dropped mid-delivery
+    // may still receive the sample already in flight — one final callback, nothing after.
+    let handlers: Vec<_> = {
+        let feeds = lock_feeds();
+        match feeds.get(&key(kind)) {
+            Some(feed) => feed.watchers.iter().map(|(_, h)| h.clone()).collect(),
+            None => return,
         }
+    };
+    for h in handlers {
+        let mut h = match h.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        h(reading);
     }
 }
 
@@ -361,6 +382,55 @@ mod tests {
                 .get(&key(SensorKind::Accelerometer))
                 .is_none_or(|f| f.running.is_none()),
             "the last watcher leaving must stop the feed"
+        );
+    }
+
+    /// A handler may re-enter the registry — subscribe a new watcher or drop its own `Watch`
+    /// mid-callback. Delivery used to hold the feeds lock across the callbacks, so either
+    /// re-entry deadlocked the sampling thread.
+    #[test]
+    fn handler_may_reenter_the_registry_during_delivery() {
+        let _guard = registry_guard();
+        let kind = SensorKind::Gyroscope;
+        let reading = SensorReading {
+            x: 1.0,
+            y: 2.0,
+            z: 3.0,
+        };
+
+        // Re-entrant subscribe: the callback registers a second watcher.
+        let extra: std::sync::Arc<std::sync::Mutex<Option<Watch>>> = Default::default();
+        let extra2 = extra.clone();
+        let w = watch(kind, move |_| {
+            if let Ok(mut slot) = extra2.lock()
+                && slot.is_none()
+            {
+                *slot = Some(watch(kind, |_| {}));
+            }
+        });
+        fan_out(kind, reading);
+        assert!(
+            extra.lock().expect("slot").is_some(),
+            "the callback's own watch() must complete"
+        );
+        drop(w);
+        *extra.lock().expect("slot") = None; // drops the inner Watch (re-enters unsubscribe)
+
+        // Re-entrant unsubscribe: the callback drops its own Watch.
+        let own: std::sync::Arc<std::sync::Mutex<Option<Watch>>> = Default::default();
+        let own2 = own.clone();
+        let w = watch(kind, move |_| {
+            if let Ok(mut slot) = own2.lock() {
+                slot.take(); // drop mid-delivery
+            }
+        });
+        *own.lock().expect("slot") = Some(w);
+        fan_out(kind, reading);
+        assert!(
+            lock_feeds()
+                .get(&key(kind))
+                .is_none_or(|f| f.watchers.is_empty()),
+            "the self-dropped watcher must be gone"
         );
     }
 }

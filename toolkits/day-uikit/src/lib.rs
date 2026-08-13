@@ -300,6 +300,37 @@ mod imp {
         Retained::from(x.as_ref())
     }
 
+    /// The OUTERMOST view controller behind a host handle, or `None` for an ordinary view.
+    ///
+    /// Outermost matters: an adaptive nav host's handle is the split controller's view, and it is
+    /// the split controller — not the secondary column's navigation controller inside it — that
+    /// owns that view and must carry the containment. Used by `insert` to re-parent a host that
+    /// lands inside a page (docs/navigation.md).
+    fn host_controller(h: &Handle) -> Option<Retained<UIViewController>> {
+        let key = ptr_of(h);
+        // `as_ref` stops at the declared superclass, so these go up the chain by deref coercion.
+        let nav = NAV_STATE.with(|m| {
+            m.borrow().get(&key).map(|s| match s.split.as_ref() {
+                Some(parts) => {
+                    let vc: &UIViewController = &parts.split_vc;
+                    Retained::from(vc)
+                }
+                None => {
+                    let vc: &UIViewController = &s.nav;
+                    Retained::from(vc)
+                }
+            })
+        });
+        nav.or_else(|| {
+            TABS_STATE.with(|m| {
+                m.borrow().get(&key).map(|s| {
+                    let vc: &UIViewController = &s.tabbar;
+                    Retained::from(vc)
+                })
+            })
+        })
+    }
+
     // -----------------------------------------------------------------------
     // DayTarget — target/action trampoline, node-id keyed
     // -----------------------------------------------------------------------
@@ -588,7 +619,10 @@ mod imp {
                 let menu = self.ivars().menu.clone();
                 let provider = block2::RcBlock::new(
                     move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
-                        Retained::into_raw(menu.clone())
+                        // A block's object return is +0 by convention: hand back an
+                        // autoreleased pointer. `into_raw` (+1) leaked one retain of the
+                        // whole menu graph per summon.
+                        Retained::autorelease_return(menu.clone())
                     },
                 );
                 Some(unsafe {
@@ -1857,7 +1891,9 @@ mod imp {
                     let menu = build_ui_menu(self.mtm(), "", &items);
                     let provider = block2::RcBlock::new(
                         move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
-                            Retained::into_raw(menu.clone())
+                            // +0 block return: autorelease, don't leak a retain per summon
+                            // (see DayContextMenu::configuration_for_menu).
+                            Retained::autorelease_return(menu.clone())
                         },
                     );
                     Some(unsafe {
@@ -4159,7 +4195,37 @@ mod imp {
                     if COVER_STATE.with(|m| m.borrow().contains_key(&ptr_of(child))) {
                         return;
                     }
-                    unsafe { parent.addSubview(child) }
+                    // A controller-backed child (a nested nav host, or a tab bar) landing inside
+                    // a PAGE's content view has to move its UIViewController containment to that
+                    // page's controller. Every host parents itself to the WINDOW's root VC when
+                    // it is realized, because at that moment it does not know where it will be
+                    // inserted; leaving it there is what UIKit rejects the instant the view
+                    // enters a window:
+                    //
+                    //     UIViewControllerHierarchyInconsistency: child view controller
+                    //     <DayNavController> should have parent view controller <UIViewController>
+                    //     but actual parent is <DayRootVC>
+                    //
+                    // Two stacks under a tab bar is what surfaced it (one per tab, Day Tradr's
+                    // phone shell). A single one hid: only the SELECTED tab's view reaches a
+                    // window at launch, and the check runs on the way in.
+                    let host_vc = host_controller(child);
+                    let page_vc = TABS_PAGE_VCS
+                        .with(|m| m.borrow().get(&ptr_of(parent)).cloned())
+                        .or_else(|| PAGE_VCS.with(|m| m.borrow().get(&ptr_of(parent)).cloned()));
+                    match (host_vc, page_vc) {
+                        (Some(host_vc), Some(page_vc)) => unsafe {
+                            // Order is UIKit's: leave the old parent, join the new one, THEN the
+                            // view move, then confirm. `didMove` last is what the containment
+                            // contract asks for.
+                            host_vc.willMoveToParentViewController(None);
+                            host_vc.removeFromParentViewController();
+                            page_vc.addChildViewController(&host_vc);
+                            parent.addSubview(child);
+                            host_vc.didMoveToParentViewController(Some(&page_vc));
+                        },
+                        _ => unsafe { parent.addSubview(child) },
+                    }
                 }
             }
         }

@@ -20,19 +20,19 @@ const ACTIVITY_CLASS: &str = "dev/daybrite/day/piece/activity/DayActivity";
 
 fn make(_backend: &mut Android, p: &ActivityProps, _id: NodeId) -> AHandle {
     with_env(|env| {
-        let view = env
-            .dcall_static(
-                ACTIVITY_CLASS,
-                "makeActivity",
-                "(ZZ)Landroid/view/View;",
-                &[JValue::Bool(p.animating), JValue::Bool(p.large)],
-            )
-            .expect("DayActivity.makeActivity")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+        // A Java throw must not panic inside realize (the panic unwinds the JNI up-call
+        // and aborts the process); degrade to the visible placeholder.
+        let made = day_android::try_make_view_on(
+            env,
+            ACTIVITY_CLASS,
+            "makeActivity",
+            "(ZZ)Landroid/view/View;",
+            &[JValue::Bool(p.animating), JValue::Bool(p.large)],
+        );
+        AHandle(made.unwrap_or_else(|_| {
+            eprintln!("day-piece-activity: DayActivity.makeActivity failed; substituting a placeholder");
+            day_android::placeholder_view(env, "activity")
+        }))
     })
 }
 

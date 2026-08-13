@@ -47,6 +47,25 @@ pub fn register_menu_action(f: Rc<dyn Fn()>) -> u64 {
     id
 }
 
+/// Register an app closure whose lifetime is tied to the CURRENT scope: the id is dropped
+/// from the dispatch map when that scope is disposed. This is the registrar for closures
+/// owned by a piece build — context menus, nav-row menus, nav `bar_action` — which are
+/// re-registered on every rebuild; without the cleanup each remount leaks the previous
+/// build's closure (and whatever app state it captured) for the process lifetime.
+///
+/// The app menu and toolbars stay on plain [`register_menu_action`]: their ids are managed
+/// by shape-rebinding ([`rebind_action`]) plus explicit sweeps, and a scope cleanup firing
+/// after a rebind would remove an id the platform still dispatches.
+pub fn register_scoped_menu_action(f: Rc<dyn Fn()>) -> u64 {
+    let id = register_menu_action(f);
+    day_reactive::Scope::current().on_cleanup(move || {
+        ACTIONS.with(|m| {
+            m.borrow_mut().remove(&id);
+        });
+    });
+    id
+}
+
 /// The next dispatch id (nonzero, monotonic). Toolbar value callbacks draw from this same
 /// counter (docs/toolbars.md) so a toolbar id can never collide with a menu id.
 pub(crate) fn next_action_id() -> u64 {
@@ -615,5 +634,21 @@ mod tests {
         dispatch_menu_action(0);
         dispatch_menu_action(u64::MAX);
         assert_eq!(FIRED.with(Cell::get), 1);
+    }
+
+    #[test]
+    fn scoped_action_is_reclaimed_when_its_scope_dies() {
+        let scope = day_reactive::Scope::child();
+        let id = scope.enter(|| register_scoped_menu_action(Rc::new(|| {})));
+        assert!(
+            ACTIONS.with(|m| m.borrow().contains_key(&id)),
+            "registered while the scope is alive"
+        );
+        scope.dispose();
+        assert!(
+            !ACTIONS.with(|m| m.borrow().contains_key(&id)),
+            "disposal must reclaim the closure — this is the remount leak"
+        );
+        dispatch_menu_action(id); // stale native dispatch after teardown: silent no-op
     }
 }

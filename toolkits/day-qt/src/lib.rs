@@ -1699,6 +1699,13 @@ impl Toolkit for Qt {
             g.remove(&(key, false));
             g.remove(&(key, true));
         });
+        // A cover torn down while presented (no Dismiss patch first) must leave the
+        // presented set — `window_resized` writes through every entry's raw pointer, and a
+        // stale one is a use-after-free once `day_qt_delete` runs below.
+        COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
+        COVER_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         unsafe {
             ffi::day_qt_remove_child(h.0);
             ffi::day_qt_delete(h.0);

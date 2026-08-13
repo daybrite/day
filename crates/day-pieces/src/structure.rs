@@ -566,7 +566,12 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                 Box::new(move |index, anchor| {
                     let scope = Scope::child();
                     let rebind = scope.enter(|| {
-                        let item = snapshot.borrow()[index].clone();
+                        // Native callbacks can deliver a stale index mid-animation (the
+                        // `deleted`/`moved` arms below guard for the same reason); an
+                        // out-of-range pull yields an empty row instead of panicking.
+                        let Some(item) = snapshot.borrow().get(index).cloned() else {
+                            return Rc::new(|_: usize| {}) as Rc<dyn Fn(usize)>;
+                        };
                         let sig = Signal::new(item.clone());
                         let keysig = Signal::new(key_of(&item));
                         let slot = ItemSlot { sig, key: keysig };
@@ -575,7 +580,9 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                         // Rebind on recycle: one slot-write of the new row's item + key.
                         let (snap, key_of) = (snapshot.clone(), key_of.clone());
                         Rc::new(move |i: usize| {
-                            let it = snap.borrow()[i].clone();
+                            let Some(it) = snap.borrow().get(i).cloned() else {
+                                return; // stale recycle index — skip, next bind corrects it
+                            };
                             keysig.set(key_of(&it));
                             sig.set(it);
                         }) as Rc<dyn Fn(usize)>
