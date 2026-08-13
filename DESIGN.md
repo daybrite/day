@@ -2469,7 +2469,9 @@ command tree with flags and descriptions for agent consumption).
 > **Status: shipped smaller.** The global flags are `--project <dir>` (nearest-ancestor
 > `Day.toml` default), `--format {plain,json}` (NDJSON result events), and `--verbose` (forward
 > every sub-command's raw stdout/stderr to the terminal instead of capturing it — cargo/gradle/
-> xcodebuild/hvigor/adb/codesign/…, so a build/launch/pack shows the full underlying log);
+> xcodebuild/hvigor/adb/codesign/…, so a build/launch/pack shows the full underlying log;
+> `DAY_VERBOSE=1` in the environment is the same switch, which is how CI turns a whole job
+> verbose — docs/environment.md);
 > `--no-input` exists where prompting exists (`day new`, `day app`). `--yes`/`--color`/`-v`
 > (the short alias)/`--log-file` and the full event vocabulary below were not built — the `result`
 > event and stable exit codes were, and `day metadata --json` / `day help` cover machine
@@ -2478,7 +2480,8 @@ command tree with flags and descriptions for agent consumption).
 ```
 --project <dir>          # default: nearest ancestor with Day.toml
 --format {plain,json}    # json = NDJSON result events on stdout
---verbose                # forward every sub-command's raw output to the terminal (unfiltered)
+--verbose                # forward every sub-command's raw output to the terminal (unfiltered);
+                         # DAY_VERBOSE=1 in the environment is the same switch
 --no-input               # never prompt (new/app); missing required input = error
 ```
 

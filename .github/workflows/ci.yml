@@ -19,6 +19,14 @@ on:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      day-verbose:
+        description: >-
+          Run the day CLI verbose (DAY_VERBOSE=1): every `day build`/`launch`/`pack` forwards
+          its sub-commands' raw output — the cargo/gradle/xcodebuild/hvigor command lines and
+          logs. On by default; un-check to get the quiet status-line output back.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -31,6 +39,11 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
   RUST_BACKTRACE: full
+  # Verbose day CLI (docs/environment.md): every `day build`/`launch`/`pack` of the showcase
+  # and the scaffold canaries forwards the underlying cargo/gradle/xcodebuild/hvigor commands
+  # and their raw logs. Builds of day-cli itself go through cargo directly and stay as they
+  # are. Default on; a manual dispatch can un-check the day-verbose input to run quiet.
+  DAY_VERBOSE: ${{ github.event_name == 'workflow_dispatch' && inputs.day-verbose == false && '0' || '1' }}
   # The macOS runner images ship with third-party taps (aws/tap) that Homebrew's tap-trust
   # check warns about on every `brew install`. Runners are ephemeral, so trust checks buy
   # nothing here; this silences the warning in every job. NOTE the flag is deprecated

@@ -26,6 +26,8 @@ struct Cli {
     format: String,
     /// Forward every sub-command's raw output (cargo, gradle, xcodebuild, hvigor, adb, codesign, …)
     /// to the terminal as it runs, instead of capturing it and showing only day's own status lines.
+    /// `DAY_VERBOSE=1` in the environment does the same — the way CI turns a whole workflow
+    /// verbose without threading the flag through every generated command.
     #[arg(long, global = true)]
     verbose: bool,
     #[command(subcommand)]
@@ -554,8 +556,18 @@ pub enum EmulatorCmd {
 }
 
 pub fn run() -> i32 {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
+    // `DAY_VERBOSE` is the environment spelling of the same switch ("1"/"true" = on): an
+    // explicit `--verbose` always wins, and the variable covers the invocations a flag cannot
+    // reach — nested launches a dayscript runner generates, or a whole CI job's worth of
+    // commands turned verbose from one `env:` line.
+    if !cli.verbose {
+        cli.verbose = matches!(
+            std::env::var("DAY_VERBOSE").as_deref(),
+            Ok("1") | Ok("true")
+        );
+    }
     crate::ops::set_verbose(cli.verbose);
     // Kick off the background crates.io update check now, so it runs while the command does. Silent for
     // the build-system plumbing callbacks (Xcode/Gradle) and for machine `--format json` output.

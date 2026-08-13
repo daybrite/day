@@ -46,6 +46,13 @@ on:
 permissions:
   contents: read
 
+env:
+  # Verbose day CLI (docs/environment.md): each scaffolded build forwards the underlying
+  # cargo/gradle/xcodebuild/hvigor commands and their raw logs. A `latest` CLI that predates
+  # DAY_VERBOSE ignores it, which is the right degradation for a job whose point is to run
+  # exactly what a user installs.
+  DAY_VERBOSE: "1"
+
 jobs:
   checkup:
     name: ${{ matrix.combo }} · day ${{ matrix.day-version }}
