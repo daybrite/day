@@ -2699,7 +2699,25 @@ impl Toolkit for Gtk {
                 .with(|t| t.borrow().get(&widget_key(child)).cloned())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "Day".to_string());
-            let nav_page = adw::NavigationPage::new(child, &title);
+            // An overlay split's CONTENT pane gets its min-size propagation broken, the same way
+            // the window root does (`build_day_window`) and the same need GtkPaned covers with
+            // `set_shrink_*_child`. Day frames this page to the FULL host width whenever the
+            // sidebar hides, and a Day frame becomes a GTK minimum — which leaves the split no
+            // room to keep the sidebar parked off screen at its own width. Adw collapses the
+            // sidebar to zero instead, and a zero-width sidebar has nothing to slide back in, so
+            // the reveal jumped while the hide animated fine (issue #19). The sidebar pane keeps
+            // its plain Fixed: it is the pane that must hold a real width.
+            let split_content =
+                matches!(&state.present, NavPresent::Split(_)) && !(state.split && index == 0);
+            let page_child: Handle = if split_content {
+                let breaker = gtk4::ScrolledWindow::new();
+                breaker.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
+                breaker.set_child(Some(child));
+                breaker.upcast()
+            } else {
+                child.clone()
+            };
+            let nav_page = adw::NavigationPage::new(&page_child, &title);
             match &state.present {
                 NavPresent::Split(sv) => {
                     // Still the AdwNavigationPage wrapper, even though an overlay split takes

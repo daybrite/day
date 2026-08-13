@@ -414,10 +414,15 @@ breakpoints, what survives a re-presentation, and which backends morph today.
 - **GTK** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The
   window is an `AdwApplicationWindow` whose content is an `AdwToolbarView` (an `AdwHeaderBar`
   supplies the title, window controls, and drag; Day's content sits below it). Navigation:
-  `Sidebar` → `AdwNavigationSplitView` with `AdwNavigationPage` sidebar/content; `stack` →
+  `Sidebar` → `AdwOverlaySplitView` with `AdwNavigationPage` sidebar/content; `stack` →
   `AdwNavigationView` (push/pop + back gesture; its `popped` signal writes native back into the
   path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; Day sizes it from the
-  host width (sidebar is a fixed width, detail fills the rest). Tabs use an `AdwViewStack` with a
+  host width (sidebar is a fixed width, detail fills the rest). The split's **content** pane puts
+  a `GtkScrolledWindow` (policy `External` on both axes) between the two, purely to stop Day's
+  laid-out width from becoming a GTK minimum — the same device the window root uses, and the same
+  need `GtkPaned` covers with `set_shrink_*_child`. Without it, framing the detail to the whole
+  host on collapse left the split no room to park the sidebar off screen at its own width, so
+  libadwaita collapsed the sidebar to zero and the reveal animation had nothing to slide back in. Tabs use an `AdwViewStack` with a
   `.linked` toggle switcher (docs/tabs.md); dialogs use `AdwAlertDialog` (docs/dialogs.md).
 > [!NOTE]
 > **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
