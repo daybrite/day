@@ -290,9 +290,14 @@ fn refresh_memo(key: NodeKey) {
     let Some(compute) = compute else { return };
     with_rt(|rt| clear_sources(rt, key));
     with_rt(|rt| rt.observers.push(Some(key)));
-    let new_value = compute();
+    let new_value = {
+        // Popped on unwind too — see `run_reaction`.
+        let _g = RtGuard(|rt: &mut Runtime| {
+            rt.observers.pop();
+        });
+        compute()
+    };
     with_rt(|rt| {
-        rt.observers.pop();
         let tick = rt.tick;
         let node = &mut rt.nodes[key];
         let changed = match (node.value.as_ref(), node.memo_eq) {
@@ -363,9 +368,15 @@ fn run_reaction(key: NodeKey) {
         }
         rt.observers.push(Some(key));
     });
-    reaction();
+    {
+        // Popped on unwind too (same rule as `untrack`): a stranded frame would attribute
+        // every later read to this dead run, even through a user's own `catch_unwind`.
+        let _g = RtGuard(|rt: &mut Runtime| {
+            rt.observers.pop();
+        });
+        reaction();
+    }
     with_rt(|rt| {
-        rt.observers.pop();
         let tick = rt.tick;
         rt.tick += 1;
         if let Some(n) = rt.nodes.get_mut(key) {
@@ -530,8 +541,10 @@ pub fn batch<R>(f: impl FnOnce() -> R) -> R {
     with_rt(|rt| rt.batch_depth += 1);
     let r = {
         // Runs on unwind too, so a contained panic can't strand `batch_depth` above zero — which
-        // would stop every later write from scheduling a drain (a silently frozen UI).
-        let _g = RtGuard(|rt: &mut Runtime| rt.batch_depth -= 1);
+        // would stop every later write from scheduling a drain (a silently frozen UI). Saturating:
+        // if `recover_from_panic` already zeroed the depth mid-unwind, a plain `-= 1` here would
+        // underflow — a panic inside this Drop, which is a process abort.
+        let _g = RtGuard(|rt: &mut Runtime| rt.batch_depth = rt.batch_depth.saturating_sub(1));
         f()
     };
     let should_drain = with_rt(|rt| rt.batch_depth == 0 && !rt.draining && !rt.pending.is_empty());
@@ -549,8 +562,10 @@ pub fn batch<R>(f: impl FnOnce() -> R) -> R {
 /// progress (the writes fold into it); harmless if nothing is pending.
 pub fn flush_now() {
     let saved = with_rt(|rt| std::mem::replace(&mut rt.batch_depth, 0));
+    // Restored on unwind too: the debug rerun-cap panic can cross here under an event-dispatch
+    // batch, and skipping the restore would hand the enclosing batch guard a zero depth.
+    let _g = RtGuard(move |rt: &mut Runtime| rt.batch_depth = saved);
     flush_sync();
-    with_rt(|rt| rt.batch_depth = saved);
 }
 
 /// Run `f` without tracking reads.
@@ -1155,11 +1170,16 @@ fn create_reaction(f: Rc<dyn Fn()>, priority: u8) -> NodeKey {
     // Initial run, tracked.
     with_rt(|rt| rt.observers.push(Some(key)));
     let reaction = with_rt(|rt| rt.nodes[key].reaction.clone());
-    if let Some(r) = reaction {
-        r();
+    {
+        // Popped on unwind too — see `run_reaction`.
+        let _g = RtGuard(|rt: &mut Runtime| {
+            rt.observers.pop();
+        });
+        if let Some(r) = reaction {
+            r();
+        }
     }
     with_rt(|rt| {
-        rt.observers.pop();
         let tick = rt.tick;
         rt.tick += 1;
         if let Some(n) = rt.nodes.get_mut(key) {
@@ -2048,6 +2068,29 @@ mod unwind_safety_tests {
 
     /// A panic inside `untrack` must pop its `None` observer, or dependency tracking stays off
     /// for the rest of the process and nothing ever updates again.
+    /// A panic inside an effect's own closure (contained by a backend trampoline) must pop
+    /// the effect's observer frame during unwind — a stranded frame would attribute every
+    /// later read to the dead run, even through a user's own `catch_unwind`, without any
+    /// call to `recover_from_panic`.
+    #[test]
+    fn panic_in_effect_body_pops_its_observer_frame() {
+        let depth = with_rt(|rt| rt.observers.len());
+        let boom = Signal::new(false);
+        Effect::new(move || {
+            if boom.get() {
+                panic!("effect boom");
+            }
+        });
+        assert_eq!(with_rt(|rt| rt.observers.len()), depth);
+        contained(|| batch(|| boom.set(true)));
+        assert_eq!(
+            with_rt(|rt| rt.observers.len()),
+            depth,
+            "observer frame stranded by the panicking effect run"
+        );
+        recover_from_panic(); // clear draining/pending for the tests that follow
+    }
+
     #[test]
     fn panic_in_untrack_restores_tracking() {
         let depth = with_rt(|rt| rt.observers.len());

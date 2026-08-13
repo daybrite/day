@@ -112,10 +112,12 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::AHandle {
-    let p = props
-        .downcast_ref::<TextProps>()
-        .expect("day: textarea props type");
-    make(b, p, id)
+    // A props-type mismatch degrades to the visible placeholder (day_spec::props_of reports
+    // it) — this runs inside a JNI up-call, where a panic is a process kill.
+    match day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "android", props) {
+        Some(p) => make(b, p, id),
+        None => with_env(|env| AHandle(crate::placeholder_view(env, "text_area"))),
+    }
 }
 
 pub(crate) fn update_any(b: &mut crate::Android, h: &crate::AHandle, patch: &dyn std::any::Any) {

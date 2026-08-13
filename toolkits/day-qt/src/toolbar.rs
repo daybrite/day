@@ -123,23 +123,26 @@ pub(crate) extern "C" fn on_toolbar_value(
     on: c_int,
     text: *const c_char,
 ) {
-    // The sidebar toggle is Day's own, not the app's: drive the split host and stop here.
-    if action == SIDEBAR_TOGGLE_ACTION {
-        crate::toggle_sidebar();
-        return;
-    }
-    let value = if kind == 0 {
-        ToolbarValue::On(on != 0)
-    } else {
-        let text = unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned();
-        ToolbarValue::Text(text)
-    };
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::ToolbarChanged { action, value },
-    );
+    // Contained: a panic unwinding into the C++ shim frame is UB (day-spec's ffi_guard).
+    day_spec::ffi_guard::contain((), || {
+        // The sidebar toggle is Day's own, not the app's: drive the split host and stop here.
+        if action == SIDEBAR_TOGGLE_ACTION {
+            crate::toggle_sidebar();
+            return;
+        }
+        let value = if kind == 0 {
+            ToolbarValue::On(on != 0)
+        } else {
+            let text = unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned();
+            ToolbarValue::Text(text)
+        };
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged { action, value },
+        );
+    });
 }
 
 impl Qt {

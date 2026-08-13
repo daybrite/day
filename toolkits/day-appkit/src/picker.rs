@@ -6,9 +6,9 @@
 // ---------------------------------------------------------------------------
 
 use day_spec::Event;
+use day_spec::ffi_guard;
 use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
-use std::cell::RefCell;
-use std::collections::HashMap;
+use day_spec::sidetable::SideTable;
 
 use crate::AppKit;
 use day_spec::{NodeId, Proposal, Size};
@@ -36,20 +36,23 @@ define_class!(
 
     impl PickerTarget {
         // One action for all three styles — read the selected index off whichever sender fired.
+        // Contained like every trampoline (§8.5): a panic must not unwind into AppKit.
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
-            let idx = if let Some(p) = sender.downcast_ref::<NSPopUpButton>() {
-                p.indexOfSelectedItem()
-            } else if let Some(s) = sender.downcast_ref::<NSSegmentedControl>() {
-                s.selectedSegment()
-            } else if let Some(b) = sender.downcast_ref::<NSButton>() {
-                b.tag()
-            } else {
-                -1
-            };
-            if idx >= 0 {
-                crate::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
-            }
+            ffi_guard::contain((), || {
+                let idx = if let Some(p) = sender.downcast_ref::<NSPopUpButton>() {
+                    p.indexOfSelectedItem()
+                } else if let Some(s) = sender.downcast_ref::<NSSegmentedControl>() {
+                    s.selectedSegment()
+                } else if let Some(b) = sender.downcast_ref::<NSButton>() {
+                    b.tag()
+                } else {
+                    -1
+                };
+                if idx >= 0 {
+                    crate::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+                }
+            })
         }
     }
 );
@@ -62,8 +65,9 @@ impl PickerTarget {
 }
 
 thread_local! {
-    static TARGETS: RefCell<HashMap<usize, Retained<PickerTarget>>> =
-        RefCell::new(HashMap::new());
+    /// Keeps each picker's target alive (the control holds it weakly). A [`SideTable`], so
+    /// the backend's release sweep drops it with its view — this map had no release path.
+    static TARGETS: SideTable<Retained<PickerTarget>> = SideTable::new();
 }
 
 fn zero_rect() -> NSRect {
@@ -141,10 +145,7 @@ fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
         PickerStyle::Segmented => make_segmented(mtm, p, &target),
         PickerStyle::Inline => make_inline(mtm, p, &target),
     };
-    TARGETS.with(|m| {
-        m.borrow_mut()
-            .insert((view.as_ref() as *const NSView) as usize, target)
-    });
+    TARGETS.with(|t| t.insert((view.as_ref() as *const NSView) as usize, target));
     view
 }
 
@@ -184,10 +185,12 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<PickerProps>()
-        .expect("day: picker props type");
-    make(b, p, id)
+    // A mismatched payload warns once and degrades to the shared placeholder (never panics
+    // inside a native up-call) — same policy as the builtin arms in lib.rs.
+    match day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "appkit", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_view(b.mtm(), day_spec::kinds::PICKER),
+    }
 }
 
 pub(crate) fn update_any(b: &mut AppKit, h: &crate::Handle, patch: &dyn std::any::Any) {

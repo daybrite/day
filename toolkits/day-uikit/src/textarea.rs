@@ -12,8 +12,6 @@
 
 use day_spec::Event;
 use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 use crate::Uikit;
 use day_spec::{NodeId, Proposal, Size};
@@ -52,9 +50,12 @@ define_class!(
     unsafe impl UITextViewDelegate for TATarget {
         #[unsafe(method(textViewDidChange:))]
         fn text_view_did_change(&self, text_view: &UITextView) {
-            let s = text_view.text().to_string();
-            self.ivars().placeholder.setHidden(!s.is_empty());
-            crate::emit(self.ivars().node, Event::TextChanged(s));
+            // Contained (§8.5): the emit dispatches into the app's handlers.
+            day_spec::ffi_guard::contain((), || {
+                let s = text_view.text().to_string();
+                self.ivars().placeholder.setHidden(!s.is_empty());
+                crate::emit(self.ivars().node, Event::TextChanged(s));
+            });
         }
 
         // Submit-on-enter: claim exactly the keyboard's Return keystroke (`text == "\n"`) as a
@@ -67,11 +68,14 @@ define_class!(
             _range: objc2_foundation::NSRange,
             text: &objc2_foundation::NSString,
         ) -> objc2::runtime::Bool {
-            if self.ivars().submit_on_enter && text.to_string() == "\n" {
-                crate::emit(self.ivars().node, Event::Submitted);
-                return objc2::runtime::Bool::NO;
-            }
-            objc2::runtime::Bool::YES
+            // Contained (§8.5); a panic keeps the keystroke (YES — the native behavior).
+            day_spec::ffi_guard::contain(objc2::runtime::Bool::YES, || {
+                if self.ivars().submit_on_enter && text.to_string() == "\n" {
+                    crate::emit(self.ivars().node, Event::Submitted);
+                    return objc2::runtime::Bool::NO;
+                }
+                objc2::runtime::Bool::YES
+            })
         }
     }
 );
@@ -103,7 +107,10 @@ struct TAState {
 }
 
 thread_local! {
-    static STATE: RefCell<HashMap<usize, TAState>> = RefCell::new(HashMap::new());
+    /// Per-view editor state, keyed by view ptr — swept by the backend's `release` through
+    /// `day_spec::sidetable` (a plain map here leaked every released editor's retains).
+    static STATE: day_spec::sidetable::SideTable<TAState> =
+        day_spec::sidetable::SideTable::new();
 }
 
 fn key(v: &Retained<UIView>) -> usize {
@@ -137,7 +144,7 @@ fn apply_attrs(tv: &UITextView, editable: bool, selectable: bool, spell: bool) {
 }
 
 fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
-    let mtm = MainThreadMarker::new().unwrap();
+    let mtm = crate::mtm();
     let font = UIFont::systemFontOfSize(FONT_SIZE);
 
     let tv = UITextView::new(mtm);
@@ -174,8 +181,8 @@ fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
     unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
 
     let ns: Retained<UIView> = Retained::from(<UITextView as AsRef<UIView>>::as_ref(&tv));
-    STATE.with(|m| {
-        m.borrow_mut().insert(
+    STATE.with(|t| {
+        t.insert(
             key(&ns),
             TAState {
                 tv,
@@ -191,16 +198,12 @@ fn make(_backend: &mut Uikit, p: &TextProps, id: NodeId) -> Retained<UIView> {
 }
 
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &TextPatch) {
-    STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
-            return;
-        };
-        match patch {
-            TextPatch::SetText(t) => {
-                if st.tv.text().to_string() != *t {
-                    st.tv.setText(Some(&NSString::from_str(t)));
-                    st.placeholder.setHidden(!t.is_empty());
+    STATE.with(|t| {
+        t.with(key(h), |st| match patch {
+            TextPatch::SetText(txt) => {
+                if st.tv.text().to_string() != *txt {
+                    st.tv.setText(Some(&NSString::from_str(txt)));
+                    st.placeholder.setHidden(!txt.is_empty());
                 }
             }
             TextPatch::SetEditable(v) => st.tv.setEditable(*v),
@@ -210,27 +213,26 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &TextPatch) {
                 set_text_input_trait(&st.tv, sel!(setSpellCheckingType:), n);
                 set_text_input_trait(&st.tv, sel!(setAutocorrectionType:), n);
             }
-        }
+        })
     });
 }
 
 fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(300.0).max(120.0);
-    STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
-            return Size::new(avail_w, 44.0);
-        };
-        let pad = 2.0 * INSET_TOP;
-        let min_h = (st.min_lines as f64) * st.line_h + pad;
-        let max_h = if st.max_lines > 0 {
-            (st.max_lines as f64) * st.line_h + pad
-        } else {
-            f64::MAX
-        };
-        let fit = st.tv.sizeThatFits(CGSize::new(avail_w, 1.0e7));
-        let hgt = fit.height.clamp(min_h, max_h);
-        Size::new(avail_w, hgt.ceil())
+    STATE.with(|t| {
+        t.with(key(h), |st| {
+            let pad = 2.0 * INSET_TOP;
+            let min_h = (st.min_lines as f64) * st.line_h + pad;
+            let max_h = if st.max_lines > 0 {
+                (st.max_lines as f64) * st.line_h + pad
+            } else {
+                f64::MAX
+            };
+            let fit = st.tv.sizeThatFits(CGSize::new(avail_w, 1.0e7));
+            let hgt = fit.height.clamp(min_h, max_h);
+            Size::new(avail_w, hgt.ceil())
+        })
+        .unwrap_or_else(|| Size::new(avail_w, 44.0))
     })
 }
 
@@ -241,9 +243,12 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<TextProps>()
-        .expect("day: textarea props type");
+    // Mismatched props degrade to the placeholder rather than panicking in a native
+    // up-call (§8.5); `props_of` reports once per kind.
+    let Some(p) = day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "uikit", props)
+    else {
+        return crate::placeholder_view(day_spec::kinds::TEXT_AREA);
+    };
     make(b, p, id)
 }
 

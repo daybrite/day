@@ -28,6 +28,7 @@ unsafe extern "C" {
         cb: extern "C" fn(c_longlong, c_int, c_int, c_int),
     ) -> *mut c_void;
     fn day_dtp_date_set(node: *mut c_void, y: c_int, m: c_int, d: c_int);
+    fn day_dtp_date_release(node: *mut c_void);
     fn day_dtp_time_new(
         id: c_longlong,
         hour: c_int,
@@ -96,9 +97,17 @@ mod date_renderer {
         unsafe { day_dtp_date_set(h.0, d.year, d.month as c_int, d.day as c_int) };
     }
 
+    /// Erase the shim's wheels/calendar flag when the node goes away (see day_dtp_date_release
+    /// in datetime-arkui.cpp for the address-reuse hazard it closes).
+    fn release(_backend: &mut ArkUi, h: &AHandle) {
+        // SAFETY: h.0 is the node this shim created (or null on the documented fallback path,
+        // which the shim guards); called once, just before day-arkui disposes the node.
+        unsafe { day_dtp_date_release(h.0) };
+    }
+
     day_pieces::renderer!(day_arkui::RENDERERS, ArkUi,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
-        make: make, update: update, measure: measure);
+        make: make, update: update, measure: measure, release: release);
 }
 
 mod time_renderer {

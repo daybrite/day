@@ -24,7 +24,7 @@ use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind,
     Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform,
-    WindowOptions, kinds,
+    WindowOptions, ffi_guard, kinds, props_of,
 };
 
 /// An `AnimSpec` as the shim's `(duration_ms, curve)` pair — `(0, 0)` meaning "no animation, set
@@ -121,56 +121,67 @@ enum NavState {
 const NAV_PANE_HEADER_H: c_int = 60;
 
 extern "C" fn nav_menu_changed(id: u64, index: c_int) {
-    emit(NodeId(id), Event::SelectionChanged(index as i64));
+    // Every extern "C" trampoline in this backend runs its body through `ffi_guard::contain`:
+    // a panic unwinding into the C++/WinRT shim frame is undefined behavior (day-spec's
+    // ffi_guard).
+    ffi_guard::contain((), || {
+        emit(NodeId(id), Event::SelectionChanged(index as i64))
+    });
 }
 
 /// A user pick in a NavigationView pane: the shim passes the HOST node id + item index; route it to
 /// the host's NAV_MENU node (whose day handler maps the index back to a route).
 extern "C" fn nav_selection(host_id: u64, index: c_int) {
-    let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
-    let Some(host) = host else { return };
-    let menu = NAV_STATE.with(|m| match m.borrow().get(&(host as usize)) {
-        Some(NavState::Split(s)) if s.menu_node != 0 => Some(s.menu_node),
-        _ => None,
+    ffi_guard::contain((), || {
+        let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
+        let Some(host) = host else { return };
+        let menu = NAV_STATE.with(|m| match m.borrow().get(&(host as usize)) {
+            Some(NavState::Split(s)) if s.menu_node != 0 => Some(s.menu_node),
+            _ => None,
+        });
+        if let Some(menu_node) = menu {
+            emit(NodeId(menu_node), Event::SelectionChanged(index as i64));
+        }
     });
-    if let Some(menu_node) = menu {
-        emit(NodeId(menu_node), Event::SelectionChanged(index as i64));
-    }
 }
 
 /// A NavigationView region reflowed (window resize, pane open/close): report the true size so day
 /// re-lays the affected page(s). region 0 = content (detail pages), 1 = pane header (sidebar page).
 extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
-    if w <= 0 || h <= 0 {
-        return;
-    }
-    let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
-    let Some(host) = host else { return };
-    let size = Size::new(w as f64, h as f64);
-    let reports: Vec<NodeId> = NAV_STATE.with(|m| {
-        let m = m.borrow();
-        let Some(NavState::Split(s)) = m.get(&(host as usize)) else {
-            return Vec::new();
-        };
-        if region == 1 {
-            s.sidebar_page.map(|(_, id)| id).into_iter().collect()
-        } else {
-            s.detail_pages.iter().map(|(_, id, _)| *id).collect()
+    ffi_guard::contain((), || {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
+        let Some(host) = host else { return };
+        let size = Size::new(w as f64, h as f64);
+        let reports: Vec<NodeId> = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(NavState::Split(s)) = m.get(&(host as usize)) else {
+                return Vec::new();
+            };
+            if region == 1 {
+                s.sidebar_page.map(|(_, id)| id).into_iter().collect()
+            } else {
+                s.detail_pages.iter().map(|(_, id, _)| *id).collect()
+            }
+        });
+        for id in reports {
+            emit(id, Event::FrameChanged(size));
         }
     });
-    for id in reports {
-        emit(id, Event::FrameChanged(size));
-    }
 }
 
 /// The NavigationView back button: pop one level (the stack surface writes it back into its path).
 extern "C" fn nav_back(host_id: u64) {
-    emit(
-        NodeId(host_id),
-        Event::NavBack {
-            already_popped: false,
-        },
-    );
+    ffi_guard::contain((), || {
+        emit(
+            NodeId(host_id),
+            Event::NavBack {
+                already_popped: false,
+            },
+        )
+    });
 }
 
 /// A stack's pages overlap in the content region; show only the top one so a transparent page
@@ -241,80 +252,87 @@ fn list_paint_selection(entry: &ListEntry) {
 /// replaces the selection, ctrl toggles the row, shift extends from the anchor (multi-select
 /// only) — then repaints and reports (`SelectionSet` in multi mode, `SelectionChanged` single).
 extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
-    let row = row.max(0) as usize;
-    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-        return;
-    };
-    let emit_ev = LIST_STATE.with(|m| {
-        let mut m = m.borrow_mut();
-        let st = m.get_mut(&host_key)?;
-        if !st.selectable {
-            return None;
-        }
-        let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
-        if st.multi && ctrl {
-            if !st.selected.remove(&row) {
-                st.selected.insert(row);
+    ffi_guard::contain((), || {
+        let row = row.max(0) as usize;
+        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+            return;
+        };
+        let emit_ev = LIST_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let st = m.get_mut(&host_key)?;
+            if !st.selectable {
+                return None;
             }
-            st.anchor = Some(row);
-        } else if st.multi && shift {
-            let a = st.anchor.unwrap_or(row);
-            st.selected = (a.min(row)..=a.max(row)).collect();
-        } else {
-            st.selected = std::iter::once(row).collect();
-            st.anchor = Some(row);
+            let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
+            if st.multi && ctrl {
+                if !st.selected.remove(&row) {
+                    st.selected.insert(row);
+                }
+                st.anchor = Some(row);
+            } else if st.multi && shift {
+                let a = st.anchor.unwrap_or(row);
+                st.selected = (a.min(row)..=a.max(row)).collect();
+            } else {
+                st.selected = std::iter::once(row).collect();
+                st.anchor = Some(row);
+            }
+            list_paint_selection(st);
+            Some(if st.multi {
+                Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
+            } else {
+                Event::SelectionChanged(row as i64)
+            })
+        });
+        if let Some(ev) = emit_ev {
+            emit(NodeId(node), ev);
         }
-        list_paint_selection(st);
-        Some(if st.multi {
-            Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
-        } else {
-            Event::SelectionChanged(row as i64)
-        })
     });
-    if let Some(ev) = emit_ev {
-        emit(NodeId(node), ev);
-    }
 }
 
 /// The reorder guard's verdict for a hovered drop (docs/list.md), called synchronously from the
 /// shim's DragOver handler: the accepted target index, or -1. The source is cloned out before
 /// the app's guard runs — no thread-local borrow held.
 extern "C" fn on_list_can_move(node: u64, from: c_int, to: c_int) -> c_int {
-    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-        return -1;
-    };
-    let r = LIST_STATE.with(|m| {
-        m.borrow().get(&host_key).and_then(|st| {
-            let s = st.source.borrow().clone()?;
-            Some(((s.len)(), s.reorder))
-        })
-    });
-    let Some((len, Some(r))) = r else { return -1 };
-    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
-    if from >= len {
-        return -1;
-    }
-    let to = to.min(len - 1);
-    ((r.can_move)(from, to) as c_int).min(len as c_int - 1)
+    // Runs the app's own guard closure — contained, with "reject the drop" as the default.
+    ffi_guard::contain(-1, || {
+        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+            return -1;
+        };
+        let r = LIST_STATE.with(|m| {
+            m.borrow().get(&host_key).and_then(|st| {
+                let s = st.source.borrow().clone()?;
+                Some(((s.len)(), s.reorder))
+            })
+        });
+        let Some((len, Some(r))) = r else { return -1 };
+        let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+        if from >= len {
+            return -1;
+        }
+        let to = to.min(len - 1);
+        ((r.can_move)(from, to) as c_int).min(len as c_int - 1)
+    })
 }
 
 /// Commit a drop the shim accepted: rotate day's snapshot through the sync seam (deferring the
 /// app callback) and re-bind the cells in the new order.
 extern "C" fn on_list_move(node: u64, from: c_int, to: c_int) {
-    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-        return;
-    };
-    let r = LIST_STATE.with(|m| {
-        m.borrow()
-            .get(&host_key)
-            .and_then(|st| st.source.borrow().clone()?.reorder)
+    ffi_guard::contain((), || {
+        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+            return;
+        };
+        let r = LIST_STATE.with(|m| {
+            m.borrow()
+                .get(&host_key)
+                .and_then(|st| st.source.borrow().clone()?.reorder)
+        });
+        let Some(r) = r else { return };
+        let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+        if from != to {
+            (r.move_row)(from, to);
+            schedule_list_populate(host_key);
+        }
     });
-    let Some(r) = r else { return };
-    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
-    if from != to {
-        (r.move_row)(from, to);
-        schedule_list_populate(host_key);
-    }
 }
 
 /// Populate/refresh a list's cells on the next loop turn — NOT inline: a reload runs inside a
@@ -458,7 +476,9 @@ struct TabsState {
 }
 
 extern "C" fn tabs_changed(id: u64, index: c_int) {
-    emit(NodeId(id), Event::SelectionChanged(index as i64));
+    ffi_guard::contain((), || {
+        emit(NodeId(id), Event::SelectionChanged(index as i64))
+    });
 }
 
 fn tabs_sync(host: *mut c_void) {
@@ -492,35 +512,43 @@ pub fn emit(id: NodeId, ev: Event) {
 }
 
 fn cstr(s: &str) -> CString {
-    CString::new(s).unwrap_or_default()
+    // An interior NUL must not blank the whole string — a label, a menu item, a window title
+    // would silently vanish. Strip the NULs and keep the visible text.
+    CString::new(s).unwrap_or_else(|_| CString::new(s.replace('\0', "")).unwrap_or_default())
 }
 
 extern "C" fn on_press(id: u64) {
-    emit(NodeId(id), Event::Pressed);
+    ffi_guard::contain((), || emit(NodeId(id), Event::Pressed));
 }
 extern "C" fn on_toggle(id: u64, on: c_int) {
-    emit(NodeId(id), Event::ToggleChanged(on != 0));
+    ffi_guard::contain((), || emit(NodeId(id), Event::ToggleChanged(on != 0)));
 }
 extern "C" fn on_text(id: u64, s: *const c_char) {
-    let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
-    emit(NodeId(id), Event::TextChanged(text));
+    ffi_guard::contain((), || {
+        let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
+        emit(NodeId(id), Event::TextChanged(text));
+    });
 }
 extern "C" fn on_slider(id: u64, v: f64, committed: c_int) {
     // XAML's Slider is driven in the app's real f64 units, so its Value is the event value as-is.
     // The live value always; the settled one additionally, so a drag records once (the shim
     // decides which is which — see `day_xaml_slider_new`).
-    emit(NodeId(id), Event::ValueChanged(v));
-    if committed != 0 {
-        emit(NodeId(id), Event::ValueCommitted(v));
-    }
+    ffi_guard::contain((), || {
+        emit(NodeId(id), Event::ValueChanged(v));
+        if committed != 0 {
+            emit(NodeId(id), Event::ValueCommitted(v));
+        }
+    });
 }
 /// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
 extern "C" fn on_focus(id: u64, kind: c_int) {
-    let ev = match kind {
-        2 => Event::Submitted,
-        k => Event::FocusChanged(k != 0),
-    };
-    emit(NodeId(id), ev);
+    ffi_guard::contain((), || {
+        let ev = match kind {
+            2 => Event::Submitted,
+            k => Event::FocusChanged(k != 0),
+        };
+        emit(NodeId(id), ev);
+    });
 }
 
 /// A `0.0..=1.0` fraction as ProgressBar ticks (0..1000), clamped.
@@ -762,7 +790,7 @@ fn natural(h: *mut c_void) -> Size {
 // ---- menus (docs/menus.md) -------------------------------------------------
 
 extern "C" fn on_menu_action(id: u64) {
-    emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+    ffi_guard::contain((), || emit(day_spec::WINDOW_NODE, Event::MenuAction(id)));
 }
 
 /// Which lifecycle phases this desktop backend delivers (docs/lifecycle.md): the universal set.
@@ -774,13 +802,15 @@ pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
 /// Phase codes (from the shim's WndProc) → day lifecycle events.
 extern "C" fn on_lifecycle(code: c_int) {
     use day_spec::Lifecycle::*;
-    let phase = match code {
-        2 => DidBecomeActive,
-        3 => WillResignActive,
-        7 => WillTerminate,
-        _ => return,
-    };
-    emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+    ffi_guard::contain((), || {
+        let phase = match code {
+            2 => DidBecomeActive,
+            3 => WillResignActive,
+            7 => WillTerminate,
+            _ => return,
+        };
+        emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+    });
 }
 
 fn win_role_label(role: day_spec::MenuRole) -> String {
@@ -944,6 +974,12 @@ fn warn_missing_renderer(kind: PieceKind) {
     day_spec::placeholder::report(kind, "xaml");
 }
 
+/// The visible placeholder a realize arm degrades to when its props payload has the wrong type
+/// (`props_of` has already reported the mismatch) — the same label the missing-renderer arm shows.
+pub(crate) fn placeholder_handle(kind: PieceKind) -> WinHandle {
+    WinHandle(unsafe { ffi::day_xaml_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()) })
+}
+
 impl Toolkit for Xaml {
     type Handle = WinHandle;
 
@@ -1016,7 +1052,9 @@ impl Toolkit for Xaml {
                 }
                 Some(Builtin::Canvas) => WinHandle(ffi::day_xaml_canvas_new()),
                 Some(Builtin::Nav) => {
-                    let p = props.downcast_ref::<NavProps>().unwrap();
+                    let Some(p) = props_of::<NavProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     // Both presentations are a native NavigationView: a sidebar+header selector
                     // (split) or a push/pop stack with a back button (docs/navigation.md).
                     let is_stack = !p.presentation.is_split();
@@ -1064,7 +1102,9 @@ impl Toolkit for Xaml {
                     WinHandle(cover)
                 }
                 Some(Builtin::NavMenu) => {
-                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let Some(p) = props_of::<NavMenuProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let pending = PENDING_SPLIT_NAV.with(|c| c.get());
                     if !pending.is_null() {
                         // Split nav: the destinations become the NavigationView's own MenuItems, so
@@ -1122,7 +1162,9 @@ impl Toolkit for Xaml {
                     }
                 }
                 Some(Builtin::Label) => {
-                    let p = props.downcast_ref::<LabelProps>().unwrap();
+                    let Some(p) = props_of::<LabelProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let h = ffi::day_xaml_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_xaml_label_set_font(h, pt, weight, italic, tabular);
@@ -1133,7 +1175,9 @@ impl Toolkit for Xaml {
                     WinHandle(h)
                 }
                 Some(Builtin::Button) => {
-                    let p = props.downcast_ref::<ButtonProps>().unwrap();
+                    let Some(p) = props_of::<ButtonProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let h = ffi::day_xaml_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     // Prominent = the accent-filled style; Bordered is XAML's stock look.
                     if p.style == day_spec::props::ButtonStyleSpec::Prominent {
@@ -1144,14 +1188,18 @@ impl Toolkit for Xaml {
                     WinHandle(h)
                 }
                 Some(Builtin::Toggle) => {
-                    let p = props.downcast_ref::<ToggleProps>().unwrap();
+                    let Some(p) = props_of::<ToggleProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let h = ffi::day_xaml_toggle_new(p.on as c_int, id.0, on_toggle);
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
                 }
                 Some(Builtin::Slider) => {
-                    let p = props.downcast_ref::<SliderProps>().unwrap();
+                    let Some(p) = props_of::<SliderProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     // Default to a fine 1/1000-of-range step (matching the GTK backend) when the app
                     // leaves it unset, so the slider stays effectively continuous.
                     let step = p.step.unwrap_or((p.max - p.min) / 1000.0).max(1e-9);
@@ -1163,7 +1211,9 @@ impl Toolkit for Xaml {
                 Some(Builtin::Picker) => picker::realize_any(self, props, id),
                 Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
                 Some(Builtin::TextField) => {
-                    let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                    let Some(p) = props_of::<TextFieldProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let h = ffi::day_xaml_textbox_new(
                         cstr(&p.text).as_ptr(),
                         cstr(&p.placeholder).as_ptr(),
@@ -1176,7 +1226,9 @@ impl Toolkit for Xaml {
                 }
                 Some(Builtin::Divider) => WinHandle(ffi::day_xaml_divider_new()),
                 Some(Builtin::List) => {
-                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let Some(p) = props_of::<ListProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let mut content: *mut c_void = std::ptr::null_mut();
                     let host = ffi::day_xaml_list_new(&mut content);
                     let row_height = match p.row_height {
@@ -1218,14 +1270,18 @@ impl Toolkit for Xaml {
                     WinHandle(host)
                 }
                 Some(Builtin::Progress) => {
-                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    let Some(p) = props_of::<ProgressProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     match p.value {
                         Some(v) => WinHandle(ffi::day_xaml_progress_new(1, progress_ticks(v))),
                         None => WinHandle(ffi::day_xaml_progress_new(0, 0)),
                     }
                 }
                 Some(Builtin::Tabs) => {
-                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let Some(p) = props_of::<TabsProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_xaml_tabs_new(id.0, tabs_changed);
                     TABS_STATE.with(|m| {
                         m.borrow_mut().insert(
@@ -1240,7 +1296,9 @@ impl Toolkit for Xaml {
                     WinHandle(w)
                 }
                 Some(Builtin::TabsPage) => {
-                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let Some(p) = props_of::<TabsPageProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let page = WinHandle(ffi::day_xaml_container_new());
                     TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
                     TABS_PAGE_TITLES
@@ -1248,7 +1306,9 @@ impl Toolkit for Xaml {
                     page
                 }
                 Some(Builtin::Image) => {
-                    let p = props.downcast_ref::<ImageProps>().unwrap();
+                    let Some(p) = props_of::<ImageProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
                     // Scaling: 0=fit, 1=fill (crop), 2=stretch.
                     let mode = match p.content_mode {
                         ContentMode::Fit => 0,
@@ -1292,7 +1352,7 @@ impl Toolkit for Xaml {
                         return make(self, props, id);
                     }
                     warn_missing_renderer(kind);
-                    WinHandle(ffi::day_xaml_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()))
+                    placeholder_handle(kind)
                 }
             }
         }
@@ -1642,6 +1702,11 @@ impl Toolkit for Xaml {
         COVER_IDS.with(|m| {
             m.borrow_mut().remove(&key);
         });
+        // ONE sweep drops this handle from EVERY SideTable registered on this thread — the
+        // textarea line bands today, and any table added later — so an element recycling the
+        // freed address can't inherit the dead element's entries. (The explicit purges above
+        // stay: they key by node id / value pairs, not this address.)
+        day_spec::sidetable::sweep(key);
         unsafe { ffi::day_xaml_delete(h.0) };
     }
 
@@ -2324,48 +2389,54 @@ fn image_uri(source: &str) -> String {
 // Secondary-window event trampolines (docs/windows.md); px == points (the v1 100%-scale
 // convention, same as `window_resized`).
 extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
-    emit(
-        day_spec::NodeId(node),
-        Event::WindowResized(Size::new(w as f64, h as f64)),
-    );
+    ffi_guard::contain((), || {
+        emit(
+            day_spec::NodeId(node),
+            Event::WindowResized(Size::new(w as f64, h as f64)),
+        )
+    });
 }
 extern "C" fn win_closed(node: u64) {
-    emit(day_spec::NodeId(node), Event::WindowClosed);
+    ffi_guard::contain((), || emit(day_spec::NodeId(node), Event::WindowClosed));
 }
 /// The primary window's close — the same event a secondary window reports, addressed to the
 /// root node day-core adopted it under (docs/windows.md close policy).
 extern "C" fn primary_closed() {
-    emit(day_spec::WINDOW_NODE, Event::WindowClosed);
+    ffi_guard::contain((), || emit(day_spec::WINDOW_NODE, Event::WindowClosed));
 }
 /// The user flipped Windows between light and dark: re-read the setting into day's dark signal so
 /// palette closures recolor live, the same way GTK's StyleManager `dark` notify drives it.
 extern "C" fn appearance_changed() {
-    day_core::note_appearance_changed();
+    ffi_guard::contain((), day_core::note_appearance_changed);
 }
 extern "C" fn win_focused(node: u64, active: c_int) {
-    emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
+    ffi_guard::contain((), || {
+        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
+    });
 }
 
 extern "C" fn window_resized(w: c_int, h: c_int) {
     // Client rect is reported in pixels; day-xaml's v1 assumes a 100% scale factor
     // throughout (same convention as window creation).
-    let size = Size::new(w as f64, h as f64);
-    LAST_WINDOW_SIZE.with(|c| c.set(size));
-    emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
-    // Presented emulated covers track the content area (docs/cover.md).
-    COVERS.with(|c| {
-        for (cover, node) in c.borrow().iter() {
-            unsafe {
-                ffi::day_xaml_set_geometry(
-                    *cover,
-                    0,
-                    0,
-                    size.width.round() as c_int,
-                    size.height.round() as c_int,
-                )
-            };
-            emit(*node, Event::FrameChanged(size));
-        }
+    ffi_guard::contain((), || {
+        let size = Size::new(w as f64, h as f64);
+        LAST_WINDOW_SIZE.with(|c| c.set(size));
+        emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+        // Presented emulated covers track the content area (docs/cover.md).
+        COVERS.with(|c| {
+            for (cover, node) in c.borrow().iter() {
+                unsafe {
+                    ffi::day_xaml_set_geometry(
+                        *cover,
+                        0,
+                        0,
+                        size.width.round() as c_int,
+                        size.height.round() as c_int,
+                    )
+                };
+                emit(*node, Event::FrameChanged(size));
+            }
+        });
     });
 }
 
@@ -2380,22 +2451,26 @@ thread_local! {
 }
 
 extern "C" fn run_posted(data: *mut c_void) {
+    // The posted-closure trampoline runs arbitrary Rust (deferred emits, list populates) —
+    // contained like every other FFI entry (day-spec's ffi_guard).
     let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data as *mut _) };
-    f();
+    ffi_guard::contain((), f);
 }
 
 // A native modal answered (docs/dialogs.md): the shim reports (req, tag, index, text); decode into a
 // PresentResult and route it to the window node, where day-core's executor resolves the future.
 extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
-    let text = if text.is_null() {
-        String::new()
-    } else {
-        unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned()
-    };
-    let result = day_spec::present::PresentResult::decode(tag, index, text);
-    emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+    ffi_guard::contain((), || {
+        let text = if text.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        let result = day_spec::present::PresentResult::decode(tag, index, text);
+        emit(day_spec::WINDOW_NODE, Event::PresentResult { req, result });
+    });
 }
 
 // A native pointer recognizer fired (docs/shapes.md). Phase codes match the shim's
@@ -2409,28 +2484,30 @@ extern "C" fn on_gesture(
     tx: c_double,
     ty: c_double,
 ) {
-    use day_spec::{DragPhase, Point};
-    let at = Point::new(x, y);
-    let ev = match phase {
-        0 => Event::Tap(at),
-        4 => Event::LongPress(at),
-        1 => Event::Drag {
-            phase: DragPhase::Began,
-            location: at,
-            translation: Point::ZERO,
-        },
-        3 => Event::Drag {
-            phase: DragPhase::Ended,
-            location: at,
-            translation: Point::new(tx, ty),
-        },
-        _ => Event::Drag {
-            phase: DragPhase::Changed,
-            location: at,
-            translation: Point::new(tx, ty),
-        },
-    };
-    emit(NodeId(id), ev);
+    use day_spec::DragPhase;
+    ffi_guard::contain((), || {
+        let at = Point::new(x, y);
+        let ev = match phase {
+            0 => Event::Tap(at),
+            4 => Event::LongPress(at),
+            1 => Event::Drag {
+                phase: DragPhase::Began,
+                location: at,
+                translation: Point::ZERO,
+            },
+            3 => Event::Drag {
+                phase: DragPhase::Ended,
+                location: at,
+                translation: Point::new(tx, ty),
+            },
+            _ => Event::Drag {
+                phase: DragPhase::Changed,
+                location: at,
+                translation: Point::new(tx, ty),
+            },
+        };
+        emit(NodeId(id), ev);
+    });
 }
 
 impl Platform for Xaml {

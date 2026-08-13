@@ -66,6 +66,8 @@ mod bridge_kinds_parity {
             // parity assertion below was failing before the search work touched it.
             ("K_WINDOW_CLOSED", BridgeKind::WindowClosed),
             ("K_WINDOW_FOCUSED", BridgeKind::WindowFocused),
+            // Same story again: DayBridge.java gained K_APPEARANCE_CHANGED without this row.
+            ("K_APPEARANCE_CHANGED", BridgeKind::AppearanceChanged),
         ];
         assert_eq!(
             found.len(),
@@ -440,41 +442,70 @@ mod imp {
 
     thread_local! {
         /// Recycling list (docs/list.md): row-pull sources keyed by LIST node id (Java passes it
-        /// back in nativeListBind), and a stable GlobalRef per physical cell (by identityHashCode)
-        /// so day-core's cell map keys consistently across ListView recycling.
+        /// back in nativeListBind), and a stable GlobalRef per physical cell so day-core's cell
+        /// map keys consistently across ListView recycling. Cells are grouped BY LIST so that
+        /// releasing a list frees its cells' JNI global refs with it — a long session would
+        /// otherwise leak one global ref per physical cell toward the JNI table limit. Within a
+        /// list, cells key by `identityHashCode`, the only stable identity the wire carries
+        /// (nativeListBind sends `(hostId, position, cell)` and nothing else). Collisions are
+        /// possible in principle; one would conflate two physical cells of the SAME list, and
+        /// carrying a bridge-assigned cell id would widen the wire for a case never observed.
         static LIST_SOURCES: std::cell::RefCell<std::collections::HashMap<i64, ListSource>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
         static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
-        static LIST_CELLS: std::cell::RefCell<std::collections::HashMap<i32, Gref>> =
-            std::cell::RefCell::new(std::collections::HashMap::new());
+        #[allow(clippy::type_complexity)] // host id → (cell identityHashCode → its GlobalRef)
+        static LIST_CELLS: std::cell::RefCell<
+            std::collections::HashMap<i64, std::collections::HashMap<i32, Gref>>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
     }
 
     /// Row count, pulled by the Java adapter's getCount (reads the snapshot only; no tree).
+    /// A JNI up-call entry: the body is contained — a panic unwinding the frame would abort.
     pub fn list_len(host_id: i64) -> usize {
-        LIST_SOURCES.with(|m| m.borrow().get(&host_id).map(|s| (s.len)()).unwrap_or(0))
+        day_spec::ffi_guard::contain(0, || {
+            LIST_SOURCES.with(|m| m.borrow().get(&host_id).map(|s| (s.len)()).unwrap_or(0))
+        })
     }
 
     /// Fill a recycled cell — the Java adapter's getView calls this. A stable GlobalRef per
-    /// physical cell (keyed by identityHashCode) gives day-core a consistent cell key.
+    /// physical cell (keyed by identityHashCode under its list) gives day-core a consistent
+    /// cell key. A JNI up-call entry running app row builders: contained like `list_len`.
     pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject) {
-        let hash = env
-            .dcall(&cell, "hashCode", "()I", &[])
-            .and_then(|v| v.i())
-            .unwrap_or(0);
-        let gref = LIST_CELLS.with(|m| {
-            m.borrow_mut()
-                .entry(hash)
-                .or_insert_with(|| {
-                    std::sync::Arc::new(env.new_global_ref(&cell).expect("global ref"))
-                })
-                .clone()
+        day_spec::ffi_guard::contain((), || {
+            let hash = env
+                .dcall(&cell, "hashCode", "()I", &[])
+                .and_then(|v| v.i())
+                .unwrap_or(0);
+            let cached = LIST_CELLS.with(|m| {
+                m.borrow()
+                    .get(&host_id)
+                    .and_then(|cells| cells.get(&hash).cloned())
+            });
+            let gref = match cached {
+                Some(g) => g,
+                None => {
+                    // A failed global ref (JNI table exhausted) skips this bind — the next
+                    // bind retries — rather than panicking out of the up-call.
+                    let Ok(g) = env.new_global_ref(&cell) else {
+                        return;
+                    };
+                    let g = std::sync::Arc::new(g);
+                    LIST_CELLS.with(|m| {
+                        m.borrow_mut()
+                            .entry(host_id)
+                            .or_default()
+                            .insert(hash, g.clone())
+                    });
+                    g
+                }
+            };
+            let raw = gref.as_obj().as_raw() as RawHandle;
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            if let Some(source) = source {
+                (source.bind_row)(position as usize, raw);
+            }
         });
-        let raw = gref.as_obj().as_raw() as RawHandle;
-        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
-        if let Some(source) = source {
-            (source.bind_row)(position as usize, raw);
-        }
     }
 
     /// The reorder guard's verdict for a hovered drop (docs/list.md), pulled synchronously by
@@ -482,60 +513,72 @@ mod imp {
     /// verdict (accepted != proposed) reads as a deny for that hover. The source is cloned out
     /// before the guard runs — no thread-local borrow held.
     pub fn list_can_drop(host_id: i64, from: i32, to: i32) -> bool {
-        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
-        let Some(source) = source else { return false };
-        let Some(r) = source.reorder.as_ref() else {
-            return false;
-        };
-        let len = (source.len)();
-        let (from, to) = (from.max(0) as usize, to.max(0) as usize);
-        if from >= len || to >= len {
-            return false;
-        }
-        (r.can_move)(from, to) == to as i64
+        // JNI up-call entry (ItemTouchHelper's canDropOver): contain the app's guard.
+        day_spec::ffi_guard::contain(false, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            let Some(source) = source else { return false };
+            let Some(r) = source.reorder.as_ref() else {
+                return false;
+            };
+            let len = (source.len)();
+            let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+            if from >= len || to >= len {
+                return false;
+            }
+            (r.can_move)(from, to) == to as i64
+        })
     }
 
     /// Commit one incremental ItemTouchHelper swap through the sync seam (rotates day's
     /// snapshot, defers the app callback). Returns whether the swap was accepted.
     pub fn list_move(host_id: i64, from: i32, to: i32) -> bool {
-        if !list_can_drop(host_id, from, to) {
-            return false;
-        }
-        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
-        let Some(r) = source.and_then(|s| s.reorder) else {
-            return false;
-        };
-        let (from, to) = (from as usize, to as usize);
-        if from != to {
-            (r.move_row)(from, to);
-        }
-        true
+        // JNI up-call entry: contain the commit through the sync seam.
+        day_spec::ffi_guard::contain(false, || {
+            if !list_can_drop(host_id, from, to) {
+                return false;
+            }
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            let Some(r) = source.and_then(|s| s.reorder) else {
+                return false;
+            };
+            let (from, to) = (from as usize, to as usize);
+            if from != to {
+                (r.move_row)(from, to);
+            }
+            true
+        })
     }
 
     /// May this row be swiped away? Consulted from `getMovementFlags`, so a protected row
     /// simply reports no swipe direction and never moves under the finger (docs/list.md).
     pub fn list_can_delete(host_id: i64, index: i32) -> bool {
-        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
-        let Some(source) = source else { return false };
-        let Some(d) = source.delete.as_ref() else {
-            return false;
-        };
-        let index = index.max(0) as usize;
-        index < (source.len)() && (d.can_delete)(index)
+        // JNI up-call entry (getMovementFlags): contain the app's guard.
+        day_spec::ffi_guard::contain(false, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            let Some(source) = source else { return false };
+            let Some(d) = source.delete.as_ref() else {
+                return false;
+            };
+            let index = index.max(0) as usize;
+            index < (source.len)() && (d.can_delete)(index)
+        })
     }
 
     /// Commit a swipe-to-delete through the sync seam (shortens day's snapshot, defers the app
     /// callback). Returns whether the delete was accepted.
     pub fn list_delete(host_id: i64, index: i32) -> bool {
-        if !list_can_delete(host_id, index) {
-            return false;
-        }
-        let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
-        let Some(d) = source.and_then(|s| s.delete) else {
-            return false;
-        };
-        (d.delete_row)(index as usize);
-        true
+        // JNI up-call entry: contain the commit through the sync seam.
+        day_spec::ffi_guard::contain(false, || {
+            if !list_can_delete(host_id, index) {
+                return false;
+            }
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            let Some(d) = source.and_then(|s| s.delete) else {
+                return false;
+            };
+            (d.delete_row)(index as usize);
+            true
+        })
     }
 
     pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
@@ -826,46 +869,54 @@ mod imp {
     }
 
     /// Initialize globals from the Activity's nativeStart (called by `day::android_start`).
+    /// A JNI up-call entry: contained, so a startup failure logs instead of aborting.
     pub fn init(env: &mut Env, root: JObject, density_: f32, w: i32, h: i32) {
-        if let Ok(vm) = env.get_java_vm() {
-            let _ = JAVA_VM.set(vm);
-        }
-        if let Ok(cls) = env.dfind(BRIDGE) {
-            // Any app class's getClassLoader() yields the loader that can see ALL app classes;
-            // cache it here on the main thread, where FindClass still resolves app classes.
-            if let Ok(loader) = env
-                .dcall(&cls, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+        day_spec::ffi_guard::contain((), || {
+            if let Ok(vm) = env.get_java_vm() {
+                let _ = JAVA_VM.set(vm);
+            }
+            if let Ok(cls) = env.dfind(BRIDGE) {
+                // Any app class's getClassLoader() yields the loader that can see ALL app classes;
+                // cache it here on the main thread, where FindClass still resolves app classes.
+                if let Ok(loader) = env
+                    .dcall(&cls, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+                    .and_then(|v| v.l())
+                    && let Ok(g) = env.new_global_ref(loader)
+                {
+                    let _ = APP_CLASS_LOADER.set(g);
+                }
+                if let Ok(global) = env.new_global_ref(cls) {
+                    let _ = BRIDGE_CLASS.set(global);
+                }
+            }
+            register_resource_opener(env);
+            let d = density_ as f64;
+            DENSITY.with(|x| x.set(d));
+            // Only fails when the JNI global-ref table is already exhausted; without a root
+            // there is nothing to run, so degrade loudly rather than panic-abort the up-call.
+            let Ok(root_ref) = env.new_global_ref(root) else {
+                eprintln!("day-android: init could not take a global ref on the root view");
+                return;
+            };
+            let handle = AHandle(std::sync::Arc::new(root_ref));
+            let size = Size::new(w as f64 / d, h as f64 / d);
+            ROOT.with(|r| *r.borrow_mut() = Some((handle, size)));
+            // Android's OS temp dir isn't app-writable; use the app cache dir for the file-save
+            // staging area (docs/files.md) so `save_file(..)` can write its temp before handing
+            // off to SAF.
+            if let Ok(dir) = env
+                .dcall_static(BRIDGE, "cacheDirPath", "()Ljava/lang/String;", &[])
                 .and_then(|v| v.l())
-                && let Ok(g) = env.new_global_ref(loader)
             {
-                let _ = APP_CLASS_LOADER.set(g);
+                // cacheDirPath returns a java.lang.String; view the object as a JString to read it.
+                let jstr: JString = unsafe { std::mem::transmute(dir) };
+                if let Ok(path) = env.dstr(&jstr)
+                    && !path.is_empty()
+                {
+                    day_spec::present::set_app_temp_dir(path);
+                }
             }
-            if let Ok(global) = env.new_global_ref(cls) {
-                let _ = BRIDGE_CLASS.set(global);
-            }
-        }
-        register_resource_opener(env);
-        let d = density_ as f64;
-        DENSITY.with(|x| x.set(d));
-        let handle = AHandle(std::sync::Arc::new(
-            env.new_global_ref(root).expect("root global ref"),
-        ));
-        let size = Size::new(w as f64 / d, h as f64 / d);
-        ROOT.with(|r| *r.borrow_mut() = Some((handle, size)));
-        // Android's OS temp dir isn't app-writable; use the app cache dir for the file-save staging
-        // area (docs/files.md) so `save_file(..)` can write its temp before handing off to SAF.
-        if let Ok(dir) = env
-            .dcall_static(BRIDGE, "cacheDirPath", "()Ljava/lang/String;", &[])
-            .and_then(|v| v.l())
-        {
-            // cacheDirPath returns a java.lang.String; view the object as a JString to read it.
-            let jstr: JString = unsafe { std::mem::transmute(dir) };
-            if let Ok(path) = env.dstr(&jstr)
-                && !path.is_empty()
-            {
-                day_spec::present::set_app_temp_dir(path);
-            }
-        }
+        });
     }
 
     thread_local! {
@@ -879,22 +930,25 @@ mod imp {
     /// (docs/windows.md). `false` ⇒ the window was closed before the activity finished
     /// connecting — the activity finishes itself.
     pub fn window_started(env: &mut Env, root: JObject, node: i64, w: i32, h: i32) -> bool {
-        let d = DENSITY.with(|x| x.get());
-        let Ok(gref) = env.new_global_ref(&root) else {
-            return false;
-        };
-        let gref = std::sync::Arc::new(gref);
-        let raw = gref.as_obj().as_raw() as day_spec::RawHandle;
-        SECONDARY.with(|s| s.borrow_mut().push((node as u64, gref)));
-        let ok = day_core::finish_window_open(
-            day_spec::NodeId(node as u64),
-            raw,
-            Size::new(w as f64 / d, h as f64 / d),
-        );
-        if !ok {
-            SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node as u64));
-        }
-        ok
+        // JNI up-call entry (nativeStartWindow): contain the adoption + day-core completion.
+        day_spec::ffi_guard::contain(false, || {
+            let d = DENSITY.with(|x| x.get());
+            let Ok(gref) = env.new_global_ref(&root) else {
+                return false;
+            };
+            let gref = std::sync::Arc::new(gref);
+            let raw = gref.as_obj().as_raw() as day_spec::RawHandle;
+            SECONDARY.with(|s| s.borrow_mut().push((node as u64, gref)));
+            let ok = day_core::finish_window_open(
+                day_spec::NodeId(node as u64),
+                raw,
+                Size::new(w as f64 / d, h as f64 / d),
+            );
+            if !ok {
+                SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node as u64));
+            }
+            ok
+        })
     }
 
     /// The day node of the secondary window whose adopted content is `host`, if any.
@@ -940,8 +994,16 @@ mod imp {
     const K_APPEARANCE_CHANGED: i32 = bridge::BridgeKind::AppearanceChanged as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
-    /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table.
+    /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table. A JNI up-call
+    /// entry: the decode + dispatch is contained (`day_spec::ffi_guard`) — a panic
+    /// unwinding this frame would abort the process.
     pub fn dispatch_event(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
+        day_spec::ffi_guard::contain((), || {
+            dispatch_event_inner(env, id, kind, num, jstr);
+        });
+    }
+
+    fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         let ev = match kind {
             K_PRESSED => Event::Pressed,
             K_TEXT_CHANGED => {
@@ -1125,19 +1187,25 @@ mod imp {
         emit(NodeId(id as u64), ev);
     }
 
-    /// Posted-closure trampoline (the app's `nativeRunPosted` forwards here).
+    /// Posted-closure trampoline (the app's `nativeRunPosted` forwards here). The closure is
+    /// arbitrary app/day-core code inside a JNI up-call, so it runs contained.
     pub fn run_posted(token: i64) {
+        // SAFETY: `token` is the Box::into_raw pointer `Platform::post` minted; Java hands it
+        // back exactly once.
         let f: Box<Box<dyn FnOnce() + Send>> =
             unsafe { Box::from_raw(token as *mut Box<dyn FnOnce() + Send>) };
-        f();
+        day_spec::ffi_guard::contain((), f);
     }
 
     /// Frame-callback trampoline (the app's `nativeDoFrame` forwards here). `frame_nanos` is
-    /// `Choreographer`'s frame time in nanoseconds; day-core wants seconds. Runs on the UI thread.
+    /// `Choreographer`'s frame time in nanoseconds; day-core wants seconds. Runs on the UI
+    /// thread, contained like `run_posted`.
     pub fn run_frame(token: i64, frame_nanos: i64) {
+        // SAFETY: `token` is the Box::into_raw pointer `request_frame` minted; Java hands it
+        // back exactly once.
         let f: Box<Box<dyn FnOnce(f64)>> =
             unsafe { Box::from_raw(token as *mut Box<dyn FnOnce(f64)>) };
-        f(frame_nanos as f64 / 1_000_000_000.0);
+        day_spec::ffi_guard::contain((), move || f(frame_nanos as f64 / 1_000_000_000.0));
     }
 
     #[distributed_slice]
@@ -1341,6 +1409,13 @@ mod imp {
     /// it surfaces even before the redirect installs. Deduped per kind so it doesn't spam the log.
     fn warn_missing_renderer(kind: PieceKind) {
         day_spec::placeholder::report(kind, "android");
+    }
+
+    /// Realize fallback for a builtin arm whose props failed to downcast
+    /// ([`day_spec::props_of`] already reported it): the same visible `⟨kind⟩` label a
+    /// missing renderer shows, so one mismatched piece cannot abort the tree build.
+    fn realize_placeholder(kind: PieceKind) -> AHandle {
+        with_env(|env| AHandle(placeholder_view(env, kind)))
     }
 
     /// Ask the bridge for a PNG of this app's window (docs/window-image.md).
@@ -1569,7 +1644,9 @@ mod imp {
                     })
                 }
                 Some(Builtin::List) => {
-                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ListProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     let d = DENSITY.with(|x| x.get());
                     let rowh = match p.row_height {
                         RowHeight::Uniform(h) => h,
@@ -1598,7 +1675,9 @@ mod imp {
                     handle
                 }
                 Some(Builtin::Nav) => {
-                    let p = props.downcast_ref::<NavProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<NavProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     // `Stack` in props is literal — a host that is a stack at EVERY size (a
                     // nested `stack()` under a split host, docs/size-classes.md) — so it gets a
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
@@ -1701,7 +1780,9 @@ mod imp {
                     ))
                 }),
                 Some(Builtin::Tabs) => {
-                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<TabsProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         AHandle(make_view(
                             env,
@@ -1712,7 +1793,10 @@ mod imp {
                     })
                 }
                 Some(Builtin::TabsPage) => {
-                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<TabsPageProps>(kind, "android", props)
+                    else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         let title = jstr(env, &p.title);
                         // The tab's bundled-image NAME (empty = none); Java looks it up in res/drawable.
@@ -1730,7 +1814,9 @@ mod imp {
                     })
                 }
                 Some(Builtin::NavMenu) => {
-                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     let joined = p.items.join("\u{1f}");
                     // Parallel, index-aligned icon NAMES ("" = no icon for that row).
                     let joined_icons = p
@@ -1795,7 +1881,9 @@ mod imp {
                     })
                 }
                 Some(Builtin::Label) => {
-                    let p = props.downcast_ref::<LabelProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<LabelProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     let (sp, weight, italic, tabular) = font_params(p.font);
                     with_env(|env| {
                         let s = jstr(env, &p.text);
@@ -1838,7 +1926,9 @@ mod imp {
                     })
                 }
                 Some(Builtin::Button) => {
-                    let p = props.downcast_ref::<ButtonProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ButtonProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         let s = jstr(env, &p.title);
                         AHandle(make_view(
@@ -1850,7 +1940,9 @@ mod imp {
                     })
                 }
                 Some(Builtin::Toggle) => {
-                    let p = props.downcast_ref::<ToggleProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ToggleProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         AHandle(make_view(
                             env,
@@ -1865,7 +1957,9 @@ mod imp {
                     })
                 }
                 Some(Builtin::Slider) => {
-                    let p = props.downcast_ref::<SliderProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<SliderProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         AHandle(make_view(
                             env,
@@ -1883,7 +1977,10 @@ mod imp {
                 Some(Builtin::Picker) => crate::picker::realize_any(self, props, id),
                 Some(Builtin::TextArea) => crate::textarea::realize_any(self, props, id),
                 Some(Builtin::TextField) => {
-                    let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<TextFieldProps>(kind, "android", props)
+                    else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         let v = jstr(env, &p.text);
                         let ph = jstr(env, &p.placeholder);
@@ -1899,7 +1996,10 @@ mod imp {
                     AHandle(make_view(env, "makeDivider", "()Landroid/view/View;", &[]))
                 }),
                 Some(Builtin::Progress) => {
-                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ProgressProps>(kind, "android", props)
+                    else {
+                        return realize_placeholder(kind);
+                    };
                     with_env(|env| {
                         AHandle(make_view(
                             env,
@@ -1916,7 +2016,9 @@ mod imp {
                     AHandle(make_view(env, "makeCanvas", "()Landroid/view/View;", &[]))
                 }),
                 Some(Builtin::Image) => {
-                    let p = props.downcast_ref::<ImageProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ImageProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
                     // Scaling (§18.3): 0=fit (FIT_CENTER), 1=fill (CENTER_CROP), 2=stretch (FIT_XY).
                     let mode = match p.content_mode {
                         ContentMode::Fit => 0,
@@ -2380,8 +2482,17 @@ mod imp {
                 });
             });
             let key = h.0.as_obj().as_raw() as usize;
+            // One sweep drops this view's entry from every registered `SideTable` — present
+            // and future — so ptr-keyed side state cannot outlive the handle
+            // (day_spec::sidetable; the maps below predate it and stay manual).
+            day_spec::sidetable::sweep(key);
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 LIST_SOURCES.with(|m| {
+                    m.borrow_mut().remove(&nid);
+                });
+                // Drop the list's per-cell GlobalRefs with it (see LIST_CELLS): each Arc drop
+                // releases its JNI global ref, keeping long sessions off the JNI table limit.
+                LIST_CELLS.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
             }

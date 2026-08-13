@@ -170,6 +170,30 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &MediaPatch) {
     }
 }
 
+/// Stop playback and drop the retained controller + loop observer when the view goes away.
+///
+/// Without this the map grows one retained AVPlayerViewController (and through it an AVPlayer)
+/// per realized media view, and — worse — its key is the view's ADDRESS, which the allocator
+/// reuses: a later view landing on a freed address would inherit the dead controller and drive
+/// the wrong player.
+fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
+    let key = (h.as_ref() as *const UIView) as usize;
+    let Some((vc, observer)) = CONTROLLERS.with(|m| m.borrow_mut().remove(&key)) else {
+        return;
+    };
+    // Pause before the drop below releases the player — teardown, not deallocation order,
+    // should be what silences it.
+    let player: Option<Retained<AVPlayer>> = unsafe { msg_send![&*vc, player] };
+    if let Some(player) = player {
+        unsafe { player.pause() };
+    }
+    if let Some(observer) = observer {
+        // SAFETY: main thread (release is a renderer duty); deregistering before the observer
+        // drops means the center never messages a dead object.
+        unsafe { NSNotificationCenter::defaultCenter().removeObserver(&observer) };
+    }
+}
+
 day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     kind: KIND, props: MediaProps, patch: MediaPatch,
-    make: make, update: update, measure: day_pieces::fill_measure);
+    make: make, update: update, measure: day_pieces::fill_measure, release: release);

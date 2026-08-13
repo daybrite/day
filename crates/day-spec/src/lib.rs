@@ -203,6 +203,183 @@ pub mod placeholder {
     }
 }
 
+/// Downcast a realize/update payload to the props/patch type a backend arm expects,
+/// warning (once per kind, via [`placeholder::report`]) instead of panicking on a
+/// mismatch. A mismatch means a piece registered under a builtin key or a day-core
+/// regression — degrade to the placeholder path, never abort: most backend arms run
+/// inside native up-calls, where a panic is a process kill.
+pub fn props_of<'a, T: 'static>(
+    kind: PieceKind,
+    toolkit: &str,
+    any: &'a dyn std::any::Any,
+) -> Option<&'a T> {
+    let p = any.downcast_ref::<T>();
+    if p.is_none() {
+        placeholder::report(kind, toolkit);
+    }
+    p
+}
+
+/// Pointer-keyed per-view side tables with an AUTOMATIC release sweep.
+///
+/// Backends keep auxiliary per-view state in thread-local maps keyed by the native
+/// handle's address. Historically each map needed its own line in `release()` — a
+/// checklist that drifted repeatedly (missed entries have produced both leaks and
+/// stale-pointer CI segfaults, since a freed address gets recycled). A [`SideTable`]
+/// registers itself with a per-thread sweeper list at construction, so a backend's
+/// `release()` calls [`sweep`] ONCE and every table — present and future — drops its
+/// entry for that handle, running its teardown hook if one was given.
+pub mod sidetable {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    /// One table's "remove this key" hook, registered at construction.
+    type Sweeper = Rc<dyn Fn(usize)>;
+
+    thread_local! {
+        static SWEEPERS: RefCell<Vec<Sweeper>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// A pointer-keyed map swept automatically by [`sweep`]. Construct inside a
+    /// `thread_local!` initializer; the optional teardown hook runs for each removed
+    /// value (release a retained native object, dispose an owned child, …) — on sweep
+    /// AND on plain [`SideTable::remove`], so teardown cannot be bypassed by accident.
+    pub struct SideTable<V: 'static> {
+        map: Rc<RefCell<HashMap<usize, V>>>,
+        teardown: Option<Rc<dyn Fn(V)>>,
+    }
+
+    impl<V> Default for SideTable<V> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl<V> SideTable<V> {
+        pub fn new() -> Self {
+            Self::build(None)
+        }
+
+        /// A table whose values need active teardown when their view goes away.
+        pub fn with_teardown(teardown: impl Fn(V) + 'static) -> Self {
+            Self::build(Some(Rc::new(teardown)))
+        }
+
+        fn build(teardown: Option<Rc<dyn Fn(V)>>) -> Self {
+            let map: Rc<RefCell<HashMap<usize, V>>> = Rc::default();
+            let (m, t) = (map.clone(), teardown.clone());
+            SWEEPERS.with(|s| {
+                s.borrow_mut().push(Rc::new(move |key| {
+                    // Remove under the borrow, tear down OUTSIDE it: hooks may re-enter
+                    // toolkit code that reads other tables.
+                    let v = m.borrow_mut().remove(&key);
+                    if let (Some(v), Some(t)) = (v, &t) {
+                        t(v);
+                    }
+                }));
+            });
+            SideTable { map, teardown }
+        }
+
+        pub fn insert(&self, key: usize, value: V) -> Option<V> {
+            self.map.borrow_mut().insert(key, value)
+        }
+
+        /// Remove and tear down the entry (returns `None` always when a teardown hook
+        /// exists — the value is consumed by it; use [`SideTable::take`] to skip it).
+        pub fn remove(&self, key: usize) -> Option<V> {
+            let v = self.map.borrow_mut().remove(&key)?;
+            match &self.teardown {
+                Some(t) => {
+                    t(v);
+                    None
+                }
+                None => Some(v),
+            }
+        }
+
+        /// Remove WITHOUT running the teardown hook (the caller takes ownership).
+        pub fn take(&self, key: usize) -> Option<V> {
+            self.map.borrow_mut().remove(&key)
+        }
+
+        pub fn contains(&self, key: usize) -> bool {
+            self.map.borrow().contains_key(&key)
+        }
+
+        pub fn get(&self, key: usize) -> Option<V>
+        where
+            V: Clone,
+        {
+            self.map.borrow().get(&key).cloned()
+        }
+
+        /// Run `f` on the value in place (returns `None` if absent).
+        pub fn with<R>(&self, key: usize, f: impl FnOnce(&mut V) -> R) -> Option<R> {
+            self.map.borrow_mut().get_mut(&key).map(f)
+        }
+
+        /// Run `f` over every `(key, value)` (immutable; do not re-enter this table).
+        pub fn for_each(&self, mut f: impl FnMut(usize, &V)) {
+            for (k, v) in self.map.borrow().iter() {
+                f(*k, v);
+            }
+        }
+    }
+
+    /// Remove `key` from EVERY table registered on this thread, running teardowns.
+    /// Call once from a backend's `release()` (and once per auxiliary native object a
+    /// release frees, e.g. an owned content container).
+    pub fn sweep(key: usize) {
+        // Clone the sweeper list first: a teardown may construct a new SideTable
+        // (registering a sweeper) without deadlocking on the borrow.
+        let sweepers: Vec<Sweeper> = SWEEPERS.with(|s| s.borrow().clone());
+        for f in sweepers {
+            f(key);
+        }
+    }
+}
+
+/// Containment for FFI entry points — native callbacks, JNI up-calls, posted-closure
+/// trampolines. A Rust panic unwinding out of an `extern "C"` frame is undefined
+/// behavior (in practice an abort), so every backend trampoline runs its body through
+/// [`ffi_guard::contain`]: a caught panic is reported, the installed recovery hook
+/// restores runtime coherence (day-core installs the reactive runtime's
+/// `recover_from_panic` at boot), and the given default is returned.
+pub mod ffi_guard {
+    use std::sync::OnceLock;
+
+    static RECOVERY: OnceLock<fn()> = OnceLock::new();
+
+    /// Install the post-panic recovery hook (idempotent; first install wins). day-core
+    /// registers `day_reactive::recover_from_panic` here so a contained panic cannot
+    /// leave the reactive observer stack stranded.
+    pub fn set_recovery(f: fn()) {
+        let _ = RECOVERY.set(f);
+    }
+
+    /// Run `f`, containing any panic; on panic, report, run the recovery hook, and
+    /// return `default`.
+    pub fn contain<R>(default: R, f: impl FnOnce() -> R) -> R {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+            Ok(r) => r,
+            Err(payload) => {
+                let msg = payload
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "<non-string panic>".into());
+                eprintln!("day: panic contained at an FFI boundary: {msg}");
+                if let Some(recover) = RECOVERY.get() {
+                    recover();
+                }
+                default
+            }
+        }
+    }
+}
+
 /// Realized-node identity as seen by backends (day-core's slotmap key, FFI-encoded).
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct NodeId(pub u64);
@@ -3423,5 +3600,49 @@ mod locale_tests {
                 .iter()
                 .all(|h| !h.is_empty() && h != "C" && h != "POSIX")
         );
+    }
+}
+
+#[cfg(test)]
+mod sidetable_tests {
+    use super::sidetable::{SideTable, sweep};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    /// The whole point of the registry: one `sweep(key)` clears EVERY table without any
+    /// table needing its own line in a backend's `release()`.
+    #[test]
+    fn sweep_clears_every_registered_table_and_runs_teardowns() {
+        let torn = Rc::new(Cell::new(0u32));
+        let t2 = torn.clone();
+        let plain: SideTable<&'static str> = SideTable::new();
+        let hooked: SideTable<u32> = SideTable::with_teardown(move |_| t2.set(t2.get() + 1));
+
+        plain.insert(7, "a");
+        hooked.insert(7, 1);
+        hooked.insert(8, 2);
+        sweep(7);
+        assert!(!plain.contains(7));
+        assert!(!hooked.contains(7), "swept from every table");
+        assert!(hooked.contains(8), "other keys untouched");
+        assert_eq!(torn.get(), 1, "teardown ran for the swept value");
+
+        // remove() runs the teardown too; take() bypasses it for ownership transfer.
+        hooked.remove(8);
+        assert_eq!(torn.get(), 2);
+        hooked.insert(9, 3);
+        assert_eq!(hooked.take(9), Some(3));
+        assert_eq!(torn.get(), 2, "take() skips the hook");
+    }
+
+    #[test]
+    fn contain_returns_default_on_panic() {
+        let ok = super::ffi_guard::contain(0i32, || 5);
+        assert_eq!(ok, 5);
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let contained = super::ffi_guard::contain(-1i32, || panic!("boom"));
+        std::panic::set_hook(prev);
+        assert_eq!(contained, -1, "the panic must not escape the guard");
     }
 }

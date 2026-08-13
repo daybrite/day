@@ -97,6 +97,18 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
     Size::new(w, fit.height.ceil().max(22.0))
 }
 
+/// Drop the retained delegate when the view goes away.
+///
+/// Without this the map grows by one entry per realized search field, and — worse — its key is
+/// the view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// inherit the dead node's delegate and misroute its events.
+fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
+    TARGETS.with(|m| {
+        m.borrow_mut()
+            .remove(&((h.as_ref() as *const NSView) as usize));
+    });
+}
+
 day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     kind: KIND, props: SearchProps, patch: SearchPatch,
-    make: make, update: update, measure: measure);
+    make: make, update: update, measure: measure, release: release);

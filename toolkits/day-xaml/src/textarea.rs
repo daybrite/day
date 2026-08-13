@@ -12,12 +12,11 @@
 
 use day_spec::Event;
 use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ffi::{CStr, CString};
+use day_spec::sidetable::SideTable;
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
 
-use crate::{WinHandle, Xaml};
+use crate::{WinHandle, Xaml, cstr};
 use day_spec::{NodeId, Proposal, Size};
 
 // Approximate line height (device-independent px) for the min/max-lines clamp — XAML has no cheap exact
@@ -50,22 +49,22 @@ unsafe extern "C" {
 
 thread_local! {
     // The line band per handle — `measure` gets no props, so remember min/max lines from `make`.
-    static DIMS: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
+    // A SideTable, so the backend's release sweep retires the entry with the control.
+    static DIMS: SideTable<(u32, u32)> = SideTable::new();
 }
 
 extern "C" fn on_text(id: u64, text: *const c_char) {
-    let s = if text.is_null() {
-        String::new()
-    } else {
-        unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned()
-    };
-    crate::emit(NodeId(id), Event::TextChanged(s));
-}
-
-fn cstr(s: &str) -> CString {
-    CString::new(s).unwrap_or_default()
+    // Contained: a panic unwinding into the C++/WinRT shim frame is UB (day-spec's ffi_guard).
+    day_spec::ffi_guard::contain((), || {
+        let s = if text.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        crate::emit(NodeId(id), Event::TextChanged(s));
+    });
 }
 
 fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
@@ -84,10 +83,7 @@ fn make(_backend: &mut Xaml, p: &TextProps, id: NodeId) -> WinHandle {
         day_textarea_xaml_set_selectable(ptr, p.selectable as c_int);
         day_textarea_xaml_set_spellcheck(ptr, p.spellcheck as c_int);
     }
-    DIMS.with(|m| {
-        m.borrow_mut()
-            .insert(ptr as usize, (p.min_lines, p.max_lines))
-    });
+    DIMS.with(|m| m.insert(ptr as usize, (p.min_lines, p.max_lines)));
     WinHandle(ptr)
 }
 
@@ -107,8 +103,7 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &TextPatch) {
 }
 
 fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
-    let (min_lines, max_lines) =
-        DIMS.with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or((1, 0)));
+    let (min_lines, max_lines) = DIMS.with(|m| m.get(h.0 as usize)).unwrap_or((1, 0));
     let avail_w = p.width.unwrap_or(300.0).max(160.0);
     let mut w = 0.0;
     let mut hh = 0.0;
@@ -130,10 +125,10 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::WinHandle {
-    let p = props
-        .downcast_ref::<TextProps>()
-        .expect("day: textarea props type");
-    make(b, p, id)
+    match day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "xaml", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_handle(day_spec::kinds::TEXT_AREA),
+    }
 }
 
 pub(crate) fn update_any(b: &mut crate::Xaml, h: &crate::WinHandle, patch: &dyn std::any::Any) {

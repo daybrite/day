@@ -12,12 +12,12 @@
 
 use day_spec::Event;
 use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::Gtk;
-use day_spec::{NodeId, Proposal, Size};
+use day_spec::sidetable::SideTable;
+use day_spec::{NodeId, Proposal, Size, ffi_guard};
 use gtk4::prelude::*;
 
 // Text view margins (px) — a little breathing room around the text; `PAD` is their vertical sum, used
@@ -36,7 +36,9 @@ struct TAState {
 }
 
 thread_local! {
-    static STATE: RefCell<HashMap<usize, TAState>> = RefCell::new(HashMap::new());
+    /// Overlay widget ptr → text-area state. A [`SideTable`]: no local release path exists
+    /// here, so the backend's release sweep is what drops a dead editor's entry.
+    static STATE: SideTable<TAState> = SideTable::new();
 }
 
 fn key(w: &gtk4::Widget) -> usize {
@@ -75,12 +77,15 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
         let keys = gtk4::EventControllerKey::new();
         keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
         keys.connect_key_pressed(move |_, keyval, _, state| {
-            let enter = matches!(keyval, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter);
-            if enter && !state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
-                crate::emit(id, Event::Submitted);
-                return gtk4::glib::Propagation::Stop;
-            }
-            gtk4::glib::Propagation::Proceed
+            // Contained with Proceed: a panic must not swallow the key press.
+            ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                let enter = matches!(keyval, gtk4::gdk::Key::Return | gtk4::gdk::Key::KP_Enter);
+                if enter && !state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+                    crate::emit(id, Event::Submitted);
+                    return gtk4::glib::Propagation::Stop;
+                }
+                gtk4::glib::Propagation::Proceed
+            })
         });
         textview.add_controller(keys);
     }
@@ -109,17 +114,19 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
     let sup = suppress.clone();
     let ph = placeholder.clone();
     buffer.connect_changed(move |b| {
-        let text = buffer_text(b);
-        ph.set_visible(text.is_empty());
-        if sup.get() {
-            return;
-        }
-        crate::emit(id, Event::TextChanged(text));
+        ffi_guard::contain((), || {
+            let text = buffer_text(b);
+            ph.set_visible(text.is_empty());
+            if sup.get() {
+                return;
+            }
+            crate::emit(id, Event::TextChanged(text));
+        });
     });
 
     let w: gtk4::Widget = overlay.upcast();
     STATE.with(|m| {
-        m.borrow_mut().insert(
+        m.insert(
             key(&w),
             TAState {
                 textview,
@@ -136,11 +143,7 @@ fn make(_backend: &mut Gtk, p: &TextProps, id: NodeId) -> gtk4::Widget {
 
 fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TextPatch) {
     STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
-            return;
-        };
-        match patch {
+        m.with(key(h), |st| match patch {
             TextPatch::SetText(t) => {
                 if buffer_text(&st.buffer) != *t {
                     st.suppress.set(true);
@@ -151,32 +154,34 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TextPatch) {
             TextPatch::SetEditable(v) => st.textview.set_editable(*v),
             // GtkTextView has no selectable/spell-check toggle (see the make() note).
             TextPatch::SetSelectable(_) | TextPatch::SetSpellCheck(_) => {}
-        }
+        });
     });
 }
 
 fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
-    STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
+    STATE
+        .with(|m| {
+            m.with(key(h), |st| {
+                let (_, nat_w, _, _) = st.textview.measure(gtk4::Orientation::Horizontal, -1);
+                let avail_w = p.width.unwrap_or(nat_w as f64).max(120.0);
+                // Natural content height at the proposed width (includes the text view margins).
+                let (_, nat_h, _, _) = st
+                    .textview
+                    .measure(gtk4::Orientation::Vertical, avail_w as i32);
+                let min_h = (st.min_lines as f64) * st.line_h + PAD;
+                let max_h = if st.max_lines > 0 {
+                    (st.max_lines as f64) * st.line_h + PAD
+                } else {
+                    f64::MAX
+                };
+                let hgt = (nat_h as f64).clamp(min_h, max_h);
+                Size::new(avail_w, hgt)
+            })
+        })
+        .unwrap_or_else(|| {
             let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
-            return Size::new(p.width.unwrap_or(nat_w as f64).max(120.0), 44.0);
-        };
-        let (_, nat_w, _, _) = st.textview.measure(gtk4::Orientation::Horizontal, -1);
-        let avail_w = p.width.unwrap_or(nat_w as f64).max(120.0);
-        // Natural content height at the proposed width (includes the text view margins).
-        let (_, nat_h, _, _) = st
-            .textview
-            .measure(gtk4::Orientation::Vertical, avail_w as i32);
-        let min_h = (st.min_lines as f64) * st.line_h + PAD;
-        let max_h = if st.max_lines > 0 {
-            (st.max_lines as f64) * st.line_h + PAD
-        } else {
-            f64::MAX
-        };
-        let hgt = (nat_h as f64).clamp(min_h, max_h);
-        Size::new(avail_w, hgt)
-    })
+            Size::new(p.width.unwrap_or(nat_w as f64).max(120.0), 44.0)
+        })
 }
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts
@@ -186,10 +191,11 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<TextProps>()
-        .expect("day: textarea props type");
-    make(b, p, id)
+    // A wrong payload degrades to the placeholder (props_of reports it) — never a panic.
+    match day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "gtk", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_label(day_spec::kinds::TEXT_AREA),
+    }
 }
 
 pub(crate) fn update_any(b: &mut crate::Gtk, h: &crate::Handle, patch: &dyn std::any::Any) {

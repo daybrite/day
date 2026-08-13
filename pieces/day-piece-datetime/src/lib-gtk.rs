@@ -143,9 +143,20 @@ mod date_renderer {
         measure_widget(h)
     }
 
+    /// Drop the composed state when the widget goes away.
+    ///
+    /// Without this the map grows by one entry per realized picker, and — worse — its key is
+    /// the widget's ADDRESS, which the allocator reuses: a later widget landing on a freed
+    /// address would inherit the dead entry's calendar and drive the wrong one.
+    fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
+        DATES.with(|m| {
+            m.borrow_mut().remove(&key(h));
+        });
+    }
+
     day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
-        make: make, update: update, measure: measure);
+        make: make, update: update, measure: measure, release: release);
 }
 
 mod time_renderer {
@@ -237,7 +248,18 @@ mod time_renderer {
         measure_widget(h)
     }
 
+    /// Drop the composed state when the widget goes away.
+    ///
+    /// Without this the map grows by one entry per realized picker, and — worse — its key is
+    /// the widget's ADDRESS, which the allocator reuses: a later widget landing on a freed
+    /// address would inherit the dead entry's spin buttons and drive the wrong ones.
+    fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
+        TIMES.with(|m| {
+            m.borrow_mut().remove(&key(h));
+        });
+    }
+
     day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
-        make: make, update: update, measure: measure);
+        make: make, update: update, measure: measure, release: release);
 }

@@ -19,10 +19,11 @@ use adw::prelude::*;
 use linkme::distributed_slice;
 
 use day_spec::props::*;
+use day_spec::sidetable::SideTable;
 use day_spec::{
     A11yProps, AnimSpec, Animatable, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font,
     ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size,
-    Support, Toolkit, Transform, kinds,
+    Support, Toolkit, Transform, ffi_guard, kinds, props_of,
 };
 
 pub type Handle = gtk4::Widget;
@@ -40,7 +41,10 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
-    static OPS: RefCell<HashMap<usize, Vec<DrawOp>>> = RefCell::new(HashMap::new());
+    /// Canvas ptr → its display list (`replay` writes, the draw func reads). A [`SideTable`]:
+    /// the release sweep drops a dead canvas's list, so a recycled address can't briefly
+    /// draw the previous canvas's ops.
+    static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
     /// (widget_ptr, is_drag) pairs already wired, so enable_gesture is idempotent.
     static GESTURES: RefCell<std::collections::HashSet<(usize, bool)>> =
         RefCell::new(std::collections::HashSet::new());
@@ -293,8 +297,8 @@ pub fn emit(id: NodeId, ev: Event) {
 /// focus-within, so a `GtkEntry`'s inner `GtkText` grabbing focus still counts as the entry.
 fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
     let focus = gtk4::EventControllerFocus::new();
-    focus.connect_enter(move |_| emit(id, Event::FocusChanged(true)));
-    focus.connect_leave(move |_| emit(id, Event::FocusChanged(false)));
+    focus.connect_enter(move |_| ffi_guard::contain((), || emit(id, Event::FocusChanged(true))));
+    focus.connect_leave(move |_| ffi_guard::contain((), || emit(id, Event::FocusChanged(false))));
     w.add_controller(focus);
 }
 
@@ -426,7 +430,9 @@ pub(crate) fn build_gio_menu(
                     action.set_enabled(*enabled);
                     let aid = *id;
                     action.connect_activate(move |_, _| {
-                        emit(day_spec::WINDOW_NODE, Event::MenuAction(aid));
+                        ffi_guard::contain((), || {
+                            emit(day_spec::WINDOW_NODE, Event::MenuAction(aid));
+                        });
                     });
                     group.add_action(&action);
                     // An id+role item with no label (the auto Preferences item) reads from
@@ -501,7 +507,9 @@ fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuIte
     };
     let action = gtk4::gio::SimpleAction::new("preferences", None);
     action.connect_activate(move |_, _| {
-        emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+        ffi_guard::contain((), || {
+            emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+        });
     });
     app.add_action(&action);
 }
@@ -797,8 +805,9 @@ fn fill_nav_menu(
 
 thread_local! {
     /// Each realized image's bundled source NAME, so a tint patch can re-render it. The widget
-    /// holds a texture, not a path, and re-reading the file is what a recolor needs.
-    static IMAGE_SOURCE: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// holds a texture, not a path, and re-reading the file is what a recolor needs. A
+    /// [`SideTable`], so the entry goes with the widget in `release`'s sweep.
+    static IMAGE_SOURCE: SideTable<String> = SideTable::new();
 }
 
 /// The bundled glyph `source`, recolored to `t` with its alpha kept as the mask — the recolor
@@ -966,7 +975,14 @@ fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk
 thread_local! {
     /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
     /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
-    static SURFACE: RefCell<HashMap<usize, gtk4::CssProvider>> = RefCell::new(HashMap::new());
+    /// Each provider is registered on the DISPLAY (`apply_surface`), so the teardown — run by
+    /// `release`'s sweep — must take it back off, or display-global providers pile up for the
+    /// life of the process, one per decorated widget that ever existed.
+    static SURFACE: SideTable<gtk4::CssProvider> = SideTable::with_teardown(|p| {
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_remove_provider_for_display(&display, &p);
+        }
+    });
 }
 
 /// Install (once) the CSS that makes Day scroll viewports transparent, so a backdrop layered
@@ -997,23 +1013,22 @@ fn scroll_transparent_css() {
 fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
     let key = widget_key(w);
     let class = format!("day-surface-{key}");
-    let provider = SURFACE.with(|m| {
-        m.borrow_mut()
-            .entry(key)
-            .or_insert_with(|| {
-                let p = gtk4::CssProvider::new();
-                if let Some(display) = gtk4::gdk::Display::default() {
-                    gtk4::style_context_add_provider_for_display(
-                        &display,
-                        &p,
-                        gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
-                    );
-                }
-                w.add_css_class(&class);
-                p
-            })
-            .clone()
-    });
+    let provider = match SURFACE.with(|t| t.get(key)) {
+        Some(p) => p,
+        None => {
+            let p = gtk4::CssProvider::new();
+            if let Some(display) = gtk4::gdk::Display::default() {
+                gtk4::style_context_add_provider_for_display(
+                    &display,
+                    &p,
+                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+            }
+            w.add_css_class(&class);
+            SURFACE.with(|t| t.insert(key, p.clone()));
+            p
+        }
+    };
     let mut body = String::new();
     if let Some(c) = bg {
         body.push_str(&format!(
@@ -1142,8 +1157,10 @@ thread_local! {
     /// LIST scrolled-window key → its model + source holder.
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     /// Physical cell (GtkFixed ptr) → the row it is currently bound to, for drag-to-reorder:
-    /// a cell's row changes on every recycle, so the DragSource reads it at drag time.
-    static LIST_CELL_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+    /// a cell's row changes on every recycle, so the DragSource reads it at drag time. A
+    /// [`SideTable`]: recycling overwrites live entries, but only the release sweep drops a
+    /// destroyed cell's — an address GTK reuses must not inherit a stale row.
+    static LIST_CELL_ROWS: SideTable<usize> = SideTable::new();
     /// The in-flight reorder drag: (list scrolled-window key, source row). One drag exists at a
     /// time and day lists only accept their OWN rows, so a thread-local carries what GTK's
     /// value-based content would only hand back asynchronously.
@@ -1163,8 +1180,11 @@ fn list_resize(model: &gtk4::StringList, n: usize) {
 /// panic. Deferring to an idle runs the bind after the borrow is released.
 fn schedule_list_resize(model: gtk4::StringList, source: Rc<RefCell<Option<ListSource>>>) {
     gtk4::glib::idle_add_local_once(move || {
-        let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
-        list_resize(&model, n);
+        // Contained: `len` is app code and the splice re-binds through day-core (bind_row).
+        ffi_guard::contain((), || {
+            let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+            list_resize(&model, n);
+        });
     });
 }
 
@@ -1573,6 +1593,13 @@ fn warn_missing_renderer(kind: PieceKind) {
     day_spec::placeholder::report(kind, "gtk");
 }
 
+/// The visible stand-in a realize arm degrades to: for a missing renderer, and for a props
+/// payload that is not the type the arm expects (`props_of` reports the mismatch through the
+/// same per-kind dedup channel `warn_missing_renderer` uses).
+pub(crate) fn placeholder_label(kind: PieceKind) -> Handle {
+    gtk4::Label::new(Some(&format!("⟨{kind}⟩"))).upcast()
+}
+
 impl Toolkit for Gtk {
     type Handle = Handle;
 
@@ -1654,7 +1681,9 @@ impl Toolkit for Gtk {
                         let h2 = hk.clone();
                         sv.connect_show_sidebar_notify(move |_| {
                             let key = h2.get();
-                            gtk4::glib::idle_add_local_once(move || nav_report(key));
+                            gtk4::glib::idle_add_local_once(move || {
+                                ffi_guard::contain((), || nav_report(key))
+                            });
                         });
                         let _ = hk;
                     }
@@ -1682,7 +1711,9 @@ impl Toolkit for Gtk {
                         paned.connect_position_notify(move |_| {
                             let key = hk.get();
                             if key != 0 {
-                                gtk4::glib::idle_add_local_once(move || nav_report(key));
+                                gtk4::glib::idle_add_local_once(move || {
+                                    ffi_guard::contain((), || nav_report(key))
+                                });
                             }
                         });
                     }
@@ -1695,14 +1726,16 @@ impl Toolkit for Gtk {
                     let s = suppress.clone();
                     nv.connect_popped(move |_view, _page| {
                         // A native back gesture / Escape popped a page (not a day-driven pop).
-                        if !s.get() {
-                            emit(
-                                id,
-                                Event::NavBack {
-                                    already_popped: true,
-                                },
-                            );
-                        }
+                        ffi_guard::contain((), || {
+                            if !s.get() {
+                                emit(
+                                    id,
+                                    Event::NavBack {
+                                        already_popped: true,
+                                    },
+                                );
+                            }
+                        });
                     });
                     (nv.clone().upcast(), NavPresent::Stack(nv))
                 };
@@ -1736,14 +1769,13 @@ impl Toolkit for Gtk {
             Some(Builtin::Cover) => {
                 let cover = gtk4::Fixed::new();
                 cover.set_visible(false);
-                COVER_IDS.with(|m| {
-                    m.borrow_mut()
-                        .insert(widget_key(&cover.clone().upcast()), id)
-                });
+                COVER_IDS.with(|t| t.insert(widget_key(&cover.clone().upcast()), id));
                 cover.upcast()
             }
             Some(Builtin::Tabs) => {
-                let p = props.downcast_ref::<TabsProps>().unwrap();
+                let Some(p) = props_of::<TabsProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 // Adwaita segmented switcher: a `.linked` row of grouped toggle buttons above an
                 // AdwViewStack. Toggle buttons are wired per page in `insert`.
                 let stack = adw::ViewStack::new();
@@ -1776,7 +1808,9 @@ impl Toolkit for Gtk {
                 host
             }
             Some(Builtin::TabsPage) => {
-                let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                let Some(p) = props_of::<TabsPageProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let page: Handle = gtk4::Fixed::new().upcast();
                 let key = widget_key(&page);
                 TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(key, id));
@@ -1785,7 +1819,9 @@ impl Toolkit for Gtk {
                 page
             }
             Some(Builtin::NavMenu) => {
-                let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                let Some(p) = props_of::<NavMenuProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let listbox = gtk4::ListBox::new();
                 // The standard GNOME sidebar treatment.
                 listbox.add_css_class("navigation-sidebar");
@@ -1809,12 +1845,14 @@ impl Toolkit for Gtk {
                 {
                     let suppress = suppress.clone();
                     listbox.connect_row_selected(move |_, row| {
-                        if suppress.get() {
-                            return;
-                        }
-                        if let Some(row) = row {
-                            emit(id, Event::SelectionChanged(row.index() as i64));
-                        }
+                        ffi_guard::contain((), || {
+                            if suppress.get() {
+                                return;
+                            }
+                            if let Some(row) = row {
+                                emit(id, Event::SelectionChanged(row.index() as i64));
+                            }
+                        });
                     });
                 }
                 if let Some(sel) = p.selected {
@@ -1861,7 +1899,9 @@ impl Toolkit for Gtk {
                 sw.upcast()
             }
             Some(Builtin::Label) => {
-                let p = props.downcast_ref::<LabelProps>().unwrap();
+                let Some(p) = props_of::<LabelProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let label = gtk4::Label::new(Some(&p.text));
                 label.set_xalign(0.0);
                 label.set_yalign(0.0);
@@ -1871,34 +1911,44 @@ impl Toolkit for Gtk {
                 label.upcast()
             }
             Some(Builtin::Button) => {
-                let p = props.downcast_ref::<ButtonProps>().unwrap();
+                let Some(p) = props_of::<ButtonProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let btn = gtk4::Button::with_label(&p.title);
                 // Prominent = Adwaita's accent-filled suggested action. Bordered is the stock
                 // GTK button look already.
                 if p.style == day_spec::props::ButtonStyleSpec::Prominent {
                     btn.add_css_class("suggested-action");
                 }
-                btn.connect_clicked(move |_| emit(id, Event::Pressed));
+                btn.connect_clicked(move |_| ffi_guard::contain((), || emit(id, Event::Pressed)));
                 wire_focus(&btn, id);
                 btn.upcast()
             }
             Some(Builtin::Toggle) => {
-                let p = props.downcast_ref::<ToggleProps>().unwrap();
+                let Some(p) = props_of::<ToggleProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let sw = gtk4::Switch::new();
                 sw.set_active(p.on);
                 sw.set_sensitive(p.enabled);
-                sw.connect_active_notify(move |s| emit(id, Event::ToggleChanged(s.is_active())));
+                sw.connect_active_notify(move |s| {
+                    ffi_guard::contain((), || emit(id, Event::ToggleChanged(s.is_active())))
+                });
                 wire_focus(&sw, id);
                 sw.upcast()
             }
             Some(Builtin::Slider) => {
-                let p = props.downcast_ref::<SliderProps>().unwrap();
+                let Some(p) = props_of::<SliderProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let step = p.step.unwrap_or((p.max - p.min) / 1000.0).max(1e-9);
                 let scale =
                     gtk4::Scale::with_range(gtk4::Orientation::Horizontal, p.min, p.max, step);
                 scale.set_value(p.value);
                 scale.set_draw_value(false);
-                scale.connect_value_changed(move |s| emit(id, Event::ValueChanged(s.value())));
+                scale.connect_value_changed(move |s| {
+                    ffi_guard::contain((), || emit(id, Event::ValueChanged(s.value())))
+                });
                 // GtkScale has no "drag ended" signal — `value-changed` fires on every motion
                 // step — so the settled value comes from the interactions that END one: the
                 // pointer coming up, and a key being released after an arrow/Page step. Both
@@ -1909,7 +1959,7 @@ impl Toolkit for Gtk {
                 {
                     let scale = scale.clone();
                     released.connect_released(move |_, _n, _x, _y| {
-                        emit(id, Event::ValueCommitted(scale.value()))
+                        ffi_guard::contain((), || emit(id, Event::ValueCommitted(scale.value())))
                     });
                 }
                 scale.add_controller(released);
@@ -1918,7 +1968,7 @@ impl Toolkit for Gtk {
                 {
                     let scale = scale.clone();
                     keys.connect_key_released(move |_, _k, _c, _m| {
-                        emit(id, Event::ValueCommitted(scale.value()))
+                        ffi_guard::contain((), || emit(id, Event::ValueCommitted(scale.value())))
                     });
                 }
                 scale.add_controller(keys);
@@ -1928,18 +1978,26 @@ impl Toolkit for Gtk {
             Some(Builtin::Picker) => picker::realize_any(self, props, id),
             Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
             Some(Builtin::TextField) => {
-                let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                let Some(p) = props_of::<TextFieldProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let entry = gtk4::Entry::new();
                 entry.set_text(&p.text);
                 entry.set_placeholder_text(Some(&p.placeholder));
-                entry.connect_changed(move |e| emit(id, Event::TextChanged(e.text().to_string())));
-                entry.connect_activate(move |_| emit(id, Event::Submitted));
+                entry.connect_changed(move |e| {
+                    ffi_guard::contain((), || emit(id, Event::TextChanged(e.text().to_string())))
+                });
+                entry.connect_activate(move |_| {
+                    ffi_guard::contain((), || emit(id, Event::Submitted))
+                });
                 wire_focus(&entry, id);
                 entry.upcast()
             }
             Some(Builtin::Divider) => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
             Some(Builtin::Progress) => {
-                let p = props.downcast_ref::<ProgressProps>().unwrap();
+                let Some(p) = props_of::<ProgressProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 match p.value {
                     Some(v) => {
                         let bar = gtk4::ProgressBar::new();
@@ -1956,16 +2014,20 @@ impl Toolkit for Gtk {
             Some(Builtin::Canvas) => {
                 let area = gtk4::DrawingArea::new();
                 area.set_draw_func(|area, cr, _w, _h| {
-                    let ptr = area.as_ptr() as usize;
-                    let ops = OPS
-                        .with(|m| m.borrow().get(&ptr).cloned())
-                        .unwrap_or_default();
-                    cairo_draw(cr, &ops);
+                    // Contained: the ops decode runs app-supplied data inside GTK's C draw
+                    // dispatch, where an unwound panic is an abort.
+                    ffi_guard::contain((), || {
+                        let ptr = area.as_ptr() as usize;
+                        let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
+                        cairo_draw(cr, &ops);
+                    });
                 });
                 area.upcast()
             }
             Some(Builtin::List) => {
-                let p = props.downcast_ref::<ListProps>().unwrap();
+                let Some(p) = props_of::<ListProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let model = gtk4::StringList::new(&[]);
                 let factory = gtk4::SignalListItemFactory::new();
                 // The reorder DragSource needs the host list's key, which doesn't exist until
@@ -1988,9 +2050,8 @@ impl Toolkit for Gtk {
                                     let cell = cell.clone();
                                     let host_key = host_key.clone();
                                     move |ds, x, y| {
-                                        let row = LIST_CELL_ROWS.with(|m| {
-                                            m.borrow().get(&(cell.as_ptr() as usize)).copied()
-                                        })?;
+                                        let row = LIST_CELL_ROWS
+                                            .with(|t| t.get(cell.as_ptr() as usize))?;
                                         DRAG_FROM.with(|d| d.set(Some((host_key.get(), row))));
                                         ds.set_icon(
                                             Some(&gtk4::WidgetPaintable::new(Some(&cell))),
@@ -2014,18 +2075,20 @@ impl Toolkit for Gtk {
                 let source: Rc<RefCell<Option<ListSource>>> = Rc::new(RefCell::new(None));
                 factory.connect_bind({
                     let source = source.clone();
+                    // Contained: bind_row runs day-core (and through it the app's row builder).
                     move |_, item| {
-                        let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
-                            return;
-                        };
-                        let pos = li.position() as usize;
-                        if let Some(cell) = li.child()
-                            && let Some(src) = source.borrow().as_ref()
-                        {
-                            LIST_CELL_ROWS
-                                .with(|m| m.borrow_mut().insert(cell.as_ptr() as usize, pos));
-                            (src.bind_row)(pos, cell.as_ptr() as RawHandle);
-                        }
+                        ffi_guard::contain((), || {
+                            let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
+                                return;
+                            };
+                            let pos = li.position() as usize;
+                            if let Some(cell) = li.child()
+                                && let Some(src) = source.borrow().as_ref()
+                            {
+                                LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos));
+                                (src.bind_row)(pos, cell.as_ptr() as RawHandle);
+                            }
+                        });
                     }
                 });
                 let listview = if p.selectable {
@@ -2033,10 +2096,12 @@ impl Toolkit for Gtk {
                     sel.set_autoselect(false);
                     sel.set_can_unselect(true);
                     sel.connect_selected_notify(move |s| {
-                        let i = s.selected();
-                        if i != gtk4::INVALID_LIST_POSITION {
-                            emit(id, Event::SelectionChanged(i as i64));
-                        }
+                        ffi_guard::contain((), || {
+                            let i = s.selected();
+                            if i != gtk4::INVALID_LIST_POSITION {
+                                emit(id, Event::SelectionChanged(i as i64));
+                            }
+                        });
                     });
                     gtk4::ListView::new(Some(sel), Some(factory))
                 } else {
@@ -2094,30 +2159,39 @@ impl Toolkit for Gtk {
                     );
                     dt.connect_motion({
                         let verdict = verdict.clone();
-                        move |_, _x, y| match verdict(y) {
-                            Some(_) => gtk4::gdk::DragAction::MOVE,
-                            None => gtk4::gdk::DragAction::empty(),
+                        // Contained with "no action": the verdict runs the app's can_move guard,
+                        // and denying the slot is the safe answer to a panic there.
+                        move |_, _x, y| {
+                            ffi_guard::contain(gtk4::gdk::DragAction::empty(), || {
+                                match verdict(y) {
+                                    Some(_) => gtk4::gdk::DragAction::MOVE,
+                                    None => gtk4::gdk::DragAction::empty(),
+                                }
+                            })
                         }
                     });
                     dt.connect_drop({
                         let source = source.clone();
                         let model = model.clone();
+                        // Contained as a refused drop: move_row is app code.
                         move |_, _value, _x, y| {
-                            let Some((_, from)) = DRAG_FROM.with(|d| d.get()) else {
-                                return false;
-                            };
-                            let Some(accepted) = verdict(y) else {
-                                return false;
-                            };
-                            if accepted != from
-                                && let Some(r) =
-                                    source.borrow().as_ref().and_then(|s| s.reorder.clone())
-                            {
-                                (r.move_row)(from, accepted);
-                                // Re-bind the visible cells in the new order (same count).
-                                schedule_list_resize(model.clone(), source.clone());
-                            }
-                            true
+                            ffi_guard::contain(false, || {
+                                let Some((_, from)) = DRAG_FROM.with(|d| d.get()) else {
+                                    return false;
+                                };
+                                let Some(accepted) = verdict(y) else {
+                                    return false;
+                                };
+                                if accepted != from
+                                    && let Some(r) =
+                                        source.borrow().as_ref().and_then(|s| s.reorder.clone())
+                                {
+                                    (r.move_row)(from, accepted);
+                                    // Re-bind the visible cells in the new order (same count).
+                                    schedule_list_resize(model.clone(), source.clone());
+                                }
+                                true
+                            })
                         }
                     });
                     listview.add_controller(dt);
@@ -2129,7 +2203,9 @@ impl Toolkit for Gtk {
                 host
             }
             Some(Builtin::Image) => {
-                let p = props.downcast_ref::<ImageProps>().unwrap();
+                let Some(p) = props_of::<ImageProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
                 let pic = gtk4::Picture::new();
                 // Scaling (§18.3): GtkPicture content-fit — Contain (fit) / Cover (fill) / Fill.
                 pic.set_content_fit(match p.content_mode {
@@ -2139,10 +2215,7 @@ impl Toolkit for Gtk {
                 });
                 // Vector-glyph tint (docs/vectors.md): recolor every pixel to the tint,
                 // keeping alpha as the mask — same recolor the sidebar template icons use.
-                IMAGE_SOURCE.with(|m| {
-                    m.borrow_mut()
-                        .insert(widget_key(pic.upcast_ref()), p.source.clone())
-                });
+                IMAGE_SOURCE.with(|t| t.insert(widget_key(pic.upcast_ref()), p.source.clone()));
                 let tinted = p.tint.and_then(|t| tinted_image_texture(&p.source, t));
                 if let Some(texture) = tinted {
                     pic.set_paintable(Some(&texture));
@@ -2169,7 +2242,7 @@ impl Toolkit for Gtk {
                     return make(self, props, id);
                 }
                 warn_missing_renderer(kind);
-                gtk4::Label::new(Some(&format!("⟨{kind}⟩"))).upcast()
+                placeholder_label(kind)
             }
         }
     }
@@ -2191,7 +2264,7 @@ impl Toolkit for Gtk {
                     h.clone().downcast::<gtk4::Fixed>(),
                 ) {
                     let node = COVER_IDS
-                        .with(|m| m.borrow().get(&widget_key(h)).copied())
+                        .with(|t| t.get(widget_key(h)))
                         .unwrap_or(day_spec::WINDOW_NODE);
                     match p {
                         CoverPatch::Present { background, .. } => {
@@ -2238,7 +2311,7 @@ impl Toolkit for Gtk {
                     patch.downcast_ref::<day_spec::props::ImagePatch>(),
                     h.downcast_ref::<gtk4::Picture>(),
                 ) {
-                    let source = IMAGE_SOURCE.with(|m| m.borrow().get(&widget_key(h)).cloned());
+                    let source = IMAGE_SOURCE.with(|t| t.get(widget_key(h)));
                     if let Some(source) = source {
                         match c.and_then(|t| tinted_image_texture(&source, t)) {
                             Some(texture) => pic.set_paintable(Some(&texture)),
@@ -2545,6 +2618,10 @@ impl Toolkit for Gtk {
         // already closed; destroy on it is a no-op).
         self.secondary.retain(|w| {
             if w.fixed.upcast_ref::<gtk4::Widget>() == &h {
+                // The window's own pointer-keyed state (the toolbar's BARS/HEADERS tables)
+                // goes with it — sweep by the WINDOW pointer, before the destroy can free the
+                // address for reuse.
+                day_spec::sidetable::sweep(w.window.as_ptr() as usize);
                 w.window.destroy();
                 false
             } else {
@@ -2552,6 +2629,15 @@ impl Toolkit for Gtk {
             }
         });
         let key = widget_key(&h);
+        // ONE call clears this pointer out of EVERY SideTable registered on this thread (canvas
+        // OPS, IMAGE_SOURCE, LIST_CELL_ROWS, COVER_IDS, SURFACE's css providers, the
+        // picker/textarea state, the toolbar tables), running each table's teardown hook —
+        // SURFACE detaches its display-global provider here. That closes the stale-pointer-key
+        // class the NAV_MENUS comment below documents: a map with no release line hands its dead
+        // entry to whatever widget the allocator next puts at this address. The maps removed by
+        // hand below predate the mechanism; NEW per-view state should be a SideTable, not
+        // another line here.
+        day_spec::sidetable::sweep(key);
         GTK_ANIMS.with(|m| {
             m.borrow_mut().remove(&key);
         });
@@ -2654,20 +2740,22 @@ impl Toolkit for Gtk {
                 let suppress = state.suppress.clone();
                 let key = host_key;
                 toggle.connect_toggled(move |t| {
-                    if !t.is_active() || suppress.get() {
-                        return;
-                    }
-                    // Resolve this toggle's index, show its page, and report the selection.
-                    let hit = TABS_STATE.with(|m| {
-                        let m = m.borrow();
-                        let s = m.get(&key)?;
-                        let i = s.toggles.iter().position(|x| x == t)?;
-                        s.stack.set_visible_child(&s.pages[i].0);
-                        Some((s.host_id, i))
+                    ffi_guard::contain((), || {
+                        if !t.is_active() || suppress.get() {
+                            return;
+                        }
+                        // Resolve this toggle's index, show its page, and report the selection.
+                        let hit = TABS_STATE.with(|m| {
+                            let m = m.borrow();
+                            let s = m.get(&key)?;
+                            let i = s.toggles.iter().position(|x| x == t)?;
+                            s.stack.set_visible_child(&s.pages[i].0);
+                            Some((s.host_id, i))
+                        });
+                        if let Some((host_id, i)) = hit {
+                            emit(host_id, Event::SelectionChanged(i as i64));
+                        }
                     });
-                    if let Some((host_id, i)) = hit {
-                        emit(host_id, Event::SelectionChanged(i as i64));
-                    }
                 });
             }
             state.switcher.append(&toggle);
@@ -2682,7 +2770,7 @@ impl Toolkit for Gtk {
             true
         });
         if tabs_handled {
-            gtk4::glib::idle_add_local_once(move || tabs_sync(host_key));
+            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || tabs_sync(host_key)));
             return;
         }
         // Nav host: wrap the page's GtkFixed in an AdwNavigationPage. Split → set sidebar
@@ -2750,7 +2838,9 @@ impl Toolkit for Gtk {
             true
         });
         if handled {
-            gtk4::glib::idle_add_local_once(move || nav_report(host_key));
+            gtk4::glib::idle_add_local_once(move || {
+                ffi_guard::contain((), || nav_report(host_key))
+            });
         } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
         }
@@ -2774,7 +2864,7 @@ impl Toolkit for Gtk {
             true
         });
         if tabs_handled {
-            gtk4::glib::idle_add_local_once(move || tabs_sync(host_key));
+            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || tabs_sync(host_key)));
             return;
         }
         let handled = NAV_STATE.with(|m| {
@@ -2825,7 +2915,13 @@ impl Toolkit for Gtk {
                 // keeps returning that tall height and content below never moves back up. A
                 // fresh Pango layout on the label's own (styled) context measures exactly the
                 // text the label renders, free of any request state.
-                let label = h.downcast_ref::<gtk4::Label>().expect("label widget");
+                // A non-label backing (a realize arm degraded, or a day-core regression):
+                // fall back to the generic widget measure rather than aborting mid-layout.
+                let Some(label) = h.downcast_ref::<gtk4::Label>() else {
+                    let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
+                    let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
+                    return Size::new(nat_w as f64, nat_h as f64);
+                };
                 let layout = gtk4::pango::Layout::new(&label.pango_context());
                 layout.set_text(&label.text());
                 layout.set_attributes(label.attributes().as_ref());
@@ -3001,11 +3097,11 @@ impl Toolkit for Gtk {
         // GTK allocates asynchronously — defer one idle so size/position settle.
         let is_nav = NAV_STATE.with(|m| m.borrow().contains_key(&key));
         if is_nav {
-            gtk4::glib::idle_add_local_once(move || nav_report(key));
+            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || nav_report(key)));
         }
         let is_tabs = TABS_STATE.with(|m| m.borrow().contains_key(&key));
         if is_tabs {
-            gtk4::glib::idle_add_local_once(move || tabs_sync(key));
+            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || tabs_sync(key)));
         }
     }
 
@@ -3090,43 +3186,49 @@ impl Toolkit for Gtk {
                 drag.connect_drag_begin({
                     let start = start.clone();
                     move |_, x, y| {
-                        start.set((x, y));
-                        emit(
-                            node,
-                            Event::Drag {
-                                phase: DragPhase::Began,
-                                location: Point::new(x, y),
-                                translation: Point::ZERO,
-                            },
-                        );
+                        ffi_guard::contain((), || {
+                            start.set((x, y));
+                            emit(
+                                node,
+                                Event::Drag {
+                                    phase: DragPhase::Began,
+                                    location: Point::new(x, y),
+                                    translation: Point::ZERO,
+                                },
+                            );
+                        });
                     }
                 });
                 drag.connect_drag_update({
                     let start = start.clone();
                     move |_, ox, oy| {
-                        let (sx, sy) = start.get();
-                        emit(
-                            node,
-                            Event::Drag {
-                                phase: DragPhase::Changed,
-                                location: Point::new(sx + ox, sy + oy),
-                                translation: Point::new(ox, oy),
-                            },
-                        );
+                        ffi_guard::contain((), || {
+                            let (sx, sy) = start.get();
+                            emit(
+                                node,
+                                Event::Drag {
+                                    phase: DragPhase::Changed,
+                                    location: Point::new(sx + ox, sy + oy),
+                                    translation: Point::new(ox, oy),
+                                },
+                            );
+                        });
                     }
                 });
                 drag.connect_drag_end({
                     let start = start.clone();
                     move |_, ox, oy| {
-                        let (sx, sy) = start.get();
-                        emit(
-                            node,
-                            Event::Drag {
-                                phase: DragPhase::Ended,
-                                location: Point::new(sx + ox, sy + oy),
-                                translation: Point::new(ox, oy),
-                            },
-                        );
+                        ffi_guard::contain((), || {
+                            let (sx, sy) = start.get();
+                            emit(
+                                node,
+                                Event::Drag {
+                                    phase: DragPhase::Ended,
+                                    location: Point::new(sx + ox, sy + oy),
+                                    translation: Point::new(ox, oy),
+                                },
+                            );
+                        });
                     }
                 });
                 h.add_controller(drag);
@@ -3134,7 +3236,7 @@ impl Toolkit for Gtk {
             _ => {
                 let click = gtk4::GestureClick::new();
                 click.connect_released(move |_, _n, x, y| {
-                    emit(node, Event::Tap(Point::new(x, y)));
+                    ffi_guard::contain((), || emit(node, Event::Tap(Point::new(x, y))));
                 });
                 h.add_controller(click);
             }
@@ -3297,7 +3399,7 @@ impl Toolkit for Gtk {
     }
 
     fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
-        OPS.with(|m| m.borrow_mut().insert(h.as_ptr() as usize, ops.to_vec()));
+        OPS.with(|t| t.insert(h.as_ptr() as usize, ops.to_vec()));
         h.queue_draw();
     }
 
@@ -3348,14 +3450,18 @@ impl Toolkit for Gtk {
             // Confirm to day-core, which tears down on a DEFERRED hop (never inside this
             // close frame); GTK proceeds with the destroy — the widgets stay alive as
             // Rust refs until day-core releases them.
-            emit(id, Event::WindowClosed);
-            gtk4::glib::Propagation::Proceed
+            ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                emit(id, Event::WindowClosed);
+                gtk4::glib::Propagation::Proceed
+            })
         });
         {
             let app = app.clone();
             window.connect_is_active_notify(move |w| {
-                emit(id, Event::WindowFocused(w.is_active()));
-                note_activation_changed(&app);
+                ffi_guard::contain((), || {
+                    emit(id, Event::WindowFocused(w.is_active()));
+                    note_activation_changed(&app);
+                });
             });
         }
         // The app-menu actions resolve against the FOCUSED window (macOS global bar and
@@ -3479,11 +3585,13 @@ impl Toolkit for Gtk {
                 {
                     let finish = finish.clone();
                     dialog.connect_response(None, move |_, resp| {
-                        let result = resp
-                            .parse::<i64>()
-                            .map(PresentResult::Button)
-                            .unwrap_or(PresentResult::Dismissed);
-                        finish(result);
+                        ffi_guard::contain((), || {
+                            let result = resp
+                                .parse::<i64>()
+                                .map(PresentResult::Button)
+                                .unwrap_or(PresentResult::Dismissed);
+                            finish(result);
+                        });
                     });
                 }
                 NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
@@ -3514,12 +3622,14 @@ impl Toolkit for Gtk {
                     let finish = finish.clone();
                     let entry = entry.clone();
                     dialog.connect_response(None, move |_, resp| {
-                        let result = if resp == "ok" {
-                            PresentResult::Text(entry.text().to_string())
-                        } else {
-                            PresentResult::Dismissed
-                        };
-                        finish(result);
+                        ffi_guard::contain((), || {
+                            let result = if resp == "ok" {
+                                PresentResult::Text(entry.text().to_string())
+                            } else {
+                                PresentResult::Dismissed
+                            };
+                            finish(result);
+                        });
                     });
                 }
                 NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
@@ -3549,7 +3659,7 @@ impl Toolkit for Gtk {
                         return;
                     }
                     dialog.open(window.as_ref(), Some(&cancellable), move |res| {
-                        emit_file_result(req, res.map(|f| f.path()))
+                        ffi_guard::contain((), || emit_file_result(req, res.map(|f| f.path())))
                     });
                 });
             }
@@ -3573,7 +3683,7 @@ impl Toolkit for Gtk {
                         return;
                     }
                     dialog.save(window.as_ref(), Some(&cancellable), move |res| {
-                        emit_file_result(req, res.map(|f| f.path()))
+                        ffi_guard::contain((), || emit_file_result(req, res.map(|f| f.path())))
                     });
                 });
             }
@@ -3720,8 +3830,9 @@ thread_local! {
     /// each on window resize and re-reports FrameChanged (the frame is native-owned while
     /// presented — docs/cover.md).
     static COVERS: RefCell<Vec<(gtk4::Fixed, NodeId)>> = const { RefCell::new(Vec::new()) };
-    /// Cover widget key → NodeId (set at realize; consumed by the CoverPatch arms).
-    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// Cover widget key → NodeId (set at realize; consumed by the CoverPatch arms). A
+    /// [`SideTable`], so the release sweep drops it with the cover widget.
+    static COVER_IDS: SideTable<NodeId> = SideTable::new();
 }
 
 /// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
@@ -3818,11 +3929,15 @@ fn build_day_window(
     // only public resize signal it offers.
     {
         let header = header.clone();
-        window.connect_default_width_notify(move |w| report_content_size(w, &header, target));
+        window.connect_default_width_notify(move |w| {
+            ffi_guard::contain((), || report_content_size(w, &header, target))
+        });
     }
     {
         let header = header.clone();
-        window.connect_default_height_notify(move |w| report_content_size(w, &header, target));
+        window.connect_default_height_notify(move |w| {
+            ffi_guard::contain((), || report_content_size(w, &header, target))
+        });
     }
     (window, fixed, header)
 }
@@ -3839,16 +3954,18 @@ thread_local! {
 fn note_activation_changed(app: &adw::Application) {
     let app = app.clone();
     gtk4::glib::idle_add_local_once(move || {
-        use gtk4::prelude::GtkWindowExt as _;
-        let any = app.windows().iter().any(|w| w.is_active());
-        if ANY_ACTIVE.with(|c| c.replace(any)) != any {
-            let phase = if any {
-                day_spec::Lifecycle::DidBecomeActive
-            } else {
-                day_spec::Lifecycle::WillResignActive
-            };
-            emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
-        }
+        ffi_guard::contain((), || {
+            use gtk4::prelude::GtkWindowExt as _;
+            let any = app.windows().iter().any(|w| w.is_active());
+            if ANY_ACTIVE.with(|c| c.replace(any)) != any {
+                let phase = if any {
+                    day_spec::Lifecycle::DidBecomeActive
+                } else {
+                    day_spec::Lifecycle::WillResignActive
+                };
+                emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+            }
+        });
     });
 }
 
@@ -3890,7 +4007,7 @@ impl Platform for Gtk {
             // `dark` on desktop theme switches — refresh day-core's reactive dark-mode
             // signal so palette closures recolor live.
             adw::StyleManager::default().connect_dark_notify(|_| {
-                day_core::note_appearance_changed();
+                ffi_guard::contain((), day_core::note_appearance_changed);
             });
             if let Ok(theme) = std::env::var("DAY_THEME") {
                 let scheme = match theme.as_str() {
@@ -3941,52 +4058,58 @@ impl Platform for Gtk {
         // Lifecycle: GApplication `shutdown` is the single point every quit funnels through
         // (docs/lifecycle.md). Emit WillTerminate synchronously so handlers run before teardown.
         app.connect_shutdown(|_| {
-            emit(
-                day_spec::WINDOW_NODE,
-                Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
-            );
+            ffi_guard::contain((), || {
+                emit(
+                    day_spec::WINDOW_NODE,
+                    Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
+                );
+            });
         });
 
         let state = RefCell::new(Some((self, ready, options)));
-        // Take on first activate (FnOnce payload inside an Fn handler).
+        // Take on first activate (FnOnce payload inside an Fn handler). Contained like every
+        // other signal handler: `ready` boots day-core, and activate is a C up-call.
         app.connect_activate(move |app| {
-            let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
-                return;
-            };
-            let (window, fixed, _header) =
-                build_day_window(app, &options.title, options.size, None);
-            check_bundled_fonts(&window);
-            apply_app_icon(&window);
-            backend.window_fixed = Some(fixed.clone());
-            backend.app = Some(app.clone());
-            // Closing the PRIMARY window quits the app, taking secondary windows with it
-            // (docs/windows.md close policy) — GApplication would otherwise stay alive
-            // while a secondary exists. `quit()` routes through `shutdown` → WillTerminate
-            // like every other quit path.
-            {
-                let app = app.clone();
-                window.connect_close_request(move |_| {
-                    app.quit();
-                    gtk4::glib::Propagation::Proceed
-                });
-            }
-            // Day's content area is the window height minus the header bar; estimate it until
-            // the header is allocated (report_content_size reads the real height thereafter).
-            ready(
-                backend,
-                fixed.upcast(),
-                Size::new(
-                    options.size.width,
-                    (options.size.height - HEADER_H).max(0.0),
-                ),
-            );
-            // Lifecycle activation (docs/lifecycle.md): debounced across ALL Day windows —
-            // focus moving between two Day windows is not an app-level resign/become.
-            {
-                let app = app.clone();
-                window.connect_is_active_notify(move |_| note_activation_changed(&app));
-            }
-            window.present();
+            ffi_guard::contain((), || {
+                let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
+                    return;
+                };
+                let (window, fixed, _header) =
+                    build_day_window(app, &options.title, options.size, None);
+                check_bundled_fonts(&window);
+                apply_app_icon(&window);
+                backend.window_fixed = Some(fixed.clone());
+                backend.app = Some(app.clone());
+                // Closing the PRIMARY window quits the app, taking secondary windows with it
+                // (docs/windows.md close policy) — GApplication would otherwise stay alive
+                // while a secondary exists. `quit()` routes through `shutdown` → WillTerminate
+                // like every other quit path.
+                {
+                    let app = app.clone();
+                    window.connect_close_request(move |_| {
+                        app.quit();
+                        gtk4::glib::Propagation::Proceed
+                    });
+                }
+                // Day's content area is the window height minus the header bar; estimate it
+                // until the header is allocated (report_content_size reads the real height
+                // thereafter).
+                ready(
+                    backend,
+                    fixed.upcast(),
+                    Size::new(
+                        options.size.width,
+                        (options.size.height - HEADER_H).max(0.0),
+                    ),
+                );
+                // Lifecycle activation (docs/lifecycle.md): debounced across ALL Day windows —
+                // focus moving between two Day windows is not an app-level resign/become.
+                {
+                    let app = app.clone();
+                    window.connect_is_active_notify(move |_| note_activation_changed(&app));
+                }
+                window.present();
+            });
         });
         app.run_with_args::<&str>(&[]);
     }
@@ -4014,7 +4137,9 @@ impl Platform for Gtk {
         let mut once = Some(f);
         gtk4::glib::idle_add_full(gtk4::glib::Priority::DEFAULT, move || {
             if let Some(f) = once.take() {
-                f();
+                // The posted-closure trampoline: `f` is arbitrary day-core/app work arriving
+                // from any thread, run here inside a C idle dispatch — contain it.
+                ffi_guard::contain((), f);
             }
             gtk4::glib::ControlFlow::Break
         });

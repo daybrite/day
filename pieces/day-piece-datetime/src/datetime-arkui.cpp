@@ -115,6 +115,14 @@ extern "C" void* day_dtp_date_new(long long id, int inline_style, int y, int m, 
     return n;
 }
 
+// Erase the node's wheels/calendar flag when day releases it. Without this the map grows by one
+// entry per realized date picker, and — worse — its key is the node's ADDRESS, which the
+// allocator reuses: a later picker landing on a freed address would inherit the dead entry's
+// flag and be patched through the wrong attribute.
+extern "C" void day_dtp_date_release(void* node) {
+    if (node) wheels_map().erase(node);
+}
+
 extern "C" void day_dtp_date_set(void* node, int y, int m, int d) {
     if (!node || !dtp_api()) return;
     auto it = wheels_map().find(node);

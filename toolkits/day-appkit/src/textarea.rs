@@ -12,9 +12,9 @@
 // ---------------------------------------------------------------------------
 
 use day_spec::Event;
+use day_spec::ffi_guard;
 use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
-use std::cell::RefCell;
-use std::collections::HashMap;
+use day_spec::sidetable::SideTable;
 
 use crate::AppKit;
 use day_spec::{NodeId, Proposal, Size};
@@ -50,16 +50,19 @@ define_class!(
     unsafe impl NSTextViewDelegate for TATarget {}
 
     unsafe impl NSTextDelegate for TATarget {
+        // Both delegate entries run contained (§8.5): a panic must not unwind into AppKit.
         #[unsafe(method(textDidChange:))]
         fn text_did_change(&self, notification: &NSNotification) {
-            let node = self.ivars().node;
-            if let Some(obj) = notification.object()
-                && let Ok(tv) = obj.downcast::<NSTextView>()
-            {
-                let s = tv.string().to_string();
-                self.ivars().placeholder.setHidden(!s.is_empty());
-                crate::emit(node, Event::TextChanged(s));
-            }
+            ffi_guard::contain((), || {
+                let node = self.ivars().node;
+                if let Some(obj) = notification.object()
+                    && let Ok(tv) = obj.downcast::<NSTextView>()
+                {
+                    let s = tv.string().to_string();
+                    self.ivars().placeholder.setHidden(!s.is_empty());
+                    crate::emit(node, Event::TextChanged(s));
+                }
+            })
         }
     }
 
@@ -69,21 +72,23 @@ define_class!(
         // preceding keystrokes, so the app's bound text signal is already current.
         #[unsafe(method(textView:doCommandBySelector:))]
         fn do_command(&self, _tv: &NSTextView, sel: objc2::runtime::Sel) -> objc2::runtime::Bool {
-            if !self.ivars().submit_on_enter || sel != objc2::sel!(insertNewline:) {
-                return objc2::runtime::Bool::NO;
-            }
-            let shift = objc2_app_kit::NSApplication::sharedApplication(self.mtm())
-                .currentEvent()
-                .map(|e| {
-                    e.modifierFlags()
-                        .contains(objc2_app_kit::NSEventModifierFlags::Shift)
-                })
-                .unwrap_or(false);
-            if shift {
-                return objc2::runtime::Bool::NO;
-            }
-            crate::emit(self.ivars().node, Event::Submitted);
-            objc2::runtime::Bool::YES
+            ffi_guard::contain(objc2::runtime::Bool::NO, || {
+                if !self.ivars().submit_on_enter || sel != objc2::sel!(insertNewline:) {
+                    return objc2::runtime::Bool::NO;
+                }
+                let shift = objc2_app_kit::NSApplication::sharedApplication(self.mtm())
+                    .currentEvent()
+                    .map(|e| {
+                        e.modifierFlags()
+                            .contains(objc2_app_kit::NSEventModifierFlags::Shift)
+                    })
+                    .unwrap_or(false);
+                if shift {
+                    return objc2::runtime::Bool::NO;
+                }
+                crate::emit(self.ivars().node, Event::Submitted);
+                objc2::runtime::Bool::YES
+            })
         }
     }
 );
@@ -116,7 +121,13 @@ struct TAState {
 }
 
 thread_local! {
-    static STATE: RefCell<HashMap<usize, TAState>> = RefCell::new(HashMap::new());
+    /// Scroll ptr → the editor's live state. A [`SideTable`], so the backend's release sweep
+    /// reclaims the text view, delegate target and placeholder — this map had no release path.
+    static STATE: SideTable<TAState> = SideTable::with_teardown(|st: TAState| {
+        // The text view outlives this state until its scroll view deallocs: detach the
+        // delegate so the dropped target is never reached through a stale reference.
+        st.tv.setDelegate(None);
+    });
 }
 
 fn key(v: &Retained<NSView>) -> usize {
@@ -185,8 +196,8 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     scroll.setDocumentView(Some(&tv));
 
     let ns: Retained<NSView> = Retained::from(<NSScrollView as AsRef<NSView>>::as_ref(&scroll));
-    STATE.with(|m| {
-        m.borrow_mut().insert(
+    STATE.with(|t| {
+        t.insert(
             key(&ns),
             TAState {
                 tv,
@@ -202,12 +213,8 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
 }
 
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &TextPatch) {
-    STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
-            return;
-        };
-        match patch {
+    STATE.with(|t| {
+        t.with(key(h), |st| match patch {
             TextPatch::SetText(t) => {
                 if st.tv.string().to_string() != *t {
                     st.tv.setString(&NSString::from_str(t));
@@ -221,41 +228,41 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &TextPatch) {
                 let _: () = msg_send![&st.tv, setAutomaticSpellingCorrectionEnabled: *v];
                 let _: () = msg_send![&st.tv, setGrammarCheckingEnabled: *v];
             },
-        }
+        });
     });
 }
 
 fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(300.0).max(120.0);
-    STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
-            return Size::new(avail_w, 44.0);
-        };
-        let pad = 2.0 * INSET;
-        let min_h = (st.min_lines as f64) * st.line_h + pad;
-        let max_h = if st.max_lines > 0 {
-            (st.max_lines as f64) * st.line_h + pad
-        } else {
-            f64::MAX
-        };
-        let (Some(tc), Some(lm)) = (unsafe { st.tv.textContainer() }, unsafe {
-            st.tv.layoutManager()
-        }) else {
-            return Size::new(avail_w, min_h.ceil());
-        };
-        // Measure wrapped content height at the proposed inner width: fix the container width (temporarily
-        // detaching width-tracking) so the query is independent of the not-yet-set frame, then restore it.
-        let lfp = tc.lineFragmentPadding();
-        let inner_w = (avail_w - 2.0 * INSET - 2.0 * lfp).max(1.0);
-        tc.setWidthTracksTextView(false);
-        tc.setContainerSize(NSSize::new(inner_w, 1.0e7));
-        let _ = lm.glyphRangeForTextContainer(&tc);
-        let used = lm.usedRectForTextContainer(&tc);
-        tc.setWidthTracksTextView(true);
-        let content_h = used.size.height + pad;
-        let hgt = content_h.clamp(min_h, max_h);
-        Size::new(avail_w, hgt.ceil())
+    STATE.with(|t| {
+        t.with(key(h), |st| {
+            let pad = 2.0 * INSET;
+            let min_h = (st.min_lines as f64) * st.line_h + pad;
+            let max_h = if st.max_lines > 0 {
+                (st.max_lines as f64) * st.line_h + pad
+            } else {
+                f64::MAX
+            };
+            let (Some(tc), Some(lm)) = (unsafe { st.tv.textContainer() }, unsafe {
+                st.tv.layoutManager()
+            }) else {
+                return Size::new(avail_w, min_h.ceil());
+            };
+            // Measure wrapped content height at the proposed inner width: fix the container width
+            // (temporarily detaching width-tracking) so the query is independent of the
+            // not-yet-set frame, then restore it.
+            let lfp = tc.lineFragmentPadding();
+            let inner_w = (avail_w - 2.0 * INSET - 2.0 * lfp).max(1.0);
+            tc.setWidthTracksTextView(false);
+            tc.setContainerSize(NSSize::new(inner_w, 1.0e7));
+            let _ = lm.glyphRangeForTextContainer(&tc);
+            let used = lm.usedRectForTextContainer(&tc);
+            tc.setWidthTracksTextView(true);
+            let content_h = used.size.height + pad;
+            let hgt = content_h.clamp(min_h, max_h);
+            Size::new(avail_w, hgt.ceil())
+        })
+        .unwrap_or(Size::new(avail_w, 44.0))
     })
 }
 
@@ -266,10 +273,12 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<TextProps>()
-        .expect("day: textarea props type");
-    make(b, p, id)
+    // A mismatched payload warns once and degrades to the shared placeholder (never panics
+    // inside a native up-call) — same policy as the builtin arms in lib.rs.
+    match day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "appkit", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_view(b.mtm(), day_spec::kinds::TEXT_AREA),
+    }
 }
 
 pub(crate) fn update_any(b: &mut AppKit, h: &crate::Handle, patch: &dyn std::any::Any) {

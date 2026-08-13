@@ -12,7 +12,10 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use day_spec::{Event, Icon, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPatch, ToolbarValue};
+use day_spec::sidetable::SideTable;
+use day_spec::{
+    Event, Icon, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPatch, ToolbarValue, ffi_guard,
+};
 use libadwaita as adw;
 
 // AdwHeaderBar's packing methods and every GTK widget trait this file uses come through the
@@ -140,28 +143,32 @@ struct WinToolbar {
 }
 
 thread_local! {
-    static BARS: RefCell<HashMap<usize, WinToolbar>> = RefCell::new(HashMap::new());
-    /// Every Day window's header bar, registered as the window is built — the only way back
-    /// from a content handle to the chrome, since AdwToolbarView does not enumerate its bars.
-    static HEADERS: RefCell<Vec<(gtk4::Window, adw::HeaderBar)>> = const { RefCell::new(Vec::new()) };
+    /// One live toolbar install per window (window ptr → its packed widgets). The teardown
+    /// takes day's widgets back out of the header bar — it runs on a re-install's remove AND
+    /// on the release sweep when a secondary window closes, so a recycled window address can
+    /// never inherit a dead install.
+    static BARS: SideTable<WinToolbar> = SideTable::with_teardown(|bar: WinToolbar| {
+        for w in &bar.packed {
+            bar.header.remove(w);
+        }
+    });
+    /// Every Day window's header bar (window ptr → bar), registered as the window is built —
+    /// the only way back from a content handle to the chrome, since AdwToolbarView does not
+    /// enumerate its bars. Swept by window pointer when a secondary window closes.
+    static HEADERS: SideTable<adw::HeaderBar> = SideTable::new();
 }
 
 /// Remember a window's header bar (called for every window `build_day_window` makes).
 pub(crate) fn register_header(window: &impl IsA<gtk4::Window>, header: &adw::HeaderBar) {
-    let window = window.as_ref().clone();
-    HEADERS.with(|h| h.borrow_mut().push((window, header.clone())));
+    HEADERS.with(|t| t.insert(window.as_ref().as_ptr() as usize, header.clone()));
 }
 
 /// The header bar of the window `h` lives in.
 fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
     let root = h.root()?;
     let window = root.downcast::<gtk4::Window>().ok()?;
-    HEADERS.with(|hs| {
-        hs.borrow()
-            .iter()
-            .find(|(w, _)| w == &window)
-            .map(|(w, hb)| (w.clone(), hb.clone()))
-    })
+    let header = HEADERS.with(|t| t.get(window.as_ptr() as usize))?;
+    Some((window, header))
 }
 
 impl Gtk {
@@ -172,14 +179,10 @@ impl Gtk {
         };
         let key = window.as_ptr() as usize;
 
-        // Take out whatever the previous install packed. Anything else in the header bar is
-        // Adwaita's own and must be left alone.
+        // Take out whatever the previous install packed — the table's teardown hook does the
+        // unpacking. Anything else in the header bar is Adwaita's own and must be left alone.
         BARS.with(|b| {
-            if let Some(old) = b.borrow_mut().remove(&key) {
-                for w in old.packed {
-                    header.remove(&w);
-                }
-            }
+            b.remove(key);
         });
         if items.is_empty() {
             return;
@@ -204,7 +207,9 @@ impl Gtk {
                     let action = item.action;
                     if action != 0 {
                         b.connect_clicked(move |_| {
-                            emit(day_spec::WINDOW_NODE, Event::MenuAction(action));
+                            ffi_guard::contain((), || {
+                                emit(day_spec::WINDOW_NODE, Event::MenuAction(action));
+                            });
                         });
                     }
                     b.upcast()
@@ -216,13 +221,15 @@ impl Gtk {
                     let action = item.action;
                     if action != 0 {
                         b.connect_toggled(move |t| {
-                            emit(
-                                day_spec::WINDOW_NODE,
-                                Event::ToolbarChanged {
-                                    action,
-                                    value: ToolbarValue::On(t.is_active()),
-                                },
-                            );
+                            ffi_guard::contain((), || {
+                                emit(
+                                    day_spec::WINDOW_NODE,
+                                    Event::ToolbarChanged {
+                                        action,
+                                        value: ToolbarValue::On(t.is_active()),
+                                    },
+                                );
+                            });
                         });
                     }
                     b.upcast()
@@ -292,20 +299,22 @@ impl Gtk {
                         let suppress = suppress.clone();
                         let seeded = seeded.clone();
                         e.connect_search_changed(move |entry| {
-                            if suppress.get() {
-                                return;
-                            }
-                            // The debounced echo of a value Day itself wrote (see `seeded`).
-                            if *seeded.borrow() == entry.text().as_str() {
-                                return;
-                            }
-                            emit(
-                                day_spec::WINDOW_NODE,
-                                Event::ToolbarChanged {
-                                    action,
-                                    value: ToolbarValue::Text(entry.text().to_string()),
-                                },
-                            );
+                            ffi_guard::contain((), || {
+                                if suppress.get() {
+                                    return;
+                                }
+                                // The debounced echo of a value Day itself wrote (see `seeded`).
+                                if *seeded.borrow() == entry.text().as_str() {
+                                    return;
+                                }
+                                emit(
+                                    day_spec::WINDOW_NODE,
+                                    Event::ToolbarChanged {
+                                        action,
+                                        value: ToolbarValue::Text(entry.text().to_string()),
+                                    },
+                                );
+                            });
                         });
                     }
                     e.upcast()
@@ -348,7 +357,7 @@ impl Gtk {
         }
 
         BARS.with(|b| {
-            b.borrow_mut().insert(
+            b.insert(
                 key,
                 WinToolbar {
                     header,
@@ -368,10 +377,7 @@ impl Gtk {
         };
         let key = window.as_ptr() as usize;
         BARS.with(|b| {
-            let b = b.borrow();
-            let Some(bar) = b.get(&key) else { return };
-            let _ = &bar.header;
-            match patch {
+            b.with(key, |bar| match patch {
                 ToolbarPatch::Text { item, text } => {
                     if let Some(w) = bar.widgets.get(item)
                         && let Some(e) = w.downcast_ref::<gtk4::SearchEntry>()
@@ -401,7 +407,7 @@ impl Gtk {
                         w.set_sensitive(*on);
                     }
                 }
-            }
+            });
         });
     }
 }

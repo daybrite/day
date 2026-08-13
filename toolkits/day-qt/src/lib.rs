@@ -18,7 +18,7 @@ use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind,
     Platform, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform, WindowOptions,
-    kinds,
+    ffi_guard, kinds, props_of, sidetable::SideTable,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,8 +59,11 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Slider f64 range, keyed by node id (event callbacks) AND widget ptr (patch application).
-    static RANGES: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
-    static RANGES_BY_PTR: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+    /// SideTables: `release`'s sweep retires the widget-ptr entry with the widget, so a later
+    /// widget recycling the address can't read the dead slider's range. (The node-id side is
+    /// generation-keyed by day-core and never reused, so it cannot mis-hit.)
+    static RANGES: SideTable<(f64, f64)> = SideTable::new();
+    static RANGES_BY_PTR: SideTable<(f64, f64)> = SideTable::new();
     /// (widget_ptr, is_drag) pairs already wired, so enable_gesture is idempotent.
     static GESTURES: RefCell<std::collections::HashSet<(usize, bool)>> =
         RefCell::new(std::collections::HashSet::new());
@@ -85,7 +88,9 @@ fn emit_deferred(id: NodeId, ev: Event) {
 }
 
 pub(crate) fn cstr(s: &str) -> CString {
-    CString::new(s).unwrap_or_default()
+    // An interior NUL must not blank the whole string — a label, a menu item, a window title
+    // would silently vanish. Strip the NULs and keep the visible text.
+    CString::new(s).unwrap_or_else(|_| CString::new(s.replace('\0', "")).unwrap_or_default())
 }
 
 // ---------------------------------------------------------------------------
@@ -131,80 +136,89 @@ fn list_paint_selection(entry: &ListEntry) {
 /// replaces the selection, ctrl/cmd toggles the row, shift extends from the anchor (multi-select
 /// only) — then repaints and reports (`SelectionSet` in multi mode, `SelectionChanged` single).
 extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
-    let row = row.max(0) as usize;
-    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-        return;
-    };
-    let emit_ev = LIST_STATE.with(|m| {
-        let mut m = m.borrow_mut();
-        let st = m.get_mut(&host_key)?;
-        if !st.selectable {
-            return None;
-        }
-        let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
-        if st.multi && ctrl {
-            if !st.selected.remove(&row) {
-                st.selected.insert(row);
+    // Every extern "C" trampoline in this backend runs its body through `ffi_guard::contain`:
+    // a panic unwinding into the C++ shim frame is undefined behavior (day-spec's ffi_guard).
+    ffi_guard::contain((), || {
+        let row = row.max(0) as usize;
+        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+            return;
+        };
+        let emit_ev = LIST_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let st = m.get_mut(&host_key)?;
+            if !st.selectable {
+                return None;
             }
-            st.anchor = Some(row);
-        } else if st.multi && shift {
-            let a = st.anchor.unwrap_or(row);
-            st.selected = (a.min(row)..=a.max(row)).collect();
-        } else {
-            st.selected = std::iter::once(row).collect();
-            st.anchor = Some(row);
+            let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
+            if st.multi && ctrl {
+                if !st.selected.remove(&row) {
+                    st.selected.insert(row);
+                }
+                st.anchor = Some(row);
+            } else if st.multi && shift {
+                let a = st.anchor.unwrap_or(row);
+                st.selected = (a.min(row)..=a.max(row)).collect();
+            } else {
+                st.selected = std::iter::once(row).collect();
+                st.anchor = Some(row);
+            }
+            list_paint_selection(st);
+            Some(if st.multi {
+                Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
+            } else {
+                Event::SelectionChanged(row as i64)
+            })
+        });
+        if let Some(ev) = emit_ev {
+            emit(NodeId(node), ev);
         }
-        list_paint_selection(st);
-        Some(if st.multi {
-            Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
-        } else {
-            Event::SelectionChanged(row as i64)
-        })
     });
-    if let Some(ev) = emit_ev {
-        emit(NodeId(node), ev);
-    }
 }
 
 /// The reorder guard's verdict for a hovered drop (docs/list.md), called synchronously from the
 /// shim's drag-move filter: the accepted target index, or -1. The reorder Rc is cloned out of
 /// `LIST_STATE` before the app's guard runs, so no borrow is held.
 extern "C" fn on_list_can_move(node: u64, from: c_int, to: c_int) -> c_int {
-    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-        return -1;
-    };
-    let r = LIST_STATE.with(|m| {
-        m.borrow().get(&host_key).and_then(|st| {
-            let s = st.source.borrow().clone()?;
-            Some(((s.len)(), s.reorder))
-        })
-    });
-    let Some((len, Some(r))) = r else { return -1 };
-    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
-    if from >= len {
-        return -1;
-    }
-    let to = to.min(len - 1);
-    ((r.can_move)(from, to) as c_int).min(len as c_int - 1)
+    // Runs the app's own guard closure — contained, with "reject the drop" as the default.
+    ffi_guard::contain(-1, || {
+        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+            return -1;
+        };
+        let r = LIST_STATE.with(|m| {
+            m.borrow().get(&host_key).and_then(|st| {
+                let s = st.source.borrow().clone()?;
+                Some(((s.len)(), s.reorder))
+            })
+        });
+        let Some((len, Some(r))) = r else { return -1 };
+        let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+        if from >= len {
+            return -1;
+        }
+        let to = to.min(len - 1);
+        ((r.can_move)(from, to) as c_int).min(len as c_int - 1)
+    })
 }
 
 /// Commit a drop the shim's filter accepted: rotate Day's snapshot through the sync seam
 /// (deferring the app callback) and re-bind the cells in the new order.
 extern "C" fn on_list_move(node: u64, from: c_int, to: c_int) {
-    let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-        return;
-    };
-    let r = LIST_STATE.with(|m| {
-        m.borrow()
-            .get(&host_key)
-            .and_then(|st| st.source.borrow().clone()?.reorder)
+    ffi_guard::contain((), || {
+        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
+            return;
+        };
+        let r = LIST_STATE.with(|m| {
+            m.borrow()
+                .get(&host_key)
+                .and_then(|st| st.source.borrow().clone()?.reorder)
+        });
+        let Some(r) = r else { return };
+        let (from, to) = (from.max(0) as usize, to.max(0) as usize);
+        if from != to {
+            (r.move_row)(from, to);
+            schedule_list_populate(host_key);
+        }
     });
-    let Some(r) = r else { return };
-    let (from, to) = (from.max(0) as usize, to.max(0) as usize);
-    if from != to {
-        (r.move_row)(from, to);
-        schedule_list_populate(host_key);
-    }
 }
 
 /// Populate/refresh a list's cells on the next event-loop turn — NOT inline: a reload runs inside
@@ -307,58 +321,66 @@ fn list_populate(host_key: usize) {
 }
 
 extern "C" fn on_press(id: u64) {
-    emit(NodeId(id), Event::Pressed);
+    ffi_guard::contain((), || emit(NodeId(id), Event::Pressed));
 }
 extern "C" fn on_toggle(id: u64, on: c_int) {
-    emit(NodeId(id), Event::ToggleChanged(on != 0));
+    ffi_guard::contain((), || emit(NodeId(id), Event::ToggleChanged(on != 0)));
 }
 extern "C" fn on_text(id: u64, s: *const c_char) {
-    let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
-    emit(NodeId(id), Event::TextChanged(text));
+    ffi_guard::contain((), || {
+        let text = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
+        emit(NodeId(id), Event::TextChanged(text));
+    });
 }
 extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
-    let (min, max) = RANGES.with(|r| r.borrow().get(&id).copied().unwrap_or((0.0, 1.0)));
-    let value = min + (v as f64 / 1000.0) * (max - min);
-    // The live value always; the settled one additionally, so a drag records once (the shim
-    // decides which is which — see `day_qt_slider_new`).
-    emit(NodeId(id), Event::ValueChanged(value));
-    if committed != 0 {
-        emit(NodeId(id), Event::ValueCommitted(value));
-    }
+    ffi_guard::contain((), || {
+        let (min, max) = RANGES.with(|r| r.get(id as usize)).unwrap_or((0.0, 1.0));
+        let value = min + (v as f64 / 1000.0) * (max - min);
+        // The live value always; the settled one additionally, so a drag records once (the shim
+        // decides which is which — see `day_qt_slider_new`).
+        emit(NodeId(id), Event::ValueChanged(value));
+        if committed != 0 {
+            emit(NodeId(id), Event::ValueCommitted(value));
+        }
+    });
 }
 /// Focus callback from the C++ event filter (docs/focus.md).
 /// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).
 extern "C" fn on_focus(id: u64, kind: c_int) {
-    let ev = match kind {
-        2 => Event::Submitted,
-        k => Event::FocusChanged(k != 0),
-    };
-    emit(NodeId(id), ev);
+    ffi_guard::contain((), || {
+        let ev = match kind {
+            2 => Event::Submitted,
+            k => Event::FocusChanged(k != 0),
+        };
+        emit(NodeId(id), ev);
+    });
 }
 
 /// Gesture callback from the C++ event filter. phase: 0=tap, 1=drag began, 2=changed, 3=ended.
 extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64) {
     use day_spec::{DragPhase, Point};
-    let at = Point::new(x, y);
-    let ev = match phase {
-        0 => Event::Tap(at),
-        1 => Event::Drag {
-            phase: DragPhase::Began,
-            location: at,
-            translation: Point::ZERO,
-        },
-        3 => Event::Drag {
-            phase: DragPhase::Ended,
-            location: at,
-            translation: Point::new(tx, ty),
-        },
-        _ => Event::Drag {
-            phase: DragPhase::Changed,
-            location: at,
-            translation: Point::new(tx, ty),
-        },
-    };
-    emit(NodeId(id), ev);
+    ffi_guard::contain((), || {
+        let at = Point::new(x, y);
+        let ev = match phase {
+            0 => Event::Tap(at),
+            1 => Event::Drag {
+                phase: DragPhase::Began,
+                location: at,
+                translation: Point::ZERO,
+            },
+            3 => Event::Drag {
+                phase: DragPhase::Ended,
+                location: at,
+                translation: Point::new(tx, ty),
+            },
+            _ => Event::Drag {
+                phase: DragPhase::Changed,
+                location: at,
+                translation: Point::new(tx, ty),
+            },
+        };
+        emit(NodeId(id), ev);
+    });
 }
 
 fn slider_ticks(value: f64, min: f64, max: f64) -> c_int {
@@ -546,12 +568,14 @@ pub(crate) fn toggle_sidebar() -> bool {
 /// The stack-nav header's back button: a day-initiated pop — the host's handler writes it
 /// into the path signal, which reconciles the pop.
 extern "C" fn nav_back_clicked(id: u64) {
-    emit(
-        NodeId(id),
-        Event::NavBack {
-            already_popped: false,
-        },
-    );
+    ffi_guard::contain((), || {
+        emit(
+            NodeId(id),
+            Event::NavBack {
+                already_popped: false,
+            },
+        )
+    });
 }
 
 /// Sync the back header to the stack depth (visible while a pushed page shows), then
@@ -675,7 +699,7 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
 }
 
 extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
-    nav_sync_panes(host);
+    ffi_guard::contain((), || nav_sync_panes(host));
 }
 
 // ---------------------------------------------------------------------------
@@ -695,12 +719,14 @@ thread_local! {
     static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     /// Each tab page's bundled icon NAME, resolved to a file path when the tab is inserted —
-    /// QTabWidget draws it beside the label (docs/tabs.md).
-    static TABS_PAGE_ICONS: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// QTabWidget draws it beside the label (docs/tabs.md). A SideTable: swept in `release`.
+    static TABS_PAGE_ICONS: SideTable<String> = SideTable::new();
 }
 
 extern "C" fn tabs_changed(id: u64, index: c_int) {
-    emit(NodeId(id), Event::SelectionChanged(index as i64));
+    ffi_guard::contain((), || {
+        emit(NodeId(id), Event::SelectionChanged(index as i64))
+    });
 }
 
 /// Report each tab page's content size so NavLayout re-lays it (enqueue-only, §8.3).
@@ -727,15 +753,17 @@ fn tabs_sync(host: *mut std::os::raw::c_void) {
 }
 
 extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
-    let text = if text.is_null() {
-        String::new()
-    } else {
-        unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned()
-    };
-    let result = day_spec::present::PresentResult::decode(tag, index, text);
-    emit_window(Event::PresentResult { req, result });
+    ffi_guard::contain((), || {
+        let text = if text.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        let result = day_spec::present::PresentResult::decode(tag, index, text);
+        emit_window(Event::PresentResult { req, result });
+    });
 }
 
 fn emit_window(ev: Event) {
@@ -747,31 +775,43 @@ fn emit_window(ev: Event) {
 
 // Secondary-window event trampolines (docs/windows.md): the shim keys them by day node id.
 extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
-    emit(
-        day_spec::NodeId(node),
-        Event::WindowResized(Size::new(w as f64, h as f64)),
-    );
+    ffi_guard::contain((), || {
+        emit(
+            day_spec::NodeId(node),
+            Event::WindowResized(Size::new(w as f64, h as f64)),
+        )
+    });
 }
 extern "C" fn win_closed(node: u64) {
-    emit(day_spec::NodeId(node), Event::WindowClosed);
+    ffi_guard::contain((), || emit(day_spec::NodeId(node), Event::WindowClosed));
 }
 extern "C" fn win_focused(node: u64, active: c_int) {
-    emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
+    ffi_guard::contain((), || {
+        emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
+    });
 }
 
 extern "C" fn window_resized(w: c_int, h: c_int) {
-    let size = Size::new(w as f64, h as f64);
-    LAST_WINDOW_SIZE.with(|c| c.set(size));
-    emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
-    // Presented emulated covers track the content area (docs/cover.md: the frame is
-    // native-owned while presented).
-    COVERS.with(|c| {
-        for (cover, node) in c.borrow().iter() {
-            unsafe {
-                ffi::day_qt_set_geometry(*cover, 0, 0, size.width as c_int, size.height as c_int)
-            };
-            emit(*node, Event::FrameChanged(size));
-        }
+    ffi_guard::contain((), || {
+        let size = Size::new(w as f64, h as f64);
+        LAST_WINDOW_SIZE.with(|c| c.set(size));
+        emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
+        // Presented emulated covers track the content area (docs/cover.md: the frame is
+        // native-owned while presented).
+        COVERS.with(|c| {
+            for (cover, node) in c.borrow().iter() {
+                unsafe {
+                    ffi::day_qt_set_geometry(
+                        *cover,
+                        0,
+                        0,
+                        size.width as c_int,
+                        size.height as c_int,
+                    )
+                };
+                emit(*node, Event::FrameChanged(size));
+            }
+        });
     });
 }
 
@@ -794,13 +834,15 @@ extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {
     // -1 = cleared (programmatic unselect fires nothing thanks to blockSignals; a clear
     // reaching here means the widget emptied — ignore). Deferred: selecting a sidebar item
     // rebuilds the detail, which must not run inside the list's own event dispatch.
-    if row >= 0 {
-        emit_deferred(NodeId(id), Event::SelectionChanged(row as i64));
-    }
+    ffi_guard::contain((), || {
+        if row >= 0 {
+            emit_deferred(NodeId(id), Event::SelectionChanged(row as i64));
+        }
+    });
 }
 
 extern "C" fn on_menu_action(id: u64) {
-    emit_window(Event::MenuAction(id));
+    ffi_guard::contain((), || emit_window(Event::MenuAction(id)));
 }
 
 /// Resolve a bundled image NAME to a loadable file path (or "" if it doesn't resolve).
@@ -872,13 +914,15 @@ pub const fn lifecycle_supported(phase: day_spec::Lifecycle) -> bool {
 /// Phase codes (from the Qt shim's QApplication signals) → day lifecycle events.
 extern "C" fn on_lifecycle(code: c_int) {
     use day_spec::Lifecycle::*;
-    let phase = match code {
-        2 => DidBecomeActive,
-        3 => WillResignActive,
-        7 => WillTerminate,
-        _ => return,
-    };
-    emit_window(Event::Lifecycle(phase));
+    ffi_guard::contain((), || {
+        let phase = match code {
+            2 => DidBecomeActive,
+            3 => WillResignActive,
+            7 => WillTerminate,
+            _ => return,
+        };
+        emit_window(Event::Lifecycle(phase));
+    });
 }
 
 /// A QKeySequence-parseable string for a shortcut. Qt maps `Ctrl` to ⌘ on macOS, so `primary`
@@ -1024,6 +1068,12 @@ fn warn_missing_renderer(kind: PieceKind) {
     day_spec::placeholder::report(kind, "qt");
 }
 
+/// The visible placeholder a realize arm degrades to when its props payload has the wrong type
+/// (`props_of` has already reported the mismatch) — the same label the missing-renderer arm shows.
+pub(crate) fn placeholder_handle(kind: PieceKind) -> QtHandle {
+    QtHandle(unsafe { ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()) })
+}
+
 impl Toolkit for Qt {
     type Handle = QtHandle;
 
@@ -1140,7 +1190,9 @@ impl Toolkit for Qt {
                     cover
                 }
                 Some(Builtin::Tabs) => {
-                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let Some(p) = props_of::<TabsProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_qt_tabs_new(id.0, tabs_changed);
                     TABS_STATE.with(|m| {
                         m.borrow_mut().insert(
@@ -1155,19 +1207,22 @@ impl Toolkit for Qt {
                     QtHandle(w)
                 }
                 Some(Builtin::TabsPage) => {
-                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let Some(p) = props_of::<TabsPageProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let page = QtHandle(ffi::day_qt_container_new());
                     TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
                     TABS_PAGE_TITLES
                         .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
                     if let Some(icon) = p.icon.as_deref() {
-                        TABS_PAGE_ICONS
-                            .with(|m| m.borrow_mut().insert(page.0 as usize, icon.to_string()));
+                        TABS_PAGE_ICONS.with(|m| m.insert(page.0 as usize, icon.to_string()));
                     }
                     page
                 }
                 Some(Builtin::NavMenu) => {
-                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let Some(p) = props_of::<NavMenuProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_qt_navlist_new(id.0, nav_menu_changed);
                     let joined = p.items.join("\u{1f}");
                     // Parallel per-row icon file paths (empty entry = no icon). Resolve the
@@ -1213,7 +1268,9 @@ impl Toolkit for Qt {
                     QtHandle(ffi::day_qt_scroll_new(horizontal as c_int))
                 }
                 Some(Builtin::Label) => {
-                    let p = props.downcast_ref::<LabelProps>().unwrap();
+                    let Some(p) = props_of::<LabelProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_qt_label_set_font(w, pt, weight, italic, tabular);
@@ -1224,34 +1281,42 @@ impl Toolkit for Qt {
                     QtHandle(w)
                 }
                 Some(Builtin::Button) => {
-                    let p = props.downcast_ref::<ButtonProps>().unwrap();
+                    let Some(p) = props_of::<ButtonProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
                 Some(Builtin::Toggle) => {
-                    let p = props.downcast_ref::<ToggleProps>().unwrap();
+                    let Some(p) = props_of::<ToggleProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_qt_checkbox_new(p.on as c_int, id.0, on_toggle);
                     ffi::day_qt_set_enabled(w, p.enabled as c_int);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
                 Some(Builtin::Slider) => {
-                    let p = props.downcast_ref::<SliderProps>().unwrap();
-                    RANGES.with(|r| r.borrow_mut().insert(id.0, (p.min, p.max)));
+                    let Some(p) = props_of::<SliderProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
+                    RANGES.with(|r| r.insert(id.0 as usize, (p.min, p.max)));
                     let w = ffi::day_qt_slider_new(
                         slider_ticks(p.value, p.min, p.max),
                         id.0,
                         on_slider,
                     );
-                    RANGES_BY_PTR.with(|r| r.borrow_mut().insert(w as usize, (p.min, p.max)));
+                    RANGES_BY_PTR.with(|r| r.insert(w as usize, (p.min, p.max)));
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
                 Some(Builtin::Picker) => picker::realize_any(self, props, id),
                 Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
                 Some(Builtin::TextField) => {
-                    let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                    let Some(p) = props_of::<TextFieldProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let w = ffi::day_qt_lineedit_new(
                         cstr(&p.text).as_ptr(),
                         cstr(&p.placeholder).as_ptr(),
@@ -1263,7 +1328,9 @@ impl Toolkit for Qt {
                 }
                 Some(Builtin::Divider) => QtHandle(ffi::day_qt_separator_new()),
                 Some(Builtin::Progress) => {
-                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    let Some(p) = props_of::<ProgressProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     match p.value {
                         Some(v) => QtHandle(ffi::day_qt_progress_new(1, progress_ticks(v))),
                         None => QtHandle(ffi::day_qt_progress_new(0, 0)),
@@ -1271,7 +1338,9 @@ impl Toolkit for Qt {
                 }
                 Some(Builtin::Canvas) => QtHandle(ffi::day_qt_canvas_new()),
                 Some(Builtin::Image) => {
-                    let p = props.downcast_ref::<ImageProps>().unwrap();
+                    let Some(p) = props_of::<ImageProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     // Prefer the native Qt resource `:/day/images/<name>` (§18.3); else a loose file.
                     let res_path = format!(":/day/images/{}", p.source);
                     let path = if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0 {
@@ -1297,7 +1366,9 @@ impl Toolkit for Qt {
                     ))
                 }
                 Some(Builtin::List) => {
-                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let Some(p) = props_of::<ListProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
                     let host = ffi::day_qt_scroll_new(0);
                     let row_height = match p.row_height {
                         RowHeight::Uniform(h) => h,
@@ -1345,7 +1416,7 @@ impl Toolkit for Qt {
                         return make(self, props, id);
                     }
                     warn_missing_renderer(kind);
-                    QtHandle(ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()))
+                    placeholder_handle(kind)
                 }
             }
         }
@@ -1585,7 +1656,7 @@ impl Toolkit for Qt {
                         match p {
                             SliderPatch::Value(v) => {
                                 let (min, max) = RANGES_BY_PTR
-                                    .with(|r| r.borrow().get(&(h.0 as usize)).copied())
+                                    .with(|r| r.get(h.0 as usize))
                                     .unwrap_or((0.0, 1.0));
                                 ffi::day_qt_slider_set(h.0, slider_ticks(*v, min, max));
                             }
@@ -1706,6 +1777,11 @@ impl Toolkit for Qt {
         COVER_IDS.with(|m| {
             m.borrow_mut().remove(&key);
         });
+        // ONE sweep drops this handle from EVERY SideTable registered on this thread — the
+        // slider ranges, the tab icons, the textarea line bands, and any table added later —
+        // so a widget recycling the freed address can't inherit the dead widget's entries.
+        // (The explicit purges above stay: they key by node id / value pairs, not this address.)
+        day_spec::sidetable::sweep(key);
         unsafe {
             ffi::day_qt_remove_child(h.0);
             ffi::day_qt_delete(h.0);
@@ -1737,7 +1813,7 @@ impl Toolkit for Qt {
             // The icon rides the same bundled-name channel the nav rows use, so a tab shows the
             // same template vector here that it shows on a phone's tab bar.
             let icon = TABS_PAGE_ICONS
-                .with(|m| m.borrow().get(&(child.0 as usize)).cloned())
+                .with(|m| m.get(child.0 as usize))
                 .map(|name| icon_file_path(&name))
                 .unwrap_or_default();
             if !icon.is_empty() {
@@ -2201,8 +2277,10 @@ fn snapshot_qt_widget(widget: *mut c_void) -> Result<Vec<u8>, String> {
 }
 
 extern "C" fn run_posted(data: *mut c_void) {
+    // The posted-closure trampoline runs arbitrary Rust (deferred emits, list populates) —
+    // contained like every other FFI entry (day-spec's ffi_guard).
     let f: Box<Box<dyn FnOnce() + Send>> = unsafe { Box::from_raw(data as *mut _) };
-    f();
+    ffi_guard::contain((), f);
 }
 
 impl Platform for Qt {

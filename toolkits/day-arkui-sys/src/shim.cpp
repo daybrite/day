@@ -175,6 +175,12 @@ static void drain_async(uv_async_t*) {
 // List drag-to-reorder handlers (docs/list.md), defined with the list state below.
 static void day_list_on_drag_start(ArkUI_NodeEvent* ev);
 static void day_list_on_drop(ArkUI_NodeEvent* ev);
+// Per-node side-state erasure on dispose (defined with the canvas/list state below):
+// disposeNode frees the node, and a later createNode can RECYCLE its address — a stale
+// g_canvas/g_lists entry would then alias the new node, and the list's adapter, cell pool,
+// and swipe bookkeeping (plus the canvas op vectors) would leak per released node.
+static void day_canvas_forget(void* n);
+static void day_list_forget(void* n);
 
 static void event_receiver(ArkUI_NodeEvent* ev) {
     if (!ev) return;
@@ -310,7 +316,11 @@ void* day_ark_node_new(int32_t kind) {
     return g_api ? g_api->createNode(kind_map(kind)) : nullptr;
 }
 void day_ark_node_dispose(void* n) {
-    if (g_api && n) g_api->disposeNode((ArkUI_NodeHandle)n);
+    if (!n) return;
+    // Erase per-node side state BEFORE the node dies (see the forward declarations above).
+    day_canvas_forget(n);
+    day_list_forget(n);
+    if (g_api) g_api->disposeNode((ArkUI_NodeHandle)n);
 }
 void day_ark_add_child(void* p, void* c) {
     if (g_api) g_api->addChild((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c);
@@ -1018,6 +1028,11 @@ struct CanvasOps {
 static std::map<void*, CanvasOps> g_canvas; // custom node → its ops
 static const int32_t CANVAS_DRAW_TARGET = 77;
 
+// A canvas node is being disposed: drop its display list (the op/text vectors) so the entry
+// cannot alias a recycled node address. Forward-declared at the top; called from
+// day_ark_node_dispose.
+static void day_canvas_forget(void* n) { g_canvas.erase(n); }
+
 static uint32_t argb_to_drawing(double bits) {
     return (uint32_t)(int64_t)bits; // already 0xAARRGGBB
 }
@@ -1476,6 +1491,48 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
         default:
             break;
     }
+}
+
+// A LIST node is being disposed: tear down its adapter binding. The adapter handle, the
+// cells (created in the adapter's add callback), and the swipe-action bookkeeping are all
+// shim-created — day-core never owns them (a cell's inner Stack is only BORROWED through
+// `adopt`, per the day-core cell contract), so this is the one place they can be freed. The
+// g_lists entry must go regardless, or a later createNode recycling the address would alias
+// this binding. Forward-declared at the top; called from day_ark_node_dispose.
+static void day_list_forget(void* n) {
+    auto it = g_lists.find(n);
+    if (it == g_lists.end()) return;
+    DayList* dl = it->second;
+    g_lists.erase(it);
+    if (g_drag_list == dl) { // an in-flight drag cannot outlive its list
+        g_drag_list = nullptr;
+        g_drag_from = -1;
+    }
+    // No adapter callbacks may fire into the half-dead binding while it is dismantled.
+    OH_ArkUI_NodeAdapter_UnregisterEventReceiver(dl->adapter);
+    // `rows` holds every cell ever created (pooled and live): dispose each cell's inner
+    // Stack and the cell itself. Day's own row-content nodes are disposed individually by
+    // day-core's release queue — ArkUI's disposeNode is per-node, so the orders compose
+    // (day-core's whole-subtree teardown already relies on that).
+    if (g_api) {
+        for (auto& row : dl->rows) {
+            ArkUI_NodeHandle inner = g_api->getChildAt(row.first, 0);
+            if (inner) g_api->disposeNode(inner);
+            g_api->disposeNode(row.first);
+        }
+    }
+    for (auto& sw : dl->swipe_opts) OH_ArkUI_ListItemSwipeActionOption_Dispose(sw.second);
+    OH_ArkUI_NodeAdapter_Dispose(dl->adapter);
+    // The per-cell swipe userdata records ("owned; freed with the list") for THIS list.
+    for (auto sit = g_swipe_cells.begin(); sit != g_swipe_cells.end();) {
+        if ((*sit)->dl == dl) {
+            delete *sit;
+            sit = g_swipe_cells.erase(sit);
+        } else {
+            ++sit;
+        }
+    }
+    delete dl;
 }
 
 void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t reorderable,

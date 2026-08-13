@@ -297,6 +297,11 @@ pub fn launch_with<P: Platform>(
     // (a glib idle, a GCD block) that ABORT the process on unwind (`panic_cannot_unwind`) — so a
     // panic in a `Setter` write's drain or a scheduled `flush_sync` would SIGABRT the app instead
     // of surfacing. Contain at this single backend-agnostic boundary and reset the runtime.
+    // Backend FFI trampolines (JNI up-calls, C callbacks, posted closures) contain panics
+    // through day-spec's `ffi_guard`; hand it the recovery hook here — the one layer that
+    // knows day-reactive — so a contained panic can't strand the observer stack or leave a
+    // half-open batch behind.
+    day_spec::ffi_guard::set_recovery(day_reactive::recover_from_panic);
     day_reactive::install_main_poster(|f| {
         P::post(Box::new(move || contain_posted_panic(f)));
     });

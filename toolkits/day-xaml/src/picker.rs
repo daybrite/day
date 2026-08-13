@@ -10,7 +10,6 @@
 
 use day_spec::Event;
 use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
-use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 
 use crate::{WinHandle, Xaml};
@@ -37,7 +36,10 @@ unsafe extern "C" {
 }
 
 extern "C" fn on_select(id: u64, idx: c_int) {
-    crate::emit(NodeId(id), Event::SelectionChanged(idx as i64));
+    // Contained: a panic unwinding into the C++/WinRT shim frame is UB (day-spec's ffi_guard).
+    day_spec::ffi_guard::contain((), || {
+        crate::emit(NodeId(id), Event::SelectionChanged(idx as i64))
+    });
 }
 
 fn style_code(s: PickerStyle) -> c_int {
@@ -49,7 +51,8 @@ fn style_code(s: PickerStyle) -> c_int {
 }
 
 fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
-    let joined = CString::new(p.options.join("\n")).unwrap_or_default();
+    // crate::cstr strips interior NULs, so one bad option can't blank the whole list.
+    let joined = crate::cstr(&p.options.join("\n"));
     WinHandle(unsafe {
         day_picker_xaml_new(
             style_code(p.style),
@@ -82,10 +85,10 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::WinHandle {
-    let p = props
-        .downcast_ref::<PickerProps>()
-        .expect("day: picker props type");
-    make(b, p, id)
+    match day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "xaml", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_handle(day_spec::kinds::PICKER),
+    }
 }
 
 pub(crate) fn update_any(b: &mut crate::Xaml, h: &crate::WinHandle, patch: &dyn std::any::Any) {

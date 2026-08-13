@@ -28,11 +28,15 @@ unsafe extern "C" {
 }
 
 extern "C" fn on_select(id: u64, idx: c_int) {
-    crate::emit(NodeId(id), Event::SelectionChanged(idx as i64));
+    // Contained: a panic unwinding into the C++ shim frame is UB (day-spec's ffi_guard).
+    day_spec::ffi_guard::contain((), || {
+        crate::emit(NodeId(id), Event::SelectionChanged(idx as i64))
+    });
 }
 
 fn joined(items: &[String]) -> CString {
-    CString::new(items.join("\n")).unwrap_or_default()
+    // crate::cstr strips interior NULs, so one bad option can't blank the whole list.
+    crate::cstr(&items.join("\n"))
 }
 
 fn style_code(s: PickerStyle) -> c_int {
@@ -76,10 +80,10 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<PickerProps>()
-        .expect("day: picker props type");
-    make(b, p, id)
+    match day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "qt", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_handle(day_spec::kinds::PICKER),
+    }
 }
 
 pub(crate) fn update_any(b: &mut crate::Qt, h: &crate::Handle, patch: &dyn std::any::Any) {

@@ -8,12 +8,12 @@
 
 use day_spec::Event;
 use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::Gtk;
-use day_spec::{NodeId, Proposal, Size};
+use day_spec::sidetable::SideTable;
+use day_spec::{NodeId, Proposal, Size, ffi_guard};
 use gtk4::prelude::*;
 
 struct PickerState {
@@ -24,7 +24,9 @@ struct PickerState {
 }
 
 thread_local! {
-    static STATE: RefCell<HashMap<usize, PickerState>> = RefCell::new(HashMap::new());
+    /// Root widget ptr → picker state. A [`SideTable`]: no local release path exists here, so
+    /// the backend's release sweep is what drops a dead picker's entry.
+    static STATE: SideTable<PickerState> = SideTable::new();
 }
 
 fn key(w: &gtk4::Widget) -> usize {
@@ -36,13 +38,15 @@ fn make_menu(p: &PickerProps, id: NodeId, suppress: Rc<Cell<bool>>) -> gtk4::Dro
     let dd = gtk4::DropDown::new(Some(gtk4::StringList::new(&refs)), gtk4::Expression::NONE);
     dd.set_selected(p.selected as u32);
     dd.connect_selected_notify(move |d| {
-        if suppress.get() {
-            return;
-        }
-        let sel = d.selected();
-        if sel != gtk4::INVALID_LIST_POSITION {
-            crate::emit(id, Event::SelectionChanged(sel as i64));
-        }
+        ffi_guard::contain((), || {
+            if suppress.get() {
+                return;
+            }
+            let sel = d.selected();
+            if sel != gtk4::INVALID_LIST_POSITION {
+                crate::emit(id, Event::SelectionChanged(sel as i64));
+            }
+        });
     });
     dd
 }
@@ -74,10 +78,12 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
                 }
                 let suppress = suppress.clone();
                 t.connect_toggled(move |t| {
-                    if suppress.get() || !t.is_active() {
-                        return;
-                    }
-                    crate::emit(id, Event::SelectionChanged(i as i64));
+                    ffi_guard::contain((), || {
+                        if suppress.get() || !t.is_active() {
+                            return;
+                        }
+                        crate::emit(id, Event::SelectionChanged(i as i64));
+                    });
                 });
                 bx.append(&t);
                 toggles.push(t);
@@ -108,10 +114,12 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
                 }
                 let suppress = suppress.clone();
                 c.connect_toggled(move |c| {
-                    if suppress.get() || !c.is_active() {
-                        return;
-                    }
-                    crate::emit(id, Event::SelectionChanged(i as i64));
+                    ffi_guard::contain((), || {
+                        if suppress.get() || !c.is_active() {
+                            return;
+                        }
+                        crate::emit(id, Event::SelectionChanged(i as i64));
+                    });
                 });
                 bx.append(&c);
                 checks.push(c);
@@ -132,7 +140,7 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
             )
         }
     };
-    STATE.with(|m| m.borrow_mut().insert(key(&root), state));
+    STATE.with(|m| m.insert(key(&root), state));
     root
 }
 
@@ -140,21 +148,19 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &PickerPatch) {
     let PickerPatch::Selected(i) = patch;
     let i = *i;
     STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&key(h)) else {
-            return;
-        };
-        st.suppress.set(true);
-        if let Some(dd) = &st.dropdown {
-            if dd.selected() as usize != i {
-                dd.set_selected(i as u32);
+        m.with(key(h), |st| {
+            st.suppress.set(true);
+            if let Some(dd) = &st.dropdown {
+                if dd.selected() as usize != i {
+                    dd.set_selected(i as u32);
+                }
+            } else if let Some(t) = st.toggles.get(i) {
+                t.set_active(true);
+            } else if let Some(c) = st.checks.get(i) {
+                c.set_active(true);
             }
-        } else if let Some(t) = st.toggles.get(i) {
-            t.set_active(true);
-        } else if let Some(c) = st.checks.get(i) {
-            c.set_active(true);
-        }
-        st.suppress.set(false);
+            st.suppress.set(false);
+        });
     });
 }
 
@@ -171,10 +177,11 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<PickerProps>()
-        .expect("day: picker props type");
-    make(b, p, id)
+    // A wrong payload degrades to the placeholder (props_of reports it) — never a panic.
+    match day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "gtk", props) {
+        Some(p) => make(b, p, id),
+        None => crate::placeholder_label(day_spec::kinds::PICKER),
+    }
 }
 
 pub(crate) fn update_any(b: &mut crate::Gtk, h: &crate::Handle, patch: &dyn std::any::Any) {

@@ -84,18 +84,21 @@ pub(crate) extern "C" fn on_toolbar_value(
     on: c_int,
     text: *const c_char,
 ) {
-    let value = if kind == 0 {
-        ToolbarValue::On(on != 0)
-    } else {
-        let text = unsafe { CStr::from_ptr(text) }
-            .to_string_lossy()
-            .into_owned();
-        ToolbarValue::Text(text)
-    };
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::ToolbarChanged { action, value },
-    );
+    // Contained: a panic unwinding into the C++/WinRT shim frame is UB (day-spec's ffi_guard).
+    day_spec::ffi_guard::contain((), || {
+        let value = if kind == 0 {
+            ToolbarValue::On(on != 0)
+        } else {
+            let text = unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned();
+            ToolbarValue::Text(text)
+        };
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged { action, value },
+        );
+    });
 }
 
 /// Tabs and newlines are the record separators, so they can never appear inside a field.

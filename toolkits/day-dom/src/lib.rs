@@ -167,12 +167,27 @@ pub fn now_epoch_ms() -> u64 {
     }
 }
 
-/// Read a host "environment" value (query params / navigator facts) into a String.
+/// Read a host "environment" value (query params / navigator facts) into a String. A value
+/// longer than the first buffer gets a right-sized retry instead of a mid-UTF-8 truncation:
+/// a shim that reports the value's full length triggers the `n > cap` branch directly, and
+/// one that clamps its return to the buffer (writing exactly `cap` bytes) grows until there
+/// is headroom.
 fn env(key: &str) -> String {
-    let mut buf = vec![0u8; 512];
-    let n = unsafe { day_dom_env(key.as_ptr(), key.len(), buf.as_mut_ptr(), buf.len()) };
-    buf.truncate(n.min(512));
-    String::from_utf8_lossy(&buf).into_owned()
+    let mut cap = 512usize;
+    loop {
+        let mut buf = vec![0u8; cap];
+        let n = unsafe { day_dom_env(key.as_ptr(), key.len(), buf.as_mut_ptr(), buf.len()) };
+        if n > cap {
+            cap = n;
+            continue;
+        }
+        if n == cap {
+            cap *= 2;
+            continue;
+        }
+        buf.truncate(n);
+        return String::from_utf8_lossy(&buf).into_owned();
+    }
 }
 
 thread_local! {
@@ -412,6 +427,17 @@ fn node_of(el: u32) -> Option<NodeId> {
 
 fn remember(el: u32, id: NodeId) {
     NODE_OF.with(|m| m.borrow_mut().insert(el, id));
+}
+
+/// Realize fallback for a builtin arm whose props failed to downcast
+/// ([`day_spec::props_of`] already reported it): the same visible `⟨kind⟩` label the
+/// missing-renderer path builds, so one mismatched piece cannot take down the tree build.
+fn realize_placeholder(kind: PieceKind, id: NodeId) -> DomHandle {
+    let el = unsafe { day_dom_create(EL_LABEL) };
+    text(el, &format!("⟨{kind}⟩"));
+    class(el, "placeholder", true);
+    remember(el, id);
+    DomHandle(el)
 }
 
 // ---------------------------------------------------------------------------
@@ -814,13 +840,20 @@ impl Toolkit for Dom {
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> DomHandle {
         let el = match Builtin::from_key(kind) {
             Some(Builtin::Container) => {
-                let p = props.downcast_ref::<ContainerProps>().unwrap();
+                // Here and in every arm below: a props-type mismatch degrades to the visible
+                // placeholder label (`props_of` reported it) instead of panicking out of the
+                // wasm export that drove this realize.
+                let Some(p) = day_spec::props_of::<ContainerProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_DIV) };
                 apply_surface(el, p.background, p.corner_radius, p.clips, p.role.is_some());
                 el
             }
             Some(Builtin::Label) => {
-                let p = props.downcast_ref::<LabelProps>().unwrap();
+                let Some(p) = day_spec::props_of::<LabelProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_LABEL) };
                 text(el, &p.text);
                 apply_font(el, &p.font);
@@ -833,7 +866,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Button) => {
-                let p = props.downcast_ref::<ButtonProps>().unwrap();
+                let Some(p) = day_spec::props_of::<ButtonProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_BUTTON) };
                 text(el, &p.title);
                 match p.style {
@@ -848,7 +883,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Toggle) => {
-                let p = props.downcast_ref::<ToggleProps>().unwrap();
+                let Some(p) = day_spec::props_of::<ToggleProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_TOGGLE) };
                 unsafe { day_dom_set_checked(el, p.on as u32) };
                 if !p.enabled {
@@ -858,7 +895,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Slider) => {
-                let p = props.downcast_ref::<SliderProps>().unwrap();
+                let Some(p) = day_spec::props_of::<SliderProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_SLIDER) };
                 attr(el, "min", &p.min.to_string());
                 attr(el, "max", &p.max.to_string());
@@ -877,7 +916,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::TextField) => {
-                let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                let Some(p) = day_spec::props_of::<TextFieldProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_FIELD) };
                 attr(el, "value", &p.text);
                 attr(el, "placeholder", &p.placeholder);
@@ -888,7 +929,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::TextArea) => {
-                let p = props.downcast_ref::<TextAreaProps>().unwrap();
+                let Some(p) = day_spec::props_of::<TextAreaProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_AREA) };
                 text(el, &p.text);
                 attr(el, "placeholder", &p.placeholder);
@@ -901,11 +944,15 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Picker) => {
-                let p = props.downcast_ref::<PickerProps>().unwrap();
+                let Some(p) = day_spec::props_of::<PickerProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 realize_picker(p)
             }
             Some(Builtin::Progress) => {
-                let p = props.downcast_ref::<ProgressProps>().unwrap();
+                let Some(p) = day_spec::props_of::<ProgressProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe {
                     day_dom_create(if p.value.is_some() {
                         EL_PROGRESS
@@ -927,7 +974,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Image) => {
-                let p = props.downcast_ref::<ImageProps>().unwrap();
+                let Some(p) = day_spec::props_of::<ImageProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let src = if p.source.contains('/') {
                     p.source.clone()
                 } else {
@@ -965,7 +1014,9 @@ impl Toolkit for Dom {
             }
             Some(Builtin::Canvas) => unsafe { day_dom_create(EL_CANVAS) },
             Some(Builtin::Scroll) => {
-                let p = props.downcast_ref::<ScrollProps>().unwrap();
+                let Some(p) = day_spec::props_of::<ScrollProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_SCROLL) };
                 if p.horizontal {
                     class(el, "horizontal", true);
@@ -975,7 +1026,9 @@ impl Toolkit for Dom {
             }
             Some(Builtin::Divider) => unsafe { day_dom_create(EL_DIVIDER) },
             Some(Builtin::Nav) => {
-                let p = props.downcast_ref::<NavProps>().unwrap();
+                let Some(p) = day_spec::props_of::<NavProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let split = p.presentation.is_split();
                 let el = unsafe { day_dom_create(EL_NAV) };
                 unsafe { day_dom_nav_mode(el, split as u32, p.title.as_ptr(), p.title.len()) };
@@ -994,7 +1047,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::NavPage) => {
-                let p = props.downcast_ref::<NavPageProps>().unwrap();
+                let Some(p) = day_spec::props_of::<NavPageProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 PAGE_SIDEBAR.with(|m| {
                     m.borrow_mut()
@@ -1014,7 +1069,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::NavMenu) => {
-                let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_NAVMENU) };
                 let json = navmenu_json(
                     &p.items,
@@ -1028,7 +1085,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::Tabs) => {
-                let p = props.downcast_ref::<TabsProps>().unwrap();
+                let Some(p) = day_spec::props_of::<TabsProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let el = unsafe { day_dom_create(EL_TABS) };
                 let json = tabs_json(&p.titles, p.selected);
                 unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
@@ -1041,7 +1100,9 @@ impl Toolkit for Dom {
                 el
             }
             Some(Builtin::List) => {
-                let p = props.downcast_ref::<ListProps>().unwrap();
+                let Some(p) = day_spec::props_of::<ListProps>(kind, "web-dom", props) else {
+                    return realize_placeholder(kind, id);
+                };
                 let host = unsafe { day_dom_create(EL_SCROLL) };
                 class(host, "day-list", true);
                 if p.reorderable {
@@ -1122,12 +1183,16 @@ impl Toolkit for Dom {
             kinds::CONTAINER => {
                 if let Some(ContainerPatch::Background(c)) = patch.downcast_ref::<ContainerPatch>()
                 {
-                    if let Some(a) = anim {
-                        s(
+                    // `transition` persists on the element, so a non-animated patch must
+                    // CLEAR it — otherwise one animated patch makes every later plain
+                    // background change animate too.
+                    match anim {
+                        Some(a) => s(
                             el,
                             "transition",
                             &format!("background-color {}", css_anim(a)),
-                        );
+                        ),
+                        None => s(el, "transition", ""),
                     }
                     match c {
                         Some(c) => s(el, "background-color", &color_css(*c)),
@@ -1332,6 +1397,10 @@ impl Toolkit for Dom {
 
     fn release(&mut self, h: DomHandle) {
         let el = h.0;
+        // One sweep drops this element's entry from every registered `SideTable` — present
+        // and future — before the manual purges below (day_spec::sidetable; day-dom keys by
+        // shim element id, widened to the sweeper's usize key space).
+        day_spec::sidetable::sweep(el as usize);
         NODE_OF.with(|m| m.borrow_mut().remove(&el));
         IMAGE_SRC.with(|m| m.borrow_mut().remove(&el));
         CSS_FRAMED.with(|s| s.borrow_mut().remove(&el));
@@ -1522,15 +1591,19 @@ impl Toolkit for Dom {
     }
 
     fn set_opacity(&mut self, h: &DomHandle, opacity: f64, anim: Option<&AnimSpec>) {
-        if let Some(a) = anim {
-            s(h.0, "transition", &format!("opacity {}", css_anim(a)));
+        // Set-or-clear: a lingering `transition` would animate every later plain patch.
+        match anim {
+            Some(a) => s(h.0, "transition", &format!("opacity {}", css_anim(a))),
+            None => s(h.0, "transition", ""),
         }
         s(h.0, "opacity", &opacity.to_string());
     }
 
     fn set_transform(&mut self, h: &DomHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
-        if let Some(a) = anim {
-            s(h.0, "transition", &format!("transform {}", css_anim(a)));
+        // Set-or-clear, as in `set_opacity`.
+        match anim {
+            Some(a) => s(h.0, "transition", &format!("transform {}", css_anim(a))),
+            None => s(h.0, "transition", ""),
         }
         // Mark this element as a compositing root so its rounded-clip descendants get their own
         // clipped layer (day.css `.day-xform .day-clip`) — see the note in `apply_surface`.
@@ -2364,43 +2437,54 @@ fn take_string(ptr: *mut u8, len: usize) -> String {
 /// `LISTS` borrow held.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_list_can_move(host: u32, from: u32, to: u32) -> i32 {
-    let r = LISTS.with(|m| {
-        m.borrow()
-            .get(&host)
-            .and_then(|st| st.source.as_ref().map(|s| ((s.len)(), s.reorder.clone())))
-    });
-    let Some((len, Some(r))) = r else { return -1 };
-    let (from, to) = (from as usize, to as usize);
-    if from >= len || to >= len {
-        return -1;
-    }
-    ((r.can_move)(from, to) as i32).min(len.saturating_sub(1) as i32)
+    // Every export below that runs closures or dispatches events is contained
+    // (day_spec::ffi_guard): a panic unwinding a wasm `extern "C"` frame traps the
+    // instance, so a caught panic reports and returns the arm's safe default instead.
+    day_spec::ffi_guard::contain(-1, || {
+        let r = LISTS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .and_then(|st| st.source.as_ref().map(|s| ((s.len)(), s.reorder.clone())))
+        });
+        let Some((len, Some(r))) = r else { return -1 };
+        let (from, to) = (from as usize, to as usize);
+        if from >= len || to >= len {
+            return -1;
+        }
+        ((r.can_move)(from, to) as i32).min(len.saturating_sub(1) as i32)
+    })
 }
 
 /// Commit a drop the guard accepts: rotate Day's snapshot (deferring the app callback), then
 /// reposition + rebind the pooled cells to the new order. Returns 1 on commit, 0 on deny.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_list_move(host: u32, from: u32, to: u32) -> u32 {
-    let accepted = day_dom_list_can_move(host, from, to);
-    if accepted < 0 {
-        return 0;
-    }
-    let r = LISTS.with(|m| {
-        m.borrow()
-            .get(&host)
-            .and_then(|st| st.source.as_ref().and_then(|s| s.reorder.clone()))
-    });
-    let Some(r) = r else { return 0 };
-    if accepted as u32 != from {
-        (r.move_row)(from as usize, accepted as usize);
-    }
-    // Re-bind every pooled cell in the rotated order (the emulated "move animation").
-    post_local(move || list_populate(host));
-    1
+    day_spec::ffi_guard::contain(0, || {
+        let accepted = day_dom_list_can_move(host, from, to);
+        if accepted < 0 {
+            return 0;
+        }
+        let r = LISTS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .and_then(|st| st.source.as_ref().and_then(|s| s.reorder.clone()))
+        });
+        let Some(r) = r else { return 0 };
+        if accepted as u32 != from {
+            (r.move_row)(from as usize, accepted as usize);
+        }
+        // Re-bind every pooled cell in the rotated order (the emulated "move animation").
+        post_local(move || list_populate(host));
+        1
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_event(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
+    day_spec::ffi_guard::contain((), || day_dom_event_inner(el, kind, a, b, c, d));
+}
+
+fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
     if kind == ev::CLICK && CELL_ROWS.with(|m| m.borrow().contains_key(&el)) {
         list_cell_click(el, a as u32);
         return;
@@ -2440,24 +2524,28 @@ pub extern "C" fn day_dom_event(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_piece_event(el: u32, num: f64, ptr: *mut u8, len: usize) {
     let t = take_string(ptr, len);
-    if let Some(node) = node_of(el) {
-        emit(
-            node,
-            Event::Custom {
-                tag: "",
-                num,
-                text: t,
-            },
-        );
-    }
+    day_spec::ffi_guard::contain((), move || {
+        if let Some(node) = node_of(el) {
+            emit(
+                node,
+                Event::Custom {
+                    tag: "",
+                    num,
+                    text: t,
+                },
+            );
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_event_text(el: u32, _kind: u32, ptr: *mut u8, len: usize) {
     let t = take_string(ptr, len);
-    if let Some(node) = node_of(el) {
-        emit(node, Event::TextChanged(t));
-    }
+    day_spec::ffi_guard::contain((), move || {
+        if let Some(node) = node_of(el) {
+            emit(node, Event::TextChanged(t));
+        }
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -2469,13 +2557,15 @@ pub extern "C" fn day_dom_present_result(req: u32, which: i32, ptr: *mut u8, len
     } else {
         PresentResult::Button(i64::from(which))
     };
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::PresentResult {
-            req: u64::from(req),
-            result,
-        },
-    );
+    day_spec::ffi_guard::contain((), move || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::PresentResult {
+                req: u64::from(req),
+                result,
+            },
+        );
+    });
 }
 
 /// A toolbar button or menu entry was chosen — the same `MenuAction` every other backend
@@ -2483,19 +2573,23 @@ pub extern "C" fn day_dom_present_result(req: u32, which: i32, ptr: *mut u8, len
 /// represents exactly.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_toolbar_action(action: f64) {
-    emit(day_spec::WINDOW_NODE, Event::MenuAction(action as u64));
+    day_spec::ffi_guard::contain((), || {
+        emit(day_spec::WINDOW_NODE, Event::MenuAction(action as u64));
+    });
 }
 
 /// A toolbar toggle flipped.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_toolbar_on(action: f64, on: u32) {
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::ToolbarChanged {
-            action: action as u64,
-            value: day_spec::ToolbarValue::On(on != 0),
-        },
-    );
+    day_spec::ffi_guard::contain((), || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged {
+                action: action as u64,
+                value: day_spec::ToolbarValue::On(on != 0),
+            },
+        );
+    });
 }
 
 /// A toolbar search field's text changed. `take_string` takes ownership of the shim's
@@ -2503,43 +2597,49 @@ pub extern "C" fn day_dom_toolbar_on(action: f64, on: u32) {
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_toolbar_text(action: f64, ptr: *mut u8, len: usize) {
     let text = take_string(ptr, len);
-    emit(
-        day_spec::WINDOW_NODE,
-        Event::ToolbarChanged {
-            action: action as u64,
-            value: day_spec::ToolbarValue::Text(text),
-        },
-    );
+    day_spec::ffi_guard::contain((), move || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged {
+                action: action as u64,
+                value: day_spec::ToolbarValue::Text(text),
+            },
+        );
+    });
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_posted() {
     let q: Vec<_> = POSTED.with(|q| q.borrow_mut().drain(..).collect());
+    // Contained per closure, so one panicking post cannot drop the ones queued behind it.
     for f in q {
-        f();
+        day_spec::ffi_guard::contain((), f);
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_delayed(token: u32) {
     if let Some(f) = DELAYED.with(|m| m.borrow_mut().remove(&token)) {
-        f();
+        day_spec::ffi_guard::contain((), f);
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_frame(ts: f64) {
     if let Some(cb) = FRAME_CB.with(|c| c.borrow_mut().take()) {
-        cb(ts);
+        day_spec::ffi_guard::contain((), move || cb(ts));
     }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_resized(w: f64, h: f64) {
-    LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
-    // day-core re-buckets the window's size class from this (docs/size-classes.md) — a backend
-    // reports geometry, not classes, so there is one breakpoint table rather than nine.
-    emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
+    day_spec::ffi_guard::contain((), || {
+        LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
+        // day-core re-buckets the window's size class from this (docs/size-classes.md) — a
+        // backend reports geometry, not classes, so there is one breakpoint table rather than
+        // nine.
+        emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
+    });
 }
 
 #[unsafe(no_mangle)]
@@ -2549,7 +2649,9 @@ pub extern "C" fn day_dom_lifecycle(phase: u32) {
         1 => Lifecycle::WillResignActive,
         _ => return,
     };
-    emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+    day_spec::ffi_guard::contain((), || {
+        emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+    });
 }
 
 /// The host page's launch locale (`?locale=` else `navigator.languages`), for the `day::web`
@@ -2595,7 +2697,9 @@ pub fn take_alloc_string(ptr: *mut u8, len: usize) -> String {
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_hash_changed(ptr: *mut u8, len: usize) {
     let route = take_string(ptr, len);
-    emit(day_spec::WINDOW_NODE, Event::RouteRequested(route));
+    day_spec::ffi_guard::contain((), move || {
+        emit(day_spec::WINDOW_NODE, Event::RouteRequested(route));
+    });
 }
 
 /// Install a panic hook that reports through the shim's console before the trap.

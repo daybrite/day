@@ -99,6 +99,18 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
     Size::new(w, fit.height.ceil().max(28.0))
 }
 
+/// Drop the retained target when the view goes away.
+///
+/// Without this the map grows by one entry per realized search field, and — worse — its key is
+/// the view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// inherit the dead node's target and misroute its events.
+fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
+    TARGETS.with(|m| {
+        m.borrow_mut()
+            .remove(&((h.as_ref() as *const UIView) as usize));
+    });
+}
+
 day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     kind: KIND, props: SearchProps, patch: SearchPatch,
-    make: make, update: update, measure: measure);
+    make: make, update: update, measure: measure, release: release);

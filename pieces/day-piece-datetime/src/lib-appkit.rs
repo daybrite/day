@@ -119,6 +119,18 @@ fn measure_picker(h: &Retained<NSView>) -> Size {
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(22.0))
 }
 
+/// Drop the retained target when the picker goes away (shared by both renderers — the map is).
+///
+/// Without this the map grows by one entry per realized picker, and — worse — its key is the
+/// view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// inherit the dead node's target.
+fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
+    TARGETS.with(|m| {
+        m.borrow_mut()
+            .remove(&((h.as_ref() as *const NSView) as usize));
+    });
+}
+
 mod date_renderer {
     use super::*;
 
@@ -153,7 +165,7 @@ mod date_renderer {
 
     day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
-        make: make, update: update, measure: measure);
+        make: make, update: update, measure: measure, release: release);
 }
 
 mod time_renderer {
@@ -188,5 +200,5 @@ mod time_renderer {
 
     day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
-        make: make, update: update, measure: measure);
+        make: make, update: update, measure: measure, release: release);
 }

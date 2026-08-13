@@ -145,6 +145,27 @@ fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &MediaPatch) {
     }
 }
 
+/// Stop playback and drop the retained loop observer when the view goes away.
+///
+/// Without this the map grows by one entry per realized looping media view, and — worse — its key
+/// is the view's ADDRESS, which the allocator reuses: a later view landing on a freed address
+/// would inherit the dead entry's observer and loop the wrong player.
+fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
+    if let Some(view) = h.downcast_ref::<AVPlayerView>()
+        && let Some(player) = unsafe { view.player() }
+    {
+        // Pause before the drop below releases the player — teardown, not deallocation order,
+        // should be what silences it.
+        unsafe { player.pause() };
+    }
+    let key = (h.as_ref() as *const NSView) as usize;
+    if let Some(observer) = OBSERVERS.with(|m| m.borrow_mut().remove(&key)) {
+        // SAFETY: main thread (release is a renderer duty); deregistering before the observer
+        // drops means the center never messages a dead object.
+        unsafe { NSNotificationCenter::defaultCenter().removeObserver(&observer) };
+    }
+}
+
 day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     kind: KIND, props: MediaProps, patch: MediaPatch,
-    make: make, update: update, measure: day_pieces::fill_measure);
+    make: make, update: update, measure: day_pieces::fill_measure, release: release);

@@ -8,8 +8,6 @@
 
 use day_spec::Event;
 use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 use crate::Uikit;
 use block2::RcBlock;
@@ -41,16 +39,19 @@ define_class!(
     impl PickerTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
-            let idx = if let Some(s) = sender.downcast_ref::<UISegmentedControl>() {
-                s.selectedSegmentIndex()
-            } else if let Some(b) = sender.downcast_ref::<UIButton>() {
-                b.tag()
-            } else {
-                -1
-            };
-            if idx >= 0 {
-                crate::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
-            }
+            // Contained (§8.5): the emit dispatches into the app's handlers.
+            day_spec::ffi_guard::contain((), || {
+                let idx = if let Some(s) = sender.downcast_ref::<UISegmentedControl>() {
+                    s.selectedSegmentIndex()
+                } else if let Some(b) = sender.downcast_ref::<UIButton>() {
+                    b.tag()
+                } else {
+                    -1
+                };
+                if idx >= 0 {
+                    crate::emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+                }
+            });
         }
     }
 );
@@ -71,7 +72,10 @@ struct ViewState {
 }
 
 thread_local! {
-    static STATE: RefCell<HashMap<usize, ViewState>> = RefCell::new(HashMap::new());
+    /// Per-view picker state, keyed by view ptr — swept by the backend's `release` through
+    /// `day_spec::sidetable` (a plain map here leaked every released picker's retains).
+    static STATE: day_spec::sidetable::SideTable<ViewState> =
+        day_spec::sidetable::SideTable::new();
 }
 
 fn make_segmented(
@@ -170,7 +174,7 @@ fn make_menu(mtm: MainThreadMarker, p: &PickerProps, node: NodeId) -> Retained<U
 }
 
 fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
-    let mtm = MainThreadMarker::new().unwrap();
+    let mtm = crate::mtm();
     let target = PickerTarget::new(mtm, id);
     let (view, buttons, menu_button) = match p.style {
         PickerStyle::Segmented => (make_segmented(mtm, p, &target), vec![], None),
@@ -184,8 +188,8 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
             (v, vec![], Some(btn))
         }
     };
-    STATE.with(|m| {
-        m.borrow_mut().insert(
+    STATE.with(|t| {
+        t.insert(
             (view.as_ref() as *const UIView) as usize,
             ViewState {
                 buttons,
@@ -207,20 +211,18 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
         }
         return;
     }
-    STATE.with(|m| {
-        let m = m.borrow();
-        let Some(st) = m.get(&((h.as_ref() as *const UIView) as usize)) else {
-            return;
-        };
-        if let Some(btn) = &st.menu_button {
-            let title = st.options.get(i).cloned().unwrap_or_default();
-            btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
-        }
-        for (j, b) in st.buttons.iter().enumerate() {
-            if let Some(img) = checkmark(j == i) {
-                b.setImage_forState(Some(&img), UIControlState::Normal);
+    STATE.with(|t| {
+        t.with((h.as_ref() as *const UIView) as usize, |st| {
+            if let Some(btn) = &st.menu_button {
+                let title = st.options.get(i).cloned().unwrap_or_default();
+                btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
             }
-        }
+            for (j, b) in st.buttons.iter().enumerate() {
+                if let Some(img) = checkmark(j == i) {
+                    b.setImage_forState(Some(&img), UIControlState::Normal);
+                }
+            }
+        })
     });
 }
 
@@ -242,9 +244,11 @@ pub(crate) fn realize_any(
     props: &dyn std::any::Any,
     id: day_spec::NodeId,
 ) -> crate::Handle {
-    let p = props
-        .downcast_ref::<PickerProps>()
-        .expect("day: picker props type");
+    // Mismatched props degrade to the placeholder rather than panicking in a native
+    // up-call (§8.5); `props_of` reports once per kind.
+    let Some(p) = day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "uikit", props) else {
+        return crate::placeholder_view(day_spec::kinds::PICKER);
+    };
     make(b, p, id)
 }
 

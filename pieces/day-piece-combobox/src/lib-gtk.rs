@@ -115,6 +115,17 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     Size::new(w, (nat_h as f64).max(24.0))
 }
 
+/// Drop the per-widget state when the widget goes away.
+///
+/// Without this the map grows by one entry per realized combo box, and — worse — its key is the
+/// widget's ADDRESS, which the allocator reuses: a later widget landing on a freed address would
+/// inherit the dead entry's combo and drive the wrong one.
+fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
+    STATE.with(|m| {
+        m.borrow_mut().remove(&key(h));
+    });
+}
+
 day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
     kind: KIND, props: ComboProps, patch: ComboPatch,
-    make: make, update: update, measure: measure);
+    make: make, update: update, measure: measure, release: release);

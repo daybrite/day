@@ -53,12 +53,14 @@ use objc2_quartz_core::{
     kCAMediaTimingFunctionEaseOut, kCAMediaTimingFunctionLinear,
 };
 
+use day_spec::ffi_guard;
 use day_spec::present;
 use day_spec::props::*;
+use day_spec::sidetable::SideTable;
 use day_spec::{
     A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
     PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
-    Toolkit, Transform, WINDOW_NODE, WindowOptions, kinds,
+    Toolkit, Transform, WINDOW_NODE, WindowOptions, kinds, props_of,
 };
 
 pub type Handle = Retained<NSView>;
@@ -155,49 +157,59 @@ define_class!(
     unsafe impl NSTextFieldDelegate for DayTarget {}
 
     impl DayTarget {
+        // Every trampoline that dispatches into the sink (and through it, app handlers) runs
+        // its body through `ffi_guard::contain` (§8.5): a Rust panic unwinding out of an ObjC
+        // frame is an abort, so it is caught, reported, and the reactive runtime recovered.
+        // The same guard wraps every other target/delegate entry in this backend.
         #[unsafe(method(action:))]
         fn action(&self, sender: &NSControl) {
-            let node = self.ivars().node;
-            if sender.downcast_ref::<NSSwitch>().is_some() {
-                emit(node, Event::ToggleChanged(unsafe { sender.integerValue() } != 0));
-            } else if sender.downcast_ref::<NSSlider>().is_some() {
-                let value = unsafe { sender.doubleValue() };
-                // The live value first: bindings follow this, so the UI tracks the thumb.
-                emit(node, Event::ValueChanged(value));
-                // Then, once, the value the user actually chose. The slider is `continuous`, so
-                // this action fires on every tick of a drag; AppKit's own way to tell where in the
-                // gesture you are is the event that provoked it. A mouse-up ends a drag; a key
-                // press (arrow keys) moves the value by one discrete step and is already settled;
-                // anything else — mouse-down, mouse-dragged — is mid-gesture and commits nothing.
-                if slider_value_settled() {
-                    emit(node, Event::ValueCommitted(value));
+            ffi_guard::contain((), || {
+                let node = self.ivars().node;
+                if sender.downcast_ref::<NSSwitch>().is_some() {
+                    emit(node, Event::ToggleChanged(unsafe { sender.integerValue() } != 0));
+                } else if sender.downcast_ref::<NSSlider>().is_some() {
+                    let value = unsafe { sender.doubleValue() };
+                    // The live value first: bindings follow this, so the UI tracks the thumb.
+                    emit(node, Event::ValueChanged(value));
+                    // Then, once, the value the user actually chose. The slider is `continuous`, so
+                    // this action fires on every tick of a drag; AppKit's own way to tell where in the
+                    // gesture you are is the event that provoked it. A mouse-up ends a drag; a key
+                    // press (arrow keys) moves the value by one discrete step and is already settled;
+                    // anything else — mouse-down, mouse-dragged — is mid-gesture and commits nothing.
+                    if slider_value_settled() {
+                        emit(node, Event::ValueCommitted(value));
+                    }
+                } else {
+                    emit(node, Event::Pressed);
                 }
-            } else {
-                emit(node, Event::Pressed);
-            }
+            })
         }
 
         /// The stack-nav back header's button (docs/navigation.md): a day-initiated pop — the
         /// nav host's handler writes it into the path signal, which reconciles the pop.
         #[unsafe(method(navBack:))]
         fn nav_back(&self, _sender: &NSControl) {
-            emit(
-                self.ivars().node,
-                Event::NavBack {
-                    already_popped: false,
-                },
-            );
+            ffi_guard::contain((), || {
+                emit(
+                    self.ivars().node,
+                    Event::NavBack {
+                        already_popped: false,
+                    },
+                );
+            })
         }
     }
 
     unsafe impl NSControlTextEditingDelegate for DayTarget {
         #[unsafe(method(controlTextDidChange:))]
         fn control_text_did_change(&self, notification: &NSNotification) {
-            let node = self.ivars().node;
-            if let Some(obj) = unsafe { notification.object() }
-                && let Ok(tf) = obj.downcast::<NSTextField>() {
-                    emit(node, Event::TextChanged(unsafe { tf.stringValue() }.to_string()));
-                }
+            ffi_guard::contain((), || {
+                let node = self.ivars().node;
+                if let Some(obj) = unsafe { notification.object() }
+                    && let Ok(tf) = obj.downcast::<NSTextField>() {
+                        emit(node, Event::TextChanged(unsafe { tf.stringValue() }.to_string()));
+                    }
+            })
         }
 
         /// End of an editing session (docs/focus.md). Return submits — AppKit keeps the field
@@ -205,17 +217,19 @@ define_class!(
         /// (tab, click-away, cancel) reports `FocusChanged(false)`.
         #[unsafe(method(controlTextDidEndEditing:))]
         fn control_text_did_end_editing(&self, notification: &NSNotification) {
-            let node = self.ivars().node;
-            let movement = unsafe { notification.userInfo() }
-                .and_then(|ui| ui.objectForKey(unsafe { NSTextMovementUserInfoKey }.as_ref()))
-                .and_then(|n| n.downcast::<NSNumber>().ok())
-                .map(|n| NSTextMovement(n.integerValue()))
-                .unwrap_or(NSTextMovement::Other);
-            if movement == NSTextMovement::Return {
-                emit(node, Event::Submitted);
-            } else {
-                emit(node, Event::FocusChanged(false));
-            }
+            ffi_guard::contain((), || {
+                let node = self.ivars().node;
+                let movement = unsafe { notification.userInfo() }
+                    .and_then(|ui| ui.objectForKey(unsafe { NSTextMovementUserInfoKey }.as_ref()))
+                    .and_then(|n| n.downcast::<NSNumber>().ok())
+                    .map(|n| NSTextMovement(n.integerValue()))
+                    .unwrap_or(NSTextMovement::Other);
+                if movement == NSTextMovement::Return {
+                    emit(node, Event::Submitted);
+                } else {
+                    emit(node, Event::FocusChanged(false));
+                }
+            })
         }
     }
 );
@@ -270,7 +284,9 @@ define_class!(
         fn become_first_responder(&self) -> bool {
             let ok: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
             if ok {
-                emit(self.ivars().node, Event::FocusChanged(true));
+                // Guard only the sink dispatch: the responder change already happened, so a
+                // contained panic must not flip the answer AppKit acts on.
+                ffi_guard::contain((), || emit(self.ivars().node, Event::FocusChanged(true)));
             }
             ok
         }
@@ -406,7 +422,9 @@ impl DayFlipped {
 // ---------------------------------------------------------------------------
 
 thread_local! {
-    static OPS: RefCell<HashMap<usize, Vec<DrawOp>>> = RefCell::new(HashMap::new());
+    /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
+    /// (replay inserted but nothing ever removed).
+    static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
 }
 
 struct CanvasIvars;
@@ -427,7 +445,7 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
             let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
-            let ops = OPS.with(|m| m.borrow().get(&ptr).cloned()).unwrap_or_default();
+            let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
             for op in &ops {
                 draw_op(op);
             }
@@ -469,29 +487,31 @@ define_class!(
     impl DayGesture {
         #[unsafe(method(fire:))]
         fn fire(&self, g: &NSGestureRecognizer) {
-            let node = self.ivars().node;
-            let view = g.view();
-            let loc = g.locationInView(view.as_deref());
-            let at = Point::new(loc.x, loc.y);
-            if self.ivars().is_drag {
-                let obj: &objc2::runtime::AnyObject = g.as_ref();
-                let (translation, phase) = if let Some(pan) = obj.downcast_ref::<NSPanGestureRecognizer>() {
-                    let t = unsafe { pan.translationInView(view.as_deref()) };
-                    let phase = match g.state() {
-                        NSGestureRecognizerState::Began => day_spec::DragPhase::Began,
-                        NSGestureRecognizerState::Ended
-                        | NSGestureRecognizerState::Cancelled
-                        | NSGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
-                        _ => day_spec::DragPhase::Changed,
+            ffi_guard::contain((), || {
+                let node = self.ivars().node;
+                let view = g.view();
+                let loc = g.locationInView(view.as_deref());
+                let at = Point::new(loc.x, loc.y);
+                if self.ivars().is_drag {
+                    let obj: &objc2::runtime::AnyObject = g.as_ref();
+                    let (translation, phase) = if let Some(pan) = obj.downcast_ref::<NSPanGestureRecognizer>() {
+                        let t = unsafe { pan.translationInView(view.as_deref()) };
+                        let phase = match g.state() {
+                            NSGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                            NSGestureRecognizerState::Ended
+                            | NSGestureRecognizerState::Cancelled
+                            | NSGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                            _ => day_spec::DragPhase::Changed,
+                        };
+                        (Point::new(t.x, t.y), phase)
+                    } else {
+                        (Point::ZERO, day_spec::DragPhase::Changed)
                     };
-                    (Point::new(t.x, t.y), phase)
+                    emit(node, Event::Drag { phase, location: at, translation });
                 } else {
-                    (Point::ZERO, day_spec::DragPhase::Changed)
-                };
-                emit(node, Event::Drag { phase, location: at, translation });
-            } else {
-                emit(node, Event::Tap(at));
-            }
+                    emit(node, Event::Tap(at));
+                }
+            })
         }
     }
 );
@@ -574,6 +594,8 @@ fn build_nav_header(
     let bar = view_of(DayFlipped::new(mtm));
     let target = DayTarget::new(mtm, id);
     let back = unsafe {
+        // Invariant: NSImageNameGoBackTemplate is one of AppKit's own named images, present
+        // on every macOS release this backend builds for.
         let img = objc2_app_kit::NSImage::imageNamed(objc2_app_kit::NSImageNameGoBackTemplate)
             .expect("NSGoBackTemplate");
         let tobj: &objc2::runtime::AnyObject = target.as_ref();
@@ -766,8 +788,9 @@ thread_local! {
     /// Each nav page's pane, recorded at realize because `insert` sees only handles
     /// (docs/size-classes.md). Identity rather than position: a re-present re-homes the pages
     /// without changing their order, so "index 0 is the sidebar" stops being true the moment a
-    /// host can morph.
-    static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
+    /// host can morph. A [`SideTable`]: `remove` clears it on the normal path, and the release
+    /// sweep catches a page released without one (a stale entry could mis-pane a recycled ptr).
+    static PAGE_PANE: SideTable<day_spec::props::Pane> = SideTable::new();
 }
 
 // ---------------------------------------------------------------------------
@@ -800,10 +823,12 @@ define_class!(
             let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
             // Pane-driven resize (splitter drag, window resize): report the usable size
             // so NavLayout re-lays this page's content (enqueue-only, §8.3).
-            emit(
-                self.ivars().node,
-                Event::FrameChanged(Size::new(size.width, size.height)),
-            );
+            ffi_guard::contain((), || {
+                emit(
+                    self.ivars().node,
+                    Event::FrameChanged(Size::new(size.width, size.height)),
+                );
+            })
         }
     }
 );
@@ -837,11 +862,13 @@ define_class!(
     unsafe impl NSTabViewDelegate for DayTabDelegate {
         #[unsafe(method(tabView:didSelectTabViewItem:))]
         fn did_select(&self, tabview: &NSTabView, item: &NSTabViewItem) {
-            if self.ivars().suppress.get() {
-                return;
-            }
-            let idx = unsafe { tabview.indexOfTabViewItem(item) };
-            emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+            ffi_guard::contain((), || {
+                if self.ivars().suppress.get() {
+                    return;
+                }
+                let idx = unsafe { tabview.indexOfTabViewItem(item) };
+                emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+            })
         }
     }
 );
@@ -941,33 +968,35 @@ define_class!(
             &self,
             event: &objc2_app_kit::NSEvent,
         ) -> Option<Retained<NSMenu>> {
-            let point = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
-            let row = unsafe { self.rowAtPoint(point) };
-            let data = NAV_OUTLINE_MENUS
-                .with(|m| m.borrow().get(&(self as *const _ as usize)).cloned());
-            // `define_class!` rewrites the return, so no early `return` — one expression.
-            match data {
-                None => None,
-                Some(d) => {
-                    let items = d
-                        .item_of_row(row)
-                        .and_then(|i| d.ivars().menus.borrow().get(i).cloned())
-                        .unwrap_or_default();
-                    if items.is_empty() {
-                        None
-                    } else {
-                        Some(build_ns_menu(d.mtm(), "", &items))
+            ffi_guard::contain(None, || {
+                let point = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+                let row = unsafe { self.rowAtPoint(point) };
+                let data = NAV_OUTLINE_MENUS.with(|t| t.get(self as *const _ as usize));
+                // `define_class!` rewrites the return, so no early `return` — one expression.
+                match data {
+                    None => None,
+                    Some(d) => {
+                        let items = d
+                            .item_of_row(row)
+                            .and_then(|i| d.ivars().menus.borrow().get(i).cloned())
+                            .unwrap_or_default();
+                        if items.is_empty() {
+                            None
+                        } else {
+                            Some(build_ns_menu(d.mtm(), "", &items))
+                        }
                     }
                 }
-            }
+            })
         }
     }
 );
 
 thread_local! {
     /// Outline ptr → its data source, for [`DayNavOutlineView::menu_for_event`]'s row lookup.
-    static NAV_OUTLINE_MENUS: RefCell<HashMap<usize, Retained<DayNavMenuData>>> =
-        RefCell::new(HashMap::new());
+    /// A [`SideTable`], reclaimed by the outline-keyed auxiliary sweep in `release` — the entry
+    /// used to outlive its host, so a recycled outline address served the dead menu's rows.
+    static NAV_OUTLINE_MENUS: SideTable<Retained<DayNavMenuData>> = SideTable::new();
 }
 
 define_class!(
@@ -1001,7 +1030,13 @@ define_class!(
             _item: Option<&objc2::runtime::AnyObject>,
         ) -> Retained<objc2::runtime::AnyObject> {
             let objects = self.ivars().row_objects.borrow();
-            let ns = objects[index as usize].clone();
+            // AppKit only asks for children it was told exist, but a stale query racing a
+            // reload must degrade (an unmatched identity) rather than index out of bounds —
+            // a panic here unwinds into an ObjC frame and aborts.
+            let ns = objects
+                .get(index as usize)
+                .cloned()
+                .unwrap_or_else(|| NSString::from_str(""));
             unsafe { objc2::rc::Retained::cast_unchecked(ns) }
         }
 
@@ -1242,19 +1277,21 @@ define_class!(
 
         #[unsafe(method(outlineViewSelectionDidChange:))]
         fn selection_did_change(&self, notification: &NSNotification) {
-            if self.ivars().suppress.get() {
-                return;
-            }
-            let Some(obj) = (unsafe { notification.object() }) else {
-                return;
-            };
-            let Ok(ov) = obj.downcast::<objc2_app_kit::NSOutlineView>() else {
-                return;
-            };
-            let row = unsafe { ov.selectedRow() };
-            if let Some(item) = self.item_of_row(row) {
-                emit(self.ivars().node, Event::SelectionChanged(item as i64));
-            }
+            ffi_guard::contain((), || {
+                if self.ivars().suppress.get() {
+                    return;
+                }
+                let Some(obj) = (unsafe { notification.object() }) else {
+                    return;
+                };
+                let Ok(ov) = obj.downcast::<objc2_app_kit::NSOutlineView>() else {
+                    return;
+                };
+                let row = unsafe { ov.selectedRow() };
+                if let Some(item) = self.item_of_row(row) {
+                    emit(self.ivars().node, Event::SelectionChanged(item as i64));
+                }
+            })
         }
     }
 );
@@ -1468,13 +1505,16 @@ define_class!(
         #[unsafe(method(numberOfRowsInTableView:))]
         fn number_of_rows(&self, _tv: &NSTableView) -> isize {
             // Reads the piece's snapshot only (no tree access) — safe even when called
-            // synchronously from reloadData inside a with_tree borrow.
-            self.ivars()
-                .source
-                .borrow()
-                .as_ref()
-                .map(|s| (s.len)() as isize)
-                .unwrap_or(0)
+            // synchronously from reloadData inside a with_tree borrow. Guarded because
+            // `len` is a day-core closure.
+            ffi_guard::contain(0, || {
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map(|s| (s.len)() as isize)
+                    .unwrap_or(0)
+            })
         }
 
         // --- drag-to-reorder (docs/list.md): NSTableView's native drag pipeline. The dragged
@@ -1510,7 +1550,7 @@ define_class!(
                 }
                 Some(ProtocolObject::from_retained(item))
             };
-            make()
+            ffi_guard::contain(None, make)
         }
 
         #[unsafe(method(tableView:validateDrop:proposedRow:proposedDropOperation:))]
@@ -1521,28 +1561,31 @@ define_class!(
             row: isize,
             _op: objc2_app_kit::NSTableViewDropOperation,
         ) -> objc2_app_kit::NSDragOperation {
-            let Some((from, len)) = self.drag_context(tv, info) else {
-                return objc2_app_kit::NSDragOperation::None;
-            };
-            // Normalize to an ABOVE insertion point (the gap style's semantics), convert to the
-            // post-removal target index, and ask the guard.
-            let ins = row.clamp(0, len as isize) as usize;
-            let to = insertion_to_target(from, ins, len);
-            let accepted = self.can_move(from, to);
-            if accepted < 0 {
-                return objc2_app_kit::NSDragOperation::None;
-            }
-            let accepted = (accepted as usize).min(len.saturating_sub(1));
-            if accepted != to {
-                // The guard retargeted: move the gap to where the drop would actually land.
-                unsafe {
-                    tv.setDropRow_dropOperation(
-                        target_to_insertion(from, accepted) as isize,
-                        objc2_app_kit::NSTableViewDropOperation::Above,
-                    );
+            // Guarded: `can_move` consults the app's reorder guard closure.
+            ffi_guard::contain(objc2_app_kit::NSDragOperation::None, || {
+                let Some((from, len)) = self.drag_context(tv, info) else {
+                    return objc2_app_kit::NSDragOperation::None;
+                };
+                // Normalize to an ABOVE insertion point (the gap style's semantics), convert to
+                // the post-removal target index, and ask the guard.
+                let ins = row.clamp(0, len as isize) as usize;
+                let to = insertion_to_target(from, ins, len);
+                let accepted = self.can_move(from, to);
+                if accepted < 0 {
+                    return objc2_app_kit::NSDragOperation::None;
                 }
-            }
-            objc2_app_kit::NSDragOperation::Move
+                let accepted = (accepted as usize).min(len.saturating_sub(1));
+                if accepted != to {
+                    // The guard retargeted: move the gap to where the drop would actually land.
+                    unsafe {
+                        tv.setDropRow_dropOperation(
+                            target_to_insertion(from, accepted) as isize,
+                            objc2_app_kit::NSTableViewDropOperation::Above,
+                        );
+                    }
+                }
+                objc2_app_kit::NSDragOperation::Move
+            })
         }
 
         #[unsafe(method(tableView:acceptDrop:row:dropOperation:))]
@@ -1591,7 +1634,8 @@ define_class!(
                 unsafe { tv.moveRowAtIndex_toIndex(from as isize, accepted as isize) };
                 true
             };
-            drop()
+            // Guarded: the commit runs the seam's move closure into day-core and the app.
+            ffi_guard::contain(false, drop)
         }
     }
 
@@ -1603,23 +1647,26 @@ define_class!(
             _col: Option<&NSTableColumn>,
             row: isize,
         ) -> Option<Retained<NSView>> {
-            let mtm = self.mtm();
-            let ident = NSString::from_str("day.cell");
-            // Recycle a cell view if one is free; else make a fresh flipped container.
-            let cell: Retained<NSView> = unsafe { tv.makeViewWithIdentifier_owner(&ident, None) }
-                .unwrap_or_else(|| {
-                    let v: Retained<NSView> = Retained::into_super(DayFlipped::new(mtm));
-                    unsafe { v.setIdentifier(Some(&ident)) };
-                    v
-                });
-            // Day builds row content the first time it sees this cell, and rebinds (slot-write)
-            // when the cell is recycled. NSTableView calls this outside reloadData's stack, so the
-            // re-entry into with_tree is safe.
-            if let Some(source) = self.ivars().source.borrow().as_ref() {
-                let raw = Retained::as_ptr(&cell) as RawHandle;
-                (source.bind_row)(row as usize, raw);
-            }
-            Some(cell)
+            // Guarded: `bind_row` builds the app's row content.
+            ffi_guard::contain(None, || {
+                let mtm = self.mtm();
+                let ident = NSString::from_str("day.cell");
+                // Recycle a cell view if one is free; else make a fresh flipped container.
+                let cell: Retained<NSView> =
+                    unsafe { tv.makeViewWithIdentifier_owner(&ident, None) }.unwrap_or_else(|| {
+                        let v: Retained<NSView> = Retained::into_super(DayFlipped::new(mtm));
+                        unsafe { v.setIdentifier(Some(&ident)) };
+                        v
+                    });
+                // Day builds row content the first time it sees this cell, and rebinds
+                // (slot-write) when the cell is recycled. NSTableView calls this outside
+                // reloadData's stack, so the re-entry into with_tree is safe.
+                if let Some(source) = self.ivars().source.borrow().as_ref() {
+                    let raw = Retained::as_ptr(&cell) as RawHandle;
+                    (source.bind_row)(row as usize, raw);
+                }
+                Some(cell)
+            })
         }
 
         #[unsafe(method_id(tableView:rowViewForRow:))]
@@ -1636,31 +1683,33 @@ define_class!(
 
         #[unsafe(method(tableViewSelectionDidChange:))]
         fn selection_did_change(&self, notification: &NSNotification) {
-            if self.ivars().suppress.get() || !self.ivars().selectable.get() {
-                return;
-            }
-            let Some(obj) = (unsafe { notification.object() }) else {
-                return;
-            };
-            let Ok(tv) = obj.downcast::<NSTableView>() else {
-                return;
-            };
-            if self.ivars().multi.get() {
-                // Multi-select: report the FULL set (ascending; empty = cleared).
-                let idx = unsafe { tv.selectedRowIndexes() };
-                let mut rows = Vec::with_capacity(idx.count());
-                let mut i = idx.firstIndex();
-                while i != objc2_foundation::NSNotFound as usize {
-                    rows.push(i as i64);
-                    i = unsafe { idx.indexGreaterThanIndex(i) };
+            ffi_guard::contain((), || {
+                if self.ivars().suppress.get() || !self.ivars().selectable.get() {
+                    return;
                 }
-                emit(self.ivars().node, Event::SelectionSet(rows));
-            } else {
-                let row = unsafe { tv.selectedRow() };
-                if row >= 0 {
-                    emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                let Some(obj) = (unsafe { notification.object() }) else {
+                    return;
+                };
+                let Ok(tv) = obj.downcast::<NSTableView>() else {
+                    return;
+                };
+                if self.ivars().multi.get() {
+                    // Multi-select: report the FULL set (ascending; empty = cleared).
+                    let idx = unsafe { tv.selectedRowIndexes() };
+                    let mut rows = Vec::with_capacity(idx.count());
+                    let mut i = idx.firstIndex();
+                    while i != objc2_foundation::NSNotFound as usize {
+                        rows.push(i as i64);
+                        i = unsafe { idx.indexGreaterThanIndex(i) };
+                    }
+                    emit(self.ivars().node, Event::SelectionSet(rows));
+                } else {
+                    let row = unsafe { tv.selectedRow() };
+                    if row >= 0 {
+                        emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                    }
                 }
-            }
+            })
         }
     }
 );
@@ -2011,46 +2060,54 @@ define_class!(
     unsafe impl NSWindowDelegate for DayWinDelegate {
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, notification: &NSNotification) {
-            if let Some(obj) = unsafe { notification.object() }
-                && let Ok(win) = obj.downcast::<NSWindow>()
-                && let Some(content) = win.contentView()
-            {
-                let b = content.bounds();
-                let target = self.ivars().node.unwrap_or(WINDOW_NODE);
-                emit(
-                    target,
-                    Event::WindowResized(Size::new(b.size.width, b.size.height)),
-                );
-            }
+            ffi_guard::contain((), || {
+                if let Some(obj) = unsafe { notification.object() }
+                    && let Ok(win) = obj.downcast::<NSWindow>()
+                    && let Some(content) = win.contentView()
+                {
+                    let b = content.bounds();
+                    let target = self.ivars().node.unwrap_or(WINDOW_NODE);
+                    emit(
+                        target,
+                        Event::WindowResized(Size::new(b.size.width, b.size.height)),
+                    );
+                }
+            })
         }
 
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
-            match self.ivars().node {
-                // Secondary window: confirm the close to day-core, which tears the
-                // subtree down on a DEFERRED hop (never inside this AppKit close frame).
-                Some(node) => emit(node, Event::WindowClosed),
-                // Primary window: closing it quits, taking secondaries with it
-                // (docs/windows.md close policy).
-                None => {
-                    let app = NSApplication::sharedApplication(self.mtm());
-                    unsafe { app.terminate(None) };
+            ffi_guard::contain((), || {
+                match self.ivars().node {
+                    // Secondary window: confirm the close to day-core, which tears the
+                    // subtree down on a DEFERRED hop (never inside this AppKit close frame).
+                    Some(node) => emit(node, Event::WindowClosed),
+                    // Primary window: closing it quits, taking secondaries with it
+                    // (docs/windows.md close policy).
+                    None => {
+                        let app = NSApplication::sharedApplication(self.mtm());
+                        unsafe { app.terminate(None) };
+                    }
                 }
-            }
+            })
         }
 
         #[unsafe(method(windowDidBecomeKey:))]
         fn window_did_become_key(&self, _notification: &NSNotification) {
-            if let Some(node) = self.ivars().node {
-                emit(node, Event::WindowFocused(true));
-            }
+            ffi_guard::contain((), || {
+                if let Some(node) = self.ivars().node {
+                    emit(node, Event::WindowFocused(true));
+                }
+            })
         }
 
         #[unsafe(method(windowDidResignKey:))]
         fn window_did_resign_key(&self, _notification: &NSNotification) {
-            if let Some(node) = self.ivars().node {
-                emit(node, Event::WindowFocused(false));
-            }
+            ffi_guard::contain((), || {
+                if let Some(node) = self.ivars().node {
+                    emit(node, Event::WindowFocused(false));
+                }
+            })
         }
     }
 
@@ -2060,7 +2117,9 @@ define_class!(
     impl DayWinDelegate {
         #[unsafe(method(newWindowForTab:))]
         fn new_window_for_tab(&self, _sender: Option<&NSObject>) {
-            let _ = day_core::windows::open_new_window();
+            ffi_guard::contain((), || {
+                let _ = day_core::windows::open_new_window();
+            })
         }
     }
 );
@@ -2280,6 +2339,8 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
             }
         }
         style => {
+            // Invariant: System/Custom matched above, so only the semantic styles — which
+            // `ns_text_style` maps exhaustively — can reach this arm.
             let ts = ns_text_style(style).expect("semantic style");
             let opts = objc2_foundation::NSDictionary::new();
             let f = unsafe { NSFont::preferredFontForTextStyle_options(ts, &opts) };
@@ -2422,6 +2483,15 @@ fn warn_missing_renderer(kind: PieceKind) {
     day_spec::placeholder::report(kind, "appkit");
 }
 
+/// The visible-but-harmless placeholder label the unregistered-kind arm renders. Shared with
+/// the [`props_of`] mismatch fallback, so a wrong props payload degrades to the same surface
+/// (the warning is already reported by `props_of` itself).
+pub(crate) fn placeholder_view(mtm: MainThreadMarker, kind: PieceKind) -> Handle {
+    view_of(unsafe {
+        NSTextField::labelWithString(&NSString::from_str(&format!("⟨{kind}⟩")), mtm)
+    })
+}
+
 impl Toolkit for AppKit {
     type Handle = Handle;
 
@@ -2544,7 +2614,13 @@ impl Toolkit for AppKit {
                 view_of(sv)
             }
             Some(Builtin::Label) => {
-                let p = props.downcast_ref::<LabelProps>().unwrap();
+                // `props_of`, not a panicking downcast, for every typed-props arm: a mismatch
+                // (a piece registered under a builtin key, or a day-core regression) warns once
+                // per kind and degrades to the placeholder — realize runs inside native
+                // up-calls, where a panic is a process kill.
+                let Some(p) = props_of::<LabelProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let tf = unsafe { NSTextField::labelWithString(&NSString::from_str(&p.text), mtm) };
                 configure_label_cell(&tf);
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
@@ -2554,7 +2630,9 @@ impl Toolkit for AppKit {
                 view_of(tf)
             }
             Some(Builtin::Button) => {
-                let p = props.downcast_ref::<ButtonProps>().unwrap();
+                let Some(p) = props_of::<ButtonProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let target = DayTarget::new(mtm, id);
                 let btn = unsafe {
                     NSButton::buttonWithTitle_target_action(
@@ -2574,7 +2652,9 @@ impl Toolkit for AppKit {
                 view
             }
             Some(Builtin::Toggle) => {
-                let p = props.downcast_ref::<ToggleProps>().unwrap();
+                let Some(p) = props_of::<ToggleProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let target = DayTarget::new(mtm, id);
                 let sw = unsafe { NSSwitch::new(mtm) };
                 unsafe {
@@ -2588,7 +2668,9 @@ impl Toolkit for AppKit {
                 view
             }
             Some(Builtin::Slider) => {
-                let p = props.downcast_ref::<SliderProps>().unwrap();
+                let Some(p) = props_of::<SliderProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let target = DayTarget::new(mtm, id);
                 let sl = unsafe {
                     NSSlider::sliderWithValue_minValue_maxValue_target_action(
@@ -2608,7 +2690,9 @@ impl Toolkit for AppKit {
             Some(Builtin::Picker) => picker::realize_any(self, props, id),
             Some(Builtin::TextArea) => textarea::realize_any(self, props, id),
             Some(Builtin::TextField) => {
-                let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                let Some(p) = props_of::<TextFieldProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let target = DayTarget::new(mtm, id);
                 // Retained<DayTextField> → Retained<NSTextField> (its declared superclass) so
                 // the AsRef<NSView> bound on `view_of` resolves.
@@ -2630,7 +2714,9 @@ impl Toolkit for AppKit {
                 view_of(b)
             }
             Some(Builtin::Progress) => {
-                let p = props.downcast_ref::<ProgressProps>().unwrap();
+                let Some(p) = props_of::<ProgressProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let pi = unsafe { NSProgressIndicator::new(mtm) };
                 unsafe {
                     match p.value {
@@ -2788,7 +2874,7 @@ impl Toolkit for AppKit {
                 let page = view_of(DayNavPage::new(mtm, id));
                 NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
                 if let Some(p) = props.downcast_ref::<day_spec::props::NavPageProps>() {
-                    PAGE_PANE.with(|m| m.borrow_mut().insert(ptr_of(&page), p.pane));
+                    PAGE_PANE.with(|t| t.insert(ptr_of(&page), p.pane));
                 }
                 page
             }
@@ -2801,7 +2887,9 @@ impl Toolkit for AppKit {
                 view_of(page)
             }
             Some(Builtin::Tabs) => {
-                let p = props.downcast_ref::<TabsProps>().unwrap();
+                let Some(p) = props_of::<TabsProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let tabview = unsafe { NSTabView::new(mtm) };
                 let delegate = DayTabDelegate::new(mtm, id);
                 unsafe { tabview.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
@@ -2818,7 +2906,9 @@ impl Toolkit for AppKit {
                 view
             }
             Some(Builtin::TabsPage) => {
-                let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                let Some(p) = props_of::<TabsPageProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 // A tab page is a native-owned content view (like a nav page: reports its
                 // allocated size via FrameChanged), tagged so set_frame skips it.
                 let page = view_of(DayNavPage::new(mtm, id));
@@ -2827,7 +2917,9 @@ impl Toolkit for AppKit {
                 page
             }
             Some(Builtin::NavMenu) => {
-                let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                let Some(p) = props_of::<NavMenuProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let data = DayNavMenuData::new(
                     mtm,
                     id,
@@ -2844,10 +2936,8 @@ impl Toolkit for AppKit {
                 let outline: Retained<objc2_app_kit::NSOutlineView> = {
                     let o: Retained<DayNavOutlineView> =
                         unsafe { msg_send![DayNavOutlineView::alloc(mtm), init] };
-                    NAV_OUTLINE_MENUS.with(|m| {
-                        m.borrow_mut()
-                            .insert(Retained::as_ptr(&o) as usize, data.clone())
-                    });
+                    NAV_OUTLINE_MENUS
+                        .with(|t| t.insert(Retained::as_ptr(&o) as usize, data.clone()));
                     unsafe { msg_send![&*o, self] }
                 };
                 let col = unsafe {
@@ -2916,7 +3006,9 @@ impl Toolkit for AppKit {
                 view
             }
             Some(Builtin::List) => {
-                let p = props.downcast_ref::<ListProps>().unwrap();
+                let Some(p) = props_of::<ListProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let table = unsafe { NSTableView::new(mtm) };
                 let col = unsafe {
                     NSTableColumn::initWithIdentifier(
@@ -2994,7 +3086,9 @@ impl Toolkit for AppKit {
                 view
             }
             Some(Builtin::Image) => {
-                let p = props.downcast_ref::<ImageProps>().unwrap();
+                let Some(p) = props_of::<ImageProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
                 let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
                 // Scaling (§18.3): NSImageView has no crop-fill, so Fit/Fill both scale-to-fit
                 // proportionally; Stretch scales each axis independently.
@@ -3040,9 +3134,7 @@ impl Toolkit for AppKit {
                 // placeholder (§8.2's debug check will panic first in debug builds once the
                 // required-kinds set lands).
                 warn_missing_renderer(kind);
-                view_of(unsafe {
-                    NSTextField::labelWithString(&NSString::from_str(&format!("⟨{kind}⟩")), mtm)
-                })
+                placeholder_view(mtm, kind)
             }
         }
     }
@@ -3522,6 +3614,10 @@ impl Toolkit for AppKit {
         self.secondary.retain(|w| {
             if ptr_of(&w.content) == ptr_of(&h) {
                 w.window.close();
+                // The window's own keyed state goes with it: its toolbar (toolbar.rs BARS,
+                // keyed by the WINDOW pointer) used to survive a secondary close — items,
+                // targets, the retained NSToolbar and delegate, all leaked.
+                day_spec::sidetable::sweep(Retained::as_ptr(&w.window) as usize);
                 false
             } else {
                 true
@@ -3563,7 +3659,13 @@ impl Toolkit for AppKit {
             set.borrow_mut().remove(&ptr_of(&h));
         });
         NAV_MENUS.with(|m| {
-            m.borrow_mut().remove(&ptr_of(&h));
+            if let Some((outline, _)) = m.borrow_mut().remove(&ptr_of(&h)) {
+                // The outline registers under its OWN pointer (`menuForEvent:` resolves by
+                // outline, not by this scroll handle): sweep that auxiliary key too, so
+                // NAV_OUTLINE_MENUS — and any future outline-keyed table — drops it. A
+                // surviving entry served the dead menu's rows once the address was recycled.
+                day_spec::sidetable::sweep(Retained::as_ptr(&outline) as usize);
+            }
         });
         TAB_STATE.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
@@ -3571,6 +3673,12 @@ impl Toolkit for AppKit {
         TAB_TITLES.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
+        // One call reclaims this handle's entry from EVERY SideTable on this thread — canvas
+        // OPS, PAGE_PANE, the picker/textarea state, and whatever lands later — running each
+        // table's teardown hook (day-spec sidetable). The explicit removals above are the
+        // older per-map checklist; new per-view maps should be SideTables so this sweep covers
+        // them without another line here.
+        day_spec::sidetable::sweep(ptr_of(&h));
         unsafe { h.removeFromSuperview() };
     }
 
@@ -3607,9 +3715,8 @@ impl Toolkit for AppKit {
         }
         // Nav host: pages land by their PANE, not their position (docs/size-classes.md). Pages
         // fill their pane via autoresizing — the pane, not Day, owns their frames.
-        let is_sidebar_page = PAGE_PANE.with(|m| {
-            m.borrow().get(&ptr_of(child)).copied() == Some(day_spec::props::Pane::Sidebar)
-        });
+        let is_sidebar_page =
+            PAGE_PANE.with(|t| t.get(ptr_of(child)) == Some(day_spec::props::Pane::Sidebar));
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&ptr_of(parent)) else {
@@ -3649,7 +3756,7 @@ impl Toolkit for AppKit {
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
-        PAGE_PANE.with(|m| m.borrow_mut().remove(&ptr_of(child)));
+        PAGE_PANE.with(|t| t.remove(ptr_of(child)));
         NAV_STATE.with(|m| {
             if let Some(state) = m.borrow_mut().get_mut(&ptr_of(parent)) {
                 state.pages.retain(|p| ptr_of(p) != ptr_of(child));
@@ -3942,6 +4049,8 @@ impl Toolkit for AppKit {
 
     fn adopt(&mut self, raw: RawHandle) -> Handle {
         // A recycling NSTableView cell view — Day builds/rebinds its row content in place.
+        // Invariant, not app input: day-core only passes back the cell pointer this backend
+        // itself vended through `bind_row`, so a null here is a framework bug worth stopping on.
         let ptr = raw as *mut NSView;
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
@@ -4150,7 +4259,7 @@ impl Toolkit for AppKit {
     }
 
     fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
-        OPS.with(|m| m.borrow_mut().insert(ptr_of(h), ops.to_vec()));
+        OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
         unsafe { h.setNeedsDisplay(true) };
     }
     fn toggle_sidebar(&mut self) -> bool {
@@ -4283,9 +4392,11 @@ impl Toolkit for AppKit {
                 }
                 apply_allowed_file_types(&panel, filters);
                 let p = panel.clone();
+                // Completion blocks run inside a C ABI frame, so their bodies are contained
+                // like every other trampoline (§8.5) — this one and the three below.
                 let handler: block2::RcBlock<dyn Fn(isize)> =
                     block2::RcBlock::new(move |resp: isize| {
-                        emit_panel_result(req, resp, &p);
+                        ffi_guard::contain((), || emit_panel_result(req, resp, &p));
                     });
                 unsafe { panel.beginSheetModalForWindow_completionHandler(&window, &handler) };
                 PRESENT_PANELS.with(|m| m.borrow_mut().insert(req, Retained::into_super(panel)));
@@ -4302,7 +4413,7 @@ impl Toolkit for AppKit {
                 let handler: block2::RcBlock<dyn Fn(isize)> =
                     block2::RcBlock::new(move |resp: isize| {
                         // The pieces layer copies the staged bytes to the chosen local path.
-                        emit_panel_result(req, resp, &p);
+                        ffi_guard::contain((), || emit_panel_result(req, resp, &p));
                     });
                 unsafe { panel.beginSheetModalForWindow_completionHandler(&window, &handler) };
                 PRESENT_PANELS.with(|m| m.borrow_mut().insert(req, panel));
@@ -4328,18 +4439,20 @@ impl Toolkit for AppKit {
                     unsafe { alert.addButtonWithTitle(&NSString::from_str(&b.label)) };
                 }
                 block2::RcBlock::new(move |resp: isize| {
-                    // NSAlertFirstButtonReturn = 1000; add order == spec order.
-                    let idx = resp - 1000;
-                    emit(
-                        WINDOW_NODE,
-                        Event::PresentResult {
-                            req,
-                            result: present::PresentResult::Button(idx as i64),
-                        },
-                    );
-                    PRESENT_ALERTS.with(|m| {
-                        m.borrow_mut().remove(&req);
-                    });
+                    ffi_guard::contain((), || {
+                        // NSAlertFirstButtonReturn = 1000; add order == spec order.
+                        let idx = resp - 1000;
+                        emit(
+                            WINDOW_NODE,
+                            Event::PresentResult {
+                                req,
+                                result: present::PresentResult::Button(idx as i64),
+                            },
+                        );
+                        PRESENT_ALERTS.with(|m| {
+                            m.borrow_mut().remove(&req);
+                        });
+                    })
                 })
             }
             PresentSpec::Prompt {
@@ -4364,15 +4477,17 @@ impl Toolkit for AppKit {
                     alert.addButtonWithTitle(&NSString::from_str(cancel)); // resp 1001
                 }
                 block2::RcBlock::new(move |resp: isize| {
-                    let result = if resp == 1000 {
-                        present::PresentResult::Text(unsafe { tf.stringValue() }.to_string())
-                    } else {
-                        present::PresentResult::Dismissed
-                    };
-                    emit(WINDOW_NODE, Event::PresentResult { req, result });
-                    PRESENT_ALERTS.with(|m| {
-                        m.borrow_mut().remove(&req);
-                    });
+                    ffi_guard::contain((), || {
+                        let result = if resp == 1000 {
+                            present::PresentResult::Text(unsafe { tf.stringValue() }.to_string())
+                        } else {
+                            present::PresentResult::Dismissed
+                        };
+                        emit(WINDOW_NODE, Event::PresentResult { req, result });
+                        PRESENT_ALERTS.with(|m| {
+                            m.borrow_mut().remove(&req);
+                        });
+                    })
                 })
             }
             // File pickers returned early above.
@@ -4613,7 +4728,9 @@ impl Platform for AppKit {
     }
 
     fn post(f: Box<dyn FnOnce() + Send>) {
-        dispatch2::DispatchQueue::main().exec_async(f);
+        // Posted-closure trampoline (§8.5): the closure runs inside dispatch's C frame, so a
+        // panic is contained here rather than unwinding into libdispatch.
+        dispatch2::DispatchQueue::main().exec_async(move || ffi_guard::contain((), f));
     }
 
     fn locale_hints(&self) -> Vec<String> {
@@ -4815,7 +4932,8 @@ fn install_appearance_observer() {
     use objc2_foundation::{NSDistributedNotificationCenter, NSNotification, NSString};
     let center = unsafe { NSDistributedNotificationCenter::defaultCenter() };
     let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
-        dispatch2::DispatchQueue::main().exec_async(day_core::note_appearance_changed);
+        dispatch2::DispatchQueue::main()
+            .exec_async(|| ffi_guard::contain((), day_core::note_appearance_changed));
     });
     let name = NSString::from_str("AppleInterfaceThemeChangedNotification");
     let token = unsafe {
@@ -4831,7 +4949,7 @@ fn install_lifecycle_observers() {
     let center = unsafe { NSNotificationCenter::defaultCenter() };
     let observe = |name: &NSNotificationName, phase: day_spec::Lifecycle| {
         let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
-            emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+            ffi_guard::contain((), || emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase)));
         });
         let token = unsafe {
             center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block)
@@ -5026,10 +5144,12 @@ define_class!(
     impl DayMenuTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &NSMenuItem) {
-            let id = sender.tag() as u64;
-            if id != 0 {
-                emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
-            }
+            ffi_guard::contain((), || {
+                let id = sender.tag() as u64;
+                if id != 0 {
+                    emit(day_spec::WINDOW_NODE, Event::MenuAction(id));
+                }
+            })
         }
     }
 );

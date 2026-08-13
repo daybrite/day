@@ -10,9 +10,10 @@
 // pull-down chevron.
 // ---------------------------------------------------------------------------
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 
+use day_spec::ffi_guard;
+use day_spec::sidetable::SideTable;
 use day_spec::{
     Event, Icon, NodeId, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPatch, ToolbarValue,
 };
@@ -141,49 +142,54 @@ define_class!(
 
     /// The search field reports every keystroke here; a programmatic `setStringValue` does not
     /// fire this delegate, so the sync in `update_toolbar` needs no suppression.
+    /// Both entries run contained (§8.5): a panic must not unwind into AppKit.
     unsafe impl NSControlTextEditingDelegate for ItemTarget {
         #[unsafe(method(controlTextDidChange:))]
         fn control_text_did_change(&self, notification: &NSNotification) {
-            let ivars = self.ivars();
-            if ivars.kind != KIND_SEARCH {
-                return;
-            }
-            if let Some(obj) = unsafe { notification.object() }
-                && let Ok(tf) = obj.downcast::<NSTextField>()
-            {
-                emit(
-                    day_spec::WINDOW_NODE,
-                    Event::ToolbarChanged {
-                        action: ivars.action,
-                        value: ToolbarValue::Text(tf.stringValue().to_string()),
-                    },
-                );
-            }
+            ffi_guard::contain((), || {
+                let ivars = self.ivars();
+                if ivars.kind != KIND_SEARCH {
+                    return;
+                }
+                if let Some(obj) = unsafe { notification.object() }
+                    && let Ok(tf) = obj.downcast::<NSTextField>()
+                {
+                    emit(
+                        day_spec::WINDOW_NODE,
+                        Event::ToolbarChanged {
+                            action: ivars.action,
+                            value: ToolbarValue::Text(tf.stringValue().to_string()),
+                        },
+                    );
+                }
+            })
         }
     }
 
     impl ItemTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
-            let ivars = self.ivars();
-            match ivars.kind {
-                KIND_TOGGLE => {
-                    let on = sender
-                        .downcast_ref::<NSButton>()
-                        .map(|b| b.state() == NSControlStateValueOn)
-                        .unwrap_or(false);
-                    emit(
-                        day_spec::WINDOW_NODE,
-                        Event::ToolbarChanged {
-                            action: ivars.action,
-                            value: ToolbarValue::On(on),
-                        },
-                    );
+            ffi_guard::contain((), || {
+                let ivars = self.ivars();
+                match ivars.kind {
+                    KIND_TOGGLE => {
+                        let on = sender
+                            .downcast_ref::<NSButton>()
+                            .map(|b| b.state() == NSControlStateValueOn)
+                            .unwrap_or(false);
+                        emit(
+                            day_spec::WINDOW_NODE,
+                            Event::ToolbarChanged {
+                                action: ivars.action,
+                                value: ToolbarValue::On(on),
+                            },
+                        );
+                    }
+                    // A plain button rides the menu action rail, so one closure can back both a
+                    // toolbar button and its menu-bar twin.
+                    _ => emit(day_spec::WINDOW_NODE, Event::MenuAction(ivars.action)),
                 }
-                // A plain button rides the menu action rail, so one closure can back both a
-                // toolbar button and its menu-bar twin.
-                _ => emit(day_spec::WINDOW_NODE, Event::MenuAction(ivars.action)),
-            }
+            })
         }
     }
 );
@@ -219,8 +225,10 @@ define_class!(
             identifier: &NSToolbarItemIdentifier,
             _inserted: bool,
         ) -> Option<Retained<NSToolbarItem>> {
-            let mtm = MainThreadMarker::from(self);
-            make_item(mtm, self.ivars().key, &identifier.to_string())
+            ffi_guard::contain(None, || {
+                let mtm = MainThreadMarker::from(self);
+                make_item(mtm, self.ivars().key, &identifier.to_string())
+            })
         }
 
         #[unsafe(method_id(toolbarDefaultItemIdentifiers:))]
@@ -259,7 +267,13 @@ struct WinToolbar {
 }
 
 thread_local! {
-    static BARS: RefCell<HashMap<usize, WinToolbar>> = RefCell::new(HashMap::new());
+    /// WINDOW ptr → its live toolbar. A [`SideTable`]: the release path sweeps a closing
+    /// secondary window's key, so the WinToolbar (items, targets, retained NSToolbar and
+    /// delegate) goes with the window — installing an empty bar used to be the only removal.
+    static BARS: SideTable<WinToolbar> = SideTable::with_teardown(|w: WinToolbar| {
+        // NSToolbar holds its delegate weakly; detach before the owned delegate drops.
+        w.toolbar.setDelegate(None);
+    });
     /// Monotonic, so a replaced toolbar never reuses an autosave slot from the old one.
     static NEXT_BAR: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 }
@@ -268,9 +282,7 @@ thread_local! {
 /// they are what AppKit recognizes as spacers, and they may legitimately repeat.
 fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
     let names: Vec<Retained<NSString>> = BARS.with(|b| {
-        b.borrow()
-            .get(&key)
-            .map(|w| w.items.iter().map(identifier_of).collect())
+        b.with(key, |w| w.items.iter().map(identifier_of).collect())
             .unwrap_or_default()
     });
     let refs: Vec<&NSToolbarItemIdentifier> = names.iter().map(|n| n.as_ref()).collect();
@@ -299,11 +311,12 @@ fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
 /// it builds the overflow menu), so nothing here is cached.
 fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<NSToolbarItem>> {
     let (item, target) = BARS.with(|b| {
-        let b = b.borrow();
-        let w = b.get(&key)?;
-        let item = w.items.iter().find(|i| i.id == ident)?.clone();
-        let target = w.targets.get(ident).cloned();
-        Some((item, target))
+        b.with(key, |w| {
+            let item = w.items.iter().find(|i| i.id == ident)?.clone();
+            let target = w.targets.get(ident).cloned();
+            Some((item, target))
+        })
+        .flatten()
     })?;
 
     let id = NSString::from_str(&item.id);
@@ -421,7 +434,9 @@ impl AppKit {
 
         if items.is_empty() {
             window.setToolbar(None);
-            BARS.with(|b| b.borrow_mut().remove(&key));
+            BARS.with(|b| {
+                b.remove(key);
+            });
             report_content_size(&window);
             return;
         }
@@ -440,19 +455,19 @@ impl AppKit {
             }
         }
 
-        let existing = BARS.with(|b| b.borrow().contains_key(&key));
+        let existing = BARS.with(|b| b.contains(key));
         if existing {
             // Reuse the live NSToolbar — replacing it flashes the title bar — but rebuild its
             // items (see below). A full replace is rare: the builder re-runs on a locale change or
             // a change in the bar's shape, never on a keystroke — typing patches the item in place
             // through `day_core::patch_toolbar` — so the focus this costs is not focus in use.
             BARS.with(|b| {
-                if let Some(w) = b.borrow_mut().get_mut(&key) {
+                b.with(key, |w| {
                     w.items = items.to_vec();
                     w.targets = targets;
-                }
+                });
             });
-            let toolbar = BARS.with(|b| b.borrow().get(&key).map(|w| w.toolbar.clone()));
+            let toolbar = BARS.with(|b| b.with(key, |w| w.toolbar.clone()));
             if let Some(toolbar) = toolbar {
                 let ids = identifiers(key);
                 // Clear first, then set. `setItemIdentifiers` diffs BY IDENTIFIER: it inserts the
@@ -488,7 +503,7 @@ impl AppKit {
         toolbar.setDisplayMode(NSToolbarDisplayMode::IconOnly);
 
         BARS.with(|b| {
-            b.borrow_mut().insert(
+            b.insert(
                 key,
                 WinToolbar {
                     toolbar: toolbar.clone(),
@@ -512,11 +527,9 @@ impl AppKit {
         // Keep the model in step, so an item rebuilt later (the overflow menu asks for fresh
         // items) carries the current value rather than the one it was installed with.
         BARS.with(|b| {
-            if let Some(w) = b.borrow_mut().get_mut(&key) {
-                apply_to_model(&mut w.items, patch);
-            }
+            b.with(key, |w| apply_to_model(&mut w.items, patch));
         });
-        let Some(toolbar) = BARS.with(|b| b.borrow().get(&key).map(|w| w.toolbar.clone())) else {
+        let Some(toolbar) = BARS.with(|b| b.with(key, |w| w.toolbar.clone())) else {
             return;
         };
         let target_id = match patch {

@@ -58,8 +58,8 @@ mod imp {
     use objc2_ui_kit::UISplitViewControllerDelegate;
     use objc2_ui_kit::{
         UIAction, UIContextMenuConfiguration, UIContextMenuInteraction,
-        UIContextMenuInteractionDelegate, UIMenu, UIMenuElement, UIMenuElementAttributes,
-        UIMenuOptions,
+        UIContextMenuInteractionDelegate, UIInteraction, UIMenu, UIMenuElement,
+        UIMenuElementAttributes, UIMenuOptions,
     };
     use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
@@ -97,6 +97,11 @@ mod imp {
 
     /// The day-core event sink (node-id keyed).
     type Sink = Rc<dyn Fn(NodeId, Event)>;
+
+    /// DAY_DIAG_NAV tracing, resolved once — the layout and nav-delegate hot paths run on
+    /// every pass and must not re-query the environment each time.
+    static DIAG_NAV: std::sync::LazyLock<bool> =
+        std::sync::LazyLock::new(|| std::env::var("DAY_DIAG_NAV").is_ok());
 
     thread_local! {
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
@@ -351,18 +356,23 @@ mod imp {
         impl DayTarget {
             #[unsafe(method(fire:))]
             fn fire(&self, sender: &UIControl) {
-                let node = self.ivars().node;
-                let obj: &AnyObject = sender.as_ref();
-                if let Some(sw) = obj.downcast_ref::<UISwitch>() {
-                    emit(node, Event::ToggleChanged(unsafe { sw.isOn() }));
-                } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
-                    emit(node, Event::ValueChanged(unsafe { sl.value() } as f64));
-                } else if let Some(tf) = obj.downcast_ref::<UITextField>() {
-                    let s = unsafe { tf.text() }.map(|s| s.to_string()).unwrap_or_default();
-                    emit(node, Event::TextChanged(s));
-                } else {
-                    emit(node, Event::Pressed);
-                }
+                // Every trampoline body that dispatches into the sink runs under
+                // ffi_guard::contain (§8.5): a panic unwinding out of this ObjC frame
+                // would abort the process.
+                day_spec::ffi_guard::contain((), || {
+                    let node = self.ivars().node;
+                    let obj: &AnyObject = sender.as_ref();
+                    if let Some(sw) = obj.downcast_ref::<UISwitch>() {
+                        emit(node, Event::ToggleChanged(unsafe { sw.isOn() }));
+                    } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
+                        emit(node, Event::ValueChanged(unsafe { sl.value() } as f64));
+                    } else if let Some(tf) = obj.downcast_ref::<UITextField>() {
+                        let s = unsafe { tf.text() }.map(|s| s.to_string()).unwrap_or_default();
+                        emit(node, Event::TextChanged(s));
+                    } else {
+                        emit(node, Event::Pressed);
+                    }
+                });
             }
 
             /// A slider's interaction ENDED: the finger lifted (inside or outside the track), so
@@ -371,30 +381,37 @@ mod imp {
             /// separate control event (day-spec `Event::ValueCommitted`).
             #[unsafe(method(commit:))]
             fn commit(&self, sender: &UIControl) {
-                let obj: &AnyObject = sender.as_ref();
-                if let Some(sl) = obj.downcast_ref::<UISlider>() {
-                    emit(
-                        self.ivars().node,
-                        Event::ValueCommitted(unsafe { sl.value() } as f64),
-                    );
-                }
+                day_spec::ffi_guard::contain((), || {
+                    let obj: &AnyObject = sender.as_ref();
+                    if let Some(sl) = obj.downcast_ref::<UISlider>() {
+                        emit(
+                            self.ivars().node,
+                            Event::ValueCommitted(unsafe { sl.value() } as f64),
+                        );
+                    }
+                });
             }
 
             /// EditingDidBegin — the keyboard is up and this field owns it (docs/focus.md).
             #[unsafe(method(editBegan:))]
             fn edit_began(&self, sender: &UIControl) {
-                FOCUSED_FIELD.with(|f| *f.borrow_mut() = Some(Retained::from(sender as &UIView)));
-                // The keyboard may already be up (focus moved between fields): reveal now too,
-                // not only from the keyboard-frame notification.
-                reveal_focused_field();
-                emit(self.ivars().node, Event::FocusChanged(true));
+                day_spec::ffi_guard::contain((), || {
+                    FOCUSED_FIELD
+                        .with(|f| *f.borrow_mut() = Some(Retained::from(sender as &UIView)));
+                    // The keyboard may already be up (focus moved between fields): reveal now
+                    // too, not only from the keyboard-frame notification.
+                    reveal_focused_field();
+                    emit(self.ivars().node, Event::FocusChanged(true));
+                });
             }
 
             /// EditingDidEnd — the field resigned (keyboard dismissed or focus moved on).
             #[unsafe(method(editEnded:))]
             fn edit_ended(&self, _sender: &UIControl) {
-                FOCUSED_FIELD.with(|f| *f.borrow_mut() = None);
-                emit(self.ivars().node, Event::FocusChanged(false));
+                day_spec::ffi_guard::contain((), || {
+                    FOCUSED_FIELD.with(|f| *f.borrow_mut() = None);
+                    emit(self.ivars().node, Event::FocusChanged(false));
+                });
             }
 
             /// EditingDidEndOnExit — the Return key. Registering this handler is also what
@@ -402,7 +419,9 @@ mod imp {
             /// moves focus re-raises it on the next field.
             #[unsafe(method(editExit:))]
             fn edit_exit(&self, _sender: &UIControl) {
-                emit(self.ivars().node, Event::Submitted);
+                day_spec::ffi_guard::contain((), || {
+                    emit(self.ivars().node, Event::Submitted);
+                });
             }
         }
     );
@@ -439,7 +458,9 @@ mod imp {
         impl DayBarButtonTarget {
             #[unsafe(method(tap:))]
             fn tap(&self, _sender: &AnyObject) {
-                emit(self.ivars().host, Event::MenuAction(self.ivars().action));
+                day_spec::ffi_guard::contain((), || {
+                    emit(self.ivars().host, Event::MenuAction(self.ivars().action));
+                });
             }
         }
     );
@@ -495,15 +516,19 @@ mod imp {
             /// then pause the link if nothing was re-queued so an idle app stops waking the display.
             #[unsafe(method(step:))]
             fn step(&self, link: &CADisplayLink) {
-                let ts = unsafe { link.timestamp() };
-                let cb = FRAME.with(|f| f.borrow_mut().1.take());
-                if let Some(cb) = cb {
-                    cb(ts);
-                }
-                let idle = FRAME.with(|f| f.borrow().1.is_none());
-                if idle {
-                    unsafe { link.setPaused(true) };
-                }
+                // The callback is day-core's frame tick — contained like every other
+                // trampoline (§8.5), so a panicking animation can't abort the app.
+                day_spec::ffi_guard::contain((), || {
+                    let ts = unsafe { link.timestamp() };
+                    let cb = FRAME.with(|f| f.borrow_mut().1.take());
+                    if let Some(cb) = cb {
+                        cb(ts);
+                    }
+                    let idle = FRAME.with(|f| f.borrow().1.is_none());
+                    if idle {
+                        unsafe { link.setPaused(true) };
+                    }
+                });
             }
         }
     );
@@ -528,11 +553,25 @@ mod imp {
         /// Keeps each view's gesture targets alive + records which are attached (idempotent).
         static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
             RefCell::new(HashMap::new());
-        /// Per-view context-menu interaction + its delegate (kept alive; replaced on reconfigure).
-        #[allow(clippy::type_complexity)]
-        static CTX_MENUS: RefCell<
-            HashMap<usize, (Retained<UIContextMenuInteraction>, Retained<DayContextMenu>)>,
-        > = RefCell::new(HashMap::new());
+        /// Per-view context-menu interaction + its delegate (kept alive; replaced on
+        /// reconfigure, swept on release via `day_spec::sidetable`). The teardown detaches
+        /// the interaction from its view first, so a recycled address can never serve a dead
+        /// view's menu, then drops both retains.
+        static CTX_MENUS: day_spec::sidetable::SideTable<(
+            Retained<UIContextMenuInteraction>,
+            Retained<DayContextMenu>,
+        )> = day_spec::sidetable::SideTable::with_teardown(
+            |(interaction, _delegate): (
+                Retained<UIContextMenuInteraction>,
+                Retained<DayContextMenu>,
+            )| {
+                // `view` is the interaction's weak back-pointer — present exactly while it
+                // is still attached, which is when the detach matters.
+                if let Some(v) = interaction.view() {
+                    v.removeInteraction(ProtocolObject::from_ref(&*interaction));
+                }
+            },
+        );
     }
 
     define_class!(
@@ -547,38 +586,40 @@ mod imp {
         impl DayGesture {
             #[unsafe(method(fire:))]
             fn fire(&self, g: &UIGestureRecognizer) {
-                let node = self.ivars().node;
-                let view = unsafe { g.view() };
-                let loc = unsafe { g.locationInView(view.as_deref()) };
-                let at = day_spec::Point::new(loc.x, loc.y);
-                if self.ivars().is_drag {
-                    let obj: &AnyObject = g.as_ref();
-                    let (translation, phase) = if let Some(pan) =
-                        obj.downcast_ref::<UIPanGestureRecognizer>()
-                    {
-                        let t = unsafe { pan.translationInView(view.as_deref()) };
-                        let phase = match unsafe { g.state() } {
-                            UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
-                            UIGestureRecognizerState::Ended
-                            | UIGestureRecognizerState::Cancelled
-                            | UIGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
-                            _ => day_spec::DragPhase::Changed,
+                day_spec::ffi_guard::contain((), || {
+                    let node = self.ivars().node;
+                    let view = unsafe { g.view() };
+                    let loc = unsafe { g.locationInView(view.as_deref()) };
+                    let at = day_spec::Point::new(loc.x, loc.y);
+                    if self.ivars().is_drag {
+                        let obj: &AnyObject = g.as_ref();
+                        let (translation, phase) = if let Some(pan) =
+                            obj.downcast_ref::<UIPanGestureRecognizer>()
+                        {
+                            let t = unsafe { pan.translationInView(view.as_deref()) };
+                            let phase = match unsafe { g.state() } {
+                                UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                                UIGestureRecognizerState::Ended
+                                | UIGestureRecognizerState::Cancelled
+                                | UIGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                                _ => day_spec::DragPhase::Changed,
+                            };
+                            (day_spec::Point::new(t.x, t.y), phase)
+                        } else {
+                            (day_spec::Point::ZERO, day_spec::DragPhase::Changed)
                         };
-                        (day_spec::Point::new(t.x, t.y), phase)
+                        emit(
+                            node,
+                            Event::Drag {
+                                phase,
+                                location: at,
+                                translation,
+                            },
+                        );
                     } else {
-                        (day_spec::Point::ZERO, day_spec::DragPhase::Changed)
-                    };
-                    emit(
-                        node,
-                        Event::Drag {
-                            phase,
-                            location: at,
-                            translation,
-                        },
-                    );
-                } else {
-                    emit(node, Event::Tap(at));
-                }
+                        emit(node, Event::Tap(at));
+                    }
+                });
             }
         }
     );
@@ -877,9 +918,10 @@ mod imp {
             RefCell::new(std::collections::HashSet::new());
         /// Each nav page's pane, recorded at realize because `insert` sees only handles
         /// (docs/size-classes.md). The SIDEBAR page is the split host's primary column; every
-        /// other page is a detail, pushed on the secondary's stack.
-        static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> =
-            RefCell::new(HashMap::new());
+        /// other page is a detail, pushed on the secondary's stack. Swept on release via
+        /// `day_spec::sidetable`.
+        static PAGE_PANE: day_spec::sidetable::SideTable<day_spec::props::Pane> =
+            day_spec::sidetable::SideTable::new();
     }
 
     struct NavPageIvars {
@@ -922,52 +964,55 @@ mod imp {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
-                // Out of any window the insets below are stale, and a report built from them
-                // would size the content for wherever this page last WAS.
-                if unsafe { self.window() }.is_none() {
-                    return;
-                }
-                // Pin the content subview to the safe area (below the navigation bar)
-                // and report its size so NavLayout re-lays the Day content (§8.3).
-                let bounds = self.bounds();
-                let insets = self.safeAreaInsets();
-                let frame = CGRect::new(
-                    CGPoint::new(insets.left, insets.top),
-                    CGSize::new(
-                        (bounds.size.width - insets.left - insets.right).max(0.0),
-                        (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                    ),
-                );
-                let subs = unsafe { self.subviews() };
-                if let Some(content) = subs.firstObject() {
-                    unsafe { content.setFrame(frame) };
-                    if std::env::var("DAY_DIAG_NAV").is_ok() {
-                        let a = content.frame();
+                // The FrameChanged report dispatches day-core's relayout — contained (§8.5).
+                day_spec::ffi_guard::contain((), || {
+                    // Out of any window the insets below are stale, and a report built from
+                    // them would size the content for wherever this page last WAS.
+                    if unsafe { self.window() }.is_none() {
+                        return;
+                    }
+                    // Pin the content subview to the safe area (below the navigation bar)
+                    // and report its size so NavLayout re-lays the Day content (§8.3).
+                    let bounds = self.bounds();
+                    let insets = self.safeAreaInsets();
+                    let frame = CGRect::new(
+                        CGPoint::new(insets.left, insets.top),
+                        CGSize::new(
+                            (bounds.size.width - insets.left - insets.right).max(0.0),
+                            (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                        ),
+                    );
+                    let subs = unsafe { self.subviews() };
+                    if let Some(content) = subs.firstObject() {
+                        unsafe { content.setFrame(frame) };
+                        if *DIAG_NAV {
+                            let a = content.frame();
+                            eprintln!(
+                                "DAYDIAG   applied node={} nsubs={} content=({},{} {}x{})",
+                                self.ivars().node.0, subs.count(),
+                                a.origin.x, a.origin.y, a.size.width, a.size.height,
+                            );
+                        }
+                    }
+                    if *DIAG_NAV {
+                        let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
+                        let winf = unsafe { self.convertRect_toView(bounds, None) };
                         eprintln!(
-                            "DAYDIAG   applied node={} nsubs={} content=({},{} {}x{})",
-                            self.ivars().node.0, subs.count(),
-                            a.origin.x, a.origin.y, a.size.width, a.size.height,
+                            "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) -> report {}x{} super={}x{} hidden={}",
+                            self.ivars().node.0,
+                            bounds.size.width, bounds.size.height,
+                            winf.origin.x, winf.origin.y, winf.size.width, winf.size.height,
+                            insets.top, insets.bottom, insets.left, insets.right,
+                            frame.size.width, frame.size.height,
+                            sup.size.width, sup.size.height,
+                            self.isHidden(),
                         );
                     }
-                }
-                if std::env::var("DAY_DIAG_NAV").is_ok() {
-                    let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
-                    let winf = unsafe { self.convertRect_toView(bounds, None) };
-                    eprintln!(
-                        "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) -> report {}x{} super={}x{} hidden={}",
-                        self.ivars().node.0,
-                        bounds.size.width, bounds.size.height,
-                        winf.origin.x, winf.origin.y, winf.size.width, winf.size.height,
-                        insets.top, insets.bottom, insets.left, insets.right,
-                        frame.size.width, frame.size.height,
-                        sup.size.width, sup.size.height,
-                        self.isHidden(),
+                    emit(
+                        self.ivars().node,
+                        Event::FrameChanged(Size::new(frame.size.width, frame.size.height)),
                     );
-                }
-                emit(
-                    self.ivars().node,
-                    Event::FrameChanged(Size::new(frame.size.width, frame.size.height)),
-                );
+                });
             }
         }
     );
@@ -1006,25 +1051,30 @@ mod imp {
         unsafe impl UINavigationBarDelegate for DayNavController {
             #[unsafe(method(navigationBar:shouldPopItem:))]
             fn should_pop(&self, bar: &UINavigationBar, _item: &UINavigationItem) -> bool {
-                if self.ivars().guarded.get() {
-                    emit(
-                        NodeId(self.ivars().host.get() as u64),
-                        Event::NavBack {
-                            already_popped: false,
-                        },
-                    );
-                    // UIKit dims the back button after a vetoed pop; restore the bar's opacity on
-                    // the next runloop turn (the documented shouldPop cosmetic fix).
-                    let bar: Retained<UINavigationBar> = Retained::from(bar);
-                    modal_after_idle(move || {
-                        for v in unsafe { bar.subviews() }.iter() {
-                            unsafe { v.setAlpha(1.0) };
-                        }
-                    });
-                    false
-                } else {
-                    true
-                }
+                // Contained (§8.5): a panic can only arise on the guarded branch, whose
+                // intended answer is the veto — so the default is `false`.
+                day_spec::ffi_guard::contain(false, || {
+                    if self.ivars().guarded.get() {
+                        emit(
+                            NodeId(self.ivars().host.get() as u64),
+                            Event::NavBack {
+                                already_popped: false,
+                            },
+                        );
+                        // UIKit dims the back button after a vetoed pop; restore the bar's
+                        // opacity on the next runloop turn (the documented shouldPop cosmetic
+                        // fix).
+                        let bar: Retained<UINavigationBar> = Retained::from(bar);
+                        modal_after_idle(move || {
+                            for v in unsafe { bar.subviews() }.iter() {
+                                unsafe { v.setAlpha(1.0) };
+                            }
+                        });
+                        false
+                    } else {
+                        true
+                    }
+                })
             }
         }
     );
@@ -1068,13 +1118,15 @@ mod imp {
         unsafe impl UISearchResultsUpdating for DaySearchUpdater {
             #[unsafe(method(updateSearchResultsForSearchController:))]
             fn update(&self, sc: &objc2_ui_kit::UISearchController) {
-                if self.ivars().suppress.get() {
-                    return;
-                }
-                let text = unsafe { sc.searchBar().text() }
-                    .map(|t| t.to_string())
-                    .unwrap_or_default();
-                emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
+                day_spec::ffi_guard::contain((), || {
+                    if self.ivars().suppress.get() {
+                        return;
+                    }
+                    let text = unsafe { sc.searchBar().text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
+                });
             }
         }
     );
@@ -1106,12 +1158,16 @@ mod imp {
         unsafe impl UISplitViewControllerDelegate for DaySplitDelegate {
             #[unsafe(method(splitViewControllerDidCollapse:))]
             fn did_collapse(&self, _svc: &objc2_ui_kit::UISplitViewController) {
-                split_presentation_changed(self.ivars().host.get(), false);
+                day_spec::ffi_guard::contain((), || {
+                    split_presentation_changed(self.ivars().host.get(), false);
+                });
             }
 
             #[unsafe(method(splitViewControllerDidExpand:))]
             fn did_expand(&self, _svc: &objc2_ui_kit::UISplitViewController) {
-                split_presentation_changed(self.ivars().host.get(), true);
+                day_spec::ffi_guard::contain((), || {
+                    split_presentation_changed(self.ivars().host.get(), true);
+                });
             }
         }
     );
@@ -1240,7 +1296,7 @@ mod imp {
         if unchanged {
             return;
         }
-        if std::env::var("DAY_DIAG_NAV").is_ok() {
+        if *DIAG_NAV {
             eprintln!(
                 "DAYDIAG exec SYNC native={} -> target={}",
                 current.count(),
@@ -1286,85 +1342,94 @@ mod imp {
                 // settled count EQUALS the mirror's — so what passes both tests is the
                 // user's back button / swipe, which pops the native stack under a mirror
                 // that still holds the page.
-                let host = self.ivars().host.get();
-                let suspicious = NAV_STATE.with(|m| {
-                    let mut m = m.borrow_mut();
-                    let Some(state) = m.get_mut(&host) else {
-                        return false;
-                    };
-                    let native = unsafe { nav.viewControllers() }.count();
-                    // A split host MERGES its columns as it collapses and separates them as it
-                    // expands, which moves a controller in or out of this stack — a count change
-                    // that is not a pop at all (docs/size-classes.md). The delegate callback that
-                    // rebases the mirror can arrive after this `didShow`, so detect the in-flight
-                    // transition here and rebase rather than reading it as a user back: absorbed
-                    // as a phantom pop, it would swallow the NEXT real one and leave a stale page
-                    // under the detail.
-                    if let Some(parts) = state.split.as_ref()
-                        && state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
-                    {
-                        if std::env::var("DAY_DIAG_NAV").is_ok() {
-                            eprintln!(
-                                "DAYDIAG didShow REBASE native={native} (collapse flip in flight)"
-                            );
-                        }
-                        state.last_native.set(native);
-                        return false;
-                    }
-                    let prev = state.last_native.replace(native);
-                    let popped = native < prev && native < state.vcs.len();
-                    if std::env::var("DAY_DIAG_NAV").is_ok() {
-                        eprintln!(
-                            "DAYDIAG didShow native={native} prev={prev} mirror={} suspicious={popped}",
-                            state.vcs.len(),
-                        );
-                    }
-                    popped
-                });
-                if !suspicious {
-                    return;
-                }
-                // A pop-shaped didShow with no day-initiated pop in flight is PROBABLY the
-                // user's back button/swipe — but interleaved sibling transitions (day pops one
-                // detail and pushes the next while the pop is still animating) deliver a LATE
-                // duplicate pop-didShow after the push, and treating that as a user back tears
-                // down the just-pushed page. Only a pop that PERSISTS one runloop turn is a
-                // user pop: re-check on the next main-queue turn, when the interleaved
-                // transition has settled and `viewControllers` reports the real stack.
-                dispatch2::DispatchQueue::main().exec_async(move || {
-                    let (emit_back, node) = NAV_STATE.with(|m| {
+                // The whole detector runs contained (§8.5): both closures below re-enter
+                // day-core (the sink dispatch and the mirror bookkeeping).
+                day_spec::ffi_guard::contain((), || {
+                    let host = self.ivars().host.get();
+                    let suspicious = NAV_STATE.with(|m| {
                         let mut m = m.borrow_mut();
                         let Some(state) = m.get_mut(&host) else {
-                            return (false, NodeId(0));
+                            return false;
                         };
-                        let native = unsafe { state.active_nav().viewControllers() }.count();
-                        state.last_native.set(native);
-                        if std::env::var("DAY_DIAG_NAV").is_ok() {
+                        let native = unsafe { nav.viewControllers() }.count();
+                        // A split host MERGES its columns as it collapses and separates them as
+                        // it expands, which moves a controller in or out of this stack — a count
+                        // change that is not a pop at all (docs/size-classes.md). The delegate
+                        // callback that rebases the mirror can arrive after this `didShow`, so
+                        // detect the in-flight transition here and rebase rather than reading it
+                        // as a user back: absorbed as a phantom pop, it would swallow the NEXT
+                        // real one and leave a stale page under the detail.
+                        if let Some(parts) = state.split.as_ref()
+                            && state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
+                        {
+                            if *DIAG_NAV {
+                                eprintln!(
+                                    "DAYDIAG didShow REBASE native={native} (collapse flip in flight)"
+                                );
+                            }
+                            state.last_native.set(native);
+                            return false;
+                        }
+                        let prev = state.last_native.replace(native);
+                        let popped = native < prev && native < state.vcs.len();
+                        if *DIAG_NAV {
                             eprintln!(
-                                "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
+                                "DAYDIAG didShow native={native} prev={prev} mirror={} suspicious={popped}",
                                 state.vcs.len(),
-                                native < state.vcs.len(),
                             );
                         }
-                        if native < state.vcs.len() {
-                            // Still popped after settling: a real user back. Sync the mirror
-                            // (Day's remove() will find it gone) and record that Day's
-                            // answering NavPatch::Popped must be ABSORBED.
-                            state.vcs.truncate(native);
-                            state.native_pops.set(state.native_pops.get() + 1);
-                            (true, state.host_node)
-                        } else {
-                            (false, NodeId(0))
-                        }
+                        popped
                     });
-                    if emit_back {
-                        emit(
-                            node,
-                            Event::NavBack {
-                                already_popped: true,
-                            },
-                        );
+                    if !suspicious {
+                        return;
                     }
+                    // A pop-shaped didShow with no day-initiated pop in flight is PROBABLY the
+                    // user's back button/swipe — but interleaved sibling transitions (day pops
+                    // one detail and pushes the next while the pop is still animating) deliver a
+                    // LATE duplicate pop-didShow after the push, and treating that as a user
+                    // back tears down the just-pushed page. Only a pop that PERSISTS one runloop
+                    // turn is a user pop: re-check on the next main-queue turn, when the
+                    // interleaved transition has settled and `viewControllers` reports the real
+                    // stack.
+                    dispatch2::DispatchQueue::main().exec_async(move || {
+                        // Its own FFI entry (a posted block), so its own containment.
+                        day_spec::ffi_guard::contain((), || {
+                            let (emit_back, node) = NAV_STATE.with(|m| {
+                                let mut m = m.borrow_mut();
+                                let Some(state) = m.get_mut(&host) else {
+                                    return (false, NodeId(0));
+                                };
+                                let native =
+                                    unsafe { state.active_nav().viewControllers() }.count();
+                                state.last_native.set(native);
+                                if *DIAG_NAV {
+                                    eprintln!(
+                                        "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
+                                        state.vcs.len(),
+                                        native < state.vcs.len(),
+                                    );
+                                }
+                                if native < state.vcs.len() {
+                                    // Still popped after settling: a real user back. Sync the
+                                    // mirror (Day's remove() will find it gone) and record that
+                                    // Day's answering NavPatch::Popped must be ABSORBED.
+                                    state.vcs.truncate(native);
+                                    state.native_pops.set(state.native_pops.get() + 1);
+                                    (true, state.host_node)
+                                } else {
+                                    (false, NodeId(0))
+                                }
+                            });
+                            if emit_back {
+                                emit(
+                                    node,
+                                    Event::NavBack {
+                                        already_popped: true,
+                                    },
+                                );
+                            }
+                        });
+                    });
                 });
             }
         }
@@ -1481,49 +1546,52 @@ mod imp {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
-                // Before launch has published the root, its own frame computation owns this
-                // (it runs once the window is key) — nothing to re-pin yet.
-                let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) else {
-                    return;
-                };
-                let bounds = self.bounds();
-                let insets = self.safeAreaInsets();
-                let inner = CGRect::new(
-                    CGPoint::new(insets.left, insets.top),
-                    CGSize::new(
-                        (bounds.size.width - insets.left - insets.right).max(0.0),
-                        (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                    ),
-                );
-                let base = ROOT_BASE_FRAME.with(|f| f.get());
-                if inner.origin.x == base.origin.x
-                    && inner.origin.y == base.origin.y
-                    && inner.size.width == base.size.width
-                    && inner.size.height == base.size.height
-                {
-                    return;
-                }
-                ROOT_BASE_FRAME.with(|f| f.set(inner));
-                unsafe { root.setFrame(inner) };
-                if std::env::var("DAY_DIAG_NAV").is_ok() {
-                    eprintln!(
-                        "DAYDIAG holder bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
-                        bounds.size.width,
-                        bounds.size.height,
-                        insets.top,
-                        insets.bottom,
-                        insets.left,
-                        insets.right,
-                        inner.origin.x,
-                        inner.origin.y,
-                        inner.size.width,
-                        inner.size.height,
+                // The WindowResized report dispatches day-core's relayout — contained (§8.5).
+                day_spec::ffi_guard::contain((), || {
+                    // Before launch has published the root, its own frame computation owns
+                    // this (it runs once the window is key) — nothing to re-pin yet.
+                    let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) else {
+                        return;
+                    };
+                    let bounds = self.bounds();
+                    let insets = self.safeAreaInsets();
+                    let inner = CGRect::new(
+                        CGPoint::new(insets.left, insets.top),
+                        CGSize::new(
+                            (bounds.size.width - insets.left - insets.right).max(0.0),
+                            (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                        ),
                     );
-                }
-                emit(
-                    WINDOW_NODE,
-                    Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
-                );
+                    let base = ROOT_BASE_FRAME.with(|f| f.get());
+                    if inner.origin.x == base.origin.x
+                        && inner.origin.y == base.origin.y
+                        && inner.size.width == base.size.width
+                        && inner.size.height == base.size.height
+                    {
+                        return;
+                    }
+                    ROOT_BASE_FRAME.with(|f| f.set(inner));
+                    unsafe { root.setFrame(inner) };
+                    if *DIAG_NAV {
+                        eprintln!(
+                            "DAYDIAG holder bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
+                            bounds.size.width,
+                            bounds.size.height,
+                            insets.top,
+                            insets.bottom,
+                            insets.left,
+                            insets.right,
+                            inner.origin.x,
+                            inner.origin.y,
+                            inner.size.width,
+                            inner.size.height,
+                        );
+                    }
+                    emit(
+                        WINDOW_NODE,
+                        Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
+                    );
+                });
             }
         }
     );
@@ -1630,9 +1698,12 @@ mod imp {
         unsafe impl UITabBarControllerDelegate for DayTabDelegate {
             #[unsafe(method(tabBarController:didSelectViewController:))]
             fn did_select(&self, tabbar: &UITabBarController, _vc: &UIViewController) {
-                // UIKit calls this only for user taps, not programmatic selection — no guard.
-                let idx = unsafe { tabbar.selectedIndex() };
-                emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+                // UIKit calls this only for user taps, not programmatic selection — no echo
+                // guard needed; the panic containment is §8.5.
+                day_spec::ffi_guard::contain((), || {
+                    let idx = unsafe { tabbar.selectedIndex() };
+                    emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+                });
             }
         }
     );
@@ -1862,9 +1933,11 @@ mod imp {
                 tv: &objc2_ui_kit::UITableView,
                 index_path: &objc2_foundation::NSIndexPath,
             ) {
-                let row = unsafe { index_path.row() };
-                unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
-                emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                day_spec::ffi_guard::contain((), || {
+                    let row = unsafe { index_path.row() };
+                    unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                    emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                });
             }
 
             /// The row's context menu (docs/menus.md): the same UIMenu the piece decorator
@@ -2037,13 +2110,16 @@ mod imp {
         unsafe impl UITableViewDataSource for DayListData {
             #[unsafe(method(tableView:numberOfRowsInSection:))]
             fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> isize {
-                // Snapshot-only read (no tree) — safe during reloadData inside a with_tree borrow.
-                self.ivars()
-                    .source
-                    .borrow()
-                    .as_ref()
-                    .map(|s| (s.len)() as isize)
-                    .unwrap_or(0)
+                // Snapshot-only read (no tree) — safe during reloadData inside a with_tree
+                // borrow. `len` is an app closure, so the body is contained (§8.5).
+                day_spec::ffi_guard::contain(0, || {
+                    self.ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .map(|s| (s.len)() as isize)
+                        .unwrap_or(0)
+                })
             }
 
             #[unsafe(method_id(tableView:cellForRowAtIndexPath:))]
@@ -2063,12 +2139,14 @@ mod imp {
                         )
                     },
                 );
-                // Day builds/rebinds its row content inside the cell's contentView.
+                // Day builds/rebinds its row content inside the cell's contentView. The bind
+                // runs day-core's row builder — contained (§8.5); a panicking row leaves the
+                // recycled cell blank rather than aborting.
                 let content = cell.contentView();
                 let row = unsafe { index_path.row() } as usize;
                 if let Some(source) = self.ivars().source.borrow().as_ref() {
                     let raw = Retained::as_ptr(&content) as RawHandle;
-                    (source.bind_row)(row, raw);
+                    day_spec::ffi_guard::contain((), || (source.bind_row)(row, raw));
                 }
                 cell
             }
@@ -2085,8 +2163,11 @@ mod imp {
             ) -> objc2::runtime::Bool {
                 // A row the guard won't move ANYWHERE (a pinned row) refuses the lift itself:
                 // probing (row -> row) is the cheapest "may this row drag at all" question.
+                // The verdict runs the app's guard closure — contained (§8.5), refusing on panic.
                 let row = unsafe { index_path.row() } as usize;
-                objc2::runtime::Bool::new(self.reorder_verdict(row, row) >= 0)
+                objc2::runtime::Bool::new(day_spec::ffi_guard::contain(false, || {
+                    self.reorder_verdict(row, row) >= 0
+                }))
             }
 
             #[unsafe(method(tableView:moveRowAtIndexPath:toIndexPath:))]
@@ -2098,20 +2179,22 @@ mod imp {
             ) {
                 // UIKit hands FINAL indices (post-removal semantics — the seam's own contract).
                 // The table has already animated the move; commit rotates Day's snapshot and
-                // defers the app callback.
-                let (from, to) = unsafe { (from_path.row() as usize, to_path.row() as usize) };
-                if from == to {
-                    return;
-                }
-                let mv = self
-                    .ivars()
-                    .source
-                    .borrow()
-                    .as_ref()
-                    .and_then(|s| s.reorder.as_ref().map(|r| r.move_row.clone()));
-                if let Some(mv) = mv {
-                    mv(from, to);
-                }
+                // defers the app callback — contained (§8.5).
+                day_spec::ffi_guard::contain((), || {
+                    let (from, to) = unsafe { (from_path.row() as usize, to_path.row() as usize) };
+                    if from == to {
+                        return;
+                    }
+                    let mv = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.reorder.as_ref().map(|r| r.move_row.clone()));
+                    if let Some(mv) = mv {
+                        mv(from, to);
+                    }
+                });
             }
         }
 
@@ -2131,11 +2214,13 @@ mod imp {
                 tv: &objc2_ui_kit::UITableView,
                 index_path: &objc2_foundation::NSIndexPath,
             ) {
-                let row = unsafe { index_path.row() };
-                unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
-                if self.ivars().selectable.get() {
-                    emit(self.ivars().node, Event::SelectionChanged(row as i64));
-                }
+                day_spec::ffi_guard::contain((), || {
+                    let row = unsafe { index_path.row() };
+                    unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                    if self.ivars().selectable.get() {
+                        emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                    }
+                });
             }
 
             // --- swipe-to-delete (docs/list.md). `UISwipeActionsConfiguration` is the modern
@@ -2151,7 +2236,9 @@ mod imp {
             ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
                 // The whole body runs inside a closure: `define_class!`'s `method_id` return
                 // shim leaves no room for an early `return None`, but a closure gives `?` back.
-                (|| -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                // `contain` doubles as the invoker (§8.5) — the guard seam runs an app closure,
+                // and a panic degrades to "no swipe action".
+                let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
                     let row = unsafe { index_path.row() } as usize;
                     let del = self
                         .ivars()
@@ -2211,7 +2298,8 @@ mod imp {
                             mtm,
                         ),
                     )
-                })()
+                };
+                day_spec::ffi_guard::contain(None, body)
             }
 
             // The guard's live veto/override: UIKit proposes a landing slot while the finger
@@ -2239,7 +2327,9 @@ mod imp {
                         proposed.section(),
                     )
                 };
-                target()
+                // Contained (§8.5): the verdict runs the app's guard closure; a panic refuses
+                // the move (the source path keeps the gap home).
+                day_spec::ffi_guard::contain(from_path.retain(), target)
             }
         }
 
@@ -2269,7 +2359,9 @@ mod imp {
                     };
                     objc2_foundation::NSArray::from_retained_slice(&[item])
                 };
-                items()
+                // Contained (§8.5): the verdict runs the app's guard closure; a panic refuses
+                // the lift (no drag items).
+                day_spec::ffi_guard::contain(objc2_foundation::NSArray::new(), items)
             }
         }
     );
@@ -2317,7 +2409,11 @@ mod imp {
     // -----------------------------------------------------------------------
 
     thread_local! {
-        static OPS: RefCell<HashMap<usize, Vec<day_spec::DrawOp>>> = RefCell::new(HashMap::new());
+        /// Canvas view ptr → its display list. Swept on release via `day_spec::sidetable` —
+        /// a stale entry made a NEW DayCanvasView at a dead canvas's recycled address replay
+        /// the old display list until its first `replay`.
+        static OPS: day_spec::sidetable::SideTable<Vec<day_spec::DrawOp>> =
+            day_spec::sidetable::SideTable::new();
     }
 
     struct CanvasIvars;
@@ -2333,7 +2429,7 @@ mod imp {
             #[unsafe(method(drawRect:))]
             fn draw_rect(&self, _dirty: CGRect) {
                 let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
-                let ops = OPS.with(|m| m.borrow().get(&ptr).cloned()).unwrap_or_default();
+                let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
                 for op in &ops {
                     draw_op(op);
                 }
@@ -2358,17 +2454,17 @@ mod imp {
     }
 
     /// Apply a `background`/`corner_radius` surface to a container view: UIView carries a native
-    /// `backgroundColor`; the corner radius / rounded clip go on its CALayer (reached with
-    /// `msg_send`, no QuartzCore dep). Idempotent — called at realize and on a background patch.
+    /// `backgroundColor`; the corner radius / rounded clip go on its typed CALayer
+    /// (objc2-quartz-core). Idempotent — called at realize and on a background patch.
     fn apply_surface(v: &UIView, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
         unsafe {
             match bg {
                 Some(c) => v.setBackgroundColor(Some(&uicolor(c))),
                 None => v.setBackgroundColor(None),
             }
-            let layer: *mut objc2::runtime::AnyObject = msg_send![v, layer];
-            let _: () = msg_send![layer, setCornerRadius: corner_radius];
-            let _: () = msg_send![layer, setMasksToBounds: clips || corner_radius > 0.0];
+            let layer = v.layer();
+            layer.setCornerRadius(corner_radius);
+            layer.setMasksToBounds(clips || corner_radius > 0.0);
         }
     }
 
@@ -2652,7 +2748,9 @@ mod imp {
         }
     }
 
-    fn mtm() -> MainThreadMarker {
+    // The expect is an invariant, not a runtime failure mode: every Toolkit duty runs on the
+    // main thread by contract (§8.1).
+    pub(crate) fn mtm() -> MainThreadMarker {
         MainThreadMarker::new().expect("day-uikit: not on the main thread")
     }
 
@@ -2930,6 +3028,15 @@ mod imp {
         day_spec::placeholder::report(kind, "uikit");
     }
 
+    /// The visible placeholder for a kind this backend cannot realize — no registered
+    /// renderer, or a props payload of the wrong type (`day_spec::props_of` reports the
+    /// mismatch before the arm degrades here).
+    pub(crate) fn placeholder_view(kind: PieceKind) -> Handle {
+        let label = unsafe { UILabel::new(mtm()) };
+        unsafe { label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩")))) };
+        view_of(label)
+    }
+
     impl Toolkit for Uikit {
         type Handle = Handle;
 
@@ -3020,7 +3127,9 @@ mod imp {
             match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
                     let v = unsafe { UIView::new(mtm) };
-                    if let Some(p) = props.downcast_ref::<ContainerProps>() {
+                    // A mismatched payload still yields a usable (undecorated) container;
+                    // `props_of` reports it.
+                    if let Some(p) = day_spec::props_of::<ContainerProps>(kind, "uikit", props) {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                             // tertiarySystemFill is a DYNAMIC UIColor: UIKit re-resolves it on
                             // trait-collection (light/dark) changes automatically.
@@ -3037,7 +3146,12 @@ mod imp {
                     view_of(v)
                 }
                 Some(Builtin::Nav) => {
-                    let p = props.downcast_ref::<NavProps>().unwrap();
+                    // Mismatched props degrade to the placeholder rather than panicking in a
+                    // native up-call (§8.5); `props_of` reports once per kind. Same pattern on
+                    // every arm below.
+                    let Some(p) = day_spec::props_of::<NavProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     // Resolve the optional trailing bar action once (docs/navigation.md): downscale
                     // the shared 96px asset to a bar-sized template glyph (tints with the bar), and
                     // retain one target the per-page items reuse. Applied in `insert` as pages join.
@@ -3211,7 +3325,9 @@ mod imp {
                     host
                 }
                 Some(Builtin::NavPage) => {
-                    let p = props.downcast_ref::<NavPageProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<NavPageProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
@@ -3223,7 +3339,7 @@ mod imp {
                     let handle = view_of(content);
                     PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
-                    PAGE_PANE.with(|m| m.borrow_mut().insert(ptr_of(&handle), p.pane));
+                    PAGE_PANE.with(|t| t.insert(ptr_of(&handle), p.pane));
                     handle
                 }
                 // Fullscreen cover (docs/cover.md): a DayCoverVC over a DayNavPageView (safe-
@@ -3248,7 +3364,9 @@ mod imp {
                     handle
                 }
                 Some(Builtin::Tabs) => {
-                    let p = props.downcast_ref::<TabsProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<TabsProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let tabbar = unsafe { UITabBarController::new(mtm) };
                     let root_vc = WINDOW
                         .with(|w| w.borrow().clone())
@@ -3276,7 +3394,9 @@ mod imp {
                     host
                 }
                 Some(Builtin::TabsPage) => {
-                    let p = props.downcast_ref::<TabsPageProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<TabsPageProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
@@ -3313,7 +3433,9 @@ mod imp {
                     handle
                 }
                 Some(Builtin::NavMenu) => {
-                    let p = props.downcast_ref::<NavMenuProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let data = DayNavTableData::new(
                         mtm,
                         id,
@@ -3341,7 +3463,9 @@ mod imp {
                     view
                 }
                 Some(Builtin::List) => {
-                    let p = props.downcast_ref::<ListProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ListProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let row_height = match p.row_height {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
@@ -3379,7 +3503,9 @@ mod imp {
                     view_of(sv)
                 }
                 Some(Builtin::Label) => {
-                    let p = props.downcast_ref::<LabelProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<LabelProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe {
                         label.setText(Some(&NSString::from_str(&p.text)));
@@ -3392,7 +3518,9 @@ mod imp {
                     view_of(label)
                 }
                 Some(Builtin::Button) => {
-                    let p = props.downcast_ref::<ButtonProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ButtonProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let target = DayTarget::new(mtm, id);
                     let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
                     unsafe {
@@ -3429,7 +3557,9 @@ mod imp {
                     view
                 }
                 Some(Builtin::Toggle) => {
-                    let p = props.downcast_ref::<ToggleProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ToggleProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let target = DayTarget::new(mtm, id);
                     let sw = unsafe { UISwitch::new(mtm) };
                     unsafe {
@@ -3447,7 +3577,9 @@ mod imp {
                     view
                 }
                 Some(Builtin::Slider) => {
-                    let p = props.downcast_ref::<SliderProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<SliderProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let target = DayTarget::new(mtm, id);
                     let sl = unsafe { UISlider::new(mtm) };
                     unsafe {
@@ -3474,7 +3606,9 @@ mod imp {
                 Some(Builtin::Picker) => crate::picker::realize_any(self, props, id),
                 Some(Builtin::TextArea) => crate::textarea::realize_any(self, props, id),
                 Some(Builtin::TextField) => {
-                    let p = props.downcast_ref::<TextFieldProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<TextFieldProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let target = DayTarget::new(mtm, id);
                     let tf = unsafe { UITextField::new(mtm) };
                     unsafe {
@@ -3515,7 +3649,9 @@ mod imp {
                     view_of(v)
                 }
                 Some(Builtin::Progress) => {
-                    let p = props.downcast_ref::<ProgressProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ProgressProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     match p.value {
                         Some(v) => {
                             let pv = unsafe { UIProgressView::new(mtm) };
@@ -3531,7 +3667,9 @@ mod imp {
                 }
                 Some(Builtin::Canvas) => view_of(DayCanvasView::new(mtm)),
                 Some(Builtin::Image) => {
-                    let p = props.downcast_ref::<ImageProps>().unwrap();
+                    let Some(p) = day_spec::props_of::<ImageProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
                     let iv = unsafe { objc2_ui_kit::UIImageView::new(mtm) };
                     // Scaling (§18.3): AspectFit / AspectFill (crop, clipped) / ScaleToFill.
                     let mode = match p.content_mode {
@@ -3598,9 +3736,7 @@ mod imp {
                         return make(self, props, id);
                     }
                     warn_missing_renderer(kind);
-                    let label = unsafe { UILabel::new(mtm) };
-                    unsafe { label.setText(Some(&NSString::from_str(&format!("⟨{kind}⟩")))) };
-                    view_of(label)
+                    placeholder_view(kind)
                 }
             }
         }
@@ -4066,6 +4202,12 @@ mod imp {
             GESTURES.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            // ONE sweep clears every `day_spec::sidetable::SideTable` on this thread —
+            // CTX_MENUS (whose teardown detaches the interaction from the view first),
+            // PAGE_PANE, canvas OPS, and the picker/textarea state tables — present and
+            // future, so a new table can never be forgotten here again. The RefCell maps
+            // above predate the mechanism and are still cleared by hand.
+            day_spec::sidetable::sweep(ptr_of(&h));
             unsafe { h.removeFromSuperview() };
         }
 
@@ -4091,9 +4233,8 @@ mod imp {
             // (docs/size-classes.md). It goes in whatever the current presentation calls for:
             // its own column while expanded, and the stack's root while collapsed — which is the
             // shape the phone path has always had, so nothing below changes for it.
-            let is_sidebar = PAGE_PANE.with(|m| {
-                m.borrow().get(&ptr_of(child)).copied() == Some(day_spec::props::Pane::Sidebar)
-            });
+            let is_sidebar =
+                PAGE_PANE.with(|t| t.get(ptr_of(child))) == Some(day_spec::props::Pane::Sidebar);
             // Nav host: pages join the VC stack; the first one becomes the root VC now, later
             // pages are presented by the Pushed patch.
             // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).
@@ -4488,11 +4629,9 @@ mod imp {
 
         fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
             let key = ptr_of(h);
-            // Remove any prior interaction (replace-on-reconfigure).
-            if let Some((interaction, _)) = CTX_MENUS.with(|m| m.borrow_mut().remove(&key)) {
-                let proto = ProtocolObject::from_ref(&*interaction);
-                unsafe { h.removeInteraction(proto) };
-            }
+            // Remove any prior interaction (replace-on-reconfigure): the table's teardown
+            // detaches it from the view before dropping the retains.
+            CTX_MENUS.with(|t| t.remove(key));
             if items.is_empty() {
                 return;
             }
@@ -4510,7 +4649,7 @@ mod imp {
                 h.setUserInteractionEnabled(true);
                 h.addInteraction(ProtocolObject::from_ref(&*interaction));
             }
-            CTX_MENUS.with(|m| m.borrow_mut().insert(key, (interaction, delegate)));
+            CTX_MENUS.with(|t| t.insert(key, (interaction, delegate)));
         }
 
         fn set_app_menu(&mut self, _items: &[day_spec::MenuItem]) {
@@ -4585,7 +4724,7 @@ mod imp {
         }
 
         fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
-            OPS.with(|m| m.borrow_mut().insert(ptr_of(h), ops.to_vec()));
+            OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
             unsafe { h.setNeedsDisplay() };
         }
 
@@ -5265,40 +5404,44 @@ mod imp {
                 _picker: &UIDocumentPickerViewController,
                 urls: &objc2_foundation::NSArray<objc2_foundation::NSURL>,
             ) {
-                let req = self.ivars().req;
-                let mut paths = Vec::new();
-                for i in 0..urls.count() {
-                    let url = urls.objectAtIndex(i);
-                    if let Some(p) = unsafe { url.path() } {
-                        paths.push(p.to_string());
+                day_spec::ffi_guard::contain((), || {
+                    let req = self.ivars().req;
+                    let mut paths = Vec::new();
+                    for i in 0..urls.count() {
+                        let url = urls.objectAtIndex(i);
+                        if let Some(p) = unsafe { url.path() } {
+                            paths.push(p.to_string());
+                        }
                     }
-                }
-                let result = if paths.is_empty() {
-                    day_spec::present::PresentResult::Dismissed
-                } else {
-                    day_spec::present::PresentResult::Files(paths)
-                };
-                emit(WINDOW_NODE, Event::PresentResult { req, result });
-                PRESENT_PICKERS.with(|m| {
-                    m.borrow_mut().remove(&req);
+                    let result = if paths.is_empty() {
+                        day_spec::present::PresentResult::Dismissed
+                    } else {
+                        day_spec::present::PresentResult::Files(paths)
+                    };
+                    emit(WINDOW_NODE, Event::PresentResult { req, result });
+                    PRESENT_PICKERS.with(|m| {
+                        m.borrow_mut().remove(&req);
+                    });
+                    present_forget(req);
                 });
-                present_forget(req);
             }
 
             #[unsafe(method(documentPickerWasCancelled:))]
             fn was_cancelled(&self, _picker: &UIDocumentPickerViewController) {
-                let req = self.ivars().req;
-                emit(
-                    WINDOW_NODE,
-                    Event::PresentResult {
-                        req,
-                        result: day_spec::present::PresentResult::Dismissed,
-                    },
-                );
-                PRESENT_PICKERS.with(|m| {
-                    m.borrow_mut().remove(&req);
+                day_spec::ffi_guard::contain((), || {
+                    let req = self.ivars().req;
+                    emit(
+                        WINDOW_NODE,
+                        Event::PresentResult {
+                            req,
+                            result: day_spec::present::PresentResult::Dismissed,
+                        },
+                    );
+                    PRESENT_PICKERS.with(|m| {
+                        m.borrow_mut().remove(&req);
+                    });
+                    present_forget(req);
                 });
-                present_forget(req);
             }
         }
     );
@@ -5391,16 +5534,18 @@ mod imp {
                 // The shared URL → route mapping (docs/deep-links.md): absoluteString keeps
                 // the query (route params ride it) and the original percent-encoding — the
                 // route parser decodes, not this layer.
-                let route = unsafe { url.absoluteString() }
-                    .map(|s| day_spec::route_of_url(&s.to_string()))
-                    .unwrap_or_default();
-                let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
-                if let (Some(node), false) = (node, route.is_empty()) {
-                    emit(node, Event::custom("deeplink", route));
-                    true
-                } else {
-                    false
-                }
+                day_spec::ffi_guard::contain(false, || {
+                    let route = unsafe { url.absoluteString() }
+                        .map(|s| day_spec::route_of_url(&s.to_string()))
+                        .unwrap_or_default();
+                    let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
+                    if let (Some(node), false) = (node, route.is_empty()) {
+                        emit(node, Event::custom("deeplink", route));
+                        true
+                    } else {
+                        false
+                    }
+                })
             }
 
             // Lifecycle (docs/lifecycle.md): under the scene lifecycle the activation and
@@ -5409,17 +5554,21 @@ mod imp {
             // termination stay app-scoped and keep arriving here.
             #[unsafe(method(applicationDidReceiveMemoryWarning:))]
             fn did_receive_memory_warning(&self, _app: &UIApplication) {
-                emit(
-                    WINDOW_NODE,
-                    Event::Lifecycle(day_spec::Lifecycle::DidReceiveMemoryWarning),
-                );
+                day_spec::ffi_guard::contain((), || {
+                    emit(
+                        WINDOW_NODE,
+                        Event::Lifecycle(day_spec::Lifecycle::DidReceiveMemoryWarning),
+                    );
+                });
             }
             #[unsafe(method(applicationWillTerminate:))]
             fn will_terminate(&self, _app: &UIApplication) {
-                emit(
-                    WINDOW_NODE,
-                    Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
-                );
+                day_spec::ffi_guard::contain((), || {
+                    emit(
+                        WINDOW_NODE,
+                        Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
+                    );
+                });
             }
         }
 
@@ -5430,43 +5579,45 @@ mod imp {
             /// (screen coords), tell Day the root resized, then reveal the focused field.
             #[unsafe(method(keyboardWillChange:))]
             fn keyboard_will_change(&self, notification: &objc2_foundation::NSNotification) {
-                // The KEY window's scene (docs/windows.md): the keyboard belongs to
-                // whichever Day window holds the focused field.
-                let Some((root, base, target)) = with_key_scene(|e| {
-                    (e.root_view.clone(), e.base_frame.get(), key_scene_target(e))
-                }) else {
-                    return;
-                };
-                let Some(info) = (unsafe { notification.userInfo() }) else {
-                    return;
-                };
-                let Some(val) = info
-                    .objectForKey(unsafe { objc2_ui_kit::UIKeyboardFrameEndUserInfoKey })
-                    .and_then(|o| o.downcast::<objc2_foundation::NSValue>().ok())
-                else {
-                    return;
-                };
-                use objc2_ui_kit::NSValueUIGeometryExtensions;
-                let kb = unsafe { val.CGRectValue() };
-                // The holder fills the window, so the root's frame is in window == screen
-                // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
-                let base_bottom = base.origin.y + base.size.height;
-                let new_h = if kb.origin.y < base_bottom {
-                    (kb.origin.y - base.origin.y).max(0.0)
-                } else {
-                    base.size.height
-                };
-                let f = CGRect::new(base.origin, CGSize::new(base.size.width, new_h));
-                if unsafe { root.frame() }.size.height != new_h {
-                    unsafe { root.setFrame(f) };
-                    emit(
-                        target,
-                        Event::WindowResized(Size::new(f.size.width, f.size.height)),
-                    );
-                }
-                if new_h < base.size.height {
-                    reveal_focused_field();
-                }
+                day_spec::ffi_guard::contain((), || {
+                    // The KEY window's scene (docs/windows.md): the keyboard belongs to
+                    // whichever Day window holds the focused field.
+                    let Some((root, base, target)) = with_key_scene(|e| {
+                        (e.root_view.clone(), e.base_frame.get(), key_scene_target(e))
+                    }) else {
+                        return;
+                    };
+                    let Some(info) = (unsafe { notification.userInfo() }) else {
+                        return;
+                    };
+                    let Some(val) = info
+                        .objectForKey(unsafe { objc2_ui_kit::UIKeyboardFrameEndUserInfoKey })
+                        .and_then(|o| o.downcast::<objc2_foundation::NSValue>().ok())
+                    else {
+                        return;
+                    };
+                    use objc2_ui_kit::NSValueUIGeometryExtensions;
+                    let kb = unsafe { val.CGRectValue() };
+                    // The holder fills the window, so the root's frame is in window == screen
+                    // coordinates; a hidden keyboard reports an off-screen frame (top >= bottom).
+                    let base_bottom = base.origin.y + base.size.height;
+                    let new_h = if kb.origin.y < base_bottom {
+                        (kb.origin.y - base.origin.y).max(0.0)
+                    } else {
+                        base.size.height
+                    };
+                    let f = CGRect::new(base.origin, CGSize::new(base.size.width, new_h));
+                    if unsafe { root.frame() }.size.height != new_h {
+                        unsafe { root.setFrame(f) };
+                        emit(
+                            target,
+                            Event::WindowResized(Size::new(f.size.width, f.size.height)),
+                        );
+                    }
+                    if new_h < base.size.height {
+                        reveal_focused_field();
+                    }
+                });
             }
         }
     );
@@ -5498,102 +5649,121 @@ mod imp {
                 session: &objc2_ui_kit::UISceneSession,
                 options: &objc2_ui_kit::UISceneConnectionOptions,
             ) {
-                let mtm = self.mtm();
-                let Some(win_scene) = scene.downcast_ref::<objc2_ui_kit::UIWindowScene>() else {
-                    return;
-                };
-                // Secondary day window? The request's NSUserActivity names the root node.
-                let node = scene_activity_node(options);
-                if PENDING.with(|p| p.borrow().is_some()) && node.is_none() {
-                    // The primary scene: build the window and mount the day tree.
+                // Contained (§8.5): `ready` mounts the whole day tree, and
+                // `finish_window_open` re-enters day-core.
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    let Some(win_scene) = scene.downcast_ref::<objc2_ui_kit::UIWindowScene>()
+                    else {
+                        return;
+                    };
+                    // Secondary day window? The request's NSUserActivity names the root node.
+                    let node = scene_activity_node(options);
+                    if PENDING.with(|p| p.borrow().is_some()) && node.is_none() {
+                        // The primary scene: build the window and mount the day tree.
+                        let (window, root_view, inner) = build_scene_window(mtm, win_scene);
+                        WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
+                        ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
+                        ROOT_BASE_FRAME.with(|f| f.set(inner));
+                        SCENES.with(|s| {
+                            s.borrow_mut().push(SceneEntry {
+                                window,
+                                root_view: root_view.clone(),
+                                base_frame: Cell::new(inner),
+                                node: None,
+                            })
+                        });
+                        // The take() cannot miss: the `is_some` gate above just read it, and
+                        // both run on the main thread.
+                        let Some((backend, _options, ready)) =
+                            PENDING.with(|p| p.borrow_mut().take())
+                        else {
+                            return;
+                        };
+                        let size = Size::new(inner.size.width, inner.size.height);
+                        ready(backend, view_of(root_view), size);
+                        // Cold launch via deep link or quick action (docs/deep-links.md): both
+                        // ride the connection options; `request_route` buffers until the mount
+                        // that `ready` just kicked off completes.
+                        scene_connection_routes(options);
+                        return;
+                    }
+                    let Some(node) = node else {
+                        // A restored session from a previous run: nothing to mount behind it.
+                        request_scene_destruction(mtm, session);
+                        return;
+                    };
+                    PENDING_WINDOWS.with(|p| p.borrow_mut().retain(|(n, _)| *n != node));
                     let (window, root_view, inner) = build_scene_window(mtm, win_scene);
-                    WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
-                    ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
-                    ROOT_BASE_FRAME.with(|f| f.set(inner));
+                    let size = Size::new(inner.size.width, inner.size.height);
+                    let raw = Retained::as_ptr(&root_view) as *mut std::ffi::c_void
+                        as day_spec::RawHandle;
                     SCENES.with(|s| {
                         s.borrow_mut().push(SceneEntry {
                             window,
                             root_view: root_view.clone(),
                             base_frame: Cell::new(inner),
-                            node: None,
+                            node: Some(node),
                         })
                     });
-                    let (backend, _options, ready) = PENDING
-                        .with(|p| p.borrow_mut().take())
-                        .expect("day-uikit: run() not called");
-                    let size = Size::new(inner.size.width, inner.size.height);
-                    ready(backend, view_of(root_view), size);
-                    // Cold launch via deep link or quick action (docs/deep-links.md): both
-                    // ride the connection options; `request_route` buffers until the mount
-                    // that `ready` just kicked off completes.
-                    scene_connection_routes(options);
-                    return;
-                }
-                let Some(node) = node else {
-                    // A restored session from a previous run: nothing to mount behind it.
-                    request_scene_destruction(mtm, session);
-                    return;
-                };
-                PENDING_WINDOWS.with(|p| p.borrow_mut().retain(|(n, _)| *n != node));
-                let (window, root_view, inner) = build_scene_window(mtm, win_scene);
-                let size = Size::new(inner.size.width, inner.size.height);
-                let raw =
-                    Retained::as_ptr(&root_view) as *mut std::ffi::c_void as day_spec::RawHandle;
-                SCENES.with(|s| {
-                    s.borrow_mut().push(SceneEntry {
-                        window,
-                        root_view: root_view.clone(),
-                        base_frame: Cell::new(inner),
-                        node: Some(node),
-                    })
+                    // Keep the adopted root alive for the entry's lifetime; the tree holds the
+                    // other retain through `Toolkit::adopt`.
+                    if !day_core::finish_window_open(node, raw, size) {
+                        // Closed before the scene connected — drop the scene again.
+                        SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+                        request_scene_destruction(mtm, session);
+                    }
                 });
-                // Keep the adopted root alive for the entry's lifetime; the tree holds the
-                // other retain through `Toolkit::adopt`.
-                if !day_core::finish_window_open(node, raw, size) {
-                    // Closed before the scene connected — drop the scene again.
-                    SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
-                    request_scene_destruction(mtm, session);
-                }
             }
 
             #[unsafe(method(sceneDidDisconnect:))]
             fn scene_did_disconnect(&self, scene: &objc2_ui_kit::UIScene) {
-                let mtm = self.mtm();
-                if let Some(node) = scene_entry_node_for(scene) {
-                    SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
-                    // The platform committed the close (app-switcher swipe or our
-                    // destruction request): day-core tears the subtree down on receipt.
-                    emit(node, Event::WindowClosed);
-                }
-                note_scene_lifecycle_changed(mtm);
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    if let Some(node) = scene_entry_node_for(scene) {
+                        SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+                        // The platform committed the close (app-switcher swipe or our
+                        // destruction request): day-core tears the subtree down on receipt.
+                        emit(node, Event::WindowClosed);
+                    }
+                    note_scene_lifecycle_changed(mtm);
+                });
             }
 
             #[unsafe(method(sceneDidBecomeActive:))]
             fn scene_did_become_active(&self, scene: &objc2_ui_kit::UIScene) {
-                let mtm = self.mtm();
-                if let Some(node) = scene_entry_node_for(scene) {
-                    emit(node, Event::WindowFocused(true));
-                }
-                note_scene_lifecycle_changed(mtm);
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    if let Some(node) = scene_entry_node_for(scene) {
+                        emit(node, Event::WindowFocused(true));
+                    }
+                    note_scene_lifecycle_changed(mtm);
+                });
             }
 
             #[unsafe(method(sceneWillResignActive:))]
             fn scene_will_resign_active(&self, scene: &objc2_ui_kit::UIScene) {
-                let mtm = self.mtm();
-                if let Some(node) = scene_entry_node_for(scene) {
-                    emit(node, Event::WindowFocused(false));
-                }
-                note_scene_lifecycle_changed(mtm);
+                day_spec::ffi_guard::contain((), || {
+                    let mtm = self.mtm();
+                    if let Some(node) = scene_entry_node_for(scene) {
+                        emit(node, Event::WindowFocused(false));
+                    }
+                    note_scene_lifecycle_changed(mtm);
+                });
             }
 
             #[unsafe(method(sceneWillEnterForeground:))]
             fn scene_will_enter_foreground(&self, _scene: &objc2_ui_kit::UIScene) {
-                note_scene_lifecycle_changed(self.mtm());
+                day_spec::ffi_guard::contain((), || {
+                    note_scene_lifecycle_changed(self.mtm());
+                });
             }
 
             #[unsafe(method(sceneDidEnterBackground:))]
             fn scene_did_enter_background(&self, _scene: &objc2_ui_kit::UIScene) {
-                note_scene_lifecycle_changed(self.mtm());
+                day_spec::ffi_guard::contain((), || {
+                    note_scene_lifecycle_changed(self.mtm());
+                });
             }
 
             // Warm deep link under the scene lifecycle (docs/deep-links.md): once an app
@@ -5605,11 +5775,13 @@ mod imp {
                 _scene: &objc2_ui_kit::UIScene,
                 contexts: &objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>,
             ) {
-                for ctx in contexts {
-                    if let Some(s) = unsafe { ctx.URL().absoluteString() } {
-                        day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+                day_spec::ffi_guard::contain((), || {
+                    for ctx in contexts {
+                        if let Some(s) = unsafe { ctx.URL().absoluteString() } {
+                            day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+                        }
                     }
-                }
+                });
             }
         }
 
@@ -5624,7 +5796,11 @@ mod imp {
                 item: &objc2_ui_kit::UIApplicationShortcutItem,
                 completion: &block2::DynBlock<dyn Fn(objc2::runtime::Bool)>,
             ) {
-                day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));
+                day_spec::ffi_guard::contain((), || {
+                    day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));
+                });
+                // Report handled even when the route dispatch was contained — the system's
+                // completion contract is unconditional.
                 completion.call((objc2::runtime::Bool::YES,));
             }
         }

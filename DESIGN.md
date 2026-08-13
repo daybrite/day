@@ -1438,8 +1438,14 @@ and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-M
 > trampoline boundaries — the event pump, posted main-thread tasks, and lifecycle dispatch (a
 > panicking lifecycle handler, e.g. an `eprintln!` on a stderr pipe the parent has closed during
 > teardown, no longer aborts the process); framework diagnostics on those paths use a
-> non-panicking stderr writer. Still not implemented: per-entry guards on the remaining
-> backend-specific trampolines and the in-app debug error surface — those remain the design of record.
+> non-panicking stderr writer. **Backend trampolines are guarded (2026-08):** day-spec ships
+> `ffi_guard::contain` (a `catch_unwind` wrapper with a recovery hook day-core points at
+> `day_reactive::recover_from_panic` at boot), and every backend wraps its `extern "C"` / ObjC
+> method / JNI entry points in it — event callbacks, list-source trampolines, posted-closure
+> deliveries, window/lifecycle callbacks. Two gaps remain: ObjC **block**-based callbacks on
+> day-uikit (UIAction handlers, some completion blocks) still dispatch unguarded, and the in-app
+> debug error surface is unimplemented — those remain the design of record. (On wasm, panics trap
+> the instance rather than unwind, so day-dom's guards are defense-in-depth.)
 
 > [!NOTE]
 > **The reactive runtime is unwind-safe (2026-08).** Containment only pays off if what survives is
@@ -1450,7 +1456,11 @@ and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-M
 > Signal" — a wrong diagnosis of a corrupt runtime), `untrack` (a stranded `None` observer silently
 > disabled dependency tracking process-wide), `batch` (a stranded depth stopped writes from ever
 > scheduling a drain), and the signal/memo read path. `recover_from_panic` additionally re-roots
-> `current_scope`, since a panic raised between scopes never reaches a guard.
+> `current_scope`, since a panic raised between scopes never reaches a guard. A second pass
+> (2026-08) extended the same RAII rule to the reaction and memo compute paths (an effect's own
+> panic pops its observer frame during unwind) and to `flush_now`'s batch-depth restore, made the
+> batch guard's decrement saturating, and fixed the release re-run cap to re-arm the capped
+> effect on its next source write instead of silently disabling it for the process lifetime.
 >
 > A node's value is now held in a shared cell (`Rc<RefCell<…>>`) rather than being moved out for the
 > duration of a `with`/`try_with` closure. That removes the last way a panic could destroy state — an

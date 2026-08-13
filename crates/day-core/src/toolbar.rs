@@ -57,10 +57,17 @@ pub fn dispatch_toolbar_value(action: u64, value: &ToolbarValue) {
 /// Run `f` with `root` as the window every [`set_toolbar`] call inside it targets. day-core wraps
 /// each window's content build in this; nesting restores the previous window on the way out.
 pub(crate) fn with_window<R>(root: RNode, f: impl FnOnce() -> R) -> R {
-    let prev = BUILDING.replace(Some(root));
-    let out = f();
-    BUILDING.set(prev);
-    out
+    // Restored on unwind too (the anim.rs `Restore` rule): a contained panic during a
+    // secondary window's build would otherwise leave `BUILDING` pointing at a dead window,
+    // silently redirecting every later `set_toolbar`/`size_class` call.
+    struct Restore(Option<RNode>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            BUILDING.set(self.0);
+        }
+    }
+    let _restore = Restore(BUILDING.replace(Some(root)));
+    f()
 }
 
 /// The window a toolbar call targets: the one being built, else the primary root.
