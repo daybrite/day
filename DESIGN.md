@@ -1815,9 +1815,10 @@ decrement = Decrement
 > sketched below. The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions **shipped** (2026-07):
 > `day-l10n` registers them — plus a bundle-wide number formatter, so plain `{ $n }`
 > interpolations localize too — on every bundle via icu4x 2.x (in-tree, not fluent-datetime),
-> with locale-aware collation (`compare`/`sort_localized`) alongside and per-app locale-data
-> thinning in the CLI (`ICU4X_DATA_DIR`; docs/localization.md "Formatted values"/"Sorting"/
-> "Locale data" are normative).
+> with locale-aware collation (`compare`/`sort_localized`) alongside (docs/localization.md
+> "Formatted values"/"Sorting"/"Locale data" are normative). Apps embed icu4x's all-locale
+> `compiled_data`: the CLI's per-app thinning was removed in 2026-08, having cost more in the
+> CLI's own graph than it saved in an app's binary (docs/localization.md "Locale data").
 > Plural/`select` rules work (exercised by every locale in CI), and the `res::str` typing
 > forces numeric arguments where CLDR plural selection needs them. `en-XA` pseudolocalization
 > shipped; `ar-XB` did not (a real `ar` locale covers RTL, [§7.8](#78-rtl-and-bidi)).

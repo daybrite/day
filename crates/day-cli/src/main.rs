@@ -14,7 +14,6 @@ mod drive;
 mod external;
 mod icon;
 mod interactive;
-mod intl;
 mod json5;
 mod lint;
 mod localize;
@@ -49,8 +48,6 @@ mod web;
 mod xcconfig;
 
 fn main() {
-    // Before any thread spawns (the update check): point icu4x's source cache at ~/.day/icu/src.
-    intl::init_source_cache();
     let code = cli::run();
     std::process::exit(code);
 }

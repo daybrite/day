@@ -46,7 +46,6 @@ pub fn build_web(
         .args(["--target", "wasm32-unknown-unknown"]);
     apply_app_identity(&mut cmd, project);
     crate::bridge::apply_staged(&mut cmd, project, "web-dom");
-    crate::intl::apply(&mut cmd, project);
     if profile == "release" {
         cmd.arg("--release");
     }

@@ -211,15 +211,22 @@ no separate rule: `canvas &` matches "Canvas & shapes".
 The segmenter's `auto` models are the reason this section's data footprint is not free. See the
 next section.
 
-## Locale data: thinned per app
+## Locale data
 
-The icu4x components ship `compiled_data` for every locale (~1.5 MB of a release binary with all
-three formatters linked). `day build` thins that to the locales the app DECLARES (the
-`resource/locales/*` dirs plus the core catalog) by baking a data directory once (cached in
-`~/.day/icu`) and pointing the build at it via `ICU4X_DATA_DIR`; unused components are
-dead-code-eliminated regardless. Bare `cargo` builds simply embed the full data. Baking needs a
-one-time CLDR source fetch (~100 MB, cached); `DAY_NO_ICU_FETCH` / `DAY_ICU_FULL_DATA` opt out.
-See docs/environment.md "Locale data".
+The icu4x components ship `compiled_data` for every locale, and a Day app embeds it as-is. That
+sounds expensive and mostly is not: the tables that dominate — script-keyed segmentation
+dictionaries and normalization data — are the same size whatever locales an app declares, and
+only the locale-keyed material (collation tailorings, date patterns, decimal symbols, timezone
+names) scales. Measured on the showcase (4 declared locales, macos-gtk release): all-locale data
+costs 650 KB of an 11.3 MB binary, 165 KB of it after compression. Components the app never
+constructs are dead-code-eliminated regardless of locale count, which is why `day-l10n` depends
+on individual icu4x components rather than the `icu` meta-crate.
+
+`day build` used to thin this data to the declared locale set by running icu4x's datagen
+(2026-08: removed). Thinning saved those 650 KB per app, and cost the CLI 57% of its dependency
+graph, 19% of its compile time, and 2 MB of its own binary — a wasm interpreter among them, to
+run one trie builder. An app that needs the smaller data can still bake its own directory and set
+`ICU4X_DATA_DIR`, which icu4x honours directly.
 
 ## Which language an app opens in
 

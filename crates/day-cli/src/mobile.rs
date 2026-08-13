@@ -223,8 +223,6 @@ pub fn xcode_backend_build() -> i32 {
     let ident = name.replace('-', "_");
     for triple in &triples {
         let mut cmd = Command::new(&cargo);
-        // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
-        crate::intl::apply(&mut cmd, &project);
         // Sanitize Xcode's script-phase env: SDKROOT points at the build SDK (poisoning
         // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
         // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an
@@ -1618,8 +1616,6 @@ fn build_android_so(
         .join("build/day/cargo/android-mdc")
         .join(profile);
     let mut cmd = Command::new(&cargo);
-    // Thinned ICU locale data for the declared locale set (crates/day-cli/src/intl.rs).
-    crate::intl::apply(&mut cmd, project);
     cmd.current_dir(&project.root)
         .env(
             "PATH",
