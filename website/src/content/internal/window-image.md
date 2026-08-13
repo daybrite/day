@@ -1,0 +1,1 @@
+../../../../docs/window-image.md

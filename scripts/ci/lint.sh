@@ -154,7 +154,13 @@ if [ -d parts ]; then
   done
 fi
 
-# 4) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md) — the same drift
+# 5) Website content wiring: every docs/*.md needs its symlink in website/src/content/internal/
+# (and no symlink may outlive its doc). Cheap, and it fails on the machine that added the doc
+# instead of on a runner after the whole matrix has built — which is how window-image.md reached
+# CI. `scripts/ci/docs-symlinks.sh --fix` repairs both directions.
+leg "docs symlinks" scripts/ci/docs-symlinks.sh
+
+# 6) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md) — the same drift
 # checks CI runs. Two ways to fail: changing the Toolkit trait or a backend without regenerating,
 # or changing the SHAPE the generators detect (renaming a realize match arm, moving the kinds
 # table) so a generator silently stops seeing what it measures — that one emits an empty table
