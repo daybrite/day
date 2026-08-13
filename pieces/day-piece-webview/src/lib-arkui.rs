@@ -17,21 +17,37 @@ use day_arkui::{AHandle, ArkUi, piece};
 use day_spec::NodeId;
 
 fn make(_backend: &mut ArkUi, p: &WebProps, id: NodeId) -> AHandle {
-    // `props` is the initial URL — this piece's whole realize-time state.
-    piece::make(KIND, id, &p.url)
+    // `props` is one string: the initial URL, or the inline-site marker the ArkTS side parses
+    // (`day-inline<US><root><US><start>`, 0x1F-separated like the eval replies). The rawfile
+    // URL itself is composed over there, next to the code that polices it.
+    let props = if p.inline_root.is_empty() {
+        p.url.clone()
+    } else {
+        format!(
+            "day-inline{SEP}{}{SEP}{}",
+            p.inline_root, p.inline_start,
+            SEP = super::SEP
+        )
+    };
+    piece::make(KIND, id, &props)
 }
 
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &WebPatch) {
+    // Evaluation (docs/webview-eval.md): `req` rides in front of the script, 0x1F-separated —
+    // the ArkTS side runs `runJavaScript`, normalizes the reply, and answers on `pieceEvent`
+    // with `req` as the num. Its try/catch guarantees exactly one reply even when the
+    // controller is not yet attached (error 17100001).
+    if let WebPatch::Eval { req, script } = patch {
+        piece::update(h, "eval", &format!("{req}{}{script}", super::SEP));
+        return;
+    }
     let (cmd, arg) = match patch {
         WebPatch::Load(u) => ("load", u.as_str()),
         WebPatch::Back => ("back", ""),
         WebPatch::Forward => ("forward", ""),
         WebPatch::Stop => ("stop", ""),
         WebPatch::Reload => ("reload", ""),
-        // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
-        // reports Unsupported, so the front-end resolves the future without dispatching
-        // and this arm is unreachable — it exists to keep the match exhaustive.
-        WebPatch::Eval { .. } => return,
+        WebPatch::Eval { .. } => return, // handled above; keeps the match exhaustive
     };
     piece::update(h, cmd, arg);
 }

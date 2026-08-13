@@ -20,6 +20,9 @@ unsafe extern "C" {
         url: *const c_char,
         id: u64,
         cb: extern "C" fn(u64, *const c_char),
+        inline_root: *const c_char,
+        inline_start: *const c_char,
+        link_cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day_webview_xaml_load(handle: *mut c_void, url: *const c_char);
     fn day_webview_xaml_back(handle: *mut c_void);
@@ -62,6 +65,25 @@ extern "C" fn on_url(id: u64, url: *const c_char) {
     day_xaml::emit(NodeId(id), Event::custom("webview:url", s));
 }
 
+/// An inline site's navigation left the site: the shim CANCELLED it (NavigationStarting /
+/// NewWindowRequested) and reports it here; the front-end runs the app's `LinkPolicy`.
+extern "C" fn on_link(id: u64, url: *const c_char) {
+    if url.is_null() {
+        return;
+    }
+    let s = unsafe { CStr::from_ptr(url) }
+        .to_string_lossy()
+        .into_owned();
+    day_xaml::emit(
+        NodeId(id),
+        Event::Custom {
+            tag: "webview:link",
+            num: super::LINK_REPORT,
+            text: s,
+        },
+    );
+}
+
 fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_default()
 }
@@ -71,7 +93,20 @@ fn make(_backend: &mut Xaml, p: &WebProps, id: NodeId) -> WinHandle {
     // carries its own node id), so register it once rather than per view.
     static EVAL_CB: std::sync::Once = std::sync::Once::new();
     EVAL_CB.call_once(|| unsafe { day_webview_xaml_set_eval_cb(on_eval) });
-    WinHandle(unsafe { day_webview_xaml_new(cstr(&p.url).as_ptr(), id.0, on_url) })
+    // Inline mode (docs/webview.md): the shim maps the exe-relative assets tree under a virtual
+    // host (Windows ships assets as loose files beside the exe, resources/xaml.rs) and browses
+    // `https://day-assets.example/<root>/<start>` — the engine resolves the site's relative
+    // references itself, and the shim polices top-level navigations against that prefix.
+    WinHandle(unsafe {
+        day_webview_xaml_new(
+            cstr(&p.url).as_ptr(),
+            id.0,
+            on_url,
+            cstr(&p.inline_root).as_ptr(),
+            cstr(&p.inline_start).as_ptr(),
+            on_link,
+        )
+    })
 }
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &WebPatch) {

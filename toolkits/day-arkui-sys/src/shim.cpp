@@ -1859,17 +1859,22 @@ static napi_value RegisterPiece(napi_env env, napi_callback_info info) {
     return undef;
 }
 
-// An ArkTS-built component reports back to its piece: `pieceEvent(id, text)`. Rides the SAME
-// Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole event,
-// so a piece that emits one kind of message needs no tag. JS thread only.
+// An ArkTS-built component reports back to its piece: `pieceEvent(id, text, num?)`. Rides the
+// SAME Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole
+// event, and the optional `num` is the piece's own discriminator (the web view's link reports
+// use -1, its URL reports omit it — docs/webview.md). JS thread only.
 static napi_value PieceEvent(napi_env env, napi_callback_info info) {
-    size_t argc = 2;
-    napi_value argv[2] = {nullptr, nullptr};
+    size_t argc = 3;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     double id = 0;
     napi_get_value_double(env, argv[0], &id);
     std::string text = napi_to_string(env, argv[1]);
-    day_arkui_on_event((uint64_t)id, DAY_K_CUSTOM, 0.0, text.c_str());
+    double num = 0;
+    if (argc > 2 && argv[2] != nullptr) {
+        napi_get_value_double(env, argv[2], &num);
+    }
+    day_arkui_on_event((uint64_t)id, DAY_K_CUSTOM, num, text.c_str());
     napi_value undef;
     napi_get_undefined(env, &undef);
     return undef;

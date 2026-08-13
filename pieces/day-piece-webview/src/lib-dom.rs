@@ -54,15 +54,13 @@ fn make(backend: &mut Dom, p: &WebProps, _id: NodeId) -> DomHandle {
     let h = backend.element("iframe");
     if !p.inline_root.is_empty() {
         // Inline mode (docs/webview.md): the bundled site deploys under `assets/data/` beside
-        // the host page (web.rs), so a RELATIVE src is same-origin and the browser resolves the
-        // site's internal references natively. `inline_support()` is Emulated here: pages and
-        // relative navigation work; the external-link policy does not reach inside the frame
-        // yet (the same-origin click hook is the planned upgrade, docs/webview.md).
-        load(
-            backend,
-            &h,
-            &format!("assets/data/{}/{}", p.inline_root, p.inline_start),
-        );
+        // the host page (web.rs), so a RELATIVE src is same-origin and the browser resolves
+        // the site's internal references natively. The base attribute arms the shim's
+        // same-origin click hook BEFORE the first load: links leaving the site are cancelled
+        // in-frame and reported (num -1), and the front-end runs the app's LinkPolicy.
+        let base = format!("assets/data/{}/", p.inline_root);
+        backend.set_attr(&h, "data-day-inline-base", &base);
+        load(backend, &h, &format!("{base}{}", p.inline_start));
     } else if !p.url.is_empty() {
         load(backend, &h, &p.url);
     }

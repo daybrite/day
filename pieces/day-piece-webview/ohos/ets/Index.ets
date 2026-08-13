@@ -15,6 +15,7 @@
 
 import { BuilderNode, FrameNode, UIContext } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
+import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
 import { DayPieceModule } from '../DayPiece';
 
@@ -34,11 +35,17 @@ class DayWebViewInstance {
 class DayWebViewParams {
   id: number = 0;
   url: string = '';
+  // Inline mode (docs/webview.md): the URL prefix of the bundled site under rawfile ('' =
+  // remote mode). A main-document navigation outside it is BLOCKED in onLoadIntercept and
+  // reported with num -1; the piece's Rust front-end runs the app's LinkPolicy.
+  inlinePrefix: string = '';
   controller: webview.WebviewController = new webview.WebviewController();
 }
 
 // The component. `onPageEnd` fires for every committed navigation — including in-page link taps —
-// which is what keeps the URL bar honest.
+// which is what keeps the URL bar honest. `onLoadIntercept` sees each main-document request
+// BEFORE it loads, which is where an inline site's link policy runs (subresources go through a
+// different callback and are never policed).
 @Builder
 function dayWebViewBuilder(params: DayWebViewParams) {
   // NO percentage sizing: a BuilderNode is built detached, so '100%' resolves against the whole
@@ -50,6 +57,19 @@ function dayWebViewBuilder(params: DayWebViewParams) {
       if (event !== undefined) {
         nativeEntry.pieceEvent(params.id, event.url);
       }
+    })
+    .onLoadIntercept((event) => {
+      if (params.inlinePrefix === '') {
+        return false; // remote mode: never intercept
+      }
+      const url: string = event.data.getRequestUrl();
+      if (url.startsWith(params.inlinePrefix) || url === 'about:blank') {
+        return false; // in-site: let the engine navigate
+      }
+      // Leaving the site: block and report (num -1 = the link report); the Rust side runs the
+      // app's LinkPolicy — system browser by default.
+      nativeEntry.pieceEvent(params.id, url, -1);
+      return true;
     })
 }
 
@@ -68,7 +88,20 @@ function make(ui: UIContext, id: number, props: string): FrameNode | undefined {
   const controller: webview.WebviewController = new webview.WebviewController();
   const params: DayWebViewParams = new DayWebViewParams();
   params.id = id;
-  params.url = props;
+  // Inline mode arrives as `day-inline<US><root>[<US><start>]` (0x1F-separated, the piece's own
+  // props encoding): the site lives under rawfile `day/<root>/` (resources/arkui.rs staging),
+  // which ArkWeb browses through `resource://rawfile/` URLs — relative references resolve
+  // within it natively.
+  const SEP: string = '\u001F';
+  if (props.startsWith('day-inline' + SEP)) {
+    const parts: string[] = props.split(SEP);
+    const root: string = parts.length > 1 ? parts[1] : '';
+    const start: string = parts.length > 2 && parts[2] !== '' ? parts[2] : 'index.html';
+    params.inlinePrefix = 'resource://rawfile/day/' + root + '/';
+    params.url = params.inlinePrefix + start;
+  } else {
+    params.url = props;
+  }
   params.controller = controller;
   const node: BuilderNode<[DayWebViewParams]> = new BuilderNode(ui);
   node.build(wrapBuilder<[DayWebViewParams]>(dayWebViewBuilder), params);
@@ -80,9 +113,56 @@ function make(ui: UIContext, id: number, props: string): FrameNode | undefined {
   return frame;
 }
 
+// An engine-level evaluation failure, in the 0x1F envelope the Rust front-end decodes
+// (docs/webview-eval.md).
+function dayEvalError(message: string): string {
+  return '0\u001FArkWeb\u001F' + message;
+}
+
+// Normalize a `runJavaScript` reply. The front-end's wrapper makes every result a JS STRING;
+// whether the engine hands that back raw or JSON-serialized (one outer quoted layer) was left
+// unverified in docs/webview-eval.md, so both spellings are accepted. Empty and literal-null
+// replies are engine failures (the wrapper catches script throws before they get that far).
+function dayEvalPayload(result: string): string {
+  if (result === '') {
+    return dayEvalError('empty result');
+  }
+  if (result === 'null') {
+    return dayEvalError('no result');
+  }
+  if (result.startsWith('"')) {
+    try {
+      const v: Object | null = JSON.parse(result);
+      return typeof v === 'string' ? v : dayEvalError('non-string result');
+    } catch (err) {
+      return dayEvalError('unparsable result');
+    }
+  }
+  return result;
+}
+
 function update(id: number, cmd: string, arg: string): void {
   const live: DayWebViewInstance | undefined = instances.get(id);
   if (live === undefined) {
+    return;
+  }
+  // Evaluation (docs/webview-eval.md): `<req><script>`. The reply is MANDATORY on every
+  // path — the Rust future resolves only when `pieceEvent` answers with `req` as the num — so
+  // the pre-attach throw (17100001) and the promise rejection both answer with an engine error
+  // rather than staying silent.
+  if (cmd === 'eval') {
+    const sep: number = arg.indexOf('\u001F');
+    const req: number = Number(arg.substring(0, sep));
+    const script: string = arg.substring(sep + 1);
+    try {
+      live.controller.runJavaScript(script).then((result: string) => {
+        nativeEntry.pieceEvent(id, dayEvalPayload(result), req);
+      }).catch((err: BusinessError) => {
+        nativeEntry.pieceEvent(id, dayEvalError(String(err.message)), req);
+      });
+    } catch (err) {
+      nativeEntry.pieceEvent(id, dayEvalError(String(err)), req);
+    }
     return;
   }
   // Every controller call throws before the Web component finishes initializing (and `forward`

@@ -158,6 +158,9 @@ const env = {
   day_dom_set_attr(id, a, al, v, vl) {
     const el = V(id); const name = str(a, al); const val = str(v, vl);
     if (name === 'value') { el.value = val; return; }
+    // The inline web view's link-policy hook (docs/webview.md) rides an attribute because a
+    // piece renderer has no way to add shim code of its own.
+    if (name === 'data-day-inline-base') { dayInlineHook(id, el, val); return; }
     // Boolean attrs use a marker convention from the Rust side: "" removes, "-" sets.
     if (name === 'disabled' || name === 'readonly') {
       val === '' ? el.removeAttribute(name) : el.setAttribute(name, '');
@@ -858,6 +861,32 @@ function httpFail(id, kind, msg) {
 // ---------------------------------------------------------------------------
 
 function mods(e) { return (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0); }
+
+// The inline web view's link policy (docs/webview.md). The bundled site deploys beside the app
+// under assets/data/, so its iframe is SAME-ORIGIN and the shim can reach inside: on every
+// document the frame loads, a capture-phase click listener resolves each followed <a> against
+// the site base — in-site links navigate the frame as normal, leaving ones are cancelled and
+// reported to the piece (num -1 on the Custom channel), whose Rust side runs the app's
+// LinkPolicy. Re-armed per load: each navigation is a fresh document.
+function dayInlineHook(id, frame, base) {
+  const absBase = new URL(base, document.baseURI).href;
+  frame.addEventListener('load', () => {
+    let doc = null;
+    try { doc = frame.contentDocument; } catch { return; } // foreign document: nothing to police
+    if (!doc) return;
+    doc.addEventListener('click', (e) => {
+      const t = e.target;
+      const a = t && t.closest ? t.closest('a[href]') : null;
+      if (!a) return;
+      let url;
+      try { url = new URL(a.getAttribute('href'), doc.baseURI).href; } catch { return; }
+      if (url.startsWith(absBase) || url === 'about:blank') return;
+      e.preventDefault();
+      const [p, l] = intoWasm(url);
+      wasm.day_dom_piece_event(id, -1, p, l);
+    }, true);
+  });
+}
 
 function listen(id, mask) {
   const host = E(id); const el = V(id);

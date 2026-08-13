@@ -59,6 +59,25 @@ fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &WebPatch) {
+    // Evaluation (docs/webview-eval.md): `evaluateJavascript` plus the outer-JSON unquote and
+    // the null/empty→engine-error mapping live in DayWebView.evalJs; the reply rides the
+    // kind-12 channel keyed by `req`, like every other backend.
+    if let WebPatch::Eval { req, script } = patch {
+        with_env(|env| {
+            let s = env.new_string(script).expect("script");
+            let _ = env.dcall_static(
+                WEBVIEW_CLASS,
+                "evalJs",
+                "(Landroid/view/View;DLjava/lang/String;)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Double(*req as f64),
+                    JValue::Object(&s),
+                ],
+            );
+        });
+        return;
+    }
     // Commands cross as (code, url): 0=load, 1=back, 2=forward, 3=stop, 4=reload.
     let (code, url) = match patch {
         WebPatch::Load(u) => (0, u.as_str()),
@@ -66,10 +85,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &WebPatch) {
         WebPatch::Forward => (2, ""),
         WebPatch::Stop => (3, ""),
         WebPatch::Reload => (4, ""),
-        // Not implemented on this backend yet (docs/webview-eval.md). `eval_support()`
-        // reports Unsupported, so the front-end resolves the future without dispatching
-        // and this arm is unreachable — it exists to keep the match exhaustive.
-        WebPatch::Eval { .. } => return,
+        WebPatch::Eval { .. } => return, // handled above; keeps the match exhaustive
     };
     with_env(|env| {
         let s = env.new_string(url).expect("cmd url");

@@ -100,7 +100,15 @@ struct WebViewCtx {
     void (*cb)(uint64_t, const char *){};
     std::wstring pending_url; // navigated once the controller is ready
     double scale{1.0};        // DIP → physical-pixel factor (host-window DPI / 96), the rasterization scale
+    // Inline mode (docs/webview.md): the URL prefix of the bundled site under the virtual host
+    // (empty = remote mode) and the callback a cancelled external navigation reports through.
+    std::wstring inline_prefix;
+    void (*link_cb)(uint64_t, const char *){};
 };
+
+// The virtual host the exe-relative assets tree is mapped under for inline sites. `.example` is
+// reserved for exactly this use, the same convention Microsoft's own WebView2 docs model.
+static const wchar_t *kDayAssetsHost = L"day-assets.example";
 
 static std::map<void *, WebViewCtx *> g_webviews;
 
@@ -407,6 +415,79 @@ static void create_webview2(void *handle) {
                             WUXH::ElementCompositionPreview::SetElementChildVisual(c2->placeholder,
                                                                                   c2->rootVisual);
 
+                            if (c2->webview && !c2->inline_prefix.empty()) {
+                                // Inline mode: map the exe-relative assets tree under the virtual
+                                // host BEFORE the first Navigate, then police top-level
+                                // navigations against the site prefix — leaving ones are
+                                // CANCELLED and reported (the Rust side runs the LinkPolicy;
+                                // events are enqueue-only, so the verdict can't come back here).
+                                wrl::ComPtr<ICoreWebView2_3> wv3;
+                                if (SUCCEEDED(c2->webview->QueryInterface(IID_PPV_ARGS(&wv3))) &&
+                                    wv3) {
+                                    wchar_t exe[MAX_PATH]{};
+                                    GetModuleFileNameW(nullptr, exe, MAX_PATH);
+                                    std::wstring assets(exe);
+                                    size_t slash = assets.find_last_of(L"\\/");
+                                    if (slash != std::wstring::npos)
+                                        assets.resize(slash);
+                                    assets += L"\\assets";
+                                    wv3->SetVirtualHostNameToFolderMapping(
+                                        kDayAssetsHost, assets.c_str(),
+                                        COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                                }
+                                EventRegistrationToken navTok{};
+                                c2->webview->add_NavigationStarting(
+                                    wrl::Callback<ICoreWebView2NavigationStartingEventHandler>(
+                                        [handle](ICoreWebView2 *,
+                                                 ICoreWebView2NavigationStartingEventArgs *args)
+                                            -> HRESULT {
+                                            auto *cn = find_ctx(handle);
+                                            if (!cn || cn->inline_prefix.empty())
+                                                return S_OK;
+                                            LPWSTR uri = nullptr;
+                                            if (FAILED(args->get_Uri(&uri)) || !uri)
+                                                return S_OK;
+                                            std::wstring u(uri);
+                                            CoTaskMemFree(uri);
+                                            const bool inside =
+                                                u.rfind(cn->inline_prefix, 0) == 0 ||
+                                                u == L"about:blank";
+                                            if (!inside) {
+                                                args->put_Cancel(TRUE);
+                                                if (cn->link_cb) {
+                                                    std::string s = to_utf8(winrt::hstring{u});
+                                                    cn->link_cb(cn->id, s.c_str());
+                                                }
+                                            }
+                                            return S_OK;
+                                        })
+                                        .Get(),
+                                    &navTok);
+                                // window.open / target=_blank: external by definition — no new
+                                // window exists in day's tree, so report and swallow.
+                                EventRegistrationToken winTok{};
+                                c2->webview->add_NewWindowRequested(
+                                    wrl::Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+                                        [handle](ICoreWebView2 *,
+                                                 ICoreWebView2NewWindowRequestedEventArgs *args)
+                                            -> HRESULT {
+                                            auto *cn = find_ctx(handle);
+                                            if (!cn || cn->inline_prefix.empty())
+                                                return S_OK;
+                                            args->put_Handled(TRUE);
+                                            LPWSTR uri = nullptr;
+                                            if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
+                                                std::string s =
+                                                    to_utf8(winrt::hstring{std::wstring(uri)});
+                                                if (cn->link_cb)
+                                                    cn->link_cb(cn->id, s.c_str());
+                                                CoTaskMemFree(uri);
+                                            }
+                                            return S_OK;
+                                        })
+                                        .Get(),
+                                    &winTok);
+                            }
                             if (c2->webview) {
                                 // Report the settled URL back so the app's URL bar follows navigation.
                                 EventRegistrationToken tok{};
@@ -445,14 +526,24 @@ static void create_webview2(void *handle) {
 
 extern "C" {
 
-void *day_webview_xaml_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *)) {
+void *day_webview_xaml_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *),
+                           const char *inline_root, const char *inline_start,
+                           void (*link_cb)(uint64_t, const char *)) {
     // The boxed element day lays out: a transparent (hit-testable) Border carrying a faint URL label.
     // The browser's render visual is spliced in as the Border's child visual and covers the label;
     // if the WebView2 Runtime is absent, the label remains as the graceful, no-crash fallback.
+    const bool inlined = inline_root && *inline_root;
+    std::wstring first = hs(url ? url : "").c_str();
+    std::wstring prefix;
+    if (inlined) {
+        // The bundled site browses under the virtual host mapped at controller creation.
+        prefix = std::wstring(L"https://") + kDayAssetsHost + L"/" + hs(inline_root).c_str() + L"/";
+        first = prefix + hs(inline_start ? inline_start : "index.html").c_str();
+    }
     WUXC::Border placeholder;
     placeholder.Background(WUXM::SolidColorBrush(WUI::Color{0, 0, 0, 0})); // transparent but hit-testable
     WUXC::TextBlock label;
-    label.Text(hs(url ? url : ""));
+    label.Text(winrt::hstring{first});
     label.Margin(WUX::Thickness{8, 8, 8, 8});
     label.Opacity(0.6);
     placeholder.Child(label);
@@ -463,7 +554,9 @@ void *day_webview_xaml_new(const char *url, uint64_t id, void (*cb)(uint64_t, co
     c->placeholder = placeholder;
     c->id = id;
     c->cb = cb;
-    c->pending_url = hs(url).c_str();
+    c->pending_url = first;
+    c->inline_prefix = prefix;
+    c->link_cb = link_cb;
     UINT dpi = c->parent ? GetDpiForWindow(c->parent) : 96;
     c->scale = (dpi ? dpi : 96) / 96.0;
     g_webviews[handle] = c;

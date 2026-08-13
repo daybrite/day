@@ -127,14 +127,20 @@ poll.
 
 Per backend — gate on `inline_support()`:
 
-| Backend | Channel | Support |
+| Backend | Channel | Policy hook |
 |---|---|---|
-| AppKit / UIKit | `loadFileURL:allowingReadAccessToURL:` into the bundle's assets tree (canonicalized — WebKit reports standardized URLs, so the policed base must match); policy via `decidePolicyForNavigationAction` | Native |
-| Android | `file:///android_asset/<dir>/…` (the assets tree IS the APK `assets/` root; the URL family is exempt from the API-30 file-access default); policy via `shouldOverrideUrlLoading` | Native |
-| web-dom | the deployed `assets/data/<dir>/…` URL — same origin as the host page, so the browser resolves everything; the link policy cannot reach inside the frame yet (the same-origin click hook is the planned upgrade) | Emulated |
-| Qt | `qrc:/day/assets/…` (QWebEngine reads qrc natively) — arm not written yet | Unsupported |
-| GTK / ArkUI | extract-to-cache in `prepare_site`, then a file URL — arms not written yet | Unsupported |
-| XAML | `SetVirtualHostNameToFolderMapping` onto the exe-relative assets dir — arm not written yet | Unsupported |
+| AppKit / UIKit | `loadFileURL:allowingReadAccessToURL:` into the bundle's assets tree (canonicalized — WebKit reports standardized URLs, so the policed base must match) | `decidePolicyForNavigationAction` |
+| Android | `file:///android_asset/<dir>/…` (the assets tree IS the APK `assets/` root; the URL family is exempt from the API-30 file-access default) | `shouldOverrideUrlLoading` |
+| Qt | `qrc:/day/assets/<dir>/…` — QWebEngine reads the qrc-staged tree natively; policed by (scheme, path-prefix), since Chromium normalizes qrc spellings | `acceptNavigationRequest` (the shim's `DayWebPage`) |
+| XAML | `SetVirtualHostNameToFolderMapping` maps the exe-relative assets dir under `day-assets.example`; `NewWindowRequested` is swallowed and reported as external | `NavigationStarting` |
+| GTK (linux) | extract-to-cache — WebKitGTK cannot browse a GResource, so `prepare_site()` (or realize, on the lazy path) copies the tree to the user cache once per process and the view loads the canonical `file://` URL | `decide-policy` |
+| ArkWeb | `resource://rawfile/day/<dir>/…` over the rawfile staging; the inline marker crosses in the piece's props string and the ArkTS side composes and polices the URL | `onLoadIntercept` |
+| web-dom | the deployed `assets/data/<dir>/…` URL — same origin as the host page, so the browser resolves the site AND the shim's capture-phase click hook (armed by the `data-day-inline-base` attribute) polices leaving links | in-frame click hook → `day_dom_piece_event` |
+
+Every backend with a web engine reports `Native`; `Unsupported` remains only where there is no
+engine at all (macos-gtk / windows-gtk, which have no WebKitGTK build). The Qt, XAML, GTK and
+ArkWeb arms are compile-verified from this host and behavior-verified by their CI legs; Qt was
+additionally exercised live on macos-qt.
 
 The showcase's Web View page shows both modes as tabs: **Remote** (the browsing demo above) and
 **Embedded** (`resource/assets/web/minisite/`, with all three link dispositions live).

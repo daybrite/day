@@ -20,6 +20,8 @@ unsafe extern "C" {
         id: u64,
         cb: extern "C" fn(u64, *const c_char),
         session: u64,
+        inline_path_prefix: *const c_char,
+        link_cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day_webview_load(w: *mut c_void, url: *const c_char);
     fn day_webview_back(w: *mut c_void);
@@ -60,6 +62,25 @@ extern "C" fn on_url(id: u64, url: *const c_char) {
     day_qt::emit(NodeId(id), Event::custom("webview:url", s));
 }
 
+/// An inline site's navigation left the site: the shim CANCELLED it (acceptNavigationRequest
+/// returned false) and reports it here; the front-end runs the app's `LinkPolicy`.
+extern "C" fn on_link(id: u64, url: *const c_char) {
+    if url.is_null() {
+        return;
+    }
+    let s = unsafe { CStr::from_ptr(url) }
+        .to_string_lossy()
+        .into_owned();
+    day_qt::emit(
+        NodeId(id),
+        Event::Custom {
+            tag: "webview:link",
+            num: super::LINK_REPORT,
+            text: s,
+        },
+    );
+}
+
 fn cstr(s: &str) -> CString {
     CString::new(s).unwrap_or_default()
 }
@@ -69,7 +90,30 @@ fn make(_backend: &mut Qt, p: &WebProps, id: NodeId) -> QtHandle {
     // carries its own node id), so register it once rather than per view.
     static EVAL_CB: std::sync::Once = std::sync::Once::new();
     EVAL_CB.call_once(|| unsafe { day_webview_set_eval_cb(on_eval) });
-    QtHandle(unsafe { day_webview_new(cstr(&p.url).as_ptr(), id.0, on_url, p.session) })
+    // Inline mode (docs/webview.md): the asset tree is compiled into the qrc blob
+    // (`:/day/assets/<path>`, resources/qt.rs), and QWebEngine reads the qrc scheme natively —
+    // so the load is one URL and the engine resolves the site's relative references itself.
+    // The shim polices navigation by (scheme, path-prefix), not by raw string: Chromium
+    // normalizes qrc URL spellings, and a string compare would cancel the site's own first
+    // load (the AppKit arm learned the same lesson with file URLs).
+    let (url, path_prefix) = if p.inline_root.is_empty() {
+        (p.url.clone(), String::new())
+    } else {
+        (
+            format!("qrc:/day/assets/{}/{}", p.inline_root, p.inline_start),
+            format!("/day/assets/{}/", p.inline_root),
+        )
+    };
+    QtHandle(unsafe {
+        day_webview_new(
+            cstr(&url).as_ptr(),
+            id.0,
+            on_url,
+            p.session,
+            cstr(&path_prefix).as_ptr(),
+            on_link,
+        )
+    })
 }
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &WebPatch) {

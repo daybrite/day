@@ -46,6 +46,36 @@ static void (*g_eval_cb)(uint64_t, uint64_t, const char *) = nullptr;
 // the QWebEnginePage the view owns, so re-parenting is lossless.
 static std::map<uint64_t, QWebEngineView *> g_sessions;
 
+// Inline mode's link policy (docs/webview.md): a page that polices main-frame navigations
+// against the bundled site's (scheme, path-prefix). Anything leaving the site is CANCELLED and
+// reported through `link_cb` — the Rust side runs the app's LinkPolicy (events are enqueue-only,
+// so the decision cannot come back through this override). Remote views keep the default page.
+class DayWebPage : public QWebEnginePage {
+public:
+    uint64_t id = 0;
+    QString pathPrefix; // "/day/assets/<root>/"
+    void (*linkCb)(uint64_t, const char *) = nullptr;
+
+    using QWebEnginePage::QWebEnginePage;
+
+protected:
+    bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) override {
+        (void)type;
+        if (pathPrefix.isEmpty() || !isMainFrame)
+            return true;
+        const bool inside = (url.scheme() == QStringLiteral("qrc") &&
+                             url.path().startsWith(pathPrefix)) ||
+                            url.toString() == QStringLiteral("about:blank");
+        if (inside)
+            return true;
+        if (linkCb) {
+            const QByteArray bytes = url.toString().toUtf8();
+            linkCb(id, bytes.constData());
+        }
+        return false;
+    }
+};
+
 class DayWebView : public QWidget {
 public:
     QWebEngineView *view = nullptr;
@@ -77,7 +107,8 @@ static void day_webview_connect_url(QWebEngineView *v, uint64_t id,
 extern "C" {
 
 void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *),
-                      uint64_t session) {
+                      uint64_t session, const char *inline_path_prefix,
+                      void (*link_cb)(uint64_t, const char *)) {
     DayWebView *w = new DayWebView();
     w->id = id;
     w->session = session;
@@ -87,8 +118,13 @@ void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const c
     auto known = session != 0 ? g_sessions.find(session) : g_sessions.end();
     if (known != g_sessions.end()) {
         // Re-attach the retained engine: addWidget re-parents it. Deliberately NO load() — the
-        // point is to return to the page as it was left.
+        // point is to return to the page as it was left. An inline page's link reports must
+        // follow the node now showing it, like the url reports below.
         QWebEngineView *v = known->second;
+        // dynamic_cast, not qobject_cast: the shim compiles without moc, so DayWebPage carries
+        // no Q_OBJECT metadata — plain RTTI is what identifies an inline page here.
+        if (DayWebPage *p = dynamic_cast<DayWebPage *>(v->page()))
+            p->id = id;
         day_webview_connect_url(v, id, cb);
         lay->addWidget(v);
         w->view = v;
@@ -96,6 +132,14 @@ void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const c
     }
 
     QWebEngineView *v = new QWebEngineView();
+    const QString prefix = QString::fromUtf8(inline_path_prefix ? inline_path_prefix : "");
+    if (!prefix.isEmpty()) {
+        DayWebPage *page = new DayWebPage(v);
+        page->id = id;
+        page->pathPrefix = prefix;
+        page->linkCb = link_cb;
+        v->setPage(page);
+    }
     day_webview_connect_url(v, id, cb);
     lay->addWidget(v);
     w->view = v;
@@ -175,9 +219,12 @@ public:
 extern "C" {
 
 void *day_webview_new(const char *url, uint64_t id, void (*cb)(uint64_t, const char *),
-                      uint64_t session) {
-    (void)cb;      // no navigation to report without a real engine
-    (void)session; // nothing to retain either
+                      uint64_t session, const char *inline_path_prefix,
+                      void (*link_cb)(uint64_t, const char *)) {
+    (void)cb;                 // no navigation to report without a real engine
+    (void)session;            // nothing to retain either
+    (void)inline_path_prefix; // and no engine to police — the label shows the qrc URL
+    (void)link_cb;
     DayWebView *w = new DayWebView();
     w->id = id;
     QVBoxLayout *lay = new QVBoxLayout(w);

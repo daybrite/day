@@ -8,13 +8,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > [!IMPORTANT]
 > **Status: partly implemented.** The front-end ships — `JsHandle::eval` returning a future, the
 > JavaScript envelope, the request/reply codec, `eval_support()`, and the `num`-keyed split that
-> keeps evaluation replies from clobbering the URL readback. **AppKit, UIKit, Qt and XAML** have
-> working arms; `eval_support()` reports `Native` there.
+> keeps evaluation replies from clobbering the URL readback. **AppKit, UIKit, Qt, XAML, Android
+> and ArkWeb** have working arms; `eval_support()` reports `Native` there. Android ships the
+> outer-JSON unquote and the null/empty→engine-error mapping in `DayWebView.evalJs`; ArkWeb rides
+> `runJavaScript` with an always-reply guarantee (pre-attach throws and promise rejections both
+> answer as engine errors) and accepts either reply serialization, since the SDK left it
+> unverified below.
 >
-> **GTK, Android and ArkUI** carry an inert `WebPatch::Eval` arm so their `match` stays exhaustive,
-> and report `Unsupported`. The per-platform research below is what those arms need; the order in
-> [Implementation order](#implementation-order) still holds, minus the three that are done.
-> **web-dom can never do this** — `contentWindow.eval` throws across origins.
+> **GTK** carries an inert `WebPatch::Eval` arm so its `match` stays exhaustive, and reports
+> `Unsupported`. The per-platform research below is what that arm needs.
+> **web-dom can never do this for REMOTE pages** — `contentWindow.eval` throws across origins
+> (an inline site's same-origin frame is the noted future exception, docs/webview.md).
 >
 > Verified end to end on **macos-qt (21/21 script steps)** and **macos-appkit (20/21 — only the
 > engine-specific `SyntaxError` wording differs)**: values, object serialization, thrown exceptions
@@ -54,13 +58,15 @@ and they drive the whole design:
 | Isolated world | ✓ ¹ | ✓ ¹ | ✓ | ✓ | ✗ | ✗ | ✗ | — |
 | Cancel in flight | ✗ | ✗ | ✗ ³ | ✗ | ✗ | ✗ | ✗ | — |
 | Callback guaranteed | exactly once | exactly once | exactly once | exactly once ⁴ | **at most once** | **at most once** | ? | — |
-| `num` correlation slot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✗** ⁵ | n/a |
+| `num` correlation slot | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ ⁵ | n/a |
 
 ¹ `callAsyncJavaScript` / `WKContentWorld`, macOS 11 / iOS 14.
 ² `call_async_javascript_function`.
 ³ The `GCancellable` converts the completion to `Err(CANCELLED)`; the script still runs.
 ⁴ Qt fires pending callbacks with an invalid `QVariant` during page destruction — unusually strong.
-⁵ ArkUI's generic piece channel hardcodes `num = 0.0`. This is the one framework change required.
+⁵ ArkUI's generic piece channel originally hardcoded `num = 0.0`; `pieceEvent` gained an
+optional third argument (added for the inline web view's link reports), which carries the
+request id now.
 
 Note the shape of the table: the axes where backends differ are exactly the axes a naive API would
 expose. Everything below is about collapsing them.

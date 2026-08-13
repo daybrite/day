@@ -365,12 +365,23 @@ thread_local! {
     /// own textContent concatenates every option, so measuring it lies about width — and a
     /// vertical radio group needs a per-row height the one-line measure can't produce).
     static PICKER_SIZE: RefCell<HashMap<u32, Size>> = RefCell::new(HashMap::new());
+    // Text-area sizing hints (docs/textarea.md): `(min_lines, max_lines, content_lines)`, kept
+    // so `measure` can honor the auto-growing-height contract the other backends implement.
+    // `content_lines` counts the day-driven text's hard line breaks (realize + SetText) — an
+    // approximation that ignores soft wrapping, noted in `measure`.
+    static AREA_HINTS: RefCell<HashMap<u32, (u32, u32, u32)>> = RefCell::new(HashMap::new());
 }
 
 /// Measure one string in the control font with no wrap limit. The expression is day.css's `body`
 /// font-size, named rather than copied — controls (`font: inherit`) render at that size, so
 /// measuring at anything else would mis-size pickers. The shim measures with a real DOM element,
 /// so `var(--day-text-scale)` resolves against the document exactly as it does for the control.
+/// Hard line breaks in a text area's day-driven content — the growth unit its `measure` clamps
+/// between the `min_lines`/`max_lines` hints.
+fn content_lines(t: &str) -> u32 {
+    (t.split('\n').count() as u32).max(1)
+}
+
 fn measure_str(txt: &str) -> Size {
     let css = format!("{} {SYSTEM_STACK}", scaled_rem(1.0));
     let mut out = [0.0f64; 2];
@@ -882,6 +893,10 @@ impl Toolkit for Dom {
                 text(el, &p.text);
                 attr(el, "placeholder", &p.placeholder);
                 apply_area_attrs(el, p.editable, p.selectable, p.spellcheck);
+                AREA_HINTS.with(|m| {
+                    m.borrow_mut()
+                        .insert(el, (p.min_lines, p.max_lines, content_lines(&p.text)))
+                });
                 unsafe { day_dom_listen(el, 2 | 8) };
                 el
             }
@@ -1180,6 +1195,14 @@ impl Toolkit for Dom {
                 }
             }
             kinds::TEXT_AREA => {
+                if let Some(TextAreaPatch::SetText(t)) = patch.downcast_ref::<TextAreaPatch>() {
+                    // Day-driven content changed: refresh the line count `measure` grows by.
+                    AREA_HINTS.with(|m| {
+                        if let Some(h) = m.borrow_mut().get_mut(&el) {
+                            h.2 = content_lines(t);
+                        }
+                    });
+                }
                 if let Some(p) = patch.downcast_ref::<TextAreaPatch>() {
                     match p {
                         TextAreaPatch::SetText(t) => text(el, t),
@@ -1312,6 +1335,7 @@ impl Toolkit for Dom {
         NODE_OF.with(|m| m.borrow_mut().remove(&el));
         IMAGE_SRC.with(|m| m.borrow_mut().remove(&el));
         CSS_FRAMED.with(|s| s.borrow_mut().remove(&el));
+        AREA_HINTS.with(|m| m.borrow_mut().remove(&el));
         PAGE_SIDEBAR.with(|m| m.borrow_mut().remove(&el));
         NAV_STATE.with(|m| m.borrow_mut().remove(&el));
         SEG_COUNT.with(|m| m.borrow_mut().remove(&el));
@@ -1408,7 +1432,27 @@ impl Toolkit for Dom {
             kinds::TOGGLE => Size::new(40.0, 24.0),
             kinds::SLIDER => Size::new(p.width.unwrap_or(180.0), 24.0),
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 30.0),
-            kinds::TEXT_AREA => Size::new(p.width.unwrap_or(240.0), p.height.unwrap_or(120.0)),
+            kinds::TEXT_AREA => {
+                // The auto-growing-height contract (docs/textarea.md): content height clamped
+                // between `min_lines` and `max_lines`, like the uikit arm's sizeThatFits path.
+                // The line height comes from a REAL measurement in the control font, so it rides
+                // `--day-text-scale` and the browser's font-size preference exactly as the
+                // rendered control does; `content_lines` counts hard breaks only (soft wrapping
+                // is not simulated — the area scrolls where wrapping would have grown it).
+                let (min_l, max_l, lines) =
+                    AREA_HINTS.with(|m| m.borrow().get(&el).copied().unwrap_or((1, 0, 1)));
+                let line_h = measure_str("x").height.max(16.0);
+                let pad = 14.0; // .day-area: 6px top/bottom padding + 1px borders (day.css)
+                let min_l = min_l.max(1);
+                let mut l = lines.max(min_l);
+                if max_l > 0 {
+                    l = l.min(max_l.max(min_l));
+                }
+                Size::new(
+                    p.width.unwrap_or(240.0),
+                    p.height.unwrap_or((l as f64) * line_h + pad),
+                )
+            }
             kinds::PICKER => PICKER_SIZE
                 .with(|m| m.borrow().get(&el).copied())
                 .unwrap_or(Size::new(68.0, 26.0)),
@@ -2388,6 +2432,24 @@ pub extern "C" fn day_dom_event(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f
         _ => return,
     };
     emit(node, event);
+}
+
+/// A piece-defined Custom event from the shim (docs/extending.md §8.2's open channel): `num` is
+/// the piece's own discriminator — the inline web view's link reports use -1 (docs/webview.md) —
+/// and `text` the payload. The mirror of the Android bridge's kind-12 and ArkUI's `pieceEvent`.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_piece_event(el: u32, num: f64, ptr: *mut u8, len: usize) {
+    let t = take_string(ptr, len);
+    if let Some(node) = node_of(el) {
+        emit(
+            node,
+            Event::Custom {
+                tag: "",
+                num,
+                text: t,
+            },
+        );
+    }
 }
 
 #[unsafe(no_mangle)]

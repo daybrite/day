@@ -9,14 +9,30 @@
 package dev.daybrite.day.piece.webview;
 
 import android.view.View;
+import android.webkit.ValueCallback;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+
+import java.util.Map;
+import java.util.WeakHashMap;
+
+import org.json.JSONException;
+import org.json.JSONTokener;
 
 import dev.daybrite.day.bridge.DayBridge;
 
 /** Wraps android.webkit.WebView, reporting the finished URL back via the open Custom-event kind (12). */
 public final class DayWebView {
     private DayWebView() {}
+
+    // The day node each live view reports to — evaluation replies need it, and `evalJs` receives
+    // only the View (weak keys: a released view must not pin itself here).
+    private static final Map<View, Long> IDS = new WeakHashMap<>();
+
+    /** An engine-level evaluation failure, in the 0x1F envelope the Rust front-end decodes. */
+    private static String evalError(String message) {
+        return "0\u001FAndroidWebView\u001F" + message;
+    }
 
     public static View makeWebView(long id, String url, String inlinePrefix) {
         WebView web = new WebView(DayBridge.ctx);
@@ -46,7 +62,49 @@ public final class DayWebView {
         if (url != null && !url.isEmpty()) {
             web.loadUrl(url);
         }
+        IDS.put(web, id);
         return web;
+    }
+
+    /**
+     * Evaluate the (already-wrapped) script and reply on the kind-12 channel keyed by {@code req}
+     * (docs/webview-eval.md). The wrapper makes the result a JS string, which
+     * {@code evaluateJavascript} hands back JSON-SERIALIZED — one outer quoted layer to strip.
+     * Android has no error channel: a throw and {@code undefined} both arrive as the literal
+     * {@code "null"}, and a failed JSON write as the empty string; both map to engine errors
+     * (the wrapper already catches script-level throws before they get that far). Delivery is
+     * at most once — a destroyed WebView drops the callback — which is why the console's
+     * awaiting future must never be the only owner of critical work.
+     */
+    public static void evalJs(View view, double req, String script) {
+        if (!(view instanceof WebView)) {
+            return;
+        }
+        Long id = IDS.get(view);
+        if (id == null) {
+            return;
+        }
+        final long nodeId = id;
+        ((WebView) view).evaluateJavascript(script, new ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                String payload;
+                if (value == null || value.isEmpty()) {
+                    payload = evalError("empty result (JSON write failed)");
+                } else if (value.equals("null")) {
+                    payload = evalError("no result");
+                } else {
+                    try {
+                        Object v = new JSONTokener(value).nextValue();
+                        payload = v instanceof String ? (String) v
+                                : evalError("non-string result");
+                    } catch (JSONException e) {
+                        payload = evalError("unparsable result");
+                    }
+                }
+                DayBridge.nativeOnEvent(nodeId, 12, req, payload);
+            }
+        });
     }
 
     /** Imperative commands: 0=load, 1=back, 2=forward, 3=stop, 4=reload. */

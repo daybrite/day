@@ -136,6 +136,9 @@ impl InlineSite {
 pub enum PrepareError {
     /// `<root>/index.html` is not among the bundled assets.
     MissingIndex(String),
+    /// A backend that serves inline sites from extracted files (GTK today) failed to extract
+    /// the tree to the platform cache.
+    Extract(String),
 }
 
 impl std::fmt::Display for PrepareError {
@@ -144,6 +147,7 @@ impl std::fmt::Display for PrepareError {
             PrepareError::MissingIndex(root) => {
                 write!(f, "no index.html under resource/assets/{root}")
             }
+            PrepareError::Extract(e) => write!(f, "extracting the inline site: {e}"),
         }
     }
 }
@@ -185,7 +189,7 @@ impl AssetDirSiteExt for day_core::AssetDir {
         let result = {
             let index = day_spec::AssetName::dynamic(format!("{root}/index.html"));
             match day_spec::resource(index) {
-                Some(_) => Ok(InlineSite { root }),
+                Some(_) => prepare_backend(root),
                 None => Err(PrepareError::MissingIndex(root)),
             }
         };
@@ -193,6 +197,20 @@ impl AssetDirSiteExt for day_core::AssetDir {
             result: Some(result),
         }
     }
+}
+
+/// The per-backend half of `prepare_site` — where a backend whose engine cannot read the
+/// embedded store in place gets the site onto loose files ahead of the view (docs/webview.md).
+#[cfg(not(target_arch = "wasm32"))]
+fn prepare_backend(root: String) -> Result<InlineSite, PrepareError> {
+    // GTK: the assets live in a GResource blob WebKitGTK cannot browse; extract to the user
+    // cache now so `make` finds it warm. The lazy `web_view_inline(dir)` route extracts at
+    // realize instead.
+    #[cfg(all(feature = "gtk", not(target_os = "macos"), not(windows)))]
+    if let Err(e) = gtk_impl::extract_site(&root) {
+        return Err(PrepareError::Extract(e));
+    }
+    Ok(InlineSite { root })
 }
 
 /// What [`web_view_inline`] accepts: a prepared [`InlineSite`], or the raw generated
@@ -217,19 +235,32 @@ impl IntoInlineSite for day_core::AssetDir {
 }
 
 /// Whether this backend can show an INLINE (app-embedded) site. A separate axis from
-/// [`support`]: web-dom loads inline sites same-origin (`Emulated` — pages and relative
-/// resources work, external-link policy does not reach inside the frame yet), while the
-/// engines without a local-content arm so far report `Unsupported` and realize the
-/// placeholder (docs/webview.md lists the rollout order).
+/// [`support`]: web-dom's iframe is `Emulated` for REMOTE browsing but fully capable here —
+/// the bundled site is same-origin, so loading, relative navigation and the link policy all
+/// work. `Unsupported` remains only where there is no web engine at all (macos-gtk and
+/// windows-gtk have no WebKitGTK build), and the view realizes the placeholder.
 pub fn inline_support() -> day_spec::Support {
     if cfg!(any(
         all(feature = "appkit", target_os = "macos"),
         all(feature = "uikit", target_os = "ios"),
         all(feature = "mdc", target_os = "android"),
+        // QWebEngine reads the qrc-staged asset tree natively. windows-qt has no engine
+        // (MSYS2 packages no Qt WebEngine) and degrades to the URL label at runtime, the
+        // same overstatement `support()` already makes there.
+        feature = "qt",
+        // WebView2 browses the exe-relative assets tree through a virtual-host mapping
+        // (degrades to the URL label when the WebView2 Runtime is absent, like `support()`).
+        all(feature = "xaml", windows),
+        // WebKitGTK reads the site from the cache extraction `prepare_site`/realize performs
+        // (linux only — macos-gtk/windows-gtk have no WebKitGTK and realize the placeholder).
+        all(feature = "gtk", not(target_os = "macos"), not(windows)),
+        // ArkWeb browses the rawfile-staged tree through `resource://rawfile/` URLs.
+        all(feature = "arkui", target_env = "ohos"),
+        // The deployed `assets/data/` tree is same-origin with the host page: the browser
+        // resolves the site natively and the shim's click hook polices leaving links.
+        all(feature = "dom", target_arch = "wasm32"),
     )) {
         day_spec::Support::Native
-    } else if cfg!(all(feature = "dom", target_arch = "wasm32")) {
-        day_spec::Support::Emulated
     } else {
         day_spec::Support::Unsupported
     }
@@ -492,11 +523,16 @@ pub fn eval_support() -> day_spec::Support {
         all(feature = "uikit", target_os = "ios"),
         feature = "qt",
         all(feature = "xaml", target_os = "windows"),
+        // `evaluateJavascript` in DayWebView.evalJs, with the outer-JSON unquote and the
+        // null/empty→engine-error mapping (docs/webview-eval.md).
+        all(feature = "mdc", target_os = "android"),
+        // `runJavaScript` in the ArkTS component, replying on `pieceEvent`'s num slot.
+        all(feature = "arkui", target_env = "ohos"),
     )) {
         day_spec::Support::Native
     } else {
-        // GTK, Android and ArkUI all have an engine and an equivalent call; their arms are not
-        // written yet (docs/webview-eval.md lists them in order). web-dom cannot ever do this —
+        // GTK has an engine and an equivalent call; its arm is not written yet
+        // (docs/webview-eval.md). web-dom cannot ever do this for REMOTE pages —
         // `contentWindow.eval` throws across origins.
         day_spec::Support::Unsupported
     }
