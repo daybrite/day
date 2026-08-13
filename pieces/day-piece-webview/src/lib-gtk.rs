@@ -92,7 +92,7 @@ fn make(_backend: &mut Gtk, p: &WebProps, id: NodeId) -> gtk4::Widget {
                         PolicyDecisionType::NavigationAction => decision
                             .downcast_ref::<webkit6::NavigationPolicyDecision>()
                             .and_then(|d| d.navigation_action())
-                            .and_then(|mut a| a.request())
+                            .and_then(|a| a.request())
                             .and_then(|r| r.uri())
                             .map(|u| u.to_string()),
                         // target=_blank / window.open: no new window exists in day's tree —
@@ -100,7 +100,7 @@ fn make(_backend: &mut Gtk, p: &WebProps, id: NodeId) -> gtk4::Widget {
                         PolicyDecisionType::NewWindowAction => decision
                             .downcast_ref::<webkit6::NavigationPolicyDecision>()
                             .and_then(|d| d.navigation_action())
-                            .and_then(|mut a| a.request())
+                            .and_then(|a| a.request())
                             .and_then(|r| r.uri())
                             .map(|u| u.to_string()),
                         _ => None,
