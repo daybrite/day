@@ -108,11 +108,46 @@ async function isDark(buf) {
   }
 }
 
-/** Fetch a (platform, shot, theme) PNG: prefer the locally-assembled artifact, else the live
- *  gallery. Screenshots are per-variant since the themed capture sets landed; only light keeps
- *  the pre-variant flat path as a live-fallback for the transition window (those captures were
- *  light — a flat file must never be passed off as dark). */
+/** The gallery manifest assemble-gallery.mjs just wrote — the authoritative map of every
+ *  tile's image, whether that is a local `public/` path (artifact mode) or another site's
+ *  published URL (a suite with a `metadata` index). Loaded lazily, absent on a cold tree. */
+let manifestCache;
+function manifestTile(platformId, shot) {
+  if (manifestCache === undefined) {
+    try {
+      manifestCache = JSON.parse(
+        readFileSync(join(WEBSITE_ROOT, 'src', 'data', 'gallery-manifest.json'), 'utf8'),
+      );
+    } catch {
+      manifestCache = null;
+    }
+  }
+  const suite = manifestCache?.suites?.find((s) => s.id === SUITE_ID);
+  return suite?.shots
+    ?.find((s) => s.id === shot)
+    ?.byPlatform?.find((t) => t.platform === platformId);
+}
+
+/** Fetch a (platform, shot, theme) PNG. The assembled manifest names the exact image for the
+ *  variant — a local `public/` file or a hosted URL — and the older probes (locally-assembled
+ *  artifact paths, then the live gallery) remain behind it for a cold or pre-manifest tree.
+ *  Only light keeps the pre-variant flat path as a live-fallback (those captures were light —
+ *  a flat file must never be passed off as dark). */
 async function obtain(platformId, shot, theme) {
+  const src = manifestTile(platformId, shot)?.variants?.[theme]?.src;
+  if (src) {
+    if (/^https?:\/\//.test(src)) {
+      try {
+        const res = await fetch(src);
+        if (res.ok) return Buffer.from(await res.arrayBuffer());
+      } catch {
+        // fall through to the probes below
+      }
+    } else {
+      const local = join(WEBSITE_ROOT, 'public', src);
+      if (existsSync(local)) return readFileSync(local);
+    }
+  }
   const rels =
     theme === 'dark'
       ? [`gallery/${SUITE_ID}/${platformId}/dark/${shot}.png`]

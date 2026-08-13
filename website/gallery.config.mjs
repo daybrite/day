@@ -13,12 +13,15 @@
 //
 // Where the images come from
 // --------------------------
-// Each CI job uploads an artifact `screenshots-<platform>` containing `<variant>/<shot>.png`
-// (crates/day-cli/src/script.rs `--variant`): the walkthrough runs once per variant — `light`
-// and `dark` under a forced DAY_THEME, and `fr` under `--locale fr`. `artifactPattern` maps a
-// (suite, platform) pair to that artifact name, so a future suite that uploads
-// `screenshots-widgets-<platform>` only needs its own `artifactPattern`. Each variant may fall
-// back to the extra directories listed in `variants` (older artifacts used locale subdirs).
+// A suite with a `metadata` URL references the screenshots its own site publishes: the URL
+// names a daysite gallery.json (the machine-readable index every Day app site emits), and the
+// gallery links those hosted images directly — which is what lets this page show any Day app's
+// screenshots without hosting a copy. Without `metadata`, or when the fetch fails, images come
+// from CI artifacts: each job uploads `screenshots-<platform>` containing `<variant>/<shot>.png`
+// (crates/day-cli/src/script.rs `--variant`) — the walkthrough runs once per variant, `light`
+// and `dark` under a forced DAY_THEME, `fr` under `--locale fr`. `artifactPattern` maps a
+// (suite, platform) pair to that artifact name. Each variant may fall back to the extra
+// directories listed in `variants` (older artifacts used locale subdirs).
 
 import { platforms as platformTable } from './src/lib/platforms.mjs';
 
@@ -58,6 +61,13 @@ export const suites = [
     // spelled here because this config is also imported by plain node scripts that cannot read a
     // .ts module.
     sourceRepo: 'https://github.com/daybrite/Day-Showcase',
+    // The published machine-readable index of this suite's screenshots (daysite's
+    // gallery.json). When it fetches, the gallery REFERENCES those hosted images instead of
+    // copying CI artifacts into this site — one copy of the bytes, owned by the app's own
+    // site, and any Day app site publishing the same index can join as another suite. The
+    // artifact path below remains the fallback for when the fetch fails (offline builds, a
+    // site not yet deployed).
+    metadata: 'https://showcase.daybrite.dev/gallery/gallery.json',
     // `{platform}` is substituted with the platform id.
     artifactPattern: 'screenshots-{platform}',
     // The capture variants, in display order: theme × locale (CI runs the walkthrough once per

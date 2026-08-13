@@ -16,11 +16,11 @@ export default function gallery() {
     name: 'day-gallery',
     hooks: {
       'astro:config:setup': async ({ logger }) => {
-        const { hasArtifacts, unreadable, hidden } = assembleGallery({ quiet: true });
+        const { hasArtifacts, unreadable, hidden } = await assembleGallery({ quiet: true });
         logger.info(
           hasArtifacts
-            ? 'assembled screenshots gallery from artifacts'
-            : 'no screenshot artifacts found — gallery uses placeholders (expected for local builds)',
+            ? 'assembled screenshots gallery (published indexes and/or CI artifacts)'
+            : 'no published index or screenshot artifacts — gallery uses placeholders (expected offline)',
         );
         // A capture that isn't a decodable PNG is dropped rather than shipped as a broken tile —
         // say so, or a failed screenshot step downstream looks like a shot nobody ever captured.

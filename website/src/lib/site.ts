@@ -6,8 +6,11 @@
 
 export const BASE: string = import.meta.env.BASE_URL;
 
-/** Join a path onto the site base, e.g. url('docs/overview') -> '/day/docs/overview'. */
+/** Join a path onto the site base, e.g. url('docs/overview') -> '/day/docs/overview'.
+ *  Absolute URLs pass through untouched — gallery tiles referencing another site's published
+ *  screenshots (a suite with a `metadata` index) carry them in the same `src` slot. */
 export function url(path = ''): string {
+  if (/^https?:\/\//.test(path)) return path;
   return BASE.replace(/\/$/, '') + '/' + path.replace(/^\//, '');
 }
 

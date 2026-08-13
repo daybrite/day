@@ -1,12 +1,18 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 
-// Assemble the screenshots gallery from CI artifacts into a static manifest + copied images.
+// Assemble the screenshots gallery into a static manifest.
 //
-// Inputs  : `<artifactsDir>/screenshots-<platform>/<variant>/<shot>.png` (from `download-artifact
-//           pattern: screenshots-*`), described by gallery.config.mjs. Variants are the themed /
-//           localized capture sets CI produces per platform (light / dark / fr today).
-// Outputs : `public/gallery/<suite>/<platform>/<variant>/<shot>.png` (copied static assets)
+// Inputs  : per suite, ONE of —
+//           · the suite's published screenshot index (`suite.metadata`, daysite's
+//             gallery.json): the manifest then references those hosted images by absolute
+//             URL and nothing is copied — the app's own site owns the bytes, and adding
+//             another Day app site's index adds another suite to the gallery;
+//           · `<artifactsDir>/screenshots-<platform>/<variant>/<shot>.png` (from
+//             `download-artifact pattern: screenshots-*`) — the fallback when there is no
+//             index or the fetch fails. Variants are the themed / localized capture sets CI
+//             produces per platform (light / dark / fr today), per gallery.config.mjs.
+// Outputs : `public/gallery/<suite>/<platform>/<variant>/<shot>.png` (artifact mode only)
 //           `src/data/gallery-manifest.json`   (consumed by src/pages/gallery.astro)
 //
 // The manifest is SHOT-major: the gallery renders one row per shot with every platform's tile
@@ -62,11 +68,43 @@ function findVariantShot(artifactDir, shotId, variant) {
   return null;
 }
 
+/** Fetch a suite's published screenshot index (daysite's gallery.json) and key its entries by
+ *  `(shot, platform, variant)` for the assembly loop. Returns null on any failure — the caller
+ *  falls back to CI artifacts, so an unreachable site degrades rather than fails the build. */
+async function fetchRemoteIndex(url, log) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data.screenshots)) throw new Error('no screenshots[] in the index');
+    const byKey = new Map();
+    for (const e of data.screenshots) {
+      if (!e.url || !e.shot || !e.platform || !e.variant) continue;
+      byKey.set(`${e.shot}|${e.platform}|${e.variant.toLowerCase()}`, e);
+    }
+    log(`using ${byKey.size} published screenshot(s) from ${url}`);
+    return byKey;
+  } catch (err) {
+    log(`could not fetch ${url} (${err.message ?? err}) — falling back to CI artifacts`);
+    return null;
+  }
+}
+
+/** One (shot, platform, variant) from the remote index, trying the variant's directory names
+ *  the way the artifact probe does (the index stores the CI `--variant` spelling verbatim). */
+function findRemoteShot(remote, shotId, platformId, variant) {
+  for (const dir of variant.dirs) {
+    const e = remote.get(`${shotId}|${platformId}|${dir.toLowerCase()}`);
+    if (e) return e;
+  }
+  return null;
+}
+
 /**
  * @param {{ artifactsDir?: string, quiet?: boolean }} [opts]
- * @returns {{ hasArtifacts: boolean, manifestPath: string, unreadable: string[], hidden: string[] }}
+ * @returns {Promise<{ hasArtifacts: boolean, manifestPath: string, unreadable: string[], hidden: string[] }>}
  */
-export function assembleGallery(opts = {}) {
+export async function assembleGallery(opts = {}) {
   const artifactsDir = resolve(WEBSITE_ROOT, opts.artifactsDir ?? process.env.GALLERY_ARTIFACTS_DIR ?? 'artifacts');
   const publicGallery = join(WEBSITE_ROOT, 'public', 'gallery');
   const dataDir = join(WEBSITE_ROOT, 'src', 'data');
@@ -76,11 +114,22 @@ export function assembleGallery(opts = {}) {
   rmSync(publicGallery, { recursive: true, force: true });
   mkdirSync(dataDir, { recursive: true });
 
+  // A suite with a published index (suite.metadata) references THOSE hosted screenshots —
+  // absolute URLs straight into the manifest, no bytes copied into this site. Fetch failure
+  // falls back to the CI-artifact path below, so the build never hinges on another site.
+  const remoteBySuite = new Map();
+  for (const suite of galleryConfig.suites) {
+    if (suite.metadata) {
+      remoteBySuite.set(suite.id, await fetchRemoteIndex(suite.metadata, log));
+    }
+  }
+
   let realShots = 0;
   const unreadable = [];
   /** `<suite>/<platform>` for every column dropped for want of captures (reported by the caller). */
   const hidden = [];
   const suites = galleryConfig.suites.map((suite) => {
+    const remote = remoteBySuite.get(suite.id) ?? null;
     const suitePlatforms = suite.platforms
       .map((platformId) => galleryConfig.platforms.find((p) => p.id === platformId))
       .filter(Boolean);
@@ -93,6 +142,18 @@ export function assembleGallery(opts = {}) {
         const artifactDir = join(artifactsDir, artifactName);
         const variants = {};
         for (const variant of suite.variants) {
+          // Published index first: the tile references the app site's own hosted image.
+          if (remote) {
+            const e = findRemoteShot(remote, shot.id, platform.id, variant);
+            if (!e) continue;
+            realShots += 1;
+            variants[variant.id] = {
+              src: e.url,
+              width: e.width ?? undefined,
+              height: e.height ?? undefined,
+            };
+            continue;
+          }
           const found = findVariantShot(artifactDir, shot.id, variant);
           if (!found) continue;
           const rel = join('gallery', suite.id, platform.id, variant.id, `${shot.id}.png`);
@@ -197,5 +258,5 @@ export function assembleGallery(opts = {}) {
 // Standalone entry point.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const arg = process.argv[2];
-  assembleGallery(arg ? { artifactsDir: arg } : {});
+  await assembleGallery(arg ? { artifactsDir: arg } : {});
 }
