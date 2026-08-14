@@ -1517,7 +1517,7 @@ impl Toolkit for Qt {
                     }
                 }
                 // Emulated cover (docs/cover.md): present = re-home + raise + opaque default
-                // surface (palette Window color); dismiss = hide + report "cover-hidden" at
+                // surface (palette Window color); dismiss = hide + report `CoverHidden` at
                 // once. No interactive dismissal exists on this backend.
                 kinds::COVER => {
                     if let Some(p) = patch.downcast_ref::<CoverPatch>() {
@@ -1547,7 +1547,7 @@ impl Toolkit for Qt {
                             CoverPatch::Dismiss => {
                                 ffi::day_qt_set_visible(h.0, 0);
                                 COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
-                                emit(node, Event::custom("cover-hidden", ""));
+                                emit(node, Event::CoverHidden);
                             }
                         }
                     }

@@ -8,9 +8,13 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
+use crate::cli::{CliError, Profile};
 use crate::meta::{Project, find_project};
-use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status};
+use crate::ops::{
+    BuildOutcome, INSTALL_TIMEOUT, LAUNCH_TIMEOUT, LaunchSpec, LogStream, emit_log, status,
+};
 use crate::targets::Target;
 
 pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
@@ -18,16 +22,17 @@ pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     day_toolchain::rustup_cargo()
 }
 
-/// Run an install/launch step without letting the tool narrate.
+/// Run an install/launch step without letting the tool narrate, bounded by `limit`.
 ///
 /// `adb`, `devicectl` and friends each describe the same three operations in their own voice
 /// ("Performing Streamed Install", "App installed: • bundleID: …", "Starting: Intent { … }"), on
 /// the same stream the app's own output arrives on. Day already says what is happening through
 /// [`status`], in one format for every target — so the tool's version is captured and shown only
 /// when the step fails, where it is the diagnostic. Build output still streams: there the tool's
-/// narration IS the content.
-pub(crate) fn run_quiet(cmd: &mut Command, what: &str) -> Result<(), String> {
-    let out = crate::ops::run_capture(cmd, what)?;
+/// narration IS the content. The deadline exists because the same tools wait forever for a
+/// device that stopped answering (ops.rs INSTALL_TIMEOUT/LAUNCH_TIMEOUT).
+pub(crate) fn run_quiet(cmd: &mut Command, what: &str, limit: Duration) -> Result<(), String> {
+    let out = crate::ops::run_capture_within(cmd, what, limit)?;
     if out.status.success() {
         return Ok(());
     }
@@ -48,6 +53,19 @@ pub(crate) fn run_logged(cmd: &mut Command, what: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("{what} failed"))
+    }
+}
+
+/// [`run_logged`] with a deadline, for the device calls whose tools have none of their own.
+pub(crate) fn run_logged_within(
+    cmd: &mut Command,
+    what: &str,
+    limit: Duration,
+) -> Result<(), String> {
+    match crate::ops::status_within(cmd, limit) {
+        Some(out) if out.success() => Ok(()),
+        Some(_) => Err(format!("{what} failed")),
+        None => Err(crate::ops::timeout_message(what, limit)),
     }
 }
 
@@ -120,16 +138,15 @@ fn diagnose_xcodebuild(out: &std::process::Output) -> String {
 // xcode-backend: invoked BY the Xcode script phase with Xcode's env (§17.4)
 // ---------------------------------------------------------------------------
 
-pub fn xcode_backend_build() -> i32 {
+pub fn xcode_backend_build() -> Result<(), CliError> {
     let get = |k: &str| std::env::var(k).ok();
     let configuration = get("CONFIGURATION").unwrap_or_else(|| "Debug".into());
     let built_products = match get("BUILT_PRODUCTS_DIR") {
         Some(v) => PathBuf::from(v),
         None => {
-            eprintln!(
-                "day xcode-backend: must run inside an Xcode build (BUILT_PRODUCTS_DIR unset)"
-            );
-            return 2;
+            return Err(CliError::usage(
+                "day xcode-backend: must run inside an Xcode build (BUILT_PRODUCTS_DIR unset)",
+            ));
         }
     };
     let platform = get("PLATFORM_NAME").unwrap_or_else(|| "iphonesimulator".into());
@@ -137,17 +154,12 @@ pub fn xcode_backend_build() -> i32 {
 
     // platform/ios/ → project root two levels up.
     let root = project_dir.join("../..");
-    let project = match find_project(Some(&root)) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("day xcode-backend: {e}");
-            return 2;
-        }
-    };
+    let project = find_project(Some(&root))
+        .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     let profile = if configuration.to_lowercase().contains("release") {
-        "release"
+        Profile::Release
     } else {
-        "debug"
+        Profile::Debug
     };
     // Freshness (§17.5): Xcode resolved the generated xcconfig BEFORE this phase ran, so if
     // Day.toml changed since it was last written, the bundle this build is assembling
@@ -164,18 +176,15 @@ pub fn xcode_backend_build() -> i32 {
         .join("build/day/xcconfig")
         .join(format!("{xc_platform}.xcconfig"));
     let xc_before = std::fs::read_to_string(&xc_path).ok();
-    if let Err(e) = crate::xcconfig::write_generated(&project, xc_platform) {
-        eprintln!("day xcode-backend: {e}");
-        return 2;
-    }
+    crate::xcconfig::write_generated(&project, xc_platform)
+        .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     if let Some(before) = xc_before
         && std::fs::read_to_string(&xc_path).ok().as_deref() != Some(before.as_str())
     {
-        eprintln!(
+        return Err(CliError::env(
             "day xcode-backend: app metadata changed since Xcode read it (Day.toml id/version/\
-             build) — build again to pick up the refreshed values"
-        );
-        return 3;
+             build) — build again to pick up the refreshed values",
+        ));
     }
     // macOS builds honor Xcode's ARCHS (host arch under ONLY_ACTIVE_ARCH; both for a
     // universal Release), lipo'd below when there is more than one.
@@ -191,31 +200,28 @@ pub fn xcode_backend_build() -> i32 {
                         "arm64" => t.push("aarch64-apple-darwin"),
                         "x86_64" => t.push("x86_64-apple-darwin"),
                         other => {
-                            eprintln!("day xcode-backend: unsupported ARCHS entry {other:?}");
-                            return 2;
+                            return Err(CliError::usage(format!(
+                                "day xcode-backend: unsupported ARCHS entry {other:?}"
+                            )));
                         }
                     }
                 }
                 (t, "appkit", "macos-appkit")
             }
             other => {
-                eprintln!("day xcode-backend: unsupported PLATFORM_NAME {other:?}");
-                return 2;
+                return Err(CliError::usage(format!(
+                    "day xcode-backend: unsupported PLATFORM_NAME {other:?}"
+                )));
             }
         };
-    let (cargo, bin) = match rustup_cargo() {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("day xcode-backend: {e}");
-            return 3;
-        }
-    };
+    let (cargo, bin) =
+        rustup_cargo().map_err(|e| CliError::env(format!("day xcode-backend: {e}")))?;
     let name = project.manifest.app.name.clone();
     let target_dir = project
         .root
         .join("build/day/cargo")
         .join(target_dir_name)
-        .join(profile);
+        .join(profile.as_str());
     // One `cargo rustc` per requested arch (macOS universal Release builds ask for two).
     let mut arch_libs: Vec<PathBuf> = Vec::new();
     // Cargo names the artifact after the crate with `-` → `_` (`hello-day` ⇒ libhello_day.a);
@@ -269,23 +275,23 @@ pub fn xcode_backend_build() -> i32 {
                 &crate::ops::feature_selection(&project, toolkit_feature),
             ])
             .args(["--target", triple]);
-        if profile == "release" {
+        if profile == Profile::Release {
             cmd.arg("--release");
         }
-        if run_logged(&mut cmd, "cargo (xcode)").is_err() {
-            return 4;
-        }
+        run_logged(&mut cmd, "cargo (xcode)").map_err(CliError::build)?;
         arch_libs.push(
             target_dir
                 .join(triple)
-                .join(profile)
+                .join(profile.as_str())
                 .join(format!("lib{ident}.a")),
         );
     }
     let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
     if std::fs::create_dir_all(&out_dir).is_err() {
-        eprintln!("day xcode-backend: cannot create {}", out_dir.display());
-        return 4;
+        return Err(CliError::build(format!(
+            "day xcode-backend: cannot create {}",
+            out_dir.display()
+        )));
     }
     let dest = out_dir.join(format!("lib{ident}.a"));
     let staged = if arch_libs.len() == 1 {
@@ -305,10 +311,7 @@ pub fn xcode_backend_build() -> i32 {
             Err(e) => Err(format!("lipo: {e}")),
         }
     };
-    if let Err(e) = staged {
-        eprintln!("day xcode-backend: {e}");
-        return 4;
-    }
+    staged.map_err(|e| CliError::build(format!("day xcode-backend: {e}")))?;
     // Stage assets/ into the app bundle (§18.1's copy-phase mechanism). Recursive: assets are
     // a TREE (§18.5), and `resource("web/minisite/index.html")` resolves the same relative
     // path inside the bundle.
@@ -320,14 +323,12 @@ pub fn xcode_backend_build() -> i32 {
         if src.exists() {
             let dst = PathBuf::from(tbd).join(res).join("assets");
             let _ = std::fs::remove_dir_all(&dst);
-            if let Err(e) = copy_tree_flat(&src, &dst) {
-                eprintln!("day xcode-backend: stage assets: {e}");
-                return 4;
-            }
+            copy_tree_flat(&src, &dst)
+                .map_err(|e| CliError::build(format!("day xcode-backend: stage assets: {e}")))?;
         }
     }
     eprintln!("day xcode-backend: staged {}", dest.display());
-    0
+    Ok(())
 }
 
 /// `day xcode-backend stage-resources` — the macOS host project's second script phase:
@@ -336,39 +337,28 @@ pub fn xcode_backend_build() -> i32 {
 /// (`../Resources/{images,assets,fonts,vectors/{svg,raster}}` — docs/vectors.md), so an
 /// Xcode-built bundle needs no `DAY_*` environment at all. Runs the vector staging first,
 /// so a build started from the Xcode IDE is self-contained.
-pub fn xcode_backend_stage_resources() -> i32 {
+pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
     let get = |k: &str| std::env::var(k).ok();
     let (Some(tbd), Some(res)) = (
         get("TARGET_BUILD_DIR"),
         get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
     ) else {
-        eprintln!("day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)");
-        return 2;
+        return Err(CliError::usage(
+            "day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)",
+        ));
     };
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
     // platform/macos/ → project root two levels up.
-    let project = match find_project(Some(&project_dir.join("../.."))) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("day xcode-backend: {e}");
-            return 2;
-        }
-    };
+    let project = find_project(Some(&project_dir.join("../..")))
+        .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     // Refresh the vector caches (raster + glyph SVGs) — cheap and idempotent, and an
     // IDE-initiated build has no earlier `day build` step to have done it.
-    let vectors = match crate::resources::prepare_vectors(&project) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("day xcode-backend: vectors: {e}");
-            return 4;
-        }
-    };
+    let vectors = crate::resources::prepare_vectors(&project)
+        .map_err(|e| CliError::build(format!("day xcode-backend: vectors: {e}")))?;
     // This host builds the appkit bundle, which renders the staged SVGs — so the raster tree it
     // carries is only whatever art could not be reduced to one (docs/vectors.md).
-    if let Err(e) = crate::resources::write_vector_fallbacks(&project, "appkit", &vectors) {
-        eprintln!("day xcode-backend: vectors: {e}");
-        return 4;
-    }
+    crate::resources::write_vector_fallbacks(&project, "appkit", &vectors)
+        .map_err(|e| CliError::build(format!("day xcode-backend: vectors: {e}")))?;
     let resources = PathBuf::from(tbd).join(res);
     let pairs: [(PathBuf, &str); 5] = [
         (project.root.join("resource/images"), "images"),
@@ -388,45 +378,37 @@ pub fn xcode_backend_stage_resources() -> i32 {
         if !src.is_dir() {
             continue;
         }
-        if let Err(e) = copy_tree_flat(&src, &dst) {
-            eprintln!("day xcode-backend: stage {sub}: {e}");
-            return 4;
-        }
+        copy_tree_flat(&src, &dst)
+            .map_err(|e| CliError::build(format!("day xcode-backend: stage {sub}: {e}")))?;
     }
     eprintln!(
         "day xcode-backend: staged resources → {}",
         resources.display()
     );
-    0
+    Ok(())
 }
 
 /// `day xcode-backend stage-strings` — the scaffold's `Stage Day Strings` script phase:
 /// per-locale `InfoPlist.strings` for the `[[shortcuts]]` titles, written into the built
 /// bundle before code signing seals it (docs/deep-links.md).
-pub fn xcode_backend_stage_strings() -> i32 {
+pub fn xcode_backend_stage_strings() -> Result<(), CliError> {
     let get = |k: &str| std::env::var(k).ok();
     let (Some(tbd), Some(res)) = (
         get("TARGET_BUILD_DIR"),
         get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
     ) else {
-        eprintln!("day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)");
-        return 2;
+        return Err(CliError::usage(
+            "day xcode-backend: must run inside an Xcode build (TARGET_BUILD_DIR unset)",
+        ));
     };
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
     // platform/ios/ → project root two levels up.
-    let project = match find_project(Some(&project_dir.join("../.."))) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("day xcode-backend: {e}");
-            return 2;
-        }
-    };
+    let project = find_project(Some(&project_dir.join("../..")))
+        .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     let bundle = PathBuf::from(tbd).join(res);
-    if let Err(e) = crate::shortcuts::stage_ios_strings(&project, &bundle) {
-        eprintln!("day xcode-backend: stage-strings: {e}");
-        return 4;
-    }
-    0
+    crate::shortcuts::stage_ios_strings(&project, &bundle)
+        .map_err(|e| CliError::build(format!("day xcode-backend: stage-strings: {e}")))?;
+    Ok(())
 }
 
 /// Recursive copy (dirs created as needed) — the resource trees are small and flat-ish.
@@ -523,13 +505,12 @@ fn oso_prefix_setting(project_root: &Path) -> String {
 pub fn build_macos_xcode(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    let configuration = if profile == "release" {
-        "Release"
-    } else {
-        "Debug"
+    let configuration = match profile {
+        Profile::Release => "Release",
+        Profile::Debug => "Debug",
     };
     // Absolute for the same reason as iOS (see build_ios_for): SwiftPM package products
     // must land in the same tree as the app target's.
@@ -812,7 +793,7 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
 pub fn build_ios(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
     build_ios_for(project, target, profile, start, false)
@@ -824,14 +805,13 @@ pub fn build_ios(
 pub fn build_ios_for(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
     physical: bool,
 ) -> Result<BuildOutcome, String> {
-    let configuration = if profile == "release" {
-        "Release"
-    } else {
-        "Debug"
+    let configuration = match profile {
+        Profile::Release => "Release",
+        Profile::Debug => "Debug",
     };
     // SYMROOT MUST be absolute: xcodebuild resolves a relative build path against each target's own
     // working directory, so the Runner app target and its SwiftPM package dependencies (e.g. Lottie,
@@ -1227,6 +1207,7 @@ fn launch_ios_device(
             .args(["devicectl", "device", "install", "app", "--device", &udid])
             .arg(&outcome.artifact),
         &format!("devicectl install ({name})"),
+        INSTALL_TIMEOUT,
     )?;
 
     status(
@@ -1257,7 +1238,11 @@ fn launch_ios_device(
         launch.arg(format!("{{\"DAY_LOCALE\":\"{loc}\"}}"));
     }
     if !spec.attached {
-        run_logged(&mut launch, &format!("devicectl launch ({name})"))?;
+        run_logged_within(
+            &mut launch,
+            &format!("devicectl launch ({name})"),
+            LAUNCH_TIMEOUT,
+        )?;
         return Ok(std::thread::spawn(|| 0));
     }
 
@@ -1375,11 +1360,12 @@ pub fn launch_ios(
     let multi = sims.len() > 1;
     let mut log_threads = Vec::new();
     for udid in &sims {
-        run_logged(
+        run_logged_within(
             Command::new("xcrun")
                 .args(["simctl", "install", udid])
                 .arg(&outcome.artifact),
             &format!("simctl install ({udid})"),
+            INSTALL_TIMEOUT,
         )?;
         let _ = Command::new("xcrun")
             .args(["simctl", "terminate", udid, &bundle_id])
@@ -1431,7 +1417,7 @@ pub fn launch_ios(
                 code
             }));
         } else {
-            run_logged(&mut cmd, &format!("simctl launch ({udid})"))?;
+            run_logged_within(&mut cmd, &format!("simctl launch ({udid})"), LAUNCH_TIMEOUT)?;
         }
     }
     Ok(std::thread::spawn(move || {
@@ -1465,29 +1451,26 @@ fn stream_logs_labeled(
 // android-mdc (gradle + adb) — scaffold lands next; see gradle_backend_build
 // ---------------------------------------------------------------------------
 
-pub fn gradle_backend_build() -> i32 {
+pub fn gradle_backend_build() -> Result<(), CliError> {
     // Invoked by the gradle scaffold with DAY_PROJECT_ROOT + DAY_PROFILE + DAY_OUT set.
     let root = match std::env::var("DAY_PROJECT_ROOT") {
         Ok(v) => PathBuf::from(v),
         Err(_) => {
-            eprintln!("day gradle-backend: DAY_PROJECT_ROOT unset (run via the gradle scaffold)");
-            return 2;
+            return Err(CliError::usage(
+                "day gradle-backend: DAY_PROJECT_ROOT unset (run via the gradle scaffold)",
+            ));
         }
     };
-    let profile = std::env::var("DAY_PROFILE").unwrap_or_else(|_| "debug".into());
+    let profile = match std::env::var("DAY_PROFILE").as_deref() {
+        Ok("release") => Profile::Release,
+        _ => Profile::Debug,
+    };
     let out = std::env::var("DAY_OUT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| root.join("build/day/jniLibs"));
-    let project = match find_project(Some(&root)) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("day gradle-backend: {e}");
-            return 2;
-        }
-    };
-    build_android_so(&project, &profile, &out, &android_build_abis())
-        .map(|_| 0)
-        .unwrap_or(4)
+    let project = find_project(Some(&root))
+        .map_err(|e| CliError::usage(format!("day gradle-backend: {e}")))?;
+    build_android_so(&project, profile, &out, &android_build_abis()).map_err(CliError::build)
 }
 
 /// A connected Android device or emulator, with the ABI it actually runs (queried, not guessed —
@@ -1605,7 +1588,7 @@ fn parse_abi_list(v: &str) -> Vec<String> {
 /// `cargo ndk -t <abi> …` invocation covering them all).
 fn build_android_so(
     project: &Project,
-    profile: &str,
+    profile: Profile,
     out: &Path,
     abis: &[String],
 ) -> Result<(), String> {
@@ -1615,7 +1598,7 @@ fn build_android_so(
     let target_dir = project
         .root
         .join("build/day/cargo/android-mdc")
-        .join(profile);
+        .join(profile.as_str());
     let mut cmd = Command::new(&cargo);
     cmd.current_dir(&project.root)
         .env(
@@ -1652,7 +1635,7 @@ fn build_android_so(
             "--features",
             &crate::ops::feature_selection(project, "mdc"),
         ]);
-    if profile == "release" {
+    if profile == Profile::Release {
         cmd.arg("--release");
     }
     run_logged(&mut cmd, "cargo ndk")?;
@@ -1685,7 +1668,7 @@ pub(crate) fn find_ndk() -> Result<PathBuf, String> {
 pub fn build_android(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
     // 1) Rust .so, one per connected device's ABI (so an app built with an arm64 phone AND an
@@ -1708,10 +1691,9 @@ pub fn build_android(
     crate::pieces::write_android_manifest(project)?;
 
     // 3) Gradle assemble.
-    let task = if profile == "release" {
-        "assembleRelease"
-    } else {
-        "assembleDebug"
+    let task = match profile {
+        Profile::Release => "assembleRelease",
+        Profile::Debug => "assembleDebug",
     };
     status("Building", &format!("{} (gradle {task})", target.name));
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -1719,7 +1701,7 @@ pub fn build_android(
     cmd.current_dir(project.root.join("platform/android"))
         .env("DAY_BIN", &day_bin)
         .env("DAY_PROJECT_ROOT", &project.root)
-        .env("DAY_PROFILE", profile)
+        .env("DAY_PROFILE", profile.as_str())
         .args([task, "--console=plain"]);
     // Day narrates the phase and surfaces gradle's tail on failure, so gradle runs quiet by default.
     // `--verbose` drops `-q` so it emits its full build log, forwarded live by `run_capture`.
@@ -1734,7 +1716,9 @@ pub fn build_android(
     {
         cmd.env("JAVA_HOME", jdk);
     }
-    let out = crate::ops::run_capture(&mut cmd, "gradle")?;
+    // Bounded: a wedged gradle daemon (or a device query inside the build) must not hold the
+    // job past the build ceiling.
+    let out = crate::ops::run_capture_within(&mut cmd, "gradle", crate::ops::BUILD_TIMEOUT)?;
     if !out.status.success() {
         if crate::ops::verbose() {
             // Full log already streamed live.
@@ -1747,15 +1731,14 @@ pub fn build_android(
             tail.into_iter().rev().collect::<Vec<_>>().join("\n")
         ));
     }
-    let apk_name = if profile == "release" {
-        "app-release.apk"
-    } else {
-        "app-debug.apk"
+    let apk_name = match profile {
+        Profile::Release => "app-release.apk",
+        Profile::Debug => "app-debug.apk",
     };
     let apk_dir = project
         .root
         .join("platform/android/app/build/outputs/apk")
-        .join(profile);
+        .join(profile.as_str());
     // An unsigned release build is emitted as `app-release-unsigned.apk` — fall back to whatever
     // single .apk the build produced rather than assuming the signed name.
     let conventional = apk_dir.join(apk_name);
@@ -1806,6 +1789,7 @@ pub fn launch_android(
                 .args(["install", "-r"])
                 .arg(&outcome.artifact),
             &format!("adb install ({})", dev.serial),
+            INSTALL_TIMEOUT,
         )?;
         // A still-running instance would just be foregrounded by `am start` — keeping the old
         // run's engine port, theme, and locale (its views were created under the previous
@@ -1814,6 +1798,7 @@ pub fn launch_android(
         run_quiet(
             adb(Some(&dev.serial)).args(["shell", "am", "force-stop", &app_id]),
             &format!("am force-stop ({})", dev.serial),
+            LAUNCH_TIMEOUT,
         )?;
         // EMULATORS ONLY: suppress the system ANR/crash dialogs (the standard test-device
         // setting). A loaded host makes an emulated main thread miss Android's hardcoded 5 s
@@ -1860,9 +1845,10 @@ pub fn launch_android(
                     .map(|o| String::from_utf8_lossy(&o.stdout).to_lowercase())
                     .unwrap_or_default();
                 if !cur.contains(&format!(": {night}")) {
-                    run_logged(
+                    run_logged_within(
                         adb(Some(&dev.serial)).args(["shell", "cmd", "uimode", "night", night]),
                         &format!("uimode night {night} ({})", dev.serial),
+                        LAUNCH_TIMEOUT,
                     )?;
                     std::thread::sleep(std::time::Duration::from_millis(1500));
                 }
@@ -1892,7 +1878,11 @@ pub fn launch_android(
             "Launching",
             &format!("android-mdc ({app_id}) on {} ({})", dev.serial, dev.abi),
         );
-        run_quiet(&mut cmd, &format!("am start ({})", dev.serial))?;
+        run_quiet(
+            &mut cmd,
+            &format!("am start ({})", dev.serial),
+            LAUNCH_TIMEOUT,
+        )?;
         if spec.attached {
             // Ctrl-C must take the app on the DEVICE down with it, the way it takes a desktop
             // app down. Nothing else can: the app is not a child of this process, so the signal

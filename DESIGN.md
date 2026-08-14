@@ -1360,7 +1360,11 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > edge-to-edge backend — px insets in `text`, no `Event` emitted — and `NavPatch::Pushed` gained
 > an `immersive: bool` (the selector item's `.immersive()` flag; day-android flips the pushed
 > page between the floating-scrim and opaque bars, other backends ignore it). docs/layout.md and
-> docs/navigation.md are normative.
+> docs/navigation.md are normative. The built-in facts that rode `Event::Custom` tags became
+> typed variants (2026-08): `ListReorder`/`ListDelete` (the list piece's deferred commit echoes,
+> docs/list.md) and `CoverHidden` (docs/cover.md; `BridgeKind::CoverHidden = 26` on the
+> trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
+> `Custom` purely piece-defined.
 
 ```rust
 pub enum Event {
@@ -1381,6 +1385,9 @@ pub enum Event {
     PresentResult { req, result },            // modal answers (docs/dialogs.md)
     MenuAction(u64),                          // docs/menus.md
     Lifecycle(Lifecycle),                     // docs/lifecycle.md
+    ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
+    ListDelete(usize),                        // committed swipe-delete (docs/list.md)
+    CoverHidden,                              // cover hide transition finished (docs/cover.md)
     Custom { tag: &'static str, num: f64, text: String },  // open piece-defined channel (§8.2)
 }
 ```
@@ -2597,6 +2604,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads (docs/store.md) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256. App sites serve it at `/gallery/gallery.json`; `--out` places it |
+| `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol (docs/web.md) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time (docs/agent.md — the agent inner loop) |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
@@ -3298,7 +3306,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    build/walkthrough/screenshot signal. A `web-dom` job builds the showcase's wasm
    dist (`day build -p web-dom --profile release`) and runs the SAME walkthrough ×
    light/dark × en/fr/ar/zh-CN in headless WebKit
-   (`DAY_WEB_DRIVER` = scripts/ci/webdom-driver.mjs; the dayscript WebSocket bridge, §14.5),
+   (`DAY_WEB_DRIVER` = the CLI's bundled page-driver, `day web driver`; the dayscript WebSocket bridge, §14.5),
    uploading `screenshots-web-dom` for the gallery's "Web DOM" column (docs/web.md). It does not
    publish the dist — the app deploys its own web build to daybrite.github.io/Day-Showcase from its
    own repository, and daybrite.dev links there.

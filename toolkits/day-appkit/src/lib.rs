@@ -2037,7 +2037,7 @@ fn apply_stroke_style(p: &objc2_app_kit::NSBezierPath, style: &day_spec::StrokeS
         });
         p.setMiterLimit(style.miter_limit);
         if !style.dash.is_empty() {
-            let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.iter().copied().collect();
+            let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.to_vec();
             p.setLineDash_count_phase(pattern.as_ptr(), pattern.len() as isize, style.dash_phase);
         }
     }
@@ -3564,7 +3564,7 @@ impl Toolkit for AppKit {
             }
             // Emulated cover (docs/cover.md): present = re-home onto the window's content view
             // at full bounds, topmost, autoresized with the window (the DayNavPage handle
-            // reports FrameChanged on every resize). Dismiss = hide + report "cover-hidden"
+            // reports FrameChanged on every resize). Dismiss = hide + report `CoverHidden`
             // immediately (no transition on this tier). Interactive dismissal doesn't exist on
             // this backend, so DismissDisabled has nothing to disable.
             kinds::COVER => {
@@ -3614,7 +3614,7 @@ impl Toolkit for AppKit {
                                 page.setHidden(true);
                                 page.removeFromSuperview();
                             }
-                            emit(node, Event::custom("cover-hidden", ""));
+                            emit(node, Event::CoverHidden);
                         }
                     }
                 }

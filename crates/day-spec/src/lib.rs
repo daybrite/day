@@ -482,11 +482,14 @@ pub mod bridge {
         /// and no `Event` is emitted — Rust calls `day_core::note_appearance_changed`, the same
         /// thing AppKit's and GTK's own scheme observers do.
         AppearanceChanged = 25,
+        /// A fullscreen cover's hide transition finished (docs/cover.md); no payload — the
+        /// node id is the cover's. Decodes to [`crate::Event::CoverHidden`].
+        CoverHidden = 26,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 26] = [
+        pub const ALL: [BridgeKind; 27] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -513,6 +516,7 @@ pub mod bridge {
             BridgeKind::SearchChanged,
             BridgeKind::NavPresentation,
             BridgeKind::AppearanceChanged,
+            BridgeKind::CoverHidden,
         ];
     }
 
@@ -614,10 +618,13 @@ pub enum Event {
     Pointer(PointerEvent),
     WindowResized(Size),
     /// The platform asks the app to show a route (docs/navigation.md): a runtime deep link —
-    /// on web-dom, the URL hash changing under the app (hand-edited, or browser back/forward).
-    /// Emitted on [`WINDOW_NODE`]; day-core answers with `navigate()` when the route differs
-    /// from the current one. Launch-time deep links use `DAY_DEEPLINK`/`set_launch_deeplink`
-    /// instead — this variant is for changes while the app runs.
+    /// on web-dom, the URL hash changing under the app (hand-edited, or browser back/forward);
+    /// on mobile, a warm scheme link (iOS `application:openURL:`, Android `onNewIntent` via
+    /// `BridgeKind::Deeplink`). Emitted on [`WINDOW_NODE`] (day-core answers with `navigate()`
+    /// when the route differs from the current one) or on the active NAV HOST's node (the nav
+    /// piece answers with `navigate()` itself, docs/deep-links.md). Launch-time deep links use
+    /// `DAY_DEEPLINK`/`set_launch_deeplink` instead — this variant is for changes while the
+    /// app runs.
     RouteRequested(String),
     /// A native modal answered request `req` (docs/dialogs.md).
     PresentResult {
@@ -669,6 +676,23 @@ pub enum Event {
     /// A secondary window's key/active state changed — emitted on the window's root node.
     /// day-core tracks the focused window with it (dialog parenting, dayscript targeting).
     WindowFocused(bool),
+    /// A native list committed a drag-reorder (docs/list.md): row `from` landed at row `to`.
+    /// Emitted on the LIST node by the list piece's own commit hook — the reorder driver
+    /// rotates its snapshot synchronously inside the platform's drop callback, then reports
+    /// through the event queue so the app's `on_reorder` never runs inside a native animation
+    /// callstack.
+    ListReorder {
+        from: usize,
+        to: usize,
+    },
+    /// A native list committed a swipe-delete (docs/list.md): the row at this index is gone.
+    /// Deferred through the event queue exactly as [`Event::ListReorder`] is.
+    ListDelete(usize),
+    /// A fullscreen cover's hide transition finished (docs/cover.md): the content can now be
+    /// disposed. Answers [`props::CoverPatch::Dismiss`]; delivery is a hard guarantee, and
+    /// backends over-report rather than under-report — consumers gate on their own closing
+    /// flag, so duplicates and belated reports are no-ops.
+    CoverHidden,
 }
 
 impl Event {
@@ -2562,9 +2586,9 @@ pub mod props {
         /// The `interactive_dismiss_disabled` state changed while presented.
         DismissDisabled(bool),
         /// Dismiss the cover. When the hide transition finishes the backend emits
-        /// `Event::custom("cover-hidden", "")` on the node (trampoline backends send
-        /// `BridgeKind::Custom` with `text == "cover-hidden"`), letting the piece dispose
-        /// the content only after it left the screen.
+        /// [`crate::Event::CoverHidden`] on the node (trampoline backends send
+        /// `BridgeKind::CoverHidden`), letting the piece dispose the content only after it
+        /// left the screen.
         Dismiss,
     }
 
@@ -2873,16 +2897,16 @@ pub mod present {
                 _ => None,
             }
         }
-        /// Button labels joined with the unit separator (0x1f) — the encoding the nav menu
-        /// and combobox shims already use for string lists.
+        /// Button labels joined with [`UNIT_SEP`] — the encoding the nav menu and combobox
+        /// shims already use for string lists.
         pub fn buttons_joined(&self) -> String {
             match self {
                 PresentSpec::Dialog { buttons, .. } => buttons
                     .iter()
                     .map(|b| b.label.as_str())
                     .collect::<Vec<_>>()
-                    .join("\u{1f}"),
-                PresentSpec::Prompt { ok, cancel, .. } => format!("{ok}\u{1f}{cancel}"),
+                    .join(&UNIT_SEP.to_string()),
+                PresentSpec::Prompt { ok, cancel, .. } => format!("{ok}{UNIT_SEP}{cancel}"),
                 _ => String::new(),
             }
         }
@@ -2929,14 +2953,14 @@ pub mod present {
                 _ => "",
             }
         }
-        /// Filters flattened for the C ABI: each filter is `name|ext1,ext2`, joined by the unit
-        /// separator. A trailing `|` (no extensions) means "all files". Empty when unfiltered.
+        /// Filters flattened for the C ABI: each filter is `name|ext1,ext2`, joined by
+        /// [`UNIT_SEP`]. A trailing `|` (no extensions) means "all files". Empty when unfiltered.
         pub fn filters_joined(&self) -> String {
             self.filters()
                 .iter()
                 .map(|f| format!("{}|{}", f.name, f.extensions.join(",")))
                 .collect::<Vec<_>>()
-                .join("\u{1f}")
+                .join(&UNIT_SEP.to_string())
         }
     }
 }
@@ -3446,23 +3470,104 @@ impl<B: Toolkit> Registry<B> {
     }
 }
 
+/// The canvas wire op codes (§11, §15.3): slot 0 of every 9-number record in
+/// [`encode_ops`]'s output. The numeric values are the FROZEN wire contract — the JNI, C++,
+/// and JS decoders each hand-write these as constants, so a value here may never be reused
+/// or renumbered; new ops append. `ALL` drives the density test that keeps this enum and
+/// the encoder honest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(i32)]
+pub enum OpCode {
+    /// Fill a rect (a,b=origin, c,d=size).
+    FillRect = 0,
+    /// Stroke a rect (g=width).
+    StrokeRect = 1,
+    /// Fill a rounded rect (e=radius).
+    FillRrect = 2,
+    /// Fill an ellipse in a rect.
+    FillEllipse = 3,
+    /// Stroke an ellipse (g=width).
+    StrokeEllipse = 4,
+    /// Stroke an arc (e=start°, f=sweep°, g=width). `Fill(Shape::Arc)` also encodes as
+    /// this with width 0 — the known asymmetry; see [`encode_ops`].
+    StrokeArc = 5,
+    /// Line a,b → c,d (g=width).
+    Line = 6,
+    /// Text at a,b (e=size, f=anchor: 0 leading / 1 centered); the string rides the texts
+    /// channel.
+    Text = 7,
+    /// Save the graphics state.
+    Save = 8,
+    /// Restore the graphics state.
+    Restore = 9,
+    /// Concat an affine transform (a..f).
+    Concat = 10,
+    /// Fill a polygon; points ride the texts channel as "x,y x,y …" (closed automatically).
+    FillPolygon = 11,
+    /// Stroke a polygon (g=width); points as [`OpCode::FillPolygon`].
+    StrokePolygon = 12,
+    /// Stroke a rounded rect (e=radius, g=width).
+    StrokeRrect = 13,
+    /// Set a gradient for the NEXT shape record (f=type: 0 linear with a,b=start / c,d=end
+    /// unit points; 1 radial with a,b=center unit point, c=unit radius; e=stop count).
+    /// Stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …". Unit geometry
+    /// resolves against the shape's bounding box.
+    SetGradient = 14,
+    /// Fill a path (f=fill rule: 0 non-zero / 1 even-odd); segments ride the texts channel
+    /// (see [`encode_path`]).
+    FillPath = 15,
+    /// Stroke a path (g=width); segments as [`OpCode::FillPath`].
+    StrokePath = 16,
+    /// Clip to a shape (f=shape kind: 0 rect / 1 rrect(e=radius) / 2 ellipse / 3 path
+    /// (e=fill rule) / 4 polygon; a..d=geometry; path/polygon payloads ride the texts
+    /// channel).
+    Clip = 17,
+    /// Stroke style for the NEXT stroke record (a=cap, b=join, c=miter limit, d=dash
+    /// phase, e=dash count; the dash array rides the texts channel).
+    StrokeStyle = 18,
+}
+
+impl OpCode {
+    /// Every code, in wire order — the density test iterates this so a new variant that
+    /// forgets to join fails loudly.
+    pub const ALL: [OpCode; 19] = [
+        OpCode::FillRect,
+        OpCode::StrokeRect,
+        OpCode::FillRrect,
+        OpCode::FillEllipse,
+        OpCode::StrokeEllipse,
+        OpCode::StrokeArc,
+        OpCode::Line,
+        OpCode::Text,
+        OpCode::Save,
+        OpCode::Restore,
+        OpCode::Concat,
+        OpCode::FillPolygon,
+        OpCode::StrokePolygon,
+        OpCode::StrokeRrect,
+        OpCode::SetGradient,
+        OpCode::FillPath,
+        OpCode::StrokePath,
+        OpCode::Clip,
+        OpCode::StrokeStyle,
+    ];
+
+    /// The code back from a wire number (a decoder-side aid and the round-trip test's
+    /// reference); `None` for anything outside the table.
+    pub fn from_wire(n: f64) -> Option<OpCode> {
+        OpCode::ALL.into_iter().find(|c| *c as i32 as f64 == n)
+    }
+}
+
 /// Flat numeric encoding of a display list for shim/JNI boundaries (§11, §15.3): per op
 /// 9 numbers [kind, a, b, c, d, e, f, g, rgba-bits]; text payloads ride separately in order.
-/// Kinds: 0 fill-rect, 1 stroke-rect(g=w), 2 fill-rrect(e=r), 3 fill-ellipse,
-/// 4 stroke-ellipse(g=w), 5 stroke-arc(e=start°, f=sweep°, g=w), 6 line(a,b→c,d, g=w),
-/// 7 text(a,b=pos, e=size, f=anchor: 0 leading / 1 centered), 8 save, 9 restore,
-/// 10 concat(a..f=affine), 11 fill-polygon / 12 stroke-polygon(g=w) — polygon points ride the
-/// texts channel as "x,y x,y …" (closed automatically), 13 stroke-rrect(e=r, g=w),
-/// 14 set-gradient(f=type: 0 linear with a,b=start / c,d=end unit points; 1 radial with
-/// a,b=center unit point, c=unit radius; e=stop count) — the stops ride the texts channel as
-/// "offset,aarrggbb offset,aarrggbb …"; the gradient applies to the NEXT fill-shape record
-/// (whose color slot is then unused) and is cleared after it. Unit geometry resolves against
-/// the filled shape's bounding box, so a radial stretches elliptically in non-square bounds.
+/// The kind slot carries an [`OpCode`] — its doc comments are the per-slot contract.
 ///
-/// Transports join `texts` with the unit separator U+001F (one entry per kind-7/11/12/14
+/// Transports join `texts` with the unit separator U+001F (one entry per text-carrying
 /// record, in order), so text payloads must not contain U+001F. Known asymmetry:
-/// `Fill(Shape::Arc)` encodes as kind 5 (stroke) with width 0 — filled arcs render only on the
-/// direct-replay backends (AppKit/UIKit); use a polygon fan if a filled arc must be portable.
+/// `Fill(Shape::Arc)` encodes as [`OpCode::StrokeArc`] with width 0 — filled arcs render
+/// only on the direct-replay backends (AppKit/UIKit); use a polygon fan if a filled arc
+/// must be portable.
 /// Serialize a path for the `texts` side-channel: one space-separated token per segment,
 /// `M x y` / `L x y` / `Q cx cy x y` / `C c1x c1y c2x c2y x y` / `Z`.
 ///
@@ -3508,7 +3613,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     }
     #[allow(clippy::too_many_arguments)]
     fn push(
-        k: f64,
+        k: OpCode,
         a: f64,
         b: f64,
         c: f64,
@@ -3519,7 +3624,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         col: Color,
         nums: &mut Vec<f64>,
     ) {
-        nums.extend_from_slice(&[k, a, b, c, d, e, f, g, color_bits(col)]);
+        nums.extend_from_slice(&[k as i32 as f64, a, b, c, d, e, f, g, color_bits(col)]);
     }
     /// One shape record (the fill/stroke kinds shared by both ops).
     fn shape_record(
@@ -3532,7 +3637,11 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     ) {
         match shape {
             Shape::Rect(r) => push(
-                if stroke { 1.0 } else { 0.0 },
+                if stroke {
+                    OpCode::StrokeRect
+                } else {
+                    OpCode::FillRect
+                },
                 r.origin.x,
                 r.origin.y,
                 r.size.width,
@@ -3544,7 +3653,11 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 nums,
             ),
             Shape::RoundedRect(r, rad) => push(
-                if stroke { 13.0 } else { 2.0 },
+                if stroke {
+                    OpCode::StrokeRrect
+                } else {
+                    OpCode::FillRrect
+                },
                 r.origin.x,
                 r.origin.y,
                 r.size.width,
@@ -3556,7 +3669,11 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 nums,
             ),
             Shape::Ellipse(r) => push(
-                if stroke { 4.0 } else { 3.0 },
+                if stroke {
+                    OpCode::StrokeEllipse
+                } else {
+                    OpCode::FillEllipse
+                },
                 r.origin.x,
                 r.origin.y,
                 r.size.width,
@@ -3572,7 +3689,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 start_deg,
                 sweep_deg,
             } => push(
-                5.0,
+                OpCode::StrokeArc,
                 rect.origin.x,
                 rect.origin.y,
                 rect.size.width,
@@ -3583,12 +3700,18 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 col,
                 nums,
             ),
-            Shape::Line(p1, p2) => push(6.0, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, col, nums),
+            Shape::Line(p1, p2) => {
+                push(OpCode::Line, p1.x, p1.y, p2.x, p2.y, 0.0, 0.0, w, col, nums)
+            }
             Shape::Polygon(pts) => {
                 // Variable-length points ride the texts side-channel ("x,y x,y …"),
                 // consumed in record order exactly like text payloads.
                 push(
-                    if stroke { 12.0 } else { 11.0 },
+                    if stroke {
+                        OpCode::StrokePolygon
+                    } else {
+                        OpCode::FillPolygon
+                    },
                     0.0,
                     0.0,
                     0.0,
@@ -3610,7 +3733,11 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 // Same side-channel as Polygon, one token per segment (see `encode_path`).
                 // The fill rule rides slot f; stroking ignores it.
                 push(
-                    if stroke { 16.0 } else { 15.0 },
+                    if stroke {
+                        OpCode::StrokePath
+                    } else {
+                        OpCode::FillPath
+                    },
                     0.0,
                     0.0,
                     0.0,
@@ -3636,7 +3763,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         texts: &mut Vec<String>,
     ) {
         push(
-            14.0,
+            OpCode::SetGradient,
             geo[0],
             geo[1],
             geo[2],
@@ -3699,7 +3826,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 // one rule: consume, apply to the next shape record, reset.
                 if !style.is_plain() {
                     push(
-                        18.0,
+                        OpCode::StrokeStyle,
                         match style.cap {
                             LineCap::Butt => 0.0,
                             LineCap::Round => 1.0,
@@ -3803,7 +3930,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     }
                 };
                 push(
-                    17.0,
+                    OpCode::Clip,
                     geo[0],
                     geo[1],
                     geo[2],
@@ -3826,7 +3953,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 anchor,
             } => {
                 push(
-                    7.0,
+                    OpCode::Text,
                     at.x,
                     at.y,
                     0.0,
@@ -3843,7 +3970,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 texts.push(text.clone());
             }
             DrawOp::Save => push(
-                8.0,
+                OpCode::Save,
                 0.0,
                 0.0,
                 0.0,
@@ -3855,7 +3982,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 &mut nums,
             ),
             DrawOp::Restore => push(
-                9.0,
+                OpCode::Restore,
                 0.0,
                 0.0,
                 0.0,
@@ -3867,7 +3994,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 &mut nums,
             ),
             DrawOp::Concat(m) => push(
-                10.0,
+                OpCode::Concat,
                 m.a,
                 m.b,
                 m.c,
@@ -3881,6 +4008,159 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         }
     }
     (nums, texts)
+}
+
+#[cfg(test)]
+mod encode_ops_tests {
+    use super::*;
+
+    /// The wire codes are a frozen dense table: any gap, duplicate, or variant missing from
+    /// `ALL` breaks a decoder somewhere, so it must break here first.
+    #[test]
+    fn op_codes_are_dense_and_round_trip() {
+        for (i, code) in OpCode::ALL.into_iter().enumerate() {
+            assert_eq!(code as i32, i as i32, "{code:?} broke wire density");
+            assert_eq!(OpCode::from_wire(i as f64), Some(code));
+        }
+        assert_eq!(OpCode::from_wire(OpCode::ALL.len() as f64), None);
+        assert_eq!(OpCode::from_wire(-1.0), None);
+        assert_eq!(OpCode::from_wire(0.5), None);
+    }
+
+    /// Reference decode of a display list covering every op arm: the record stream must be
+    /// whole 9-slot records of known codes, and the texts channel must carry exactly one
+    /// entry per text-carrying record, in order — the contract every shim decoder assumes.
+    #[test]
+    fn encode_ops_emits_whole_records_and_matched_text_payloads() {
+        let r = Rect::new(1.0, 2.0, 3.0, 4.0);
+        let red = Color::rgb(1.0, 0.0, 0.0);
+        let ops = vec![
+            DrawOp::Fill(Shape::Rect(r), Paint::Solid(red)),
+            DrawOp::Stroke(Shape::Rect(r), Paint::Solid(red), StrokeStyle::round(2.0)),
+            DrawOp::Fill(Shape::RoundedRect(r, 5.0), Paint::Solid(red)),
+            DrawOp::Fill(Shape::Ellipse(r), Paint::Solid(red)),
+            // The documented asymmetry: a FILLED arc encodes as StrokeArc with width 0.
+            DrawOp::Fill(
+                Shape::Arc {
+                    rect: r,
+                    start_deg: 0.0,
+                    sweep_deg: 90.0,
+                },
+                Paint::Solid(red),
+            ),
+            DrawOp::Stroke(
+                Shape::Line(Point::new(0.0, 0.0), Point::new(9.0, 9.0)),
+                Paint::Solid(red),
+                StrokeStyle::width(1.0),
+            ),
+            DrawOp::Fill(
+                Shape::Polygon(vec![
+                    Point::new(0.0, 0.0),
+                    Point::new(4.0, 0.0),
+                    Point::new(2.0, 3.0),
+                ]),
+                Paint::Solid(red),
+            ),
+            DrawOp::Fill(
+                Shape::Path(Path {
+                    segs: vec![
+                        PathSeg::Move(Point::new(0.0, 0.0)),
+                        PathSeg::Line(Point::new(5.0, 5.0)),
+                        PathSeg::Close,
+                    ],
+                    rule: FillRule::EvenOdd,
+                }),
+                Paint::Linear(LinearGradient::new(
+                    UnitPoint::new(0.0, 0.0),
+                    UnitPoint::new(1.0, 1.0),
+                    vec![(0.0, red), (1.0, Color::WHITE)],
+                )),
+            ),
+            DrawOp::Clip(Shape::Rect(r)),
+            DrawOp::Clip(Shape::Polygon(vec![
+                Point::new(0.0, 0.0),
+                Point::new(1.0, 0.0),
+                Point::new(0.0, 1.0),
+            ])),
+            DrawOp::Text {
+                text: "hi".into(),
+                at: Point::new(7.0, 8.0),
+                size: 12.0,
+                color: red,
+                anchor: TextAnchor::Leading,
+            },
+            DrawOp::Save,
+            DrawOp::Concat(Affine::IDENTITY),
+            DrawOp::Restore,
+        ];
+        let (nums, texts) = encode_ops(&ops);
+        assert_eq!(nums.len() % 9, 0, "partial record on the wire");
+
+        let mut expected_texts = 0usize;
+        let mut decoded = Vec::new();
+        for rec in nums.chunks(9) {
+            let code = OpCode::from_wire(rec[0])
+                .unwrap_or_else(|| panic!("unknown op code {} on the wire", rec[0]));
+            decoded.push(code);
+            expected_texts += match code {
+                OpCode::Text
+                | OpCode::FillPolygon
+                | OpCode::StrokePolygon
+                | OpCode::SetGradient
+                | OpCode::FillPath
+                | OpCode::StrokePath
+                | OpCode::StrokeStyle => 1,
+                // Clip carries a payload only for its path (3) / polygon (4) sub-kinds.
+                OpCode::Clip => usize::from(rec[6] == 3.0 || rec[6] == 4.0),
+                _ => 0,
+            };
+        }
+        assert_eq!(
+            texts.len(),
+            expected_texts,
+            "texts channel out of step with the records that consume it"
+        );
+        // No payload may carry the transport separator.
+        assert!(texts.iter().all(|t| !t.contains('\u{1f}')));
+
+        let expected = {
+            use OpCode::*;
+            vec![
+                FillRect,
+                StrokeStyle, // ::round(2.0) is not plain — the style modifier precedes
+                StrokeRect,
+                FillRrect,
+                FillEllipse,
+                StrokeArc, // the filled arc's stroke encoding…
+                Line,
+                FillPolygon,
+                SetGradient, // gradient precedes its shape record
+                FillPath,
+                Clip,
+                Clip,
+                Text,
+                Save,
+                Concat,
+                Restore,
+            ]
+        };
+        assert_eq!(decoded, expected);
+        // …with width 0, per the documented asymmetry.
+        let arc = nums
+            .chunks(9)
+            .find(|r| r[0] == OpCode::StrokeArc as i32 as f64);
+        assert_eq!(arc.map(|r| r[7]), Some(0.0));
+        // A gradient-filled shape's color slot is opaque white, never clear (Skia decoders
+        // modulate the shader by it).
+        let path_rec = nums
+            .chunks(9)
+            .find(|r| r[0] == OpCode::FillPath as i32 as f64);
+        assert_eq!(
+            path_rec.map(|r| r[8] as u32),
+            Some(0xFFFF_FFFF),
+            "gradient shape record must carry opaque white"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -691,7 +691,7 @@ impl Toolkit for MockToolkit {
                 }
             } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {
                 // `flag` records presented-ness (probe-visible). Tests emit the FrameChanged
-                // size report and the "cover-hidden" custom event, as the native surface would.
+                // size report and the `CoverHidden` event, as the native surface would.
                 match p {
                     CoverPatch::Present {
                         background,

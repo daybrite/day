@@ -6,10 +6,146 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::meta;
 use crate::ops;
+
+/// Which failure a [`CliError`] reports — and the ONE place a kind maps to an exit code
+/// (§16.2/§16.3). Everything [`run`] renders funnels through [`ErrKind::exit_code`]; command
+/// code that reports a verdict itself (lint findings, icon drift, script failures) quotes the
+/// same map instead of a literal, so no code is ever assigned twice.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ErrKind {
+    /// Anything without a more specific kind: launch, runtime, and file failures.
+    Failure,
+    /// Wrong invocation or configuration: bad flags, an unknown target, no project.
+    Usage,
+    /// The development environment refused: doctor errors, no live session to attach to.
+    Env,
+    /// A build or artifact-generation step failed (cargo, xcodebuild, gradle, hvigor, icons).
+    Build,
+    /// A scripted run failed, or the device side of one stopped answering.
+    Script,
+    /// `day icon --check` found outputs drifted from the master (the CI drift gate).
+    Drift,
+    /// Signing / notarization (`day sign`, pack's signing stages).
+    Sign,
+    /// `day lint --strict` findings.
+    Lint,
+}
+
+impl ErrKind {
+    /// The exit-code contract. These numbers are FROZEN: CI walkthroughs assert them.
+    pub fn exit_code(self) -> i32 {
+        match self {
+            ErrKind::Failure => 1,
+            ErrKind::Usage => 2,
+            ErrKind::Env => 3,
+            ErrKind::Build => 4,
+            ErrKind::Script | ErrKind::Drift => 5,
+            ErrKind::Sign => 6,
+            ErrKind::Lint => 10,
+        }
+    }
+}
+
+/// A command failure: the message the old code printed at its ~40 call sites, plus the kind
+/// that picks its exit code. Command entry points return `Result<_, CliError>` and [`run`]
+/// renders once — `error: <message>` on stderr, exit code from the kind.
+pub struct CliError {
+    kind: ErrKind,
+    message: String,
+}
+
+impl CliError {
+    fn new(kind: ErrKind, message: impl Into<String>) -> Self {
+        CliError {
+            kind,
+            message: message.into(),
+        }
+    }
+    pub fn failure(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Failure, message)
+    }
+    pub fn usage(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Usage, message)
+    }
+    pub fn env(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Env, message)
+    }
+    pub fn build(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Build, message)
+    }
+    pub fn script(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Script, message)
+    }
+    pub fn drift(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Drift, message)
+    }
+    pub fn sign(message: impl Into<String>) -> Self {
+        Self::new(ErrKind::Sign, message)
+    }
+    pub fn exit_code(&self) -> i32 {
+        self.kind.exit_code()
+    }
+}
+
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// Internal helpers keep `Result<T, String>`; a bare String converting at a command boundary
+/// is the generic failure (exit 1). Boundaries that know better use a constructor
+/// (`.map_err(CliError::build)` and friends).
+impl From<String> for CliError {
+    fn from(message: String) -> Self {
+        Self::new(ErrKind::Failure, message)
+    }
+}
+
+/// `pack::PackError`'s own mapping (Sign → 6, everything else a build failure → 4), preserved.
+impl From<crate::pack::PackError> for CliError {
+    fn from(e: crate::pack::PackError) -> Self {
+        match e {
+            crate::pack::PackError::Sign(m) => Self::new(ErrKind::Sign, m),
+            crate::pack::PackError::Other(m) => Self::new(ErrKind::Build, m),
+        }
+    }
+}
+
+/// `--profile`, typed: a typo (`relaese`) fails at argument parsing instead of string-comparing
+/// its way into the debug branch of every `profile == "release"` site.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ValueEnum)]
+pub enum Profile {
+    Debug,
+    Release,
+}
+
+impl Profile {
+    /// The spelling the flag accepts — also the build-directory name and the `DAY_PROFILE` value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Profile::Debug => "debug",
+            Profile::Release => "release",
+        }
+    }
+}
+
+impl std::fmt::Display for Profile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// `--format`, typed: day's own status lines, or NDJSON result events for tooling.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, ValueEnum)]
+pub enum OutputFormat {
+    Plain,
+    Json,
+}
 
 #[derive(Parser)]
 #[command(
@@ -22,8 +158,8 @@ struct Cli {
     #[arg(long, global = true)]
     project: Option<PathBuf>,
     /// Output format: plain (default) or json (NDJSON result events)
-    #[arg(long, global = true, default_value = "plain")]
-    format: String,
+    #[arg(long, global = true, value_enum, default_value = "plain")]
+    format: OutputFormat,
     /// Forward every sub-command's raw output (cargo, gradle, xcodebuild, hvigor, adb, codesign, …)
     /// to the terminal as it runs, instead of capturing it and showing only day's own status lines.
     /// `DAY_VERBOSE=1` in the environment does the same — the way CI turns a whole workflow
@@ -47,8 +183,8 @@ enum Cmd {
     Build {
         #[arg(short = 'p', long = "platform", required = true)]
         platforms: Vec<String>,
-        #[arg(long, default_value = "debug")]
-        profile: String,
+        #[arg(long, value_enum, default_value = "debug")]
+        profile: Profile,
     },
     /// Generate every platform's app-icon set from one master (docs/icons.md)
     Icon {
@@ -84,8 +220,8 @@ enum Cmd {
         /// under Plasma/LXQt, GTK otherwise).
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        #[arg(long, default_value = "debug")]
-        profile: String,
+        #[arg(long, value_enum, default_value = "debug")]
+        profile: Profile,
         /// BCP-47 locale override passed to the app
         #[arg(long)]
         locale: Option<String>,
@@ -172,8 +308,8 @@ enum Cmd {
         #[arg(short = 'p', long = "platform", required = true)]
         platforms: Vec<String>,
         /// Pack defaults to release (distribution artifacts); pass debug for a dev-install pack.
-        #[arg(long, default_value = "release")]
-        profile: String,
+        #[arg(long, value_enum, default_value = "release")]
+        profile: Profile,
         /// Comma-separated format subset (e.g. `--formats apk` to skip the aab)
         #[arg(long)]
         formats: Option<String>,
@@ -221,8 +357,8 @@ enum Cmd {
         platforms: Vec<String>,
         /// The profile BOTH the build and the pack use. `day pack` alone defaults to release;
         /// one profile here means one compile rather than two.
-        #[arg(long, default_value = "debug")]
-        profile: String,
+        #[arg(long, value_enum, default_value = "debug")]
+        profile: Profile,
         /// Stop after the build instead of packaging each combo
         #[arg(long)]
         no_pack: bool,
@@ -305,6 +441,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ScreenshotCmd,
     },
+    /// Web-target helpers (docs/web.md)
+    Web {
+        #[command(subcommand)]
+        cmd: WebCmd,
+    },
     /// Stop running launches (and drop their sessions)
     Stop {
         /// Target(s) to stop (repeatable)
@@ -322,8 +463,8 @@ enum Cmd {
         /// Relaunch every recorded session
         #[arg(long)]
         all_running: bool,
-        #[arg(long, default_value = "debug")]
-        profile: String,
+        #[arg(long, value_enum, default_value = "debug")]
+        profile: Profile,
         /// BCP-47 locale override passed to the app
         #[arg(long)]
         locale: Option<String>,
@@ -382,6 +523,14 @@ pub enum StoreCmd {
 
 /// `day localize …` — the four places a conventional project spells its locale set
 /// (`resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`), kept in step.
+#[derive(Subcommand)]
+pub enum WebCmd {
+    /// Print the path of the bundled DAY_WEB_DRIVER page-driver script (materialized to a
+    /// temp location): DAY_WEB_DRIVER="node $(day web driver)". Playwright resolves from
+    /// DAY_WEB_DRIVER_PLAYWRIGHT; DAY_WEB_DRIVER_BROWSER picks webkit/chromium/firefox
+    Driver,
+}
+
 #[derive(Subcommand)]
 pub enum ScreenshotCmd {
     /// Merge captured screenshot trees into gallery.json — the published machine-readable
@@ -593,16 +742,32 @@ pub fn run() -> i32 {
     // Kick off the background crates.io update check now, so it runs while the command does. Silent for
     // the build-system plumbing callbacks (Xcode/Gradle) and for machine `--format json` output.
     let update = crate::update::spawn(
-        cli.format != "json"
+        cli.format != OutputFormat::Json
             && !matches!(
                 cli.command,
                 Cmd::XcodeBackend { .. } | Cmd::GradleBackend { .. }
             ),
     );
-    let code = match cli.command {
+    let result = dispatch(cli);
+    // Non-blocking: nudge only if the crates.io reply already arrived; never waits for it.
+    crate::update::finish(update);
+    // The ONE render point: every command failure prints here, and the kind picks the code.
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("error: {e}");
+            e.exit_code()
+        }
+    }
+}
+
+/// The command dispatch. Each arm yields the command's verdict code (usually 0) or a
+/// [`CliError`]; nothing in here prints an `error:` line — [`run`] does that once.
+fn dispatch(cli: Cli) -> Result<i32, CliError> {
+    match cli.command {
         Cmd::Version => {
             println!("day {}", env!("DAY_VERSION_LONG"));
-            0
+            Ok(0)
         }
         Cmd::Doctor { toolkits } => {
             // Doctor works outside a project too, so external discovery is best-effort: inside a
@@ -637,7 +802,7 @@ pub fn run() -> i32 {
             registry,
             day_version,
             local,
-            json: cli.format == "json",
+            json: cli.format == OutputFormat::Json,
             verbose: cli.verbose,
         }),
         Cmd::Rebuild {
@@ -653,13 +818,7 @@ pub fn run() -> i32 {
                 strict,
                 from_dir,
             };
-            match crate::rebuild::run(&artifact, &opts) {
-                Ok(code) => code,
-                Err(e) => {
-                    crate::ops::status("Error", &e);
-                    1
-                }
-            }
+            crate::rebuild::run(&artifact, &opts).map_err(CliError::failure)
         }
         Cmd::Pack {
             platforms,
@@ -684,35 +843,22 @@ pub fn run() -> i32 {
             };
             let mut outcomes = Vec::new();
             for p in &platforms {
-                let target = match crate::external::find_target(project, p) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 2;
-                    }
-                };
+                let target = crate::external::find_target(project, p).map_err(CliError::usage)?;
                 if crate::external::is_external(target) {
                     // Packaging is per-OS CLI code (dmg/msix/flatpak/…) that a declared desktop
                     // target has none of. Say so plainly rather than fall into some builtin arm.
-                    eprintln!(
-                        "error: day pack does not support externally declared targets yet — \
+                    return Err(CliError::usage(format!(
+                        "day pack does not support externally declared targets yet — \
                          {} builds and launches, but packaging is Stage 1 (docs/extending.md)",
                         target.name
-                    );
-                    return 2;
+                    )));
                 }
-                match crate::pack::run(project, target, &opts) {
-                    Ok(o) => outcomes.push(o),
-                    Err(e) => {
-                        eprintln!("error: {}", e.message());
-                        return e.exit_code();
-                    }
-                }
+                outcomes.push(crate::pack::run(project, target, &opts)?);
             }
-            if cli.format == "json" {
+            if cli.format == OutputFormat::Json {
                 print_pack_json(&outcomes);
             }
-            0
+            Ok(0)
         }),
         Cmd::Sign {
             check,
@@ -722,46 +868,57 @@ pub fn run() -> i32 {
                 return crate::sign::notarize_status(project, id);
             }
             if check {
-                return crate::sign::check(project);
+                return Ok(crate::sign::check(project));
             }
-            eprintln!("error: day sign needs --check or --notarize-status <id>");
-            2
+            Err(CliError::usage(
+                "day sign needs --check or --notarize-status <id>",
+            ))
         }),
         Cmd::App {
             cmd: AppCmd::AddToolkit { targets, template },
         } => with_project(cli.project.as_deref(), |project| {
-            crate::new::add_toolkit(project, &targets, template.as_deref())
+            crate::new::add_toolkit(project, &targets, template.as_deref()).map(|()| 0)
         }),
         Cmd::App {
             cmd: AppCmd::SplitXcconfig,
         } => with_project(cli.project.as_deref(), |project| {
             for platform in ["ios", "macos"] {
-                if let Err(e) = crate::xcconfig::ensure_split(project, platform) {
-                    eprintln!("error: {e}");
-                    return 1;
-                }
+                crate::xcconfig::ensure_split(project, platform).map_err(CliError::failure)?;
             }
-            0
+            Ok(0)
         }),
         Cmd::Metadata { json, schema } => {
             if schema {
                 // Static — the schema needs no project; usable before one exists.
                 println!("{}", include_str!("../resources/day-toml.schema.json"));
-                return 0;
+                return Ok(0);
             }
             with_project(cli.project.as_deref(), |project| {
-                crate::metadata::run(project, json)
+                crate::metadata::run(project, json).map(|()| 0)
             })
         }
         Cmd::Lint { strict, allow } => with_project(cli.project.as_deref(), |project| {
-            crate::lint::run(project, strict, &allow)
+            Ok(crate::lint::run(project, strict, &allow))
         }),
         Cmd::Patch { local, check } => with_project(cli.project.as_deref(), |project| {
-            crate::patch::run(project, local.as_deref(), check)
+            crate::patch::run(project, local.as_deref(), check).map(|()| 0)
         }),
         Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
-            crate::store::run(project, &cmd)
+            crate::store::run(project, &cmd).map(|()| 0)
         }),
+        // Project-less: the driver is the CLI's own resource, usable before any checkout.
+        Cmd::Web { cmd } => match cmd {
+            WebCmd::Driver => match crate::web::materialize_driver() {
+                Ok(path) => {
+                    println!("{}", path.display());
+                    Ok(0)
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    Ok(1)
+                }
+            },
+        },
         Cmd::Screenshot { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
             ScreenshotCmd::Index {
                 screenshot_paths,
@@ -771,17 +928,13 @@ pub fn run() -> i32 {
                     screenshot_paths,
                     out,
                 };
-                match crate::screenshot::index(project, &opts) {
-                    Ok(_) => 0,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        1
-                    }
-                }
+                crate::screenshot::index(project, &opts)
+                    .map(|_| 0)
+                    .map_err(CliError::failure)
             }
         }),
         Cmd::Localize { cmd } => with_project(cli.project.as_deref(), |project| {
-            crate::localize::run(project, &cmd)
+            crate::localize::run(project, &cmd).map(|()| 0)
         }),
         Cmd::Stop { platforms, all } => with_project(cli.project.as_deref(), |project| {
             let names: Vec<String> = if all {
@@ -793,22 +946,18 @@ pub fn run() -> i32 {
                 platforms
             };
             if names.is_empty() {
-                eprintln!("error: nothing to stop (no -p targets and no recorded sessions)");
-                return 2;
+                return Err(CliError::usage(
+                    "nothing to stop (no -p targets and no recorded sessions)",
+                ));
             }
             for name in &names {
-                let target = match crate::external::find_target(project, name) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 2;
-                    }
-                };
+                let target =
+                    crate::external::find_target(project, name).map_err(CliError::usage)?;
                 crate::script::terminate(project, target);
                 crate::sessions::remove(&project.root, name);
                 ops::status("Stopped", name);
             }
-            0
+            Ok(0)
         }),
         Cmd::Relaunch {
             platforms,
@@ -825,8 +974,9 @@ pub fn run() -> i32 {
                 platforms
             };
             if names.is_empty() {
-                eprintln!("error: no running sessions — `day launch -p <target>` first");
-                return 2;
+                return Err(CliError::usage(
+                    "no running sessions — `day launch -p <target>` first",
+                ));
             }
             let spec = ops::LaunchSpec {
                 locale,
@@ -844,87 +994,61 @@ pub fn run() -> i32 {
                 android_device: None,
             };
             for (ti, name) in names.iter().enumerate() {
-                let target = match crate::external::find_target(project, name) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 2;
-                    }
-                };
+                let target =
+                    crate::external::find_target(project, name).map_err(CliError::usage)?;
                 crate::script::terminate(project, target);
-                let outcome = match ops::build(project, target, &profile) {
-                    Ok(o) => o,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 4;
-                    }
-                };
+                let outcome = ops::build(project, target, profile).map_err(CliError::build)?;
                 let mut spec = spec.clone();
                 let port = crate::script::pick_port(ti);
                 let token = crate::script::make_token();
                 spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
                 spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
-                match ops::launch(project, target, &outcome, &spec) {
-                    Ok(_) => {
-                        crate::sessions::record(
-                            &project.root,
-                            crate::sessions::Session {
-                                target: name.clone(),
-                                app_id: project.manifest.resolve(name).id,
-                                profile: profile.clone(),
-                                engine_port: port,
-                                engine_token: token,
-                                started_at: crate::sessions::now_millis(),
-                            },
-                        );
-                        ops::status("Relaunched", name);
-                    }
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 1;
-                    }
-                }
+                ops::launch(project, target, &outcome, &spec).map_err(CliError::failure)?;
+                crate::sessions::record(
+                    &project.root,
+                    crate::sessions::Session {
+                        target: name.clone(),
+                        app_id: project.manifest.resolve(name).id,
+                        profile: profile.to_string(),
+                        engine_port: port,
+                        engine_token: token,
+                        started_at: crate::sessions::now_millis(),
+                    },
+                );
+                ops::status("Relaunched", name);
             }
-            0
+            Ok(0)
         }),
         Cmd::Drive {
             platform,
             steps_json,
         } => with_project(cli.project.as_deref(), |project| {
-            let target = match crate::external::find_target(project, &platform) {
-                Ok(t) => t,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    return 2;
-                }
-            };
+            let target =
+                crate::external::find_target(project, &platform).map_err(CliError::usage)?;
             crate::drive::run(project, target, &steps_json)
         }),
-        Cmd::McpServer {} => with_project(cli.project.as_deref(), crate::mcp::run),
+        Cmd::McpServer {} => with_project(cli.project.as_deref(), |project| {
+            Ok(crate::mcp::run(project))
+        }),
         Cmd::Ohos {
             cmd:
                 OhosCmd::Emulator {
                     cmd: EmulatorCmd::Launch { headless },
                 },
-        } => match crate::ohos::emulator_launch(headless) {
-            Ok(()) => 0,
-            Err(e) => {
-                eprintln!("error: {e}");
-                5
-            }
-        },
+        } => crate::ohos::emulator_launch(headless)
+            .map(|()| 0)
+            .map_err(CliError::script),
         Cmd::XcodeBackend { action } => match action.as_str() {
-            "build" => crate::mobile::xcode_backend_build(),
-            "stage-resources" => crate::mobile::xcode_backend_stage_resources(),
-            "stage-strings" => crate::mobile::xcode_backend_stage_strings(),
-            other => {
-                eprintln!("day xcode-backend: unknown action {other:?}");
-                2
-            }
+            "build" => crate::mobile::xcode_backend_build().map(|()| 0),
+            "stage-resources" => crate::mobile::xcode_backend_stage_resources().map(|()| 0),
+            "stage-strings" => crate::mobile::xcode_backend_stage_strings().map(|()| 0),
+            other => Err(CliError::usage(format!(
+                "day xcode-backend: unknown action {other:?}"
+            ))),
         },
-        Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build(),
+        Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build().map(|()| 0),
         Cmd::New { what } => match what {
-            None => crate::new::interactive(),
+            None => crate::new::interactive().map(|()| 0),
             Some(NewKind::Piece {
                 name,
                 toolkits,
@@ -945,7 +1069,8 @@ pub fn run() -> i32 {
                 registry,
                 day_version.as_deref(),
                 no_input,
-            ),
+            )
+            .map(|()| 0),
             Some(NewKind::Part {
                 name,
                 platforms,
@@ -964,7 +1089,8 @@ pub fn run() -> i32 {
                 registry,
                 day_version.as_deref(),
                 no_input,
-            ),
+            )
+            .map(|()| 0),
             Some(NewKind::App {
                 name,
                 toolkits,
@@ -999,7 +1125,8 @@ pub fn run() -> i32 {
                 no_website,
                 &locales,
                 icon_seed.as_deref(),
-            ),
+            )
+            .map(|()| 0),
         },
         Cmd::Icon {
             master,
@@ -1014,32 +1141,21 @@ pub fn run() -> i32 {
             // Preview mode stands alone: an SVG+PNG pair at the given path, no project.
             if let (true, Some(path)) = (generate, out.as_ref()) {
                 let seed_value = seed_value.unwrap_or_default();
-                return match crate::icon::generate_preview(path, seed_value) {
-                    Ok(()) => {
-                        crate::ops::status(
-                            "Generated",
-                            &format!("{} (seed {seed_value})", path.display()),
-                        );
-                        0
-                    }
-                    Err(e) => {
-                        crate::ops::status("Error", &e);
-                        4
-                    }
-                };
+                crate::icon::generate_preview(path, seed_value).map_err(CliError::build)?;
+                crate::ops::status(
+                    "Generated",
+                    &format!("{} (seed {seed_value})", path.display()),
+                );
+                return Ok(0);
             }
             with_project(cli.project.as_deref(), |project| {
                 if let Some(seed_value) = seed_value {
-                    match crate::icon::generate_master(project, seed_value, overwrite) {
-                        Ok(dest) => crate::ops::status(
-                            "Generated",
-                            &format!("{} (seed {seed_value})", dest.display()),
-                        ),
-                        Err(e) => {
-                            crate::ops::status("Error", &e);
-                            return 4;
-                        }
-                    }
+                    let dest = crate::icon::generate_master(project, seed_value, overwrite)
+                        .map_err(CliError::build)?;
+                    crate::ops::status(
+                        "Generated",
+                        &format!("{} (seed {seed_value})", dest.display()),
+                    );
                 }
                 let opts = crate::icon::IconOptions {
                     master: master.clone(),
@@ -1048,7 +1164,7 @@ pub fn run() -> i32 {
                 };
                 match crate::icon::run(project, &opts) {
                     Ok(n) => {
-                        if cli.format == "json" {
+                        if cli.format == OutputFormat::Json {
                             println!(
                                 "{}",
                                 serde_json::json!({
@@ -1056,17 +1172,13 @@ pub fn run() -> i32 {
                                 })
                             );
                         }
-                        0
+                        Ok(0)
                     }
                     Err(crate::icon::IconError::Drift(lines)) => {
                         for l in &lines {
                             crate::ops::status("Drift", l);
                         }
-                        crate::ops::status(
-                            "Error",
-                            "icon outputs drifted — run `day icon` to regenerate",
-                        );
-                        if cli.format == "json" {
+                        if cli.format == OutputFormat::Json {
                             println!(
                                 "{}",
                                 serde_json::json!({
@@ -1074,48 +1186,34 @@ pub fn run() -> i32 {
                                 })
                             );
                         }
-                        5
+                        Err(CliError::drift(
+                            "icon outputs drifted — run `day icon` to regenerate",
+                        ))
                     }
-                    Err(crate::icon::IconError::Other(e)) => {
-                        crate::ops::status("Error", &e);
-                        4
-                    }
+                    Err(crate::icon::IconError::Other(e)) => Err(CliError::build(e)),
                 }
             })
         }
         Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
             let mut results = Vec::new();
             for p in &platforms {
-                let target = match crate::external::find_target(project, p) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 2;
-                    }
-                };
-                match ops::build(project, target, &profile) {
-                    Ok(o) => {
-                        ops::status(
-                            "Built",
-                            &format!(
-                                "{} → {} ({:.1}s)",
-                                o.target,
-                                o.artifact.display(),
-                                o.seconds
-                            ),
-                        );
-                        results.push(o);
-                    }
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 4;
-                    }
-                }
+                let target = crate::external::find_target(project, p).map_err(CliError::usage)?;
+                let o = ops::build(project, target, profile).map_err(CliError::build)?;
+                ops::status(
+                    "Built",
+                    &format!(
+                        "{} → {} ({:.1}s)",
+                        o.target,
+                        o.artifact.display(),
+                        o.seconds
+                    ),
+                );
+                results.push(o);
             }
-            if cli.format == "json" {
+            if cli.format == OutputFormat::Json {
                 print_result_json("build", &results);
             }
-            0
+            Ok(0)
         }),
         Cmd::Launch {
             platforms,
@@ -1214,13 +1312,8 @@ pub fn run() -> i32 {
             // `<theme>`/`<theme>-<locale>` convention and the app-CI `<locale>` convention are
             // preserved byte-for-byte so existing artifact layouts survive the move from YAML
             // loops into the CLI. No flags = one run with the plain --locale/--variant.
-            let matrix = match capture_matrix(&themes, &locales, &locale, &variant, &envs) {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    return 2;
-                }
-            };
+            let matrix = capture_matrix(&themes, &locales, &locale, &variant, &envs)
+                .map_err(CliError::usage)?;
             let mut handles = Vec::new();
             let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
                 Vec::new();
@@ -1237,29 +1330,15 @@ pub fn run() -> i32 {
                     .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
                 spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
                 spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
-                let target = match crate::external::find_target(project, p) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 2;
-                    }
-                };
+                let target = crate::external::find_target(project, p).map_err(CliError::usage)?;
                 let built = if skip_build {
-                    ops::reuse_build(project, target, &profile)
+                    ops::reuse_build(project, target, profile)
+                } else if spec.wants_ios_device() {
+                    ops::build_for_device(project, target, profile)
                 } else {
-                    if spec.wants_ios_device() {
-                        ops::build_for_device(project, target, &profile)
-                    } else {
-                        ops::build(project, target, &profile)
-                    }
+                    ops::build(project, target, profile)
                 };
-                let outcome = match built {
-                    Ok(o) => o,
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        return 4;
-                    }
-                };
+                let outcome = built.map_err(CliError::build)?;
                 for (ri, capture) in matrix.iter().enumerate() {
                     // Per-run spec: the matrix's locale and theme ride the SAME channels the
                     // old YAML loops used (the --locale plumbing and the DAY_THEME env).
@@ -1280,30 +1359,24 @@ pub fn run() -> i32 {
                         // Stamped before the launch so the post-mortem can tell this run's
                         // crash report from one an earlier run left in the same directory.
                         let launched_at = std::time::SystemTime::now();
-                        match ops::launch(project, target, &outcome, &run_spec) {
-                            Ok(h) => {
-                                // Kept beside the handle so a crash can be diagnosed when it is
-                                // joined: a plain `day launch` has no script to lose its engine,
-                                // so the join is the ONLY place the app's death is observed.
-                                launched.push((target, launched_at));
-                                crate::sessions::record(
-                                    &project.root,
-                                    crate::sessions::Session {
-                                        target: p.clone(),
-                                        app_id: project.manifest.resolve(p).id,
-                                        profile: profile.clone(),
-                                        engine_port: port,
-                                        engine_token: token.clone(),
-                                        started_at: crate::sessions::now_millis(),
-                                    },
-                                );
-                                handles.push(h);
-                            }
-                            Err(e) => {
-                                eprintln!("error: {e}");
-                                return 1;
-                            }
-                        }
+                        let h = ops::launch(project, target, &outcome, &run_spec)
+                            .map_err(CliError::failure)?;
+                        // Kept beside the handle so a crash can be diagnosed when it is
+                        // joined: a plain `day launch` has no script to lose its engine,
+                        // so the join is the ONLY place the app's death is observed.
+                        launched.push((target, launched_at));
+                        crate::sessions::record(
+                            &project.root,
+                            crate::sessions::Session {
+                                target: p.clone(),
+                                app_id: project.manifest.resolve(p).id,
+                                profile: profile.to_string(),
+                                engine_port: port,
+                                engine_token: token.clone(),
+                                started_at: crate::sessions::now_millis(),
+                            },
+                        );
+                        handles.push(h);
                         if !script_mode {
                             break;
                         }
@@ -1396,23 +1469,19 @@ pub fn run() -> i32 {
                                     } else {
                                         "the engine was lost twice"
                                     };
-                                    eprintln!(
-                                        "error: {why} — abandoning the remaining variants \
+                                    crate::signals::kill_all();
+                                    return Err(CliError::script(format!(
+                                        "{why} — abandoning the remaining variants \
                                          ({} of {} run)",
                                         ri + 1,
                                         matrix.len()
-                                    );
-                                    crate::signals::kill_all();
-                                    return 5;
+                                    )));
                                 }
                                 break;
                             }
                             // Anything else is a runner/config error (bad script, bad flags):
                             // abort outright, as before.
-                            Err(e) => {
-                                eprintln!("error: {e}");
-                                return 5;
-                            }
+                            Err(e) => return Err(CliError::script(e.to_string())),
                         }
                     }
                     // Between matrix runs the app must exit so the next launch re-binds the
@@ -1436,7 +1505,11 @@ pub fn run() -> i32 {
             // pipe then never reaches EOF and the job hangs after the final "steps passed" line.
             if script_mode && !(spec.attached && keep_alive) {
                 crate::signals::kill_all();
-                return if script_failures > 0 { 5 } else { 0 };
+                return Ok(if script_failures > 0 {
+                    ErrKind::Script.exit_code()
+                } else {
+                    0
+                });
             }
             if spec.attached {
                 let mut code = 0;
@@ -1455,29 +1528,24 @@ pub fn run() -> i32 {
                 // A target that exited on its own leaves its siblings' log watchers (and
                 // any child that outlives its stream) running — reap them before we go.
                 crate::signals::kill_all();
-                if script_mode && script_failures > 0 {
-                    5
+                Ok(if script_mode && script_failures > 0 {
+                    ErrKind::Script.exit_code()
                 } else {
                     code
-                }
+                })
             } else {
-                0
+                Ok(0)
             }
         }),
-    };
-    // Non-blocking: nudge only if the crates.io reply already arrived; never waits for it.
-    crate::update::finish(update);
-    code
+    }
 }
 
-fn with_project(start: Option<&std::path::Path>, f: impl FnOnce(&meta::Project) -> i32) -> i32 {
-    match meta::find_project(start) {
-        Ok(p) => f(&p),
-        Err(e) => {
-            eprintln!("error: {e}");
-            2
-        }
-    }
+fn with_project(
+    start: Option<&std::path::Path>,
+    f: impl FnOnce(&meta::Project) -> Result<i32, CliError>,
+) -> Result<i32, CliError> {
+    let p = meta::find_project(start).map_err(CliError::usage)?;
+    f(&p)
 }
 
 fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
@@ -1617,6 +1685,91 @@ fn capture_matrix(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    /// The exit-code contract, one assertion per kind. These numbers are frozen — CI
+    /// walkthroughs assert them — so a change here is a breaking change, not a refactor.
+    #[test]
+    fn every_kind_maps_to_its_frozen_code() {
+        assert_eq!(ErrKind::Failure.exit_code(), 1);
+        assert_eq!(ErrKind::Usage.exit_code(), 2);
+        assert_eq!(ErrKind::Env.exit_code(), 3);
+        assert_eq!(ErrKind::Build.exit_code(), 4);
+        assert_eq!(ErrKind::Script.exit_code(), 5);
+        assert_eq!(ErrKind::Drift.exit_code(), 5);
+        assert_eq!(ErrKind::Sign.exit_code(), 6);
+        assert_eq!(ErrKind::Lint.exit_code(), 10);
+    }
+
+    /// A bare String converts to the generic failure (exit 1) with its text intact — the
+    /// gradual-conversion path for `Result<T, String>` helpers — and the constructors pick
+    /// the specific kinds.
+    #[test]
+    fn strings_convert_and_constructors_pick_kinds() {
+        let e = CliError::from("cargo build failed".to_string());
+        assert_eq!(e.exit_code(), 1);
+        assert_eq!(e.to_string(), "cargo build failed");
+        assert_eq!(CliError::failure("x").exit_code(), 1);
+        assert_eq!(CliError::usage("x").exit_code(), 2);
+        assert_eq!(CliError::env("x").exit_code(), 3);
+        assert_eq!(CliError::build("x").exit_code(), 4);
+        assert_eq!(CliError::script("x").exit_code(), 5);
+        assert_eq!(CliError::drift("x").exit_code(), 5);
+        assert_eq!(CliError::sign("x").exit_code(), 6);
+    }
+
+    /// PackError keeps its documented mapping (§16.3) through the conversion.
+    #[test]
+    fn pack_errors_keep_their_codes() {
+        let sign = CliError::from(crate::pack::PackError::Sign("s".into()));
+        assert_eq!(sign.exit_code(), 6);
+        assert_eq!(sign.to_string(), "s");
+        let other = CliError::from(crate::pack::PackError::Other("o".into()));
+        assert_eq!(other.exit_code(), 4);
+        assert_eq!(other.to_string(), "o");
+    }
+
+    /// The two ValueEnums accept exactly today's spellings, and only those.
+    #[test]
+    fn profile_and_format_parse_strictly() {
+        assert_eq!(Profile::from_str("debug", false).unwrap(), Profile::Debug);
+        assert_eq!(
+            Profile::from_str("release", false).unwrap(),
+            Profile::Release
+        );
+        assert_eq!(Profile::Release.as_str(), "release");
+        assert!(Profile::from_str("relaese", false).is_err());
+        assert_eq!(
+            OutputFormat::from_str("plain", false).unwrap(),
+            OutputFormat::Plain
+        );
+        assert_eq!(
+            OutputFormat::from_str("json", false).unwrap(),
+            OutputFormat::Json
+        );
+        assert!(OutputFormat::from_str("yaml", false).is_err());
+    }
+
+    /// A typo'd `--profile` is a clap parse error. Before the ValueEnum it reached the build
+    /// and string-compared its way into the debug branch.
+    #[test]
+    fn a_profile_typo_fails_argument_parsing() {
+        assert!(
+            Cli::try_parse_from(["day", "build", "-p", "macos-appkit", "--profile", "relaese"])
+                .is_err()
+        );
+        let cli =
+            Cli::try_parse_from(["day", "build", "-p", "macos-appkit", "--profile", "release"])
+                .expect("release parses");
+        match cli.command {
+            Cmd::Build { profile, .. } => assert_eq!(profile, Profile::Release),
+            _ => unreachable!("parsed a build command"),
+        }
+    }
 }
 
 #[cfg(test)]

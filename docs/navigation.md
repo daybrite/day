@@ -242,7 +242,7 @@ state instead.
   `navigate(&saved)` after the first mount on the way back. For a single surface, `.restore`
   (below) does the same without the plumbing. dayscript's `assert_route` compares against the same
   full path.
-- Startup deep links (`DAY_DEEPLINK`) and warm links (`Custom("deeplink")`) route the
+- Startup deep links (`DAY_DEEPLINK`) and warm links (`RouteRequested`) route the
   same way. On hosts with no process environment the platform entry records the launch route
   with `day_core::set_launch_deeplink` instead; web-dom seeds it from the page's URL hash
   (docs/web.md), so `…/#controls` opens on that section. The OS side — scheme registration,

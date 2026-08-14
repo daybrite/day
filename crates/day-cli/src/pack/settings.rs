@@ -5,9 +5,11 @@
 //! Interpolation happens at USE time, never at parse time, and missing variables are reported by
 //! NAME only — secret values must never appear in output or errors (§16.5).
 
+use crate::cli::Profile;
+
 /// Options resolved from the `day pack` command line.
 pub struct PackOptions {
-    pub profile: String,
+    pub profile: Profile,
     /// Explicit format list (`--formats dmg,flatpak`); None = the target's defaults.
     pub formats: Option<Vec<String>>,
     /// Skip all signing stages (artifacts are marked unsigned).
@@ -29,7 +31,7 @@ pub struct PackOptions {
 impl Default for PackOptions {
     fn default() -> Self {
         PackOptions {
-            profile: "release".into(),
+            profile: Profile::Release,
             formats: None,
             no_sign: false,
             no_notarize: false,

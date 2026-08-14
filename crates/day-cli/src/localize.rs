@@ -668,7 +668,7 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
 
 /// `day localize list` — each surface's locales, then the drift warnings. Informational: the
 /// exit code is 0 even with findings (`day lint --strict` is the enforcing form).
-fn list(project: &Project) -> i32 {
+fn list(project: &Project) {
     let s = survey(&project.root);
     let show = |v: &[String]| -> String {
         if v.is_empty() {
@@ -700,7 +700,6 @@ fn list(project: &Project) -> i32 {
             findings.len()
         );
     }
-    0
 }
 
 /// Apply [`add`] or [`remove`] to each requested tag, narrating what changed. The first
@@ -710,11 +709,12 @@ fn edit(
     project: &Project,
     raw: &[String],
     op: fn(&Path, &str) -> Result<Vec<String>, String>,
-) -> i32 {
+) -> Result<(), crate::cli::CliError> {
     let tags = crate::cli::split_list(raw);
     if tags.is_empty() {
-        eprintln!("error: no locale given (e.g. `day localize add fr`)");
-        return 2;
+        return Err(crate::cli::CliError::usage(
+            "no locale given (e.g. `day localize add fr`)",
+        ));
     }
     for tag in &tags {
         match op(&project.root, tag) {
@@ -727,18 +727,20 @@ fn edit(
                 }
             }
             Err(e) => {
-                crate::ops::status("Error", &format!("{tag}: {e}"));
-                return 1;
+                return Err(crate::cli::CliError::failure(format!("{tag}: {e}")));
             }
         }
     }
-    0
+    Ok(())
 }
 
 /// `day localize <list|add|remove>`.
-pub fn run(project: &Project, cmd: &crate::cli::LocalizeCmd) -> i32 {
+pub fn run(project: &Project, cmd: &crate::cli::LocalizeCmd) -> Result<(), crate::cli::CliError> {
     match cmd {
-        crate::cli::LocalizeCmd::List => list(project),
+        crate::cli::LocalizeCmd::List => {
+            list(project);
+            Ok(())
+        }
         crate::cli::LocalizeCmd::Add { locales } => edit(project, locales, add),
         crate::cli::LocalizeCmd::Remove { locales } => edit(project, locales, remove),
     }

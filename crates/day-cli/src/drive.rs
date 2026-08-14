@@ -17,6 +17,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 
+use crate::cli::{CliError, ErrKind};
 use crate::meta::Project;
 use crate::script;
 use crate::sessions;
@@ -57,45 +58,36 @@ fn normalize(
     Ok(out)
 }
 
-pub fn run(project: &Project, target: &Target, steps_json: &str) -> i32 {
-    let steps: Vec<serde_json::Value> = match serde_json::from_str(steps_json) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("error: --steps-json must be a JSON array of steps: {e}");
-            return 2;
-        }
-    };
+/// The Ok value is the run's verdict code: 0, or the script-failure code when steps failed —
+/// the per-step JSON report on stdout already carries the detail.
+pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, CliError> {
+    let steps: Vec<serde_json::Value> = serde_json::from_str(steps_json)
+        .map_err(|e| CliError::usage(format!("--steps-json must be a JSON array of steps: {e}")))?;
     let Some(session) = sessions::find(&project.root, target.name) else {
-        eprintln!(
-            "error: no live session for {} — `day launch -p {}` first (sessions: build/day/sessions.json)",
+        return Err(CliError::env(format!(
+            "no live session for {} — `day launch -p {}` first (sessions: build/day/sessions.json)",
             target.name, target.name
-        );
-        return 3;
+        )));
     };
 
     script::forward_engine(target.kind, session.engine_port);
-    let stream = match script::connect(
+    let stream = script::connect(
         session.engine_port,
         script::connect_window_secs(target.kind),
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!(
-                "error: cannot reach the {} engine on port {}: {e} (is the app still running?)",
-                target.name, session.engine_port
-            );
-            sessions::remove(&project.root, target.name);
-            return 3;
-        }
-    };
+    )
+    .map_err(|e| {
+        sessions::remove(&project.root, target.name);
+        CliError::env(format!(
+            "cannot reach the {} engine on port {}: {e} (is the app still running?)",
+            target.name, session.engine_port
+        ))
+    })?;
     let mut stream = stream;
-    let mut reader = match stream.try_clone() {
-        Ok(s) => BufReader::new(s),
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 1;
-        }
-    };
+    let mut reader = BufReader::new(
+        stream
+            .try_clone()
+            .map_err(|e| CliError::failure(e.to_string()))?,
+    );
 
     let shot_dir = project.root.join("build/day/screenshots/_drive");
     let _ = std::fs::create_dir_all(&shot_dir);
@@ -103,13 +95,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> i32 {
     let mut results: Vec<serde_json::Value> = Vec::new();
     let mut failed = 0usize;
     for raw in &steps {
-        let step = match normalize(raw) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return 2;
-            }
-        };
+        let step = normalize(raw).map_err(CliError::usage)?;
         let op = step
             .get("op")
             .and_then(|v| v.as_str())
@@ -216,5 +202,9 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> i32 {
         }))
         .unwrap()
     );
-    if failed > 0 { 5 } else { 0 }
+    Ok(if failed > 0 {
+        ErrKind::Script.exit_code()
+    } else {
+        0
+    })
 }

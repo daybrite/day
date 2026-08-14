@@ -180,6 +180,9 @@ pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
 /// - `ValueChanged` (a slider mid-drag): the settled value arrives separately as
 ///   `ValueCommitted`, which IS recorded — recording both would write a step per tick;
 /// - `SelectionSet` (multi-select): no single-index step covers it;
+/// - `ListReorder`/`ListDelete` (the deferred commit of a native drag/swipe, docs/list.md):
+///   the `reorder:`/`delete_row:` steps replay them, but the recorder does not yet write those
+///   steps; `CoverHidden` is teardown plumbing, not an action;
 /// - lifecycle / menu / toolbar / present-result / custom / window events: not the user UI actions
 ///   the recorder targets.
 ///

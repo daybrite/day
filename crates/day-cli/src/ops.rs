@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::cli::Profile;
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
 use crate::term::{HEADER, LOG_ERR, LOG_OUT};
@@ -20,12 +21,12 @@ pub struct BuildOutcome {
     pub seconds: f64,
 }
 
-pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: &str) -> PathBuf {
+pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: Profile) -> PathBuf {
     project
         .root
         .join("build/day/cargo")
         .join(target.name)
-        .join(profile)
+        .join(profile.as_str())
 }
 
 pub fn status(prefix: &str, msg: &str) {
@@ -188,6 +189,86 @@ pub fn output_within(cmd: &mut Command, limit: Duration) -> Option<std::process:
 /// noticeably delayed, long enough that a slow one costs nothing to watch.
 const POLL: Duration = Duration::from_millis(50);
 
+/// Ceilings for the device-tool calls on the install/launch path. `adb`, `simctl`, `devicectl`
+/// and `hdc` wait for an unresponsive device with no deadline of their own (the same wedge the
+/// post-mortem paths above already guard against), so every install and launch call runs under
+/// one of these. Generous on purpose: a cold emulator install takes minutes, never ten.
+pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
+pub const LAUNCH_TIMEOUT: Duration = Duration::from_secs(180);
+/// gradle / hvigor assemble the whole app host project — a first run downloads dependencies,
+/// so the ceiling is an hour: far above any real build, far below a job timeout.
+pub const BUILD_TIMEOUT: Duration = Duration::from_secs(3600);
+
+/// [`run_capture`] with a deadline: the child is killed when `limit` passes and the timeout is
+/// reported as an error naming the tool, so a wedged device shows up in minutes instead of
+/// holding the run until a job timeout does it.
+pub(crate) fn run_capture_within(
+    cmd: &mut Command,
+    what: &str,
+    limit: Duration,
+) -> Result<std::process::Output, String> {
+    use std::io::{Read, Write};
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("{what}: {e}"))?;
+    let forward = verbose();
+    // piped just above, so both handles are always Some.
+    let mut child_out = child.stdout.take().expect("stdout was piped");
+    let mut child_err = child.stderr.take().expect("stderr was piped");
+    // The same byte-chunk tee as `run_capture`, on a thread per stream — killing the child
+    // closes the pipes, which is what lets the reads (and the join below) finish.
+    fn tee(src: &mut impl Read, forward: bool) -> Vec<u8> {
+        let mut collected = Vec::new();
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = src.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            if forward {
+                let mut w = std::io::stderr().lock();
+                let _ = w.write_all(&chunk[..n]);
+                let _ = w.flush();
+            }
+            collected.extend_from_slice(&chunk[..n]);
+        }
+        collected
+    }
+    let out_reader = std::thread::spawn(move || tee(&mut child_out, forward));
+    let err_reader = std::thread::spawn(move || tee(&mut child_err, forward));
+    let deadline = Instant::now() + limit;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Err(e) => return Err(format!("{what}: {e}")),
+            Ok(None) => {}
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = out_reader.join();
+            let _ = err_reader.join();
+            return Err(timeout_message(what, limit));
+        }
+        std::thread::sleep(POLL);
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: out_reader.join().unwrap_or_default(),
+        stderr: err_reader.join().unwrap_or_default(),
+    })
+}
+
+/// The one wording for a tool that hit its deadline, naming the tool so the reader knows what
+/// to go look at (usually a device that stopped answering).
+pub(crate) fn timeout_message(what: &str, limit: Duration) -> String {
+    format!(
+        "{what} did not finish within {}s and was killed — the tool looks wedged; check the \
+         device/emulator and run again",
+        limit.as_secs()
+    )
+}
+
 /// The exit code to report for a finished child, with a signal death made VISIBLE.
 ///
 /// `ExitStatus::code()` is `None` when a process was killed by a signal, and mapping that to 0 —
@@ -258,7 +339,7 @@ pub fn feature_selection(project: &Project, backend: &str) -> String {
 
 /// Where [`build`] records the last successful artifact path for a (target, profile) — the
 /// `--skip-build` reuse stamp. One line, the absolute artifact path.
-fn artifact_stamp(project: &Project, target: &Target, profile: &str) -> PathBuf {
+fn artifact_stamp(project: &Project, target: &Target, profile: Profile) -> PathBuf {
     project
         .root
         .join("build/day/artifacts")
@@ -272,7 +353,7 @@ fn artifact_stamp(project: &Project, target: &Target, profile: &str) -> PathBuf 
 pub fn reuse_build(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
 ) -> Result<BuildOutcome, String> {
     let stamp = artifact_stamp(project, target, profile);
     let artifact = std::fs::read_to_string(&stamp)
@@ -302,7 +383,7 @@ pub fn reuse_build(
 pub fn build_for_device(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
 ) -> Result<BuildOutcome, String> {
     let start = std::time::Instant::now();
     match target.kind {
@@ -317,7 +398,7 @@ pub fn build_for_device(
 pub fn build(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
 ) -> Result<BuildOutcome, String> {
     let host = crate::targets::host_os();
     if target.host != "any" && target.host != host {
@@ -368,7 +449,7 @@ pub fn build(
 fn build_native(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
     let outcome = match target.kind {
@@ -401,7 +482,7 @@ fn build_native(
                 let manifest = write_xaml_manifest(project, target, profile)?;
                 cmd.args(["rustc", "--bin", &project.manifest.app.name])
                     .args(["--no-default-features", "--features", &features]);
-                if profile == "release" {
+                if profile == Profile::Release {
                     cmd.arg("--release");
                 }
                 cmd.arg("--");
@@ -424,7 +505,7 @@ fn build_native(
                 cmd.env("MACOSX_DEPLOYMENT_TARGET", &link.platform);
                 cmd.args(["rustc", "--bin", &project.manifest.app.name])
                     .args(["--no-default-features", "--features", &features]);
-                if profile == "release" {
+                if profile == Profile::Release {
                     cmd.arg("--release");
                 }
                 cmd.arg("--");
@@ -437,7 +518,7 @@ fn build_native(
                     "--no-default-features",
                 ])
                 .args(["--features", &features]);
-                if profile == "release" {
+                if profile == Profile::Release {
                     cmd.arg("--release");
                 }
             }
@@ -450,7 +531,7 @@ fn build_native(
             // none elsewhere). `day launch`'s `Command::new` auto-appends it on Windows, but the raw
             // `fs::copy` in `pack` (msix/nsis stage the exe) needs the REAL path — so bake it in here.
             let artifact = cargo_dir(project, target, profile)
-                .join(profile)
+                .join(profile.as_str())
                 .join(format!(
                     "{}{}",
                     project.manifest.app.name,
@@ -492,7 +573,7 @@ const XAML_MANIFEST: &str = r#"<?xml version="1.0" encoding="utf-8"?>
 fn write_xaml_manifest(
     project: &Project,
     target: &Target,
-    profile: &str,
+    profile: Profile,
 ) -> Result<PathBuf, String> {
     let dir = cargo_dir(project, target, profile);
     std::fs::create_dir_all(&dir).map_err(|e| format!("manifest dir: {e}"))?;

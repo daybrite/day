@@ -1710,8 +1710,8 @@ jobs:
   # here as the wasm build test and to drive the walkthrough, but it is NOT published: the app
   # deploys its own web build to showcase.daybrite.dev/webapp from its own repository, and this
   # site links there. Then the SAME walkthrough script the
-  # native combos run drives the page in headless CHROMIUM (scripts/ci/webdom-driver.mjs is
-  # the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
+  # native combos run drives the page in headless CHROMIUM (day-cli's bundled page-driver,
+  # `day web driver`, is the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
   # WebSocket bridge) and uploads gallery screenshots like every other combo. Chromium, not
   # WebKit, because Playwright's Linux WebKit (the WPE port) ships no OPFS and day-part-fs is
   # OPFS-only (docs/fs.md); the sensors step below stays on WebKit, which it works fine on.
@@ -1781,10 +1781,13 @@ jobs:
           npm init -y >/dev/null
           npm install playwright >/dev/null
           npx playwright install --with-deps chromium webkit
+          # The page-driver ships inside day-cli (`day web driver` materializes it), so the
+          # DAY_WEB_DRIVER command below always matches the CLI's driver protocol.
+          echo "DAY_WEB_DRIVER_SCRIPT=$($DAY_BIN web driver)" >> "$GITHUB_ENV"
       - name: Walkthrough (web-dom × light/dark × en/fr/ar/zh-CN)
         working-directory: showcase-src
         env:
-          DAY_WEB_DRIVER: node ${{ github.workspace }}/scripts/ci/webdom-driver.mjs
+          DAY_WEB_DRIVER: node ${{ env.DAY_WEB_DRIVER_SCRIPT }}
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
           # Linux WebKit has no OPFS — the fs steps need Chromium (see the job comment).
           DAY_WEB_DRIVER_BROWSER: chromium
@@ -1796,7 +1799,7 @@ jobs:
       - name: Speech (web-dom)
         working-directory: showcase-src
         env:
-          DAY_WEB_DRIVER: node ${{ github.workspace }}/scripts/ci/webdom-driver.mjs
+          DAY_WEB_DRIVER: node ${{ env.DAY_WEB_DRIVER_SCRIPT }}
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
           DAY_WEB_DRIVER_BROWSER: chromium
         run: $DAY_BIN launch -p web-dom --script dayscript/speech.yaml

@@ -23,7 +23,7 @@ pub fn pack(
 ) -> Result<Artifact, PackError> {
     // Build assembles + dev-signs (build_ohos). The unsigned hap stays behind in entry/build —
     // release signing re-signs THAT, never the dev-signed one.
-    let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
+    let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
     let out = dist.join(super::naming::artifact_file(
         project,
         target,

@@ -1421,7 +1421,7 @@ mod imp {
                                 if !COVER_PRESENTED.with(|s| s.borrow_mut().remove(&key)) {
                                     // Never presented (or already dismissed) — still answer
                                     // the hide confirmation so the piece can dispose.
-                                    post_emit(node, Event::custom("cover-hidden", ""));
+                                    post_emit(node, Event::CoverHidden);
                                     return;
                                 }
                                 let cur = COVER_PARENTS.with(|m| m.borrow_mut().remove(&key));
@@ -1429,7 +1429,7 @@ mod imp {
                                     unsafe { ffi::day_ark_remove_child(p as *mut _, h.0) };
                                 }
                                 // No hide transition: the content can go immediately.
-                                post_emit(node, Event::custom("cover-hidden", ""));
+                                post_emit(node, Event::CoverHidden);
                             }
                         }
                     }

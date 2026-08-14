@@ -33,6 +33,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::cli::CliError;
 use crate::meta::Project;
 
 /// A field of a store listing. The variants are Day's vocabulary; each store's own name for the
@@ -773,7 +774,7 @@ fn skeleton(field: Field, project: &Project, tag: &str) -> Option<String> {
     })
 }
 
-fn init(project: &Project) -> i32 {
+fn init(project: &Project) {
     let locales = app_locales(project);
     let locales = if locales.is_empty() {
         vec!["en".to_string()]
@@ -830,34 +831,26 @@ fn init(project: &Project) -> i32 {
         ),
     );
     crate::ops::status("Next", "fill in every TODO, then `day lint`");
-    0
 }
 
-fn stage_cmd(project: &Project, want: Option<&str>) -> i32 {
-    let listing = match read(project) {
-        Ok(l) => l,
-        Err(e) => {
-            crate::ops::status("Error", &e);
-            return 1;
-        }
-    };
+fn stage_cmd(project: &Project, want: Option<&str>) -> Result<(), CliError> {
+    let listing = read(project).map_err(CliError::failure)?;
     if listing.is_empty() {
-        crate::ops::status(
-            "Error",
+        return Err(CliError::failure(
             "no store/ listing in this project — run `day store init` first",
-        );
-        return 1;
+        ));
     }
     let targets: Vec<&'static crate::targets::Target> = match want {
         Some(name) => match crate::targets::find(name) {
             Some(t) if is_store_target(t) => vec![t],
             Some(t) => {
-                crate::ops::status("Error", &format!("{} has no store listing format", t.name));
-                return 1;
+                return Err(CliError::failure(format!(
+                    "{} has no store listing format",
+                    t.name
+                )));
             }
             None => {
-                crate::ops::status("Error", &format!("unknown target {name:?}"));
-                return 1;
+                return Err(CliError::failure(format!("unknown target {name:?}")));
             }
         },
         None => project
@@ -870,32 +863,29 @@ fn stage_cmd(project: &Project, want: Option<&str>) -> i32 {
             .collect(),
     };
     if targets.is_empty() {
-        crate::ops::status(
-            "Error",
+        return Err(CliError::failure(
             "this app declares no App Store or Google Play target",
-        );
-        return 1;
+        ));
     }
     for t in targets {
         let out = stage_dir(project, t);
-        match stage(project, t, &listing, &out) {
-            Ok(files) => crate::ops::status(
-                "Staged",
-                &format!("{} ({} file(s)) for {}", out.display(), files.len(), t.name),
-            ),
-            Err(e) => {
-                crate::ops::status("Error", &format!("{}: {e}", t.name));
-                return 1;
-            }
-        }
+        let files = stage(project, t, &listing, &out)
+            .map_err(|e| CliError::failure(format!("{}: {e}", t.name)))?;
+        crate::ops::status(
+            "Staged",
+            &format!("{} ({} file(s)) for {}", out.display(), files.len(), t.name),
+        );
     }
-    0
+    Ok(())
 }
 
 /// `day store <init|stage>`.
-pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> i32 {
+pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> Result<(), CliError> {
     match cmd {
-        crate::cli::StoreCmd::Init => init(project),
+        crate::cli::StoreCmd::Init => {
+            init(project);
+            Ok(())
+        }
         crate::cli::StoreCmd::Stage { target } => stage_cmd(project, target.as_deref()),
     }
 }

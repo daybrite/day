@@ -291,14 +291,6 @@ pub enum Reorder {
     Retarget(usize),
 }
 
-/// The `Event::Custom` tag carrying a committed reorder from the native drop back to the piece
-/// (`num` = the source row, `text` = the accepted target row).
-const REORDER_TAG: &str = "day.list.reorder";
-
-/// The `Event::Custom` tag carrying a committed delete from the native swipe back to the piece
-/// (`num` = the deleted row).
-const DELETE_TAG: &str = "day.list.delete";
-
 /// Build a recycling list from a reactive items closure, a key function, and a row builder.
 pub fn list<T, K, P>(
     items: impl Fn() -> Vec<T> + 'static,
@@ -525,11 +517,8 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
         // drop callback): hand the app the same (from, to) the native side animated.
         if let Some(on_reorder) = self.on_reorder.clone() {
             cx.on(node, move |ev| {
-                if let Event::Custom { tag, num, text } = ev
-                    && *tag == REORDER_TAG
-                    && let Ok(to) = text.parse::<usize>()
-                {
-                    on_reorder(*num as usize, to);
+                if let Event::ListReorder { from, to } = ev {
+                    on_reorder(*from, *to);
                 }
             });
         }
@@ -538,10 +527,8 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
         // platform's swipe callback): hand the app the row the native side animated away.
         if let Some(on_delete) = self.on_delete.clone() {
             cx.on(node, move |ev| {
-                if let Event::Custom { tag, num, .. } = ev
-                    && *tag == DELETE_TAG
-                {
-                    on_delete(*num as usize);
+                if let Event::ListDelete(index) = ev {
+                    on_delete(*index);
                 }
             });
         }
@@ -612,14 +599,7 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                             toks.remove(index);
                             *echo.borrow_mut() = Some(toks.clone());
                         }
-                        enqueue_event(
-                            rnode_to_id(node),
-                            Event::Custom {
-                                tag: DELETE_TAG,
-                                num: index as f64,
-                                text: String::new(),
-                            },
-                        );
+                        enqueue_event(rnode_to_id(node), Event::ListDelete(index));
                     })
                 },
             }),
@@ -652,14 +632,7 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> Piece for List<T, K> {
                             toks.insert(to, tok);
                             *echo.borrow_mut() = Some(toks.clone());
                         }
-                        enqueue_event(
-                            rnode_to_id(node),
-                            Event::Custom {
-                                tag: REORDER_TAG,
-                                num: from as f64,
-                                text: to.to_string(),
-                            },
-                        );
+                        enqueue_event(rnode_to_id(node), Event::ListReorder { from, to });
                     })
                 },
             }),

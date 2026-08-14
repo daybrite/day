@@ -20,7 +20,7 @@ pub fn pack(
     opts: &PackOptions,
     dist: &Path,
 ) -> Result<Artifact, PackError> {
-    let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
+    let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
     let name = &project.manifest.app.name;
     // A scaffolded app (platform/macos/, §17.4) builds as a whole `.app`; this packer still
     // assembles its own bundle, so take the inner binary — the bundle's single

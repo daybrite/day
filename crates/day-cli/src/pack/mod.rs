@@ -63,7 +63,9 @@ pub struct PackOutcome {
     pub seconds: f64,
 }
 
-/// Signing failures exit with code 6 (§16.3); everything else is a build failure (4).
+/// Signing failures exit with code 6 (§16.3); everything else is a build failure (4). The
+/// code assignment itself lives in cli.rs (`From<PackError> for CliError`), beside every
+/// other kind→code mapping.
 pub enum PackError {
     Sign(String),
     Other(String),
@@ -79,12 +81,6 @@ impl PackError {
     pub fn message(&self) -> &str {
         match self {
             PackError::Sign(m) | PackError::Other(m) => m,
-        }
-    }
-    pub fn exit_code(&self) -> i32 {
-        match self {
-            PackError::Sign(_) => 6,
-            PackError::Other(_) => 4,
         }
     }
 }
@@ -230,7 +226,7 @@ pub fn run(
 
     // The buildinfo sidecar records the machine, so it is deliberately NOT embedded: doing so
     // would make the artifact differ whenever a tool version differs (§20.3).
-    let mut info = crate::provenance::collect_buildinfo(target, &opts.profile);
+    let mut info = crate::provenance::collect_buildinfo(target, opts.profile.as_str());
     info.inputs = build_inputs(target);
     if let Some(root) = &payload_root {
         info.payload = payload_digests(root);

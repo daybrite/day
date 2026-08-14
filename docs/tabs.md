@@ -89,7 +89,7 @@ scaled to it is visibly soft on a phone.
 Because tab keys are routes, everything that already targets routes works unchanged:
 
 - **Deep link:** launching with the deep link `settings` selects the settings tab once the tabs
-  host is mounted (warm links arrive as `Custom("deeplink")` and re-`navigate`).
+  host is mounted (warm links arrive as `RouteRequested` and re-`navigate`).
 - **dayscript:**
 
   ```yaml

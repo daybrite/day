@@ -132,6 +132,7 @@ public final class DayBridge {
     /** A nav host's SlidingPaneLayout settled on a presentation (docs/size-classes.md). */
     public static final int K_NAV_PRESENTATION = 24;
     public static final int K_APPEARANCE_CHANGED = 25;
+    public static final int K_COVER_HIDDEN = 26;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */

@@ -68,6 +68,7 @@ mod bridge_kinds_parity {
             ("K_WINDOW_FOCUSED", BridgeKind::WindowFocused),
             // Same story again: DayBridge.java gained K_APPEARANCE_CHANGED without this row.
             ("K_APPEARANCE_CHANGED", BridgeKind::AppearanceChanged),
+            ("K_COVER_HIDDEN", BridgeKind::CoverHidden),
         ];
         assert_eq!(
             found.len(),
@@ -992,6 +993,7 @@ mod imp {
     const K_WINDOW_CLOSED: i32 = bridge::BridgeKind::WindowClosed as i32;
     const K_WINDOW_FOCUSED: i32 = bridge::BridgeKind::WindowFocused as i32;
     const K_APPEARANCE_CHANGED: i32 = bridge::BridgeKind::AppearanceChanged as i32;
+    const K_COVER_HIDDEN: i32 = bridge::BridgeKind::CoverHidden as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table. A JNI up-call
@@ -1040,10 +1042,10 @@ mod imp {
                 };
                 Event::FrameChanged(Size::new(w / d, h / d))
             }
-            // Warm deep link: the nav piece handles Custom("deeplink").
+            // Warm deep link: the nav piece handles RouteRequested.
             K_DEEPLINK => {
                 let route: String = env.dstr(jstr).ok().unwrap_or_default();
-                Event::custom("deeplink", route)
+                Event::RouteRequested(route)
             }
             // Presentation answers (docs/dialogs.md): id == request id.
             K_PRESENT_BUTTON => Event::PresentResult {
@@ -1107,6 +1109,9 @@ mod imp {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::Custom { tag: "", num, text }
             }
+            // A cover's hide slide finished (docs/cover.md): DayCover reports so Rust can
+            // dispose the content.
+            K_COVER_HIDDEN => Event::CoverHidden,
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
             // role/standard item, which dispatches to nothing). Routed by the pump to the closure.
             K_MENU_ACTION => Event::MenuAction(id as u64),

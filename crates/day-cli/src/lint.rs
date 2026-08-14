@@ -870,7 +870,13 @@ fn finish(n: usize, waived: usize, strict: bool) -> i32 {
         0
     } else {
         eprintln!("{n} finding(s){waived_note}");
-        if strict { 10 } else { 0 }
+        // The findings above are the report; --strict turns them into the lint exit code
+        // (the kind→code map in cli.rs is the one place that number lives).
+        if strict {
+            crate::cli::ErrKind::Lint.exit_code()
+        } else {
+            0
+        }
     }
 }
 

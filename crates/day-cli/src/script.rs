@@ -903,8 +903,18 @@ pub(crate) fn device_alive(target: &Target) -> bool {
     crate::ops::output_within(&mut probe, DEVICE_CMD).is_some_and(|o| o.status.success())
 }
 
+/// A port for the launch's dayscript engine to bind. The pid-based start keeps concurrent
+/// `day` invocations in different ranges; the bind probe then takes the first port that is
+/// actually free — the arithmetic alone handed out ports something else already held. Falls
+/// back to the base when the whole range is busy (the old behavior: let the launch report it).
 pub fn pick_port(index: usize) -> u16 {
-    34100 + (std::process::id() % 900) as u16 + index as u16
+    let base = 34100 + (std::process::id() % 900) as u16 + index as u16;
+    for port in base..base.saturating_add(100) {
+        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            return port;
+        }
+    }
+    base
 }
 
 pub fn make_token() -> String {
@@ -916,6 +926,25 @@ pub fn make_token() -> String {
             .map(|d| d.as_millis())
             .unwrap_or(0)
     )
+}
+
+#[cfg(test)]
+mod port_tests {
+    use super::pick_port;
+
+    /// The port handed to a launch must be bindable right now — the probe is the point. Holding
+    /// the first pick open proves the next pick walks past it instead of colliding.
+    #[test]
+    fn pick_port_returns_a_bindable_port_and_walks_past_a_taken_one() {
+        let port = pick_port(0);
+        let held = std::net::TcpListener::bind(("127.0.0.1", port))
+            .expect("pick_port said this port was free");
+        let next = pick_port(0);
+        assert_ne!(next, port, "the probe must skip the port we hold");
+        let _also_free = std::net::TcpListener::bind(("127.0.0.1", next))
+            .expect("the second pick must be free too");
+        drop(held);
+    }
 }
 
 /// A minimal standalone base64 decoder — dayscript replies (screenshots, a11y dumps) come back

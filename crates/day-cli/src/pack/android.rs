@@ -12,6 +12,7 @@ use std::process::Command;
 
 use super::settings::{PackOptions, resolve_degradable};
 use super::{Artifact, PackError, SignTier, run_tool};
+use crate::cli::Profile;
 use crate::meta::Project;
 use crate::ops::{self, status};
 use crate::targets::Target;
@@ -64,12 +65,12 @@ pub fn pack(
     };
 
     // Build: cargo-ndk .so + gradle assembleRelease (ops::build), then bundleRelease for the .aab.
-    let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
+    let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
 
     let mut artifacts = Vec::new();
 
     if formats.iter().any(|f| f == "apk") {
-        let apk = find_output(&outcome.artifact, project, &opts.profile, "apk")?;
+        let apk = find_output(&outcome.artifact, project, opts.profile, "apk")?;
         verify_apk(project, &apk);
         let out = dist.join(super::naming::artifact_file(
             project,
@@ -87,14 +88,14 @@ pub fn pack(
         });
     }
 
-    if formats.iter().any(|f| f == "aab") && opts.profile == "release" {
+    if formats.iter().any(|f| f == "aab") && opts.profile == Profile::Release {
         status("Building", "android-mdc (gradle bundleRelease)");
         let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
         let mut cmd = Command::new("gradle");
         cmd.current_dir(project.root.join("platform/android"))
             .env("DAY_BIN", &day_bin)
             .env("DAY_PROJECT_ROOT", &project.root)
-            .env("DAY_PROFILE", &opts.profile)
+            .env("DAY_PROFILE", opts.profile.as_str())
             .args(["bundleRelease", "-q", "--console=plain"]);
         if std::env::var_os("JAVA_HOME").is_none()
             && let Some(jdk) = day_toolchain::jdk_home()
@@ -235,7 +236,7 @@ fn dev_keystore(project: &Project) -> Result<PathBuf, String> {
 fn find_output(
     conventional: &Path,
     project: &Project,
-    profile: &str,
+    profile: Profile,
     ext: &str,
 ) -> Result<PathBuf, PackError> {
     if conventional.exists() {
@@ -244,7 +245,7 @@ fn find_output(
     let dir = project
         .root
         .join("platform/android/app/build/outputs/apk")
-        .join(profile);
+        .join(profile.as_str());
     std::fs::read_dir(&dir)
         .ok()
         .and_then(|entries| {

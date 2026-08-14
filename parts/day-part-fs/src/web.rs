@@ -7,7 +7,7 @@
 // OPFS only, no fallback store: a context without it (a pre-OPFS browser, or a
 // private-browsing/ephemeral session, which WebKit gives no storage backing) answers
 // `Unsupported` or `Io` rather than silently landing files somewhere else. Scripted runs use
-// a persistent browser profile (scripts/ci/webdom-driver.mjs) so CI exercises real OPFS.
+// a persistent browser profile (day-cli's bundled webdom-driver.mjs) so CI exercises real OPFS.
 // The bridge is the day-part-http callback-id pattern: `day_dom_fs_start` carries the
 // operation out under a numeric id; the shim awaits the OPFS promises and re-enters wasm
 // EXACTLY once per id through the exports below. Blocking entry points cannot exist on the

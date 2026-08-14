@@ -458,7 +458,7 @@ fn teardown(root: RNode) {
 }
 
 /// The fallback tier: present the window content as a fullscreen cover in the primary
-/// window (docs/cover.md semantics — NavBack dismisses, `cover-hidden` confirms).
+/// window (docs/cover.md semantics — NavBack dismisses, `Event::CoverHidden` confirms).
 fn open_as_cover(
     key: Option<&str>,
     kind: WindowKind,
@@ -516,10 +516,7 @@ fn open_as_cover(
                         }
                     }
                     // The hide transition finished — now the content can go.
-                    Event::Custom { tag, text, .. }
-                        if (*tag == "cover-hidden" || text.as_str() == "cover-hidden")
-                            && closing.get() =>
-                    {
+                    Event::CoverHidden if closing.get() => {
                         day_reactive::on_main(move || teardown(cover));
                     }
                     _ => {}

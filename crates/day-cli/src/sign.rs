@@ -21,6 +21,8 @@ struct Check {
 }
 
 /// `day sign --check`: exit 0 when every configured section resolves; 6 when any fails (§16.3).
+/// The per-section report prints either way, so the verdict is a code, not an `error:` line —
+/// the number itself comes from the kind→code map in cli.rs.
 pub fn check(project: &Project) -> i32 {
     let signing = project.manifest.signing.as_ref();
     let mut checks = Vec::new();
@@ -214,11 +216,16 @@ pub fn check(project: &Project) -> i32 {
             );
         }
     }
-    if failing { 6 } else { 0 }
+    if failing {
+        crate::cli::ErrKind::Sign.exit_code()
+    } else {
+        0
+    }
 }
 
-/// `day sign --notarize-status <id>`: the async-CI half of `pack --no-wait` (§16.5).
-pub fn notarize_status(project: &Project, id: &str) -> i32 {
+/// `day sign --notarize-status <id>`: the async-CI half of `pack --no-wait` (§16.5). The Ok
+/// value is notarytool's verdict code (0 or the signing exit code); config errors are typed.
+pub fn notarize_status(project: &Project, id: &str) -> Result<i32, crate::cli::CliError> {
     let Some(n) = project
         .manifest
         .signing
@@ -226,8 +233,9 @@ pub fn notarize_status(project: &Project, id: &str) -> i32 {
         .and_then(|s| s.macos.as_ref())
         .and_then(|m| m.notarize.as_ref())
     else {
-        eprintln!("error: no signing.macos.notarize config in Day.toml");
-        return 6;
+        return Err(crate::cli::CliError::sign(
+            "no signing.macos.notarize config in Day.toml",
+        ));
     };
     let (key_id, issuer, key_path) = match (
         interpolate(&n.key_id),
@@ -236,10 +244,8 @@ pub fn notarize_status(project: &Project, id: &str) -> i32 {
     ) {
         (Ok(k), Ok(i), Ok(p)) => (k, i, p),
         (k, i, p) => {
-            for e in [k.err(), i.err(), p.err()].into_iter().flatten() {
-                eprintln!("error: {e}");
-            }
-            return 6;
+            let problems: Vec<String> = [k.err(), i.err(), p.err()].into_iter().flatten().collect();
+            return Err(crate::cli::CliError::sign(problems.join("\n")));
         }
     };
     let ok = Command::new("xcrun")
@@ -248,5 +254,9 @@ pub fn notarize_status(project: &Project, id: &str) -> i32 {
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
-    if ok { 0 } else { 6 }
+    Ok(if ok {
+        0
+    } else {
+        crate::cli::ErrKind::Sign.exit_code()
+    })
 }

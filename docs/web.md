@@ -139,7 +139,7 @@ every platform. Differences from native, all internal:
   sleeping (one thread, no `Instant`); replies arrive when the step settles.
 - The in-page `screenshot` step reports unsupported (a DOM cannot rasterize itself), so the
   runner captures through the **`DAY_WEB_DRIVER`** browser instead: set it to a command line
-  (e.g. `node scripts/ci/webdom-driver.mjs`, headless Playwright) and `day` spawns it as
+  (e.g. `node $(day web driver)` — the CLI's bundled headless-Playwright driver) and `day` spawns it as
   `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
   the control port. The bundled driver opens a throwaway PERSISTENT profile
   (`launchPersistentContext`), not Playwright's default ephemeral context; WebKit gives an

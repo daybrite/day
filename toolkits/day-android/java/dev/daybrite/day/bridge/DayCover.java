@@ -13,7 +13,7 @@ import android.widget.FrameLayout;
  *  area (the same inset discipline as DayActivity's root). The shell is the Day handle:
  *  while unpresented it sits (zero-sized) wherever the Day tree put it; present() re-homes
  *  it to the content root with a slide-up, dismissCover() slides it out, reports
- *  "cover-hidden", and detaches. System back is reported to Rust as NavBack (kind 5) while
+ *  K_COVER_HIDDEN, and detaches. System back is reported to Rust as NavBack (kind 5) while
  *  presented and not dismiss-disabled — Rust answers with the Dismiss patch. */
 public class DayCover extends FrameLayout {
     final DayFixed content;
@@ -109,7 +109,7 @@ public class DayCover extends FrameLayout {
         if (backCb != null) backCb.setEnabled(!d);
     }
 
-    /** Slide out, hide, and report "cover-hidden" so Rust can dispose the content.
+    /** Slide out, hide, and report K_COVER_HIDDEN so Rust can dispose the content.
      *
      *  The shell is HIDDEN (View.GONE), never detached: the next present()'s content can
      *  include fragment hosts (a miniapp's nav stack), and a fragment commit resolves its
@@ -129,7 +129,7 @@ public class DayCover extends FrameLayout {
                 self.presented = false;
                 self.setVisibility(View.GONE);
                 self.setTranslationY(0f);
-                DayBridge.nativeOnEvent(node, DayBridge.K_CUSTOM, 0.0, "cover-hidden");
+                DayBridge.nativeOnEvent(node, DayBridge.K_COVER_HIDDEN, 0.0, "");
             }
         });
     }
@@ -137,7 +137,7 @@ public class DayCover extends FrameLayout {
     /** The one slide driver. A dedicated ValueAnimator (never the view's shared
      *  ViewPropertyAnimator, which any other animate() user can cancel) with the end
      *  callback in onAnimationEnd — invoked on BOTH natural end and cancellation, so the
-     *  terminal state (hidden + "cover-hidden", or settled at 0) can never be lost. */
+     *  terminal state (hidden + K_COVER_HIDDEN, or settled at 0) can never be lost. */
     private android.animation.ValueAnimator slideAnim;
     /** Cover slides in flight, all shells — dayscript's ui_idle gate (DayBridge.uiIdle). */
     static int slidesInFlight;

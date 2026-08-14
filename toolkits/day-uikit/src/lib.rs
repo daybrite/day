@@ -1618,16 +1618,16 @@ mod imp {
         })));
     }
 
-    /// Queue the cover's dismissal; the completion reports "cover-hidden" so the piece can
+    /// Queue the cover's dismissal; the completion reports `CoverHidden` so the piece can
     /// dispose the content only after it left the screen.
     fn cover_dismiss(vc: Retained<DayCoverVC>, node: NodeId) {
         modal_enqueue(ModalOp::Run(Box::new(move || {
             let Some(presenting) = vc.presentingViewController() else {
-                emit(node, Event::custom("cover-hidden", ""));
+                emit(node, Event::CoverHidden);
                 return;
             };
             modal_begin_transition();
-            // The completion is the normal "cover-hidden" source — but UIKit can drop a
+            // The completion is the normal `CoverHidden` source — but UIKit can drop a
             // transition completion outright (same failure the modal watchdog exists for),
             // and the piece would then never dispose the hidden content. The fallback
             // watchdog emits once the VC has actually left the hierarchy; the piece's
@@ -1637,7 +1637,7 @@ mod imp {
                 let fired = fired.clone();
                 block2::RcBlock::new(move || {
                     fired.store(true, std::sync::atomic::Ordering::Relaxed);
-                    emit(node, Event::custom("cover-hidden", ""));
+                    emit(node, Event::CoverHidden);
                     modal_end_transition();
                 })
             };
@@ -1653,8 +1653,8 @@ mod imp {
                 if !fired.load(std::sync::atomic::Ordering::Relaxed)
                     && vc_probe.get(mtm).presentingViewController().is_none()
                 {
-                    eprintln!("day: cover dismissal completion lost — reporting cover-hidden");
-                    emit(node, Event::custom("cover-hidden", ""));
+                    eprintln!("day: cover dismissal completion lost — reporting CoverHidden");
+                    emit(node, Event::CoverHidden);
                 }
             });
         })));
@@ -5651,7 +5651,7 @@ mod imp {
             }
 
             // Custom-scheme deep link (docs/navigation.md): route = URL host + path,
-            // delivered to the active nav host as Custom("deeplink").
+            // delivered to the active nav host as RouteRequested.
             #[unsafe(method(application:openURL:options:))]
             fn open_url(
                 &self,
@@ -5668,7 +5668,7 @@ mod imp {
                         .unwrap_or_default();
                     let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
                     if let (Some(node), false) = (node, route.is_empty()) {
-                        emit(node, Event::custom("deeplink", route));
+                        emit(node, Event::RouteRequested(route));
                         true
                     } else {
                         false

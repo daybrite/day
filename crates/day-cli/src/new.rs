@@ -22,6 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::cli::CliError;
 use crate::interactive::Prompt;
 use crate::ops;
 use crate::targets;
@@ -303,13 +304,12 @@ fn pascalize(snake: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// `day new` with no subcommand: ask what to build, then run that kind's resolver with no flags set.
-pub fn interactive() -> i32 {
+pub fn interactive() -> Result<(), CliError> {
     let p = Prompt::new(false);
     if !p.enabled() {
-        eprintln!(
-            "error: `day new` with no arguments needs an interactive terminal.\n       In a script or CI, use `day new app|piece|part <name> …` with flags."
-        );
-        return 2;
+        return Err(CliError::usage(
+            "`day new` with no arguments needs an interactive terminal.\n       In a script or CI, use `day new app|piece|part <name> …` with flags.",
+        ));
     }
     let kind = p.choose(
         "What kind of Day project would you like to create?",
@@ -345,25 +345,25 @@ pub fn interactive() -> i32 {
 }
 
 /// Resolve the required project name: the positional if given, else prompt (interactive) or error.
-fn resolve_name(p: &Prompt, name: Option<&str>) -> Option<String> {
+fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
     if let Some(n) = name {
         let n = n.trim();
         if !n.is_empty() {
-            return Some(n.to_string());
+            return Ok(n.to_string());
         }
     }
     if p.enabled() {
         let n = p.line("Project name", None);
         if n.is_empty() {
             // Empty here means EOF (Ctrl-D) at the prompt — report it like the non-interactive path.
-            eprintln!("error: a <name> is required.");
-            None
+            Err(CliError::usage("a <name> is required."))
         } else {
-            Some(n)
+            Ok(n)
         }
     } else {
-        eprintln!("error: a <name> is required (e.g. `day new app my-app`).");
-        None
+        Err(CliError::usage(
+            "a <name> is required (e.g. `day new app my-app`).",
+        ))
     }
 }
 
@@ -407,7 +407,7 @@ fn default_id(name: &str) -> String {
 }
 
 /// Parse + validate a comma-separated toolkit list for a NATIVE piece.
-fn parse_toolkits(csv: &str) -> Result<Vec<String>, i32> {
+fn parse_toolkits(csv: &str) -> Result<Vec<String>, CliError> {
     let mut v = Vec::new();
     for t in csv.split(',') {
         let t = t.trim().to_ascii_lowercase();
@@ -415,11 +415,10 @@ fn parse_toolkits(csv: &str) -> Result<Vec<String>, i32> {
             continue;
         }
         if !TOOLKITS.contains(&t.as_str()) {
-            eprintln!(
-                "error: unknown toolkit {t:?} (choose from {})",
+            return Err(CliError::usage(format!(
+                "unknown toolkit {t:?} (choose from {})",
                 TOOLKITS.join(", ")
-            );
-            return Err(2);
+            )));
         }
         if !v.contains(&t) {
             v.push(t);
@@ -429,7 +428,7 @@ fn parse_toolkits(csv: &str) -> Result<Vec<String>, i32> {
 }
 
 /// Parse + validate a comma-separated platform list for a PART.
-fn parse_platforms(csv: &str) -> Result<Vec<String>, i32> {
+fn parse_platforms(csv: &str) -> Result<Vec<String>, CliError> {
     let mut v = Vec::new();
     for pl in csv.split(',') {
         let pl = pl.trim().to_ascii_lowercase();
@@ -437,11 +436,10 @@ fn parse_platforms(csv: &str) -> Result<Vec<String>, i32> {
             continue;
         }
         if !PLATFORMS.contains(&pl.as_str()) {
-            eprintln!(
-                "error: unknown platform {pl:?} (choose from {})",
+            return Err(CliError::usage(format!(
+                "unknown platform {pl:?} (choose from {})",
                 PLATFORMS.join(", ")
-            );
-            return Err(2);
+            )));
         }
         if !v.contains(&pl) {
             v.push(pl);
@@ -500,21 +498,15 @@ fn resolve_deps(
     git: bool,
     registry: bool,
     day_version: Option<&str>,
-) -> Result<Deps, i32> {
-    let day = match day_version.map(DaySource::parse).transpose() {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return Err(2);
-        }
-    };
+) -> Result<Deps, CliError> {
+    let day = day_version
+        .map(DaySource::parse)
+        .transpose()
+        .map_err(CliError::usage)?;
     if let Some(d) = &day {
         ops::status("Day", &format!("scaffolding against {}", d.label()));
     }
-    Deps::resolve(local, git, registry, day).map_err(|e| {
-        eprintln!("error: {e}");
-        2
-    })
+    Deps::resolve(local, git, registry, day).map_err(CliError::usage)
 }
 
 /// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a COMPOSITE piece.
@@ -529,30 +521,21 @@ pub fn piece(
     registry: bool,
     day_version: Option<&str>,
     no_input: bool,
-) -> i32 {
+) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
-    let Some(name) = resolve_name(&p, name) else {
-        return 2;
-    };
+    let name = resolve_name(&p, name)?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
-        eprintln!("error: {name:?} already exists");
-        return 1;
+        return Err(CliError::failure(format!("{name:?} already exists")));
     }
-    let deps = match resolve_deps(local, git, registry, day_version) {
-        Ok(d) => d,
-        Err(code) => return code,
-    };
+    let deps = resolve_deps(local, git, registry, day_version)?;
 
     // Toolkits: an explicit --toolkits list wins; --composite forces empty; otherwise ask (or, when
     // non-interactive, default to a composite piece — the zero-config choice).
     let toolkits: Vec<String> = if composite {
         Vec::new()
     } else if let Some(csv) = toolkits_csv {
-        match parse_toolkits(csv) {
-            Ok(v) => v,
-            Err(code) => return code,
-        }
+        parse_toolkits(csv)?
     } else if p.enabled() {
         let native = p.choose(
             "What kind of piece?",
@@ -570,8 +553,9 @@ pub fn piece(
                 &[host_toolkit_index()],
             );
             if picked.is_empty() {
-                eprintln!("error: a native piece needs at least one toolkit.");
-                return 2;
+                return Err(CliError::usage(
+                    "a native piece needs at least one toolkit.",
+                ));
             }
             picked.iter().map(|i| TOOLKITS[*i].to_string()).collect()
         } else {
@@ -594,11 +578,9 @@ pub fn piece(
     } else {
         (native_piece_files(&repl, &deps, &toolkits), NATIVE_NEXT)
     };
-    let code = write_all(&dir, &files, &name);
-    if code == 0 {
-        eprintln!("{}", repl.expand(next));
-    }
-    code
+    write_all(&dir, &files, &name)?;
+    eprintln!("{}", repl.expand(next));
+    Ok(())
 }
 
 /// Scaffold a headless part. No `--platforms` (and not interactively chosen) ⇒ all platforms.
@@ -612,33 +594,23 @@ pub fn part(
     registry: bool,
     day_version: Option<&str>,
     no_input: bool,
-) -> i32 {
+) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
-    let Some(name) = resolve_name(&p, name) else {
-        return 2;
-    };
+    let name = resolve_name(&p, name)?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
-        eprintln!("error: {name:?} already exists");
-        return 1;
+        return Err(CliError::failure(format!("{name:?} already exists")));
     }
-    let deps = match resolve_deps(local, git, registry, day_version) {
-        Ok(d) => d,
-        Err(code) => return code,
-    };
+    let deps = resolve_deps(local, git, registry, day_version)?;
 
     let platforms: Vec<String> = if let Some(csv) = platforms_csv {
-        match parse_platforms(csv) {
-            Ok(v) => v,
-            Err(code) => return code,
-        }
+        parse_platforms(csv)?
     } else if p.enabled() {
         let opts: Vec<String> = PLATFORMS.iter().map(|pl| platform_label(pl)).collect();
         let all: Vec<usize> = (0..PLATFORMS.len()).collect();
         let picked = p.choose_multi("Which platforms should it support?", &opts, &all);
         if picked.is_empty() {
-            eprintln!("error: a part needs at least one platform.");
-            return 2;
+            return Err(CliError::usage("a part needs at least one platform."));
         }
         picked.iter().map(|i| PLATFORMS[*i].to_string()).collect()
     } else {
@@ -653,11 +625,9 @@ pub fn part(
     );
     let repl = Repl::new(&name, Some(rid.as_str()));
     let files = part_files(&repl, &deps, &platforms);
-    let code = write_all(&dir, &files, &name);
-    if code == 0 {
-        eprintln!("{}", repl.expand(PART_NEXT));
-    }
-    code
+    write_all(&dir, &files, &name)?;
+    eprintln!("{}", repl.expand(PART_NEXT));
+    Ok(())
 }
 
 /// Scaffold a Day APP. Targets come from repeated `--toolkit <target>` and/or a `--targets <csv>`;
@@ -681,28 +651,21 @@ pub fn app(
     no_website: bool,
     locales: &[String],
     icon_seed: Option<&str>,
-) -> i32 {
+) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
-    let Some(name) = resolve_name(&p, name) else {
-        return 2;
-    };
+    let name = resolve_name(&p, name)?;
     let dir = PathBuf::from(&name);
     if dir.exists() {
-        eprintln!("error: {name:?} already exists");
-        return 1;
+        return Err(CliError::failure(format!("{name:?} already exists")));
     }
-    let deps = match resolve_deps(local, git, registry, day_version) {
-        Ok(d) => d,
-        Err(code) => return code,
-    };
+    let deps = resolve_deps(local, git, registry, day_version)?;
 
     // --locales, comma/space-splittable like --toolkit. Validated BEFORE anything is written,
     // so a bad tag is a clean error rather than a half-localized scaffold.
     let mut wanted_locales: Vec<String> = Vec::new();
     for t in crate::cli::split_list(locales) {
         if let Err(e) = crate::localize::validate_tag(&t) {
-            eprintln!("error: --locales: {e}");
-            return 2;
+            return Err(CliError::usage(format!("--locales: {e}")));
         }
         if !wanted_locales.contains(&t) {
             wanted_locales.push(t);
@@ -712,8 +675,9 @@ pub fn app(
     // --appid / --bundleid / --id all name the same reverse-DNS id; reject a genuine conflict.
     let flag_id = match (appid.map(str::trim), bundleid.map(str::trim)) {
         (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() && a != b => {
-            eprintln!("error: --appid ({a:?}) and --bundleid ({b:?}) must match");
-            return 2;
+            return Err(CliError::usage(format!(
+                "--appid ({a:?}) and --bundleid ({b:?}) must match"
+            )));
         }
         (Some(a), _) if !a.is_empty() => Some(a),
         (_, Some(b)) if !b.is_empty() => Some(b),
@@ -740,15 +704,14 @@ pub fn app(
     let targets: Vec<String> = if !requested.is_empty() {
         for t in &requested {
             if targets::find(t).is_none() {
-                eprintln!(
-                    "error: unknown target {t:?}\n       choose from: {}",
+                return Err(CliError::usage(format!(
+                    "unknown target {t:?}\n       choose from: {}",
                     targets::TARGETS
                         .iter()
                         .map(|t| t.name)
                         .collect::<Vec<_>>()
                         .join(", ")
-                );
-                return 2;
+                )));
             }
         }
         requested
@@ -764,8 +727,7 @@ pub fn app(
             &[default_idx],
         );
         if picked.is_empty() {
-            eprintln!("error: an app needs at least one target.");
-            return 2;
+            return Err(CliError::usage("an app needs at least one target."));
         }
         picked
             .iter()
@@ -787,13 +749,7 @@ pub fn app(
     let ctx = template_context(&repl, title, &deps, &targets);
     let first = ctx["first_target"].clone();
 
-    let files = match load_template(template) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 1;
-        }
-    };
+    let files = load_template(template).map_err(CliError::failure)?;
     // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
     // rest from the same template later.
     let mut files = crate::template::filter_for_targets(files, &targets);
@@ -803,31 +759,16 @@ pub fn app(
     if no_website {
         files.retain(|f| !f.path.starts_with("website/"));
     }
-    let rendered = match crate::template::render(&files, &ctx) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 1;
-        }
-    };
-    let code = write_all_bytes(&dir, &rendered, &name);
-    if code != 0 {
-        return code;
-    }
+    let rendered = crate::template::render(&files, &ctx).map_err(CliError::failure)?;
+    write_all_bytes(&dir, &rendered, &name)?;
     // The scaffold itself ships `en`; each further locale is exactly a `day localize add` on
     // the fresh project, so the flag and the command can never disagree about what adding a
     // locale means (fluent copies, store copies, knownRegions, site.toml — localize.rs).
     for tag in wanted_locales.iter().filter(|t| t.as_str() != "en") {
-        match crate::localize::add(&dir, tag) {
-            Ok(lines) => {
-                for l in &lines {
-                    ops::status("Localize", l);
-                }
-            }
-            Err(e) => {
-                eprintln!("error: --locales {tag}: {e}");
-                return 1;
-            }
+        let lines = crate::localize::add(&dir, tag)
+            .map_err(|e| CliError::failure(format!("--locales {tag}: {e}")))?;
+        for l in &lines {
+            ops::status("Localize", l);
         }
     }
     // A unique generated icon per app (docs/icons.md#generate), seeded by the app id by
@@ -857,7 +798,7 @@ pub fn app(
         Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
     }
     eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
-    0
+    Ok(())
 }
 
 /// The template context (docs/cli.md): every {{placeholder}} a template may use — built ONCE
@@ -928,7 +869,7 @@ pub fn add_toolkit(
     project: &crate::meta::Project,
     requested: &[String],
     template: Option<&str>,
-) -> i32 {
+) -> Result<(), CliError> {
     // Requested targets: repeatable and comma-splittable, validated against the target table.
     let mut wanted: Vec<String> = Vec::new();
     for raw in requested {
@@ -940,22 +881,20 @@ pub fn add_toolkit(
         }
     }
     if wanted.is_empty() {
-        eprintln!(
-            "error: no target given\n       usage: day app add-toolkit <target>… (e.g. android-mdc)"
-        );
-        return 2;
+        return Err(CliError::usage(
+            "no target given\n       usage: day app add-toolkit <target>… (e.g. android-mdc)",
+        ));
     }
     for t in &wanted {
         if targets::find(t).is_none() {
-            eprintln!(
-                "error: unknown target {t:?}\n       choose from: {}",
+            return Err(CliError::usage(format!(
+                "unknown target {t:?}\n       choose from: {}",
                 targets::TARGETS
                     .iter()
                     .map(|t| t.name)
                     .collect::<Vec<_>>()
                     .join(", ")
-            );
-            return 2;
+            )));
         }
     }
     let existing = &project.manifest.app.targets;
@@ -984,21 +923,9 @@ pub fn add_toolkit(
     let all_targets: Vec<String> = existing.iter().chain(new_targets.iter()).cloned().collect();
     let ctx = template_context(&repl, title, &deps, &all_targets);
 
-    let files = match load_template(template) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 1;
-        }
-    };
+    let files = load_template(template).map_err(CliError::failure)?;
     let files = crate::template::platform_files_for_targets(files, &wanted);
-    let rendered = match crate::template::render(&files, &ctx) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 1;
-        }
-    };
+    let rendered = crate::template::render(&files, &ctx).map_err(CliError::failure)?;
 
     // Write the host-project files, never overwriting anything already in the project.
     let mut written = 0usize;
@@ -1012,10 +939,8 @@ pub fn add_toolkit(
         if let Some(parent) = full.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Err(e) = std::fs::write(&full, content) {
-            eprintln!("error writing {}: {e}", full.display());
-            return 1;
-        }
+        std::fs::write(&full, content)
+            .map_err(|e| CliError::failure(format!("writing {}: {e}", full.display())))?;
         written += 1;
     }
 
@@ -1024,25 +949,12 @@ pub fn add_toolkit(
     // materialization run).
     if !new_targets.is_empty() {
         let day_toml = project.root.join("Day.toml");
-        let text = match std::fs::read_to_string(&day_toml) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("error reading {}: {e}", day_toml.display());
-                return 1;
-            }
-        };
+        let text = std::fs::read_to_string(&day_toml)
+            .map_err(|e| CliError::failure(format!("reading {}: {e}", day_toml.display())))?;
         let refs: Vec<&str> = new_targets.iter().map(String::as_str).collect();
-        let updated = match add_targets_to_day_toml(&text, &refs) {
-            Ok(u) => u,
-            Err(e) => {
-                eprintln!("error: {e}");
-                return 1;
-            }
-        };
-        if let Err(e) = std::fs::write(&day_toml, updated) {
-            eprintln!("error writing {}: {e}", day_toml.display());
-            return 1;
-        }
+        let updated = add_targets_to_day_toml(&text, &refs).map_err(CliError::failure)?;
+        std::fs::write(&day_toml, updated)
+            .map_err(|e| CliError::failure(format!("writing {}: {e}", day_toml.display())))?;
     }
 
     let files_note = if skipped > 0 {
@@ -1067,7 +979,7 @@ pub fn add_toolkit(
     let toolkit =
         crate::doctor::group_id(targets::find(first).map(|t| t.toolkit).unwrap_or_default());
     eprintln!("\n  next:\n    day doctor --toolkit {toolkit}\n    day launch -p {first}\n");
-    0
+    Ok(())
 }
 
 /// Append targets to Day.toml's `[app] targets` array via `toml_edit` — the format- and
@@ -1106,34 +1018,30 @@ fn default_title(name: &str) -> String {
         .join(" ")
 }
 
-fn write_all_bytes(dir: &Path, files: &[(String, Vec<u8>)], name: &str) -> i32 {
+fn write_all_bytes(dir: &Path, files: &[(String, Vec<u8>)], name: &str) -> Result<(), CliError> {
     for (path, content) in files {
         let full = dir.join(path);
         if let Some(parent) = full.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Err(e) = std::fs::write(&full, content) {
-            eprintln!("error writing {}: {e}", full.display());
-            return 1;
-        }
+        std::fs::write(&full, content)
+            .map_err(|e| CliError::failure(format!("writing {}: {e}", full.display())))?;
     }
     ops::status("Created", &format!("{name}/ ({} files)", files.len()));
-    0
+    Ok(())
 }
 
-fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> i32 {
+fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> Result<(), CliError> {
     for (path, content) in files {
         let full = dir.join(path);
         if let Some(parent) = full.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        if let Err(e) = std::fs::write(&full, content) {
-            eprintln!("error writing {}: {e}", full.display());
-            return 1;
-        }
+        std::fs::write(&full, content)
+            .map_err(|e| CliError::failure(format!("writing {}: {e}", full.display())))?;
     }
     ops::status("Created", &format!("{name}/ ({} files)", files.len()));
-    0
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2718,5 +2626,42 @@ mod day_version_tests {
         )
         .unwrap_err();
         assert!(e.contains("--local"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod scaffold_smoke_tests {
+    use super::*;
+
+    /// The `day new app` render path minus the disk writes: the builtin template, filtered
+    /// for one target, rendered with the real context. Proves the manifest and the key files
+    /// come out with the name/id substituted — the headless stand-in for scaffolding into a
+    /// tempdir, which would also change the process CWD and run the icon pipeline.
+    #[test]
+    fn builtin_app_template_renders_the_key_files() {
+        let repl = Repl::new("demo-app", Some("dev.example.demoapp"));
+        let targets = vec!["macos-appkit".to_string()];
+        let ctx = template_context(&repl, "Demo App".to_string(), &Deps::Git(None), &targets);
+        let files = crate::template::filter_for_targets(crate::template::builtin_app(), &targets);
+        let rendered = crate::template::render(&files, &ctx).expect("builtin template renders");
+        let text = |path: &str| -> String {
+            let (_, bytes) = rendered
+                .iter()
+                .find(|(p, _)| p == path)
+                .unwrap_or_else(|| panic!("{path} missing from the rendered scaffold"));
+            String::from_utf8_lossy(bytes).into_owned()
+        };
+        let day_toml = text("Day.toml");
+        assert!(
+            day_toml.contains("id = \"dev.example.demoapp\""),
+            "{day_toml}"
+        );
+        assert!(day_toml.contains("\"macos-appkit\""), "{day_toml}");
+        assert!(day_toml.contains("title = \"Demo App\""), "{day_toml}");
+        let cargo_toml = text("Cargo.toml");
+        assert!(cargo_toml.contains("name = \"demo-app\""), "{cargo_toml}");
+        // The app's lib crate is what `day build` compiles for every toolkit feature.
+        assert!(!text("src/lib.rs").is_empty());
+        assert!(!text("src/main.rs").is_empty());
     }
 }

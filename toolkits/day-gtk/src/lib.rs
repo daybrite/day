@@ -2475,7 +2475,7 @@ impl Toolkit for Gtk {
     ) {
         match kind {
             // Emulated cover (docs/cover.md): present = re-home onto the window's root Fixed
-            // at the content size, topmost; dismiss = hide + report "cover-hidden" at once (no
+            // at the content size, topmost; dismiss = hide + report `CoverHidden` at once (no
             // transition on this tier). No interactive dismissal exists on this backend.
             kinds::COVER => {
                 if let (Some(p), Ok(cover)) = (
@@ -2520,7 +2520,7 @@ impl Toolkit for Gtk {
                             COVERS.with(|c| {
                                 c.borrow_mut().retain(|(w, _)| w != &cover);
                             });
-                            emit(node, Event::custom("cover-hidden", ""));
+                            emit(node, Event::CoverHidden);
                         }
                     }
                 }

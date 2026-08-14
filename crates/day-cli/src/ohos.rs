@@ -19,9 +19,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use crate::cli::Profile;
 use crate::meta::Project;
 use crate::mobile::{run_logged, rustup_cargo};
-use crate::ops::{BuildOutcome, LaunchSpec, LogStream, emit_log, status};
+use crate::ops::{
+    BuildOutcome, INSTALL_TIMEOUT, LAUNCH_TIMEOUT, LaunchSpec, LogStream, emit_log, status,
+};
 use crate::targets::Target;
 
 /// The HarmonyOS host project's directory: `platform/harmony` (matching the target
@@ -683,7 +686,7 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
 pub fn build_ohos(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
     let harmony = harmony_dir(project);
@@ -724,7 +727,7 @@ pub fn build_ohos(
             .root
             .join("build/day/cargo/harmony-arkui")
             .join(abi)
-            .join(profile);
+            .join(profile.as_str());
         let linker_var = format!(
             "CARGO_TARGET_{}_LINKER",
             triple.to_uppercase().replace('-', "_")
@@ -782,13 +785,13 @@ pub fn build_ohos(
                 "--target",
                 triple,
             ]);
-        if profile == "release" {
+        if profile == Profile::Release {
             cmd.arg("--release");
         }
         run_logged(&mut cmd, &format!("cargo (ohos {abi})"))?;
         // The cdylib is `lib<[lib].name>.so` (libentry.so for a crate whose `[lib] name = "entry"`,
         // else lib<crate>.so) — find the single produced .so and stage it AS libentry.so.
-        let out_dir = target_dir.join(triple).join(profile);
+        let out_dir = target_dir.join(triple).join(profile.as_str());
         let so = std::fs::read_dir(&out_dir)
             .map_err(|e| format!("reading {}: {e}", out_dir.display()))?
             .flatten()
@@ -845,11 +848,7 @@ pub fn build_ohos(
         .current_dir(&harmony)
         .status();
 
-    let mode = if profile == "release" {
-        "release"
-    } else {
-        "debug"
-    };
+    let mode = profile.as_str();
     // A missing hvigor otherwise surfaces as a bare spawn ENOENT — check up front and say what to
     // install (it is NOT part of the public SDK; the `native` NDK alone only covers the Rust step).
     let hvigor_on_path = std::env::var("PATH")
@@ -873,7 +872,9 @@ pub fn build_ohos(
         &format!("buildMode={mode}"),
         "--no-daemon",
     ]);
-    run_logged(&mut hv, "hvigorw assembleHap")?;
+    // Bounded like the gradle leg: hvigor on a wedged emulator query must not outlive the
+    // build ceiling.
+    crate::mobile::run_logged_within(&mut hv, "hvigorw assembleHap", crate::ops::BUILD_TIMEOUT)?;
 
     // 3) Patch + sign the assembled (unsigned) .hap via platform/harmony/sign-hap.mjs: it rewrites module.json's
     //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification — see the script)
@@ -959,11 +960,14 @@ fn combined(out: &std::process::Output) -> String {
 /// `bm dump -a` — the flat list of every installed bundle name — a clean membership test (unlike
 /// `bm dump -n <bundle>`, whose per-bundle JSON can itself contain the words "error"/"failed").
 fn bundle_installed_on(bundle: &str, key: &str) -> bool {
-    hdc_for(key)
-        .args(["shell", "bm", "dump", "-a"])
-        .output()
-        .map(|o| combined(&o).contains(bundle))
-        .unwrap_or(false)
+    // Bounded: `bm dump` against a wedged guest waits like every other hdc call, and this runs
+    // inside the install retry loop — an unanswered probe reads as "not installed yet".
+    crate::ops::output_within(
+        hdc_for(key).args(["shell", "bm", "dump", "-a"]),
+        LAUNCH_TIMEOUT,
+    )
+    .map(|o| combined(&o).contains(bundle))
+    .unwrap_or(false)
 }
 
 pub fn launch_ohos(
@@ -1041,11 +1045,12 @@ fn install_and_start(
     let mut install_log = String::new();
     let mut installed = false;
     for attempt in 1..=10u32 {
-        if let Ok(out) = hdc_for(key)
-            .args(["install", "-r"])
-            .arg(&outcome.artifact)
-            .output()
-        {
+        // Bounded (ops.rs INSTALL_TIMEOUT): hdc waits for a wedged guest with no deadline of
+        // its own, and the `bm dump` gate below decides success anyway.
+        if let Some(out) = crate::ops::output_within(
+            hdc_for(key).args(["install", "-r"]).arg(&outcome.artifact),
+            INSTALL_TIMEOUT,
+        ) {
             install_log = combined(&out);
         }
         if bundle_installed_on(bundle, key) {
@@ -1103,10 +1108,9 @@ fn install_and_start(
     // late on a slow TCG guest (CI), and `aa start` is refused until the swipe can land.
     let mut last = String::new();
     for attempt in 1..=40u32 {
-        let out = hdc_for(key)
-            .args(&args)
-            .output()
-            .map_err(|e| format!("hdc aa start: {e}"))?;
+        // Bounded per try (ops.rs LAUNCH_TIMEOUT): the retry loop already owns the patience.
+        let out = crate::ops::output_within(hdc_for(key).args(&args), LAUNCH_TIMEOUT)
+            .ok_or_else(|| crate::ops::timeout_message("hdc aa start", LAUNCH_TIMEOUT))?;
         let text = combined(&out);
         if out.status.success()
             && !text.contains("Error Code:")

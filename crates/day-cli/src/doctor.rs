@@ -723,7 +723,12 @@ fn eprint_setup(g: &Group) {
 }
 
 /// `day doctor [--toolkit <id>]…`. `focus` holds the requested toolkit ids (empty = default scan).
-pub fn run(focus: &[String], external: &[crate::external::ExternalToolkit]) -> i32 {
+/// The Ok value is the report's verdict code: 0, or exit 3 when errors were tallied — the report
+/// itself already printed, so a non-zero verdict is not an extra `error:` line.
+pub fn run(
+    focus: &[String],
+    external: &[crate::external::ExternalToolkit],
+) -> Result<i32, crate::cli::CliError> {
     let host = host_os();
     let groups = all_groups();
 
@@ -735,16 +740,15 @@ pub fn run(focus: &[String], external: &[crate::external::ExternalToolkit]) -> i
     }
     for f in focus {
         if !known.contains(&f.as_str()) {
-            eprintln!(
-                "error: unknown toolkit {f:?} — choose from {}",
+            return Err(crate::cli::CliError::usage(format!(
+                "unknown toolkit {f:?} — choose from {}",
                 known
                     .iter()
                     .filter(|k| **k != "core")
                     .cloned()
                     .collect::<Vec<_>>()
                     .join(", ")
-            );
-            return 2;
+            )));
         }
     }
 
@@ -830,16 +834,16 @@ pub fn run(focus: &[String], external: &[crate::external::ExternalToolkit]) -> i
             "{ERROR_BOLD}✗ {} error(s){ERROR_BOLD:#}, {} warning(s).",
             total.errors, total.warnings
         );
-        3
+        Ok(crate::cli::ErrKind::Env.exit_code())
     } else if total.warnings > 0 {
         eprintln!(
             "{WARN}⚠ {} warning(s){WARN:#} — optional toolkits not fully set up. Fine unless you build them.",
             total.warnings
         );
-        0
+        Ok(0)
     } else {
         eprintln!("{SUCCESS_BOLD}✓ all good{SUCCESS_BOLD:#}");
-        0
+        Ok(0)
     }
 }
 

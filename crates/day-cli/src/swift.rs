@@ -16,6 +16,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
+use crate::cli::Profile;
 use crate::meta::Project;
 use crate::ops::status;
 use crate::pieces::MacosSwift;
@@ -70,7 +71,7 @@ impl SwiftLink {
 /// embed Swift ever get here.
 pub fn build_day_pieces(
     project: &Project,
-    profile: &str,
+    profile: Profile,
     swift: &MacosSwift,
 ) -> Result<SwiftLink, String> {
     if Command::new("swift")
@@ -86,11 +87,7 @@ pub fn build_day_pieces(
         );
     }
 
-    let configuration = if profile == "release" {
-        "release"
-    } else {
-        "debug"
-    };
+    let configuration = profile.as_str();
     // One scratch dir per package (not per profile — SwiftPM keys artifacts by configuration
     // inside it), kept out of the package dir so regeneration can't invalidate it.
     let scratch = project.root.join("build/day/macos/swift");

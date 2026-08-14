@@ -1540,7 +1540,7 @@ impl Toolkit for Xaml {
                 // navs need no native work — NavLayout re-places the pages.
                 // Emulated cover (docs/cover.md): present = re-home onto the content Canvas
                 // (appended last = topmost) with an opaque theme-background surface; dismiss =
-                // hide + report "cover-hidden" at once. No interactive dismissal here.
+                // hide + report `CoverHidden` at once. No interactive dismissal here.
                 kinds::COVER => {
                     if let Some(p) = patch.downcast_ref::<CoverPatch>() {
                         let node = COVER_IDS
@@ -1570,7 +1570,7 @@ impl Toolkit for Xaml {
                             CoverPatch::Dismiss => {
                                 ffi::day_xaml_set_visible(h.0, 0);
                                 COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
-                                emit(node, Event::custom("cover-hidden", ""));
+                                emit(node, Event::CoverHidden);
                             }
                         }
                     }

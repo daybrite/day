@@ -3113,7 +3113,7 @@ fn picker_and_text_area_are_built_in() {
 
 /// Cover (docs/cover.md): Some(route) presents + builds content, the native FrameChanged
 /// report lays the content out at the reported size, nav_back dismisses, and the content is
-/// disposed only after the backend reports the hide finished ("cover-hidden").
+/// disposed only after the backend reports the hide finished (`CoverHidden`).
 #[test]
 fn cover_presents_lays_out_and_dismisses() {
     let probe = boot(|| {
@@ -3180,7 +3180,7 @@ fn cover_presents_lays_out_and_dismisses() {
             .any(|(_, w)| w.text == "game-breakout"),
         "content stays mounted while the hide transition runs"
     );
-    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    probe.emit(cover_id, Event::CoverHidden);
     flush_sync();
     assert!(
         !probe
@@ -3192,7 +3192,7 @@ fn cover_presents_lays_out_and_dismisses() {
 }
 
 // ── the superapp lifecycle: siblings must survive a cover cycle, and a second present must
-//    work — including with adversarial "cover-hidden" orderings (double emit, late emit).
+//    work — including with adversarial `CoverHidden` orderings (double emit, late emit).
 
 /// (rev, taps, open) — the signals `cover_cycle_root` publishes for the test body.
 type CycleSignals = (Signal<f64>, Signal<f64>, Signal<Option<String>>);
@@ -3285,7 +3285,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     );
     open.set(None);
     flush_sync();
-    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    probe.emit(cover_id, Event::CoverHidden);
     flush_sync();
 
     // 1) Siblings built BEFORE the cycle still respond.
@@ -3319,20 +3319,20 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
         "second present builds content"
     );
 
-    // 4) Adversarial orderings: a DOUBLE cover-hidden after dismissal must be harmless…
+    // 4) Adversarial orderings: a DOUBLE `CoverHidden` after dismissal must be harmless…
     open.set(None);
     flush_sync();
-    probe.emit(cover_id, Event::custom("cover-hidden", ""));
-    probe.emit(cover_id, Event::custom("cover-hidden", ""));
+    probe.emit(cover_id, Event::CoverHidden);
+    probe.emit(cover_id, Event::CoverHidden);
     flush_sync();
     tap_button(&probe, "row-b:2");
     assert_eq!(
         tap_count(&probe),
         "taps 4",
-        "double cover-hidden is harmless"
+        "double CoverHidden is harmless"
     );
 
-    // …and a LATE cover-hidden from the previous dismissal, arriving after the next
+    // …and a LATE `CoverHidden` from the previous dismissal, arriving after the next
     // present, must not dispose the new content.
     open.set(Some("wx".into()));
     flush_sync();
@@ -3340,14 +3340,14 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     flush_sync();
     open.set(Some("wx2".into()));
     flush_sync();
-    probe.emit(cover_id, Event::custom("cover-hidden", "")); // belated, for the wx dismissal
+    probe.emit(cover_id, Event::CoverHidden); // belated, for the wx dismissal
     flush_sync();
     assert!(
         probe
             .find_by_kind("day.label")
             .iter()
             .any(|(_, w)| w.text.starts_with("game-wx2")),
-        "late cover-hidden does not kill the re-presented content"
+        "late CoverHidden does not kill the re-presented content"
     );
 }
 
@@ -4088,7 +4088,7 @@ fn fallback_presents_as_cover_and_close_dismisses() {
     );
     // Content survives until the hide transition confirms…
     assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
-    probe.emit(cover_node, Event::custom("cover-hidden", ""));
+    probe.emit(cover_node, Event::CoverHidden);
     flush_sync();
     // …then everything goes.
     assert!(!handle.is_open());

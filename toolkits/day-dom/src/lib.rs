@@ -1310,7 +1310,7 @@ impl Toolkit for Dom {
             }
             // Emulated cover (docs/cover.md): present = re-home under #day-root (position:fixed
             // escapes ancestor transforms only from a clean containing block) and show; the
-            // ResizeObserver reports the frame. Dismiss = hide + "cover-hidden" at once.
+            // ResizeObserver reports the frame. Dismiss = hide + `CoverHidden` at once.
             kinds::COVER => {
                 if let Some(p) = patch.downcast_ref::<CoverPatch>() {
                     match p {
@@ -1335,7 +1335,7 @@ impl Toolkit for Dom {
                         CoverPatch::Dismiss => {
                             class(el, "open", false);
                             if let Some(node) = node_of(el) {
-                                emit(node, Event::custom("cover-hidden", ""));
+                                emit(node, Event::CoverHidden);
                             }
                         }
                     }

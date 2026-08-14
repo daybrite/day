@@ -26,7 +26,7 @@ pub fn stage_payload(
     target: &'static Target,
     opts: &PackOptions,
 ) -> Result<PathBuf, PackError> {
-    let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
+    let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
     let stage = project.root.join("build/day/pack/windows-payload");
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(&stage).map_err(|e| PackError::Other(e.to_string()))?;

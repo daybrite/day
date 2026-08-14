@@ -34,7 +34,7 @@ fn host_os() -> &'static str {
     }
 }
 
-pub fn run(project: &Project, json: bool) -> i32 {
+pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
     let m = &project.manifest;
     let mut catalog: Vec<serde_json::Value> = targets::TARGETS
         .iter()
@@ -108,14 +108,10 @@ pub fn run(project: &Project, json: bool) -> i32 {
         "permissionCatalog": permission_catalog(),
     });
     if json {
-        match serde_json::to_string_pretty(&doc) {
-            Ok(s) => println!("{s}"),
-            Err(e) => {
-                eprintln!("error: {e}");
-                return 1;
-            }
-        }
-        return 0;
+        let s = serde_json::to_string_pretty(&doc)
+            .map_err(|e| crate::cli::CliError::failure(e.to_string()))?;
+        println!("{s}");
+        return Ok(());
     }
     // Human-readable summary (the JSON envelope is the stable interface).
     let title = m.app.title.as_deref().unwrap_or(&m.app.name);
@@ -133,7 +129,7 @@ pub fn run(project: &Project, json: bool) -> i32 {
             );
         }
     }
-    0
+    Ok(())
 }
 
 /// The app's declared permissions, resolved from Day.toml alone — no `cargo metadata`, so

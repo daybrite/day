@@ -313,36 +313,37 @@ pub fn check(project: &Project) -> Result<Vec<String>, String> {
 }
 
 /// `day patch [--local <checkout>] [--check]`.
-pub fn run(project: &Project, local: Option<&Path>, check_only: bool) -> i32 {
-    if let Some(checkout) = local
-        && let Err(e) = write_patch(project, checkout)
-    {
-        status("Error", &e);
-        return 1;
+pub fn run(
+    project: &Project,
+    local: Option<&Path>,
+    check_only: bool,
+) -> Result<(), crate::cli::CliError> {
+    if let Some(checkout) = local {
+        write_patch(project, checkout).map_err(crate::cli::CliError::failure)?;
     }
     match check(project) {
         Ok(from_git) if from_git.is_empty() => {
             status("Verified", "every day crate resolves from a local path");
-            0
+            Ok(())
         }
-        Ok(from_git) => {
-            status(
-                "Error",
-                &format!(
-                    "{} day crate(s) still resolve from git: {} — add them to the [patch] table \
-                     (`day patch --local <checkout>` rewrites it) or this build mixes a local \
-                     framework with a published one",
-                    from_git.len(),
-                    from_git.join(", ")
-                ),
-            );
-            1
-        }
+        Ok(from_git) => Err(crate::cli::CliError::failure(format!(
+            "{} day crate(s) still resolve from git: {} — add them to the [patch] table \
+             (`day patch --local <checkout>` rewrites it) or this build mixes a local \
+             framework with a published one",
+            from_git.len(),
+            from_git.join(", ")
+        ))),
         Err(e) => {
             // Not fatal without --check: writing the table succeeded, and resolution may need the
             // network the caller does not have.
             status("Warning", &format!("could not verify resolution: {e}"));
-            i32::from(check_only)
+            if check_only {
+                Err(crate::cli::CliError::failure(format!(
+                    "could not verify resolution: {e}"
+                )))
+            } else {
+                Ok(())
+            }
         }
     }
 }

@@ -1482,11 +1482,7 @@ fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -
                     s.set_rw(k);
                 }
             }
-            Event::Custom {
-                tag: "deeplink",
-                text: route,
-                ..
-            } => {
+            Event::RouteRequested(route) => {
                 let _ = day_core::navigate(route);
             }
             _ => {}
@@ -2122,11 +2118,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     f(*already_popped);
                 }
             }
-            Event::Custom {
-                tag: "deeplink",
-                text: route,
-                ..
-            } => {
+            Event::RouteRequested(route) => {
                 let _ = day_core::navigate(route);
             }
             _ => {}
@@ -2612,11 +2604,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                         f(*already_popped);
                     }
                 }
-                Event::Custom {
-                    tag: "deeplink",
-                    text: route,
-                    ..
-                } => {
+                Event::RouteRequested(route) => {
                     let _ = day_core::navigate(route);
                 }
                 _ => {}
@@ -2785,7 +2773,7 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
         );
 
         // The presented content's scope, and whether a dismiss transition is in flight
-        // (content stays mounted until the backend reports "cover-hidden", so the surface
+        // (content stays mounted until the backend reports `CoverHidden`, so the surface
         // isn't blank while it slides out).
         struct Presented<R> {
             key: R,
@@ -2916,10 +2904,7 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
                 // The hide transition finished — now the content can go.
                 // Idempotent + orderable (docs/cover.md): duplicates and belated reports
                 // from a previous dismissal are no-ops via the closing gate.
-                Event::Custom { tag, text, .. }
-                    if (*tag == "cover-hidden" || text.as_str() == "cover-hidden")
-                        && closing.get() =>
-                {
+                Event::CoverHidden if closing.get() => {
                     closing.set(false);
                     dispose_content();
                 }

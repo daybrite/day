@@ -43,8 +43,8 @@ However a link arrives, the behavior inside the app is the same:
   `DAY_DEEPLINK` in the environment where launch environments exist, or
   `day_core::set_launch_deeplink` from the platform entry where they don't — and navigates one
   turn after the first mount. It wins over `.restore`.
-- **Warm delivery** (the app was running): the platform layer emits `Custom("deeplink",
-  route)` to the active nav host, which navigates immediately.
+- **Warm delivery** (the app was running): the platform layer emits `RouteRequested(route)`
+  to the active nav host, which navigates immediately.
 - **Navigation only.** A scheme URL can be sent by any app or web page, unauthenticated. Deep
   links never execute an action; they only address a surface. Anything destructive must sit
   behind the app's own UI once the user arrives.

@@ -37,10 +37,10 @@ zstack((
   creates, and cleanups it registers (e.g. a save-on-exit) live exactly as long as the
   presentation.
 - The content is disposed only after the backend reports the hide transition finished
-  (`Event::custom("cover-hidden", "")` on the cover node), so the surface never blanks
-  mid-animation. Scope cleanups (the natural save-on-exit hook) run at that moment.
+  (`Event::CoverHidden` on the cover node), so the surface never blanks mid-animation.
+  Scope cleanups (the natural save-on-exit hook) run at that moment.
 
-### The `cover-hidden` delivery contract
+### The `CoverHidden` delivery contract
 
 App teardown hangs off this one event, so its delivery is a hard guarantee, not a
 best-effort animation callback:

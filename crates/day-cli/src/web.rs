@@ -12,6 +12,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::cli::Profile;
 use crate::meta::Project;
 use crate::ops::{BuildOutcome, LaunchSpec, apply_app_identity, feature_selection, status};
 use crate::targets::Target;
@@ -25,11 +26,29 @@ use crate::targets::Target;
 const HOST_INDEX: &str = include_str!("../resources/web/index.html");
 const HOST_SHIM: &str = include_str!("../resources/web/shim.js");
 const HOST_CSS: &str = include_str!("../resources/web/day.css");
+// The DAY_WEB_DRIVER page-driver (`day web driver`, docs/web.md): the Playwright browser
+// day-cli spawns for scripted web runs. Embedded like the shim, so the driver protocol
+// (screenshot + quit on the control port) always matches the CLI that speaks it — CI installs
+// playwright, asks `day web driver` for this script's path, and sets DAY_WEB_DRIVER to it.
+const WEB_DRIVER: &str = include_str!("../resources/web/webdom-driver.mjs");
+
+/// Write the bundled DAY_WEB_DRIVER script to a version-stamped temp location and return its
+/// path (`day web driver`). Idempotent: same version, same path, rewritten only on drift.
+pub fn materialize_driver() -> Result<std::path::PathBuf, String> {
+    let dir = std::env::temp_dir().join(format!("day-webdriver-{}", env!("CARGO_PKG_VERSION")));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join("webdom-driver.mjs");
+    let fresh = std::fs::read_to_string(&path).is_ok_and(|s| s == WEB_DRIVER);
+    if !fresh {
+        std::fs::write(&path, WEB_DRIVER).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(path)
+}
 
 pub fn build_web(
     project: &Project,
     target: &'static Target,
-    profile: &str,
+    profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
     let name = &project.manifest.app.name;
@@ -46,11 +65,11 @@ pub fn build_web(
         .args(["--target", "wasm32-unknown-unknown"]);
     apply_app_identity(&mut cmd, project);
     crate::bridge::apply_staged(&mut cmd, project, "web-dom");
-    if profile == "release" {
+    if profile == Profile::Release {
         cmd.arg("--release");
     }
     cmd.args(["--crate-type", "cdylib"]);
-    if profile == "release" {
+    if profile == Profile::Release {
         // Debug symbols are most of a release wasm's bytes and no browser tool reads them
         // from a stripped build; keep the shipped module small.
         cmd.args(["--", "-Cstrip=symbols"]);
@@ -67,7 +86,7 @@ pub fn build_web(
     // Assemble dist/. The wasm artifact uses the lib name (hyphens become underscores).
     let wasm = cargo_dir
         .join("wasm32-unknown-unknown")
-        .join(profile)
+        .join(profile.as_str())
         .join(format!("{}.wasm", name.replace('-', "_")));
     let dist = cargo_dir.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| format!("dist dir: {e}"))?;

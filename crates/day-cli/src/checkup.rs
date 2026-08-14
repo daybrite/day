@@ -25,6 +25,7 @@ use std::process::{Command, Stdio};
 
 use anstream::eprintln;
 
+use crate::cli::{CliError, ErrKind, Profile};
 use crate::doctor::{self, Readiness};
 use crate::new::DaySource;
 use crate::ops::status;
@@ -42,7 +43,7 @@ pub struct Options {
     /// Combos to check (repeatable / comma-separated). Empty = every combo this host can build.
     pub platforms: Vec<String>,
     /// The profile BOTH the build and the pack use — one compile, not two.
-    pub profile: String,
+    pub profile: Profile,
     /// Stop after the build (what the install workflow did before packaging joined the check).
     pub no_pack: bool,
     /// A combo this host could have checked but is not set up for — or a pack skipped for missing
@@ -242,26 +243,24 @@ impl Under {
 /// The installed CLI must be able to PIN its scaffold (`day new --day-version`), or the check
 /// would build a release's CLI against the git remote's default branch and report the result as
 /// that release. A CLI that predates the flag is therefore refused, with the alternative named.
-fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, (i32, String)> {
+fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, CliError> {
     let Some(spec) = spec else {
         return Ok(Under {
             source: None,
             bin: std::env::current_exe()
-                .map_err(|e| (3, format!("locating this day binary: {e}")))?,
+                .map_err(|e| CliError::env(format!("locating this day binary: {e}")))?,
         });
     };
     if opts.local.is_some() {
         // Caught here rather than inside the first `day new`, which would report it as a combo
         // failure after the CLI install had already been paid for.
-        return Err((
-            2,
-            "--day-version names a published day; --local builds against a checkout. Pass one."
-                .into(),
+        return Err(CliError::usage(
+            "--day-version names a published day; --local builds against a checkout. Pass one.",
         ));
     }
     // `latest` is resolved HERE, once: the child is handed the concrete version, so a release
     // published mid-run cannot leave the CLI and the scaffold on different days.
-    let source = DaySource::parse(spec).map_err(|e| (2, e))?;
+    let source = DaySource::parse(spec).map_err(CliError::usage)?;
 
     if let DaySource::Release(v) = &source
         && v == env!("CARGO_PKG_VERSION")
@@ -273,7 +272,7 @@ fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, (i3
         return Ok(Under {
             source: Some(source),
             bin: std::env::current_exe()
-                .map_err(|e| (3, format!("locating this day binary: {e}")))?,
+                .map_err(|e| CliError::env(format!("locating this day binary: {e}")))?,
         });
     }
 
@@ -300,39 +299,33 @@ fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, (i3
     cmd.args(["--locked", "--root"]).arg(&cli_root);
     let ok = cmd
         .status()
-        .map_err(|e| (3, format!("running cargo install: {e}")))?;
+        .map_err(|e| CliError::env(format!("running cargo install: {e}")))?;
     if !ok.success() {
-        return Err((
-            3,
-            format!(
-                "cargo install day-cli ({}) failed — see the output above",
-                source.label()
-            ),
-        ));
+        return Err(CliError::env(format!(
+            "cargo install day-cli ({}) failed — see the output above",
+            source.label()
+        )));
     }
     let bin = cli_root
         .join("bin")
         .join(if cfg!(windows) { "day.exe" } else { "day" });
     if !bin.is_file() {
-        return Err((3, format!("no day binary at {}", bin.display())));
+        return Err(CliError::env(format!("no day binary at {}", bin.display())));
     }
 
     // Can that CLI pin its own scaffold? Ask it, rather than assuming from the version number.
     let help = Command::new(&bin)
         .args(["new", "app", "--help"])
         .output()
-        .map_err(|e| (3, format!("running {}: {e}", bin.display())))?;
+        .map_err(|e| CliError::env(format!("running {}: {e}", bin.display())))?;
     let help = String::from_utf8_lossy(&help.stdout);
     if !help.contains("--day-version") {
-        return Err((
-            2,
-            format!(
-                "day-cli {label} predates `day new --day-version`, so its scaffold cannot be \
-                 pinned to it: the app would build against the git remote's default branch, and \
-                 the result would not describe {label}. Name a day whose CLI carries the flag.",
-                label = source.label(),
-            ),
-        ));
+        return Err(CliError::usage(format!(
+            "day-cli {label} predates `day new --day-version`, so its scaffold cannot be \
+             pinned to it: the app would build against the git remote's default branch, and \
+             the result would not describe {label}. Name a day whose CLI carries the flag.",
+            label = source.label(),
+        )));
     }
     if opts.verbose {
         status("Day", &format!("{} at {}", source.label(), bin.display()));
@@ -353,9 +346,10 @@ fn missing_line(missing: &[doctor::Missing]) -> String {
         .join("; ")
 }
 
-/// `day checkup`. Returns the process exit code: 2 usage, 3 environment (doctor failed, a strict
-/// skip, or nothing to check), 4 a build or pack failed.
-pub fn run(opts: &Options) -> i32 {
+/// `day checkup`. Exit codes (via the cli.rs kind→code map): 2 usage, 3 environment (doctor
+/// failed, a strict skip, or nothing to check), 4 a build or pack failed. Verdicts the combo
+/// report already explains come back as Ok(code); everything else is a typed error.
+pub fn run(opts: &Options) -> Result<i32, CliError> {
     let host = targets::host_os();
     let started = std::time::Instant::now();
 
@@ -371,13 +365,7 @@ pub fn run(opts: &Options) -> i32 {
     }
     let lookup = |id: &str| -> Option<Readiness> { cache.get(id).cloned().flatten() };
 
-    let requested = match resolve(&opts.platforms, host) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 2;
-        }
-    };
+    let requested = resolve(&opts.platforms, host).map_err(CliError::usage)?;
 
     // Step 1: the environment, and stop here if it is broken. With combos named explicitly their
     // toolkits are FOCUSED — misses are errors and the setup text prints — which is what the
@@ -389,22 +377,20 @@ pub fn run(opts: &Options) -> i32 {
             focus.push(id);
         }
     }
-    if doctor::run(&focus, &[]) != 0 {
-        eprintln!("error: the environment check failed — checkup stops here");
-        return 3;
+    if doctor::run(&focus, &[])? != 0 {
+        return Err(CliError::env(
+            "the environment check failed — checkup stops here",
+        ));
     }
 
-    let slots = match plan(host, &requested, &lookup) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return 3;
-        }
-    };
+    let slots = plan(host, &requested, &lookup).map_err(CliError::env)?;
 
     let checking: Vec<&Slot> = slots.iter().filter(|s| s.skip.is_none()).collect();
     let skipped: Vec<&Slot> = slots.iter().filter(|s| s.skip.is_some()).collect();
     if checking.is_empty() {
+        // Report-style: the head line plus one dim line per skipped combo, in reading order —
+        // printed here rather than folded into one CliError message; only the CODE comes from
+        // the map.
         eprintln!(
             "error: nothing to check on this {host} host — every combo was skipped.\n       \
              Run `day doctor` for what is missing, or name a combo with `-p <target>`."
@@ -412,7 +398,7 @@ pub fn run(opts: &Options) -> i32 {
         for s in &skipped {
             eprintln!("  {DIM}{:<16}{DIM:#} {}", s.target.name, skip_reason(s));
         }
-        return 3;
+        return Ok(ErrKind::Env.exit_code());
     }
 
     // `--strict` says every combo this machine could check must be checked, and that verdict is
@@ -424,6 +410,7 @@ pub fn run(opts: &Options) -> i32 {
         .filter(|s| s.skip.as_ref().is_some_and(|k| k.fixable))
         .collect();
     if opts.strict && !unchecked.is_empty() {
+        // One line per skipped combo (report-style, as above); the code comes from the map.
         for s in &unchecked {
             eprintln!(
                 "error: --strict — {} was skipped: {}",
@@ -431,27 +418,24 @@ pub fn run(opts: &Options) -> i32 {
                 skip_reason(s)
             );
         }
-        return 3;
+        return Ok(ErrKind::Env.exit_code());
     }
 
     let root = opts.dir.clone().unwrap_or_else(|| {
         std::env::temp_dir().join(format!("day-checkup-{}", std::process::id()))
     });
-    if let Err(e) = std::fs::create_dir_all(&root) {
-        eprintln!("error: {}: {e}", root.display());
-        return 4;
-    }
+    std::fs::create_dir_all(&root)
+        .map_err(|e| CliError::build(format!("{}: {e}", root.display())))?;
     // Which day is under test — and, when `--day-version` names one, the CLI install that gets it.
     // Before any combo runs: a bad spec or a failed install is not worth a build first.
     let under = match prepare(opts.day_version.as_deref(), &root, opts) {
         Ok(u) => u,
-        Err((code, e)) => {
-            eprintln!("error: {e}");
+        Err(e) => {
             // A half-prepared run still made (and may have installed a CLI into) the scratch root.
             if !opts.keep && opts.dir.is_none() {
                 let _ = std::fs::remove_dir_all(&root);
             }
-            return code;
+            return Err(e);
         }
     };
     status(
@@ -480,18 +464,15 @@ pub fn run(opts: &Options) -> i32 {
         if opts.dir.is_some() && dir.exists() {
             // A directory the CALLER named. Whatever is in it is theirs, and checkup deletes what
             // it scaffolds — so refuse rather than clear it out.
-            eprintln!(
-                "error: {} already exists — remove it, or point --dir somewhere else",
+            return Err(CliError::usage(format!(
+                "{} already exists — remove it, or point --dir somewhere else",
                 dir.display()
-            );
-            return 2;
+            )));
         }
         // Our own pid-scoped scratch: a leftover can only be ours (a killed run, a reused pid).
         let _ = std::fs::remove_dir_all(&dir);
-        if let Err(e) = std::fs::create_dir_all(&dir) {
-            eprintln!("error: {}: {e}", dir.display());
-            return 4;
-        }
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| CliError::build(format!("{}: {e}", dir.display())))?;
         // Packaging tools are warnings in doctor, so a missing one skips the pack stage with a
         // reason rather than failing the combo — `--strict` is what turns that skip red.
         let missing_pack = lookup(doctor::group_id(target.toolkit))
@@ -536,14 +517,16 @@ pub fn run(opts: &Options) -> i32 {
     }
 
     if failed > 0 {
-        4
+        // The combo report above already named each failure; the verdict is the build code.
+        Ok(ErrKind::Build.exit_code())
     } else if opts.strict && pack_skips > 0 {
         // Combo skips already returned above; what is left is a pack stage whose tooling this
         // machine does not have (doctor reports those as warnings, so nothing else fails on them).
-        eprintln!("error: --strict — {pack_skips} pack step(s) skipped for missing tooling");
-        3
+        Err(CliError::env(format!(
+            "--strict — {pack_skips} pack step(s) skipped for missing tooling"
+        )))
     } else {
-        0
+        Ok(0)
     }
 }
 
@@ -580,7 +563,7 @@ fn check_one(
             "-p".into(),
             target.name.into(),
             "--profile".into(),
-            opts.profile.clone(),
+            opts.profile.to_string(),
             "--format".into(),
             "json".into(),
         ],
@@ -620,7 +603,7 @@ fn check_one(
                 "-p".into(),
                 target.name.into(),
                 "--profile".into(),
-                opts.profile.clone(),
+                opts.profile.to_string(),
                 "--format".into(),
                 "json".into(),
             ],
@@ -1186,7 +1169,7 @@ mod tests {
     fn opts_for(day_version: Option<&str>) -> Options {
         Options {
             platforms: Vec::new(),
-            profile: "debug".into(),
+            profile: Profile::Debug,
             no_pack: false,
             strict: false,
             dir: None,

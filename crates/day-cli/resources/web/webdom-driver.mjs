@@ -1,8 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The DAY_WEB_DRIVER browser for scripted web-dom runs (docs/web.md): day-cli spawns this as
-//   node scripts/ci/webdom-driver.mjs <url> <control-port>
+// The DAY_WEB_DRIVER browser for scripted web-dom runs (docs/web.md). Embedded in day-cli
+// (web.rs, like the host shim) and materialized by `day web driver`; day-cli spawns it as
+//   node <this file> <url> <control-port>
 // It opens the page headless (Playwright) and serves the driver control protocol on the
 // control port: GET /screenshot → PNG of the page, GET /quit → close and exit.
 //

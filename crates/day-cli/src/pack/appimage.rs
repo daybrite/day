@@ -51,7 +51,7 @@ pub fn pack(
         ));
     };
 
-    let outcome = ops::build(project, target, &opts.profile).map_err(PackError::Other)?;
+    let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
     let id = project.manifest.app.id.clone();
     let title = project
         .manifest

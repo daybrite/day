@@ -47,7 +47,15 @@ fn write(root: &Path, sessions: &[Session]) {
         let _ = std::fs::create_dir_all(dir);
     }
     if let Ok(json) = serde_json::to_string_pretty(sessions) {
-        let _ = std::fs::write(path, json);
+        // Temp file + rename, in the same directory so the rename stays atomic: `record` and
+        // `remove` are read-modify-write with no lock, and parallel `day` invocations writing
+        // in place could hand each other (and every reader) a torn file. A rename never can —
+        // the last writer wins whole. The pid keys the temp name so two writers don't collide
+        // on it either.
+        let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+        if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, &path).is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
     }
 }
 
