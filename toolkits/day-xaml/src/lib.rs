@@ -547,7 +547,7 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
     }
     unsafe { ffi::day_xaml_label_runs_begin(h, node) };
     let mut at = 0usize;
-    let mut add = |slice: &str, run: Option<&day_spec::TextRun>| {
+    let add = |slice: &str, run: Option<&day_spec::TextRun>| {
         let mut flags = 0i32;
         let mut argb = 0u32;
         let mut link = String::new();

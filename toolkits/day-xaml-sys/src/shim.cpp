@@ -2469,6 +2469,16 @@ void day_xaml_label_set_text(void* h, const char* t) {
     tb.Text(hs(t));
 }
 
+typedef void (*DayLinkCb)(unsigned long long id, const char* url);
+
+/// The node a link run reports against, and the trampoline. Set by `day_xaml_label_runs_begin`
+/// so every Hyperlink appended after it knows where to send its Click (docs/text-runs.md).
+///
+/// Declared HERE, above the first use: `runs_begin` below assigns `g_link_node`, and C++ resolves
+/// plain identifiers by declaration order, so defining these after it does not compile.
+static unsigned long long g_link_node = 0;
+static DayLinkCb g_link_cb = nullptr;
+
 /// Begin a styled label: clear the block so runs can be appended (docs/text-runs.md).
 void day_xaml_label_runs_begin(void* h, unsigned long long node) {
     g_link_node = node;
@@ -2478,17 +2488,11 @@ void day_xaml_label_runs_begin(void* h, unsigned long long node) {
     }
 }
 
+void day_xaml_label_link_cb(DayLinkCb cb) { g_link_cb = cb; }
+
 /// Append one run. `flags` packs bold/italic/mono/strike/hasColour; `link` is empty for a plain
 /// run. Each run is an INLINE inside the one TextBlock, so the paragraph still wraps, selects
 /// and is read as a single block — which is the whole reason for runs.
-typedef void (*DayLinkCb)(unsigned long long id, const char* url);
-
-/// The node a link run reports against, and the trampoline. Set by `day_xaml_label_runs_begin`
-/// so every Hyperlink appended after it knows where to send its Click (docs/text-runs.md).
-static unsigned long long g_link_node = 0;
-static DayLinkCb g_link_cb = nullptr;
-
-void day_xaml_label_link_cb(DayLinkCb cb) { g_link_cb = cb; }
 
 void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb, const char* link) {
     auto tb = elem(h).try_as<WUXC::TextBlock>();
