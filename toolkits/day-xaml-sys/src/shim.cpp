@@ -692,6 +692,14 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     }
 
     WUXC::Canvas root;
+    // STRETCH, or the ground below paints nothing. A Canvas has no desired size of its own (0×0),
+    // so as the island's content it arranges to nothing and its Background covers no pixels — the
+    // island's default backdrop shows instead. That backdrop follows the SYSTEM scheme, which is
+    // why the window looked right until an app-level Appearance override disagreed with it, and
+    // then only the controls that paint themselves (menu bar, toolbar, nav pane) changed. The
+    // nav's own content canvas already does this for the same reason.
+    root.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+    root.VerticalAlignment(WUX::VerticalAlignment::Stretch);
     // Force DAY_THEME PER-ELEMENT (islands-safe, unlike Application::RequestedTheme): ElementTheme
     // on the root cascades to every descendant control + its {ThemeResource} lookups, so the whole
     // tree renders in the forced scheme. Unset => Default (follows the system).
@@ -1058,6 +1066,9 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
     apply_dark_titlebar(host); // re-applied on WM_SETTINGCHANGE, as for the primary
     WUXC::Canvas root;
+    // Stretch, so the ground below actually covers the window — see the primary window's root.
+    root.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+    root.VerticalAlignment(WUX::VerticalAlignment::Stretch);
     switch (g_forced_theme) {
         case 2: root.RequestedTheme(WUX::ElementTheme::Dark); break;
         case 1: root.RequestedTheme(WUX::ElementTheme::Light); break;
@@ -1299,7 +1310,11 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
     double clipX = 0, clipY = 0, clipW = 0, clipH = 0;
     std::vector<std::array<double, 5>> clipStack;
     // Put the pending style (or Day's defaults) on a stroked shape.
-    auto style_shape = [&](WUXSh::Shape &sh, double width) {
+    // `Shape const&`, never `Shape&`. A cppwinrt projection is not a C++ class hierarchy: `Path`
+    // does not DERIVE from `Shape`, it CONVERTS to it, and that conversion yields a temporary —
+    // which cannot bind to a non-const reference. Taking it by const reference binds the temporary
+    // and costs nothing, since every projected setter is a const member function.
+    auto style_shape = [&](WUXSh::Shape const &sh, double width) {
         sh.StrokeThickness(width);
         if (!stylePending) return;
         auto cap = sCap == 1 ? WUXM::PenLineCap::Round
@@ -1314,7 +1329,10 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         sh.StrokeMiterLimit(sMiter);
         if (!sDash.empty()) {
             // XAML's dash array is in units of STROKE THICKNESS, not pixels.
-            auto dc = winrt::single_threaded_vector<double>();
+            // A DoubleCollection, not a bare IVector<double>: the setter takes the projected
+            // collection TYPE, and `single_threaded_vector<double>` yields its base interface,
+            // which does not convert back down to it.
+            WUXM::DoubleCollection dc;
             const double wdt = width > 0.0 ? width : 1.0;
             for (double v : sDash) dc.Append(v / wdt);
             sh.StrokeDashArray(dc);
@@ -1322,7 +1340,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         }
     };
     // Apply the active clip to a shape as it is placed.
-    auto clip_shape = [&](WUXSh::Shape &sh) {
+    auto clip_shape = [&](WUXSh::Shape const &sh) {
         if (!clipActive) return;
         WUXM::RectangleGeometry rg;
         rg.Rect(WF::Rect{ static_cast<float>(clipX), static_cast<float>(clipY),
@@ -1737,7 +1755,9 @@ void day_xaml_cell_set_selected(void* cell, int on) {
         rect.Fill(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
         return;
     }
-    if (g_forced_theme == 0) {
+    // An app Appearance override counts as much as a DAY_THEME force: both re-theme per-element,
+    // so the app resources still answer for the SYSTEM scheme (see day_xaml_container_set_card).
+    if (g_forced_theme == 0 && g_app_override == 0) {
         auto res = WUX::Application::Current().Resources();
         auto key = winrt::box_value(winrt::hstring(L"SystemControlHighlightListAccentLowBrush"));
         if (res.HasKey(key)) {
@@ -1869,11 +1889,23 @@ static WUX::ElementTheme element_theme_now() {
 /// still-light ground: the menu bar drew white-on-white and the page area stayed white, while the
 /// toolbar and nav (which paint their own backgrounds) looked right. That mismatch IS the bug.
 ///
-/// A null Background means Mica was accepted and the root is deliberately transparent so the
-/// material shows through — that one is left alone.
+/// Mica is the complication. When the backdrop is accepted the root is deliberately left
+/// TRANSPARENT so the material shows through — and that material is drawn by DWM from the SYSTEM
+/// scheme, with no way to ask it for the other one. So under an override the backdrop has to be
+/// covered by an opaque ground; without that, every surface that does not paint itself kept the
+/// system's colour while the controls went dark, which is the bug this whole chain was chasing.
+/// Following the system again puts the transparency back, so Mica returns.
 static void ground_root(WUXC::Canvas const& root, bool dark) {
-    if (!root || !root.Background()) return;
-    root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+    if (!root) return;
+    bool overridden = g_forced_theme != 0 || g_app_override != 0;
+    if (overridden) {
+        root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+    } else if (root.Background()) {
+        // Already grounded (Mica refused at creation): keep it opaque, just re-colour it.
+        root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+    } else {
+        root.Background(nullptr); // Mica window back on the system scheme: let the material show
+    }
 }
 
 static void apply_appearance_everywhere() {
@@ -2356,10 +2388,13 @@ void day_xaml_container_set_card(void* h, double radius) {
     if (auto c = elem(h).try_as<WUXC::Canvas>()) {
         auto r = ensure_bg_rect(c);
         bool filled = false;
-        // The app-resource card brush resolves per the SYSTEM theme; only trust it when no
-        // DAY_THEME force is active (else it mis-colors the forced scheme). The translucent-neutral
-        // fallback is alpha-over-ground, so it reads correctly over either scheme's page ground.
-        if (g_forced_theme == 0) {
+        // The app-resource card brush resolves per the SYSTEM theme; only trust it when NOTHING
+        // overrides that — a DAY_THEME force or the app's own Appearance pick both re-theme
+        // per-element (`Application::RequestedTheme` is unsupported under Islands), so the app
+        // resources still answer for the system scheme and would mis-color the chosen one. That is
+        // exactly what left cards light on a dark override. The translucent-neutral fallback is
+        // alpha-over-ground, so it reads correctly over either scheme's page ground.
+        if (g_forced_theme == 0 && g_app_override == 0) {
             auto res = WUX::Application::Current().Resources();
             auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
             if (res.HasKey(key)) {
@@ -2686,7 +2721,8 @@ void* day_xaml_divider_new() {
     // DAY_THEME force is active. Translucent-neutral fallback — alpha over the page ground reads
     // correctly in either scheme.
     bool filled = false;
-    if (g_forced_theme == 0) {
+    // …and an app Appearance override, for the same reason (see day_xaml_container_set_card).
+    if (g_forced_theme == 0 && g_app_override == 0) {
         auto res = WUX::Application::Current().Resources();
         auto key = winrt::box_value(winrt::hstring(L"DividerStrokeColorDefaultBrush"));
         if (res.HasKey(key)) {
