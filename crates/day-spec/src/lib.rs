@@ -2193,12 +2193,57 @@ pub mod props {
     /// system button reads as a link); `Prominent` asks for the platform's accent-filled /
     /// default-action affordance. Toolkits whose stock buttons are already contained treat
     /// `Bordered` as `Automatic`.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    // `Eq` is gone with the `Tinted` colour: `Color` holds floats. `PartialEq` is what the
+    // props diff uses, and that is unaffected.
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub enum ButtonStyleSpec {
         #[default]
         Automatic,
         Bordered,
         Prominent,
+        /// A filled button in an APP-CHOSEN color, still drawn by the native control: the
+        /// platform keeps its own pressed, hover, focus and disabled rendering, its button role,
+        /// and its keyboard activation. The label color is not carried — each backend picks the
+        /// readable one for the fill (see [`ButtonStyleSpec::on_tint`]), the same call the
+        /// platform's own tinted buttons make.
+        ///
+        /// A backend with no way to recolor its button ignores this and draws its ordinary
+        /// button. That is the deliberate trade: a plain button everywhere beats a coloured
+        /// rectangle that is no longer a button on the platforms that cannot.
+        Tinted(Color),
+    }
+
+    impl ButtonStyleSpec {
+        /// The label color to draw on a [`ButtonStyleSpec::Tinted`] fill: whichever of black or
+        /// white CONTRASTS BETTER against it, by WCAG's contrast ratio.
+        ///
+        /// Comparing the two ratios rather than thresholding the luminance is the difference
+        /// between right and nearly right. A mid amber (`#F0A64C`) has a relative luminance of
+        /// 0.44 — under a "brighter than half" test it reads as dark and takes white text, at a
+        /// hopeless 2.2:1. Its contrast against BLACK is 9.7:1. The two ratios cross at a
+        /// luminance of 0.179, not 0.5, and everything between those two numbers is a button
+        /// nobody can read.
+        pub fn on_tint(fill: Color) -> Color {
+            // WCAG relative luminance: sRGB channels linearized, then weighted by the eye's
+            // sensitivity to each.
+            let lin = |c: f64| {
+                let c = c.clamp(0.0, 1.0);
+                if c <= 0.04045 {
+                    c / 12.92
+                } else {
+                    ((c + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            let l = 0.2126 * lin(fill.r) + 0.7152 * lin(fill.g) + 0.0722 * lin(fill.b);
+            // Contrast ratio is (lighter + 0.05) / (darker + 0.05); white is 1.0, black is 0.0.
+            let against_white = 1.05 / (l + 0.05);
+            let against_black = (l + 0.05) / 0.05;
+            if against_black >= against_white {
+                Color::BLACK
+            } else {
+                Color::WHITE
+            }
+        }
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -2211,6 +2256,9 @@ pub mod props {
     pub enum ButtonPatch {
         Title(String),
         Enabled(bool),
+        /// A live style change — what a reactive `.tint(…)` sends, so a button can recolor with
+        /// app state without being torn down and realized again.
+        Style(ButtonStyleSpec),
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]

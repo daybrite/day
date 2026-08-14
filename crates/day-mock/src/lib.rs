@@ -574,6 +574,9 @@ impl Toolkit for MockToolkit {
                         w.enabled = *e;
                         format!("enabled={e}")
                     }
+                    // Recorded so a walkthrough can see a reactive tint change, but the mock
+                    // has no pixels to apply it to.
+                    ButtonPatch::Style(s) => format!("style={s:?}"),
                 }
             } else if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                 match p {

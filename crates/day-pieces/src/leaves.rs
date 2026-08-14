@@ -1,8 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Leaf pieces — the childless primitives: `label`, `link`, `button` (plus the `ButtonStyle`
-//! hook), `toggle`, `slider`, `text_field`, `progress`/`spinner`, `divider`, and `spacer`.
+//! Leaf pieces — the childless primitives: `label`, `link`, `button`, `toggle`, `slider`, `text_field`, `progress`/`spinner`, `divider`, and `spacer`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,7 +9,7 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{bind, bind_seeded};
 use day_spec::props::*;
-use day_spec::{Event, Font, Insets, Role, kinds};
+use day_spec::{Event, Font, Role, kinds};
 
 use crate::*;
 
@@ -172,6 +171,9 @@ pub struct Button {
     title: TextSource,
     action: Option<Rc<dyn Fn()>>,
     native_style: day_spec::props::ButtonStyleSpec,
+    /// A reactive tint, kept apart from `native_style` so the colour can follow a signal. Set by
+    /// [`Button::tint`]; it wins over `bordered`/`prominent` because it is the more specific ask.
+    tint: Option<Reactive<day_spec::Color>>,
     enabled: Reactive<bool>,
 }
 
@@ -180,6 +182,7 @@ pub fn button<M>(title: impl IntoText<M>) -> Button {
         title: title.into_text(),
         action: None,
         native_style: day_spec::props::ButtonStyleSpec::Automatic,
+        tint: None,
         enabled: true.into_reactive(),
     }
 }
@@ -197,9 +200,6 @@ impl Button {
         self
     }
 
-    /// The platform's accent-filled / default-action button (iOS bordered-prominent, macOS
-    /// return-key blue, GTK suggested-action, XAML accent style). Use for the one primary
-    /// action of a view.
     /// Whether the button is interactive (default `true`; `false` = disabled/greyed by the native
     /// control). Reactive, so it can follow app state — e.g. `.enabled(move || !busy.get())` to
     /// lock a control while a long operation runs.
@@ -211,99 +211,67 @@ impl Button {
         self
     }
 
+    /// The platform's accent-filled / default-action button (iOS bordered-prominent, macOS
+    /// return-key blue, GTK suggested-action, XAML accent style). Use for the one primary
+    /// action of a view.
     pub fn prominent(mut self) -> Self {
         self.native_style = day_spec::props::ButtonStyleSpec::Prominent;
         self
     }
 
-    /// Render this button with a custom [`ButtonStyle`] (the SwiftUI `.buttonStyle(_)` analog):
-    /// the style's `body` builds the visual from the button's label, and the button's action is
-    /// wired via [`Decorate::on_tap`] on the composed result — a COMPOSED tappable view rather
-    /// than the default native `button` leaf. The unstyled [`button`] keeps the native leaf.
+    /// A filled button in a colour of your choosing, still drawn by the NATIVE control.
     ///
-    /// v1 has no pressed/hover state: the styled body is static. `s.label_color()` (if any) tints
-    /// the label before `body` sees it (`body` receives it type-erased and cannot recolor it).
-    pub fn style(self, s: impl ButtonStyle + 'static) -> AnyPiece {
-        let Button {
-            title,
-            action,
-            enabled,
-            ..
-        } = self;
-        let lbl = Label {
-            text: title,
-            font: Font::Body,
-            weight: None,
-            italic: false,
-            tabular: false,
-            color: s.label_color().map(Reactive::Const),
-        };
-        let styled = s.body(lbl.any());
-        // A styled button is COMPOSED from pieces, so there is no native control to grey out and
-        // `ButtonPatch::Enabled` never reaches it. Honor `enabled` the only way composition can:
-        // gate the tap and dim the body, so `.enabled(…)` is never silently ignored.
-        let gate = enabled.clone();
-        let styled = match &enabled {
-            Reactive::Const(true) => styled,
-            _ => styled.opacity(move || if enabled.get() { 1.0 } else { 0.4 }),
-        };
-        match action {
-            Some(action) => styled.on_tap(move || {
-                if gate.get() {
-                    action()
-                }
-            }),
-            None => styled,
-        }
-    }
-}
-
-/// A pluggable button appearance (the SwiftUI `ButtonStyle` analog). Pure composition — a style
-/// builds its body from existing pieces/decorators, so it needs no per-backend native code.
-/// Apply one with [`Button::style`].
-pub trait ButtonStyle {
-    /// Build the button's visual body from its (type-erased) `label` piece.
-    fn body(&self, label: AnyPiece) -> AnyPiece;
-    /// An optional label color applied by [`Button::style`] BEFORE the label reaches `body`.
-    /// Defaults to `None` (the label keeps its intrinsic color). A filled/colored style overrides
-    /// this to guarantee contrast — since `body` gets the label type-erased and cannot recolor it,
-    /// this is the seam through which a style tints its label. [`FilledButtonStyle`] returns white.
-    fn label_color(&self) -> Option<day_spec::Color> {
-        None
-    }
-}
-
-/// A filled, rounded button style: a solid `color` background with a white label and comfortable
-/// padding, composed from [`Decorate::padding`]/[`Decorate::background`]/[`Decorate::corner_radius`].
-/// v1 is static (no pressed/hover feedback).
-pub struct FilledButtonStyle {
-    pub color: day_spec::Color,
-}
-
-impl ButtonStyle for FilledButtonStyle {
-    fn body(&self, label: AnyPiece) -> AnyPiece {
-        label
-            .padding(Insets::symmetric(16.0, 8.0))
-            .background(self.color)
-            .corner_radius(8.0)
-    }
-    fn label_color(&self) -> Option<day_spec::Color> {
-        Some(day_spec::Color::WHITE)
+    /// The platform keeps everything that makes a button a button: its pressed and hover
+    /// rendering, its focus ring, its disabled look, its accessibility role, and keyboard
+    /// activation. Only the fill is yours. The label colour is chosen for contrast against the
+    /// fill, so a pale tint gets dark text and a saturated one white.
+    ///
+    /// Reactive, so the colour can follow app state — `.tint(move || if recording { RUST } else
+    /// { SKY })` recolors in place rather than rebuilding the button.
+    ///
+    /// A backend that cannot recolor its button ignores the tint and draws its ordinary button
+    /// (docs/buttons.md). That is deliberate: a plain button on one platform is a far smaller
+    /// loss than a coloured rectangle that is no longer a button.
+    pub fn tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
+        self.tint = Some(color.into_reactive());
+        self
     }
 }
 
 impl Piece for Button {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let initial = self.title.initial();
+        // A tint is the most specific style ask, so it wins over bordered/prominent.
+        let style = match &self.tint {
+            Some(c) => day_spec::props::ButtonStyleSpec::Tinted(c.get_untracked()),
+            None => self.native_style,
+        };
         let node = cx.leaf(
             kinds::BUTTON,
             &ButtonProps {
                 title: initial,
                 enabled: self.enabled.get_untracked(),
-                style: self.native_style,
+                style,
             },
             Flex::default(),
         );
+        // A reactive tint recolors in place; a constant one was applied at realize above.
+        if let Some(c @ Reactive::Dyn(_)) = self.tint.clone() {
+            bind(
+                move || c.get(),
+                move |col: &day_spec::Color| {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(ButtonPatch::Style(
+                                day_spec::props::ButtonStyleSpec::Tinted(*col),
+                            )),
+                            false,
+                        )
+                    });
+                },
+            );
+        }
         // A reactive `enabled` patches on change; a constant is applied once at realize — the same
         // shape `Toggle` uses.
         let enabled = self.enabled;

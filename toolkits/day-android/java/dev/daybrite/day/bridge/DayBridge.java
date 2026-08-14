@@ -592,6 +592,26 @@ public final class DayBridge {
         return b;
     }
 
+    /**
+     * Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted (argb/fg).
+     *
+     * A tint is `backgroundTint` on the MaterialButton, so Material keeps drawing the ripple, the
+     * state overlays and the disabled alpha itself — the view stays a MaterialButton, with its
+     * role, focus and keyboard activation intact. Anything but a tint leaves the stock M3 look,
+     * which is already the filled button day's `prominent` asks for.
+     */
+    public static void setButtonStyle(View v, int kind, int argb, int fgArgb) {
+        if (!(v instanceof MaterialButton)) return;
+        MaterialButton b = (MaterialButton) v;
+        if (kind != 3) {
+            b.setBackgroundTintList(null);
+            return;
+        }
+        b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(argb));
+        b.setTextColor(fgArgb);
+        b.setIconTint(android.content.res.ColorStateList.valueOf(fgArgb));
+    }
+
     /** Attach a tap or drag recognizer to a view (docs/shapes.md). Coordinates are px; Rust
      *  converts to dp. Event kind 11; num = phase (0=tap 1=began 2=changed 3=ended). */
     /** Per-view enabled gestures `{wantsTap, wantsDrag}` — a view can carry both (tap + drag), so

@@ -140,6 +140,37 @@ fn attr(el: u32, a: &str, v: &str) {
 fn text(el: u32, t: &str) {
     unsafe { day_dom_set_text(el, t.as_ptr(), t.len()) };
 }
+/// Put a [`ButtonStyleSpec`] on a `<button>`, keeping it a `<button>`.
+///
+/// A tint sets two CSS custom properties and adds `.tinted`; day.css does the rest, including
+/// the `:hover`/`:active`/`:disabled` rules every `.day-btn` already has. Painting the colours
+/// through variables rather than inline `background` is what lets those state rules keep
+/// working — an inline background would win over them.
+fn apply_button_style(el: u32, style: ButtonStyleSpec) {
+    // Clear the others first, so a patch between styles cannot leave two classes on.
+    class(el, "prominent", false);
+    class(el, "bordered", false);
+    class(el, "tinted", false);
+    match style {
+        ButtonStyleSpec::Prominent => class(el, "prominent", true),
+        ButtonStyleSpec::Bordered => class(el, "bordered", true),
+        ButtonStyleSpec::Tinted(c) => {
+            let css = |x: day_spec::Color| {
+                format!(
+                    "rgb({} {} {})",
+                    (x.r.clamp(0.0, 1.0) * 255.0) as u8,
+                    (x.g.clamp(0.0, 1.0) * 255.0) as u8,
+                    (x.b.clamp(0.0, 1.0) * 255.0) as u8
+                )
+            };
+            s(el, "--day-tint", &css(c));
+            s(el, "--day-tint-fg", &css(ButtonStyleSpec::on_tint(c)));
+            class(el, "tinted", true);
+        }
+        ButtonStyleSpec::Automatic => {}
+    }
+}
+
 fn class(el: u32, c: &str, on: bool) {
     unsafe { day_dom_set_class(el, c.as_ptr(), c.len(), on as u32) };
 }
@@ -871,11 +902,7 @@ impl Toolkit for Dom {
                 };
                 let el = unsafe { day_dom_create(EL_BUTTON) };
                 text(el, &p.title);
-                match p.style {
-                    ButtonStyleSpec::Prominent => class(el, "prominent", true),
-                    ButtonStyleSpec::Bordered => class(el, "bordered", true),
-                    ButtonStyleSpec::Automatic => {}
-                }
+                apply_button_style(el, p.style);
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
@@ -1224,6 +1251,7 @@ impl Toolkit for Dom {
                     match p {
                         ButtonPatch::Title(t) => text(el, t),
                         ButtonPatch::Enabled(e) => set_enabled(el, *e),
+                        ButtonPatch::Style(st) => apply_button_style(el, *st),
                     }
                 }
             }

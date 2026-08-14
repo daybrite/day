@@ -87,6 +87,28 @@ fn emit_deferred(id: NodeId, ev: Event) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
+/// Pack a colour as `0xAARRGGBB`, the form the shim reads.
+fn argb(c: day_spec::Color) -> u32 {
+    let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
+    (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
+}
+
+/// Hand a [`day_spec::props::ButtonStyleSpec`] to the shim, which styles the QPushButton in
+/// place. The widget stays a QPushButton, so focus, Space/Enter activation and the a11y role
+/// are unaffected whatever the style is.
+fn apply_button_style(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
+    use day_spec::props::ButtonStyleSpec as S;
+    let (kind, fill) = match style {
+        S::Automatic => (0, day_spec::Color::CLEAR),
+        S::Bordered => (1, day_spec::Color::CLEAR),
+        S::Prominent => (2, day_spec::Color::CLEAR),
+        S::Tinted(c) => (3, c),
+    };
+    // SAFETY: `w` is a live QPushButton created by `day_qt_button_new`; the shim only reads the
+    // packed colours.
+    unsafe { ffi::day_qt_button_set_style(w, kind, argb(fill), argb(S::on_tint(fill))) };
+}
+
 pub(crate) fn cstr(s: &str) -> CString {
     // An interior NUL must not blank the whole string — a label, a menu item, a window title
     // would silently vanish. Strip the NULs and keep the visible text.
@@ -1285,6 +1307,7 @@ impl Toolkit for Qt {
                         return placeholder_handle(kind);
                     };
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
+                    apply_button_style(w, p.style);
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
@@ -1640,6 +1663,7 @@ impl Toolkit for Qt {
                                 ffi::day_qt_button_set_title(h.0, cstr(t).as_ptr())
                             }
                             ButtonPatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            ButtonPatch::Style(s) => apply_button_style(h.0, *s),
                         }
                     }
                 }

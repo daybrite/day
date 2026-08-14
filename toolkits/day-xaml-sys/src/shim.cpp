@@ -2521,15 +2521,34 @@ void* day_xaml_button_new(const char* title, unsigned long long id, void (*cb)(u
     return boxh(b);
 }
 
-// ButtonStyleSpec::Prominent — the accent-filled style, where the resource set provides it.
-void day_xaml_button_prominent(void* h) {
+/// Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted.
+///
+/// Prominent takes the resource set's AccentButtonStyle where it exists. A tint sets Background
+/// and Foreground on the Button, which leaves it a Button — its pointer-over and pressed visual
+/// states, focus rectangle, keyboard activation and automation peer are all still XAML's.
+///
+/// The pressed state is the caveat worth knowing: the default template's PointerOver/Pressed
+/// brushes come from the theme, and a local Background wins over them, so a tinted button dims
+/// less than a stock one. Setting per-state brushes needs a full template, which would replace
+/// the control rather than style it.
+void day_xaml_button_set_style(void* h, int kind, unsigned argb, unsigned fg_argb) {
     auto b = elem(h).try_as<WUXC::Button>();
     if (!b) return;
-    auto res = WUX::Application::Current().Resources();
-    auto key = winrt::box_value(winrt::hstring(L"AccentButtonStyle"));
-    if (res.HasKey(key)) {
-        if (auto style = res.Lookup(key).try_as<WUX::Style>()) b.Style(style);
+    b.ClearValue(WUXC::Control::BackgroundProperty());
+    b.ClearValue(WUXC::Control::ForegroundProperty());
+    b.ClearValue(WUX::FrameworkElement::StyleProperty());
+    if (kind == 2) {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"AccentButtonStyle"));
+        if (res.HasKey(key)) {
+            if (auto style = res.Lookup(key).try_as<WUX::Style>()) b.Style(style);
+        }
+        return;
     }
+    if (kind != 3) return;
+    // `brush_bits` is this file's own 0xAARRGGBB → SolidColorBrush helper.
+    b.Background(brush_bits(argb));
+    b.Foreground(brush_bits(fg_argb));
 }
 void day_xaml_button_set_title(void* h, const char* t) {
     if (auto b = elem(h).try_as<WUXC::Button>()) b.Content(winrt::box_value(hs(t)));

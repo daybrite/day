@@ -2449,6 +2449,44 @@ mod imp {
         }
     }
 
+    /// Put a [`day_spec::props::ButtonStyleSpec`] on a `UIButton`, keeping it a UIButton.
+    ///
+    /// Bordered / Prominent map to `UIButtonConfiguration` tiers (iOS 15+) — the plain system
+    /// button reads as a LINK, not a button. A tint is the FILLED configuration with
+    /// `baseBackgroundColor`, so UIKit still draws the press dimming, the disabled state and the
+    /// focus/pointer effects itself.
+    ///
+    /// A configured button takes its title from the configuration, so the title is set on
+    /// whichever path this takes.
+    fn apply_button_style(
+        btn: &UIButton,
+        title: &str,
+        style: day_spec::props::ButtonStyleSpec,
+        mtm: MainThreadMarker,
+    ) {
+        use day_spec::props::ButtonStyleSpec as S;
+        use objc2_ui_kit::UIButtonConfiguration;
+        unsafe {
+            let config = match style {
+                S::Automatic => {
+                    btn.setConfiguration(None);
+                    btn.setTitle_forState(Some(&NSString::from_str(title)), UIControlState::Normal);
+                    return;
+                }
+                S::Prominent => UIButtonConfiguration::borderedProminentButtonConfiguration(mtm),
+                S::Bordered => UIButtonConfiguration::borderedButtonConfiguration(mtm),
+                S::Tinted(c) => {
+                    let config = UIButtonConfiguration::filledButtonConfiguration(mtm);
+                    config.setBaseBackgroundColor(Some(&uicolor(c)));
+                    config.setBaseForegroundColor(Some(&uicolor(S::on_tint(c))));
+                    config
+                }
+            };
+            config.setTitle(Some(&NSString::from_str(title)));
+            btn.setConfiguration(Some(&config));
+        }
+    }
+
     fn uicolor(c: day_spec::Color) -> Retained<UIColor> {
         unsafe { UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a) }
     }
@@ -3651,28 +3689,8 @@ mod imp {
                     };
                     let target = DayTarget::new(mtm, id);
                     let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
+                    apply_button_style(&btn, &p.title, p.style, mtm);
                     unsafe {
-                        // Bordered / Prominent map to UIButtonConfiguration tiers (iOS 15+) —
-                        // the plain system button reads as a LINK, not a button. A configured
-                        // button takes its title from the configuration, so set it there.
-                        match p.style {
-                            day_spec::props::ButtonStyleSpec::Automatic => {
-                                btn.setTitle_forState(
-                                    Some(&NSString::from_str(&p.title)),
-                                    UIControlState::Normal,
-                                );
-                            }
-                            style => {
-                                let config = match style {
-                                    day_spec::props::ButtonStyleSpec::Prominent => {
-                                        objc2_ui_kit::UIButtonConfiguration::borderedProminentButtonConfiguration(mtm)
-                                    }
-                                    _ => objc2_ui_kit::UIButtonConfiguration::borderedButtonConfiguration(mtm),
-                                };
-                                config.setTitle(Some(&NSString::from_str(&p.title)));
-                                btn.setConfiguration(Some(&config));
-                            }
-                        }
                         let tobj: &AnyObject = target.as_ref();
                         btn.addTarget_action_forControlEvents(
                             Some(tobj),
@@ -4143,6 +4161,18 @@ mod imp {
                                 }
                             },
                             ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
+                            ButtonPatch::Style(s) => {
+                                // Re-apply with the CURRENT title: a configured button carries
+                                // its title in the configuration, which this replaces.
+                                let title = unsafe {
+                                    btn.configuration()
+                                        .and_then(|c| c.title())
+                                        .or_else(|| btn.titleForState(UIControlState::Normal))
+                                        .map(|s| s.to_string())
+                                }
+                                .unwrap_or_default();
+                                apply_button_style(btn, &title, *s, mtm());
+                            }
                         }
                     }
                 }

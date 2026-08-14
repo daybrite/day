@@ -145,6 +145,9 @@ body.day-has-toolbar #day-root {
 .day-btn:active:not(:disabled) { filter: brightness(0.92); }
 .day-btn:disabled { opacity: 0.4; cursor: default; }
 .day-btn.prominent { background: var(--day-accent); color: var(--day-accent-fg); }
+/* An app-chosen fill, still a <button>: the :hover/:active/:disabled rules above apply to it
+   unchanged, which is the whole point of tinting through a variable rather than inline. */
+.day-btn.tinted { background: var(--day-tint); color: var(--day-tint-fg); border-color: transparent; }
 .day-btn.bordered {
   background: transparent;
   border: 1px solid var(--day-control-border);

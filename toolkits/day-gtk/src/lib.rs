@@ -58,6 +58,70 @@ thread_local! {
     static SNAP_WAIT_TARGET: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
+// Tint colours whose CSS provider is already installed on the display, keyed by `rrggbb`.
+//
+// GTK 4.10 deprecated per-widget providers, and the replacement is DISPLAY-wide — so the rule
+// has to be selective rather than the widget. Each colour gets its own class and its own
+// provider, installed once; a second button in the same colour reuses it.
+thread_local! {
+    static TINT_PROVIDERS: RefCell<std::collections::HashSet<String>> =
+        RefCell::new(std::collections::HashSet::new());
+}
+
+/// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a GtkButton.
+///
+/// Prominent is Adwaita's own `suggested-action`. A tint sets `background-image` (which is what
+/// Adwaita's button styling uses, so a plain `background-color` would be painted over) and the
+/// label colour. GTK keeps drawing the button, so `:hover`, `:active`, `:focus` and `:disabled`
+/// still come from the theme.
+fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpec) {
+    use day_spec::props::ButtonStyleSpec as S;
+    use gtk4::prelude::*;
+    let hex = |x: day_spec::Color| {
+        format!(
+            "{:02x}{:02x}{:02x}",
+            (x.r.clamp(0.0, 1.0) * 255.0) as u8,
+            (x.g.clamp(0.0, 1.0) * 255.0) as u8,
+            (x.b.clamp(0.0, 1.0) * 255.0) as u8
+        )
+    };
+    btn.remove_css_class("suggested-action");
+    // Drop any tint class from a previous style, so a patch cannot leave two fills fighting.
+    for c in btn.css_classes() {
+        if c.starts_with("day-tint-") {
+            btn.remove_css_class(&c);
+        }
+    }
+    match style {
+        S::Prominent => btn.add_css_class("suggested-action"),
+        S::Tinted(c) => {
+            let key = hex(c);
+            let class = format!("day-tint-{key}");
+            TINT_PROVIDERS.with(|set| {
+                if set.borrow().contains(&key) {
+                    return;
+                }
+                let Some(display) = gtk4::gdk::Display::default() else {
+                    return;
+                };
+                let provider = gtk4::CssProvider::new();
+                provider.load_from_data(&format!(
+                    "button.{class} {{ background-image: image(#{key}); color: #{}; }}",
+                    hex(S::on_tint(c))
+                ));
+                gtk4::style_context_add_provider_for_display(
+                    &display,
+                    &provider,
+                    gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+                set.borrow_mut().insert(key);
+            });
+            btn.add_css_class(&class);
+        }
+        S::Bordered | S::Automatic => {}
+    }
+}
+
 fn cairo_set_color(cr: &gtk4::cairo::Context, bits: f64) {
     let v = bits as u32;
     cr.set_source_rgba(
@@ -2134,11 +2198,7 @@ impl Toolkit for Gtk {
                     return placeholder_label(kind);
                 };
                 let btn = gtk4::Button::with_label(&p.title);
-                // Prominent = Adwaita's accent-filled suggested action. Bordered is the stock
-                // GTK button look already.
-                if p.style == day_spec::props::ButtonStyleSpec::Prominent {
-                    btn.add_css_class("suggested-action");
-                }
+                apply_button_style(&btn, p.style);
                 btn.connect_clicked(move |_| ffi_guard::contain((), || emit(id, Event::Pressed)));
                 wire_focus(&btn, id);
                 btn.upcast()
@@ -2709,6 +2769,7 @@ impl Toolkit for Gtk {
                     match p {
                         ButtonPatch::Title(t) => btn.set_label(t),
                         ButtonPatch::Enabled(e) => btn.set_sensitive(*e),
+                        ButtonPatch::Style(s) => apply_button_style(btn, *s),
                     }
                 }
             }

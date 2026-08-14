@@ -99,6 +99,7 @@ unsafe extern "C" {
 
     pub fn day_qt_button_new(title: *const c_char, id: u64, cb: extern "C" fn(u64)) -> *mut c_void;
     pub fn day_qt_button_set_title(w: *mut c_void, title: *const c_char);
+    pub fn day_qt_button_set_style(w: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
 
     pub fn day_qt_checkbox_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_checkbox_set(w: *mut c_void, on: c_int);

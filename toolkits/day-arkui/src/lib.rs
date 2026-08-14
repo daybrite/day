@@ -419,6 +419,26 @@ mod imp {
     const K_LIST: c_int = 13;
     // 14 = ARKUI_NODE_LIST_ITEM, created inside the shim's list adapter (never via new_node here).
 
+    /// Put a [`day_spec::props::ButtonStyleSpec`] on an ArkUI button node, keeping it a button.
+    ///
+    /// A tint is `NODE_BACKGROUND_COLOR` + `NODE_FONT_COLOR` on the button node itself, so ArkUI
+    /// still draws the press effect, the focus ring and the disabled state. The other styles are the
+    /// stock button, which is already ArkUI's filled capsule — the shape `prominent` is asking for.
+    fn apply_button_style(n: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
+        use day_spec::props::ButtonStyleSpec as S;
+        let argb = |c: day_spec::Color| {
+            let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
+            (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
+        };
+        if let S::Tinted(c) = style {
+            // SAFETY: `n` is a live ARKUI_NODE_BUTTON; both setters take a packed colour.
+            unsafe {
+                ffi::day_ark_set_bg_color(n, argb(c));
+                ffi::day_ark_set_font_color(n, argb(S::on_tint(c)));
+            }
+        }
+    }
+
     fn new_node(kind: c_int) -> AHandle {
         AHandle(unsafe { ffi::day_ark_node_new(kind) })
     }
@@ -1024,6 +1044,7 @@ mod imp {
                         ffi::day_ark_register_event(n.0, 0, id.0);
                         ffi::day_ark_enable_focus(n.0, id.0, 0);
                     }
+                    apply_button_style(n.0, p.style);
                     n
                 }
                 Some(Builtin::TextField) => {
@@ -1452,11 +1473,13 @@ mod imp {
                         }
                     }
                 }
-                kinds::BUTTON => {
-                    if let Some(ButtonPatch::Title(t)) = patch.downcast_ref::<ButtonPatch>() {
+                kinds::BUTTON => match patch.downcast_ref::<ButtonPatch>() {
+                    Some(ButtonPatch::Title(t)) => {
                         unsafe { ffi::day_ark_set_button_label(h.0, cstr(t).as_ptr()) };
                     }
-                }
+                    Some(ButtonPatch::Style(s)) => apply_button_style(h.0, *s),
+                    _ => {}
+                },
                 kinds::TOGGLE => {
                     if let Some(TogglePatch::On(on)) = patch.downcast_ref::<TogglePatch>() {
                         unsafe { ffi::day_ark_set_toggle(h.0, *on as c_int) };

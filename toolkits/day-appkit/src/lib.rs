@@ -84,6 +84,12 @@ thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Keeps each control's `DayTarget` alive (target/action holds it weakly).
     static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
+    /// The style each button currently carries, keyed by its view pointer.
+    ///
+    /// Needed because a tinted title is an ATTRIBUTED string (see `set_button_title`), and
+    /// `ButtonPatch::Title` would otherwise replace it with a plain one and lose the colour.
+    static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Emit an event into day-core's queue (public: external Day Piece renderers use this too).
@@ -2077,6 +2083,78 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
     }
 }
 
+/// Put a [`day_spec::props::ButtonStyleSpec`] on an `NSButton`, keeping it an NSButton.
+///
+/// Prominent = the return-key default button. Tinted = `bezelColor`, which AppKit composites
+/// through the button's own bezel — so the pressed darkening, the focus ring and the disabled
+/// look all still come from the control rather than from us painting a rectangle.
+fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::ButtonStyleSpec) {
+    use day_spec::props::ButtonStyleSpec as S;
+    let title = unsafe { btn.title() }.to_string();
+    unsafe {
+        // Reset first, so a patch from one style to another leaves nothing of the old one.
+        btn.setKeyEquivalent(&NSString::from_str(""));
+        btn.setBezelColor(None);
+        match style {
+            S::Prominent => btn.setKeyEquivalent(&NSString::from_str("\r")),
+            S::Tinted(c) => btn.setBezelColor(Some(&nscolor(c))),
+            // Bordered is the stock NSButton look already; Automatic asks for nothing.
+            S::Bordered | S::Automatic => {}
+        }
+    }
+    BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
+    set_button_title(btn, &title, style);
+}
+
+/// Set a button's title, colouring it for the tint where there is one.
+///
+/// `contentTintColor` is NOT the seam for this: on a bordered `NSButton` it tints template
+/// IMAGES, and AppKit keeps drawing the title in its own control text colour — which is how a
+/// white-on-rust button came out black-on-rust. An ATTRIBUTED title is the documented way to
+/// control the text colour, so that is what a tinted button gets.
+///
+/// The button's own font is carried into the attributes: an attributed title supplies the whole
+/// run, so leaving the font out would drop the control font and render at the system default.
+fn set_button_title(
+    btn: &objc2_app_kit::NSButton,
+    title: &str,
+    style: day_spec::props::ButtonStyleSpec,
+) {
+    use day_spec::props::ButtonStyleSpec as S;
+    let S::Tinted(fill) = style else {
+        // Plain title: AppKit picks the label colour that suits the bezel it is drawing.
+        unsafe { btn.setTitle(&NSString::from_str(title)) };
+        return;
+    };
+    unsafe {
+        let col = nscolor(S::on_tint(fill));
+        let font = btn
+            .font()
+            .unwrap_or_else(|| NSFont::systemFontOfSize(NSFont::systemFontSize()));
+        // Centred, matching a plain NSButton title: an attributed title carries its own
+        // paragraph style, and the default is left-aligned.
+        let para = objc2_app_kit::NSMutableParagraphStyle::new();
+        para.setAlignment(objc2_app_kit::NSTextAlignment::Center);
+        let keys: [&NSString; 3] = [
+            objc2_app_kit::NSFontAttributeName,
+            objc2_app_kit::NSForegroundColorAttributeName,
+            objc2_app_kit::NSParagraphStyleAttributeName,
+        ];
+        let objs: [&objc2::runtime::AnyObject; 3] = [
+            font.as_ref() as &objc2::runtime::AnyObject,
+            col.as_ref() as &objc2::runtime::AnyObject,
+            para.as_ref() as &objc2::runtime::AnyObject,
+        ];
+        let attrs = objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+        let s = objc2_foundation::NSAttributedString::initWithString_attributes(
+            objc2_foundation::NSAttributedString::alloc(),
+            &NSString::from_str(title),
+            Some(&attrs),
+        );
+        btn.setAttributedTitle(&s);
+    }
+}
+
 fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::NSBezierPath>> {
     use day_spec::Shape;
     use objc2_app_kit::NSBezierPath;
@@ -2784,11 +2862,7 @@ impl Toolkit for AppKit {
                         mtm,
                     )
                 };
-                // Prominent = the return-key default button (accent-filled). Bordered is the
-                // stock NSButton look already.
-                if p.style == day_spec::props::ButtonStyleSpec::Prominent {
-                    unsafe { btn.setKeyEquivalent(&NSString::from_str("\r")) };
-                }
+                apply_button_style(&btn, p.style);
                 let view = view_of(btn);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
@@ -3332,8 +3406,14 @@ impl Toolkit for AppKit {
                     h.clone().downcast::<NSButton>(),
                 ) {
                     match p {
-                        ButtonPatch::Title(t) => unsafe { btn.setTitle(&NSString::from_str(t)) },
+                        ButtonPatch::Title(t) => {
+                            let style = BUTTON_STYLES
+                                .with(|m| m.borrow().get(&ptr_of(&btn)).copied())
+                                .unwrap_or_default();
+                            set_button_title(&btn, t, style);
+                        }
                         ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
+                        ButtonPatch::Style(s) => apply_button_style(&btn, *s),
                     }
                 }
             }

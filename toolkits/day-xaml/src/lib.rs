@@ -511,6 +511,26 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+/// Hand a [`day_spec::props::ButtonStyleSpec`] to the shim, which styles the Button in place.
+/// The element stays a `Button`, so focus, keyboard activation and its automation peer are
+/// unaffected by the style.
+fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
+    use day_spec::props::ButtonStyleSpec as S;
+    let argb = |c: day_spec::Color| {
+        let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
+        (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
+    };
+    let (kind, fill) = match style {
+        S::Automatic => (0, day_spec::Color::CLEAR),
+        S::Bordered => (1, day_spec::Color::CLEAR),
+        S::Prominent => (2, day_spec::Color::CLEAR),
+        S::Tinted(c) => (3, c),
+    };
+    // SAFETY: `h` is a live Button handle from `day_xaml_button_new`; the shim only reads the
+    // packed colours.
+    unsafe { ffi::day_xaml_button_set_style(h, kind, argb(fill), argb(S::on_tint(fill))) };
+}
+
 fn cstr(s: &str) -> CString {
     // An interior NUL must not blank the whole string — a label, a menu item, a window title
     // would silently vanish. Strip the NULs and keep the visible text.
@@ -1179,10 +1199,7 @@ impl Toolkit for Xaml {
                         return placeholder_handle(kind);
                     };
                     let h = ffi::day_xaml_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
-                    // Prominent = the accent-filled style; Bordered is XAML's stock look.
-                    if p.style == day_spec::props::ButtonStyleSpec::Prominent {
-                        ffi::day_xaml_button_prominent(h);
-                    }
+                    apply_button_style(h, p.style);
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
@@ -1409,6 +1426,7 @@ impl Toolkit for Xaml {
                                 ffi::day_xaml_button_set_title(h.0, cstr(t).as_ptr())
                             }
                             ButtonPatch::Enabled(e) => ffi::day_xaml_set_enabled(h.0, *e as c_int),
+                            ButtonPatch::Style(s) => apply_button_style(h.0, *s),
                         }
                     }
                 }

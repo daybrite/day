@@ -757,6 +757,35 @@ mod imp {
     /// visible `⟨method⟩` placeholder label stands in, so one broken view cannot take down
     /// the whole tree build. [`try_make_view`] is the fallible form for callers that want
     /// to handle the failure themselves.
+    /// Pack a colour the way `android.graphics.Color` wants it (`0xAARRGGBB`, as a signed int).
+    pub fn argb(c: day_spec::Color) -> i32 {
+        let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
+        ((f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)) as i32
+    }
+
+    /// Style a button in place through the bridge. The view stays a `MaterialButton`, so its
+    /// ripple, state overlays, focus and accessibility role are Material's, not ours.
+    pub fn apply_button_style(env: &mut Env, v: &Gref, style: day_spec::props::ButtonStyleSpec) {
+        use day_spec::props::ButtonStyleSpec as S;
+        let (kind, fill) = match style {
+            S::Automatic => (0, day_spec::Color::CLEAR),
+            S::Bordered => (1, day_spec::Color::CLEAR),
+            S::Prominent => (2, day_spec::Color::CLEAR),
+            S::Tinted(c) => (3, c),
+        };
+        let _ = env.dcall_static(
+            BRIDGE,
+            "setButtonStyle",
+            "(Landroid/view/View;III)V",
+            &[
+                JValue::Object(v.as_obj()),
+                JValue::Int(kind),
+                JValue::Int(argb(fill)),
+                JValue::Int(argb(S::on_tint(fill))),
+            ],
+        );
+    }
+
     pub fn make_view(env: &mut Env, method: &str, sig: &str, args: &[JValue]) -> Gref {
         match try_make_view(env, method, sig, args) {
             Ok(g) => g,
@@ -1936,12 +1965,14 @@ mod imp {
                     };
                     with_env(|env| {
                         let s = jstr(env, &p.title);
-                        AHandle(make_view(
+                        let v = make_view(
                             env,
                             "makeButton",
                             "(JLjava/lang/String;)Landroid/view/View;",
                             &[JValue::Long(idj), JValue::Object(&s)],
-                        ))
+                        );
+                        apply_button_style(env, &v, p.style);
+                        AHandle(v)
                     })
                 }
                 Some(Builtin::Toggle) => {
@@ -2342,6 +2373,9 @@ mod imp {
                                 "(Landroid/view/View;Z)V",
                                 &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
                             ),
+                            ButtonPatch::Style(s) => {
+                                with_env(|env| apply_button_style(env, &h.0, *s))
+                            }
                         }
                     }
                 }

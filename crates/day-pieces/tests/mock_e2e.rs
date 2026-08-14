@@ -2497,54 +2497,81 @@ fn modifier_closure_wraps_the_piece() {
 }
 
 #[test]
-fn filled_button_style_tints_its_label_white() {
-    assert_eq!(
-        FilledButtonStyle {
-            color: Color::hex(0x2F6FDE)
-        }
-        .label_color(),
-        Some(Color::WHITE)
-    );
+fn a_tint_picks_a_readable_label_colour() {
+    use day_spec::props::ButtonStyleSpec as S;
+    // The showcase palette, which is what this rule is judged on in practice.
+    assert_eq!(S::on_tint(Color::hex(0x2F6FDE)), Color::WHITE, "sky");
+    assert_eq!(S::on_tint(Color::hex(0xC2491D)), Color::WHITE, "rust");
+    assert_eq!(S::on_tint(Color::hex(0x7C5CD6)), Color::WHITE, "violet");
+    // The one that a luminance-over-half test gets WRONG: amber is 0.44, so that test calls it
+    // dark and puts white on it at 2.2:1. Against black it is 9.7:1.
+    assert_eq!(S::on_tint(Color::hex(0xF0A64C)), Color::BLACK, "amber");
+    assert_eq!(S::on_tint(Color::WHITE), Color::BLACK);
+    assert_eq!(S::on_tint(Color::BLACK), Color::WHITE);
+    // Either choice must clear WCAG AA for large text (3:1) on every colour above.
+    for hex in [0x2F6FDE, 0xC2491D, 0x7C5CD6, 0xF0A64C, 0x3AA76D] {
+        let fill = Color::hex(hex);
+        let lin = |c: f64| {
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let l = 0.2126 * lin(fill.r) + 0.7152 * lin(fill.g) + 0.0722 * lin(fill.b);
+        let ratio = if S::on_tint(fill) == Color::BLACK {
+            (l + 0.05) / 0.05
+        } else {
+            1.05 / (l + 0.05)
+        };
+        assert!(
+            ratio >= 3.0,
+            "{hex:#08x} contrast {ratio:.2}:1 is below 3:1"
+        );
+    }
 }
 
+/// The invariant: `button()` ALWAYS realizes a native button leaf. A tint changes its colour and
+/// nothing else — it must never be composed into a container with a tap handler, which would
+/// cost the platform's focus ring, its pressed rendering and its accessibility role.
 #[test]
-fn button_style_renders_a_composed_tappable_not_a_native_leaf() {
+fn a_tinted_button_is_still_a_native_button() {
     let clicks = std::rc::Rc::new(std::cell::Cell::new(0));
     let c2 = clicks.clone();
     let probe = boot(move || {
         button("Go")
             .action(move || c2.set(c2.get() + 1))
-            .style(FilledButtonStyle {
-                color: Color::hex(0x2F6FDE),
-            })
+            .tint(Color::hex(0x2F6FDE))
+            .any()
     });
-    // A styled button is composed from pieces — no native button leaf is realized.
+    let buttons = probe.find_by_kind("day.button");
+    assert_eq!(buttons.len(), 1, "a native button leaf, not a composition");
+    assert_eq!(buttons[0].1.text, "Go");
+    // No stand-in surface: a container PAINTED with the tint is exactly what this guarantees
+    // against. (The root container the harness mounts into is expected and carries no fill.)
     assert!(
-        probe.find_by_kind("day.button").is_empty(),
-        "styled button uses no native leaf"
-    );
-    let labels = probe.find_by_kind("day.label");
-    assert_eq!(labels.len(), 1);
-    assert_eq!(labels[0].1.text, "Go");
-    // The filled surface + rounded clip are present.
-    let containers = probe.find_by_kind("day.container");
-    assert!(
-        containers
+        probe
+            .find_by_kind("day.container")
             .iter()
-            .any(|(_, w)| w.background == Some(Color::hex(0x2F6FDE))),
-        "colored fill surface"
+            .all(|(_, w)| w.background.is_none()),
+        "no painted surface stands in for the button"
     );
-    let clip = containers
-        .iter()
-        .find(|(_, w)| w.clips && w.corner_radius == 8.0)
-        .expect("rounded clip surface");
-    // The action fires through the composed on_tap wired onto the outer surface.
-    probe.emit(
-        NodeId(clip.1.node),
-        Event::Tap(day_spec::Point::new(1.0, 1.0)),
+    // And the label is the button's own, not a separate label piece inside a composition.
+    assert!(
+        probe.find_by_kind("day.label").is_empty(),
+        "the title belongs to the native button"
     );
+    // And it still fires as a button does.
+    probe.emit(NodeId(buttons[0].1.node), Event::Pressed);
     flush_sync();
-    assert_eq!(clicks.get(), 1, "composed tap triggers the button action");
+    assert_eq!(clicks.get(), 1);
+}
+
+/// A tint wins over `prominent`, and says so rather than silently dropping one of them.
+#[test]
+fn a_tint_overrides_prominent_and_stays_native() {
+    let probe = boot(|| button("Go").prominent().tint(Color::hex(0x2F6FDE)).any());
+    assert_eq!(probe.find_by_kind("day.button").len(), 1);
 }
 
 #[test]

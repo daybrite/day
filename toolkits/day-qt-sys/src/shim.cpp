@@ -524,6 +524,36 @@ void day_qt_button_set_title(void *w, const char *title) {
     static_cast<QPushButton *>(w)->setText(QString::fromUtf8(title));
 }
 
+/// Style a button WITHOUT replacing it: `kind` 0 automatic, 1 bordered, 2 prominent, 3 tinted.
+///
+/// A tint is a stylesheet on the QPushButton itself, so it stays a real button — focus, keyboard
+/// activation (Space/Enter) and the accessibility role are the widget's, not ours. The stylesheet
+/// spells out :hover, :pressed and :disabled, because setting a background-color makes Qt stop
+/// drawing the native bevel that would otherwise provide them.
+void day_qt_button_set_style(void *w, int kind, unsigned argb, unsigned fg_argb) {
+    QPushButton *b = static_cast<QPushButton *>(w);
+    if (kind != 3) {
+        b->setStyleSheet(QString());
+        // Prominent: Qt Widgets has no accent button, so this asks the style for the DEFAULT
+        // button treatment and otherwise leaves the stock look (graceful degradation).
+        b->setDefault(kind == 2);
+        return;
+    }
+    auto hex = [](unsigned c) {
+        return QString("#%1").arg(c & 0xFFFFFF, 6, 16, QChar('0'));
+    };
+    const QColor fill(QColor::fromRgb(argb));
+    const QString base = hex(argb), text = hex(fg_argb);
+    b->setStyleSheet(QString("QPushButton { background-color: %1; color: %2; border: none;"
+                             " border-radius: 6px; padding: 6px 14px; }"
+                             "QPushButton:hover:!pressed { background-color: %3; }"
+                             "QPushButton:pressed { background-color: %4; }"
+                             "QPushButton:disabled { background-color: %5; color: %6; }")
+                         .arg(base, text,
+                              hex(fill.lighter(112).rgb()), hex(fill.darker(115).rgb()),
+                              hex(fill.lighter(140).rgb()), hex(QColor(150, 150, 150).rgb())));
+}
+
 // --- toggle (checkbox: Qt Widgets has no native switch) ---
 void *day_qt_checkbox_new(int on, uint64_t id, void (*cb)(uint64_t, int)) {
     QCheckBox *c = new QCheckBox();
