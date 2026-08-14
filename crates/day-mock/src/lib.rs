@@ -49,6 +49,10 @@ pub struct MockWidget {
     pub surface_role: Option<day_spec::SurfaceRole>,
     /// A label's resolved font spec (probe-visible so tests can assert e.g. `Font::Custom` flow).
     pub font: Option<day_spec::FontSpec>,
+    /// A label's styled spans (docs/text-runs.md). Probe-visible so a test can assert that the
+    /// SECOND word is bold — which no screenshot comparison can state and no `assert_text` can
+    /// see, since the plain text is identical either way.
+    pub runs: Vec<day_spec::TextRun>,
     /// Last focus state driven through the `focus` duty (docs/focus.md) — probe-visible.
     pub focused: bool,
     /// Last opacity applied via `set_opacity` (§8.4) — `None` until touched (probe-visible).
@@ -423,6 +427,11 @@ impl Toolkit for MockToolkit {
             Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
+            // Styled runs land in `WidgetProbe::runs`, which is what a test asserts on
+            // (docs/text-runs.md). ACTIVATING a link is not modelled — nothing in the mock
+            // hit-tests text — so `Cap::TextLinks` stays Unsupported in the default arm; a test
+            // that wants the rail emits `Event::LinkActivated` itself.
+            Cap::TextRuns => Support::Native,
             // The mock "runs" backend-executed animation by recording the intent (probe-visible).
             Cap::Animation => Support::Native,
             // Covers "present" by recording the patch (probe-visible); tests emit the
@@ -562,6 +571,11 @@ impl Toolkit for MockToolkit {
                     LabelPatch::Font(f) => {
                         w.font = Some(*f);
                         "font".into()
+                    }
+                    LabelPatch::Runs(text, runs) => {
+                        w.text = text.clone();
+                        w.runs = runs.clone();
+                        format!("runs={}", runs.len())
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {

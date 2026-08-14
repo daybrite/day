@@ -424,6 +424,62 @@ mod imp {
     /// A tint is `NODE_BACKGROUND_COLOR` + `NODE_FONT_COLOR` on the button node itself, so ArkUI
     /// still draws the press effect, the focus ring and the disabled state. The other styles are the
     /// stock button, which is already ArkUI's filled capsule — the shape `prominent` is asking for.
+    /// Rebuild a label's SPAN children from its runs (docs/text-runs.md).
+    ///
+    /// ArkUI is the one backend where runs are child NODES rather than attributes on one widget: a
+    /// styled Text is a small subtree. Day's own layout still treats the label as a leaf, because
+    /// ArkUI measures the spans itself and reports the Text's size.
+    fn set_label_runs(n: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
+        if runs.is_empty() {
+            // Plain text goes back on the Text itself; `runs_begin` cleared it when runs arrived.
+            unsafe { ffi::day_ark_set_text(n, cstr(text).as_ptr()) };
+            return;
+        }
+        unsafe { ffi::day_ark_label_runs_begin(n) };
+        let add = |slice: &str, run: Option<&day_spec::TextRun>| {
+            let mut flags = 0i32;
+            let mut color = 0u32;
+            if let Some(r) = run {
+                if r.font
+                    .weight
+                    .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+                {
+                    flags |= 1;
+                }
+                if r.font.italic {
+                    flags |= 2;
+                }
+                if r.font.monospace {
+                    flags |= 4;
+                }
+                if r.strikethrough {
+                    flags |= 8;
+                }
+                if let Some(c) = r.color {
+                    flags |= 16;
+                    color = argb(c);
+                }
+            }
+            unsafe { ffi::day_ark_label_runs_add(n, cstr(slice).as_ptr(), flags, color) };
+        };
+        let mut at = 0usize;
+        for r in runs {
+            let Some(styled) = text.get(r.range.clone()) else {
+                continue;
+            };
+            if r.range.start > at
+                && let Some(plain) = text.get(at..r.range.start)
+            {
+                add(plain, None);
+            }
+            add(styled, Some(r));
+            at = r.range.end;
+        }
+        if let Some(tail) = text.get(at..) {
+            add(tail, None);
+        }
+    }
+
     fn apply_button_style(n: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
         use day_spec::props::ButtonStyleSpec as S;
         let argb = |c: day_spec::Color| {
@@ -1032,6 +1088,9 @@ mod imp {
                         }
                     }
                     apply_font_attrs(n.0, p.font);
+                    if !p.runs.is_empty() {
+                        set_label_runs(n.0, &p.text, &p.runs);
+                    }
                     n
                 }
                 Some(Builtin::Button) => {
@@ -1470,6 +1529,7 @@ mod imp {
                                 unsafe { ffi::day_ark_set_font_size(h.0, font_vp(*f)) };
                                 apply_font_attrs(h.0, *f);
                             }
+                            LabelPatch::Runs(text, runs) => set_label_runs(h.0, text, runs),
                         }
                     }
                 }
@@ -1932,6 +1992,7 @@ mod imp {
                 Cap::Cover => Support::Emulated,
                 // Derived from NODE_FONT_SIZE — ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
+                Cap::TextRuns => Support::Native,
                 // Multiton DayWindowAbility instances (docs/windows.md) — Native only when
                 // the ArkTS host registered the launchers; an older host degrades to the
                 // cover fallback.

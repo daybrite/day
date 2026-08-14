@@ -32,6 +32,7 @@ mod forms;
 mod image;
 mod inputs;
 mod leaves;
+pub mod markdown;
 mod menus;
 mod nav;
 mod shapes;
@@ -63,14 +64,14 @@ pub mod prelude {
         Draw, FileUrl, FormSection, Grid, GridRow, HAlign, IntoFocusBinding, IntoFraction,
         IntoReactive, IntoText, ItemSlot, Link, List, MenuEntry, Modifier, NativeRef, NavItem,
         OpenFile, PathBuilder, Prompt, Reactive, Reorder, Route, RoutePath, SaveFile, Selector,
-        SelectorStyle, ShapeKind, ShapePiece, SignalRw, Stack, VAlign, VectorWeight, ZStack, alert,
-        app_menu, app_menu_reactive, arc, button, canvas, capsule, circle, column, confirm, cover,
-        current_route, divider, each, ellipse, environment, form, frame_clock, grid, grid_row,
-        image, item, label, labeled, line, link, list, menu_item, menu_role, menu_separator,
-        nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker, polygon,
-        progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params, row,
-        save_file, scroll, section, selector, shape, shape_group, shape_group_fn, slider, spacer,
-        spinner, stack, sub_menu, text_area, text_field, toggle, toolbar, toolbar_button,
+        SelectorStyle, ShapeKind, ShapePiece, SignalRw, Stack, TextBuilder, VAlign, VectorWeight,
+        ZStack, alert, app_menu, app_menu_reactive, arc, button, canvas, capsule, circle, column,
+        confirm, cover, current_route, divider, each, ellipse, environment, form, frame_clock,
+        grid, grid_row, image, item, label, labeled, line, link, list, menu_item, menu_role,
+        menu_separator, nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker,
+        polygon, progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params,
+        row, save_file, scroll, section, selector, shape, shape_group, shape_group_fn, slider,
+        spacer, spinner, stack, sub_menu, text_area, text_field, toggle, toolbar, toolbar_button,
         toolbar_flexible_space, toolbar_label, toolbar_menu, toolbar_reactive, toolbar_separator,
         toolbar_sidebar_toggle, toolbar_space, toolbar_toggle, vector, when, with_environment,
         zstack,

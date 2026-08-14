@@ -69,6 +69,9 @@ thread_local! {
     static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     /// Recycling-list host ptr → its ScrollViewer/content + cell pool (docs/list.md).
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// Label ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell a link
+    /// run's Hyperlink which node to report against. Entries drop in `release`.
+    static LABEL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     /// NAV_MENU widget ptr → row count (for measure).
     static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
     /// NAV host ptr → its native presentation (NavigationView split / two-pane, docs/navigation.md).
@@ -531,10 +534,84 @@ fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     unsafe { ffi::day_xaml_button_set_style(h, kind, argb(fill), argb(S::on_tint(fill))) };
 }
 
+/// Send a label's runs across as a begin + one add per run (docs/text-runs.md).
+///
+/// Runs become `Inline`s in the one `TextBlock`, so the paragraph still wraps and selects as a
+/// unit. Flags pack the styling so each run is a single call with no marshalling.
+fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextRun]) {
+    if runs.is_empty() {
+        // The plain setter also clears the Inlines, so a label losing its runs stops rendering
+        // the styled version.
+        unsafe { ffi::day_xaml_label_set_text(h, cstr(text).as_ptr()) };
+        return;
+    }
+    unsafe { ffi::day_xaml_label_runs_begin(h, node) };
+    let mut at = 0usize;
+    let mut add = |slice: &str, run: Option<&day_spec::TextRun>| {
+        let mut flags = 0i32;
+        let mut argb = 0u32;
+        let mut link = String::new();
+        if let Some(r) = run {
+            if r.font
+                .weight
+                .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+            {
+                flags |= 1;
+            }
+            if r.font.italic {
+                flags |= 2;
+            }
+            if r.font.monospace {
+                flags |= 4;
+            }
+            if r.strikethrough {
+                flags |= 8;
+            }
+            if let Some(c) = r.color {
+                flags |= 16;
+                let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
+                argb = (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b);
+            }
+            if let Some(u) = r.link.as_deref() {
+                link = u.to_string();
+            }
+        }
+        unsafe {
+            ffi::day_xaml_label_runs_add(h, cstr(slice).as_ptr(), flags, argb, cstr(&link).as_ptr())
+        };
+    };
+    for r in runs {
+        let Some(styled) = text.get(r.range.clone()) else {
+            continue;
+        };
+        if r.range.start > at
+            && let Some(plain) = text.get(at..r.range.start)
+        {
+            add(plain, None);
+        }
+        add(styled, Some(r));
+        at = r.range.end;
+    }
+    if let Some(tail) = text.get(at..) {
+        add(tail, None);
+    }
+}
+
 fn cstr(s: &str) -> CString {
     // An interior NUL must not blank the whole string — a label, a menu item, a window title
     // would silently vanish. Strip the NULs and keep the visible text.
     CString::new(s).unwrap_or_else(|_| CString::new(s.replace('\0', "")).unwrap_or_default())
+}
+
+/// A styled run's link was clicked (docs/text-runs.md). The Hyperlink carries no NavigateUri,
+/// so nothing has opened anything yet: the label's `.on_link()` decides.
+extern "C" fn on_link(id: u64, url: *const c_char) {
+    ffi_guard::contain((), || {
+        let url = unsafe { CStr::from_ptr(url) }
+            .to_string_lossy()
+            .into_owned();
+        emit(NodeId(id), Event::LinkActivated(url));
+    });
 }
 
 extern "C" fn on_press(id: u64) {
@@ -1009,6 +1086,9 @@ impl Toolkit for Xaml {
             // TextBlock.BaselineOffset for text, font-derived for templated controls
             // (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
+            // Runs are TextBlock inlines; a link run is a Hyperlink whose Click reports back
+            // (docs/text-runs.md).
+            Cap::TextRuns | Cap::TextLinks => Support::Native,
             // text_area attributes (docs/textarea.md): editable and spell-check are plain TextBox
             // properties (IsReadOnly / IsSpellCheckEnabled).
             Cap::TextEditable | Cap::TextSpellCheck => Support::Native,
@@ -1191,6 +1271,10 @@ impl Toolkit for Xaml {
                     apply_custom_family(h, p.font);
                     if let Some(c) = p.color {
                         ffi::day_xaml_label_set_color(h, argb(c));
+                    }
+                    LABEL_NODE.with(|m| m.borrow_mut().insert(h as usize, id.0));
+                    if !p.runs.is_empty() {
+                        set_label_runs(h, id.0, &p.text, &p.runs);
                     }
                     WinHandle(h)
                 }
@@ -1411,6 +1495,12 @@ impl Toolkit for Xaml {
                                 let (pt, weight, italic, tabular) = font_params(*f);
                                 ffi::day_xaml_label_set_font(h.0, pt, weight, italic, tabular);
                                 apply_custom_family(h.0, *f);
+                            }
+                            LabelPatch::Runs(text, runs) => {
+                                let node = LABEL_NODE
+                                    .with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                                    .unwrap_or(0);
+                                set_label_runs(h.0, node, text, runs)
                             }
                             LabelPatch::Color(c) => ffi::day_xaml_label_set_color(
                                 h.0,
@@ -1686,6 +1776,7 @@ impl Toolkit for Xaml {
             unsafe { ffi::day_xaml_destroy_primary() };
         }
         let key = h.0 as usize;
+        LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
         TABS_STATE.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
         TABS_PAGE_TITLES.with(|m| m.borrow_mut().remove(&key));
@@ -2560,6 +2651,7 @@ impl Platform for Xaml {
                 ffi::day_xaml_set_app_icon(win, cstr(&icon).as_ptr());
             }
             ffi::day_xaml_set_menu_cb(on_menu_action);
+            ffi::day_xaml_label_link_cb(on_link);
             ffi::day_xaml_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_xaml_set_lifecycle_cb(on_lifecycle);
             ffi::day_xaml_set_present_cb(present_cb);

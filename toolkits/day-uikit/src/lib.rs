@@ -56,6 +56,7 @@ mod imp {
     use objc2_ui_kit::UINavigationControllerDelegate;
     use objc2_ui_kit::UISearchResultsUpdating;
     use objc2_ui_kit::UISplitViewControllerDelegate;
+    use objc2_ui_kit::UITextViewDelegate;
     use objc2_ui_kit::{
         UIAction, UIContextMenuConfiguration, UIContextMenuInteraction,
         UIContextMenuInteractionDelegate, UIInteraction, UIMenu, UIMenuElement,
@@ -538,6 +539,100 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(());
             unsafe { msg_send![super(this), init] }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // DayTextLink — a text view's link delegate (docs/text-runs.md)
+    // -----------------------------------------------------------------------
+
+    thread_local! {
+        /// Each link-carrying text view's delegate, kept alive for the view's lifetime (a
+        /// `UITextView` holds its delegate weakly). Swept on release.
+        static TEXT_LINKS: day_spec::sidetable::SideTable<Retained<DayTextLink>> =
+            day_spec::sidetable::SideTable::new();
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitTextLink"]
+        #[ivars = NodeId]
+        struct DayTextLink;
+
+        unsafe impl NSObjectProtocol for DayTextLink {}
+
+        // UITextViewDelegate refines UIScrollViewDelegate; both are declared, and the scroll
+        // half stays empty — a non-scrolling text view never calls it.
+        unsafe impl UIScrollViewDelegate for DayTextLink {}
+
+        unsafe impl UITextViewDelegate for DayTextLink {
+            /// Answer NO so UIKit does not open the URL itself: the target goes to day-core,
+            /// and the label's `.on_link()` decides (its default opens it, which is the same
+            /// destination by the route Day controls).
+            #[unsafe(method(textView:shouldInteractWithURL:inRange:interaction:))]
+            fn should_interact(
+                &self,
+                _tv: &UITextView,
+                url: &objc2_foundation::NSURL,
+                _range: objc2_foundation::NSRange,
+                // `UITextItemInteraction`, taken as the NSInteger it wraps: objc2 deprecates
+                // the newtype in favour of iOS 17 text-item methods that do not exist on the
+                // versions Day targets. Unused either way.
+                _interaction: isize,
+            ) -> bool {
+                day_spec::ffi_guard::contain((), || {
+                    if let Some(s) = unsafe { url.absoluteString() } {
+                        emit(*self.ivars(), Event::LinkActivated(s.to_string()));
+                    }
+                });
+                false
+            }
+        }
+    );
+
+    impl DayTextLink {
+        /// Make `tv` report its link taps against `node`, and keep the delegate alive with it.
+        fn attach(tv: &UITextView, node: NodeId, mtm: MainThreadMarker) {
+            let this = Self::alloc(mtm).set_ivars(node);
+            let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
+            unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+            TEXT_LINKS.with(|t| t.insert(ptr_of_view(tv), delegate));
+        }
+    }
+
+    /// The side-table key for a view: its address, the same key `release` sweeps.
+    fn ptr_of_view(v: &UITextView) -> usize {
+        let v: &UIView = v.as_ref();
+        v as *const UIView as usize
+    }
+
+    /// A label backing that can activate links: a read-only, non-scrolling `UITextView` laid out
+    /// to measure like the `UILabel` it stands in for (zero inset, no line-fragment padding).
+    fn link_text_view(p: &LabelProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UITextView> {
+        let tv = UITextView::new(mtm);
+        let font = resolve_font(p.font);
+        unsafe {
+            tv.setFont(Some(&font));
+            let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: true];
+            if let Some(c) = p.color {
+                tv.setTextColor(Some(&uicolor(c)));
+            }
+            tv.setAttributedText(Some(&attributed_label(&p.text, &font, p.color, &p.runs)));
+            tv.setEditable(false);
+            tv.setSelectable(true); // required for link interaction, not for selection alone
+            tv.setScrollEnabled(false);
+            tv.setBackgroundColor(None);
+            tv.setTextContainerInset(UIEdgeInsets {
+                top: 0.0,
+                left: 0.0,
+                bottom: 0.0,
+                right: 0.0,
+            });
+            let container: *mut AnyObject = msg_send![&*tv, textContainer];
+            let _: () = msg_send![container, setLineFragmentPadding: 0.0f64];
+        }
+        DayTextLink::attach(&tv, id, mtm);
+        tv
     }
 
     // -----------------------------------------------------------------------
@@ -3165,7 +3260,7 @@ mod imp {
         // system face at the resolved size/weight. System styles only — a bundled family keeps
         // its own figures rather than being silently swapped for the system typeface. The result
         // still goes through UIFontMetrics below, so Dynamic Type keeps working.
-        if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
+        let font = if spec.tabular && !matches!(spec.style, Font::Custom(..)) {
             unsafe {
                 let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
                 let raw = UIFont::monospacedDigitSystemFontOfSize_weight(font.pointSize(), w);
@@ -3173,7 +3268,86 @@ mod imp {
             }
         } else {
             font
+        };
+        // Monospace, by the same rule and for the same reason (docs/text-runs.md): a whole face
+        // on UIKit too, kept inside UIFontMetrics so inline code still scales with Dynamic Type.
+        if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
+            unsafe {
+                let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
+                let raw = UIFont::monospacedSystemFontOfSize_weight(font.pointSize(), w);
+                UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
+            }
+        } else {
+            font
         }
+    }
+
+    /// Build a `UILabel`'s attributed text from its runs (docs/text-runs.md).
+    ///
+    /// Byte ranges convert to UTF-16 per run: `NSAttributedString` indexes UTF-16, and any
+    /// emoji or CJK in the string makes the two disagree.
+    fn attributed_label(
+        text: &str,
+        base_font: &objc2_ui_kit::UIFont,
+        color: Option<day_spec::Color>,
+        runs: &[day_spec::TextRun],
+    ) -> Retained<objc2_foundation::NSAttributedString> {
+        use objc2::AllocAnyThread as _;
+        use objc2_foundation::{NSMutableAttributedString, NSRange};
+        let ns = NSString::from_str(text);
+        let s = unsafe {
+            NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns)
+        };
+        let whole = NSRange::new(0, ns.length());
+        unsafe {
+            s.addAttribute_value_range(objc2_ui_kit::NSFontAttributeName, base_font, whole);
+            // ALWAYS a foreground: a UITextView draws an attributed range with no colour
+            // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
+            // default a plain label would have used.
+            let fg = color.map(uicolor).unwrap_or_else(UIColor::labelColor);
+            s.addAttribute_value_range(objc2_ui_kit::NSForegroundColorAttributeName, &*fg, whole);
+        }
+        for r in runs {
+            let Some(range) = utf16_range(text, &r.range) else {
+                continue;
+            };
+            unsafe {
+                s.addAttribute_value_range(
+                    objc2_ui_kit::NSFontAttributeName,
+                    &*resolve_font(r.font),
+                    range,
+                );
+                if let Some(c) = r.color {
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSForegroundColorAttributeName,
+                        &*uicolor(c),
+                        range,
+                    );
+                }
+                if r.strikethrough {
+                    let one = objc2_foundation::NSNumber::new_i64(1);
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSStrikethroughStyleAttributeName,
+                        &*one,
+                        range,
+                    );
+                }
+                if let Some(url) = r.link.as_deref() {
+                    // Drawn as a link. ACTIVATION needs a UITextView (a UILabel has no hit
+                    // testing at all), which is Phase 4 — `Cap::TextLinks` stays Unsupported.
+                    let value = NSString::from_str(url);
+                    s.addAttribute_value_range(objc2_ui_kit::NSLinkAttributeName, &*value, range);
+                }
+            }
+        }
+        s.into_super().into()
+    }
+
+    /// A byte range in `text` as an `NSRange` in UTF-16 units.
+    fn utf16_range(text: &str, r: &std::ops::Range<usize>) -> Option<objc2_foundation::NSRange> {
+        let start = text.get(..r.start)?.encode_utf16().count();
+        let len = text.get(r.clone())?.encode_utf16().count();
+        Some(objc2_foundation::NSRange::new(start, len))
     }
 
     fn apply_font(label: &UILabel, spec: day_spec::FontSpec) {
@@ -3241,7 +3415,12 @@ mod imp {
             match cap {
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
                 // (docs/window-image.md).
-                Cap::Snapshot
+                // A label carrying a link run is built as a read-only UITextView, whose delegate
+                // reports the tap — a UILabel could draw the link but never hit-test it
+                // (docs/text-runs.md).
+                Cap::TextRuns
+                | Cap::TextLinks
+                | Cap::Snapshot
                 // UITextView natively honors editable / selectable / spell-check.
                 | Cap::Dialogs
                 | Cap::FileDialogs
@@ -3672,6 +3851,15 @@ mod imp {
                     let Some(p) = day_spec::props_of::<LabelProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
+                    // A UILabel does no hit testing at all, so a label that arrives WITH a link
+                    // run is built as a read-only text view instead — the same backing
+                    // `.selectable()` swaps to, and the only one UIKit can activate a link in
+                    // (docs/text-runs.md). A link that first appears in a later patch cannot
+                    // upgrade the backing: `patch` has no way to hand back a new handle.
+                    if p.runs.iter().any(|r| r.link.is_some()) {
+                        let tv = link_text_view(&p, id, mtm);
+                        return view_of(tv);
+                    }
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe {
                         label.setText(Some(&NSString::from_str(&p.text)));
@@ -3680,6 +3868,10 @@ mod imp {
                     apply_font(&label, p.font);
                     if let Some(c) = p.color {
                         unsafe { label.setTextColor(Some(&uicolor(c))) };
+                    }
+                    if !p.runs.is_empty() {
+                        let s = attributed_label(&p.text, &resolve_font(p.font), p.color, &p.runs);
+                        unsafe { label.setAttributedText(Some(&s)) };
                     }
                     view_of(label)
                 }
@@ -4106,6 +4298,13 @@ mod imp {
                                 label.setText(Some(&NSString::from_str(t)))
                             },
                             LabelPatch::Font(f) => apply_font(label, *f),
+                            LabelPatch::Runs(text, runs) => {
+                                let base = unsafe { label.font() };
+                                if let Some(f) = base {
+                                    let s = attributed_label(text, &f, None, runs);
+                                    unsafe { label.setAttributedText(Some(&s)) };
+                                }
+                            }
                             // `None` restores the adaptive default (labelColor tracks dark mode).
                             LabelPatch::Color(c) => unsafe {
                                 match c {
@@ -4130,6 +4329,15 @@ mod imp {
                                     tv.setFont(Some(&font));
                                     let _: () =
                                         msg_send![tv, setAdjustsFontForContentSizeCategory: true];
+                                }
+                            }
+                            LabelPatch::Runs(text, runs) => {
+                                // A selectable label is a UITextView, which renders attributed
+                                // text the same way — and, unlike UILabel, could hit-test its
+                                // links (Phase 4).
+                                if let Some(f) = unsafe { tv.font() } {
+                                    let s = attributed_label(text, &f, None, runs);
+                                    unsafe { tv.setAttributedText(Some(&s)) };
                                 }
                             }
                             LabelPatch::Color(c) => unsafe {
@@ -4567,9 +4775,15 @@ mod imp {
             }
             let tv = UITextView::new(mtm());
             unsafe {
-                tv.setText(label.text().as_deref());
                 tv.setFont(label.font().as_deref());
                 tv.setTextColor(label.textColor().as_deref());
+                // Styled runs live in the label's ATTRIBUTED text; copying `text()` alone would
+                // hand the text view the plain string and silently drop every run. Font and
+                // colour go on first so they still stand as the view's defaults.
+                match label.attributedText() {
+                    Some(a) => tv.setAttributedText(Some(&a)),
+                    None => tv.setText(label.text().as_deref()),
+                }
                 let adj: bool = msg_send![label, adjustsFontForContentSizeCategory];
                 let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: adj];
                 tv.setEditable(false);

@@ -111,6 +111,10 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
                     weight: None,
                     italic: false,
                     tabular: false,
+                    monospace: false,
+                    runs: Vec::new(),
+                    markdown: false,
+                    on_link: None,
                     color: None,
                 };
                 column((header, card))
@@ -166,6 +170,10 @@ pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
                 weight: None,
                 italic: false,
                 tabular: false,
+                monospace: false,
+                runs: Vec::new(),
+                markdown: false,
+                on_link: None,
                 color: None,
             };
             let _ = row_label.build(cx);

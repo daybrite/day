@@ -70,7 +70,7 @@ the architecture-level view and the rationale.
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | docs/grid.md | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | docs/focus.md | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
 | canvas, shapes, gradients, gestures | docs/shapes.md | [§11](#11-canvas) |
-| text & typography | docs/text.md | [§6.4](#64-typography) |
+| text & typography | docs/text.md, docs/text-runs.md, docs/markdown.md | [§6.4](#64-typography) |
 | localization — Fluent, `res::str` typed keys, locales | docs/localization.md | [§12](#12-localization-fluent), [§18.5](#185-typed-resource-constants-docsresourcesmd) |
 | resources — images, data assets, custom fonts, typed constants | docs/resources.md | [§18](#18-resources-icons-and-theming) |
 | accessibility & the a11y audit | docs/accessibility.md | [§13](#13-accessibility) |
@@ -666,9 +666,14 @@ typed per piece (`Button::style` takes a `ButtonStyle`, `Picker::style` a `Picke
 // text & controls — two-way controls take `impl SignalRw<T>` (Signal<T>, or a projection):
 label(text)                        // text: impl IntoText — value, Signal<String>, closure, or
                                    //   LocalizedText; styled via .font(Font::Headline) / .color(c)
+    .monospace().runs(runs)        //   .runs()/.runs_from(TextBuilder): styled runs in ONE label,
+                                   //   so it wraps, selects and reads as one (docs/text-runs.md)
+    .markdown().on_link(f)         //   inline markdown parsed at RUN TIME — the case a macro
+                                   //   cannot serve, since the string is a translation or typed
+                                   //   (docs/markdown.md); a link run reports through on_link
 link(text, url)                    // tappable accent text → opens url in the system browser /
                                    //   default handler (§8.1 open_url); .font() / .color() / .bold()
-button(text).action(f)             // .bordered() / .prominent() / .style(impl ButtonStyle)
+button(text).action(f)             // .bordered() / .prominent() / .tint(color) (docs/buttons.md)
 toggle(on)                         // two-way bool
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
 text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .focused(…) (docs/focus.md)
@@ -1364,7 +1369,10 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > typed variants (2026-08): `ListReorder`/`ListDelete` (the list piece's deferred commit echoes,
 > docs/list.md) and `CoverHidden` (docs/cover.md; `BridgeKind::CoverHidden = 26` on the
 > trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
-> `Custom` purely piece-defined.
+> `Custom` purely piece-defined. `LinkActivated(String)` joined them for styled text runs (2026-08,
+docs/text-runs.md): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
+AppKit needs an NSTextField→NSTextView swap it does not do yet, and ArkUI is unwired — so a
+`.link()` run always draws, and taps report on the six.
 
 ```rust
 pub enum Event {
@@ -1388,6 +1396,7 @@ pub enum Event {
     ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
     ListDelete(usize),                        // committed swipe-delete (docs/list.md)
     CoverHidden,                              // cover hide transition finished (docs/cover.md)
+    LinkActivated(String),                    // a styled run's link (docs/text-runs.md)
     Custom { tag: &'static str, num: f64, text: String },  // open piece-defined channel (§8.2)
 }
 ```

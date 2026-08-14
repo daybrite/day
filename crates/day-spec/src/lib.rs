@@ -485,11 +485,14 @@ pub mod bridge {
         /// A fullscreen cover's hide transition finished (docs/cover.md); no payload — the
         /// node id is the cover's. Decodes to [`crate::Event::CoverHidden`].
         CoverHidden = 26,
+        /// A styled text run's link was tapped (docs/text-runs.md); `text` = the run's target.
+        /// Decodes to [`crate::Event::LinkActivated`].
+        LinkActivated = 27,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 27] = [
+        pub const ALL: [BridgeKind; 28] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -517,6 +520,7 @@ pub mod bridge {
             BridgeKind::NavPresentation,
             BridgeKind::AppearanceChanged,
             BridgeKind::CoverHidden,
+            BridgeKind::LinkActivated,
         ];
     }
 
@@ -583,6 +587,8 @@ pub enum Event {
     SelectionSet(Vec<i64>),
     FocusChanged(bool),
     Tap(Point),
+    /// A link run inside a label was activated; the payload is [`TextRun::link`] verbatim.
+    LinkActivated(String),
     LongPress(Point),
     ContextMenu(Point),
     /// A drag/pan gesture (docs/shapes.md). `location` is in the node's local coordinates;
@@ -1282,6 +1288,15 @@ pub enum Cap {
     /// `Unsupported` ⇒ baseline-aligned rows fall back to centering and look exactly as they do
     /// today.
     BaselineAlignment,
+    /// The toolkit draws a label's [`TextRun`]s — bold, italic, colour or a monospace face within
+    /// one wrapping paragraph (docs/text-runs.md). `Unsupported` ⇒ the label renders its text
+    /// uniformly, which reads correctly and loses only the emphasis.
+    TextRuns,
+    /// The toolkit makes a run carrying [`TextRun::link`] ACTIVATABLE, emitting
+    /// [`Event::LinkActivated`]. A strictly smaller set than [`Cap::TextRuns`]: several toolkits
+    /// draw a link run in link colours but have no way to hit-test it, and one (Android) can do
+    /// links or selection but not both (docs/text-runs.md).
+    TextLinks,
     Lottie,
     NativeSymbols,
     /// The toolkit can rasterize its OWN window and hand back the pixels
@@ -2121,6 +2136,17 @@ pub struct FontSpec {
     /// NumeralAlignment property, and web-dom `font-variant-numeric`. A font with no `tnum` table,
     /// or an SDK predating the attribute, renders the stock proportional figures.
     pub tabular: bool,
+    /// Ask for the platform's MONOSPACED face at this style's size — what `` `code` `` in a
+    /// markdown run needs (docs/text-runs.md).
+    ///
+    /// A flag rather than a `Font::Monospace(pt)` variant so the run keeps its semantic style:
+    /// code inside a `Footnote` paragraph must stay footnote-sized and keep tracking the
+    /// reader's text-size setting, which a fixed point size would throw away.
+    ///
+    /// Like [`Self::tabular`], this rides the label realize/patch path and is not a backend duty:
+    /// every toolkit has a system monospace face (`monospacedSystemFont`, Pango's `monospace`
+    /// family, `QFontDatabase::FixedFont`, `Typeface.MONOSPACE`, CSS `monospace`).
+    pub monospace: bool,
 }
 
 impl Default for FontSpec {
@@ -2130,6 +2156,7 @@ impl Default for FontSpec {
             weight: None,
             italic: false,
             tabular: false,
+            monospace: false,
         }
     }
 }
@@ -2141,8 +2168,226 @@ impl From<Font> for FontSpec {
             weight: None,
             italic: false,
             tabular: false,
+            monospace: false,
         }
     }
+}
+
+/// One styled span of a label's text (docs/text-runs.md).
+///
+/// `range` is a BYTE range into the label's `text`. Bytes, not chars: every backend that takes a
+/// structured attributed string wants UTF-16 or byte offsets, `str` slicing is byte-based, and a
+/// char count would have to be converted at every boundary. Ranges must be non-overlapping and
+/// ascending; a gap between them is unstyled text, drawn with the label's own font.
+///
+/// A run says only what DIFFERS. `font` is the whole descriptor rather than a delta because a
+/// bold run inside a Body paragraph is `FontSpec { style: Body, weight: Some(Bold), .. }` — the
+/// style has to travel with the weight or the run loses its semantic size.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextRun {
+    pub range: std::ops::Range<usize>,
+    pub font: FontSpec,
+    pub color: Option<Color>,
+    /// A line through the text. Separate from `FontSpec` because it is a decoration, not a face:
+    /// no platform expresses it by picking a different font.
+    pub strikethrough: bool,
+    /// Makes this run a link to the given target. Rendering it is [`Cap::TextRuns`]; making it
+    /// ACTIVATABLE is [`Cap::TextLinks`], which is a smaller set — see the docs.
+    pub link: Option<String>,
+}
+
+impl TextRun {
+    /// A run that only changes the font — the common case for emphasis.
+    pub fn font(range: std::ops::Range<usize>, font: FontSpec) -> Self {
+        TextRun {
+            range,
+            font,
+            color: None,
+            strikethrough: false,
+            link: None,
+        }
+    }
+}
+
+/// Serialize a label's text + runs as MARKUP, for the two backends whose text widgets take a
+/// string in their own dialect rather than a structured attributed string: GTK (Pango markup)
+/// and Qt (its HTML subset). Shared so the escaping is written and tested once — a translated
+/// string containing `&` or `<` corrupts the whole label otherwise, and it will be a translated
+/// string that finds the bug.
+///
+/// `tag` decides the dialect: Pango wants `<span foreground="#rrggbb" font_family="monospace">`,
+/// Qt wants `<span style="color:#rrggbb">` with `<code>`. Both accept `<b>`, `<i>`, `<s>` and
+/// `<a href>`, which is why one function can serve them.
+pub fn runs_to_markup(text: &str, runs: &[TextRun], dialect: MarkupDialect) -> String {
+    let mut out = String::with_capacity(text.len() + runs.len() * 24);
+    let mut at = 0usize;
+    for r in runs {
+        // Skip a run whose range does not address this string, WITHOUT advancing `at`: dropping
+        // the run loses styling, but advancing past it would drop the rest of the sentence.
+        // `runs_are_valid` rejects these upstream; this keeps the failure cheap if one slips by.
+        let Some(styled) = text.get(r.range.clone()) else {
+            continue;
+        };
+        if r.range.start > at
+            && let Some(plain) = text.get(at..r.range.start)
+        {
+            escape_markup(plain, &mut out);
+        }
+        open_run(r, dialect, &mut out);
+        escape_markup(styled, &mut out);
+        close_run(r, dialect, &mut out);
+        at = r.range.end;
+    }
+    if let Some(tail) = text.get(at..) {
+        escape_markup(tail, &mut out);
+    }
+    out
+}
+
+/// Which markup dialect [`runs_to_markup`] should emit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkupDialect {
+    /// Pango markup (GTK).
+    Pango,
+    /// Qt's rich-text HTML subset.
+    QtHtml,
+}
+
+/// XML-escape a run of plain text into `out`. `&` first, or the escapes escape each other.
+fn escape_markup(s: &str, out: &mut String) {
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+}
+
+fn hex(c: Color) -> String {
+    format!(
+        "#{:02x}{:02x}{:02x}",
+        (c.r.clamp(0.0, 1.0) * 255.0) as u8,
+        (c.g.clamp(0.0, 1.0) * 255.0) as u8,
+        (c.b.clamp(0.0, 1.0) * 255.0) as u8
+    )
+}
+
+fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
+    if let Some(url) = r.link.as_deref() {
+        out.push_str("<a href=\"");
+        escape_markup(url, out);
+        out.push_str("\">");
+    }
+    // The span carries colour and the monospace family; bold/italic/strike are their own tags in
+    // both dialects, which keeps the attribute string short and the escaping trivial.
+    let color = r.color.map(hex);
+    let mono = r.font.monospace;
+    let span = match dialect {
+        MarkupDialect::Pango => color.is_some() || mono,
+        MarkupDialect::QtHtml => color.is_some(),
+    };
+    if span {
+        match dialect {
+            MarkupDialect::Pango => {
+                out.push_str("<span");
+                if let Some(c) = &color {
+                    out.push_str(&format!(" foreground=\"{c}\""));
+                }
+                if mono {
+                    out.push_str(" font_family=\"monospace\"");
+                }
+                out.push('>');
+            }
+            MarkupDialect::QtHtml => {
+                // Colour only. Qt's rich text does NOT resolve the generic `monospace` family
+                // from a style attribute — it rendered proportional — so the fixed face comes
+                // from the `<code>` tag below, which Qt maps to its own fixed font.
+                out.push_str("<span style=\"");
+                if let Some(c) = &color {
+                    out.push_str(&format!("color:{c};"));
+                }
+                out.push_str("\">");
+            }
+        }
+    }
+    if dialect == MarkupDialect::QtHtml && mono {
+        out.push_str("<code>");
+    }
+    if r.font.weight.is_some_and(|w| w >= FontWeight::Semibold) {
+        out.push_str("<b>");
+    }
+    if r.font.italic {
+        out.push_str("<i>");
+    }
+    if r.strikethrough {
+        out.push_str("<s>");
+    }
+}
+
+fn close_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
+    if r.strikethrough {
+        out.push_str("</s>");
+    }
+    if r.font.italic {
+        out.push_str("</i>");
+    }
+    if r.font.weight.is_some_and(|w| w >= FontWeight::Semibold) {
+        out.push_str("</b>");
+    }
+    if dialect == MarkupDialect::QtHtml && r.font.monospace {
+        out.push_str("</code>");
+    }
+    let span = match dialect {
+        MarkupDialect::Pango => r.color.is_some() || r.font.monospace,
+        MarkupDialect::QtHtml => r.color.is_some(),
+    };
+    if span {
+        out.push_str("</span>");
+    }
+    if r.link.is_some() {
+        out.push_str("</a>");
+    }
+}
+
+/// Are these runs well formed for `text`: ascending, non-overlapping, inside the string, and on
+/// character boundaries?
+///
+/// Checked once in the pieces layer rather than in eight backends. A backend handed overlapping
+/// ranges would produce a different wrong answer per platform, and a range splitting a multi-byte
+/// character would panic on `str` slicing in some and render mojibake in others.
+pub fn runs_are_valid(text: &str, runs: &[TextRun]) -> Result<(), String> {
+    let mut prev_end = 0usize;
+    for (i, r) in runs.iter().enumerate() {
+        if r.range.start < prev_end {
+            return Err(format!(
+                "run {i} starts at {} but the previous run ends at {prev_end} — runs must be \
+                 ascending and non-overlapping",
+                r.range.start
+            ));
+        }
+        if r.range.end > text.len() {
+            return Err(format!(
+                "run {i} ends at {} but the text is {} bytes",
+                r.range.end,
+                text.len()
+            ));
+        }
+        if r.range.start > r.range.end {
+            return Err(format!("run {i} has an inverted range {:?}", r.range));
+        }
+        if !text.is_char_boundary(r.range.start) || !text.is_char_boundary(r.range.end) {
+            return Err(format!(
+                "run {i} range {:?} splits a multi-byte character",
+                r.range
+            ));
+        }
+        prev_end = r.range.end;
+    }
+    Ok(())
 }
 
 pub mod props {
@@ -2180,12 +2425,21 @@ pub mod props {
         pub font: FontSpec,
         pub color: Option<Color>,
         pub wraps: bool,
+        /// Styled spans within `text` (docs/text-runs.md). EMPTY is the overwhelmingly common
+        /// case and means exactly what a label has always meant: one font, one colour. A backend
+        /// that cannot draw runs ignores this and renders `text` uniformly, which is legible and
+        /// correct — just unstyled.
+        pub runs: Vec<crate::TextRun>,
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum LabelPatch {
         Text(String),
         Color(Option<Color>),
         Font(FontSpec),
+        /// New text AND its runs together. One patch, not two: a run's byte range is only
+        /// meaningful against a particular string, so applying them separately would leave the
+        /// widget briefly holding ranges that point into the wrong text.
+        Runs(String, Vec<crate::TextRun>),
     }
 
     /// A button's NATIVE styling tier. `Automatic` is the toolkit's stock look; `Bordered`
@@ -4208,6 +4462,122 @@ mod encode_ops_tests {
             Some(0xFFFF_FFFF),
             "gradient shape record must carry opaque white"
         );
+    }
+}
+
+#[cfg(test)]
+mod markup_tests {
+    use super::*;
+
+    fn bold(range: std::ops::Range<usize>) -> TextRun {
+        TextRun::font(
+            range,
+            FontSpec {
+                style: Font::Body,
+                weight: Some(FontWeight::Bold),
+                ..Default::default()
+            },
+        )
+    }
+
+    #[test]
+    fn plain_text_is_escaped_in_both_dialects() {
+        // The case a translated string will find: markup metacharacters in the CONTENT.
+        let text = "5 < 6 & \"quoted\" <b>not bold</b>";
+        for d in [MarkupDialect::Pango, MarkupDialect::QtHtml] {
+            let m = runs_to_markup(text, &[], d);
+            assert!(!m.contains("<b>"), "content tag survived into markup: {m}");
+            assert!(m.contains("&lt;b&gt;"), "{m}");
+            assert!(m.contains("&amp;"), "{m}");
+            assert!(m.contains("5 &lt; 6"), "{m}");
+        }
+    }
+
+    #[test]
+    fn a_styled_run_is_wrapped_and_its_text_escaped() {
+        let text = "a <b> c";
+        let m = runs_to_markup(text, &[bold(2..5)], MarkupDialect::Pango);
+        assert_eq!(m, "a <b>&lt;b&gt;</b> c");
+    }
+
+    #[test]
+    fn colour_and_monospace_differ_per_dialect() {
+        let text = "code";
+        let run = TextRun {
+            range: 0..4,
+            font: FontSpec {
+                style: Font::Body,
+                monospace: true,
+                ..Default::default()
+            },
+            color: Some(Color::rgb(1.0, 0.0, 0.0)),
+            strikethrough: false,
+            link: None,
+        };
+        let pango = runs_to_markup(text, std::slice::from_ref(&run), MarkupDialect::Pango);
+        assert!(pango.contains("foreground=\"#ff0000\""), "{pango}");
+        assert!(pango.contains("font_family=\"monospace\""), "{pango}");
+        let qt = runs_to_markup(text, std::slice::from_ref(&run), MarkupDialect::QtHtml);
+        assert!(qt.contains("color:#ff0000"), "{qt}");
+        // Qt takes its fixed face from <code>: a `font-family:monospace` style attribute
+        // renders proportional (observed on Qt 6.11).
+        assert!(qt.contains("<code>") && qt.contains("</code>"), "{qt}");
+    }
+
+    #[test]
+    fn a_link_target_is_escaped_too() {
+        // A URL carrying `&` between query parameters is ordinary, and unescaped it truncates
+        // the attribute and swallows the rest of the label.
+        let text = "docs";
+        let run = TextRun {
+            range: 0..4,
+            font: FontSpec::default(),
+            color: None,
+            strikethrough: false,
+            link: Some("https://x.dev/?a=1&b=2".into()),
+        };
+        let m = runs_to_markup(text, &[run], MarkupDialect::Pango);
+        assert!(m.contains("a=1&amp;b=2"), "{m}");
+    }
+
+    #[test]
+    fn tags_nest_and_close_in_reverse() {
+        let run = TextRun {
+            range: 0..2,
+            font: FontSpec {
+                style: Font::Body,
+                weight: Some(FontWeight::Bold),
+                italic: true,
+                ..Default::default()
+            },
+            color: None,
+            strikethrough: true,
+            link: Some("u".into()),
+        };
+        let m = runs_to_markup("hi", &[run], MarkupDialect::Pango);
+        assert_eq!(m, "<a href=\"u\"><b><i><s>hi</s></i></b></a>");
+    }
+
+    #[test]
+    fn runs_out_of_bounds_are_skipped_not_panicked() {
+        // `runs_are_valid` rejects these upstream; this is the belt-and-braces path.
+        let m = runs_to_markup("hi", &[bold(0..99)], MarkupDialect::Pango);
+        assert_eq!(m, "hi");
+    }
+
+    #[test]
+    fn validation_catches_the_four_ways_runs_go_wrong() {
+        let text = "héllo";
+        assert!(runs_are_valid(text, &[bold(0..1)]).is_ok());
+        // Overlapping.
+        assert!(runs_are_valid(text, &[bold(0..3), bold(2..4)]).is_err());
+        // Past the end.
+        assert!(runs_are_valid(text, &[bold(0..99)]).is_err());
+        // Inverted. Built from parts, since a literal `3..1` is a clippy error in its own right.
+        let (hi, lo) = (3, 1);
+        assert!(runs_are_valid(text, &[bold(hi..lo)]).is_err());
+        // Splitting the 2-byte `é`.
+        assert!(runs_are_valid(text, &[bold(0..2)]).is_err());
     }
 }
 

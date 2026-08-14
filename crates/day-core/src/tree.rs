@@ -1059,8 +1059,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             use day_spec::props::*;
             if let Some(n) = self.nodes.get_mut(node) {
                 if let Some(p) = patch.downcast_ref::<LabelPatch>() {
-                    if let LabelPatch::Text(t) = p {
-                        n.probe.text = t.clone();
+                    // BOTH text-carrying variants: a `.markdown()` label re-parses through
+                    // `Runs`, and a probe that only tracked `Text` would report the string the
+                    // label was born with forever (docs/text-runs.md).
+                    match p {
+                        LabelPatch::Text(t) => n.probe.text = t.clone(),
+                        LabelPatch::Runs(t, _) => n.probe.text = t.clone(),
+                        LabelPatch::Font(_) | LabelPatch::Color(_) => {}
                     }
                 } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {

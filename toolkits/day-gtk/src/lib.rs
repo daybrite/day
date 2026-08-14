@@ -58,6 +58,34 @@ thread_local! {
     static SNAP_WAIT_TARGET: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
+/// Render a label's runs as Pango markup (docs/text-runs.md).
+///
+/// MARKUP rather than a `pango::AttrList`, even though the attribute list is the tidier API:
+/// Pango's attributes cannot express a LINK, which only exists in the markup dialect as
+/// `<a href>`. One path for both keeps the escaping in one place — and the escaping is the whole
+/// risk here, since `set_markup` on a string containing a stray `&` renders nothing at all.
+fn set_label_runs(label: &gtk4::Label, text: &str, runs: &[day_spec::TextRun]) {
+    use gtk4::prelude::*;
+    let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
+    let style = LABEL_STYLE.with(|m| {
+        let mut m = m.borrow_mut();
+        let entry = m.entry(key).or_default();
+        entry.rich = (!runs.is_empty()).then(|| (text.to_string(), runs.to_vec()));
+        entry.clone()
+    });
+    let Some((text, runs)) = &style.rich else {
+        // Plain text through the plain setter: no markup parse, no escaping to get wrong. The
+        // attribute list comes back, since it no longer has runs to override.
+        if label.text() != text {
+            label.set_text(text);
+        }
+        apply_text_attrs(label, style.font, style.color);
+        return;
+    };
+    label.set_attributes(None);
+    label.set_markup(&rich_markup(text, runs, &style));
+}
+
 // Tint colours whose CSS provider is already installed on the display, keyed by `rrggbb`.
 //
 // GTK 4.10 deprecated per-widget providers, and the replacement is DISPLAY-wide — so the rule
@@ -1651,13 +1679,85 @@ fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
     }
 }
 
+/// A label's remembered style: the base font, its colour, and — for a label with styled runs —
+/// the text and runs the markup is built from.
+#[derive(Default, Clone)]
+struct LabelStyle {
+    font: day_spec::FontSpec,
+    color: Option<day_spec::Color>,
+    /// `Some` once `.runs()` has put styled runs on this label; the pair rebuilds the markup
+    /// whenever the base font or colour is patched.
+    rich: Option<(String, Vec<day_spec::TextRun>)>,
+}
+
 thread_local! {
-    /// Per-label (font, color) state, keyed by widget ptr. Both render through ONE Pango
+    /// Per-label style state, keyed by widget ptr. Font and colour render through ONE Pango
     /// attribute list (set_attributes replaces the whole list), but a `LabelPatch` carries only
-    /// the half that changed — so each patch updates its half here and re-applies the pair.
+    /// the half that changed — so each patch updates its half here and re-applies the whole.
     /// Entries drop in `release`.
-    static LABEL_STYLE: RefCell<HashMap<usize, (day_spec::FontSpec, Option<day_spec::Color>)>> =
-        RefCell::new(HashMap::new());
+    static LABEL_STYLE: RefCell<HashMap<usize, LabelStyle>> = RefCell::new(HashMap::new());
+}
+
+/// The base font and colour as a Pango markup span that WRAPS a label's run markup.
+///
+/// A `GtkLabel`'s attribute list OVERRIDES the attributes its markup parsed, so a base weight
+/// attribute spanning the whole label silently defeats a `<b>` run — bold text rendered at the
+/// body weight while italic, colour and the monospace family (which set no base attribute) came
+/// through. A rich label therefore carries NO attribute list, and its base font arrives as this
+/// wrapping span. Inside one markup parse a nested tag wins over an enclosing span, which is the
+/// ordering the run tags need.
+fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String {
+    use gtk4::pango;
+    let (size_pt, inherent) = gtk_style(spec.style);
+    let weight = spec.weight.unwrap_or(inherent);
+    let mut s = String::from("<span");
+    if let Font::Custom(family, _) = spec.style {
+        s.push_str(&format!(" font_family=\"{family}\""));
+    }
+    // Pango markup sizes are in 1024ths of a point, the same unit as `AttrSize`.
+    s.push_str(&format!(
+        " size=\"{}\"",
+        (size_pt * pango::SCALE as f64) as i32
+    ));
+    s.push_str(&format!(
+        " weight=\"{}\"",
+        gtk4::glib::translate::IntoGlib::into_glib(pango_weight(weight))
+    ));
+    if spec.italic {
+        s.push_str(" style=\"italic\"");
+    }
+    if spec.tabular {
+        s.push_str(" font_features=\"tnum 1\"");
+    }
+    if let Some(c) = color {
+        let ch = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+        s.push_str(&format!(
+            " foreground=\"#{:02x}{:02x}{:02x}\"",
+            ch(c.r),
+            ch(c.g),
+            ch(c.b)
+        ));
+        if c.a < 1.0 {
+            s.push_str(&format!(
+                " alpha=\"{}\"",
+                (c.a.clamp(0.0, 1.0) * 65535.0) as u16
+            ));
+        }
+    }
+    s.push('>');
+    s
+}
+
+/// The full markup for a rich label: its base font as a wrapping span, run tags inside.
+fn rich_markup(text: &str, runs: &[day_spec::TextRun], style: &LabelStyle) -> String {
+    let mut m = base_span(style.font, style.color);
+    m.push_str(&day_spec::runs_to_markup(
+        text,
+        runs,
+        day_spec::MarkupDialect::Pango,
+    ));
+    m.push_str("</span>");
+    m
 }
 
 /// Rebuild a label's full Pango attribute list: font family/size/weight/style + foreground color.
@@ -1706,25 +1806,35 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
     label.set_attributes(Some(&attrs));
 }
 
-/// Update one half of a label's remembered (font, color) pair and re-apply both.
+/// Update one part of a label's remembered style and re-apply the whole of it.
+///
+/// A label with styled runs re-renders its markup instead of taking an attribute list, since the
+/// list would override the runs (see [`base_span`]).
 fn update_text_attrs(
     label: &gtk4::Label,
     font: Option<day_spec::FontSpec>,
     color: Option<Option<day_spec::Color>>,
 ) {
+    use gtk4::prelude::*;
     let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
-    let (spec, col) = LABEL_STYLE.with(|m| {
+    let style = LABEL_STYLE.with(|m| {
         let mut m = m.borrow_mut();
         let entry = m.entry(key).or_default();
         if let Some(f) = font {
-            entry.0 = f;
+            entry.font = f;
         }
         if let Some(c) = color {
-            entry.1 = c;
+            entry.color = c;
         }
-        *entry
+        entry.clone()
     });
-    apply_text_attrs(label, spec, col);
+    match &style.rich {
+        Some((text, runs)) => {
+            label.set_attributes(None);
+            label.set_markup(&rich_markup(text, runs, &style));
+        }
+        None => apply_text_attrs(label, style.font, style.color),
+    }
 }
 
 /// Register bundled fonts (§18.4) with whatever font system Pango draws from on this OS, so
@@ -1904,7 +2014,9 @@ impl Toolkit for Gtk {
         match cap {
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
-            Cap::Snapshot
+            Cap::TextRuns
+            | Cap::TextLinks
+            | Cap::Snapshot
             | Cap::NavSplit
             | Cap::Dialogs
             | Cap::FileDialogs
@@ -2191,6 +2303,14 @@ impl Toolkit for Gtk {
                 label.set_wrap(true);
                 label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
                 update_text_attrs(&label, Some(p.font), Some(p.color));
+                set_label_runs(&label, &p.text, &p.runs);
+                // A link run is an `<a href>` in the markup, and GtkLabel hit-tests those itself
+                // (Cap::TextLinks). Stopping the signal keeps GTK from also handing the URI to
+                // the desktop's URL handler — day-core decides that, from the app's `.on_link()`.
+                label.connect_activate_link(move |_, uri| {
+                    emit(id, Event::LinkActivated(uri.to_string()));
+                    gtk4::glib::Propagation::Stop
+                });
                 label.upcast()
             }
             Some(Builtin::Button) => {
@@ -2758,6 +2878,7 @@ impl Toolkit for Gtk {
                         }
                         LabelPatch::Font(f) => update_text_attrs(label, Some(*f), None),
                         LabelPatch::Color(c) => update_text_attrs(label, None, Some(*c)),
+                        LabelPatch::Runs(text, runs) => set_label_runs(label, text, runs),
                     }
                 }
             }
@@ -3203,8 +3324,36 @@ impl Toolkit for Gtk {
                     return Size::new(nat_w as f64, nat_h as f64);
                 };
                 let layout = gtk4::pango::Layout::new(&label.pango_context());
-                layout.set_text(&label.text());
-                layout.set_attributes(label.attributes().as_ref());
+                // A label with styled runs measures from its MARKUP: `label.text()` is the
+                // markup stripped of tags and its attribute list is empty (see `base_span`), so
+                // measuring those two would size bold and monospace runs at the base font.
+                let key = label.clone().upcast::<gtk4::Widget>().as_ptr() as usize;
+                let rich = LABEL_STYLE.with(|m| {
+                    m.borrow().get(&key).and_then(|s| {
+                        s.rich.as_ref().map(|(t, r)| {
+                            // WITHOUT the link tags: `<a href>` is GtkLabel's own extension, not
+                            // Pango markup — a bare layout fails to parse it, comes out empty,
+                            // and reports a zero size, which collapses the label. Links change no
+                            // metrics, so dropping the tag measures exactly the same text.
+                            let unlinked: Vec<_> = r
+                                .iter()
+                                .cloned()
+                                .map(|mut run| {
+                                    run.link = None;
+                                    run
+                                })
+                                .collect();
+                            rich_markup(t, &unlinked, s)
+                        })
+                    })
+                });
+                match rich {
+                    Some(markup) => layout.set_markup(&markup),
+                    None => {
+                        layout.set_text(&label.text());
+                        layout.set_attributes(label.attributes().as_ref());
+                    }
+                }
                 layout.set_wrap(gtk4::pango::WrapMode::WordChar);
                 let (nat_w, _) = layout.pixel_size();
                 let w = match p.width {

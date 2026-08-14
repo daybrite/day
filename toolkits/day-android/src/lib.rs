@@ -69,6 +69,7 @@ mod bridge_kinds_parity {
             // Same story again: DayBridge.java gained K_APPEARANCE_CHANGED without this row.
             ("K_APPEARANCE_CHANGED", BridgeKind::AppearanceChanged),
             ("K_COVER_HIDDEN", BridgeKind::CoverHidden),
+            ("K_LINK_ACTIVATED", BridgeKind::LinkActivated),
         ];
         assert_eq!(
             found.len(),
@@ -455,6 +456,10 @@ mod imp {
             std::cell::RefCell::new(std::collections::HashMap::new());
         static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
+        /// Label view ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell
+        /// a link's ClickableSpan which node to report against. Entries drop in `release`.
+        static LABEL_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
         #[allow(clippy::type_complexity)] // host id → (cell identityHashCode → its GlobalRef)
         static LIST_CELLS: std::cell::RefCell<
             std::collections::HashMap<i64, std::collections::HashMap<i32, Gref>>,
@@ -786,6 +791,96 @@ mod imp {
         );
     }
 
+    /// Send a label's text + runs across in one call (docs/text-runs.md).
+    ///
+    /// Offsets convert from Rust BYTES to Java's UTF-16 indices here, per run: any emoji or CJK
+    /// in the string makes the two disagree, and an off-by-N range styles the wrong words.
+    pub fn set_label_runs(
+        env: &mut Env,
+        node: i64,
+        v: &Gref,
+        text: &str,
+        runs: &[day_spec::TextRun],
+    ) {
+        // Flat parallel arrays: one JNI call rather than one per run, on a path that runs for
+        // every label patch.
+        let mut starts = Vec::with_capacity(runs.len());
+        let mut ends = Vec::with_capacity(runs.len());
+        let mut flags = Vec::with_capacity(runs.len());
+        let mut colors = Vec::with_capacity(runs.len());
+        let mut links: Vec<Option<String>> = Vec::with_capacity(runs.len());
+        for r in runs {
+            let Some(slice) = text.get(r.range.clone()) else {
+                continue;
+            };
+            let start = text[..r.range.start].encode_utf16().count() as i32;
+            starts.push(start);
+            ends.push(start + slice.encode_utf16().count() as i32);
+            let mut f = 0i32;
+            if r.font
+                .weight
+                .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
+            {
+                f |= 1;
+            }
+            if r.font.italic {
+                f |= 2;
+            }
+            if r.font.monospace {
+                f |= 4;
+            }
+            if r.strikethrough {
+                f |= 8;
+            }
+            if r.color.is_some() {
+                f |= 16;
+            }
+            flags.push(f);
+            colors.push(r.color.map(argb).unwrap_or(0));
+            links.push(r.link.clone());
+        }
+        let (Ok(sa), Ok(se), Ok(sf), Ok(sc)) = (
+            env.new_int_array(starts.len()),
+            env.new_int_array(ends.len()),
+            env.new_int_array(flags.len()),
+            env.new_int_array(colors.len()),
+        ) else {
+            return;
+        };
+        if sa.set_region(env, 0, &starts).is_err()
+            || se.set_region(env, 0, &ends).is_err()
+            || sf.set_region(env, 0, &flags).is_err()
+            || sc.set_region(env, 0, &colors).is_err()
+        {
+            return;
+        }
+        // Link targets ride ONE joined string, as the canvas op stream already does — a Java
+        // object array through JNI costs a class lookup and a per-element store for a payload
+        // that is empty in almost every label.
+        let joined = links
+            .iter()
+            .map(|l| l.clone().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\u{1f}");
+        let s = jstr(env, text);
+        let jl = jstr(env, &joined);
+        let _ = env.dcall_static(
+            BRIDGE,
+            "setLabelRuns",
+            "(Landroid/view/View;JLjava/lang/String;[I[I[I[ILjava/lang/String;)V",
+            &[
+                JValue::Object(v.as_obj()),
+                JValue::Long(node),
+                JValue::Object(&s),
+                JValue::Object(&sa),
+                JValue::Object(&se),
+                JValue::Object(&sf),
+                JValue::Object(&sc),
+                JValue::Object(&jl),
+            ],
+        );
+    }
+
     pub fn make_view(env: &mut Env, method: &str, sig: &str, args: &[JValue]) -> Gref {
         match try_make_view(env, method, sig, args) {
             Ok(g) => g,
@@ -1023,6 +1118,7 @@ mod imp {
     const K_WINDOW_FOCUSED: i32 = bridge::BridgeKind::WindowFocused as i32;
     const K_APPEARANCE_CHANGED: i32 = bridge::BridgeKind::AppearanceChanged as i32;
     const K_COVER_HIDDEN: i32 = bridge::BridgeKind::CoverHidden as i32;
+    const K_LINK_ACTIVATED: i32 = bridge::BridgeKind::LinkActivated as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table. A JNI up-call
@@ -1141,6 +1237,9 @@ mod imp {
             // A cover's hide slide finished (docs/cover.md): DayCover reports so Rust can
             // dispose the content.
             K_COVER_HIDDEN => Event::CoverHidden,
+            // A styled run's link was tapped (docs/text-runs.md): the ClickableSpan reports its
+            // target, and day-core routes it to the label's `.on_link()`.
+            K_LINK_ACTIVATED => Event::LinkActivated(env.dstr(jstr).ok().unwrap_or_default()),
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
             // role/standard item, which dispatches to nothing). Routed by the pump to the closure.
             K_MENU_ACTION => Event::MenuAction(id as u64),
@@ -1481,6 +1580,10 @@ mod imp {
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
+                // SpannableString spans, drawn by the one TextView (docs/text-runs.md).
+                // A link run is a ClickableSpan; the TextView takes LinkMovementMethod when one
+                // is present, which is what makes the tap land.
+                Cap::TextRuns | Cap::TextLinks => Support::Native,
                 // EditText honors editable / selectable / spell-check (DayTextArea shim).
                 Cap::Dialogs
                 | Cap::FileDialogs
@@ -1927,9 +2030,13 @@ mod imp {
                             "(Ljava/lang/String;)Landroid/view/View;",
                             &[JValue::Object(&s)],
                         );
-                        let fam = match custom_family(p.font) {
-                            Some(f) => JObject::from(jstr(env, f)),
-                            None => JObject::null(),
+                        // A whole-label monospace ask rides the family parameter: "monospace" is
+                        // Android's own alias for the system fixed-pitch face, so this is the same
+                        // request `TypefaceSpan("monospace")` makes for a single run.
+                        let fam = match (custom_family(p.font), p.font.monospace) {
+                            (Some(f), _) => JObject::from(jstr(env, f)),
+                            (None, true) => JObject::from(jstr(env, "monospace")),
+                            (None, false) => JObject::null(),
                         };
                         let _ = env.dcall_static(
                             BRIDGE,
@@ -1955,6 +2062,13 @@ mod imp {
                                     JValue::Bool(true),
                                 ],
                             );
+                        }
+                        // A label patch carries no node id, and a link's ClickableSpan needs one
+                        // to report through — so remember it here, where the id is in hand.
+                        LABEL_NODE
+                            .with(|m| m.borrow_mut().insert(view.as_obj().as_raw() as usize, idj));
+                        if !p.runs.is_empty() {
+                            set_label_runs(env, idj, &view, &p.text, &p.runs);
                         }
                         AHandle(view)
                     })
@@ -2342,6 +2456,15 @@ mod imp {
                                     );
                                 });
                             }
+                            LabelPatch::Runs(text, runs) => {
+                                let node = LABEL_NODE.with(|m| {
+                                    m.borrow()
+                                        .get(&(h.0.as_obj().as_raw() as usize))
+                                        .copied()
+                                        .unwrap_or(0)
+                                });
+                                with_env(|env| set_label_runs(env, node, &h.0, text, runs))
+                            }
                             LabelPatch::Color(c) => {
                                 call_void(
                                     "setLabelColor",
@@ -2525,6 +2648,7 @@ mod imp {
             // and future — so ptr-keyed side state cannot outlive the handle
             // (day_spec::sidetable; the maps below predate it and stay manual).
             day_spec::sidetable::sweep(key);
+            LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 LIST_SOURCES.with(|m| {
                     m.borrow_mut().remove(&nid);

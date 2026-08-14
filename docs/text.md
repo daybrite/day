@@ -53,6 +53,11 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 - `.italic()`: slants the text.
 - A weight override keeps the style's accessibility-scaled size (on iOS the weighted font is wrapped in
   `UIFontMetrics` so it also scales with Dynamic Type).
+- `.monospace()`: the platform's fixed-pitch face, at the same semantic size.
+
+To vary style *within* one label — a bold phrase, an inline `code` span, a coloured word — see
+[text-runs.md](./text-runs.md). It stays one label, so it wraps, selects and is announced as one
+paragraph.
 
 ## Color
 

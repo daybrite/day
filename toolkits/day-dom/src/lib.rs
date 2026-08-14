@@ -58,6 +58,9 @@ unsafe extern "C" {
     fn day_dom_set_style(el: u32, p: *const u8, pl: usize, v: *const u8, vl: usize);
     fn day_dom_set_attr(el: u32, a: *const u8, al: usize, v: *const u8, vl: usize);
     fn day_dom_set_class(el: u32, ptr: *const u8, len: usize, on: u32);
+    /// Wire a run anchor's click to `owner`'s node (docs/text-runs.md): the spans are not nodes,
+    /// so the LABEL element is what the event reports against.
+    fn day_dom_link(el: u32, owner: u32, p: *const u8, l: usize);
     fn day_dom_set_value(el: u32, v: f64);
     fn day_dom_set_checked(el: u32, on: u32);
     /// Attach shim listeners; `mask` bits: 1 click, 2 input, 4 change, 8 focus, 16 submit,
@@ -169,6 +172,64 @@ fn apply_button_style(el: u32, style: ButtonStyleSpec) {
         }
         ButtonStyleSpec::Automatic => {}
     }
+}
+
+/// Set a label's text, as styled spans when it has runs (docs/text-runs.md).
+///
+/// Runs become `<span>` children (a link run an `<a>`), which is what lets the whole thing stay
+/// ONE wrapping paragraph — the browser wraps across the spans as if they were plain text. The
+/// text goes through `textContent` per span rather than any HTML string, so a translated string
+/// containing `<` or `&` is inert.
+fn set_label_text(el: u32, s: &str, runs: &[day_spec::TextRun]) {
+    if runs.is_empty() {
+        text(el, s);
+        return;
+    }
+    // Clear and rebuild: a label's runs change wholesale (LabelPatch::Runs carries both), so
+    // there is nothing to diff against.
+    text(el, "");
+    let mut at = 0usize;
+    for r in runs {
+        // Same rule as the markup serializer: a run that does not address this string is
+        // skipped without advancing, so the text survives even when the styling does not.
+        let Some(styled) = s.get(r.range.clone()) else {
+            continue;
+        };
+        if r.range.start > at
+            && let Some(plain) = s.get(at..r.range.start)
+        {
+            append_span(el, plain, None);
+        }
+        append_span(el, styled, Some(r));
+        at = r.range.end;
+    }
+    if let Some(tail) = s.get(at..) {
+        append_span(el, tail, None);
+    }
+}
+
+/// One `<span>` (or `<a>`) child carrying a run's styling.
+fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
+    let kind = if run.is_some_and(|r| r.link.is_some()) {
+        EL_LINK
+    } else {
+        EL_SPAN
+    };
+    let el = unsafe { day_dom_create(kind) };
+    text(el, content);
+    if let Some(r) = run {
+        apply_font(el, &r.font);
+        if let Some(c) = r.color {
+            s(el, "color", &color_css(c));
+        }
+        if r.strikethrough {
+            s(el, "text-decoration", "line-through");
+        }
+        if let Some(url) = r.link.as_deref() {
+            unsafe { day_dom_link(el, parent, url.as_ptr(), url.len()) };
+        }
+    }
+    unsafe { day_dom_insert(parent, el, u32::MAX) };
 }
 
 fn class(el: u32, c: &str, on: bool) {
@@ -319,6 +380,9 @@ const EL_TABS: u32 = 17;
 const EL_CELL: u32 = 18;
 const EL_SEGMENTED: u32 = 19;
 const EL_RADIOS: u32 = 20;
+/// A styled run inside a label (docs/text-runs.md), and the same as a link.
+const EL_SPAN: u32 = 21;
+const EL_LINK: u32 = 22;
 
 /// Wire event kinds the shim reports through `day_dom_event` (shim.js mirrors this table).
 mod ev {
@@ -489,6 +553,12 @@ fn realize_placeholder(kind: PieceKind, id: NodeId) -> DomHandle {
 const SYSTEM_STACK: &str =
     "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
+/// The fixed-pitch counterpart of [`SYSTEM_STACK`], for `FontSpec::monospace`. `ui-monospace`
+/// first so the browser's own fixed face wins where it has one; the generic `monospace` last so
+/// there is always something fixed-pitch to fall back to.
+const MONO_STACK: &str =
+    "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
+
 /// A ramp step as a CSS length: the step in rem, scaled by the stylesheet's `--day-text-scale`.
 fn scaled_rem(step: f64) -> String {
     format!("calc({step}rem * var(--day-text-scale))")
@@ -540,9 +610,16 @@ fn font_css(f: &FontSpec) -> String {
     };
     let weight = f.weight.map(weight_css).unwrap_or(default_weight);
     let italic = if f.italic { "italic " } else { "" };
+    // A bundled family names itself first and falls back to the stack; `monospace` picks the
+    // fixed-pitch stack, which is what a code run asks for.
+    let stack = if f.monospace {
+        MONO_STACK
+    } else {
+        SYSTEM_STACK
+    };
     let family = match f.style {
-        Font::Custom(name, _) => format!("'{name}', {SYSTEM_STACK}"),
-        _ => SYSTEM_STACK.to_string(),
+        Font::Custom(name, _) => format!("'{name}', {stack}"),
+        _ => stack.to_string(),
     };
     format!("{italic}{weight} {size}/1.3 {family}")
 }
@@ -849,6 +926,9 @@ impl Toolkit for Dom {
             // Exact metrics from a canvas TextMetrics, but derived rather than read off a
             // baseline the platform publishes (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
+            // Runs are `<span>` children; a link run is an `<a>`, whose click the shim cancels
+            // and reports so the app's `.on_link()` decides (docs/text-runs.md).
+            Cap::TextRuns | Cap::TextLinks => Support::Native,
             // A strip docked above the app root, not window chrome the OS draws — a browser tab
             // has no title bar to hang one on. Emulated is the honest answer, and it is enough
             // for an app to decide the commands belong in the bar rather than in the content
@@ -886,7 +966,7 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_LABEL) };
-                text(el, &p.text);
+                set_label_text(el, &p.text, &p.runs);
                 apply_font(el, &p.font);
                 if let Some(c) = p.color {
                     s(el, "color", &color_css(c));
@@ -1233,6 +1313,10 @@ impl Toolkit for Dom {
                         LabelPatch::Text(t) => {
                             text(el, t);
                             // The measure cache is keyed by element — new text, new metrics.
+                            MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
+                        }
+                        LabelPatch::Runs(t, runs) => {
+                            set_label_text(el, t, runs);
                             MEASURE_CACHE.with(|c| c.borrow_mut().retain(|(e, _), _| *e != el));
                         }
                         LabelPatch::Color(c) => match c {
@@ -2615,11 +2699,19 @@ pub extern "C" fn day_dom_piece_event(el: u32, num: f64, ptr: *mut u8, len: usiz
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn day_dom_event_text(el: u32, _kind: u32, ptr: *mut u8, len: usize) {
+pub extern "C" fn day_dom_event_text(el: u32, kind: u32, ptr: *mut u8, len: usize) {
     let t = take_string(ptr, len);
     day_spec::ffi_guard::contain((), move || {
         if let Some(node) = node_of(el) {
-            emit(node, Event::TextChanged(t));
+            // The kinds that carry a string. `16` is a styled run's link (docs/text-runs.md):
+            // the anchor's own navigation is cancelled in the shim, so the app decides.
+            emit(
+                node,
+                match kind {
+                    16 => Event::LinkActivated(t),
+                    _ => Event::TextChanged(t),
+                },
+            );
         }
     });
 }

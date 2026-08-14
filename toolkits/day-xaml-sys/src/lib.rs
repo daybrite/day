@@ -164,6 +164,16 @@ unsafe extern "C" {
     // leaves
     pub fn day_xaml_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_xaml_label_set_text(w: *mut c_void, text: *const c_char);
+    pub fn day_xaml_label_runs_begin(h: *mut c_void, node: u64);
+    /// Install the trampoline a link run's Hyperlink Click reports through (docs/text-runs.md).
+    pub fn day_xaml_label_link_cb(cb: extern "C" fn(u64, *const c_char));
+    pub fn day_xaml_label_runs_add(
+        h: *mut c_void,
+        text: *const c_char,
+        flags: c_int,
+        argb: u32,
+        link: *const c_char,
+    );
     pub fn day_xaml_label_set_font(
         w: *mut c_void,
         pt: c_double,

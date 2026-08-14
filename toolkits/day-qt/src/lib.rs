@@ -354,6 +354,14 @@ extern "C" fn on_text(id: u64, s: *const c_char) {
         emit(NodeId(id), Event::TextChanged(text));
     });
 }
+/// A styled run's link was clicked (docs/text-runs.md); the app's `.on_link()` decides what the
+/// target does — Qt's own external opening is left off in the shim.
+extern "C" fn on_link(id: u64, s: *const c_char) {
+    ffi_guard::contain((), || {
+        let url = unsafe { CStr::from_ptr(s) }.to_string_lossy().into_owned();
+        emit(NodeId(id), Event::LinkActivated(url));
+    });
+}
 extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
     ffi_guard::contain((), || {
         let (min, max) = RANGES.with(|r| r.get(id as usize)).unwrap_or((0.0, 1.0));
@@ -513,6 +521,21 @@ fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
         Font::System(pt) => (pt, Regular),
         Font::Custom(_, pt) => (pt, Regular),
     }
+}
+
+/// Render a label's runs as Qt rich text (docs/text-runs.md).
+///
+/// Qt's rich text is an HTML subset, so this goes through the SHARED serializer — the escaping
+/// is the risk, and it is the same risk GTK has, so it is written and tested once in day-spec.
+fn set_label_runs(w: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
+    if runs.is_empty() {
+        // The plain setter also puts the format back to PlainText, so a label that loses its
+        // runs stops parsing markup.
+        unsafe { ffi::day_qt_label_set_text(w, cstr(text).as_ptr()) };
+        return;
+    }
+    let html = day_spec::runs_to_markup(text, runs, day_spec::MarkupDialect::QtHtml);
+    unsafe { ffi::day_qt_label_set_rich_text(w, cstr(&html).as_ptr()) };
 }
 
 /// Apply a `Font::Custom` family on top of `day_qt_label_set_font` (which set size/weight/italic).
@@ -1103,7 +1126,9 @@ impl Toolkit for Qt {
         match cap {
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
-            Cap::Snapshot
+            Cap::TextRuns
+            | Cap::TextLinks
+            | Cap::Snapshot
             | Cap::NavSplit
             // One QSplitter carries both presentations, with the back header installed either
             // way — so re-presenting is a pane visibility flip plus one re-parent of the
@@ -1297,9 +1322,16 @@ impl Toolkit for Qt {
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_qt_label_set_font(w, pt, weight, italic, tabular);
                     apply_custom_family(w, p.font);
+                    if p.font.monospace {
+                        ffi::day_qt_label_set_monospace(w);
+                    }
                     if let Some(c) = p.color {
                         ffi::day_qt_label_set_color(w, c.r, c.g, c.b, c.a, 1);
                     }
+                    set_label_runs(w, &p.text, &p.runs);
+                    // Wired unconditionally: runs can arrive later by patch, and connecting a
+                    // signal on a label that never gets a link costs nothing.
+                    ffi::day_qt_label_on_link(w, id.0, on_link);
                     QtHandle(w)
                 }
                 Some(Builtin::Button) => {
@@ -1649,6 +1681,7 @@ impl Toolkit for Qt {
                                 ffi::day_qt_label_set_font(h.0, pt, weight, italic, tabular);
                                 apply_custom_family(h.0, *f);
                             }
+                            LabelPatch::Runs(text, runs) => set_label_runs(h.0, text, runs),
                             LabelPatch::Color(c) => match c {
                                 Some(c) => ffi::day_qt_label_set_color(h.0, c.r, c.g, c.b, c.a, 1),
                                 None => ffi::day_qt_label_set_color(h.0, 0.0, 0.0, 0.0, 0.0, 0),

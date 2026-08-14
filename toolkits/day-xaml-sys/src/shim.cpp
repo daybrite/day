@@ -2461,7 +2461,67 @@ void* day_xaml_label_new(const char* text) {
     return boxh(t);
 }
 void day_xaml_label_set_text(void* h, const char* t) {
-    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.Text(hs(t));
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    // Clear any Inlines first: setting Text while Inlines are populated leaves the old runs in
+    // place on some builds, so a label losing its runs would keep rendering the styled version.
+    tb.Inlines().Clear();
+    tb.Text(hs(t));
+}
+
+/// Begin a styled label: clear the block so runs can be appended (docs/text-runs.md).
+void day_xaml_label_runs_begin(void* h, unsigned long long node) {
+    g_link_node = node;
+    if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
+        tb.Text(hs(""));
+        tb.Inlines().Clear();
+    }
+}
+
+/// Append one run. `flags` packs bold/italic/mono/strike/hasColour; `link` is empty for a plain
+/// run. Each run is an INLINE inside the one TextBlock, so the paragraph still wraps, selects
+/// and is read as a single block — which is the whole reason for runs.
+typedef void (*DayLinkCb)(unsigned long long id, const char* url);
+
+/// The node a link run reports against, and the trampoline. Set by `day_xaml_label_runs_begin`
+/// so every Hyperlink appended after it knows where to send its Click (docs/text-runs.md).
+static unsigned long long g_link_node = 0;
+static DayLinkCb g_link_cb = nullptr;
+
+void day_xaml_label_link_cb(DayLinkCb cb) { g_link_cb = cb; }
+
+void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb, const char* link) {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    WUXD::Run run;
+    run.Text(hs(text));
+    if (flags & 1) run.FontWeight(winrt::Windows::UI::Text::FontWeights::Bold());
+    if (flags & 2) run.FontStyle(WUI::Text::FontStyle::Italic);
+    // The family name is the XAML convention for "the fixed-pitch face"; Consolas is the
+    // Windows default behind it.
+    if (flags & 4) run.FontFamily(WUXM::FontFamily(L"Consolas, Courier New, monospace"));
+    if (flags & 16) run.Foreground(brush_bits(argb));
+    if (flags & 8) {
+        // Strikethrough is a TextDecorations flag on the Run (Windows 10 1809+).
+        run.TextDecorations(WUI::Text::TextDecorations::Strikethrough);
+    }
+    if (link && link[0]) {
+        // A Hyperlink is an inline container: the run goes INSIDE it, so the link sits in the
+        // same wrapping paragraph as its neighbours. Activation is Phase 4.
+        WUXD::Hyperlink hl;
+        hl.Inlines().Append(run);
+        // NavigateUri is deliberately NOT set: it would make the shell open the target itself,
+        // behind Day's back. Click reports to Rust and the label's `.on_link()` decides — whose
+        // default opens the URL through `Toolkit::open_url`, the path every backend shares.
+        std::string target(link);
+        unsigned long long node = g_link_node;
+        hl.Click([node, target](WUXD::Hyperlink const&, WUXD::HyperlinkClickEventArgs const&) {
+            if (g_link_cb) g_link_cb(node, target.c_str());
+        });
+        tb.Inlines().Append(hl);
+        return;
+    }
+    tb.Inlines().Append(run);
 }
 // Make a label's text user-selectable (the `.selectable()` modifier, docs/text.md). try_as
 // guards a non-TextBlock handle — a no-op rather than a bad cast.

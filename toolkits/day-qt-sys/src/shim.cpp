@@ -439,8 +439,34 @@ void *day_qt_label_new(const char *text) {
     }
     return l;
 }
+/// Set a label's text as RICH text — day's markup serializer produced the HTML (docs/text-runs.md).
+///
+/// `Qt::RichText` explicitly, never `AutoText`: auto-detection guesses from the content, so a
+/// PLAIN translated string that happens to contain `<` would silently start being parsed as
+/// markup. Day decides which it is, not a heuristic.
+// Link runs (docs/text-runs.md). QLabel hit-tests the `<a href>` in its rich text itself and
+// emits linkActivated; external opening stays OFF so Day's own `.on_link()` decides. Rich text
+// also needs the mouse-interaction flag, which a plain label does not carry.
+void day_qt_label_on_link(void *w, uint64_t id, void (*cb)(uint64_t, const char *)) {
+    QLabel *l = static_cast<QLabel *>(w);
+    l->setOpenExternalLinks(false);
+    l->setTextInteractionFlags(l->textInteractionFlags() | Qt::LinksAccessibleByMouse |
+                               Qt::LinksAccessibleByKeyboard);
+    QObject::connect(l, &QLabel::linkActivated, [id, cb](const QString &url) {
+        QByteArray ba = url.toUtf8();
+        cb(id, ba.constData());
+    });
+}
+void day_qt_label_set_rich_text(void *w, const char *html) {
+    QLabel *l = static_cast<QLabel *>(w);
+    l->setTextFormat(Qt::RichText);
+    l->setText(QString::fromUtf8(html));
+}
 void day_qt_label_set_text(void *w, const char *text) {
-    static_cast<QLabel *>(w)->setText(QString::fromUtf8(text));
+    QLabel *l = static_cast<QLabel *>(w);
+    // Back to plain when a label loses its runs, or the previous markup would keep parsing.
+    l->setTextFormat(Qt::PlainText);
+    l->setText(QString::fromUtf8(text));
 }
 void day_qt_label_set_font(void *w, double pt, int weight, int italic, int tabular) {
     QLabel *l = static_cast<QLabel *>(w);
@@ -477,6 +503,18 @@ void day_qt_label_set_color(void *w, double r, double g, double b, double a, int
 // Point the label at a bundled font family (registered via day_qt_register_font). Called after
 // day_qt_label_set_font, so it only swaps the family; Qt falls back to the default family when
 // the name doesn't resolve.
+/// Switch a label to the system's FIXED-PITCH family, keeping its size and weight — inline code
+/// (docs/text-runs.md). `QFontDatabase::systemFont(FixedFont)` is the platform's own choice
+/// rather than a guessed family name.
+void day_qt_label_set_monospace(void *w) {
+    QLabel *l = static_cast<QLabel *>(w);
+    QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    QFont f = l->font();
+    mono.setPointSizeF(f.pointSizeF());
+    mono.setWeight(f.weight());
+    mono.setItalic(f.italic());
+    l->setFont(mono);
+}
 void day_qt_label_set_font_family(void *w, const char *family) {
     QLabel *l = static_cast<QLabel *>(w);
     QFont f = l->font();

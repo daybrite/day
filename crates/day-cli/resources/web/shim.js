@@ -91,6 +91,10 @@ function create(kind) {
     case 18: el = div('day-cell'); break;
     case 19: el = div('day-segmented'); break;
     case 20: el = div('day-radios'); break;
+    // A styled run inside a label, and the link form of one (docs/text-runs.md). Inline by
+    // nature, so the browser wraps the paragraph across them as if they were plain text.
+    case 21: el = document.createElement('span'); el.className = 'day-run'; break;
+    case 22: el = document.createElement('a'); el.className = 'day-run day-run-link'; break;
     default: el = div('day-container');
   }
   return register(el);
@@ -155,6 +159,19 @@ const env = {
     if (el.tagName === 'TEXTAREA') el.value = t; else el.textContent = t;
   },
   day_dom_set_style(id, p, pl, v, vl) { E(id).style.setProperty(str(p, pl), str(v, vl)); },
+  // A styled run's link (docs/text-runs.md). `owner` is the LABEL's element, since that is the
+  // one Rust knows as a node — the run spans are not nodes. The anchor's own navigation is
+  // cancelled: what the target does is the app's `.on_link()` call, and the default there opens
+  // the URL through the same path every other backend uses.
+  day_dom_link(id, owner, p, l) {
+    const a = E(id); const url = str(p, l);
+    a.href = url;
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const [q, n] = intoWasm(url);
+      wasm.day_dom_event_text(owner, 16, q, n);
+    });
+  },
   day_dom_set_attr(id, a, al, v, vl) {
     const el = V(id); const name = str(a, al); const val = str(v, vl);
     if (name === 'value') { el.value = val; return; }

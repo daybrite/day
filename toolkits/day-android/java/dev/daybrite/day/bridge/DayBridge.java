@@ -133,6 +133,8 @@ public final class DayBridge {
     public static final int K_NAV_PRESENTATION = 24;
     public static final int K_APPEARANCE_CHANGED = 25;
     public static final int K_COVER_HIDDEN = 26;
+    /** A styled run's link was tapped (docs/text-runs.md); the string is the target. */
+    public static final int K_LINK_ACTIVATED = 27;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -511,6 +513,65 @@ public final class DayBridge {
         return t;
     }
     public static void setLabel(View v, String text) { ((TextView) v).setText(text); }
+
+    /**
+     * Set a label's text with styled RUNS (docs/text-runs.md).
+     *
+     * The runs arrive as flat parallel arrays rather than objects: one JNI call with three
+     * primitive arrays beats N calls building a Java object per run, and this runs on every
+     * label patch. Layout: starts[i], ends[i] are UTF-16 offsets (Java string indices — Rust
+     * converts from its byte offsets), and flags[i] packs bold/italic/mono/strike/hasColor with
+     * colors[i] holding the ARGB when the flag says so. `links[i]` is null for a plain run.
+     *
+     * The spans are Android's own, so the text stays ONE TextView: it wraps, selects and is read
+     * by TalkBack as a single paragraph, which is the entire point of runs.
+     */
+    public static void setLabelRuns(
+            View v, final long node, String text, int[] starts, int[] ends, int[] flags, int[] colors,
+            String linksJoined) {
+        TextView tv = (TextView) v;
+        boolean anyLink = false;
+        android.text.SpannableString s = new android.text.SpannableString(text);
+        String[] links = linksJoined.isEmpty() ? new String[0] : linksJoined.split("\u001f", -1);
+        final int EXCL = android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE;
+        for (int i = 0; i < starts.length; i++) {
+            int a = Math.max(0, Math.min(starts[i], text.length()));
+            int b = Math.max(a, Math.min(ends[i], text.length()));
+            if (a == b) continue;
+            int f = flags[i];
+            boolean bold = (f & 1) != 0, italic = (f & 2) != 0;
+            if (bold && italic) {
+                s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD_ITALIC), a, b, EXCL);
+            } else if (bold) {
+                s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), a, b, EXCL);
+            } else if (italic) {
+                s.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.ITALIC), a, b, EXCL);
+            }
+            if ((f & 4) != 0) s.setSpan(new android.text.style.TypefaceSpan("monospace"), a, b, EXCL);
+            if ((f & 8) != 0) s.setSpan(new android.text.style.StrikethroughSpan(), a, b, EXCL);
+            if ((f & 16) != 0) s.setSpan(new android.text.style.ForegroundColorSpan(colors[i]), a, b, EXCL);
+            if (i < links.length && !links[i].isEmpty()) {
+                // A ClickableSpan rather than a URLSpan: the target goes back to Rust, so the
+                // app's `.on_link()` decides (route in-app, confirm, open) instead of Android
+                // firing an implicit VIEW intent behind Day's back. It keeps URLSpan's own
+                // rendering — accent colour and underline — from updateDrawState.
+                final String target = links[i];
+                s.setSpan(new android.text.style.ClickableSpan() {
+                    @Override public void onClick(View widget) {
+                        nativeOnEvent(node, K_LINK_ACTIVATED, 0.0, target);
+                    }
+                }, a, b, EXCL);
+                anyLink = true;
+            }
+        }
+        tv.setText(s);
+        // Clicks on spans need a movement method. It is set ONLY when a link is present: it
+        // replaces the selection movement method, so a selectable label without links keeps
+        // its selection behaviour intact (docs/text-runs.md).
+        if (anyLink) {
+            tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }
+    }
     /**
      * `sp` size (scales with the accessibility Font Size setting), font weight (100–900), italic,
      * and an optional bundled font family (null for the system font — §18.4).

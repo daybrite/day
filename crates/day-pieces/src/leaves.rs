@@ -17,6 +17,138 @@ use crate::*;
 // Leaves
 // ---------------------------------------------------------------------------
 
+/// Build a styled paragraph run by run (docs/text-runs.md).
+///
+/// The point of a builder is that byte ranges are error-prone to write by hand and meaningless to
+/// read: `TextRun { range: 12..19, .. }` says nothing about which word it covers. Appending text
+/// and its style together keeps the two from drifting apart.
+///
+/// ```ignore
+/// label("").runs_from(
+///     TextBuilder::new()
+///         .text("Saved to ")
+///         .code("~/Documents")
+///         .text(" just now — ")
+///         .strong("do not close")
+///         .text(" the window."),
+/// )
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct TextBuilder {
+    text: String,
+    runs: Vec<day_spec::TextRun>,
+    base: Font,
+}
+
+impl TextBuilder {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// The style the emphasis variants build on — set it to the label's own font so a bold run
+    /// inside a `Footnote` paragraph stays footnote-sized.
+    pub fn base(mut self, font: Font) -> Self {
+        self.base = font;
+        self
+    }
+    /// Unstyled text: it draws with the label's own font.
+    pub fn text(mut self, s: &str) -> Self {
+        self.text.push_str(s);
+        self
+    }
+    /// A run with a fully specified style.
+    pub fn run(
+        mut self,
+        s: &str,
+        run: impl FnOnce(std::ops::Range<usize>) -> day_spec::TextRun,
+    ) -> Self {
+        let start = self.text.len();
+        self.text.push_str(s);
+        self.runs.push(run(start..self.text.len()));
+        self
+    }
+    /// Bold.
+    pub fn strong(self, s: &str) -> Self {
+        let base = self.base;
+        self.run(s, move |range| {
+            day_spec::TextRun::font(
+                range,
+                day_spec::FontSpec {
+                    style: base,
+                    weight: Some(day_spec::FontWeight::Bold),
+                    ..Default::default()
+                },
+            )
+        })
+    }
+    /// Italic.
+    pub fn emphasis(self, s: &str) -> Self {
+        let base = self.base;
+        self.run(s, move |range| {
+            day_spec::TextRun::font(
+                range,
+                day_spec::FontSpec {
+                    style: base,
+                    italic: true,
+                    ..Default::default()
+                },
+            )
+        })
+    }
+    /// Inline code: the platform's monospaced face at this style's size.
+    pub fn code(self, s: &str) -> Self {
+        let base = self.base;
+        self.run(s, move |range| {
+            day_spec::TextRun::font(
+                range,
+                day_spec::FontSpec {
+                    style: base,
+                    monospace: true,
+                    ..Default::default()
+                },
+            )
+        })
+    }
+    /// A coloured phrase.
+    pub fn colored(self, s: &str, color: day_spec::Color) -> Self {
+        let base = self.base;
+        self.run(s, move |range| day_spec::TextRun {
+            range,
+            font: day_spec::FontSpec::from(base),
+            color: Some(color),
+            strikethrough: false,
+            link: None,
+        })
+    }
+    /// Struck through.
+    pub fn strikethrough(self, s: &str) -> Self {
+        let base = self.base;
+        self.run(s, move |range| day_spec::TextRun {
+            range,
+            font: day_spec::FontSpec::from(base),
+            color: None,
+            strikethrough: true,
+            link: None,
+        })
+    }
+    /// A link run. RENDERING it is `Cap::TextRuns`; ACTIVATING it is `Cap::TextLinks`, which
+    /// fewer backends have — check before relying on the tap (docs/text-runs.md).
+    pub fn link(self, s: &str, target: &str) -> Self {
+        let base = self.base;
+        let target = target.to_string();
+        self.run(s, move |range| day_spec::TextRun {
+            range,
+            font: day_spec::FontSpec::from(base),
+            color: None,
+            strikethrough: false,
+            link: Some(target),
+        })
+    }
+    /// The assembled text and its runs.
+    pub fn build(self) -> (String, Vec<day_spec::TextRun>) {
+        (self.text, self.runs)
+    }
+}
+
 pub struct Label {
     // pub(crate): `forms` builds Label literals directly (they were co-located before the split).
     pub(crate) text: TextSource,
@@ -24,8 +156,19 @@ pub struct Label {
     pub(crate) weight: Option<day_spec::FontWeight>,
     pub(crate) italic: bool,
     pub(crate) tabular: bool,
+    pub(crate) monospace: bool,
     pub(crate) color: Option<Reactive<day_spec::Color>>,
+    /// Styled spans over `text` (docs/text-runs.md); empty is an ordinary uniform label.
+    pub(crate) runs: Vec<day_spec::TextRun>,
+    /// Parse the text as inline markdown instead of taking it literally (docs/markdown.md).
+    pub(crate) markdown: bool,
+    /// What a tapped link run does. `None` opens the target in the platform's default handler,
+    /// which is what a link in a paragraph of text is normally expected to do.
+    pub(crate) on_link: Option<LinkHandler>,
 }
+
+/// An app's handler for a tapped link run, shared because `Label` is cloned into its build.
+pub(crate) type LinkHandler = Rc<dyn Fn(&str)>;
 
 pub fn label<M>(text: impl IntoText<M>) -> Label {
     Label {
@@ -34,7 +177,11 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
         weight: None,
         italic: false,
         tabular: false,
+        monospace: false,
         color: None,
+        runs: Vec::new(),
+        markdown: false,
+        on_link: None,
     }
 }
 
@@ -68,6 +215,65 @@ impl Label {
         self.tabular = true;
         self
     }
+    /// Ask for the platform's monospaced face at this style's size — what inline code wants.
+    pub fn monospace(mut self) -> Self {
+        self.monospace = true;
+        self
+    }
+    /// Style spans WITHIN this label's text (docs/text-runs.md): one wrapping paragraph with
+    /// emphasis, colour, code or a link inside it, rather than several labels in a row.
+    ///
+    /// Ranges are byte offsets into the label's text, ascending and non-overlapping; text not
+    /// covered by a run draws with the label's own font. Invalid runs are REJECTED at build time
+    /// with a warning and the label renders plain, because the alternative is eight different
+    /// wrong renderings (and a panic on the backends that slice `str`).
+    ///
+    /// [`TextBuilder`] is the ergonomic way in; this is the direct one.
+    pub fn runs(mut self, runs: Vec<day_spec::TextRun>) -> Self {
+        self.runs = runs;
+        self
+    }
+    /// Take BOTH the text and its runs from a [`TextBuilder`], replacing whatever text the label
+    /// was built with. This is the intended entry point — the builder guarantees the ranges match
+    /// the string, which is the invariant hand-written runs get wrong.
+    pub fn runs_from(mut self, b: TextBuilder) -> Self {
+        let (text, runs) = b.build();
+        self.text = TextSource::Static(text);
+        self.runs = runs;
+        self
+    }
+    /// Read the label's text as inline MARKDOWN (docs/markdown.md): `**bold**`, `*italic*`,
+    /// `` `code` ``, `~~strike~~` and `[text](url)` become styled runs, and the markers themselves
+    /// are stripped.
+    ///
+    /// The parse happens at run time, on every change — so it works on a translated string chosen
+    /// from the locale bundle, a value off the network, or text a user is typing, none of which a
+    /// compile-time macro can see. The cost is a parse per update of a string that is a label's
+    /// worth of text.
+    ///
+    /// ```ignore
+    /// label(tr("release-note")).markdown()
+    /// label(move || draft.get()).markdown()   // live as the user types
+    /// ```
+    ///
+    /// Unrecognized markup stays literal, so a half-typed `**` reads as two asterisks rather than
+    /// flickering. Block constructs (headings, lists, quotes) are NOT parsed: they are layout,
+    /// which is `column`/`form`/`list`.
+    pub fn markdown(mut self) -> Self {
+        self.markdown = true;
+        self
+    }
+    /// Handle a tapped link run yourself instead of opening its target.
+    ///
+    /// Without this, a link opens in the platform's default handler, the same as the [`link`]
+    /// piece. Set it to route in-app (a `day://` scheme, a route name) or to confirm first.
+    ///
+    /// Activation is `Cap::TextLinks`, which is narrower than run RENDERING — on a backend
+    /// without it the link still draws, and nothing calls this (docs/text-runs.md).
+    pub fn on_link(mut self, f: impl Fn(&str) + 'static) -> Self {
+        self.on_link = Some(Rc::new(f));
+        self
+    }
     /// The text color: a constant, a `Signal<Color>`, or a `Fn() -> Color` — a reactive
     /// source recolors the native label when it changes (theme systems ride this).
     pub fn color<M>(mut self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
@@ -78,7 +284,22 @@ impl Label {
 
 impl Piece for Label {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let initial = self.text.initial();
+        // `.markdown()` replaces both the text and the runs: the markers are stripped from what
+        // the label shows, so the two have to be produced together.
+        let (initial, runs) = if self.markdown {
+            crate::markdown::parse(&self.text.initial(), self.font)
+        } else {
+            (self.text.initial(), self.runs.clone())
+        };
+        // Validate ONCE here rather than in eight backends: an overlapping or mid-character
+        // range renders differently wrong on each, and panics on the ones that slice `str`.
+        let runs = match day_spec::runs_are_valid(&initial, &runs) {
+            Ok(()) => runs,
+            Err(why) => {
+                eprintln!("day: label runs ignored — {why}; the text renders unstyled");
+                Vec::new()
+            }
+        };
         let node = cx.leaf(
             kinds::LABEL,
             &LabelProps {
@@ -88,14 +309,47 @@ impl Piece for Label {
                     weight: self.weight,
                     italic: self.italic,
                     tabular: self.tabular,
+                    monospace: self.monospace,
                 },
                 color: self.color.as_ref().map(|c| c.get_untracked()),
                 wraps: true,
+                runs,
             },
             Flex::default(),
         );
-        self.text
-            .bind_to(node, |t| Box::new(LabelPatch::Text(t)), true);
+        // A label that can carry link runs listens for their activation. Markdown labels qualify
+        // whatever they currently hold, since a later parse may produce a link that this one did
+        // not. Labels without any prospect of a link register nothing.
+        let could_link =
+            self.markdown || self.on_link.is_some() || self.runs.iter().any(|r| r.link.is_some());
+        if could_link {
+            let handler = self.on_link.clone();
+            cx.on(node, move |ev| {
+                if let Event::LinkActivated(url) = ev {
+                    match &handler {
+                        Some(f) => f(url),
+                        // The unhandled case is the common one: open it, like the `link` piece.
+                        None => day_core::open_url(url),
+                    }
+                }
+            });
+        }
+        // A reactive markdown label re-parses on every change and patches text AND runs together,
+        // since the ranges only mean anything against the string they were parsed from.
+        let font = self.font;
+        let md = self.markdown;
+        self.text.bind_to(
+            node,
+            move |t| {
+                if md {
+                    let (text, runs) = crate::markdown::parse(&t, font);
+                    Box::new(LabelPatch::Runs(text, runs))
+                } else {
+                    Box::new(LabelPatch::Text(t))
+                }
+            },
+            true,
+        );
         // A reactive color recolors in place; a constant was applied once at realize.
         if let Some(Reactive::Dyn(f)) = self.color {
             bind(

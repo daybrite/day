@@ -45,7 +45,7 @@ survived their first review. `day build` reports the split per target
 
 | Backend | Native form |
 |---|---|
-| android-mdc | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules; gradients/clips/masks/filters fall back to the raster at xxxhdpi, loudly) |
+| android-mdc | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules, and linear/radial gradients on fill and stroke via `aapt:attr` — API 24, which is the scaffold's `minSdk`; clips/masks/filters, and the gradients VD's model cannot state, fall back to the raster at xxxhdpi, loudly). A VD gradient carries no transform: linear bands are perpendicular to start→end and a radial is a true circle, so a gradient sheared out of perpendicular, a radial stretched to an ellipse, or an SVG focal point rasterizes rather than drawing subtly wrong art. `gradientUnits="objectBoundingBox"` is NOT such a case — usvg resolves it to user space before the emitter sees it |
 | linux-gtk, macos-gtk | the staged **SVG** for the ICON channels — gdk-pixbuf loads SVG through librsvg, and `from_file_at_size` renders the glyph at the row's icon size rather than downsampling the 256 px cache. The `vector` piece still draws the raster |
 | linux-qt, macos-qt | the staged **SVG** for the ICON channels — Qt's SVG icon engine (the `libqsvg` imageformats plugin) renders at the size each icon asks for, so nav rows, tab icons and toolbar images stay sharp at any scale. The `vector` piece still draws the raster |
 | macos-appkit | the staged **SVG** via `DAY_VECTOR_SVG_ROOT` (`NSImage` renders SVG files at display size on macOS 11+); other desktop dev launches use the raster cache via `DAY_VECTOR_RASTER_ROOT` (probed by `resolve_image_file`) |

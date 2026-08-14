@@ -277,6 +277,7 @@ static ArkUI_NodeType kind_map(int32_t k) {
         case 15: return ARKUI_NODE_ROW;       // horizontal flow (menu rows: label + chevron)
         case 16: return ARKUI_NODE_TEXT_AREA;   // multi-line editor (docs/textarea.md)
         case 17: return ARKUI_NODE_TEXT_PICKER; // native option wheel (docs/picker.md)
+        case 18: return ARKUI_NODE_SPAN;        // one styled run inside a TEXT (docs/text-runs.md)
         default: return ARKUI_NODE_STACK;
     }
 }
@@ -383,6 +384,69 @@ void day_ark_remove_child(void* p, void* c) {
 void day_ark_set_text(void* n, const char* s) { set_str(n, NODE_TEXT_CONTENT, s); }
 // Make a Text node's text user-selectable + copyable (the `.selectable()` modifier, docs/text.md).
 // A non-Text node ignores NODE_TEXT_COPY_OPTION (setAttribute returns an error, no crash).
+/// Replace a label's children with styled RUNS (docs/text-runs.md).
+///
+/// ArkUI models runs as SPAN child nodes of a Text, not as attributes on one widget — so a
+/// styled label is a small subtree here, unlike every other backend. The Text's own content is
+/// cleared first: a Text with both `NODE_TEXT_CONTENT` and spans renders the content and ignores
+/// the spans.
+void day_ark_label_runs_begin(void* n) {
+    if (!g_api || !n) return;
+    ArkUI_NodeHandle text = (ArkUI_NodeHandle)n;
+    set_str(n, NODE_TEXT_CONTENT, "");
+    // Remove any spans a previous runs patch left behind.
+    // Signed count first: `getTotalChildCount` returns uint32_t, and `count - 1` on an empty
+    // Text would wrap to 4294967295 rather than ending the loop.
+    const int32_t count = (int32_t)g_api->getTotalChildCount(text);
+    for (int32_t i = count - 1; i >= 0; --i) {
+        ArkUI_NodeHandle c = g_api->getChildAt(text, i);
+        if (!c) continue;
+        g_api->removeChild(text, c);
+        g_api->disposeNode(c);
+    }
+}
+
+/// Append one run as a SPAN child. `flags` packs bold/italic/mono/strike/hasColour.
+void day_ark_label_runs_add(void* n, const char* text, int flags, uint32_t argb) {
+    if (!g_api || !n) return;
+    ArkUI_NodeHandle span = g_api->createNode(ARKUI_NODE_SPAN);
+    if (!span) return;
+    set_str(span, NODE_SPAN_CONTENT, text);
+    if (flags & 1) {
+        ArkUI_NumberValue v[] = {{.i32 = ARKUI_FONT_WEIGHT_BOLD}};
+        ArkUI_AttributeItem it{};
+        it.value = v;
+        it.size = 1;
+        g_api->setAttribute(span, NODE_FONT_WEIGHT, &it);
+    }
+    if (flags & 2) {
+        ArkUI_NumberValue v[] = {{.i32 = ARKUI_FONT_STYLE_ITALIC}};
+        ArkUI_AttributeItem it{};
+        it.value = v;
+        it.size = 1;
+        g_api->setAttribute(span, NODE_FONT_STYLE, &it);
+    }
+    if (flags & 4) set_str(span, NODE_FONT_FAMILY, "HarmonyOS Sans Mono, monospace");
+    if (flags & 8) {
+        // Decoration takes {type, colour, style}; the colour slot repeats the text colour so the
+        // line matches the glyphs.
+        ArkUI_NumberValue v[] = {{.i32 = ARKUI_TEXT_DECORATION_TYPE_LINE_THROUGH},
+                                 {.u32 = (flags & 16) ? argb : 0xFF000000u}};
+        ArkUI_AttributeItem it{};
+        it.value = v;
+        it.size = 2;
+        g_api->setAttribute(span, NODE_TEXT_DECORATION, &it);
+    }
+    if (flags & 16) {
+        ArkUI_NumberValue v[] = {{.u32 = argb}};
+        ArkUI_AttributeItem it{};
+        it.value = v;
+        it.size = 1;
+        g_api->setAttribute(span, NODE_FONT_COLOR, &it);
+    }
+    g_api->addChild((ArkUI_NodeHandle)n, span);
+}
+
 void day_ark_label_set_selectable(void* n, int on) {
     if (!g_api || !n) return;
     ArkUI_NumberValue nv;

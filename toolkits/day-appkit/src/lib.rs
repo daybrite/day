@@ -2584,6 +2584,18 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     } else {
         base
     };
+    // Monospace, by the same rule as tabular: Cocoa ships it as a whole font, so this re-picks
+    // the system's monospaced face at the resolved size and weight. Skipped for a bundled family
+    // — swapping a chosen typeface for the system mono would be a surprise, not a refinement.
+    let base = if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
+        let w = spec
+            .weight
+            .map(ns_weight)
+            .unwrap_or(unsafe { NSFontWeightRegular });
+        unsafe { NSFont::monospacedSystemFontOfSize_weight(base.pointSize(), w) }
+    } else {
+        base
+    };
     if spec.italic {
         let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
         unsafe {
@@ -2593,6 +2605,72 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     } else {
         base
     }
+}
+
+/// Build an `NSAttributedString` for a label's text + runs (docs/text-runs.md).
+///
+/// Ranges arrive as BYTE offsets into a Rust `str`; `NSAttributedString` indexes UTF-16. The
+/// conversion is per-run rather than a blanket assumption: any text with an emoji or a CJK
+/// character makes the two disagree, and an off-by-N range there styles the wrong words.
+fn attributed_label(
+    text: &str,
+    base_font: &NSFont,
+    color: Option<day_spec::Color>,
+    runs: &[day_spec::TextRun],
+) -> Retained<objc2_foundation::NSAttributedString> {
+    use objc2_foundation::{NSMutableAttributedString, NSRange};
+    let ns = NSString::from_str(text);
+    let s = unsafe {
+        NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns)
+    };
+    let whole = NSRange::new(0, ns.length());
+    unsafe {
+        s.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, base_font, whole);
+        // ALWAYS a foreground: an attributed range with no colour attribute draws in black,
+        // which is unreadable in dark mode. `labelColor` is the adaptive default the field
+        // would have used on its own.
+        let fg = color
+            .map(nscolor)
+            .unwrap_or_else(objc2_app_kit::NSColor::labelColor);
+        s.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &*fg, whole);
+    }
+    for r in runs {
+        let Some(range) = utf16_range(text, &r.range) else {
+            continue;
+        };
+        unsafe {
+            s.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, &*nsfont(r.font), range);
+            if let Some(c) = r.color {
+                s.addAttribute_value_range(
+                    objc2_app_kit::NSForegroundColorAttributeName,
+                    &*nscolor(c),
+                    range,
+                );
+            }
+            if r.strikethrough {
+                let one = objc2_foundation::NSNumber::new_i64(1);
+                s.addAttribute_value_range(
+                    objc2_app_kit::NSStrikethroughStyleAttributeName,
+                    &*one,
+                    range,
+                );
+            }
+            if let Some(url) = r.link.as_deref() {
+                // The LINK attribute makes AppKit draw it as one and, on a selectable field,
+                // handle the click itself. Activation reaching Day is Cap::TextLinks (Phase 4).
+                let value = NSString::from_str(url);
+                s.addAttribute_value_range(objc2_app_kit::NSLinkAttributeName, &*value, range);
+            }
+        }
+    }
+    s.into_super().into()
+}
+
+/// A byte range in `text` as an `NSRange` in UTF-16 units, or `None` if it is out of bounds.
+fn utf16_range(text: &str, r: &std::ops::Range<usize>) -> Option<objc2_foundation::NSRange> {
+    let start = text.get(..r.start)?.encode_utf16().count();
+    let len = text.get(r.clone())?.encode_utf16().count();
+    Some(objc2_foundation::NSRange::new(start, len))
 }
 
 /// Register every bundled font file (the project's `fonts/`, staged per §18.4) with CoreText for
@@ -2790,7 +2868,8 @@ impl Toolkit for AppKit {
             | Cap::AppBadgeDot
             | Cap::Appearance
             // firstBaselineOffsetFromTop — the platform's own answer (docs/baseline.md).
-            | Cap::BaselineAlignment => Support::Native,
+            | Cap::BaselineAlignment
+            | Cap::TextRuns => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
             Cap::Cover => Support::Emulated,
@@ -2846,6 +2925,10 @@ impl Toolkit for AppKit {
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
                 if let Some(c) = p.color {
                     unsafe { tf.setTextColor(Some(&nscolor(c))) };
+                }
+                if !p.runs.is_empty() {
+                    let s = attributed_label(&p.text, &nsfont(p.font), p.color, &p.runs);
+                    unsafe { tf.setAttributedStringValue(&s) };
                 }
                 view_of(tf)
             }
@@ -3397,6 +3480,22 @@ impl Toolkit for AppKit {
                             tf.setTextColor(c.map(nscolor).as_deref())
                         },
                         LabelPatch::Font(f) => unsafe { tf.setFont(Some(&nsfont(*f))) },
+                        LabelPatch::Runs(text, runs) => {
+                            // The field's CURRENT font is the base the runs sit on — taken as the
+                            // live object rather than rebuilt from a `FontSpec`, which would lose
+                            // the semantic style behind the resolved size.
+                            let base = unsafe { tf.font() };
+                            let s = match base.as_deref() {
+                                Some(f) => attributed_label(text, f, None, runs),
+                                None => attributed_label(
+                                    text,
+                                    &nsfont(day_spec::FontSpec::default()),
+                                    None,
+                                    runs,
+                                ),
+                            };
+                            unsafe { tf.setAttributedStringValue(&s) };
+                        }
                     }
                 }
             }

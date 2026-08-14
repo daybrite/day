@@ -69,6 +69,8 @@ unsafe extern "C" {
 
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
+    pub fn day_qt_label_set_rich_text(w: *mut c_void, html: *const c_char);
+    pub fn day_qt_label_on_link(w: *mut c_void, id: u64, cb: extern "C" fn(u64, *const c_char));
     pub fn day_qt_label_set_font(
         w: *mut c_void,
         pt: c_double,
@@ -90,6 +92,7 @@ unsafe extern "C" {
     );
     /// Swap the label's font family to a bundled one (after `day_qt_label_set_font`).
     pub fn day_qt_label_set_font_family(w: *mut c_void, family: *const c_char);
+    pub fn day_qt_label_set_monospace(w: *mut c_void);
     /// Make a label's text user-selectable (the `.selectable()` modifier). No-op on non-labels.
     pub fn day_qt_label_set_selectable(w: *mut c_void, on: c_int);
     /// `QFontDatabase::addApplicationFont` — returns the font id (>= 0) or -1 on failure.
