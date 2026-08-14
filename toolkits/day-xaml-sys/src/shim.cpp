@@ -29,6 +29,7 @@
 #include <string>
 #include <limits>
 #include <algorithm> // std::sort — radial-gradient stop ordering
+#include <array>      // the saved clip rect on the save/restore stack
 #include <cwctype>   // towupper / iswalpha — menu access keys
 #include <memory>    // shared_ptr — the segmented picker's group state, the textarea's flag
 #include <cwchar>    // wcscmp — WM_SETTINGCHANGE area name
@@ -869,6 +870,112 @@ static void relayout_sec_chrome(SecWindow* sw) {
     if (g_win_resized) g_win_resized(sw->node, w, h);
 }
 
+/// Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a XAML PathGeometry.
+static WUXM::PathGeometry parse_path_geometry(const std::string &spec, int rule) {
+    WUXM::PathGeometry pg;
+    pg.FillRule(rule == 1 ? WUXM::FillRule::EvenOdd : WUXM::FillRule::Nonzero);
+    std::vector<std::string> tok;
+    size_t pos = 0;
+    while (pos < spec.size()) {
+        size_t sp = spec.find(' ', pos);
+        std::string s = spec.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+        if (!s.empty()) tok.push_back(s);
+        if (sp == std::string::npos) break;
+        pos = sp + 1;
+    }
+    size_t i = 0;
+    auto num = [&]() -> float {
+        if (i >= tok.size()) return 0.0f;
+        float v = 0.0f;
+        std::from_chars(tok[i].data(), tok[i].data() + tok[i].size(), v);
+        ++i;
+        return v;
+    };
+    WUXM::PathFigure fig{ nullptr };
+    auto flush = [&]() {
+        if (fig) pg.Figures().Append(fig);
+        fig = nullptr;
+    };
+    while (i < tok.size()) {
+        std::string op = tok[i++];
+        if (op == "M") {
+            flush();
+            fig = WUXM::PathFigure();
+            fig.IsClosed(false);
+            float x = num(), y = num();
+            fig.StartPoint(WF::Point{ x, y });
+        } else if (op == "L" && fig) {
+            WUXM::LineSegment seg;
+            float x = num(), y = num();
+            seg.Point(WF::Point{ x, y });
+            fig.Segments().Append(seg);
+        } else if (op == "Q" && fig) {
+            WUXM::QuadraticBezierSegment seg;
+            float cx = num(), cy = num(), x = num(), y = num();
+            seg.Point1(WF::Point{ cx, cy });
+            seg.Point2(WF::Point{ x, y });
+            fig.Segments().Append(seg);
+        } else if (op == "C" && fig) {
+            WUXM::BezierSegment seg;
+            float ax = num(), ay = num(), bx = num(), by = num(), x = num(), y = num();
+            seg.Point1(WF::Point{ ax, ay });
+            seg.Point2(WF::Point{ bx, by });
+            seg.Point3(WF::Point{ x, y });
+            fig.Segments().Append(seg);
+        } else if (op == "Z" && fig) {
+            fig.IsClosed(true);
+        }
+    }
+    flush();
+    return pg;
+}
+
+/// Bounding box of a clip payload: a path spec (kind 3) or "x,y x,y …" points (kind 4).
+/// Only the box is needed — see the kind-17 case for why this backend clips to rectangles.
+static void bounds_of_payload(const std::string &payload, int shapeKind, double &bx, double &by,
+                              double &bw, double &bh) {
+    double x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
+    auto see = [&](double x, double y) {
+        x0 = (std::min)(x0, x); y0 = (std::min)(y0, y);
+        x1 = (std::max)(x1, x); y1 = (std::max)(y1, y);
+    };
+    size_t pos = 0;
+    std::vector<std::string> tok;
+    while (pos < payload.size()) {
+        size_t sp = payload.find(' ', pos);
+        std::string s = payload.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+        if (!s.empty()) tok.push_back(s);
+        if (sp == std::string::npos) break;
+        pos = sp + 1;
+    }
+    if (shapeKind == 4) {
+        for (const auto &pair : tok) {
+            size_t comma = pair.find(',');
+            if (comma == std::string::npos) continue;
+            float x = 0.0f, y = 0.0f;
+            std::from_chars(pair.data(), pair.data() + comma, x);
+            std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
+            see(x, y);
+        }
+    } else {
+        // Path: every coordinate pair, control points included — a conservative box, which is
+        // what a bezier's control hull gives anyway.
+        for (size_t i = 0; i < tok.size();) {
+            const std::string &op = tok[i++];
+            int pairs = op == "M" || op == "L" ? 1 : op == "Q" ? 2 : op == "C" ? 3 : 0;
+            for (int k = 0; k < pairs && i + 1 < tok.size(); ++k) {
+                float x = 0.0f, y = 0.0f;
+                std::from_chars(tok[i].data(), tok[i].data() + tok[i].size(), x);
+                std::from_chars(tok[i + 1].data(), tok[i + 1].data() + tok[i + 1].size(), y);
+                i += 2;
+                see(x, y);
+            }
+        }
+    }
+    if (x0 > x1) return;
+    bx = x0; by = y0; bw = x1 - x0; bh = y1 - y0;
+}
+
 static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto it = g_sec_windows.find(hwnd);
     SecWindow* sw = it == g_sec_windows.end() ? nullptr : it->second;
@@ -1180,6 +1287,48 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
     // shape's bounds with no extra math; make_radial_brush mirrors that with Stretch::Fill so both
     // gradient kinds turn naturally elliptical in non-square bounds, the shared rule.
     WUXM::Brush gradPending{ nullptr };
+    // A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+    bool stylePending = false;
+    int sCap = 0, sJoin = 0;
+    double sMiter = 10.0, sPhase = 0.0;
+    std::vector<double> sDash;
+    // The current clip, as a RECTANGLE. See the kind-17 case: this backend is retained-mode and
+    // UIElement.Clip only accepts a RectangleGeometry, so a non-rectangular clip degrades to its
+    // bounding box (documented in docs/canvas.md).
+    bool clipActive = false;
+    double clipX = 0, clipY = 0, clipW = 0, clipH = 0;
+    std::vector<std::array<double, 5>> clipStack;
+    // Put the pending style (or Day's defaults) on a stroked shape.
+    auto style_shape = [&](WUXSh::Shape &sh, double width) {
+        sh.StrokeThickness(width);
+        if (!stylePending) return;
+        auto cap = sCap == 1 ? WUXM::PenLineCap::Round
+                 : sCap == 2 ? WUXM::PenLineCap::Square
+                             : WUXM::PenLineCap::Flat;
+        sh.StrokeStartLineCap(cap);
+        sh.StrokeEndLineCap(cap);
+        sh.StrokeDashCap(cap);
+        sh.StrokeLineJoin(sJoin == 1 ? WUXM::PenLineJoin::Round
+                        : sJoin == 2 ? WUXM::PenLineJoin::Bevel
+                                     : WUXM::PenLineJoin::Miter);
+        sh.StrokeMiterLimit(sMiter);
+        if (!sDash.empty()) {
+            // XAML's dash array is in units of STROKE THICKNESS, not pixels.
+            auto dc = winrt::single_threaded_vector<double>();
+            const double wdt = width > 0.0 ? width : 1.0;
+            for (double v : sDash) dc.Append(v / wdt);
+            sh.StrokeDashArray(dc);
+            sh.StrokeDashOffset(sPhase / wdt);
+        }
+    };
+    // Apply the active clip to a shape as it is placed.
+    auto clip_shape = [&](WUXSh::Shape &sh) {
+        if (!clipActive) return;
+        WUXM::RectangleGeometry rg;
+        rg.Rect(WF::Rect{ static_cast<float>(clipX), static_cast<float>(clipY),
+                          static_cast<float>(clipW), static_cast<float>(clipH) });
+        sh.Clip(rg);
+    };
     auto fill_brush = [&](unsigned col) -> WUXM::Brush {
         if (gradPending) {
             WUXM::Brush b = gradPending;
@@ -1197,11 +1346,20 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         switch (k) {
         case 8:
             stack.push_back(cur);
+            // The clip rides the same stack: on a retained canvas it is our own state, so
+            // save/restore has to preserve it explicitly.
+            clipStack.push_back({ clipActive ? 1.0 : 0.0, clipX, clipY, clipW, clipH });
             break;
         case 9:
             if (!stack.empty()) {
                 cur = stack.back();
                 stack.pop_back();
+            }
+            if (!clipStack.empty()) {
+                auto &cs = clipStack.back();
+                clipActive = cs[0] > 0.5;
+                clipX = cs[1]; clipY = cs[2]; clipW = cs[3]; clipH = cs[4];
+                clipStack.pop_back();
             }
             break;
         case 10: {
@@ -1353,6 +1511,64 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             }
             break;
         }
+        case 15:
+        case 16: { // path (15 fill / 16 stroke); segments ride texts, f = fill rule
+            std::string spec = ti < texts.size() ? texts[ti++] : std::string();
+            WUXM::PathGeometry pg = parse_path_geometry(spec, static_cast<int>(f));
+            WUXSh::Path p;
+            p.Data(pg);
+            if (k == 16) {
+                p.Stroke(gradPending ? fill_brush(col) : brush_bits(col));
+                style_shape(p, g);
+            } else {
+                p.Fill(fill_brush(col));
+            }
+            clip_shape(p);
+            place_shape(canvas, p, cur);
+            break;
+        }
+        case 17: { // clip: f names the shape, a..d geometry, e radius or fill rule
+            // RECTANGLES ONLY. UIElement.Clip takes a RectangleGeometry and nothing else, so a
+            // path, ellipse or polygon clip degrades to its bounding box here. Everything is
+            // still confined — just not as tightly as on the other backends.
+            double bx = a, by = b, bw = c, bh = d;
+            int shapeKind = static_cast<int>(f);
+            if (shapeKind == 3 || shapeKind == 4) {
+                std::string payload = ti < texts.size() ? texts[ti++] : std::string();
+                bounds_of_payload(payload, shapeKind, bx, by, bw, bh);
+            }
+            // Intersect with any clip already in force, matching the spec's narrowing rule.
+            if (clipActive) {
+                double x1 = (std::max)(clipX, bx), y1 = (std::max)(clipY, by);
+                double x2 = (std::min)(clipX + clipW, bx + bw), y2 = (std::min)(clipY + clipH, by + bh);
+                bx = x1; by = y1; bw = (std::max)(0.0, x2 - x1); bh = (std::max)(0.0, y2 - y1);
+            }
+            clipX = bx; clipY = by; clipW = bw; clipH = bh;
+            clipActive = true;
+            break;
+        }
+        case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, d phase
+            std::string t18 = ti < texts.size() ? texts[ti++] : std::string();
+            sCap = static_cast<int>(a);
+            sJoin = static_cast<int>(b);
+            sMiter = c;
+            sPhase = d;
+            sDash.clear();
+            size_t pos = 0;
+            while (pos < t18.size()) {
+                size_t sp = t18.find(' ', pos);
+                std::string tok = t18.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+                if (!tok.empty()) {
+                    double v = 0.0;
+                    std::from_chars(tok.data(), tok.data() + tok.size(), v);
+                    sDash.push_back(v);
+                }
+                if (sp == std::string::npos) break;
+                pos = sp + 1;
+            }
+            stylePending = true;
+            break;
+        }
         case 14: { // set-gradient (f = type): stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
             std::string t = ti < texts.size() ? texts[ti++] : std::string();
             // Parse the shared stop format once, into whichever brush the type selects.
@@ -1397,6 +1613,8 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             break;
         }
         }
+        // A style record applies to ONE stroke; anything else clears it.
+        if (k != 18) stylePending = false;
     }
 }
 

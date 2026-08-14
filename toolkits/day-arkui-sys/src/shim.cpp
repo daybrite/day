@@ -1054,6 +1054,61 @@ static std::vector<std::string> split_texts(const std::string& joined) {
 // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry + stops,
 // applied as the brush's shader effect for the NEXT fill-shape record (resolved against that
 // shape's bounds).
+/// A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+struct PendingStroke {
+    bool active = false;
+    int cap = 0;
+    int join = 0;
+    float miter = 10.0f;
+    float phase = 0.0f;
+    std::vector<float> dash;
+};
+
+/// Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into an OH_Drawing path.
+/// Tolerant: a malformed token stops the walk rather than aborting the frame.
+static OH_Drawing_Path* parse_path(const std::string& spec, int rule) {
+    OH_Drawing_Path* path = OH_Drawing_PathCreate();
+    OH_Drawing_PathSetFillType(path, rule == 1 ? PATH_FILL_TYPE_EVEN_ODD : PATH_FILL_TYPE_WINDING);
+    std::vector<std::string> tok;
+    size_t p = 0;
+    while (p < spec.size()) {
+        size_t sp = spec.find(' ', p);
+        std::string s = spec.substr(p, sp == std::string::npos ? sp : sp - p);
+        if (!s.empty()) tok.push_back(s);
+        if (sp == std::string::npos) break;
+        p = sp + 1;
+    }
+    size_t i = 0;
+    auto num = [&]() { return i < tok.size() ? strtof(tok[i++].c_str(), nullptr) : 0.0f; };
+    while (i < tok.size()) {
+        std::string op = tok[i++];
+        if (op == "M") { float x = num(), y = num(); OH_Drawing_PathMoveTo(path, x, y); }
+        else if (op == "L") { float x = num(), y = num(); OH_Drawing_PathLineTo(path, x, y); }
+        else if (op == "Q") { float cx = num(), cy = num(), x = num(), y = num();
+                              OH_Drawing_PathQuadTo(path, cx, cy, x, y); }
+        else if (op == "C") { float ax = num(), ay = num(), bx = num(), by = num(), x = num(), y = num();
+                              OH_Drawing_PathCubicTo(path, ax, ay, bx, by, x, y); }
+        else if (op == "Z") OH_Drawing_PathClose(path);
+    }
+    return path;
+}
+
+/// Install a dash pattern on the pen, or clear it when the style has none.
+static void apply_dash(OH_Drawing_Pen* pen, const PendingStroke& style) {
+    if (style.dash.empty()) {
+        OH_Drawing_PenSetPathEffect(pen, nullptr);
+        return;
+    }
+    // OH_Drawing wants an EVEN count; an odd pattern repeats to become even, matching the
+    // other backends.
+    std::vector<float> d = style.dash;
+    if (d.size() % 2 == 1) d.insert(d.end(), style.dash.begin(), style.dash.end());
+    OH_Drawing_PathEffect* fx =
+        OH_Drawing_CreateDashPathEffect(d.data(), (int)d.size(), style.phase);
+    OH_Drawing_PenSetPathEffect(pen, fx);
+    // The pen takes ownership of the effect in this API; destroying it here would draw garbage.
+}
+
 struct PendingGradient {
     bool active = false;
     int kind = 0;
@@ -1107,6 +1162,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
 
     size_t text_i = 0;
     PendingGradient grad;
+    PendingStroke style;
     for (size_t i = 0; i + 8 < n.size(); i += 9) {
         int kind = (int)n[i];
         float a = (float)n[i + 1], b = (float)n[i + 2], c = (float)n[i + 3], dd = (float)n[i + 4];
@@ -1115,7 +1171,26 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         OH_Drawing_PenSetColor(pen, col);
         OH_Drawing_PenSetWidth(pen, g > 0 ? g : 1.0f);
         OH_Drawing_BrushSetColor(brush, col);
-        bool stroke = (kind == 1 || kind == 4 || kind == 5 || kind == 6 || kind == 12 || kind == 13);
+        bool stroke = (kind == 1 || kind == 4 || kind == 5 || kind == 6 || kind == 12 ||
+                       kind == 13 || kind == 16);
+        // A kind-18 record styles the NEXT stroke only; otherwise Day's defaults apply.
+        if (stroke) {
+            if (style.active) {
+                OH_Drawing_PenSetCap(pen, style.cap == 1   ? LINE_ROUND_CAP
+                                          : style.cap == 2 ? LINE_SQUARE_CAP
+                                                           : LINE_FLAT_CAP);
+                OH_Drawing_PenSetJoin(pen, style.join == 1   ? LINE_ROUND_JOIN
+                                           : style.join == 2 ? LINE_BEVEL_JOIN
+                                                             : LINE_MITER_JOIN);
+                OH_Drawing_PenSetMiterLimit(pen, style.miter);
+                apply_dash(pen, style);
+            } else {
+                OH_Drawing_PenSetCap(pen, LINE_FLAT_CAP);
+                OH_Drawing_PenSetJoin(pen, LINE_MITER_JOIN);
+                OH_Drawing_PenSetMiterLimit(pen, 10.0f);
+                OH_Drawing_PenSetPathEffect(pen, nullptr);
+            }
+        }
         // Fill kinds consume a pending gradient (kind 14) as the brush's shader effect.
         if (grad.active) {
             switch (kind) {
@@ -1123,7 +1198,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                     apply_gradient(brush, grad, a, b, c, dd);
                     break;
                 default:
-                    break; // kind 11 resolves after its points parse (bounds unknown here)
+                    break; // kinds 11/15 resolve after parsing (bounds unknown here)
             }
         } else {
             OH_Drawing_BrushSetShaderEffect(brush, nullptr);
@@ -1239,6 +1314,103 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 OH_Drawing_PathDestroy(path);
                 break;
             }
+            case 15:
+            case 16: { // path fill / stroke — segments ride the text channel; f = fill rule
+                std::string spec = text_i < texts.size() ? texts[text_i++] : std::string();
+                OH_Drawing_Path* path = parse_path(spec, (int)f);
+                if (kind == 15 && grad.active) {
+                    OH_Drawing_Rect* pb = OH_Drawing_RectCreate(0, 0, 0, 0);
+                    OH_Drawing_PathGetBounds(path, pb);
+                    float bx = OH_Drawing_RectGetLeft(pb), by = OH_Drawing_RectGetTop(pb);
+                    float bw = OH_Drawing_RectGetWidth(pb), bh = OH_Drawing_RectGetHeight(pb);
+                    OH_Drawing_RectDestroy(pb);
+                    OH_Drawing_CanvasDetachBrush(cv);
+                    apply_gradient(brush, grad, bx, by, bw, bh);
+                    OH_Drawing_CanvasAttachBrush(cv, brush);
+                }
+                OH_Drawing_CanvasDrawPath(cv, path);
+                OH_Drawing_PathDestroy(path);
+                break;
+            }
+            case 17: { // clip: f names the shape, a..dd geometry, e radius or fill rule
+                OH_Drawing_Path* clip = nullptr;
+                switch ((int)f) {
+                    case 3:
+                        clip = parse_path(text_i < texts.size() ? texts[text_i++] : std::string(),
+                                          (int)e);
+                        break;
+                    case 4: {
+                        std::string pts = text_i < texts.size() ? texts[text_i++] : std::string();
+                        clip = OH_Drawing_PathCreate();
+                        bool first = true;
+                        size_t p2 = 0;
+                        while (p2 < pts.size()) {
+                            size_t sp = pts.find(' ', p2);
+                            std::string tok = pts.substr(p2, sp == std::string::npos ? sp : sp - p2);
+                            size_t comma = tok.find(',');
+                            if (comma != std::string::npos) {
+                                float px = strtof(tok.substr(0, comma).c_str(), nullptr);
+                                float py = strtof(tok.substr(comma + 1).c_str(), nullptr);
+                                if (first) { OH_Drawing_PathMoveTo(clip, px, py); first = false; }
+                                else OH_Drawing_PathLineTo(clip, px, py);
+                            }
+                            if (sp == std::string::npos) break;
+                            p2 = sp + 1;
+                        }
+                        if (!first) OH_Drawing_PathClose(clip);
+                        break;
+                    }
+                    case 2: {
+                        clip = OH_Drawing_PathCreate();
+                        OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                        OH_Drawing_PathAddOval(clip, r, PATH_DIRECTION_CW);
+                        OH_Drawing_RectDestroy(r);
+                        break;
+                    }
+                    case 1: {
+                        clip = OH_Drawing_PathCreate();
+                        OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                        OH_Drawing_RoundRect* rr = OH_Drawing_RoundRectCreate(r, e, e);
+                        OH_Drawing_PathAddRoundRect(clip, rr, PATH_DIRECTION_CW);
+                        OH_Drawing_RoundRectDestroy(rr);
+                        OH_Drawing_RectDestroy(r);
+                        break;
+                    }
+                    default: {
+                        clip = OH_Drawing_PathCreate();
+                        OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                        OH_Drawing_PathAddRect(clip, OH_Drawing_RectGetLeft(r),
+                                               OH_Drawing_RectGetTop(r), OH_Drawing_RectGetRight(r),
+                                               OH_Drawing_RectGetBottom(r), PATH_DIRECTION_CW);
+                        OH_Drawing_RectDestroy(r);
+                        break;
+                    }
+                }
+                if (clip) {
+                    // INTERSECT: a clip only ever narrows until the matching restore.
+                    OH_Drawing_CanvasClipPath(cv, clip, INTERSECT, true);
+                    OH_Drawing_PathDestroy(clip);
+                }
+                break;
+            }
+            case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, dd phase
+                std::string dashes = text_i < texts.size() ? texts[text_i++] : std::string();
+                style.cap = (int)a;
+                style.join = (int)b;
+                style.miter = c;
+                style.phase = dd;
+                style.dash.clear();
+                size_t p2 = 0;
+                while (p2 < dashes.size()) {
+                    size_t sp = dashes.find(' ', p2);
+                    std::string tok = dashes.substr(p2, sp == std::string::npos ? sp : sp - p2);
+                    if (!tok.empty()) style.dash.push_back(strtof(tok.c_str(), nullptr));
+                    if (sp == std::string::npos) break;
+                    p2 = sp + 1;
+                }
+                style.active = true;
+                break;
+            }
             case 14: { // set-gradient (f = type): stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
                 std::string stops = text_i < texts.size() ? texts[text_i++] : std::string();
                 grad.kind = (int)f;
@@ -1265,6 +1437,8 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         }
         if (stroke) OH_Drawing_CanvasDetachPen(cv);
         else OH_Drawing_CanvasDetachBrush(cv);
+        // A style record applies to ONE stroke; anything else clears it.
+        if (kind != 18) style.active = false;
     }
     OH_Drawing_CanvasRestore(cv);
     OH_Drawing_MatrixDestroy(scale);

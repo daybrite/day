@@ -503,6 +503,7 @@ dependencies = [
  "day-fluent",
  "day-geometry",
  "day-gtk",
+ "day-macros",
  "day-mock",
  "day-part-prefs",
  "day-pieces",
@@ -717,6 +718,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "day-macros"
+version = "0.2.3"
 
 [[package]]
 name = "day-mock"

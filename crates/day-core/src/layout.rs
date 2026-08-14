@@ -1131,6 +1131,42 @@ impl Layout for PaddingLayout {
     }
 }
 
+/// The `aspect_ratio` decorator (§5.2): the largest `width / height == ratio` box that fits what
+/// the parent proposes, with the child given that whole box.
+///
+/// With ONE axis proposed it derives the other, which is what makes `.grow_w().aspect_ratio(r)`
+/// take the width a container offers and compute the height from it — a canvas that keeps its
+/// proportions as the window resizes.
+pub struct AspectRatioLayout {
+    pub ratio: f64,
+}
+
+impl Layout for AspectRatioLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        match (p.width, p.height) {
+            (Some(w), Some(h)) => {
+                if w / h > self.ratio {
+                    Size::new(h * self.ratio, h)
+                } else {
+                    Size::new(w, w / self.ratio)
+                }
+            }
+            (Some(w), None) => Size::new(w, w / self.ratio),
+            (None, Some(h)) => Size::new(h * self.ratio, h),
+            (None, None) => cx.measure_leaf(p),
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        // The ratio has already decided the box; hand all of it to the child.
+        for &c in children {
+            cx.place_child(c, Rect::from_size(bounds.size));
+        }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
+    }
+}
+
 /// The `grow`/`grow_w`/`grow_h` decorators (§5.2): a single-child wrapper carrying grow [`Flex`]
 /// so the parent stack OFFERS it the space, and a greedy measure/place so the child actually
 /// FILLS it. Non-grown axes hug the child (like `frame(maxWidth: .infinity)` on one axis).

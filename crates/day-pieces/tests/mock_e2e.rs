@@ -2213,8 +2213,8 @@ fn line_records_stroke_only_at_unit_points() {
         ops[0],
         DrawOp::Stroke(
             Shape::Line(Point::new(16.0, 72.0), Point::new(84.0, 72.0)),
-            Color::hex(0xffffff),
-            2.0
+            day_spec::Paint::Solid(Color::hex(0xffffff)),
+            day_spec::StrokeStyle::width(2.0)
         ),
         "{ops:?}"
     );

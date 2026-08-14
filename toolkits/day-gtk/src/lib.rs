@@ -116,10 +116,112 @@ impl PendingGradient {
     }
 }
 
+/// Trace an encoded path ("M x y L x y Q .. C .. Z", see `day_spec::encode_path`) into the
+/// cairo context, returning its bounding box for gradient resolution.
+///
+/// Tolerant by construction: a malformed token is skipped rather than aborting the page, because
+/// this data crosses an encode/decode boundary and a half-drawn frame beats a blank one.
+fn cairo_trace_path(cr: &gtk4::cairo::Context, spec: &str) -> (f64, f64, f64, f64) {
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    let mut it = spec.split_whitespace();
+    let num = |it: &mut std::str::SplitWhitespace| it.next().and_then(|s| s.parse::<f64>().ok());
+    // cairo has no quadratic primitive, so quads are elevated to cubics exactly.
+    let mut cur = (0.0f64, 0.0f64);
+    while let Some(tok) = it.next() {
+        match tok {
+            "M" => {
+                if let (Some(x), Some(y)) = (num(&mut it), num(&mut it)) {
+                    cr.move_to(x, y);
+                    cur = (x, y);
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+            }
+            "L" => {
+                if let (Some(x), Some(y)) = (num(&mut it), num(&mut it)) {
+                    cr.line_to(x, y);
+                    cur = (x, y);
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+            }
+            "Q" => {
+                if let (Some(cx), Some(cy), Some(x), Some(y)) =
+                    (num(&mut it), num(&mut it), num(&mut it), num(&mut it))
+                {
+                    let c1 = (
+                        cur.0 + 2.0 / 3.0 * (cx - cur.0),
+                        cur.1 + 2.0 / 3.0 * (cy - cur.1),
+                    );
+                    let c2 = (x + 2.0 / 3.0 * (cx - x), y + 2.0 / 3.0 * (cy - y));
+                    cr.curve_to(c1.0, c1.1, c2.0, c2.1, x, y);
+                    cur = (x, y);
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+            }
+            "C" => {
+                if let (Some(ax), Some(ay), Some(bx), Some(by), Some(x), Some(y)) = (
+                    num(&mut it),
+                    num(&mut it),
+                    num(&mut it),
+                    num(&mut it),
+                    num(&mut it),
+                    num(&mut it),
+                ) {
+                    cr.curve_to(ax, ay, bx, by, x, y);
+                    cur = (x, y);
+                    (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+                }
+            }
+            "Z" => cr.close_path(),
+            _ => {}
+        }
+    }
+    if x0 > x1 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+/// The dash/cap/join a kind-18 record carries, waiting for the stroke it applies to.
+#[derive(Default)]
+struct PendingStroke {
+    cap: f64,
+    join: f64,
+    miter: f64,
+    phase: f64,
+    dashes: Vec<f64>,
+}
+
+impl PendingStroke {
+    fn apply(&self, cr: &gtk4::cairo::Context) {
+        use gtk4::cairo::{LineCap, LineJoin};
+        cr.set_line_cap(match self.cap as i32 {
+            1 => LineCap::Round,
+            2 => LineCap::Square,
+            _ => LineCap::Butt,
+        });
+        cr.set_line_join(match self.join as i32 {
+            1 => LineJoin::Round,
+            2 => LineJoin::Bevel,
+            _ => LineJoin::Miter,
+        });
+        cr.set_miter_limit(self.miter);
+        cr.set_dash(&self.dashes, self.phase);
+    }
+}
+
+/// Put the stroke state back to Day's defaults, so a styled stroke never leaks into the next one.
+fn reset_stroke(cr: &gtk4::cairo::Context) {
+    cr.set_line_cap(gtk4::cairo::LineCap::Butt);
+    cr.set_line_join(gtk4::cairo::LineJoin::Miter);
+    cr.set_miter_limit(10.0);
+    cr.set_dash(&[], 0.0);
+}
+
 fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
     let (nums, texts) = day_spec::encode_ops(ops);
     let mut ti = 0;
     let mut pending: Option<PendingGradient> = None;
+    let mut pending_stroke: Option<PendingStroke> = None;
     for chunk in nums.chunks(9) {
         let (k, a, b, c, d, e, f, g, col) = (
             chunk[0] as i32,
@@ -133,6 +235,11 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
             chunk[8],
         );
         cairo_set_color(cr, col);
+        // Stroke kinds, in encode_ops order: rect, ellipse, arc, line, polygon, rrect, path.
+        let is_stroke = matches!(k, 1 | 4 | 5 | 6 | 12 | 13 | 16);
+        if is_stroke && let Some(st) = pending_stroke.take() {
+            st.apply(cr);
+        }
         match k {
             0 | 1 => {
                 cr.rectangle(a, b, c, d);
@@ -252,6 +359,115 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                     }
                 }
             }
+            // Path (15 fill / 16 stroke): segments ride the texts channel; slot f is the fill
+            // rule (0 non-zero, 1 even-odd) and slot g the stroke width.
+            15 | 16 => {
+                let spec = texts.get(ti).cloned().unwrap_or_default();
+                ti += 1;
+                let (bx, by, bw, bh) = cairo_trace_path(cr, &spec);
+                if k == 15 {
+                    cr.set_fill_rule(if f > 0.5 {
+                        gtk4::cairo::FillRule::EvenOdd
+                    } else {
+                        gtk4::cairo::FillRule::Winding
+                    });
+                    if let Some(gr) = pending.take() {
+                        gr.set_source(cr, bx, by, bw, bh);
+                    }
+                    let _ = cr.fill();
+                    cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+                } else {
+                    cr.set_line_width(g);
+                    if let Some(gr) = pending.take() {
+                        gr.set_source(cr, bx, by, bw, bh);
+                    }
+                    let _ = cr.stroke();
+                }
+            }
+            // Clip (17): slot f names the shape (0 rect, 1 rounded rect, 2 ellipse, 3 path,
+            // 4 polygon); geometry in a..d, corner radius or fill rule in e.
+            17 => {
+                match f as i32 {
+                    1 => {
+                        // Same corner trace as the rounded-rect fill above.
+                        let r = e.min(c / 2.0).min(d / 2.0);
+                        let (x, y, w, h) = (a, b, c, d);
+                        cr.new_sub_path();
+                        cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
+                        cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
+                        cr.arc(
+                            x + r,
+                            y + h - r,
+                            r,
+                            std::f64::consts::FRAC_PI_2,
+                            std::f64::consts::PI,
+                        );
+                        cr.arc(
+                            x + r,
+                            y + r,
+                            r,
+                            std::f64::consts::PI,
+                            3.0 * std::f64::consts::FRAC_PI_2,
+                        );
+                        cr.close_path();
+                    }
+                    2 => {
+                        cr.save().ok();
+                        cr.translate(a + c / 2.0, b + d / 2.0);
+                        cr.scale(c / 2.0, d / 2.0);
+                        cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+                        cr.restore().ok();
+                    }
+                    3 => {
+                        let spec = texts.get(ti).cloned().unwrap_or_default();
+                        ti += 1;
+                        cairo_trace_path(cr, &spec);
+                        cr.set_fill_rule(if e > 0.5 {
+                            gtk4::cairo::FillRule::EvenOdd
+                        } else {
+                            gtk4::cairo::FillRule::Winding
+                        });
+                    }
+                    4 => {
+                        let pts = texts.get(ti).cloned().unwrap_or_default();
+                        ti += 1;
+                        let mut first = true;
+                        for pair in pts.split(' ') {
+                            if let Some((x, y)) = pair.split_once(',')
+                                && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
+                            {
+                                if first {
+                                    cr.move_to(x, y);
+                                    first = false;
+                                } else {
+                                    cr.line_to(x, y);
+                                }
+                            }
+                        }
+                        if !first {
+                            cr.close_path();
+                        }
+                    }
+                    _ => cr.rectangle(a, b, c, d),
+                }
+                cr.clip();
+                cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+            }
+            // Stroke style (18): applies to the NEXT stroke record only.
+            18 => {
+                let raw = texts.get(ti).cloned().unwrap_or_default();
+                ti += 1;
+                pending_stroke = Some(PendingStroke {
+                    cap: a,
+                    join: b,
+                    miter: c,
+                    phase: d,
+                    dashes: raw
+                        .split(' ')
+                        .filter_map(|s| s.parse::<f64>().ok())
+                        .collect(),
+                });
+            }
             10 => {
                 // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the
                 // same row-vector meaning as day_geometry::Affine.
@@ -281,6 +497,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 });
             }
             _ => {}
+        }
+        if is_stroke {
+            reset_stroke(cr);
         }
     }
 }

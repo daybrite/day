@@ -2475,6 +2475,81 @@ mod imp {
         )
     }
 
+    /// Put a [`day_spec::StrokeStyle`] onto a path: width always, and dash/cap/join/miter only
+    /// when they differ from the defaults, so a plain stroke costs no extra messages.
+    fn apply_stroke_style(p: &objc2_ui_kit::UIBezierPath, style: &day_spec::StrokeStyle) {
+        use day_spec::{LineCap, LineJoin};
+        unsafe {
+            p.setLineWidth(style.width);
+            if style.is_plain() {
+                return;
+            }
+            p.setLineCapStyle(match style.cap {
+                LineCap::Butt => objc2_core_graphics::CGLineCap::Butt,
+                LineCap::Round => objc2_core_graphics::CGLineCap::Round,
+                LineCap::Square => objc2_core_graphics::CGLineCap::Square,
+            });
+            p.setLineJoinStyle(match style.join {
+                LineJoin::Miter => objc2_core_graphics::CGLineJoin::Miter,
+                LineJoin::Round => objc2_core_graphics::CGLineJoin::Round,
+                LineJoin::Bevel => objc2_core_graphics::CGLineJoin::Bevel,
+            });
+            p.setMiterLimit(style.miter_limit);
+            if !style.dash.is_empty() {
+                let pattern: Vec<CGFloat> = style.dash.iter().map(|d| *d as CGFloat).collect();
+                p.setLineDash_count_phase(
+                    pattern.as_ptr(),
+                    pattern.len() as isize,
+                    style.dash_phase,
+                );
+            }
+        }
+    }
+
+    /// Draw a gradient through whatever clip is currently installed. Shared by the gradient
+    /// FILL arms and the gradient STROKE arm, which differ only in what they clip to first.
+    fn draw_gradient_in(ctx: &CGContext, paint: &day_spec::Paint, bounds: day_spec::Rect) {
+        let opts = objc2_core_graphics::CGGradientDrawingOptions::DrawsBeforeStartLocation
+            | objc2_core_graphics::CGGradientDrawingOptions::DrawsAfterEndLocation;
+        unsafe {
+            match paint {
+                day_spec::Paint::Linear(g) => {
+                    let Some(grad) = cggradient(&g.stops) else {
+                        return;
+                    };
+                    let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
+                    CGContext::draw_linear_gradient(
+                        Some(ctx),
+                        Some(&grad),
+                        CGPoint::new(s.x, s.y),
+                        CGPoint::new(e.x, e.y),
+                        opts,
+                    );
+                }
+                day_spec::Paint::Radial(g) => {
+                    let Some(grad) = cggradient(&g.stops) else {
+                        return;
+                    };
+                    CGContext::save_g_state(Some(ctx));
+                    CGContext::translate_ctm(Some(ctx), bounds.origin.x, bounds.origin.y);
+                    CGContext::scale_ctm(Some(ctx), bounds.size.width, bounds.size.height);
+                    let c = CGPoint::new(g.center.x, g.center.y);
+                    CGContext::draw_radial_gradient(
+                        Some(ctx),
+                        Some(&grad),
+                        c,
+                        0.0,
+                        c,
+                        g.radius,
+                        opts,
+                    );
+                    CGContext::restore_g_state(Some(ctx));
+                }
+                day_spec::Paint::Solid(_) => {}
+            }
+        }
+    }
+
     fn draw_op(op: &day_spec::DrawOp) {
         use day_spec::DrawOp;
         unsafe {
@@ -2536,11 +2611,37 @@ mod imp {
                         }
                     }
                 },
-                DrawOp::Stroke(shape, color, width) => {
-                    uicolor(*color).setStroke();
+                DrawOp::Stroke(shape, paint, style) => {
+                    let Some(p) = bezier(shape) else { return };
+                    apply_stroke_style(&p, style);
+                    match paint {
+                        day_spec::Paint::Solid(color) => {
+                            uicolor(*color).setStroke();
+                            p.stroke();
+                        }
+                        // A gradient stroke has no CoreGraphics primitive: convert the stroke
+                        // to the region it covers (`CGPathCreateCopyByStrokingPath` via
+                        // `bezierPathByStrokingPath` is unavailable here), clip to it, and draw
+                        // the gradient through. `replacePathWithStrokedPath` on the context is
+                        // the documented way to get exactly that region.
+                        day_spec::Paint::Linear(_) | day_spec::Paint::Radial(_) => {
+                            let Some(ctx) = objc2_ui_kit::UIGraphicsGetCurrentContext() else {
+                                return;
+                            };
+                            CGContext::save_g_state(Some(&ctx));
+                            CGContext::add_path(Some(&ctx), Some(&p.CGPath()));
+                            CGContext::replace_path_with_stroked_path(Some(&ctx));
+                            CGContext::clip(Some(&ctx));
+                            draw_gradient_in(&ctx, paint, shape.bounds());
+                            CGContext::restore_g_state(Some(&ctx));
+                        }
+                    }
+                }
+                DrawOp::Clip(shape) => {
+                    // `addClip` INTERSECTS with the context's current clip and reads the
+                    // path's own even-odd flag, which is exactly Day's contract.
                     if let Some(p) = bezier(shape) {
-                        p.setLineWidth(*width);
-                        p.stroke();
+                        p.addClip();
                     }
                 }
                 DrawOp::Text {
@@ -2649,6 +2750,33 @@ mod imp {
                     let p = UIBezierPath::bezierPath();
                     p.moveToPoint(CGPoint::new(a.x, a.y));
                     p.addLineToPoint(CGPoint::new(b.x, b.y));
+                    p
+                }
+                Shape::Path(path) => {
+                    use day_spec::PathSeg;
+                    if path.segs.is_empty() {
+                        return None;
+                    }
+                    let p = UIBezierPath::bezierPath();
+                    for seg in &path.segs {
+                        match seg {
+                            PathSeg::Move(a) => p.moveToPoint(CGPoint::new(a.x, a.y)),
+                            PathSeg::Line(a) => p.addLineToPoint(CGPoint::new(a.x, a.y)),
+                            PathSeg::Quad(c, a) => p.addQuadCurveToPoint_controlPoint(
+                                CGPoint::new(a.x, a.y),
+                                CGPoint::new(c.x, c.y),
+                            ),
+                            PathSeg::Cubic(c1, c2, a) => p
+                                .addCurveToPoint_controlPoint1_controlPoint2(
+                                    CGPoint::new(a.x, a.y),
+                                    CGPoint::new(c1.x, c1.y),
+                                    CGPoint::new(c2.x, c2.y),
+                                ),
+                            PathSeg::Close => p.closePath(),
+                        }
+                    }
+                    // The fill rule travels ON the path, which is also how `addClip` reads it.
+                    p.setUsesEvenOddFillRule(path.rule == day_spec::FillRule::EvenOdd);
                     p
                 }
                 Shape::Polygon(pts) => {

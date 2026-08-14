@@ -238,6 +238,12 @@ pub mod prelude {
     };
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
+    // Canvas drawing vocabulary (docs/canvas.md): arbitrary paths and their fill rule, plus the
+    // stroke style a dashed or round-capped line needs.
+    pub use day_spec::{FillRule, LineCap, LineJoin, Path, PathSeg, StrokeStyle};
+    // SVG path data to a `PathBuilder` chain, at compile time (docs/canvas.md).
+    pub use day_macros::build_path;
+    pub use day_spec::Point;
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
     pub use day_core::{

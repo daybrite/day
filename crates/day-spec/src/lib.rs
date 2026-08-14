@@ -1669,6 +1669,11 @@ pub enum Shape {
     },
     Line(Point, Point),
     Polygon(Vec<Point>),
+    /// An arbitrary path: curves, several contours, and a fill rule (docs/canvas.md).
+    ///
+    /// [`Shape::Polygon`] is the straight-line, single-contour special case, kept because it is
+    /// what most drawing code actually wants and it encodes far more compactly.
+    Path(Path),
 }
 
 impl Shape {
@@ -1679,7 +1684,156 @@ impl Shape {
             Shape::Arc { rect, .. } => *rect,
             Shape::Line(a, b) => points_bounds(&[*a, *b]),
             Shape::Polygon(pts) => points_bounds(pts),
+            Shape::Path(p) => p.bounds(),
         }
+    }
+}
+
+/// One step of a [`Path`]. Points are absolute, in the canvas's coordinate space.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PathSeg {
+    /// Start a new contour at this point.
+    Move(Point),
+    Line(Point),
+    /// Quadratic bezier: one control point, then the end point.
+    Quad(Point, Point),
+    /// Cubic bezier: two control points, then the end point.
+    Cubic(Point, Point, Point),
+    /// Close the current contour back to its `Move`.
+    Close,
+}
+
+/// Which points count as inside when a path's contours overlap (docs/canvas.md).
+///
+/// This matters the moment a shape has a hole: the counter of an "o", a washer, a ring chart. It
+/// is a property of the FILL, so stroking ignores it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FillRule {
+    /// Direction-sensitive: a hole needs its contour wound the opposite way. Every 2-D API's
+    /// default, and what a font's glyph outlines assume.
+    #[default]
+    NonZero,
+    /// Parity: any contour inside another cuts a hole regardless of winding. What PDF's `f*`
+    /// operator and SVG's `fill-rule: evenodd` mean.
+    EvenOdd,
+}
+
+/// An arbitrary 2-D path: any number of contours, straight or curved, with a fill rule.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Path {
+    pub segs: Vec<PathSeg>,
+    pub rule: FillRule,
+}
+
+impl Path {
+    /// A conservative bounding box: the hull of every point INCLUDING control points, which
+    /// contains the true curve bounds (a bezier stays inside its control hull). Used only to
+    /// resolve gradient unit points, where being slightly generous costs nothing and computing
+    /// exact curve extrema would not.
+    pub fn bounds(&self) -> Rect {
+        let mut pts: Vec<Point> = Vec::with_capacity(self.segs.len() * 3);
+        for seg in &self.segs {
+            match seg {
+                PathSeg::Move(p) | PathSeg::Line(p) => pts.push(*p),
+                PathSeg::Quad(c, p) => pts.extend_from_slice(&[*c, *p]),
+                PathSeg::Cubic(c1, c2, p) => pts.extend_from_slice(&[*c1, *c2, *p]),
+                PathSeg::Close => {}
+            }
+        }
+        points_bounds(&pts)
+    }
+}
+
+/// How a stroked line ends (docs/canvas.md). Names match PDF's `J`, SVG's `stroke-linecap`, and
+/// every native 2-D API.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LineCap {
+    #[default]
+    Butt,
+    Round,
+    Square,
+}
+
+/// How two stroked segments meet (docs/canvas.md). Matches PDF's `j` and SVG's
+/// `stroke-linejoin`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum LineJoin {
+    #[default]
+    Miter,
+    Round,
+    Bevel,
+}
+
+/// Everything about a stroke except its paint.
+///
+/// [`StrokeStyle::hairline`] and `From<f64>` keep the common "just a width" case a single
+/// argument, so plain `stroke(shape, color, 2.0)` call sites read the same as they always did.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrokeStyle {
+    pub width: f64,
+    pub cap: LineCap,
+    pub join: LineJoin,
+    /// Ignored unless `join` is [`LineJoin::Miter`]. The 2-D convention: past this ratio of miter
+    /// length to line width the join falls back to a bevel.
+    pub miter_limit: f64,
+    /// On/off run lengths, repeating. Empty means solid.
+    pub dash: Vec<f64>,
+    /// How far into the dash pattern the line starts.
+    pub dash_phase: f64,
+}
+
+impl Default for StrokeStyle {
+    fn default() -> Self {
+        // 10.0 is the miter limit PDF, PostScript, SVG and Cairo all default to.
+        StrokeStyle {
+            width: 1.0,
+            cap: LineCap::Butt,
+            join: LineJoin::Miter,
+            miter_limit: 10.0,
+            dash: Vec::new(),
+            dash_phase: 0.0,
+        }
+    }
+}
+
+impl StrokeStyle {
+    /// A solid stroke of `width`, everything else default.
+    pub fn width(width: f64) -> Self {
+        StrokeStyle {
+            width,
+            ..Default::default()
+        }
+    }
+    /// A dashed stroke: `dash` is on/off run lengths, repeating.
+    pub fn dashed(width: f64, dash: Vec<f64>) -> Self {
+        StrokeStyle {
+            width,
+            dash,
+            ..Default::default()
+        }
+    }
+    /// Rounded ends AND joins — the shape a data line usually wants.
+    pub fn round(width: f64) -> Self {
+        StrokeStyle {
+            width,
+            cap: LineCap::Round,
+            join: LineJoin::Round,
+            ..Default::default()
+        }
+    }
+    /// Is this the plain width-only stroke every pre-existing call site asks for? Backends use
+    /// it to skip setting dash/cap/join state they would only have to set back.
+    pub fn is_plain(&self) -> bool {
+        self.cap == LineCap::Butt
+            && self.join == LineJoin::Miter
+            && self.dash.is_empty()
+            && self.miter_limit == 10.0
+    }
+}
+
+impl From<f64> for StrokeStyle {
+    fn from(width: f64) -> Self {
+        StrokeStyle::width(width)
     }
 }
 
@@ -1828,7 +1982,9 @@ pub enum TextAnchor {
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawOp {
     Fill(Shape, Paint),
-    Stroke(Shape, Color, f64),
+    /// Stroke `shape`. The paint may be a gradient, and [`StrokeStyle`] carries width, dash, cap
+    /// and join — `Draw::stroke` builds the plain width-only case.
+    Stroke(Shape, Paint, StrokeStyle),
     Text {
         text: String,
         at: Point,
@@ -1836,6 +1992,11 @@ pub enum DrawOp {
         color: Color,
         anchor: TextAnchor,
     },
+    /// Intersect the clip with `shape`; everything drawn afterwards is confined to it.
+    ///
+    /// Scoped by [`DrawOp::Save`]/[`DrawOp::Restore`], which is the only way to widen a clip
+    /// again — every native 2-D context works this way, so there is deliberately no "unclip".
+    Clip(Shape),
     /// Push the current transform + clip (§11, shapes). Backends map to save/restore of the
     /// native 2-D context; `Concat` multiplies an affine onto the CTM (shape rotate/scale/offset).
     Save,
@@ -3302,6 +3463,41 @@ impl<B: Toolkit> Registry<B> {
 /// record, in order), so text payloads must not contain U+001F. Known asymmetry:
 /// `Fill(Shape::Arc)` encodes as kind 5 (stroke) with width 0 — filled arcs render only on the
 /// direct-replay backends (AppKit/UIKit); use a polygon fan if a filled arc must be portable.
+/// Serialize a path for the `texts` side-channel: one space-separated token per segment,
+/// `M x y` / `L x y` / `Q cx cy x y` / `C c1x c1y c2x c2y x y` / `Z`.
+///
+/// Text rather than numbers because that is the channel the encoder already has for
+/// variable-length payloads, and every decoder (JS, Java, C++) can already split a string. The
+/// numeric channel is a flat `[f64; 9]`-per-record array with no length prefix, so a path could
+/// not ride it without changing the record shape for every backend at once.
+pub fn encode_path(path: &Path) -> String {
+    let mut out = String::with_capacity(path.segs.len() * 16);
+    for seg in &path.segs {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        match seg {
+            PathSeg::Move(p) => out.push_str(&format!("M {} {}", p.x, p.y)),
+            PathSeg::Line(p) => out.push_str(&format!("L {} {}", p.x, p.y)),
+            PathSeg::Quad(c, p) => out.push_str(&format!("Q {} {} {} {}", c.x, c.y, p.x, p.y)),
+            PathSeg::Cubic(a, b, p) => out.push_str(&format!(
+                "C {} {} {} {} {} {}",
+                a.x, a.y, b.x, b.y, p.x, p.y
+            )),
+            PathSeg::Close => out.push('Z'),
+        }
+    }
+    out
+}
+
+/// `FillRule` as a wire number: 0 non-zero, 1 even-odd.
+fn rule_bits(rule: FillRule) -> f64 {
+    match rule {
+        FillRule::NonZero => 0.0,
+        FillRule::EvenOdd => 1.0,
+    }
+}
+
 pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     fn color_bits(c: Color) -> f64 {
         let r = (c.r.clamp(0.0, 1.0) * 255.0) as u32;
@@ -3410,7 +3606,54 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         .join(" "),
                 );
             }
+            Shape::Path(path) => {
+                // Same side-channel as Polygon, one token per segment (see `encode_path`).
+                // The fill rule rides slot f; stroking ignores it.
+                push(
+                    if stroke { 16.0 } else { 15.0 },
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    rule_bits(path.rule),
+                    w,
+                    col,
+                    nums,
+                );
+                texts.push(encode_path(path));
+            }
         }
+    }
+    /// A gradient applies to the NEXT shape record, fill or stroke. Geometry per type rides
+    /// slots a..d and the type discriminant slot f — ONE record shape, so every decoder keeps a
+    /// single gradient code path.
+    fn gradient_record(
+        geo: [f64; 4],
+        kind: f64,
+        stops: &[(f64, Color)],
+        nums: &mut Vec<f64>,
+        texts: &mut Vec<String>,
+    ) {
+        push(
+            14.0,
+            geo[0],
+            geo[1],
+            geo[2],
+            geo[3],
+            stops.len() as f64,
+            kind,
+            0.0,
+            Color::CLEAR,
+            nums,
+        );
+        texts.push(
+            stops
+                .iter()
+                .map(|(o, c)| format!("{o},{:08x}", color_bits(*c) as u32))
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
     }
     let mut nums = Vec::with_capacity(ops.len() * 9);
     let mut texts = Vec::new();
@@ -3421,31 +3664,16 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 // the stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …".
                 // Geometry per type rides slots a..d, the type discriminant slot f — ONE
                 // record shape, so every decoder keeps a single gradient code path.
-                let mut gradient = |geo: [f64; 4], kind: f64, stops: &[(f64, Color)]| {
-                    push(
-                        14.0,
-                        geo[0],
-                        geo[1],
-                        geo[2],
-                        geo[3],
-                        stops.len() as f64,
-                        kind,
-                        0.0,
-                        Color::CLEAR,
-                        &mut nums,
-                    );
-                    texts.push(
-                        stops
-                            .iter()
-                            .map(|(o, c)| format!("{o},{:08x}", color_bits(*c) as u32))
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                    );
-                };
                 let col = match paint {
                     Paint::Solid(c) => *c,
                     Paint::Linear(g) => {
-                        gradient([g.start.x, g.start.y, g.end.x, g.end.y], 0.0, &g.stops);
+                        gradient_record(
+                            [g.start.x, g.start.y, g.end.x, g.end.y],
+                            0.0,
+                            &g.stops,
+                            &mut nums,
+                            &mut texts,
+                        );
                         // The gradient replaces the shape record's color — but it must be
                         // OPAQUE, not clear: Skia-based decoders (Android Paint, OH_Drawing)
                         // modulate a shader by the paint alpha, so a clear slot would render
@@ -3453,14 +3681,142 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         Color::WHITE
                     }
                     Paint::Radial(g) => {
-                        gradient([g.center.x, g.center.y, g.radius, 0.0], 1.0, &g.stops);
+                        gradient_record(
+                            [g.center.x, g.center.y, g.radius, 0.0],
+                            1.0,
+                            &g.stops,
+                            &mut nums,
+                            &mut texts,
+                        );
                         Color::WHITE
                     }
                 };
                 shape_record(false, shape, 0.0, col, &mut nums, &mut texts);
             }
-            DrawOp::Stroke(shape, col, w) => {
-                shape_record(true, shape, *w, *col, &mut nums, &mut texts);
+            DrawOp::Stroke(shape, paint, style) => {
+                // A styled stroke emits one kind-18 record first, applying to the NEXT stroke
+                // only — the same "modifier record" shape the gradient uses, so decoders keep
+                // one rule: consume, apply to the next shape record, reset.
+                if !style.is_plain() {
+                    push(
+                        18.0,
+                        match style.cap {
+                            LineCap::Butt => 0.0,
+                            LineCap::Round => 1.0,
+                            LineCap::Square => 2.0,
+                        },
+                        match style.join {
+                            LineJoin::Miter => 0.0,
+                            LineJoin::Round => 1.0,
+                            LineJoin::Bevel => 2.0,
+                        },
+                        style.miter_limit,
+                        style.dash_phase,
+                        style.dash.len() as f64,
+                        0.0,
+                        0.0,
+                        Color::CLEAR,
+                        &mut nums,
+                    );
+                    texts.push(
+                        style
+                            .dash
+                            .iter()
+                            .map(|d| d.to_string())
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    );
+                }
+                let col = match paint {
+                    Paint::Solid(c) => *c,
+                    Paint::Linear(g) => {
+                        gradient_record(
+                            [g.start.x, g.start.y, g.end.x, g.end.y],
+                            0.0,
+                            &g.stops,
+                            &mut nums,
+                            &mut texts,
+                        );
+                        Color::WHITE
+                    }
+                    Paint::Radial(g) => {
+                        gradient_record(
+                            [g.center.x, g.center.y, g.radius, 0.0],
+                            1.0,
+                            &g.stops,
+                            &mut nums,
+                            &mut texts,
+                        );
+                        Color::WHITE
+                    }
+                };
+                shape_record(true, shape, style.width, col, &mut nums, &mut texts);
+            }
+            DrawOp::Clip(shape) => {
+                // One record for every clip shape, with the shape kind in slot f and the
+                // geometry in a..e; a path or polygon puts its points on the texts channel.
+                // Encoding clips as a variant of `shape_record` instead would need a third
+                // kind code per shape, which is five more numbers every decoder must learn.
+                let (kind, geo, extra, payload): (f64, [f64; 4], f64, Option<String>) = match shape
+                {
+                    Shape::Rect(r) => (
+                        0.0,
+                        [r.origin.x, r.origin.y, r.size.width, r.size.height],
+                        0.0,
+                        None,
+                    ),
+                    Shape::RoundedRect(r, rad) => (
+                        1.0,
+                        [r.origin.x, r.origin.y, r.size.width, r.size.height],
+                        *rad,
+                        None,
+                    ),
+                    Shape::Ellipse(r) => (
+                        2.0,
+                        [r.origin.x, r.origin.y, r.size.width, r.size.height],
+                        0.0,
+                        None,
+                    ),
+                    Shape::Path(p) => (3.0, [0.0; 4], rule_bits(p.rule), Some(encode_path(p))),
+                    Shape::Polygon(pts) => (
+                        4.0,
+                        [0.0; 4],
+                        0.0,
+                        Some(
+                            pts.iter()
+                                .map(|p| format!("{},{}", p.x, p.y))
+                                .collect::<Vec<_>>()
+                                .join(" "),
+                        ),
+                    ),
+                    // A clip to a line or an arc has no interior to clip TO. Clipping to an
+                    // empty region would blank everything after it, so clip to the shape's
+                    // bounds instead: wrong in the same direction as no clip at all.
+                    Shape::Line(..) | Shape::Arc { .. } => {
+                        let r = shape.bounds();
+                        (
+                            0.0,
+                            [r.origin.x, r.origin.y, r.size.width, r.size.height],
+                            0.0,
+                            None,
+                        )
+                    }
+                };
+                push(
+                    17.0,
+                    geo[0],
+                    geo[1],
+                    geo[2],
+                    geo[3],
+                    extra,
+                    kind,
+                    0.0,
+                    Color::CLEAR,
+                    &mut nums,
+                );
+                if let Some(s) = payload {
+                    texts.push(s);
+                }
             }
             DrawOp::Text {
                 text,

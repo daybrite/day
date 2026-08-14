@@ -1264,6 +1264,26 @@ protected:
         int gradType = 0;
         double gsx = 0, gsy = 0, gex = 0, gey = 0;
         QGradientStops gstops;
+        // A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+        bool stylePending = false;
+        int sCap = 0, sJoin = 0; double sMiter = 10.0, sPhase = 0.0;
+        QVector<qreal> sDash;
+        // Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a QPainterPath.
+        auto parsePath = [](const QString &spec, int rule) {
+            QPainterPath path;
+            path.setFillRule(rule == 1 ? Qt::OddEvenFill : Qt::WindingFill);
+            const QStringList tok = spec.split(' ', Qt::SkipEmptyParts);
+            for (int i = 0; i < tok.size();) {
+                const QString &op = tok[i++];
+                auto num = [&]() { return i < tok.size() ? tok[i++].toDouble() : 0.0; };
+                if (op == "M") { double x = num(), y = num(); path.moveTo(x, y); }
+                else if (op == "L") { double x = num(), y = num(); path.lineTo(x, y); }
+                else if (op == "Q") { double cx = num(), cy = num(), x = num(), y = num(); path.quadTo(cx, cy, x, y); }
+                else if (op == "C") { double ax = num(), ay = num(), bx = num(), by = num(), x = num(), y = num(); path.cubicTo(ax, ay, bx, by, x, y); }
+                else if (op == "Z") path.closeSubpath();
+            }
+            return path;
+        };
         auto gradBrush = [&](const QRectF &bounds) {
             gradPending = false;
             if (gradType == 1) {
@@ -1286,7 +1306,24 @@ protected:
             double e = nums[i+5], f = nums[i+6], g = nums[i+7];
             unsigned col = (unsigned)nums[i+8];
             QColor color((col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, (col >> 24) & 0xff);
-            QPen pen(color); pen.setWidthF(g); pen.setCapStyle(Qt::RoundCap);
+            QPen pen(color); pen.setWidthF(g);
+            // Day's default cap is BUTT (this backend used to force RoundCap); a kind-18 record
+            // overrides cap/join/miter/dash for the one stroke that follows it.
+            pen.setCapStyle(Qt::FlatCap);
+            if (stylePending) {
+                pen.setCapStyle(sCap == 1 ? Qt::RoundCap : sCap == 2 ? Qt::SquareCap : Qt::FlatCap);
+                pen.setJoinStyle(sJoin == 1 ? Qt::RoundJoin : sJoin == 2 ? Qt::BevelJoin : Qt::MiterJoin);
+                pen.setMiterLimit(sMiter);
+                if (!sDash.isEmpty()) {
+                    // Qt's dash pattern is in PEN WIDTHS, not pixels.
+                    QVector<qreal> scaled;
+                    const qreal wdt = g > 0.0 ? g : 1.0;
+                    for (qreal v : sDash) scaled << v / wdt;
+                    pen.setDashPattern(scaled);
+                    pen.setDashOffset(sPhase / wdt);
+                }
+                // Consumed by whichever stroke record this is; cleared at the end of the case.
+            }
             switch (k) {
                 case 0:
                     if (gradPending) { p.setPen(Qt::NoPen); p.setBrush(gradBrush(QRectF(a, b, c, d))); p.drawRect(QRectF(a, b, c, d)); }
@@ -1340,6 +1377,51 @@ protected:
                     }
                     break;
                 }
+                case 15: case 16: { // path (15 fill / 16 stroke); segments in texts, f = fill rule
+                    QString spec = ti < texts.size() ? texts[ti++] : QString();
+                    QPainterPath path = parsePath(spec, (int)f);
+                    if (k == 15) {
+                        p.setPen(Qt::NoPen);
+                        p.setBrush(gradPending ? gradBrush(path.boundingRect()) : QBrush(color));
+                        p.drawPath(path);
+                    } else {
+                        if (gradPending) pen.setBrush(gradBrush(path.boundingRect()));
+                        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPath(path);
+                        gradPending = false;
+                    }
+                    break;
+                }
+                case 17: { // clip: f names the shape, a..d geometry, e radius or fill rule
+                    QPainterPath clip;
+                    switch ((int)f) {
+                        case 1: clip.addRoundedRect(QRectF(a, b, c, d), e, e); break;
+                        case 2: clip.addEllipse(QRectF(a, b, c, d)); break;
+                        case 3: clip = parsePath(ti < texts.size() ? texts[ti++] : QString(), (int)e); break;
+                        case 4: {
+                            QString tp = ti < texts.size() ? texts[ti++] : QString();
+                            QPolygonF poly;
+                            for (const QString &pair : tp.split(' ', Qt::SkipEmptyParts)) {
+                                int comma = pair.indexOf(',');
+                                if (comma > 0)
+                                    poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
+                            }
+                            clip.addPolygon(poly);
+                            break;
+                        }
+                        default: clip.addRect(QRectF(a, b, c, d)); break;
+                    }
+                    // IntersectClip, matching the spec: a clip only ever narrows until restore.
+                    p.setClipPath(clip, Qt::IntersectClip);
+                    break;
+                }
+                case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, d phase
+                    QString t = ti < texts.size() ? texts[ti++] : QString();
+                    sCap = (int)a; sJoin = (int)b; sMiter = c; sPhase = d;
+                    sDash.clear();
+                    for (const QString &v : t.split(' ', Qt::SkipEmptyParts)) sDash << v.toDouble();
+                    stylePending = true;
+                    break;
+                }
                 case 14: { // set-gradient (f = type): stops ride the texts channel as "offset,aarrggbb …"
                     QString t = ti < texts.size() ? texts[ti++] : QString();
                     gradType = (int)f;
@@ -1357,6 +1439,9 @@ protected:
                     break;
                 }
             }
+            // A style record applies to ONE stroke; anything else that consumed the pen clears it
+            // too, so it can never leak into a later record.
+            if (k != 18) stylePending = false;
         }
     }
 };

@@ -2261,6 +2261,29 @@ fn push_shape(buf: &mut Vec<f64>, shape: &Shape) {
                 buf.extend([p.x, p.y]);
             }
         }
+        // Path: [6, rule, segCount, then per segment: kind + its points]. Self-describing, so
+        // the shim walks it without a length table.
+        Shape::Path(path) => {
+            buf.extend([
+                6.0,
+                match path.rule {
+                    day_spec::FillRule::EvenOdd => 1.0,
+                    day_spec::FillRule::NonZero => 0.0,
+                },
+                path.segs.len() as f64,
+            ]);
+            for seg in &path.segs {
+                match seg {
+                    day_spec::PathSeg::Move(a) => buf.extend([0.0, a.x, a.y]),
+                    day_spec::PathSeg::Line(a) => buf.extend([1.0, a.x, a.y]),
+                    day_spec::PathSeg::Quad(c, a) => buf.extend([2.0, c.x, c.y, a.x, a.y]),
+                    day_spec::PathSeg::Cubic(c1, c2, a) => {
+                        buf.extend([3.0, c1.x, c1.y, c2.x, c2.y, a.x, a.y])
+                    }
+                    day_spec::PathSeg::Close => buf.push(4.0),
+                }
+            }
+        }
     }
 }
 
@@ -2308,8 +2331,33 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                 push_paint(&mut buf, paint, shape.bounds());
                 push_shape(&mut buf, shape);
             }
-            DrawOp::Stroke(shape, color, width) => {
-                buf.extend([1.0, pack_color(*color), *width]);
+            DrawOp::Stroke(shape, paint, style) => {
+                // [1, width, cap, join, miter, dashPhase, dashCount, dashes…] then paint, then
+                // shape. Style is inline rather than a separate record: this encoder is already
+                // variable-length, so there is nothing to gain from a modifier record here.
+                buf.extend([
+                    1.0,
+                    style.width,
+                    match style.cap {
+                        day_spec::LineCap::Butt => 0.0,
+                        day_spec::LineCap::Round => 1.0,
+                        day_spec::LineCap::Square => 2.0,
+                    },
+                    match style.join {
+                        day_spec::LineJoin::Miter => 0.0,
+                        day_spec::LineJoin::Round => 1.0,
+                        day_spec::LineJoin::Bevel => 2.0,
+                    },
+                    style.miter_limit,
+                    style.dash_phase,
+                    style.dash.len() as f64,
+                ]);
+                buf.extend(style.dash.iter().copied());
+                push_paint(&mut buf, paint, shape.bounds());
+                push_shape(&mut buf, shape);
+            }
+            DrawOp::Clip(shape) => {
+                buf.push(6.0);
                 push_shape(&mut buf, shape);
             }
             DrawOp::Text {

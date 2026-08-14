@@ -1896,12 +1896,40 @@ fn draw_op(op: &DrawOp) {
                     }
                 }
             },
-            DrawOp::Stroke(shape, color, width) => {
-                nscolor(*color).setStroke();
+            DrawOp::Stroke(shape, paint, style) => {
                 if let Some(p) = bezier(shape) {
-                    p.setLineWidth(*width);
-                    p.setLineCapStyle(objc2_app_kit::NSLineCapStyle::Round);
-                    p.stroke();
+                    apply_stroke_style(&p, style);
+                    match paint {
+                        day_spec::Paint::Solid(color) => {
+                            nscolor(*color).setStroke();
+                            p.stroke();
+                        }
+                        // No gradient-stroke primitive here either: turn the stroke into the
+                        // region it covers and draw the gradient through that clip.
+                        // No gradient-stroke primitive: convert the stroke into the REGION it
+                        // covers (CoreGraphics can, and NSGraphicsContext hands us its context),
+                        // clip to that, then draw the gradient through it.
+                        _ => {
+                            let Some(ctx) = NSGraphicsContext::currentContext() else {
+                                return;
+                            };
+                            let cg = ctx.CGContext();
+                            NSGraphicsContext::saveGraphicsState_class();
+                            objc2_core_graphics::CGContext::add_path(Some(&cg), Some(&p.CGPath()));
+                            objc2_core_graphics::CGContext::replace_path_with_stroked_path(Some(
+                                &cg,
+                            ));
+                            objc2_core_graphics::CGContext::clip(Some(&cg));
+                            draw_gradient_in(paint, shape.bounds());
+                            NSGraphicsContext::restoreGraphicsState_class();
+                        }
+                    }
+                }
+            }
+            DrawOp::Clip(shape) => {
+                // `addClip` intersects with the current clip and honors the path's winding rule.
+                if let Some(p) = bezier(shape) {
+                    p.addClip();
                 }
             }
             DrawOp::Text {
@@ -1985,6 +2013,70 @@ fn concat_unit_to_bounds(b: day_spec::Rect) {
     unsafe { t.concat() };
 }
 
+/// Put a [`day_spec::StrokeStyle`] onto a path.
+///
+/// NOTE: this backend used to force ROUND caps on every stroke. It now honors the style, whose
+/// default is BUTT — the same default the spec and every other backend use. A line that wants
+/// round ends asks for `StrokeStyle::round`.
+fn apply_stroke_style(p: &objc2_app_kit::NSBezierPath, style: &day_spec::StrokeStyle) {
+    use day_spec::{LineCap, LineJoin};
+    unsafe {
+        p.setLineWidth(style.width);
+        p.setLineCapStyle(match style.cap {
+            LineCap::Butt => objc2_app_kit::NSLineCapStyle::Butt,
+            LineCap::Round => objc2_app_kit::NSLineCapStyle::Round,
+            LineCap::Square => objc2_app_kit::NSLineCapStyle::Square,
+        });
+        if style.is_plain() {
+            return;
+        }
+        p.setLineJoinStyle(match style.join {
+            LineJoin::Miter => objc2_app_kit::NSLineJoinStyle::Miter,
+            LineJoin::Round => objc2_app_kit::NSLineJoinStyle::Round,
+            LineJoin::Bevel => objc2_app_kit::NSLineJoinStyle::Bevel,
+        });
+        p.setMiterLimit(style.miter_limit);
+        if !style.dash.is_empty() {
+            let pattern: Vec<objc2_core_foundation::CGFloat> = style.dash.iter().copied().collect();
+            p.setLineDash_count_phase(pattern.as_ptr(), pattern.len() as isize, style.dash_phase);
+        }
+    }
+}
+
+/// Draw a gradient through whatever clip is installed, in AppKit's own NSGradient terms.
+/// Shared by the gradient FILL arms and the gradient STROKE arm, which differ only in what they
+/// clipped to first.
+fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
+    let opts = objc2_app_kit::NSGradientDrawingOptions::DrawsBeforeStartingLocation
+        | objc2_app_kit::NSGradientDrawingOptions::DrawsAfterEndingLocation;
+    match paint {
+        day_spec::Paint::Linear(g) => {
+            if let Some(grad) = nsgradient(&g.stops) {
+                let (s, e) = (g.start.resolve(bounds), g.end.resolve(bounds));
+                unsafe {
+                    grad.drawFromPoint_toPoint_options(
+                        NSPoint::new(s.x, s.y),
+                        NSPoint::new(e.x, e.y),
+                        opts,
+                    )
+                };
+            }
+        }
+        day_spec::Paint::Radial(g) => {
+            if let Some(grad) = nsgradient(&g.stops) {
+                NSGraphicsContext::saveGraphicsState_class();
+                concat_unit_to_bounds(bounds);
+                let c = NSPoint::new(g.center.x, g.center.y);
+                unsafe {
+                    grad.drawFromCenter_radius_toCenter_radius_options(c, 0.0, c, g.radius, opts)
+                };
+                NSGraphicsContext::restoreGraphicsState_class();
+            }
+        }
+        day_spec::Paint::Solid(_) => {}
+    }
+}
+
 fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::NSBezierPath>> {
     use day_spec::Shape;
     use objc2_app_kit::NSBezierPath;
@@ -2031,6 +2123,56 @@ fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::
                     p.lineToPoint(NSPoint::new(pt.x, pt.y));
                 }
                 p.closePath();
+                p
+            }
+            Shape::Path(path) => {
+                use day_spec::PathSeg;
+                if path.segs.is_empty() {
+                    return None;
+                }
+                let p = NSBezierPath::new();
+                // NSBezierPath's own quadratic API is macOS 14+, so quads are ELEVATED to
+                // cubics with the standard formula (c1 = p0 + 2/3(c - p0), c2 = p1 + 2/3(c -
+                // p1)), which is exact rather than an approximation.
+                let mut cur = NSPoint::new(0.0, 0.0);
+                for seg in &path.segs {
+                    match seg {
+                        PathSeg::Move(a) => {
+                            cur = NSPoint::new(a.x, a.y);
+                            p.moveToPoint(cur);
+                        }
+                        PathSeg::Line(a) => {
+                            cur = NSPoint::new(a.x, a.y);
+                            p.lineToPoint(cur);
+                        }
+                        PathSeg::Quad(c, a) => {
+                            let (end, ctl) = (NSPoint::new(a.x, a.y), NSPoint::new(c.x, c.y));
+                            let c1 = NSPoint::new(
+                                cur.x + 2.0 / 3.0 * (ctl.x - cur.x),
+                                cur.y + 2.0 / 3.0 * (ctl.y - cur.y),
+                            );
+                            let c2 = NSPoint::new(
+                                end.x + 2.0 / 3.0 * (ctl.x - end.x),
+                                end.y + 2.0 / 3.0 * (ctl.y - end.y),
+                            );
+                            p.curveToPoint_controlPoint1_controlPoint2(end, c1, c2);
+                            cur = end;
+                        }
+                        PathSeg::Cubic(c1, c2, a) => {
+                            cur = NSPoint::new(a.x, a.y);
+                            p.curveToPoint_controlPoint1_controlPoint2(
+                                cur,
+                                NSPoint::new(c1.x, c1.y),
+                                NSPoint::new(c2.x, c2.y),
+                            );
+                        }
+                        PathSeg::Close => p.closePath(),
+                    }
+                }
+                p.setWindingRule(match path.rule {
+                    day_spec::FillRule::NonZero => objc2_app_kit::NSWindingRule::NonZero,
+                    day_spec::FillRule::EvenOdd => objc2_app_kit::NSWindingRule::EvenOdd,
+                });
                 p
             }
         })

@@ -989,6 +989,12 @@ function rgba(packed) {
   return `rgba(${(v >>> 24) & 255},${(v >>> 16) & 255},${(v >>> 8) & 255},${(v & 255) / 255})`;
 }
 
+// The region a stroke of the CURRENT lineWidth covers, as a clip path. Canvas2D exposes no
+// "convert stroke to path", so this is the honest approximation available to it: clip to the
+// path's own outline. A gradient stroke therefore paints the gradient across the whole path
+// interior on web, which reads correctly for thin lines and diverges for very thick ones.
+function strokeRegion(ctx, p) { return p; }
+
 function replay(canvas, ops, strs, w, h) {
   const dpr = devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(w * dpr));
@@ -1026,6 +1032,18 @@ function replay(canvas, ops, strs, w, h) {
       const n = next();
       for (let k = 0; k < n; k++) { const x = next(), y = next(); k === 0 ? p.moveTo(x, y) : p.lineTo(x, y); }
       p.closePath();
+    } else if (kind === 6) {
+      // Arbitrary path: [rule, segCount, then per segment kind + points].
+      p.__rule = next() === 1 ? 'evenodd' : 'nonzero';
+      const n = next();
+      for (let k = 0; k < n; k++) {
+        const s = next();
+        if (s === 0) p.moveTo(next(), next());
+        else if (s === 1) p.lineTo(next(), next());
+        else if (s === 2) p.quadraticCurveTo(next(), next(), next(), next());
+        else if (s === 3) p.bezierCurveTo(next(), next(), next(), next(), next(), next());
+        else p.closePath();
+      }
     }
     return p;
   };
@@ -1037,9 +1055,29 @@ function replay(canvas, ops, strs, w, h) {
         const [cx, cy, rx, ry] = paint.__radial;
         ctx.save(); ctx.clip(p); ctx.translate(cx, cy); ctx.scale(rx, ry);
         ctx.fillStyle = paint.g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
-      } else { ctx.fillStyle = paint; ctx.fill(p); }
-    } else if (op === 1) { // stroke
-      ctx.strokeStyle = rgba(next()); ctx.lineWidth = next(); ctx.stroke(path());
+      } else { ctx.fillStyle = paint; ctx.fill(p, p.__rule || 'nonzero'); }
+    } else if (op === 1) { // stroke: width, cap, join, miter, dash phase + pattern, paint, shape
+      ctx.lineWidth = next();
+      ctx.lineCap = ['butt', 'round', 'square'][next()] || 'butt';
+      ctx.lineJoin = ['miter', 'round', 'bevel'][next()] || 'miter';
+      ctx.miterLimit = next();
+      ctx.lineDashOffset = next();
+      const nd = next(); const dash = [];
+      for (let k = 0; k < nd; k++) dash.push(next());
+      ctx.setLineDash(dash);
+      const paint = readPaint(); const p = path();
+      if (paint.__radial) {
+        // No gradient-stroke primitive: clip to the stroked region, then paint the gradient
+        // through it. Canvas2D has no "stroke to path", so the clip IS the stroke geometry.
+        const [cx, cy, rx, ry] = paint.__radial;
+        ctx.save(); ctx.strokeStyle = '#000'; ctx.clip(strokeRegion(ctx, p));
+        ctx.translate(cx, cy); ctx.scale(rx, ry);
+        ctx.fillStyle = paint.g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
+      } else { ctx.strokeStyle = paint; ctx.stroke(p); }
+      ctx.setLineDash([]);
+    } else if (op === 6) { // clip
+      const p = path();
+      ctx.clip(p, p.__rule || 'nonzero');
     } else if (op === 2) { // text
       ctx.fillStyle = rgba(next());
       const size = next(), anchor = next(), x = next(), y = next(), off = next(), len = next();

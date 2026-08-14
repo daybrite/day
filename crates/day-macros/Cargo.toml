@@ -1,0 +1,17 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "day-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Compile-time macros for Day: SVG path data to PathBuilder code."
+
+[lib]
+proc-macro = true
+
+# No syn/quote: the whole input is ONE string literal, and the output is a method chain built as
+# text. Pulling in a parser framework to read a literal and emit a chain would be all cost.
+[dependencies]

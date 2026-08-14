@@ -18,6 +18,7 @@ members = [
     "crates/day-fluent",
     "crates/day-script",
     "crates/day-vector",
+    "crates/day-macros",
     "crates/day",
     "toolkits/day-appkit",
     "toolkits/day-gtk",

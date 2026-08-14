@@ -602,6 +602,34 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// Constrain this piece to a `width / height` ratio: the largest box of that shape which
+    /// fits whatever the parent offers (SwiftUI's `.aspectRatio(_:contentMode: .fit)`).
+    ///
+    /// Pair it with [`Self::grow_w`] for a piece that takes the width available and derives its
+    /// height from it — a `canvas` whose drawing has to keep its proportions as the window
+    /// resizes, say. `image` has carried this since it shipped; this is the same layout, for any
+    /// piece.
+    ///
+    /// A ratio that is not finite and positive describes no box, so it is ignored.
+    fn aspect_ratio(self, ratio: f64) -> AnyPiece {
+        piece_fn(move |cx| {
+            if !(ratio.is_finite() && ratio > 0.0) {
+                return self.build(cx);
+            }
+            let node = cx.layout_only(
+                Rc::new(AspectRatioLayout { ratio }),
+                Flex::default(),
+                // NOT a boundary: the child still measures itself, and the ratio only decides
+                // the box it is offered.
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = self.build(cx);
+            });
+            node
+        })
+    }
+
     /// Expand to fill the available space on both axes (a filling pane / card that stretches to
     /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`] — the stack
     /// offers it the space and it fills; no native backing, so this is a pure layout change.

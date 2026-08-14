@@ -86,40 +86,6 @@ impl Piece for Image {
     }
 }
 
-/// Self-measuring layout for `.aspect_ratio(r)`: reports the largest `width/height == r` box that
-/// fits the proposal (SwiftUI's `.aspectRatio(_:contentMode: .fit)`).
-struct AspectRatioLayout {
-    ratio: f64,
-}
-impl day_core::Layout for AspectRatioLayout {
-    fn measure(
-        &self,
-        cx: &mut dyn day_core::LayoutOps,
-        _children: &[day_core::RNode],
-        p: day_geometry::Proposal,
-    ) -> day_geometry::Size {
-        match (p.width, p.height) {
-            (Some(w), Some(h)) => {
-                if w / h > self.ratio {
-                    day_geometry::Size::new(h * self.ratio, h)
-                } else {
-                    day_geometry::Size::new(w, w / self.ratio)
-                }
-            }
-            (Some(w), None) => day_geometry::Size::new(w, w / self.ratio),
-            (None, Some(h)) => day_geometry::Size::new(h * self.ratio, h),
-            (None, None) => cx.measure_leaf(p),
-        }
-    }
-    fn place(
-        &self,
-        _cx: &mut dyn day_core::LayoutOps,
-        _children: &[day_core::RNode],
-        _bounds: day_geometry::Rect,
-    ) {
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Vector (docs/vectors.md): a bundled vector glyph from `resource/vectors/`.
 // ---------------------------------------------------------------------------
