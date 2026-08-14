@@ -481,13 +481,19 @@ pub fn harmony_shortcuts_config(
             Some(s) => format!("{s}://{}", sc.route),
             None => sc.route.clone(),
         };
+        // Keys in ALPHABETICAL order, deliberately: serde_json's map is a BTreeMap (sorts) or,
+        // when any dependency enables `preserve_order`, an IndexMap (keeps insertion order) —
+        // and cargo feature unification flips that from OUTSIDE this crate (handlebars 6.4
+        // turned it on and reordered this file under every app's pristine check). Alphabetical
+        // insertion serializes identically under both, so the emitted profile cannot drift
+        // with the dependency tree. The pin test below holds the exact bytes.
         items.push(serde_json::json!({
-            "shortcutId": sc.id,
             "label": format!("$string:{}", sc.id),
+            "shortcutId": sc.id,
             "wants": [{
+                "abilityName": ability,
                 "bundleName": bundle,
                 "moduleName": module,
-                "abilityName": ability,
                 "parameters": { "day.uri": link },
             }],
         }));
@@ -570,5 +576,41 @@ mod tests {
         let want = &doc["shortcuts"][0]["wants"][0];
         assert_eq!(want["parameters"]["day.uri"], "dayshowcase://menus");
         assert_eq!(doc["shortcuts"][0]["label"], "$string:day_shortcut_0");
+    }
+
+    // The exact bytes, key order included. The profile is written into the app's CHECKED-IN
+    // harmony project and drift-guarded there by CI's pristine check — an output reorder
+    // (serde_json's `preserve_order` flipping via feature unification, see the emitter's
+    // comment) must fail HERE, not in every app repository's next build.
+    #[test]
+    fn harmony_config_bytes_are_pinned() {
+        let sc = Resolved {
+            route: "menus".into(),
+            id: "day_shortcut_0".into(),
+            labels: BTreeMap::new(),
+            base: "Menus".into(),
+        };
+        let json =
+            harmony_shortcuts_config(&[sc], Some("dayshowcase"), "dev.b", "entry", "EntryAbility");
+        let want = r#"{
+  "shortcuts": [
+    {
+      "label": "$string:day_shortcut_0",
+      "shortcutId": "day_shortcut_0",
+      "wants": [
+        {
+          "abilityName": "EntryAbility",
+          "bundleName": "dev.b",
+          "moduleName": "entry",
+          "parameters": {
+            "day.uri": "dayshowcase://menus"
+          }
+        }
+      ]
+    }
+  ]
+}
+"#;
+        assert_eq!(json, want);
     }
 }
