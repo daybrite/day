@@ -44,6 +44,7 @@
 #include <native_drawing/drawing_font.h>
 #include <native_drawing/drawing_matrix.h>
 #include <native_drawing/drawing_path.h>
+#include <native_drawing/drawing_path_effect.h>
 #include <native_drawing/drawing_pen.h>
 #include <native_drawing/drawing_point.h>
 #include <native_drawing/drawing_rect.h>
@@ -1094,7 +1095,14 @@ static OH_Drawing_Path* parse_path(const std::string& spec, int rule) {
 }
 
 /// Install a dash pattern on the pen, or clear it when the style has none.
-static void apply_dash(OH_Drawing_Pen* pen, const PendingStroke& style) {
+///
+/// The created effect is pushed onto `owned` rather than destroyed here: the header documents no
+/// ownership transfer for `OH_Drawing_PenSetPathEffect`, and there is an explicit
+/// `OH_Drawing_PathEffectDestroy`, so the effect must stay alive while the pen references it and
+/// be reclaimed once the frame is drawn. Destroying every effect at the end of the replay does
+/// both; dropping it on the floor instead leaked one per dashed stroke per frame.
+static void apply_dash(OH_Drawing_Pen* pen, const PendingStroke& style,
+                       std::vector<OH_Drawing_PathEffect*>& owned) {
     if (style.dash.empty()) {
         OH_Drawing_PenSetPathEffect(pen, nullptr);
         return;
@@ -1106,7 +1114,7 @@ static void apply_dash(OH_Drawing_Pen* pen, const PendingStroke& style) {
     OH_Drawing_PathEffect* fx =
         OH_Drawing_CreateDashPathEffect(d.data(), (int)d.size(), style.phase);
     OH_Drawing_PenSetPathEffect(pen, fx);
-    // The pen takes ownership of the effect in this API; destroying it here would draw garbage.
+    owned.push_back(fx);
 }
 
 struct PendingGradient {
@@ -1163,6 +1171,8 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     size_t text_i = 0;
     PendingGradient grad;
     PendingStroke style;
+    // Dash effects created during this replay, destroyed once the last op has been drawn.
+    std::vector<OH_Drawing_PathEffect*> dash_effects;
     for (size_t i = 0; i + 8 < n.size(); i += 9) {
         int kind = (int)n[i];
         float a = (float)n[i + 1], b = (float)n[i + 2], c = (float)n[i + 3], dd = (float)n[i + 4];
@@ -1183,7 +1193,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                                            : style.join == 2 ? LINE_BEVEL_JOIN
                                                              : LINE_MITER_JOIN);
                 OH_Drawing_PenSetMiterLimit(pen, style.miter);
-                apply_dash(pen, style);
+                apply_dash(pen, style, dash_effects);
             } else {
                 OH_Drawing_PenSetCap(pen, LINE_FLAT_CAP);
                 OH_Drawing_PenSetJoin(pen, LINE_MITER_JOIN);
@@ -1442,6 +1452,9 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     }
     OH_Drawing_CanvasRestore(cv);
     OH_Drawing_MatrixDestroy(scale);
+    // Detach before destroying: the pen still holds whichever effect was set last.
+    OH_Drawing_PenSetPathEffect(pen, nullptr);
+    for (OH_Drawing_PathEffect* fx : dash_effects) OH_Drawing_PathEffectDestroy(fx);
     OH_Drawing_PenDestroy(pen);
     OH_Drawing_BrushDestroy(brush);
 }
