@@ -66,12 +66,22 @@ to Windows at all: that backend draws the geometry and nothing there reads an SV
 
 ## Weights
 
-Every vector stages three weight variants: the canonical **Regular** under its own name, and
-`__light`/`__bold` suffixed names behind `vector(...).weight(VectorWeight::Light | Bold)`.
-Template-form sources (SF template SVGs, `.symbolset` bundles) contribute **true per-weight
-art** (their Light/Bold variants, with the template's own fallback ladder for sparse exports);
-plain SVGs alias all three to the same glyph, so `.weight(…)` degrades to Regular rather than
-to a missing asset — on every backend, since the suffixed names ride the same staging.
+`vector(...).weight(VectorWeight::Light | Bold)` resolves through `__light`/`__bold` suffixed
+names; **Regular** is the glyph's own name.
+
+Template-form sources (SF template SVGs, `.symbolset` bundles) contribute **true per-weight art**
+(their Light/Bold variants, with the template's own fallback ladder for sparse exports) and stage
+all three.
+
+A plain SVG has no weight axis, so it **stages once**: its suffixed names alias back to the base
+glyph in every resolver — `resolve_image_file`, `resolve_vector_svg`, `resolve_vector_xaml`,
+Android's `drawableByName`, and web-dom's URL builder — so `.weight(…)` degrades to Regular rather
+than to a missing asset, on every backend. Aliasing beats copying here by a wide margin: staging
+the variants instead cost 3× for nothing, and in Day-Showcase 38 of 39 sources were byte-identical
+across all three names (117 staged glyphs and 708 KB of rasters became 41 and 244 KB).
+
+An exact variant always wins over an alias, so a template's real `__bold` art is never shadowed by
+its own Regular.
 
 ## Tint
 

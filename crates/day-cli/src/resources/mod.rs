@@ -502,14 +502,22 @@ pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
             continue;
         };
         let text = std::fs::read_to_string(&svg_path).map_err(|e| format!("vector {name}: {e}"))?;
-        // SF Symbol templates reduce to the canonical Regular variant (the plan's
-        // "Regular only" policy) — and the Light/Bold variants ALSO stage, under
-        // `__light`/`__bold` suffixed names, which is what the piece's `.weight(…)` resolves
-        // (docs/vectors.md). Plain SVGs are the glyph as-is; their weight names alias the same
-        // art, so `.weight(…)` degrades to Regular rather than to a missing asset, everywhere.
+        // SF Symbol templates reduce to the canonical Regular variant, and their Light/Bold
+        // variants ALSO stage, under `__light`/`__bold` suffixed names — which is what the piece's
+        // `.weight(…)` resolves (docs/vectors.md).
+        //
+        // A plain SVG has no weight axis, so it stages ONCE: `.weight(…)` on it resolves back to
+        // the base glyph through `weight_alias`, in every resolver and on every backend. Staging
+        // the copies instead cost 3x for nothing — 38 of Day-Showcase's 39 sources were byte-
+        // identical across all three names.
         let template = day_vector::classify(&text) == day_vector::SourceKind::SfTemplate;
+        let variants: &[(&str, &str)] = if template {
+            &[("", "Regular"), ("__light", "Light"), ("__bold", "Bold")]
+        } else {
+            &[("", "Regular")]
+        };
         std::fs::create_dir_all(&cache).map_err(|e| format!("mkdir vectors cache: {e}"))?;
-        for (suffix, weight) in [("", "Regular"), ("__light", "Light"), ("__bold", "Bold")] {
+        for (suffix, weight) in variants.iter().copied() {
             let glyph = if template {
                 day_vector::extract_variant(&text, weight, "M")
                     .map_err(|e| format!("vector {name}: {e}"))?

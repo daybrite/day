@@ -306,6 +306,23 @@ pub fn resolve_asset_dir(rel: &str) -> Option<PathBuf> {
 /// Image file extensions probed when an `image("name")` reference omits an extension.
 const IMAGE_EXTS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "pdf", "svg"];
 
+/// The suffixes `Vector::weight` appends to a glyph name (docs/vectors.md).
+pub const WEIGHT_SUFFIXES: [&str; 2] = ["__light", "__bold"];
+
+/// The base glyph a weight-suffixed name aliases, or `None` if the name carries no suffix.
+///
+/// Only SF-template sources have true per-weight art, so only they stage `__light`/`__bold`
+/// assets. A plain SVG stages ONCE and every weight resolves back to it here — which is what
+/// keeps `.weight(…)` from 404-ing on art that has no weight axis, without staging a byte-identical
+/// copy of every glyph per weight. (Before this, 38 of Day-Showcase's 39 sources were staged three
+/// times over as identical copies.)
+pub fn weight_alias(name: &str) -> Option<&str> {
+    WEIGHT_SUFFIXES
+        .iter()
+        .find_map(|s| name.strip_suffix(s))
+        .filter(|base| !base.is_empty())
+}
+
 /// Resolve an image name to an on-disk file, for the file-loading backends (AppKit/GTK/Qt, and the
 /// desktop/dev path). Probes `DAY_IMAGE_ROOT` (the project's `images/` under `day launch`) first,
 /// then `DAY_ASSET_ROOT` and the bundle, trying the bare name and, if it has no extension, each
@@ -337,8 +354,19 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
             roots.push(dir.join(rel));
         }
     }
+    // A weight-suffixed name probes its own art first, then the base glyph it aliases
+    // (`weight_alias`) — the raster half of the same fallback the SVG resolver does.
+    let names: Vec<&str> = match weight_alias(name) {
+        Some(base) => vec![name, base],
+        None => vec![name],
+    };
     let has_ext = std::path::Path::new(name).extension().is_some();
-    for root in roots {
+    // Name-major, not root-major: a REAL variant found in any root beats the base glyph found in
+    // a higher-precedence one, so a template's own `__bold` art is never shadowed by its Regular.
+    for (name, root) in names
+        .iter()
+        .flat_map(|n| roots.iter().map(move |r| (*n, r.clone())))
+    {
         let exact = root.join(name);
         if exact.is_file() {
             return Some(exact);
@@ -371,9 +399,18 @@ pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
         roots.push(dir.join("../Resources/vectors/svg"));
         roots.push(dir.join("vectors/svg"));
     }
+    if let Some(found) = roots
+        .iter()
+        .map(|r| r.join(format!("{name}.svg")))
+        .find(|p| p.is_file())
+    {
+        return Some(found);
+    }
+    // A weight that stages no art of its own resolves to the base glyph (see `weight_alias`).
+    let base = weight_alias(name)?;
     roots
         .into_iter()
-        .map(|r| r.join(format!("{name}.svg")))
+        .map(|r| r.join(format!("{base}.svg")))
         .find(|p| p.is_file())
 }
 
@@ -392,9 +429,17 @@ pub fn resolve_vector_xaml(name: &str) -> Option<PathBuf> {
     {
         roots.push(dir.join("vectors/xaml"));
     }
+    if let Some(found) = roots
+        .iter()
+        .map(|r| r.join(format!("{name}.xamlgeom")))
+        .find(|p| p.is_file())
+    {
+        return Some(found);
+    }
+    let base = weight_alias(name)?;
     roots
         .into_iter()
-        .map(|r| r.join(format!("{name}.xamlgeom")))
+        .map(|r| r.join(format!("{base}.xamlgeom")))
         .find(|p| p.is_file())
 }
 
@@ -436,6 +481,41 @@ mod tests {
         assert_eq!(resolve_image_file("logo"), Some(dir.join("logo.png")));
         assert_eq!(resolve_image_file("logo.png"), Some(dir.join("logo.png")));
         assert_eq!(resolve_image_file("missing"), None);
+
+        // Weight aliasing (docs/vectors.md): a plain SVG stages ONE asset, so its `__light` /
+        // `__bold` names must resolve back to it rather than miss. `logo` has no weight art of
+        // its own, which is exactly the case every non-template glyph is in.
+        assert_eq!(weight_alias("logo__bold"), Some("logo"));
+        assert_eq!(weight_alias("logo"), None);
+        assert_eq!(weight_alias("__bold"), None); // suffix alone aliases nothing
+        assert_eq!(resolve_image_file("logo__bold"), Some(dir.join("logo.png")));
+        assert_eq!(
+            resolve_image_file("logo__light"),
+            Some(dir.join("logo.png"))
+        );
+        // A miss stays a miss: the alias must not invent art for a name with no base either.
+        assert_eq!(resolve_image_file("missing__bold"), None);
+
+        // The SVG resolver aliases the same way, and a REAL variant still wins over its base.
+        let svgs = dir.join("svg");
+        std::fs::create_dir_all(&svgs).unwrap();
+        std::fs::write(svgs.join("plain.svg"), b"<svg/>").unwrap();
+        std::fs::write(svgs.join("tmpl.svg"), b"<svg/>").unwrap();
+        std::fs::write(svgs.join("tmpl__bold.svg"), b"<svg/>").unwrap();
+        // SAFETY: single test owning the env.
+        unsafe { std::env::set_var("DAY_VECTOR_SVG_ROOT", &svgs) };
+        assert_eq!(
+            resolve_vector_svg("plain__bold"),
+            Some(svgs.join("plain.svg"))
+        );
+        assert_eq!(
+            resolve_vector_svg("tmpl__bold"),
+            Some(svgs.join("tmpl__bold.svg")),
+            "a staged variant must not be shadowed by its base"
+        );
+        assert_eq!(resolve_vector_svg("absent__bold"), None);
+        // SAFETY: single test owning the env.
+        unsafe { std::env::remove_var("DAY_VECTOR_SVG_ROOT") };
 
         // SAFETY: single test owning the env.
         unsafe {

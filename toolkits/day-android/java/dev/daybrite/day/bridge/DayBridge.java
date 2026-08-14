@@ -1622,6 +1622,15 @@ public final class DayBridge {
         if (name == null || name.isEmpty()) return null;
         int id = c.getResources().getIdentifier(name, "drawable", c.getPackageName());
         if (id != 0) return c.getResources().getDrawable(id, c.getTheme());
+        // A weight variant with no art of its own resolves to the base glyph (docs/vectors.md):
+        // only SF-template sources stage `__light`/`__bold`, so a plain SVG's weight names land
+        // here and must fall back rather than draw nothing.
+        for (String suffix : new String[] {"__light", "__bold"}) {
+            if (name.endsWith(suffix)) {
+                String base = name.substring(0, name.length() - suffix.length());
+                if (!base.isEmpty()) return drawableByName(c, base);
+            }
+        }
         try {
             android.graphics.Bitmap bm =
                     android.graphics.BitmapFactory.decodeStream(c.getAssets().open(name));

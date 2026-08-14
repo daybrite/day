@@ -355,6 +355,32 @@ fn image_ext(name: &str) -> &'static str {
     }
 }
 
+/// The staged glyph a name resolves to. A weight variant with no art of its own falls back to its
+/// base glyph (docs/vectors.md): only SF-template sources stage `__light`/`__bold`, so a plain
+/// SVG's weight name would otherwise request an asset that was never staged. The base must itself
+/// be a known vector before we strip, so an ORDINARY image that happens to end in `__bold` is
+/// left alone.
+fn resolved_name(name: &str) -> String {
+    if !env(&format!("vector:{name}")).is_empty() {
+        return name.to_string();
+    }
+    for suffix in ["__light", "__bold"] {
+        if let Some(base) = name.strip_suffix(suffix)
+            && !base.is_empty()
+            && !env(&format!("vector:{base}")).is_empty()
+        {
+            return base.to_string();
+        }
+    }
+    name.to_string()
+}
+
+/// The page-relative URL for an image or vector NAME, alias-resolved.
+fn image_url(name: &str) -> String {
+    let n = resolved_name(name);
+    format!("assets/images/{n}.{}", image_ext(&n))
+}
+
 // ---------------------------------------------------------------------------
 // Element kinds the shim knows how to create (shim.js `create()` mirrors this table).
 // ---------------------------------------------------------------------------
@@ -685,10 +711,7 @@ fn navmenu_json(
         json_str(&mut json, item);
         if let Some(Some(icon)) = icons.get(i) {
             json.push_str(",\"icon\":");
-            json_str(
-                &mut json,
-                &format!("assets/images/{icon}.{}", image_ext(icon)),
-            );
+            json_str(&mut json, &image_url(icon));
             // The row's own icon tint (docs/vectors.md): the shim paints the mask with this
             // instead of currentColor.
             if let Some(Some(t)) = tints.get(i) {
@@ -708,10 +731,7 @@ fn navmenu_json(
         // the shim paints it with one code path at the other end of the row.
         if let Some(Some(badge)) = badge_icons.get(i) {
             json.push_str(",\"badgeIcon\":");
-            json_str(
-                &mut json,
-                &format!("assets/images/{badge}.{}", image_ext(badge)),
-            );
+            json_str(&mut json, &image_url(badge));
             if let Some(Some(t)) = badge_tints.get(i) {
                 json.push_str(",\"badgeTint\":");
                 json_str(
@@ -798,10 +818,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         // so the label carries the item on its own rather than inventing a glyph.
         if let Some(day_spec::Icon::Image(name)) = &it.icon {
             json.push_str(",\"icon\":");
-            json_str(
-                &mut json,
-                &format!("assets/images/{name}.{}", image_ext(name)),
-            );
+            json_str(&mut json, &image_url(name));
         }
         json.push('}');
     }
