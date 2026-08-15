@@ -48,6 +48,7 @@ pub struct ToolbarEntry {
 /// The app-side kinds, carrying the live signals the spec model cannot.
 enum Kind {
     Button,
+    Segmented(Vec<Segment>, Signal<usize>),
     Toggle(Signal<bool>),
     Menu(Vec<MenuEntry>),
     SidebarToggle,
@@ -75,6 +76,58 @@ pub fn toolbar_button<M>(id: impl Into<String>, label: impl IntoText<M>) -> Tool
     ToolbarEntry {
         label: Some(label.into_text()),
         ..entry(id, Kind::Button)
+    }
+}
+
+/// A row of mutually exclusive choices as ONE native control (docs/toolbars.md): the platform's
+/// segmented control, bound to `selected`.
+///
+/// Reach for this instead of N toggles whenever exactly one choice is on at a time — a theme
+/// picker, a view mode. The platform then draws it as the single control it is, announces it as
+/// one, and keeps the exclusivity itself; three toggles leave all of that to the app.
+///
+/// ```ignore
+/// toolbar_segmented("theme", vec![
+///     segment(tr("light")).icon(Symbol::Light),
+///     segment(tr("system")).icon(Symbol::Auto),
+///     segment(tr("dark")).icon(Symbol::Dark),
+/// ], mode)
+/// ```
+pub fn toolbar_segmented(
+    id: impl Into<String>,
+    segments: Vec<Segment>,
+    selected: Signal<usize>,
+) -> ToolbarEntry {
+    ToolbarEntry {
+        label: None,
+        ..entry(id, Kind::Segmented(segments, selected))
+    }
+}
+
+/// One choice in a [`toolbar_segmented`] control.
+pub struct Segment {
+    label: TextSource,
+    icon: Option<day_spec::Icon>,
+}
+
+/// A segment showing `label`; add `.icon(…)` for the platforms that draw one.
+pub fn segment<M>(label: impl IntoText<M>) -> Segment {
+    Segment {
+        label: label.into_text(),
+        icon: None,
+    }
+}
+
+impl Segment {
+    /// A standard [`Symbol`](day_spec::Symbol), drawn with the platform's own glyph.
+    pub fn icon(mut self, s: day_spec::Symbol) -> Segment {
+        self.icon = Some(day_spec::Icon::Symbol(s));
+        self
+    }
+    /// A bundled image from `resource/images`, for a segment the standard set has no glyph for.
+    pub fn image(mut self, name: impl Into<String>) -> Segment {
+        self.icon = Some(day_spec::Icon::Image(name.into()));
+        self
     }
 }
 
@@ -253,6 +306,46 @@ fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem
                     );
                     (ToolbarItemKind::Toggle { on: seed }, act)
                 }
+                Kind::Segmented(segments, sel) => {
+                    let seed = sel.get_untracked().min(segments.len().saturating_sub(1));
+                    let item = id.clone();
+                    let extra = extra.clone();
+                    let act = day_core::register_toolbar_value(Rc::new(move |v: &ToolbarValue| {
+                        if let ToolbarValue::Selected(next) = v {
+                            sel.set(*next);
+                            if let Some(f) = &extra {
+                                f();
+                            }
+                        }
+                    }));
+                    // The app's own writes patch the one item back, exactly as a toggle's do.
+                    bind_seeded(
+                        seed,
+                        move || sel.get(),
+                        move |v: &usize| {
+                            day_core::patch_window_toolbar(
+                                window,
+                                ToolbarPatch::Selected {
+                                    item: item.clone(),
+                                    index: *v,
+                                },
+                            );
+                        },
+                    );
+                    (
+                        ToolbarItemKind::Segmented {
+                            segments: segments
+                                .into_iter()
+                                .map(|s| day_spec::ToolbarSegment {
+                                    title: s.label.initial(),
+                                    icon: s.icon,
+                                })
+                                .collect(),
+                            selected: seed,
+                        },
+                        act,
+                    )
+                }
                 Kind::SidebarToggle => (ToolbarItemKind::SidebarToggle, 0),
                 Kind::Label => (ToolbarItemKind::Label, 0),
                 Kind::Separator => (ToolbarItemKind::Separator, 0),
@@ -260,6 +353,16 @@ fn lower(entries: Vec<ToolbarEntry>, window: day_core::RNode) -> Vec<ToolbarItem
                 Kind::FlexibleSpace => (ToolbarItemKind::FlexibleSpace, 0),
             };
 
+            // SEED the item from the predicate, rather than leaving the declared default and
+            // letting the binding correct it: the binding's first run happens HERE, inside
+            // `lower`, and the model it patches is only stored by the `set_window_toolbar` this
+            // list is on its way to — so the correction landed on the previous bar (or nothing)
+            // and the new one installed enabled. A command that starts out unavailable then
+            // lowered live and answered dayscript's `toolbar:` step.
+            let enabled = match &enabled_when {
+                Some(f) => day_reactive::untrack(|| f()),
+                None => enabled,
+            };
             if let Some(f) = enabled_when {
                 let item = id.clone();
                 bind(

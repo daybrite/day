@@ -62,6 +62,11 @@ fn sf_symbol(s: Symbol) -> &'static str {
         Symbol::Play => "play.fill",
         Symbol::Pause => "pause.fill",
         Symbol::Stop => "stop.fill",
+        Symbol::Camera => "camera",
+        Symbol::Code => "chevron.left.forwardslash.chevron.right",
+        Symbol::Light => "sun.max",
+        Symbol::Dark => "moon",
+        Symbol::Auto => "circle.lefthalf.filled",
         Symbol::ZoomIn => "plus.magnifyingglass",
         Symbol::ZoomOut => "minus.magnifyingglass",
         Symbol::Undo => "arrow.uturn.backward",
@@ -124,6 +129,7 @@ fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Retained
 const KIND_BUTTON: u8 = 0;
 const KIND_TOGGLE: u8 = 1;
 const KIND_SEARCH: u8 = 2;
+const KIND_SEGMENTED: u8 = 3;
 
 struct ItemIvars {
     action: u64,
@@ -184,6 +190,21 @@ define_class!(
                                 value: ToolbarValue::On(on),
                             },
                         );
+                    }
+                    KIND_SEGMENTED => {
+                        let index = sender
+                            .downcast_ref::<objc2_app_kit::NSSegmentedControl>()
+                            .map(|c| unsafe { c.selectedSegment() })
+                            .unwrap_or(0);
+                        if index >= 0 {
+                            emit(
+                                day_spec::WINDOW_NODE,
+                                Event::ToolbarChanged {
+                                    action: ivars.action,
+                                    value: ToolbarValue::Selected(index as usize),
+                                },
+                            );
+                        }
                     }
                     // A plain button rides the menu action rail, so one closure can back both a
                     // toolbar button and its menu-bar twin.
@@ -384,6 +405,55 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
             bar_item.setView(Some(button.as_ref() as &NSView));
             bar_item
         }
+        ToolbarItemKind::Segmented { segments, selected } => {
+            let bar_item = NSToolbarItem::initWithItemIdentifier(NSToolbarItem::alloc(mtm), &id);
+            // The real thing: one NSSegmentedControl, `selectOne` tracking, which is what macOS
+            // uses for a grouped either/or in a toolbar (Finder's view switcher, Mail's filters).
+            let control = unsafe {
+                objc2_app_kit::NSSegmentedControl::initWithFrame(
+                    objc2_app_kit::NSSegmentedControl::alloc(mtm),
+                    objc2_foundation::NSRect::new(
+                        objc2_foundation::NSPoint::new(0.0, 0.0),
+                        objc2_foundation::NSSize::new((segments.len() as f64) * 44.0, 24.0),
+                    ),
+                )
+            };
+            unsafe {
+                control.setSegmentCount(segments.len() as isize);
+                control.setSegmentStyle(objc2_app_kit::NSSegmentStyle::Automatic);
+                control.setTrackingMode(objc2_app_kit::NSSegmentSwitchTracking::SelectOne);
+                for (i, seg) in segments.iter().enumerate() {
+                    let i = i as isize;
+                    // An icon segment shows the icon ALONE, like every other item in this bar;
+                    // the title stays as the segment's accessible name and its tooltip.
+                    match seg
+                        .icon
+                        .as_ref()
+                        .and_then(|ic| image_for(ic, &seg.title, mtm))
+                    {
+                        Some(img) => {
+                            control.setImage_forSegment(Some(&img), i);
+                            control.setLabel_forSegment(&NSString::from_str(""), i);
+                        }
+                        None => control.setLabel_forSegment(&NSString::from_str(&seg.title), i),
+                    }
+                    let _: () = msg_send![
+                        &*control,
+                        setToolTip: &*NSString::from_str(&seg.title),
+                        forSegment: i,
+                    ];
+                }
+                if *selected < segments.len() {
+                    control.setSelectedSegment(*selected as isize);
+                }
+                if let Some(t) = target.as_deref() {
+                    control.setTarget(Some(t as &AnyObject));
+                    control.setAction(Some(sel!(fire:)));
+                }
+            }
+            bar_item.setView(Some(control.as_ref() as &NSView));
+            bar_item
+        }
         ToolbarItemKind::Label => {
             let bar_item = NSToolbarItem::initWithItemIdentifier(NSToolbarItem::alloc(mtm), &id);
             let field = NSTextField::labelWithString(&label, mtm);
@@ -447,6 +517,7 @@ impl AppKit {
         for item in items {
             let kind = match item.kind {
                 ToolbarItemKind::Toggle { .. } => KIND_TOGGLE,
+                ToolbarItemKind::Segmented { .. } => KIND_SEGMENTED,
                 ToolbarItemKind::Search { .. } => KIND_SEARCH,
                 _ => KIND_BUTTON,
             };
@@ -535,6 +606,7 @@ impl AppKit {
         let target_id = match patch {
             ToolbarPatch::Text { item, .. }
             | ToolbarPatch::On { item, .. }
+            | ToolbarPatch::Selected { item, .. }
             | ToolbarPatch::Enabled { item, .. }
             | ToolbarPatch::Suggestions { item, .. } => item.clone(),
         };
@@ -562,6 +634,13 @@ impl AppKit {
                         });
                     }
                 }
+                ToolbarPatch::Selected { index, .. } => {
+                    if let Some(view) = bar_item.view()
+                        && let Some(seg) = view.downcast_ref::<objc2_app_kit::NSSegmentedControl>()
+                    {
+                        unsafe { seg.setSelectedSegment(*index as isize) };
+                    }
+                }
                 ToolbarPatch::Enabled { on, .. } => bar_item.setEnabled(*on),
                 // No completion affordance on NSSearchField (see the realize above).
                 ToolbarPatch::Suggestions { .. } => {}
@@ -584,6 +663,14 @@ fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
                 && let ToolbarItemKind::Toggle { on: o } = &mut it.kind
             {
                 *o = *on;
+            }
+        }
+        ToolbarPatch::Selected { item, index } => {
+            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                && let ToolbarItemKind::Segmented { segments, selected } = &mut it.kind
+                && *index < segments.len()
+            {
+                *selected = *index;
             }
         }
         // No native completion list on this toolkit's search widget (docs/search.md).

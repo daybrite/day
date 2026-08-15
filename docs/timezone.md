@@ -1,3 +1,8 @@
+---
+title: "Time zones"
+description: "Wall-clock time and time-zone changes as reactive values via day-part-timezone."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -12,7 +17,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > target answers from the same rules with no OS zoneinfo required.
 
 Day's core is deliberately zoneless: day-l10n's `DATETIME` renders an epoch as **UTC civil time**,
-and day-piece-datetime edits zoneless values (docs/datepicker.md). That is the right default for
+and day-piece-datetime edits zoneless values ([docs/datepicker.md](datepicker.md)). That is the right default for
 forms and timestamps, and exactly wrong for a world clock or an alarm, which need real zone
 arithmetic. This crate supplies it without changing the core's stance — the API stays in instants
 and offsets, and rendering stays in Fluent.

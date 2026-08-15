@@ -1,3 +1,8 @@
+---
+title: "Window toolbars"
+description: "Native window toolbars: items, search, overflow, and per-platform presentation."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -37,11 +42,12 @@ switch and how items are added and removed.
 |---|---|
 | `toolbar_button(id, label)` | a command |
 | `toolbar_toggle(id, label, signal)` | a two-state button, bound two-way |
+| `toolbar_segmented(id, segments, signal)` | one native segmented control over a `Signal<usize>` |
 | `toolbar_menu(id, label, entries)` | a pull-down, from the same `MenuEntry`s the menu bar takes |
 | `toolbar_sidebar_toggle(id, label)` | show/hide the window's `selector(Sidebar)` pane |
 
 **Search is not in this table.** It is declared on the navigation surface it filters
-(`Selector::searchable`, docs/search.md) and Day merges the resulting field into this bar under the
+(`Selector::searchable`, [docs/search.md](search.md)) and Day merges the resulting field into this bar under the
 reserved id `day.search`. Declaring it on the surface rather than here is what lets the platform
 move it — into the navigation list on a window too narrow for a sidebar — without the app
 re-declaring anything.
@@ -53,6 +59,24 @@ re-declaring anything.
 
 Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.placeholder(t)`,
 `.enabled(bool)`, `.enabled_when(f)`.
+
+**Use `toolbar_segmented` wherever exactly one of a set is on at a time** — a theme chooser, a
+view mode. Three toggles instead say "three independent switches" to the eye and to a screen
+reader, leave the app to keep them exclusive, and take three times the width:
+
+```rust
+toolbar_segmented("theme", vec![
+    segment(tr("light")).icon(Symbol::Light),
+    segment(tr("system")).icon(Symbol::Auto),
+    segment(tr("dark")).icon(Symbol::Dark),
+], mode)   // mode: Signal<usize>
+```
+
+Each backend draws the control its platform already has: `NSSegmentedControl` in `selectOne`
+tracking on AppKit, a `.linked` box of grouped toggle buttons on GTK, an exclusive `QButtonGroup`
+on Qt, a tight `ToggleButton` row inside one `AppBarElementContainer` on XAML, and the same
+`.day-segmented` element the picker piece uses on the web. Exclusivity is the CONTROL's, not the
+app's; the signal only ever holds the chosen index.
 
 `toolbar_sidebar_toggle` takes no `.action` and needs no icon. It is the one item whose behaviour
 belongs to the toolkit rather than the app: each backend binds it to the `selector(Sidebar)` host
@@ -80,7 +104,7 @@ types: rebuilding would drop the search field's focus mid-word. So the values th
 ride their own bindings and patch a single item instead:
 
 - a `toolbar_toggle`'s signal
-- a `.searchable()` surface's query signal (docs/search.md)
+- a `.searchable()` surface's query signal ([docs/search.md](search.md))
 - `.enabled_when(…)`
 
 Keep those OUT of a `toolbar_reactive` builder's reactive reads. Put structure there: which
@@ -99,6 +123,12 @@ as an SVG and nothing else: looking only for a raster found nothing and the item
 to drawing its LABEL, a button reading "Star" where a star belonged. Bundled glyphs are templates,
 so each backend tints them to the bar's own foreground (Qt does this explicitly — an untinted
 template is a flat black shape, invisible on a dark toolbar).
+
+On the WEB there is no system icon set to borrow, so day-dom draws the standard symbols itself,
+as inline-SVG `data:` URLs through the same CSS mask a bundled image uses. They are plain
+geometry authored in day rather than a third-party icon set, which keeps the framework free of an
+icon licence. Before that, `Icon::Symbol` was dropped on the web entirely and only items carrying
+a bundled image had a glyph — a bar where some items were icons and some were words.
 
 `Symbol` is `#[non_exhaustive]`. A backend that has no glyph for a symbol draws none and the item
 falls back to its label, never to a broken-image placeholder. GTK additionally checks the running
@@ -123,7 +153,7 @@ item on the desktops and a timeline field on a phone.
 
 For a single app-wide command that belongs on the chrome rather than in the page — Settings,
 Compose, "Show Source" — the navigation bar's trailing action is the mobile counterpart:
-`selector(…).bar_action(icon, label, action)` (docs/navigation.md) draws an upper-right bar button
+`selector(…).bar_action(icon, label, action)` ([docs/navigation.md](navigation.md)) draws an upper-right bar button
 on iOS/Android/HarmonyOS and is ignored on the desktop split, where the same command rides the
 toolbar. One registered closure can back both — a toolbar button here and a `bar_action` there.
 
@@ -200,9 +230,10 @@ menu-bar twin. A toggle or a search field emits `Event::ToolbarChanged { action,
 - toolbar: { item: search, text: "swift" }    # type into a search item
 - toolbar: { item: search, key: nav_stack }   # …or type a Fluent key resolved in the RUN'S locale
 - toolbar: { item: star, on: true }           # set a toggle
+- toolbar: { item: theme, index: 2 }          # choose a segment
 ```
 
-`on:` is REQUIRED for a toggle. A toggle's action is registered in the value registry rather than
+`index:` is required for a segmented item and `on:` for a toggle, for the same reason. A toggle's action is registered in the value registry rather than
 the menu-action one, so a bare `toolbar: { item }` on one used to dispatch into the wrong registry
 and do nothing at all — the step passed, the app never moved, and the script went on asserting
 against a state it had not reached. The step now refuses it and says which argument is missing.

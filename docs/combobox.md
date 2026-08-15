@@ -1,3 +1,8 @@
+---
+title: "Combo box"
+description: "An editable text field with a native completion popup, as the external day-piece-combobox crate."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -11,7 +16,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > two-way to a `Signal<String>` (the text IS the value) with a reactive
 > `Signal<Vec<String>>` item list. Reworked 2026-07 from a selection-only dropdown (an
 > `NSPopUpButton`-style control bound to an index) into the real thing; `picker`
-> (docs/picker.md) is now the one-of-N control, the combo box is for values that need not be
+> ([docs/picker.md](picker.md)) is now the one-of-N control, the combo box is for values that need not be
 > in the list.
 
 ## Authoring

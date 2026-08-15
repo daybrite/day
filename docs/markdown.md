@@ -1,3 +1,8 @@
+---
+title: "Markdown labels"
+description: "label(…).markdown(): inline Markdown rendered through each platform's attributed text."
+---
+
 <!-- Copyright © The Daybrite Project
      SPDX-License-Identifier: CC-BY-SA-4.0 -->
 

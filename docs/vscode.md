@@ -1,3 +1,8 @@
+---
+title: "VS Code extension"
+description: "The Day extension: the target cockpit, MCP tools for agent mode, and Day.toml schema wiring."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

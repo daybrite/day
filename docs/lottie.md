@@ -1,3 +1,8 @@
+---
+title: "Lottie"
+description: "Lottie vector animations as an external piece on iOS and Android."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

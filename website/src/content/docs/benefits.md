@@ -42,9 +42,9 @@ doesn't have a "slightly off" feel to platform-native users, because the parts u
 the platform's own.
 
 **A runtime profile you can reason about.** Day builds the widget tree once and binds state to
-native attributes. A state change re-runs the closures that read that state, typically ending in
-one native setter call, with no re-render and no tree diff on the hot path
-([how this works](/docs/reactivity)). The compiler monomorphizes your app against exactly one
+native attributes. A state change re-runs only the closures that read that value — a label's
+text closure, say — and each ends in one native setter call; nothing re-renders and there is
+no tree diff on the hot path ([how this works](/docs/reactivity)). The compiler monomorphizes your app against exactly one
 toolkit backend per binary, so there's no runtime abstraction layer either. Binaries are ordinary
 Rust binaries linking system libraries: no bundled engine, no bundled browser.
 
@@ -57,9 +57,10 @@ a benefit depends entirely on your team; see the costs below.
 
 These four compose: localized strings are reactive, so
 locale switches update a running app; accessibility identifiers double as automation ids; one
-dayscript walkthrough, run per-locale, is simultaneously an end-to-end test, an accessibility
-audit, and a screenshot generator. This composition is the part of Day that's hard to retrofit
-onto other stacks.
+dayscript walkthrough, run per-locale, is simultaneously an end-to-end test
+([dayscript](/docs/dayscript)), an accessibility audit ([accessibility](/docs/accessibility)),
+and a screenshot generator ([localization](/docs/localization)). This composition is the part
+of Day that's hard to retrofit onto other stacks.
 
 1. **Localizable** — Mozilla Fluent throughout, with ICU-correct plurals, number and date
    formatting, and collation-aware sorting, with locale data thinned to the locales you ship.

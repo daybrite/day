@@ -1,3 +1,8 @@
+---
+title: "Styled runs"
+description: "Several styles inside one label: the runs API over attributed text."
+---
+
 <!-- Copyright © The Daybrite Project
      SPDX-License-Identifier: CC-BY-SA-4.0 -->
 

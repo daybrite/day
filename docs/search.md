@@ -1,3 +1,8 @@
+---
+title: "Search"
+description: "searchable(): a declared search surface each platform presents natively — toolbar field, navigation search, or list filter."
+---
+
 # Search (`searchable`)
 
 Search is declared on the **surface**, not on the toolbar.
@@ -59,7 +64,7 @@ toolbar at all" is a static fact about the backend, not a question about the win
 > [!NOTE]
 > **What still waits on size classes** is the case in between: a NARROW window on a toolkit that
 > *does* have a toolbar. Until that lands, a narrow desktop window keeps its field in the toolbar
-> (docs/navigation.md).
+> ([docs/navigation.md](navigation.md)).
 
 ### Inline, per platform
 
@@ -94,7 +99,7 @@ That is what will make a placement CHANGE tractable. The state does not live in 
 re-rendering into the other target is a patch rather than a rebuild — the same property that makes
 the navigation host re-presentable. The remaining step for the size-class work is a
 `SearchPatch::Placement` that swaps the render target on a live host; until it exists, placement is
-resolved once at realize and cannot change (docs/navigation.md).
+resolved once at realize and cannot change ([docs/navigation.md](navigation.md)).
 
 ## How the toolbar placement is realized
 

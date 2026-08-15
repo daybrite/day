@@ -300,13 +300,10 @@ day drive -p macos-appkit --steps-json \
     {"screenshot":"after-save"}]'
 ```
 
-Output is JSON (per-step `ok`/`error`, screenshot paths + base64). Step ops: `navigate`,
-`nav_back`, `tap`, `input`, `set_value`, `toggle`, `select`, `scroll_to`, `submit`, `reorder`,
-`menu`, `toolbar`, `focus`, `close_window`, `wait_for`, `wait_idle`,
-`assert_visible`, `assert_text`, `assert_value`, `assert_route`, `assert_presented`,
-`assert_focused`, `assert_no_placeholders` (fails if any piece rendered the `⟨kind⟩`
-placeholder — the step that catches a missing renderer), `expect_exit`,
-`respond`, `a11y_audit`, `pause`, `screenshot`.
+Output is JSON (per-step `ok`/`error`, screenshot paths + base64). The step vocabulary is
+[the dayscript reference's table](/docs/dayscript#the-step-vocabulary) — the same steps a
+walkthrough file uses. One step deserves singling out: `assert_no_placeholders` fails if any
+piece rendered the `⟨kind⟩` placeholder, the step that catches a missing renderer.
 
 If your host exposes MCP (VS Code agent mode does automatically in Day workspaces via the Day
 extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_launch`,

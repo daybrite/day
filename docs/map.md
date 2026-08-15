@@ -1,3 +1,8 @@
+---
+title: "Map view"
+description: "A native map piece — MapKit and Google Maps arms — with markers and camera control."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -80,7 +85,7 @@ to the platforms it supports (`macos` + `ios`). The front-end compiles everywher
 on core day crates), but the `map` page and the crate's backend features are enabled only for the
 Apple backends; every other backend renders the placeholder leaf for the `day.piece.map` kind.
 It also exercises the iOS framework-contribution seam (from the webview/media work,
-docs/extending.md): `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` links the
+[docs/extending.md](extending.md)): `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` links the
 system frameworks the hand-rolled `MKMapView` needs, with no changes to any core Day crate.
 
 ## Testing

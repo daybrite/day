@@ -1,3 +1,8 @@
+---
+title: "day-lite: miniapps"
+description: "Dynamic miniapps on day: sandboxed dayscript-defined UI loaded at runtime, and the security model around it."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -362,7 +367,7 @@ is the shape a superapp needs rather than a description of one program. Three su
    repo; this is also the dev loop for miniapp authors (point it at a working tree, edits
    apply on next launch).
 
-Running apps present in a fullscreen cover (docs/cover.md) with the X affordance;
+Running apps present in a fullscreen cover ([docs/cover.md](cover.md)) with the X affordance;
 `window.background_color` seeds the cover background.
 
 ## 13. Build integration

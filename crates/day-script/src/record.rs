@@ -755,18 +755,37 @@ pub fn play(yaml: &str) -> Result<(), String> {
 /// Play with an artificial pause (seconds) between each step — a slow-motion replay for watching a
 /// script drive the UI. Returns `Err` WITHOUT spawning when the script is empty or does not parse,
 /// so a UI can call it to validate (see [`is_playable`]) and to run from one path.
+///
+/// A run can be suspended and resumed with [`pause_playback`] / [`resume_playback`], and abandoned
+/// with [`stop_playback`]; [`playing_signal`] and [`paused_signal`] are what a transport control
+/// binds to. Refuses while a run is already live, so two Play presses cannot interleave two scripts
+/// against the same UI.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
     if is_recording() {
         return Err("cannot play while recording — stop the recording first".to_string());
+    }
+    if is_playing() {
+        return Err("a script is already playing".to_string());
     }
     let steps = steps_from_yaml(yaml)?;
     if steps.is_empty() {
         return Err("script has no steps to play".to_string());
     }
     let delay = std::time::Duration::from_secs_f64(step_delay_secs.max(0.0));
+    set_playing(true);
+    set_paused(false);
     std::thread::spawn(move || {
         for (i, step) in steps.into_iter().enumerate() {
+            // Hold here while paused. Polling rather than parking on a condvar: the flag is also
+            // how a STOP arrives, and a 50 ms granularity is invisible next to a step that drives
+            // the UI and waits for the main thread to answer.
+            while is_paused() && is_playing() {
+                std::thread::sleep(std::time::Duration::from_millis(PAUSE_POLL_MS));
+            }
+            if !is_playing() {
+                break; // stopped, by `stop_playback` or a second Play
+            }
             if i > 0 && !delay.is_zero() {
                 std::thread::sleep(delay);
             }
@@ -774,8 +793,108 @@ pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
             // here there is no runner to read it, so carry on to the next step.
             let _ = crate::run_step_with_wait(step);
         }
+        set_playing(false);
+        set_paused(false);
     });
     Ok(())
+}
+
+/// How often a paused run checks whether it has been resumed or stopped.
+#[cfg(not(target_arch = "wasm32"))]
+const PAUSE_POLL_MS: u64 = 50;
+
+/// Whether in-process playback exists on this target — false on wasm, which has no background
+/// thread to drive the steps from (drive the page over the dayscript WebSocket transport there,
+/// docs/web.md).
+///
+/// A UI should gate its Play control on this rather than calling and ignoring the `Err`: an
+/// enabled button that silently does nothing is worse than a disabled one. RECORDING has no such
+/// limit — it rides the event observer on the main thread and works on every target.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn playback_supported() -> bool {
+    true
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn playback_supported() -> bool {
+    false
+}
+
+// The replay runs on a spawned thread, so its live state is ATOMIC — the signals below mirror it
+// for the UI, and are only ever written on the main thread.
+#[cfg(not(target_arch = "wasm32"))]
+static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[cfg(not(target_arch = "wasm32"))]
+static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    static PLAYING_SIG: OnceCell<Signal<bool>> = const { OnceCell::new() };
+    static PAUSED_SIG: OnceCell<Signal<bool>> = const { OnceCell::new() };
+}
+
+/// The reactive "a script is playing" flag — what a Play/Pause button binds its icon to.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn playing_signal() -> Signal<bool> {
+    PLAYING_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
+}
+
+/// The reactive "playback is paused" flag. Only meaningful while [`playing_signal`] is set.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn paused_signal() -> Signal<bool> {
+    PAUSED_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
+}
+
+/// Set the atomic AND mirror it into the signal. The mirror hops to the main thread, since the
+/// replay thread calls this when a run ends and a `Signal` may only be touched there.
+#[cfg(not(target_arch = "wasm32"))]
+fn set_playing(on: bool) {
+    PLAYING.store(on, std::sync::atomic::Ordering::SeqCst);
+    day_reactive::on_main(move || playing_signal().set_if_changed(on));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn set_paused(on: bool) {
+    PAUSED.store(on, std::sync::atomic::Ordering::SeqCst);
+    day_reactive::on_main(move || paused_signal().set_if_changed(on));
+}
+
+/// Whether a script is playing right now — paused counts as playing.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_playing() -> bool {
+    PLAYING.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Whether a live run is suspended.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_paused() -> bool {
+    PAUSED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Suspend the running script BETWEEN steps. The step in flight finishes — a step is one
+/// synthesized action dispatched to the main thread, and abandoning it mid-flight would leave the
+/// UI in a state no script describes.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn pause_playback() {
+    if is_playing() {
+        set_paused(true);
+    }
+}
+
+/// Resume a paused run.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn resume_playback() {
+    if is_playing() {
+        set_paused(false);
+    }
+}
+
+/// Abandon the run: the replay thread stops before its next step (immediately if it is paused).
+/// The steps already played are NOT undone — there is nothing to undo them with.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn stop_playback() {
+    set_playing(false);
+    set_paused(false);
 }
 
 /// Whether `yaml` is a non-empty, parseable script — what a Play button binds its enabled state to.
@@ -802,6 +921,43 @@ pub fn play_with_delay(_yaml: &str, _step_delay_secs: f64) -> Result<(), String>
 
 // `is_playable` (above) is pure parsing — no threads, no `Instant` — so it serves every target,
 // wasm included; there is no wasm-specific copy.
+
+// Transport controls, present on wasm so a UI compiles unchanged there: nothing plays, so nothing
+// can be paused or stopped, and the flags a Play/Pause button binds to are permanently off.
+#[cfg(target_arch = "wasm32")]
+pub fn playing_signal() -> Signal<bool> {
+    PLAYING_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn paused_signal() -> Signal<bool> {
+    PAUSED_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static PLAYING_SIG: OnceCell<Signal<bool>> = const { OnceCell::new() };
+    static PAUSED_SIG: OnceCell<Signal<bool>> = const { OnceCell::new() };
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn is_playing() -> bool {
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn is_paused() -> bool {
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn pause_playback() {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn resume_playback() {}
+
+#[cfg(target_arch = "wasm32")]
+pub fn stop_playback() {}
 
 #[cfg(test)]
 mod tests {

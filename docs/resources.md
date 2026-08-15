@@ -1,3 +1,8 @@
+---
+title: "Resources"
+description: "The typed res:: constants: images, data files, fonts, vectors, and hierarchical assets, staged natively per platform."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -60,7 +65,7 @@ An `AssetName`'s value is the `/`-relative path, which is exactly what every nat
 resolves (`file` paths, `AAssetManager` paths, gresource/qrc aliases, rawfile paths). File and
 directory symbols share one namespace per level, so `site.old` beside `site-old/` is a build
 error. The inline web view builds on directory constants: `web_view_inline(res::assets::web::minisite)`
-serves the subtree as a bundled site (docs/webview.md).
+serves the subtree as a bundled site ([docs/webview.md](webview.md)).
 
 For a name known only at runtime, opt in explicitly; this bypasses the presence guarantee:
 

@@ -1,3 +1,8 @@
+---
+title: "Focus"
+description: "Keyboard focus as a first-class signal: focus order, programmatic focus, and per-toolkit behavior."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -171,4 +176,4 @@ visible area and the focused field is scrolled back into view:
 
 Desktop backends have no soft keyboard; nothing engages. There is no per-app opt-in; a Day app
 gets avoidance by existing. The related programmatic primitive is `TreeOps::scroll_reveal`
-(docs/scroll.md), which scrolls any element's nearest scroll ancestor into view.
+([docs/scroll.md](scroll.md)), which scrolls any element's nearest scroll ancestor into view.

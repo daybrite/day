@@ -1,3 +1,8 @@
+---
+title: "Canvas"
+description: "The canvas piece records a display list each backend replays through its native 2D API: gradients, transforms, and gestures."
+---
+
 <!-- Copyright © The Daybrite Project
      SPDX-License-Identifier: CC-BY-SA-4.0 -->
 

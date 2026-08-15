@@ -126,4 +126,6 @@ from a locale.
 - **Number/date formatting** follows the locale through Fluent; for formatting outside messages
   you're in ordinary Rust and choose your own crates.
 
-The [localization reference](/docs/internal/localization) covers the mechanics in more depth.
+The [localization reference](/docs/internal/localization) covers what this guide doesn't:
+`day localize add`/`remove` (one command edits every locale surface), NUMBER/DATETIME
+formatting, collation-aware sorting, and the pseudolocale for layout testing.

@@ -4,6 +4,7 @@
 import { getCollection } from 'astro:content';
 import DocsLayout from '../../../layouts/DocsLayout.astro';
 import { url, internalTitle, internalExcerpt } from '../../../lib/site';
+import { groups, orderedIds } from '../../../lib/internal-groups.mjs';
 
 // The internal reference docs are the repo's top-level `docs/*.md`, symlinked into
 // src/content/internal (see content.config.ts). They have no frontmatter, so titles/descriptions
@@ -11,42 +12,23 @@ import { url, internalTitle, internalExcerpt } from '../../../lib/site';
 const entries = await getCollection('internal');
 const byId = new Map(entries.map((e) => [e.id, e]));
 
-// Curated groupings. Any ids missing from the collection are skipped; any collection entry not in a
-// group is swept into "Other" so nothing is ever silently dropped.
-const groups: { heading: string; blurb: string; ids: string[] }[] = [
-  {
-    heading: 'Core & UI',
-    blurb: 'Framework-level UI: navigation, lists, layout containers, drawing, text, and the cross-cutting concerns every app touches.',
-    ids: ['navigation', 'list', 'tabs', 'grid', 'forms', 'scroll', 'cover', 'shapes', 'text', 'picker', 'textarea', 'dialogs', 'menus', 'toolbars', 'windows', 'progress', 'files', 'focus', 'resources', 'vectors', 'accessibility', 'localization', 'lifecycle', 'async'],
-  },
-  {
-    heading: 'Pieces',
-    blurb: 'Standalone UI Pieces: native widgets that live in their own crates and plug in without any core changes.',
-    ids: ['swiftui', 'combobox', 'webview', 'media', 'lottie', 'map', 'searchfield', 'activity', 'pullrefresh', 'datepicker', 'tweaks'],
-  },
-  {
-    heading: 'Parts',
-    blurb: 'Headless capability crates, the non-UI counterpart of Pieces. They provide device and system access without any widgets.',
-    ids: ['battery', 'speech', 'sensors', 'clipboard', 'network', 'http', 'haptics', 'prefs', 'fs', 'notify', 'deviceinfo', 'permissions', 'location', 'timezone'],
-  },
-  {
-    heading: 'Platform & tooling',
-    blurb: 'Platform backends, the extension model for writing your own Pieces, per-backend support matrices, API conventions, and tooling.',
-    ids: ['harmonyos', 'web', 'extending', 'bridge', 'coverage-matrix', 'duty-matrix', 'break', 'lite', 'icons', 'store', 'environment', 'agent', 'api-style', 'vscode'],
-  },
-];
-
-const grouped = new Set<string>();
-const sections = groups.map((g) => {
-  const items = g.ids.filter((id) => byId.has(id)).map((id) => byId.get(id)!);
-  items.forEach((e) => grouped.add(e.id));
-  return { heading: g.heading, blurb: g.blurb, items };
-}).filter((s) => s.items.length > 0);
-
-const leftover = entries.filter((e) => !grouped.has(e.id)).sort((a, b) => a.id.localeCompare(b.id));
-if (leftover.length) {
-  sections.push({ heading: 'Other', blurb: 'Additional internal reference docs.', items: leftover });
+// The curated groupings live in ONE place (src/lib/internal-groups.mjs), shared with the
+// reference-index generator and gated by scripts/ci/doc-links.py. A doc missing from the
+// curation fails the build here rather than slipping into an unlabeled bucket.
+const grouped = new Set(orderedIds);
+const unplaced = entries.filter((e) => !grouped.has(e.id)).map((e) => e.id);
+if (unplaced.length) {
+  throw new Error(
+    `internal docs missing from src/lib/internal-groups.mjs: ${unplaced.join(', ')} — place them in a group`,
+  );
 }
+const sections = groups
+  .map((g) => ({
+    heading: g.heading,
+    blurb: g.blurb,
+    items: g.docs.filter(([id]) => byId.has(id)).map(([id]) => byId.get(id)!),
+  }))
+  .filter((s) => s.items.length > 0);
 
 const total = entries.length;
 ---
@@ -71,8 +53,8 @@ const total = entries.length;
       <div class="doc-cards">
         {s.items.map((e) => (
           <a class="doc-card" href={url(`docs/internal/${e.id}`)}>
-            <h3>{internalTitle(e.id)}</h3>
-            <p>{internalExcerpt(e.body ?? '')}</p>
+            <h3>{e.data.title ?? internalTitle(e.id)}</h3>
+            <p>{e.data.description ?? internalExcerpt(e.body ?? '')}</p>
           </a>
         ))}
       </div>

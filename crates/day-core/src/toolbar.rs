@@ -173,6 +173,14 @@ fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
                 *o = *on;
             }
         }
+        ToolbarPatch::Selected { item, index } => {
+            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                && let K::Segmented { segments, selected } = &mut it.kind
+                && *index < segments.len()
+            {
+                *selected = *index;
+            }
+        }
         ToolbarPatch::Enabled { item, on } => {
             if let Some(it) = items.iter_mut().find(|i| i.id == *item) {
                 it.enabled = *on;

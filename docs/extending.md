@@ -1,3 +1,8 @@
+---
+title: "Standalone pieces"
+description: "How new pieces plug in as ordinary crates — front-end, per-toolkit backends, native code — without changing day itself."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -240,7 +245,7 @@ per-crate subfolder). The app's checked-in `.xcodeproj` depends on that one loca
 analog of the checked-in Gradle scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
-Two further keys, shared with the macOS table below (docs/swiftui.md has the full story):
+Two further keys, shared with the macOS table below ([docs/swiftui.md](swiftui.md) has the full story):
 
 - A `swift-packages` entry may be **local** — `{ path = "swiftui", products = ["MyViews"] }`,
   relative to the declaring crate. The package's transitive SwiftPM dependencies come along, and
@@ -330,7 +335,7 @@ that generated code does on your behalf, and what to know when you write the cal
   app `ClassLoader` cached at startup, so a Rust-spawned worker resolves your sidecar class even
   though a bare JNI `FindClass` there only sees system classes.
 - **Post to the UI thread** with `DayBridge.main.post(...)` on the Java side; on the Rust side,
-  capture a `day_reactive::Setter` (docs/focus.md, DESIGN §4.5) rather than touching UI state
+  capture a `day_reactive::Setter` ([docs/focus.md](focus.md), DESIGN §4.5) rather than touching UI state
   from a worker.
 - **Bulk payloads cross as ONE `byte[]` envelope** — `[status i32 BE][meta-len i32 BE]
   ["k\nv\n…" meta][payload]`, negative status = your error sentinel with the message riding the
@@ -370,7 +375,7 @@ A piece is not limited to leaves: it can be a **container** whose native view ho
 subtree. day-core mounts children **by handle, not by kind** (the tree walks to the nearest native
 ancestor and calls `Toolkit::insert(ancestor_handle, child_handle, index)` without consulting the
 ancestor's kind), so a piece-realized node is a valid insertion parent on every backend. The recipe
-(established by `pieces/day-piece-pullrefresh`, the reference container piece; see docs/pullrefresh.md):
+(established by `pieces/day-piece-pullrefresh`, the reference container piece; see [docs/pullrefresh.md](pullrefresh.md)):
 
 ```rust
 let node = cx.native(

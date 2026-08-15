@@ -58,6 +58,11 @@ fn glyph(s: Symbol) -> &'static str {
         Symbol::Play => "E768",
         Symbol::Pause => "E769",
         Symbol::Stop => "E71A",
+        Symbol::Camera => "E722",
+        Symbol::Code => "E943",
+        Symbol::Light => "E706",
+        Symbol::Dark => "E708",
+        Symbol::Auto => "E793",
         Symbol::ZoomIn => "E8A3",
         Symbol::ZoomOut => "E71F",
         Symbol::Undo => "E7A7",
@@ -127,6 +132,9 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
         let (kind, on, text, placeholder) = match &item.kind {
             ToolbarItemKind::Button => ("B", 0, "", ""),
             ToolbarItemKind::Toggle { on } => ("T", *on as i32, "", ""),
+            // "G" — the segment lines follow, as a menu's items do, closed by the same `X`.
+            // `on` carries the selected index.
+            ToolbarItemKind::Segmented { selected, .. } => ("G", *selected as i32, "", ""),
             ToolbarItemKind::Menu { .. } => ("M", 0, "", ""),
             ToolbarItemKind::Search {
                 text,
@@ -186,6 +194,17 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             serialize_menu_xaml(items, &mut out);
             out.push_str("X\t\n");
         }
+        if let ToolbarItemKind::Segmented { segments, .. } = &item.kind {
+            for seg in segments {
+                let (g, img) = match &seg.icon {
+                    Some(Icon::Symbol(s)) => (glyph(*s), String::new()),
+                    Some(Icon::Image(name)) => ("", icon_file_name(name)),
+                    None => ("", String::new()),
+                };
+                out.push_str(&format!("g\t{}\t{}\t{}\n", g, img, clean(&seg.title)));
+            }
+            out.push_str("X\t\n");
+        }
     }
     out
 }
@@ -223,6 +242,10 @@ impl Xaml {
             ToolbarPatch::On { item, on } => {
                 let id = cstr(item);
                 unsafe { ffi::day_xaml_toolbar_set_checked(win, id.as_ptr(), *on as c_int) };
+            }
+            ToolbarPatch::Selected { item, index } => {
+                let id = cstr(item);
+                unsafe { ffi::day_xaml_toolbar_set_selected(win, id.as_ptr(), *index as c_int) };
             }
             ToolbarPatch::Suggestions { item, list } => {
                 let (id, joined) = (cstr(item), cstr(&list.join("\x1f")));

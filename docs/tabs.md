@@ -1,3 +1,8 @@
+---
+title: "Tabs"
+description: "SelectorStyle::Tabs: native tab bars and segmented navigation across platforms."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -6,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Tabs (`selector` with `SelectorStyle::Tabs`)
 
 > **Note (migration):** tabs are now `selector(sel).style(SelectorStyle::Tabs)`, a one-of-N
-> selector bound to a `Signal<String>` of the active tab key (docs/navigation.md). The prose
+> selector bound to a `Signal<String>` of the active tab key ([docs/navigation.md](navigation.md)). The prose
 > below describes the tab semantics and native mapping, which are unchanged; the standalone
 > `tabs()` builder was folded into `selector`.
 
@@ -15,7 +20,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A `tabs()` host is a native tabbed container: several keyed destinations, one visible at a
 time, switched by a native tab widget. It reuses the same route registry as `nav()`
-(docs/navigation.md), so a tab key is a route: you select tabs, deep-link to them, and
+([docs/navigation.md](navigation.md)), so a tab key is a route: you select tabs, deep-link to them, and
 drive/assert them from dayscript the same way you navigate.
 
 ```rust
@@ -36,7 +41,7 @@ dayscript `navigate {route: settings}` / `assert_route {route: settings}` drive 
 - **All pages resident:** every tab's content is built eagerly and kept alive, so each tab
   preserves its own state across switches, which is how every native tab container behaves.
 - **`.selected(key)`** picks the initial tab (default: the first). Startup deep links still win.
-- **Nesting & fall-through:** Hosts register on a stack (docs/navigation.md). `tabs()` inside a
+- **Nesting & fall-through:** Hosts register on a stack ([docs/navigation.md](navigation.md)). `tabs()` inside a
   `nav()` route registers on top: `navigate("<tab-key>")` selects the tab, while
   `navigate("<some-nav-route>")` (a key the tabs host doesn't know) falls through to the
   enclosing `nav()`, which replaces the page (disposing the tabs host, whose scope cleanup
@@ -78,7 +83,7 @@ at native size, the same mechanism nav pages use. Pages with native-owned frames
 `set_frame`.
 
 **Icons are drawn where the tab widget has a slot for one.** `item_icon` names a bundled image or
-vector (docs/vectors.md), which UIKit's tab bar, Android's navigation bar, and Qt's `QTabWidget`
+vector ([docs/vectors.md](vectors.md)), which UIKit's tab bar, Android's navigation bar, and Qt's `QTabWidget`
 all render beside the label. `NSTabView` and the Adwaita switcher have no icon slot, so they show
 the label alone — the same call is correct everywhere, and a backend that cannot honour it ignores
 it rather than failing. Prefer a **vector**: a tab bar picks its own icon size, and a bitmap

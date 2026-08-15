@@ -1,3 +1,8 @@
+---
+title: "Grid"
+description: "The grid piece's design and implementation: fixed and adaptive tracks, spans, and native measurement."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -155,7 +160,7 @@ future lazy grid (§7).
 - **`UnitPoint` cell anchors, numeric layout priority / weighted distribution, explicit column
   templates**.
 - **Baseline alignment between cells.** Day does have a baseline concept now
-  (docs/baseline.md) and rows use it, but a grid would have to reconcile one baseline per row
+  ([docs/baseline.md](baseline.md)) and rows use it, but a grid would have to reconcile one baseline per row
   across cells that span rows — `grid_row(..).align(VAlign::FirstBaseline)` therefore reads as
   `Center` for the moment.
 - **Lazy/adaptive grid** — SwiftUI itself splits eager `Grid` from `LazyVGrid`. A future

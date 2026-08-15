@@ -35,8 +35,8 @@ The semantic roles (`LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subh
 `Body`, `Callout`, `Footnote`, `Caption`, `Caption2`) resolve to the platform's typography
 scale, which is what
 keeps text looking correct next to native controls. `Font::System(18.0)` is the escape hatch when
-you need an exact size, and `Font::Custom("Family", 18.0)` renders a font you bundle in the
-project's `resource/fonts/` directory ([resources guide](/docs/resources)).
+you need an exact size, and `Font::custom(res::fonts::family, 18.0)` renders a font you bundle
+in the project's `resource/fonts/` directory ([resources guide](/docs/resources)).
 
 ## Color, backgrounds, shape
 

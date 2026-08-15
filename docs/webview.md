@@ -1,3 +1,8 @@
+---
+title: "Web view"
+description: "The web view piece: remote pages and bundled inline sites, sessions, link policy, and per-platform engines."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -47,7 +52,7 @@ button("Back").enabled(move || history).action(move || back.notify());
 `.back()`, `.forward()` and `.stop()` are no-ops below `Native`, so a button left enabled there is one
 that does nothing when pressed.
 
-Evaluating JavaScript and reading a value back ships on **AppKit, UIKit, Qt and XAML**:
+Evaluating JavaScript and reading a value back is its own story — [docs/webview-eval.md](webview-eval.md) keeps the per-platform support list current:
 `JsHandle::eval(script).await` returns the value as JSON, or the error the script threw. Ask
 `eval_support()` before offering it — GTK, Android and ArkUI have an engine but no arm yet, and
 web-dom can never have one. See [webview-eval.md](./webview-eval.md) for the per-platform research,
@@ -97,7 +102,7 @@ Qt needed.
 ## Inline sites: `web_view_inline` (app-embedded content)
 
 A directory under `resource/assets/` can ship a whole site — pages, stylesheets, scripts,
-images, structure preserved (docs/resources.md's asset tree) — and the view serves it from
+images, structure preserved ([docs/resources.md](resources.md)'s asset tree) — and the view serves it from
 inside the app, no network:
 
 ```rust
@@ -170,7 +175,7 @@ gallery.
   `webview.WebviewController`; `onPageEnd` reports each committed URL back. **The x86_64 emulator cannot
   run it**: its `ArkWebCore.hap` carries arm64-only native libs (`bm install` answers "the Abi type
   supported by the device does not match"), so the engine loads as null and the component's surface
-  wedges the window's compositor; the walkthrough skips this page there (docs/harmonyos.md).
+  wedges the window's compositor; the walkthrough skips this page there ([docs/harmonyos.md](harmonyos.md)).
 - **web-dom**: an `<iframe>` — the one backend with no engine to embed, because the host page already
   is one. `Load` and `Reload` work. `Back`, `Forward` and `Stop` are no-ops, and navigation does not
   report back into the bound signal, because the same-origin policy forbids a parent document from

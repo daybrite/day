@@ -1,3 +1,8 @@
+---
+title: "Menus"
+description: "The app menu model: the macOS menu bar, context menus, shortcuts, and how other platforms present the same tree."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -171,13 +176,13 @@ platform already holds and makes no toolkit call, which keeps a menu the user ha
 under them and stops the menu bar being rebuilt on every navigation. Anything else — a label, a
 shortcut, an enablement, a new command — installs as before.
 
-This is the rule the toolbar follows for the same reason (docs/toolbars.md, "Re-installing the same
+This is the rule the toolbar follows for the same reason ([docs/toolbars.md](toolbars.md), "Re-installing the same
 bar"), where the rebuild also took the keyboard focus out of the search field.
 
 ## Nav-row context menus
 
 A selector's rows can each carry their OWN context menu — `item(…).context_menu(vec![…])`
-inside the `.items` mapper (docs/navigation.md) — for the sidebar idioms every desktop app
+inside the `.items` mapper ([docs/navigation.md](navigation.md)) — for the sidebar idioms every desktop app
 grows: per-feed "Mark all read", per-project "Reveal in Finder", the Showcase's per-page
 "Show Source". The entries are the same builders as everywhere else and lower through the
 same action registry, so a chosen entry dispatches identically to a piece context menu; the
@@ -190,7 +195,7 @@ be consulted); UIKit through the table delegate's row-context hook (the standard
 row menu); GTK a per-row `PopoverMenu` with secondary-click + long-press gestures; Qt one
 `QMenu` per row popped from the list's custom-context request; Android a best-effort
 `setNavRowMenus` follow-up after the nav mounts (the same off-critical-path rule as the row
-tints — docs/vectors.md). Web and ArkUI drop them for now, same as the piece decorator's
+tints — [docs/vectors.md](vectors.md)). Web and ArkUI drop them for now, same as the piece decorator's
 matrix.
 
 ## Platform notes
@@ -203,51 +208,32 @@ matrix.
 
 ## Future surfaces: dock, taskbar, and launcher menus
 
-The same [`MenuEntry`] tree is deliberately the right shape for the app-wide surfaces day
-does not drive yet, which differ per platform far more in ATTACHMENT than in model:
+The same [`MenuEntry`] tree is the right shape for the app-wide surfaces day does not drive
+yet: a macOS Dock menu is the existing builder plus one delegate hook
+(`applicationDockMenu(_:)`), while Windows jump lists and `.desktop` Actions persist while
+the app is closed, so their dispatch would have to lower to a relaunch argument — the real
+design gap, gated on those platforms' deep-link intake.
 
-- **macOS Dock menu** — an `NSMenu` from `applicationDockMenu(_:)`: literally the existing
-  builder plus one delegate hook. Shown while the app runs, so registered action ids
-  dispatch normally.
-- **Windows taskbar** — jump lists are NOT menus: pinned entries persist while the app is
-  CLOSED and must relaunch it with arguments. The model maps (label + action id), but the
-  dispatch would have to lower to a relaunch argument (`--day-action <id>` → replayed at
-  startup), and `id`s would need to be stable across runs — today they are process-unique,
-  which is the real design gap.
-- **iOS/Android/HarmonyOS launcher shortcuts** (`UIApplicationShortcutItem`, `<shortcuts>`,
-  ArkTS wants) — the same persist-while-closed model as jump lists, plus per-platform icon
-  vocabularies and hard entry-count caps (≈4). **Shipped, 2026-08**: these three are exactly
-  what Day.toml `[[shortcuts]]` drives — route-keyed saved deep links with build-time Fluent
-  labels (docs/deep-links.md "Shortcuts are saved deep links").
-
-So a future `app_dock_menu(vec![MenuEntry])` costs one delegate hook on macOS and nothing
-new in the model. The durable-identity question the persistent surfaces posed was settled
-by `[[shortcuts]]`: the key IS the day route, carried as a deep link, and the mobile trio
-ships on it. The dock menu (macOS) and jump lists / `.desktop` Actions (Windows / Linux)
-remain future work — the latter two are gated on their platforms' deep-link intake
-(docs/deep-links.md), which is also the delivery they would use.
+Launcher shortcuts already shipped by another road: Day.toml `[[shortcuts]]` drives iOS,
+Android, and HarmonyOS as route-keyed saved deep links, and
+[docs/deep-links.md](deep-links.md) owns that story end to end.
 
 ## Runtime language changes: `app_menu_reactive`
 
 `app_menu(vec)` resolves labels once, in the install-time locale. An app whose language can
-change at runtime (a preferences language picker, docs/windows.md) installs with
+change at runtime (a preferences language picker, [docs/windows.md](windows.md)) installs with
 `app_menu_reactive(builder)` instead: the builder re-runs whenever a locale-tracked read
 inside it changes (`menu_role` labels, `res::str` titles, and `day::tr` all read the locale
 signal), re-lowering and re-installing the whole bar in the new language. Replacement drops
 the previous install's action closures; context menus share the dispatch map and are
 untouched, and the durable Preferences/New Window dispatch ids always survive.
 
-## The auto Preferences item + the Window menu (docs/windows.md)
+## The auto Preferences item + the Window menu
 
-`day::register_preferences*` enables a Settings…/Preferences item with the platform
-shortcut (⌘, / Ctrl+comma) with zero menu code: day-core injects it into an installed
-menu's first submenu when absent (an app-placed `menu_role(MenuRole::Preferences)` is
-rewired instead; an explicit `.action` always wins), and the backend default menus carry
-it too. macOS hoists the item into the App menu under About, its standard home, and also
-auto-installs the standard Window menu (Minimize ⌘M / Zoom / Bring All to Front,
-registered as `windowsMenu` so AppKit appends the open-window list and tab commands) unless
-the app's model owns `MenuRole::Minimize`. `MenuRole::NewWindow` lowers to the
-`register_new_window` builder (⌘N/Ctrl+N; disabled when unregistered).
+`day::register_preferences*` gives every platform its standard Settings…/Preferences item
+(⌘, / Ctrl+comma) with zero menu code, and macOS also auto-installs the standard Window
+menu. The mechanics — injection into an installed menu, role rewiring, and the
+`register_new_window` builder — are [docs/windows.md](windows.md)'s story.
 
 ## Driving menus from dayscript
 

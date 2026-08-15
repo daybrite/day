@@ -1,3 +1,8 @@
+---
+title: "OS permissions"
+description: "Declaring, requesting, and explaining OS permissions across platforms, and what happens when you skip a step."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -103,7 +108,7 @@ the OS, and the runtime hands your app the two bits it needs to draw its own pri
 `should_show_rationale` and `can_prompt`.
 
 A happy consequence: no user-facing string crosses this crate's boundary, so the layering rule that
-keeps `IntoText`/`LocalizedText` out of parts (docs/extending.md §4) never has to be worked around.
+keeps `IntoText`/`LocalizedText` out of parts ([docs/extending.md](extending.md) §4) never has to be worked around.
 
 ## Per-platform native realization
 

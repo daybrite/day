@@ -1,3 +1,8 @@
+---
+title: "Sensors"
+description: "Accelerometer, gyroscope, and magnetometer streams via day-part-sensors, including the synthetic web arm."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

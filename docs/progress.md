@@ -1,3 +1,8 @@
+---
+title: "Progress indicators"
+description: "progress and spinner: determinate and indeterminate, native on every backend."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -7,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A progress indicator reports the state of ongoing work. Day exposes the two SwiftUI
 shapes as separate constructors so the call site says which one it means, with no bare
-boolean or sentinel value to decode (docs/api-style.md):
+boolean or sentinel value to decode ([docs/api-style.md](api-style.md)):
 
 ```rust
 // Determinate: a bar that fills to a known fraction (0.0..=1.0).

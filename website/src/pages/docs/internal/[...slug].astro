@@ -19,7 +19,7 @@ const { Content } = await render(entry);
 const title = entry.data.title ?? internalTitle(entry.id);
 const description = entry.data.description ?? internalExcerpt(entry.body ?? '');
 ---
-<DocsLayout title={title} description={description} active="internal">
+<DocsLayout title={title} description={description} slug={entry.id} active="internal">
   <nav class="crumb" aria-label="Breadcrumb" data-pagefind-ignore>
     <a href={url('docs/internal')}>← Internal docs</a>
     <span class="badge">Framework internal reference</span>

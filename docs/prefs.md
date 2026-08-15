@@ -1,3 +1,8 @@
+---
+title: "Preferences storage"
+description: "Persistent key-value preferences via day-part-prefs, stored in each platform's native store."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -55,7 +60,7 @@ values modest; large blobs belong in a file.
 | Linux | file store under `$XDG_CONFIG_HOME/day` (or `~/.config/day`) | std only, shared `file.rs` |
 | Windows | file store under `%APPDATA%\day` | std only, shared `file.rs` |
 | HarmonyOS | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
-| Web | `localStorage` (per origin, `day.pref.` namespace) via the day-dom shim | the `web-dom` host page (docs/web.md), `web.rs` |
+| Web | `localStorage` (per origin, `day.pref.` namespace) via the day-dom shim | the `web-dom` host page ([docs/web.md](web.md)), `web.rs` |
 
 ## What each platform does
 
@@ -87,7 +92,7 @@ values modest; large blobs belong in a file.
   imports under a `day.pref.` key namespace. Values survive reloads and browser restarts,
   scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
   report as uncommitted/absent, matching the contract everywhere else. The showcase's Controls
-  page binds its state through this store, so a reload keeps the counter (docs/web.md). On
+  page binds its state through this store, so a reload keeps the counter ([docs/web.md](web.md)). On
   wasm outside a day-dom host page the imports are unresolved and instantiation fails.
 - **Any other platform**: a no-op store: `set`/`remove`/`contains` return `false`, `get` returns
   `None`.
@@ -99,9 +104,9 @@ and registers nothing in any backend's `RENDERERS` slice. On Android it stages i
 through `[package.metadata.day.android]` (with no permission this time, since private storage needs
 none), which `day build` folds into the app's Gradle build without touching any core day crate. On
 every other platform it is fully day-independent (pure FFI on Apple, pure `std` file I/O on desktop).
-See docs/extending.md.
+See [docs/extending.md](extending.md).
 
-## Settings pieces + the env-wins rule (docs/windows.md)
+## Settings pieces + the env-wins rule ([docs/windows.md](windows.md))
 
 `pieces/day-piece-settings` packages the theme/language settings rows every app was
 hand-rolling. `appearance_picker`/`language_picker`/`settings_sections` persist through

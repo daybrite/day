@@ -1,3 +1,8 @@
+---
+title: "Speech"
+description: "Text-to-speech via day-part-speech, which doubles as daybridge's reference implementation across Swift, Kotlin, and ArkTS."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -151,7 +156,7 @@ Linux is the platform where the engine is a separate package, and the crate is b
 without it degrades in the mildest way available:
 
 - **The app still builds.** The arm declares no `link`, so no development package is needed on any
-  build machine (docs/bridge.md "Linking"). This is what a `link = ["speechd"]` cost before: CI
+  build machine ([docs/bridge.md](bridge.md) "Linking"). This is what a `link = ["speechd"]` cost before: CI
   runners failed at the link step with `unable to find library -lspeechd`.
 - **The app still launches.** A linked library is a `DT_NEEDED` entry and the loader enforces it
   before `main`; a `dlopen`ed one is looked up when speech is first used, and not before.

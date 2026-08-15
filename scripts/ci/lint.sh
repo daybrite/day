@@ -159,6 +159,9 @@ fi
 # instead of on a runner after the whole matrix has built — which is how window-image.md reached
 # CI. `scripts/ci/docs-symlinks.sh --fix` repairs both directions.
 leg "docs symlinks" scripts/ci/docs-symlinks.sh
+# Doc cross-references must be real links (bare `docs/foo.md` text is unclickable on the site
+# and 404s on GitHub), and every relative link target must exist.
+leg "doc links" scripts/ci/doc-links.py
 
 # 6) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md) — the same drift
 # checks CI runs. Two ways to fail: changing the Toolkit trait or a backend without regenerating,

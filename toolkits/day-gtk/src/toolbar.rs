@@ -57,6 +57,14 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
         Symbol::Play => &["media-playback-start-symbolic"],
         Symbol::Pause => &["media-playback-pause-symbolic"],
         Symbol::Stop => &["media-playback-stop-symbolic"],
+        Symbol::Camera => &["camera-photo-symbolic", "camera-symbolic"],
+        Symbol::Code => &["text-x-script-symbolic", "utilities-terminal-symbolic"],
+        Symbol::Light => &["weather-clear-symbolic", "display-brightness-symbolic"],
+        Symbol::Dark => &["weather-clear-night-symbolic", "night-light-symbolic"],
+        Symbol::Auto => &[
+            "preferences-desktop-theme-symbolic",
+            "emblem-system-symbolic",
+        ],
         Symbol::ZoomIn => &["zoom-in-symbolic"],
         Symbol::ZoomOut => &["zoom-out-symbolic"],
         Symbol::Undo => &["edit-undo-symbolic"],
@@ -214,14 +222,82 @@ impl Gtk {
                     }
                     b.upcast()
                 }
+                ToolbarItemKind::Segmented { segments, selected } => {
+                    // GNOME's segmented control is a `.linked` box of grouped ToggleButtons: the
+                    // group makes the choice exclusive natively, and `.linked` draws them joined.
+                    let bx = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+                    bx.add_css_class("linked");
+                    let action = item.action;
+                    let mut first: Option<gtk4::ToggleButton> = None;
+                    for (i, seg) in segments.iter().enumerate() {
+                        let b = gtk4::ToggleButton::new();
+                        match seg.icon.as_ref() {
+                            Some(Icon::Symbol(sym)) if icon_name(*sym).is_some() => {
+                                // `icon_name` is checked above, so this cannot paint the
+                                // broken-image glyph.
+                                if let Some(n) = icon_name(*sym) {
+                                    b.set_icon_name(n);
+                                }
+                            }
+                            Some(Icon::Image(name)) => {
+                                match crate::tinted_template_icon(name, None) {
+                                    Some(img) => b.set_child(Some(&img)),
+                                    None => b.set_label(&seg.title),
+                                }
+                            }
+                            _ => b.set_label(&seg.title),
+                        }
+                        b.set_tooltip_text(Some(&seg.title));
+                        b.set_sensitive(item.enabled);
+                        b.add_css_class("flat");
+                        match &first {
+                            None => first = Some(b.clone()),
+                            Some(f) => b.set_group(Some(f)),
+                        }
+                        b.set_active(i == *selected);
+                        if action != 0 {
+                            let suppress = suppress.clone();
+                            b.connect_toggled(move |t| {
+                                ffi_guard::contain((), || {
+                                    // Only the segment turning ON reports, and only when the
+                                    // change came from the user — a grouped set emits for BOTH
+                                    // the button going off and the one coming on.
+                                    if suppress.get() || !t.is_active() {
+                                        return;
+                                    }
+                                    emit(
+                                        day_spec::WINDOW_NODE,
+                                        Event::ToolbarChanged {
+                                            action,
+                                            value: ToolbarValue::Selected(i),
+                                        },
+                                    );
+                                });
+                            });
+                        }
+                        bx.append(&b);
+                    }
+                    bx.upcast()
+                }
                 ToolbarItemKind::Toggle { on } => {
                     let b = gtk4::ToggleButton::new();
                     dress_button(&b, item);
                     b.set_active(*on);
                     let action = item.action;
                     if action != 0 {
+                        let suppress = suppress.clone();
                         b.connect_toggled(move |t| {
                             ffi_guard::contain((), || {
+                                // `set_active` from the patch below emits `toggled` too, and this
+                                // is the same handler a click uses — so without the guard day-core
+                                // is told the USER flipped an item Day itself just flipped. Qt
+                                // (`blockSignals`) and XAML (its own flag) suppress it in their
+                                // shims; AppKit's `setState:` never fires the action. An app whose
+                                // toggle runs a COMMAND rather than just storing a value sees the
+                                // difference: the echo re-runs the command.
+                                if suppress.get() {
+                                    return;
+                                }
                                 emit(
                                     day_spec::WINDOW_NODE,
                                     Event::ToolbarChanged {
@@ -392,12 +468,35 @@ impl Gtk {
                         bar.suppress.set(false);
                     }
                 }
+                ToolbarPatch::Selected { item, index } => {
+                    if let Some(w) = bar.widgets.get(item)
+                        && let Some(bx) = w.downcast_ref::<gtk4::Box>()
+                    {
+                        // Suppressed like the toggle above: activating a grouped button emits
+                        // `toggled` for it AND for the one going off.
+                        bar.suppress.set(true);
+                        let mut child = bx.first_child();
+                        let mut i = 0usize;
+                        while let Some(c) = child {
+                            if let Some(t) = c.downcast_ref::<gtk4::ToggleButton>() {
+                                t.set_active(i == *index);
+                            }
+                            child = c.next_sibling();
+                            i += 1;
+                        }
+                        bar.suppress.set(false);
+                    }
+                }
                 ToolbarPatch::On { item, on } => {
                     if let Some(w) = bar.widgets.get(item)
                         && let Some(t) = w.downcast_ref::<gtk4::ToggleButton>()
                         && t.is_active() != *on
                     {
+                        // Suppressed like the search field's set below: `set_active` emits
+                        // `toggled`, which would report Day's own write back as a user action.
+                        bar.suppress.set(true);
                         t.set_active(*on);
+                        bar.suppress.set(false);
                     }
                 }
                 // No native completion list on this toolkit's search widget (docs/search.md).

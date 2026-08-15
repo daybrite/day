@@ -1,3 +1,8 @@
+---
+title: "Shapes"
+description: "Vector shape pieces — rectangles, circles, paths — drawn through each platform's native layer API."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

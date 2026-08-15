@@ -1,3 +1,8 @@
+---
+title: "SwiftUI embedding"
+description: "Host your own SwiftUI views inside the Day tree on macOS and iOS, with typed Rust constructors generated from your Swift package."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

@@ -1,3 +1,8 @@
+---
+title: "Forms"
+description: "form, section, and labeled: the grouped-settings look on every platform, from Mac form sheets to Android preference lists."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -28,13 +33,13 @@ form((
 ```
 
 - `form(sections)` — a vertical run (spacing 16) that provides the shared label column to every
-  `labeled` row underneath it, via the scoped environment (docs/environment.md).
+  `labeled` row underneath it, via the scoped environment ([docs/environment.md](environment.md)).
 - `section(children).title(t)` — one grouped card: an optional footnote-style header above a
   rounded card (radius 10, content padded 14, spacing 10). Children are arbitrary pieces;
   `labeled` rows are just the ones that participate in alignment. A `section` also works
   standalone, outside any `form`.
 - `labeled(text, control)` — one form row: the label sits right-aligned in the form-wide column,
-  on the same text BASELINE as the control (docs/baseline.md — centred instead when either side
+  on the same text BASELINE as the control ([docs/baseline.md](baseline.md) — centred instead when either side
   has no baseline, e.g. a toggle, or on a toolkit that reports none); the control starts at the
   column edge + 12. A control marked `.grow()`
   (text fields, sliders, or a `row(( … ))` wrapper) stretches to the row's remaining width;
@@ -66,7 +71,7 @@ so by place time the max is final; alignment is consistent with no invalidation 
 report the *proposed* width as their size (labels align form-wide, controls may stretch), so a
 growing column width never changes a row's measured size and can't oscillate the pass.
 
-Vertically the row asks both children for their first text baseline (docs/baseline.md) and shifts
+Vertically the row asks both children for their first text baseline ([docs/baseline.md](baseline.md)) and shifts
 each down to the deeper of the two, so the label meets the control's inset text instead of the
 middle of its box. The row is then as tall as that shared baseline plus the deepest descent below
 it. When either side reports no baseline the row centres both, exactly as it always did.

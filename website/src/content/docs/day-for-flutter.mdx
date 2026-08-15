@@ -461,7 +461,7 @@ than a custom bundle format:
 ```rust
 image(res::images::wave)                       // resource/images/wave.png, wave@2x.png…
 let data = day::resource(res::assets::stations_json)?;  // resource/assets/, zero-copy bytes
-label("Hi").font(Font::Custom("Pacifico", 24.0))  // resource/fonts/, by family name
+label("Hi").font(Font::custom(res::fonts::pacifico, 24.0))  // resource/fonts/, by family
 ```
 
 ## Project structure and per-platform configuration

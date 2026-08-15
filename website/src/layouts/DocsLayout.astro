@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import BaseLayout from './BaseLayout.astro';
 import { getCollection } from 'astro:content';
-import { url } from '../lib/site';
+import { url, internalTitle } from '../lib/site';
+import { orderedIds } from '../lib/internal-groups.mjs';
 
 interface Props { title: string; description?: string; slug?: string; active?: string }
 const { title, description, slug, active = 'docs' } = Astro.props;
@@ -12,9 +13,26 @@ const { title, description, slug, active = 'docs' } = Astro.props;
 const isApi = Astro.url.pathname.replace(/\/$/, '').endsWith('/docs/api');
 
 const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
-const idx = docs.findIndex((d) => d.id === slug);
-const prev = idx > 0 ? docs[idx - 1] : null;
-const next = idx >= 0 && idx < docs.length - 1 ? docs[idx + 1] : null;
+
+// The prev/next pager: within the curated docs normally, and within the internal reference's
+// own curated order (src/lib/internal-groups.mjs) on an internal page — before this, internal
+// pages passed no slug, so the pager silently vanished and the sidebar highlighted nothing.
+let prev: { href: string; title: string } | null = null;
+let next: { href: string; title: string } | null = null;
+if (active === 'internal' && slug) {
+  const internal = await getCollection('internal');
+  const titleOf = (id: string) =>
+    internal.find((e) => e.id === id)?.data.title ?? internalTitle(id);
+  const i = orderedIds.indexOf(slug);
+  if (i > 0) prev = { href: url(`docs/internal/${orderedIds[i - 1]}`), title: titleOf(orderedIds[i - 1]) };
+  if (i >= 0 && i < orderedIds.length - 1)
+    next = { href: url(`docs/internal/${orderedIds[i + 1]}`), title: titleOf(orderedIds[i + 1]) };
+} else {
+  const idx = docs.findIndex((d) => d.id === slug);
+  if (idx > 0) prev = { href: url(`docs/${docs[idx - 1].id}`), title: docs[idx - 1].data.title };
+  if (idx >= 0 && idx < docs.length - 1)
+    next = { href: url(`docs/${docs[idx + 1].id}`), title: docs[idx + 1].data.title };
+}
 
 // Group the (already order-sorted) pages into sidebar sections. A section's position is set
 // by its first page, so ordering lives entirely in frontmatter.
@@ -49,6 +67,10 @@ for (const d of docs) {
         ))}
         <p class="side-h">Reference</p>
         <a href={url('docs/api')} class:list={['side-link', { on: isApi }]}>API reference</a>
+        <a
+          href={url('docs/internal')}
+          class:list={['side-link', { on: active === 'internal' }]}
+        >Internal reference</a>
       </nav>
     </aside>
 
@@ -57,10 +79,10 @@ for (const d of docs) {
       {(prev || next) && (
         <nav class="prevnext" aria-label="Pagination" data-pagefind-ignore>
           {prev ? (
-            <a href={url(`docs/${prev.id}`)} class="pn"><span>← Previous</span><b>{prev.data.title}</b></a>
+            <a href={prev.href} class="pn"><span>← Previous</span><b>{prev.title}</b></a>
           ) : <span />}
           {next ? (
-            <a href={url(`docs/${next.id}`)} class="pn next"><span>Next →</span><b>{next.data.title}</b></a>
+            <a href={next.href} class="pn next"><span>Next →</span><b>{next.title}</b></a>
           ) : <span />}
         </nav>
       )}

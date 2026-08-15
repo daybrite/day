@@ -1,3 +1,8 @@
+---
+title: "Text area"
+description: "The multi-line text editor piece: line hints, wrapping, and per-platform editors."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -69,9 +74,9 @@ which is the other route to Copy / Select All. The **ArkUI** editor supports all
 its shim doesn't expose the setters yet, a documented follow-up; until then it reports
 `Unsupported` for all three and ignores the props.
 
-It is the multi-line sibling of `text_field` (docs/forms.md): a field is one line and submits on
+It is the multi-line sibling of `text_field` ([docs/forms.md](forms.md)): a field is one line and submits on
 Return; a text area keeps newlines. Both raise the soft keyboard through the focus system
-(docs/focus.md), and keyboard avoidance (the focused editor scrolling clear of the keyboard) applies
+([docs/focus.md](focus.md)), and keyboard avoidance (the focused editor scrolling clear of the keyboard) applies
 to both.
 
 ## Per-backend native realization

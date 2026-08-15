@@ -40,12 +40,10 @@ Windows, and OpenHarmony. There is no web view or bundled renderer, and no per-p
 
 ## The bet
 
-Every cross-platform approach picks something to sacrifice. Web-view shells sacrifice native
-behavior and memory; custom renderers sacrifice native look-and-feel and inherit the burden of
-reimplementing text, scrolling, and accessibility; per-platform native sacrifices the single
-codebase. Day's bet is that the platform's own widgets already do most things better than any
-framework can imitate, so it keeps them, and spends its effort only on the parts native
-toolkits are bad at sharing:
+Every cross-platform approach picks something to sacrifice — [Why Day](/docs/benefits)
+walks the whole trade table. Day's bet is that the platform's own widgets already do most
+things better than any framework can imitate, so it keeps them, and spends its effort only on
+the parts native toolkits are bad at sharing:
 
 - a layout engine that works identically everywhere while deferring to native measurement
   ([Layout](/docs/layout));
@@ -113,8 +111,8 @@ reason to look elsewhere: better to know now than in week two.
   [`day-piece-swiftui`](/docs/internal/swiftui) hosts your own SwiftUI views inside the Day tree,
   with typed Rust constructors generated from your Swift package.
 - **Not finished:** Day is young. The core model is stable and exercised by a real
-  Matrix chat client (Day-Matrix, a standalone Day app) running on five
-  targets, but APIs still move and some designed features aren't built yet. The docs mark those
+  Matrix chat client ([Day-Matrix](https://github.com/daybrite/Day-Matrix), a standalone Day
+  app) running on five targets, but APIs still move and some designed features aren't built yet. The docs mark those
   explicitly rather than describing the roadmap as the present.
 
 ## Finding your way around
@@ -123,16 +121,22 @@ The documentation is sequenced so each section assumes only the ones before it:
 
 1. **Start here** — this page, the [tradeoffs](/docs/benefits), and
    [getting started](/docs/getting-started).
-2. **Concepts** — [Pieces](/docs/pieces), [Reactivity](/docs/reactivity),
+2. **Coming from** — translation guides for [Flutter](/docs/day-for-flutter),
+   [React Native](/docs/day-for-react-native), [SwiftUI](/docs/day-for-swiftui),
+   [Compose](/docs/day-for-compose), [Electron](/docs/day-for-electron), and
+   [other Rust frameworks](/docs/day-for-rust-frameworks) — start with yours, then come back.
+3. **Concepts** — [Pieces](/docs/pieces), [Reactivity](/docs/reactivity),
    [Layout](/docs/layout), [Styling](/docs/styling): the model in full.
-3. **Guides** — task-oriented pages on [navigation](/docs/navigation),
+4. **Guides** — task-oriented pages on [navigation](/docs/navigation),
    [localization](/docs/localization), [accessibility](/docs/accessibility),
    [testing with dayscript](/docs/dayscript), [resources](/docs/resources), and
    [device capabilities](/docs/parts).
-4. **Build & ship** — the [CLI](/docs/cli), [project anatomy](/docs/project-structure),
-   [packaging & signing](/docs/packaging), and [platform status](/docs/platforms).
-5. **Extend** — [how the extension model works](/docs/extending) and three worked tutorials.
-6. **Under the hood** — [architecture](/docs/architecture) and
+5. **Build & ship** — the [CLI](/docs/cli), [project anatomy](/docs/project-structure),
+   [packaging & signing](/docs/packaging), [platform status](/docs/platforms), and a
+   full page per target (e.g. [macOS](/docs/platforms/macos-appkit),
+   [Android](/docs/platforms/android-mdc)).
+6. **Extend** — [how the extension model works](/docs/extending) and three worked tutorials.
+7. **Under the hood** — [architecture](/docs/architecture) and
    [how rendering works](/docs/rendering), for when you want to see the machinery.
-7. **Reference** — [per-widget and per-subsystem reference pages](/docs/reference), and a
+8. **Reference** — [per-widget and per-subsystem reference pages](/docs/reference), and a
    [condensed page for AI coding agents](/docs/for-agents).

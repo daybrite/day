@@ -1,3 +1,8 @@
+---
+title: "day-break: crash reporting"
+description: "Consent-first crash reporting: what is captured, where reports go, and the dayscript steps that test the pipeline."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -171,5 +176,5 @@ backend and hand the final submit to the user.
 chaining in-process, plus a **subprocess crash harness** (`tests/crash.rs`) that re-executes the
 test binary to actually panic / abort / segfault a child and asserts the finalized report (run on
 macOS and Linux CI hosts). On-device capture (Android UEH, iOS/HarmonyOS signals) is verified
-through the showcase "Crash Reporting" page and its dayscript (`docs/agent.md`), which uses the
+through the showcase "Crash Reporting" page and its dayscript ([`docs/agent.md`](agent.md)), which uses the
 `expect_exit` step to tolerate the intentional crash.

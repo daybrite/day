@@ -1,3 +1,8 @@
+---
+title: "Web backend"
+description: "The web-dom backend: Rust compiled to WebAssembly driving real DOM elements, the shim, and the launch server."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -51,7 +56,7 @@ Two places where the browser, not day-core, owns geometry:
   are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
 - **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
   size back through a ResizeObserver as `Event::FrameChanged`, the DayNavPage contract
-  (docs/navigation.md). Split-vs-stack for a `selector(Sidebar)` is decided ONCE at launch from
+  ([docs/navigation.md](navigation.md)). Split-vs-stack for a `selector(Sidebar)` is decided ONCE at launch from
   the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize; a
   window widened past the threshold stays a stack until reload.
 
@@ -76,7 +81,7 @@ The scale differs by pointer type, because a point means different things on a d
 Before 2026-08 one scale of 1.12 served both, which put a desktop browser on the phone ramp: `Body`
 came out at 17.9px and the whole UI read about a third larger than the same app on macOS. Nothing
 may redefine `html`'s size outside that media query — 1rem *is* the reader's preference, which is
-how web-dom delivers the accessibility text scaling docs/text.md promises, and page zoom applies on
+how web-dom delivers the accessibility text scaling [docs/text.md](text.md) promises, and page zoom applies on
 top of it. Chrome metrics that wrap text (the sidebar row's padding and icon) are in `em` for the
 same reason: they follow the font instead of pinning a desktop row size onto a touch device.
 
@@ -93,7 +98,7 @@ The browser owns the loop; wasm has one thread and no `std::thread`, no `Instant
 - `Platform::post_delayed(ms, f)` (new with this backend, default = thread + sleep on native)
   is `setTimeout` here. It backs **`day::sleep(ms)`**, the awaitable timer for
   `day::task` flows. Use it instead of `std::thread::sleep` for fake-work delays and it works
-  on every backend (docs/async.md).
+  on every backend ([docs/async.md](async.md)).
 - The launch locale reaches localization through `set_launch_locale` (the `?locale=` query
   parameter, else the browser's language list) because there is no `DAY_LOCALE` environment
   variable to read.
@@ -107,14 +112,14 @@ with back bar, tabs, the emulated recycling list with multi-selection, alert/con
 dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
 including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
 visibility), routes in the URL (below), day-part-prefs backed by `localStorage`
-(docs/prefs.md, so app state bound through `day::prefs::bind` survives a reload), and
-day-part-http backed by the browser's `fetch()` (docs/http.md): `fetch_async` and
+([docs/prefs.md](prefs.md), so app state bound through `day::prefs::bind` survives a reload), and
+day-part-http backed by the browser's `fetch()` ([docs/http.md](http.md)): `fetch_async` and
 `fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
 entry points return `Unsupported` (one thread, no blocking waits).
 
 ## Routes in the URL
 
-The app's route and the URL hash stay in step, both ways (docs/navigation.md):
+The app's route and the URL hash stay in step, both ways ([docs/navigation.md](navigation.md)):
 
 - **Loading `…/#controls`** opens on that section: the host page hands the hash to
   `set_launch_deeplink`, the web spelling of `DAY_DEEPLINK`.
@@ -143,7 +148,7 @@ every platform. Differences from native, all internal:
   `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
   the control port. The bundled driver opens a throwaway PERSISTENT profile
   (`launchPersistentContext`), not Playwright's default ephemeral context; WebKit gives an
-  ephemeral session no OPFS backing, and day-part-fs is OPFS-only (docs/fs.md). Its engine
+  ephemeral session no OPFS backing, and day-part-fs is OPFS-only ([docs/fs.md](fs.md)). Its engine
   comes from `DAY_WEB_DRIVER_BROWSER` (`webkit` default, `chromium`, `firefox`): macOS WebKit
   has OPFS and is the local default, but Playwright's LINUX WebKit (the WPE port) ships no
   OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
@@ -166,14 +171,14 @@ Known gaps, in rough order of interest:
   yet.
 - **App menus and context menus** — no DOM equivalent of a native menu bar; unsupported.
 - **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
-  standard placeholder. `day-piece-media` now renders a real `<video>` (docs/media.md): the browser
+  standard placeholder. `day-piece-media` now renders a real `<video>` ([docs/media.md](media.md)): the browser
   supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
   `.muted(true)`. The seam is open for the others: day-dom exposes a RUNTIME renderer registry
   (`day_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
   use, because `#[distributed_slice]` does not compile for wasm32; a piece self-registers from its
   own constructor. Parts other than prefs, http, sensors and location (battery,
   clipboard, haptics…) answer their unavailable tier. `day-part-sensors` streams the accelerometer
-  and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; docs/sensors.md),
+  and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; [docs/sensors.md](sensors.md)),
   `day-part-location` rides `navigator.geolocation`, and `day-part-permissions` answers from
   `navigator.permissions`. All three need a secure context, and iOS Safari's motion prompt must be
   requested from inside a button action while the user gesture is still live.

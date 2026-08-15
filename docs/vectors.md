@@ -1,3 +1,8 @@
+---
+title: "Vector images"
+description: "resource/vectors/ and the vector piece: one SVG master, rendered natively per platform with tinting."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -105,7 +110,7 @@ where it stroked, so an outline glyph stays an outline rather than becoming a si
 XAML has no geometry to draw (art outside the convertible subset) the tint degrades to a
 monochrome `BitmapIcon` over the raster — still tinted, but from the 256 px cache.
 
-Nav-menu rows have their own arm, `item(…).icon_tint(color)` (docs/navigation.md): per-row
+Nav-menu rows have their own arm, `item(…).icon_tint(color)` ([docs/navigation.md](navigation.md)): per-row
 recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (pixel recolor), Qt
 (`QPainter` SourceIn over the pixmap), Android (compound-drawable `setTint`, best-effort after
 the nav host mounts), ArkUI (SVG fill color), XAML (`Foreground` on the row's `PathIcon`), and

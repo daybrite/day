@@ -1,3 +1,8 @@
+---
+title: "Navigation"
+description: "selector and stack: native sidebars, tabs, and push navigation from one declarative model, plus routes and deep-link intake."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -38,7 +43,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 | Style | Native container |
 |-------|------------------|
 | `Sidebar` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwOverlaySplitView` (libadwaita; `DAY_GTK_SPLIT=paned` selects a draggable `GtkPaned` instead); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
-| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` (docs/tabs.md). |
+| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` ([docs/tabs.md](tabs.md)). |
 
 `selector` is one primitive, a selection-bound switcher. The two styles differ only in chrome and
 page lifetime: tabs keep every page resident, the sidebar builds the selected detail.
@@ -52,7 +57,7 @@ page lifetime: tabs keep every page resident, the sidebar builds the selected de
 backends with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
 get the standard opaque bar. Every other backend ignores the flag. Pair it with
-`day::safe_area()` (docs/layout.md): the immersive page paints its background unpadded and pads
+`day::safe_area()` ([docs/layout](https://daybrite.dev/docs/layout)): the immersive page paints its background unpadded and pads
 its content by the reported insets.
 
 ## `stack`: push/pop with a value path
@@ -78,7 +83,7 @@ without the framework.
 `selector(sel).bar_action(icon, label, action)` — and the same on `stack(…)` — adds one trailing
 button to the navigation bar. It is the counterpart, on the toolkits that have **no window
 toolbar** (the phones and HarmonyOS, where `Cap::Toolbar` is `Unsupported`), to a desktop toolbar
-command (docs/toolbars.md): one app-wide action that belongs on the chrome rather than in the
+command ([docs/toolbars.md](toolbars.md)): one app-wide action that belongs on the chrome rather than in the
 page — Settings, Compose, "Show Source".
 
 ```rust
@@ -90,7 +95,7 @@ selector(section)
 
 `icon` is a bundled-image name (the `.item_icon` convention), `label` its accessible name and
 tooltip, `action` runs on tap. The handler is **app-wide** — it rides the current top page's bar,
-so read [`current_route()`](../docs/navigation.md) inside it to act on whatever is showing, rather
+so read [`current_route()`](../[docs/navigation.md](navigation.md)) inside it to act on whatever is showing, rather
 than registering a different action per page.
 
 | Backend | Realization |
@@ -98,7 +103,7 @@ than registering a different action per page.
 | iOS (`UINavigationController`) | each page's `navigationItem.rightBarButtonItem`, a template-tinted icon |
 | Android (M3 app bar) | a `MaterialToolbar` menu action (`SHOW_AS_ACTION_ALWAYS`) |
 | HarmonyOS (`Navigation`) | a `.menus()` item on every `NavDestination` |
-| Desktop split (`NavigationSplitView`) | **ignored** — put the command in the window toolbar instead (docs/toolbars.md) |
+| Desktop split (`NavigationSplitView`) | **ignored** — put the command in the window toolbar instead ([docs/toolbars.md](toolbars.md)) |
 
 On tap the backend emits `Event::MenuAction(id)` against the registered closure — the very
 dispatch a toolbar button or a menu item uses, so a bar action, a toolbar button, and a menu item
@@ -124,7 +129,7 @@ widget, and if the selected key disappears the selection resets (to `None` for a
 The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
 rows in place, static `.item`s included.
 `item(key, title).icon(name)` is the row spec; `.icon_tint(color)` recolors the row's glyph
-(docs/vectors.md), `.context_menu(vec![…])` attaches a per-row context menu (docs/menus.md),
+([docs/vectors.md](vectors.md)), `.context_menu(vec![…])` attaches a per-row context menu ([docs/menus.md](menus.md)),
 and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
 form above.
 
@@ -245,8 +250,8 @@ state instead.
 - Startup deep links (`DAY_DEEPLINK`) and warm links (`RouteRequested`) route the
   same way. On hosts with no process environment the platform entry records the launch route
   with `day_core::set_launch_deeplink` instead; web-dom seeds it from the page's URL hash
-  (docs/web.md), so `…/#controls` opens on that section. The OS side — scheme registration,
-  per-platform intake, and testing — is docs/deep-links.md.
+  ([docs/web.md](web.md)), so `…/#controls` opens on that section. The OS side — scheme registration,
+  per-platform intake, and testing — is [docs/deep-links.md](deep-links.md).
 - The URL stays live both ways on web-dom: day-core reports every route change to the backend
   (`Toolkit::set_route`: the hash updates as you navigate, one history entry per step), and a
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
@@ -423,7 +428,7 @@ breakpoints, what survives a re-presentation, and which backends morph today.
   need `GtkPaned` covers with `set_shrink_*_child`. Without it, framing the detail to the whole
   host on collapse left the split no room to park the sidebar off screen at its own width, so
   libadwaita collapsed the sidebar to zero and the reveal animation had nothing to slide back in. Tabs use an `AdwViewStack` with a
-  `.linked` toggle switcher (docs/tabs.md); dialogs use `AdwAlertDialog` (docs/dialogs.md).
+  `.linked` toggle switcher ([docs/tabs.md](tabs.md)); dialogs use `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
 > [!NOTE]
 > **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
 > its pane to a sidebar `NSSplitViewItem`, so AppKit supplies the material — on macOS 26 a

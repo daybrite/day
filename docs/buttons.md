@@ -1,3 +1,8 @@
+---
+title: "Buttons"
+description: "The button piece and its styles on every backend, from plain to prominent to destructive."
+---
+
 <!-- Copyright © The Daybrite Project
      SPDX-License-Identifier: CC-BY-SA-4.0 -->
 

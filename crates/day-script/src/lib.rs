@@ -158,6 +158,10 @@ pub enum Step {
         args: Option<BTreeMap<String, serde_json::Value>>,
         #[serde(default)]
         on: Option<bool>,
+        /// A segmented item's choice, by index (docs/toolbars.md). The step fails rather than
+        /// guessing if the item is not segmented or the index is out of range.
+        #[serde(default)]
+        index: Option<usize>,
     },
     AssertVisible {
         id: String,
@@ -900,6 +904,7 @@ fn exec(step: Step) -> Reply {
                 key,
                 args,
                 on,
+                index,
             } => {
                 // `key` resolves through the run's locale, like `input`'s does; `text` stays a
                 // literal. Resolved BEFORE the item lookup so a bad key fails as a bad key.
@@ -939,6 +944,31 @@ fn exec(step: Step) -> Reply {
                 // bare `toolbar: { item }` on one used to dispatch into the wrong registry and
                 // do nothing at all — the step passed, the app did not move, and the script was
                 // left asserting against a state it never reached. Say what is missing instead.
+                // A segmented item takes an INDEX; nothing else in the vocabulary does, and a
+                // bare press on one would have no choice to make.
+                if let day_spec::ToolbarItemKind::Segmented { segments, .. } = &found.kind {
+                    let Some(i) = index else {
+                        return Err(Reply::fail(
+                            format!("toolbar: {item:?} is segmented — say `index: <n>`"),
+                            false,
+                        ));
+                    };
+                    if i >= segments.len() {
+                        return Err(Reply::fail(
+                            format!(
+                                "toolbar: {item:?} has {} segments, asked for {i}",
+                                segments.len()
+                            ),
+                            false,
+                        ));
+                    }
+                    day_core::toolbar::dispatch_toolbar_value(
+                        found.action,
+                        &day_spec::ToolbarValue::Selected(i),
+                    );
+                    day_reactive::flush_sync();
+                    return Ok(Reply::ok());
+                }
                 if matches!(found.kind, day_spec::ToolbarItemKind::Toggle { .. })
                     && on.is_none()
                     && text.is_none()

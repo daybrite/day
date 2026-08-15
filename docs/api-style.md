@@ -1,3 +1,8 @@
+---
+title: "API style"
+description: "Argument-clarity rules for the day API: when a builder takes a value, a closure, or a signal, and how names stay predictable."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

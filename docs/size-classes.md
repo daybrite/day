@@ -1,3 +1,8 @@
+---
+title: "Size classes"
+description: "Compact to expanded: how day re-presents navigation when the window crosses a size-class boundary."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

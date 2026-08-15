@@ -321,6 +321,7 @@ unsafe extern "C" {
     // installs the same item ids, so a patch has to name the window as well as the id.
     pub fn day_xaml_toolbar_set_text(win: *mut c_void, id: *const c_char, text: *const c_char);
     pub fn day_xaml_toolbar_set_checked(win: *mut c_void, id: *const c_char, on: c_int);
+    pub fn day_xaml_toolbar_set_selected(win: *mut c_void, id: *const c_char, index: c_int);
     pub fn day_xaml_toolbar_set_enabled(win: *mut c_void, id: *const c_char, on: c_int);
     /// The app menu and a toolbar docked in a SECONDARY window (docs/windows.md): day's app menu
     /// has no window parameter, so the same spec is installed into each window that opens.

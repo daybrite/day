@@ -1,3 +1,8 @@
+---
+title: "daybridge"
+description: "Foreign-language implementations of a Rust API: how Swift, Kotlin, and ArkTS arms are declared, generated, and kept in parity."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -245,9 +250,9 @@ mode — `catch`, `try`, a status code — and converts it, so an exception neve
 `other` arm fails its own build — day-build refuses to generate a module that would not compile
 under day-mock.
 
-Each bridged function reports a `Support` per target, and `docs/bridge-matrix.md` is generated from
-the declarations and CI-gated for drift, the way `docs/duty-matrix.md`, `docs/coverage-matrix.md`,
-and `docs/recorder-matrix.md` already are.
+Each bridged function reports a `Support` per target, and a generated `docs/bridge-matrix.md` (planned) will follow from
+the declarations and CI-gated for drift, the way [`docs/duty-matrix.md`](duty-matrix.md), [`docs/coverage-matrix.md`](coverage-matrix.md),
+and [`docs/recorder-matrix.md`](recorder-matrix.md) already are.
 
 ```rust
 // parts/day-part-speech/src/lib.rs — the generator emits one `<fn>_support()` per declaration.
@@ -280,10 +285,10 @@ need no such gate: cargo compiles them itself.
 
 | Arm | Adapter lands in | Existing mechanism it rides |
 |---|---|---|
-| `swift` | the generated `DayPieces` SwiftPM module | the Swift prepass, `swift build`, `-force_load` (docs/swiftui.md) |
+| `swift` | the generated `DayPieces` SwiftPM module | the Swift prepass, `swift build`, `-force_load` ([docs/swiftui.md](swiftui.md)) |
 | `kotlin`, `java` | a Gradle `srcDirs` entry | the checked-in Gradle host project, JNI, `day-pieces.json` |
-| `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor (docs/harmonyos.md) |
-| `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it (docs/web.md) |
+| `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor ([docs/harmonyos.md](harmonyos.md)) |
+| `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it ([docs/web.md](web.md)) |
 | `c`, `cpp` | `OUT_DIR/daybridge/<crate>.c` \| `.cpp` | `cc` from the crate's `build.rs` |
 | `rust` | `OUT_DIR/daybridge/mod.rs` | nothing — it is ordinary Rust |
 
@@ -428,7 +433,7 @@ except Kotlin and Java, where it is the recommendation.
 Two separate requirements, and meeting the first does not meet the second.
 
 **Byte-stable output**, because generated sources are inputs to reproducible builds
-(docs/reproducible-builds.md): arms are emitted in declaration order, symbol lists are sorted, and
+([docs/reproducible-builds](https://daybrite.dev/docs/reproducible-builds)): arms are emitted in declaration order, symbol lists are sorted, and
 no timestamp, absolute path, or hostname appears in generated output. The repro CI leg covers
 bridge output like any other artifact.
 
@@ -468,7 +473,7 @@ Read it before writing a bridge of your own.
   ([§15.3](../DESIGN.md)); the evidence there was that one string and one number covered every real
   case. This design starts smaller on purpose.
 - **Not a way to write UI.** A bridge implements a function. Native views enter the tree through
-  `Toolkit::adopt` and the piece mechanisms (docs/extending.md), which are unaffected.
+  `Toolkit::adopt` and the piece mechanisms ([docs/extending.md](extending.md)), which are unaffected.
 - **Not a replacement for `objc2` or `#[link]`.** Where Rust reaches the API, use Rust.
 - **No foreign state beyond process statics.** An arm may hold a synthesizer or a connection in a
   file-scope static; it may not hold anything Rust is expected to own or free.
@@ -505,7 +510,7 @@ Deferred deliberately, each with its shape sketched so v1 doesn't foreclose it:
   the Rust side boxes the closure into a registry, the arm calls
   `day_bridge_complete_<sig>(token, …)`, and the trampoline posts to the main loop, invokes once,
   and frees the slot. A callback fires at most once; dropping the handle makes a late completion a
-  no-op, the way a disposed signal absorbs a late `Resource` write (docs/async.md). Nothing in v1
+  no-op, the way a disposed signal absorbs a late `Resource` write ([docs/async.md](async.md)). Nothing in v1
   may reuse the `u64` argument space in a way that would collide with a token.
 - **Futures.** Generated on top of callbacks, so parts keep the shape `day-part-fs` established
   (`speak_future(text).await` under `day::task`).

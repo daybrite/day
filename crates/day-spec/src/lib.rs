@@ -972,6 +972,17 @@ pub enum Symbol {
     Play,
     Pause,
     Stop,
+    /// A photo capture — a screenshot command, a camera control.
+    Camera,
+    /// Source code.
+    Code,
+    /// Light appearance (a sun). The three below are the vocabulary of a theme chooser, which
+    /// every platform draws with the same three ideas.
+    Light,
+    /// Dark appearance (a moon).
+    Dark,
+    /// Follow the system — the half-filled circle every platform uses for "automatic".
+    Auto,
     ZoomIn,
     ZoomOut,
     Undo,
@@ -1029,6 +1040,20 @@ pub enum ToolbarItemKind {
         /// where it has one (`AutoSuggestBox`, `QCompleter`, `<datalist>`). Empty = none.
         suggestions: Vec<String>,
     },
+    /// A row of mutually exclusive choices drawn as ONE control — the native segmented control
+    /// (`NSSegmentedControl`, a linked GTK/Qt button box, a XAML toggle strip, `.day-segmented`
+    /// on the web).
+    ///
+    /// This is what a set of related toolbar toggles should be when exactly one of them is on at
+    /// a time: three separate toggles say "three independent switches" to the eye and to a screen
+    /// reader, and leave the app to keep them exclusive. Choosing a segment emits
+    /// [`ToolbarValue::Selected`]; the app's own writes arrive as [`ToolbarPatch::Selected`].
+    Segmented {
+        /// One entry per segment. A segment with an icon draws it in place of its title where
+        /// the platform does that, and keeps the title as its accessible name.
+        segments: Vec<ToolbarSegment>,
+        selected: usize,
+    },
     /// Static text, for a status or a caption.
     Label,
     /// A divider, where the platform draws one (macOS toolbars have no separator, so AppKit
@@ -1041,6 +1066,14 @@ pub enum ToolbarItemKind {
     /// GTK packs them start/end, XAML splits them across `Content`/`PrimaryCommands`, and
     /// AppKit and Qt place a real expanding spacer.
     FlexibleSpace,
+}
+
+/// One choice inside a [`ToolbarItemKind::Segmented`] control.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolbarSegment {
+    /// The segment's name — its label where the platform shows text, its accessible name always.
+    pub title: String,
+    pub icon: Option<Icon>,
 }
 
 /// One item in a window's toolbar (docs/toolbars.md).
@@ -1070,6 +1103,8 @@ pub enum ToolbarValue {
     Text(String),
     /// A toggle item's new state.
     On(bool),
+    /// A segmented item's newly chosen index.
+    Selected(usize),
 }
 
 /// A targeted update to one live toolbar item — the path that keeps a bound signal in sync
@@ -1080,6 +1115,8 @@ pub enum ToolbarPatch {
     Text { item: String, text: String },
     /// Set a toggle item's state.
     On { item: String, on: bool },
+    /// Select a segmented item's index.
+    Selected { item: String, index: usize },
     /// Enable or disable any item.
     Enabled { item: String, on: bool },
     /// Replace a search item's completions (docs/search.md). Targeted rather than a rebuild,

@@ -1,3 +1,8 @@
+---
+title: "Location"
+description: "One-shot and continuous location via day-part-location, with the permission flow attached."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

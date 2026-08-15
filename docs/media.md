@@ -1,3 +1,8 @@
+---
+title: "Media player"
+description: "Audio and video playback as an external piece over each platform's media framework."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

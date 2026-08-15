@@ -1,3 +1,8 @@
+---
+title: "Activity spinner"
+description: "The indeterminate activity spinner piece, native on every backend, and when to prefer progress instead."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -38,7 +43,7 @@ indicator's fitting size), so it takes exactly the space the control wants; wrap
 only if you want to reserve a fixed region (e.g. to keep surrounding layout stable while it toggles).
 
 There is deliberately no determinate mode here; that is day's built-in `progress(fraction)`
-(docs/progress.md). This piece covers the indeterminate "work of unknown extent" spinner.
+([docs/progress.md](progress.md)). This piece covers the indeterminate "work of unknown extent" spinner.
 
 ## Per-backend native realization
 

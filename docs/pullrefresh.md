@@ -1,3 +1,8 @@
+---
+title: "Pull-to-refresh"
+description: "The pull-to-refresh piece: native refresh controls where they exist, a faithful emulation where they don't."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -72,7 +77,7 @@ pure composition (`when` + overlay container), no per-backend code.
 ## The container-piece recipe
 
 On the wrap-based platforms the realized node IS the native refresh wrapper and day mounts the
-scrollable **as a Day child inside it**; see docs/extending.md ("Container pieces") for the
+scrollable **as a Day child inside it**; see [docs/extending.md](extending.md) ("Container pieces") for the
 `cx.native` + fill-layout + `cx.under` recipe this piece establishes.
 
 ## Limits

@@ -1,3 +1,8 @@
+---
+title: "Agentic development"
+description: "How AI agents build, launch, drive, and screenshot a running Day app: the session registry, the MCP tools, and the crash post-mortem loop."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -36,11 +41,10 @@ day drive -p macos-appkit --steps-json \
     {"screenshot":"after"}]'
 ```
 
-Steps use the walkthrough vocabulary (single-key mapping form, or flattened `{"op": …}`):
-`navigate`, `nav_back`, `tap`, `input`, `submit`, `set_value`, `toggle`, `select`, `focus`, `wait_for`,
-`wait_idle`, `assert_visible`, `assert_text`, `assert_value`, `assert_focused`,
-`assert_no_placeholders`,
-`assert_route`, `assert_presented`, `respond`, `a11y_audit`, `pause`, `screenshot`. Output: one JSON object
+Steps use the walkthrough vocabulary (single-key mapping form, or flattened `{"op": …}`);
+the step catalog lives in the dayscript reference
+([website](https://daybrite.dev/docs/dayscript); the shipped list is DESIGN.md Appendix C)
+rather than being copied here, where it has drifted before. Output: one JSON object
 (`{target, steps: [{op, ok, error?, screenshot?}…], failed}`) on stdout; screenshots land in
 `build/day/screenshots/_drive/` and are inlined as base64 for callers that want the pixels.
 Device targets get their engine port forwarded automatically (adb / hdc), exactly like
@@ -52,7 +56,7 @@ A scripted run whose app crashes ends in `engine connection lost`, which says on
 gone. The runner then prints a post-mortem (`crates/day-cli/src/diagnose.rs`) from whatever this
 host can produce:
 
-- **day-break's own artifacts** (docs/break.md), when the app arms it: the kind of death, the
+- **day-break's own artifacts** ([docs/break.md](break.md)), when the app arms it: the kind of death, the
   panic message and location, the signal, how long the app lived, and the backtrace it captured.
   Reports are finalized on the app's NEXT launch, so a fresh crash shows its raw session artifacts
   instead — either way, only the ones whose backend and session start match the run that just

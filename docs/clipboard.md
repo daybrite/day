@@ -1,3 +1,8 @@
+---
+title: "Clipboard"
+description: "Reading and writing the system clipboard via day-part-clipboard, with the platform quirks that complicate round-trips."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

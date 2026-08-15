@@ -1,3 +1,8 @@
+---
+title: "Web view JS evaluation"
+description: "Evaluating JavaScript in the web view piece: the API, per-platform support, and the error envelope."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -18,7 +23,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **GTK** carries an inert `WebPatch::Eval` arm so its `match` stays exhaustive, and reports
 > `Unsupported`. The per-platform research below is what that arm needs.
 > **web-dom can never do this for REMOTE pages** — `contentWindow.eval` throws across origins
-> (an inline site's same-origin frame is the noted future exception, docs/webview.md).
+> (an inline site's same-origin frame is the noted future exception, [docs/webview.md](webview.md)).
 >
 > Verified end to end on **macos-qt (21/21 script steps)** and **macos-appkit (20/21 — only the
 > engine-specific `SyntaxError` wording differs)**: values, object serialization, thrown exceptions
@@ -259,7 +264,7 @@ Two consequences:
 Eval completions all arrive on the UI thread, so the future is `Rc`/`RefCell` with a stored `Waker`,
 like `day_core::present`, rather than `day-part-http`'s `Arc`/`Mutex` (which exists because HTTP
 completes on a background thread). Register lazily in `poll` so nothing is dispatched until awaited,
-resolve by looking the id up in a thread-local map, and follow `docs/async.md`'s rule that a piece
+resolve by looking the id up in a thread-local map, and follow [`docs/async.md`](async.md)'s rule that a piece
 offers a callback *and* a future and never calls `on_main` itself.
 
 Because no backend can cancel a running script, `Drop` deregisters the pending id so a late reply is

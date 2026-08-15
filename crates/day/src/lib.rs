@@ -40,8 +40,8 @@ pub use day_spec::present::app_temp_dir;
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
 pub use day_core::{
-    WindowHandle, focused_window, open_preferences, open_window, register_new_window,
-    register_preferences, register_preferences_with, window_by_key,
+    WindowHandle, focused_window, open_new_window, open_preferences, open_window,
+    register_new_window, register_preferences, register_preferences_with, window_by_key,
 };
 pub use day_spec::WindowKind;
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data

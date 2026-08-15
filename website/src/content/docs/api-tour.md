@@ -42,7 +42,10 @@ fn root() -> AnyPiece {
 
 ## Signals: state that binds
 
-A `Signal<T>` is a `Copy` reactive cell. Clone it into as many closures as you like.
+A `Signal<T>` is a `Copy` reactive cell — copying copies a handle to one shared slot, not the
+value, which is why the same signal can live in as many closures as you like. Reading inside
+a bound closure subscribes it; writing re-runs exactly the closures that read it
+([Reactivity](/docs/reactivity) explains the model).
 
 ```rust
 let count = Signal::new(0i64);
@@ -63,6 +66,8 @@ label(move || format!("{count} clicks", count = count.get()))
 ```
 
 ## Text, buttons, and layout
+
+([Layout](/docs/layout) is the full model behind the containers here.)
 
 Pieces compose with plain function calls; containers take a tuple of children and expose builder
 methods for spacing, padding, and alignment.
@@ -87,6 +92,8 @@ column((
 Wrap any subtree in `scroll(...)` to make it scroll natively.
 
 ## Inputs
+
+(Each input is a piece; [Pieces](/docs/pieces) covers the vocabulary.)
 
 Two-way controls take a signal directly; the user's edits flow back into it (origin-tagged, so
 there is no feedback echo).
@@ -150,6 +157,8 @@ canvas(move |d, size| {
 
 ## Navigation
 
+(The whole model, with per-platform mappings: [Navigation](/docs/navigation).)
+
 Day models navigation as a projection of an app-owned signal: you own the state, and the native
 container is reconciled to it. There are two primitives:
 
@@ -194,8 +203,9 @@ nav_back();             // pop the innermost surface
 current_route();        // the full path, outermost surface first
 ```
 
-The same keys drive deep links (`DAY_DEEPLINK=settings`) and dayscript automation
-(`navigate: { route: settings }`).
+The same keys drive deep links (`DAY_DEEPLINK=settings`;
+[deep links reference](/docs/internal/deep-links)) and dayscript automation
+(`navigate: { route: settings }`; [testing with dayscript](/docs/dayscript)).
 
 ## Localization and accessibility
 

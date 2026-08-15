@@ -1,3 +1,8 @@
+---
+title: "App lifecycle"
+description: "Foreground, background, and termination events as day delivers them, uniformly across platforms."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

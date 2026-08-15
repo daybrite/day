@@ -1,3 +1,8 @@
+---
+title: "Picker"
+description: "The built-in picker piece: native segmented controls, dropdowns, and wheels, chosen per platform."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

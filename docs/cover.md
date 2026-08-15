@@ -1,3 +1,8 @@
+---
+title: "Fullscreen cover"
+description: "The cover presentation: a fullscreen surface over everything, the system-gesture shield, and how each backend presents it."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -14,7 +19,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A `cover` presents a Day subtree over the whole window (edge-to-edge, above every other
 surface): the SwiftUI `fullScreenCover(item:)` shape. Like `selector` and `stack`
-(docs/navigation.md), it is a projection of an app-owned signal, not an imperative controller:
+([docs/navigation.md](navigation.md)), it is a projection of an app-owned signal, not an imperative controller:
 
 ```rust
 let open = Signal::new(None::<Section>);          // Section: any Route type
@@ -83,7 +88,7 @@ game_page()
 
 ## Routes, dayscript, deep links
 
-A mounted cover registers a string-route adapter (docs/navigation.md): `navigate("<key>")`
+A mounted cover registers a string-route adapter ([docs/navigation.md](navigation.md)): `navigate("<key>")`
 presents the parsed route, `nav_back()` dismisses, and the presented key is the cover's
 contribution to `current_route()`. Day-Games' walkthrough drives games with plain
 `- navigate: { route: breakout }` / `- nav_back:` steps.

@@ -1,3 +1,8 @@
+---
+title: "Date & time pickers"
+description: "Native date and time pickers as external pieces, with per-platform presentation notes."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

@@ -1,3 +1,8 @@
+---
+title: "HTTP"
+description: "HTTP through each platform's own network stack via day-part-http: no bundled TLS, system proxies for free."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -123,7 +128,7 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 - **NativeStack**: system proxy + PAC, VPN routing, platform TLS + certificate stores all apply.
   The web is this tier: the browser IS the platform stack (proxies, TLS, certificate store,
   HTTP/2/3 all come from it). But it is async-only: on the single browser thread a blocking wait
-  would starve the event loop the completion needs (docs/web.md), so the blocking entry points
+  would starve the event loop the completion needs ([docs/web.md](web.md)), so the blocking entry points
   return `Unsupported` while `fetch_async`/`fetch_future` work in full. Two web-only realities
   apply: CORS governs cross-origin requests (and limits which response headers are visible),
   and browser-controlled headers (`Host`, `Cookie`, `Origin`, …) cannot be set from a request.

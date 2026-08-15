@@ -1,3 +1,8 @@
+---
+title: "Native list"
+description: "The list piece over native table and collection views: virtualized rows, selection, swipe actions, and reorder."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

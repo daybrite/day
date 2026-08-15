@@ -326,6 +326,16 @@ unsafe extern "C" {
     pub fn day_qt_toolbar_add_space(bar: *mut c_void, expand: c_int);
     pub fn day_qt_toolbar_set_text(id: *const c_char, text: *const c_char);
     pub fn day_qt_toolbar_set_checked(id: *const c_char, on: c_int);
+    pub fn day_qt_toolbar_add_segmented(
+        bar: *mut c_void,
+        id: *const c_char,
+        titles: *const c_char,
+        icons: *const c_char,
+        selected: c_int,
+        action: u64,
+        enabled: c_int,
+    );
+    pub fn day_qt_toolbar_set_selected(id: *const c_char, index: c_int);
     pub fn day_qt_toolbar_set_enabled(id: *const c_char, on: c_int);
     pub fn day_qt_menu_new() -> *mut c_void;
     pub fn day_qt_menu_add_submenu(menu: *mut c_void, label: *const c_char) -> *mut c_void;

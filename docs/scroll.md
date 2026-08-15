@@ -1,3 +1,8 @@
+---
+title: "Programmatic scrolling"
+description: "scroll_to and scroll position: driving native scroll views from Rust, and what each backend can promise."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -39,11 +44,11 @@ target can be sent twice in a row. `ScrollTarget` is:
 
 Lower-level, `day_core::scroll_to(node, target)` drives any scroll node directly, and
 `TreeOps::scroll_reveal(node, animated)` scrolls an element's nearest scroll ancestor so the
-element is visible, the same call keyboard avoidance uses (docs/focus.md). Reveals are minimal:
+element is visible, the same call keyboard avoidance uses ([docs/focus.md](focus.md)). Reveals are minimal:
 content already in view doesn't move.
 
 The showcase's List page is the live reference (`Day-Showcase/src/pages/list.rs`): its scroll
-buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, docs/list.md);
+buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, [docs/list.md](list.md));
 `scroll_target` on a plain `scroll` piece works the same way with a `ScrollTarget`.
 
 ## dayscript

@@ -1,3 +1,8 @@
+---
+title: "App-local file storage"
+description: "Reading and writing app-local files via day-part-fs, including the OPFS-only web arm."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

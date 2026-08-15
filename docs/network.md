@@ -1,3 +1,8 @@
+---
+title: "Network connectivity"
+description: "Reachability and connection-type signals via day-part-network."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -79,7 +84,7 @@ stack (proxies, VPN, platform TLS), see its sibling part [`day-part-http`](http.
 
 Like `day-part-battery`, this is a headless external crate: it has no UI Piece and registers nothing
 into any backend's `RENDERERS` slice. It additionally exercises the **manifest-permission overlay**
-(from the webview work, docs/extending.md): `[package.metadata.day.android]` stages its own Java shim
+(from the webview work, [docs/extending.md](extending.md)): `[package.metadata.day.android]` stages its own Java shim
 and contributes `android.permission.ACCESS_NETWORK_STATE`, which `day build` merges into the app
 manifest with no changes to any core Day crate. On Android the crate rides on the Day runtime
 (day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

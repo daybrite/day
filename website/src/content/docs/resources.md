@@ -80,9 +80,8 @@ Two notes:
 - **`resource/images/` is raster.** Photos and artwork belong here, with `@2x`/`@3x` density
   variants; SVG glyphs belong in `resource/vectors/` (next section), which ships them as
   vectors.
-- **Remote images** (URL-loaded, cached) are a separate piece,
-  [`day-piece-remote-image`](/docs/internal/resources), because they involve networking and
-  cache policy the core deliberately doesn't own.
+- **Remote images** (URL-loaded, cached) are a separate piece, `day-piece-remote-image`,
+  because they involve networking and cache policy the core deliberately doesn't own.
 
 ## Vector glyphs: `resource/vectors/`
 
@@ -152,11 +151,12 @@ apps carry these forms without the launch environment.
 
 ## Custom fonts: `resource/fonts/`
 
-Drop `.ttf` or `.otf` files into `resource/fonts/` and reference them **by family name**, the name baked
-into the font file itself (what Font Book or fontconfig report), not the file name:
+Drop `.ttf` or `.otf` files into `resource/fonts/` and reference them through the generated
+constant, which carries the **family name** baked into the font file itself (what Font Book or
+fontconfig report), not the file name:
 
 ```rust
-label("Welcome aboard").font(Font::Custom("Pacifico", 24.0))
+label("Welcome aboard").font(Font::custom(res::fonts::pacifico, 24.0))
 ```
 
 `day build` stages each font where the platform wants it: `res/font/` on Android (with the
@@ -176,7 +176,9 @@ a confusing runtime-only failure on one platform):
   `[a-z0-9_]`), so a second face of the same family would collide. Ship the regular face; bold
   and italic are synthesized where the platform can.
 - **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded
-  family is "Special Elite" is used as `Font::Custom("Special Elite", 20.0)`.
+  family is "Special Elite" generates `res::fonts::special_elite`, used as
+  `Font::custom(res::fonts::special_elite, 20.0)`. (`Font::Custom("Special Elite", 20.0)` is the
+  unchecked escape hatch for a family name only known at runtime.)
 
 Beyond the rules: an unknown family never breaks the app. The label
 renders in the system font and the log names the family that didn't resolve. And `.weight(...)` /

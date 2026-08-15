@@ -1,3 +1,8 @@
+---
+title: "Deep links"
+description: "Custom URL schemes end to end: registration, cold and warm delivery, routing, and launcher shortcuts as saved deep links."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -161,7 +166,7 @@ a warm link. day should own this in the platform layer so apps never see two pro
 ## Shortcuts are saved deep links — Shipped (ios / android / harmony)
 
 The persistent icon-menu surfaces (home-screen quick actions, launcher shortcuts, jump lists,
-`.desktop` actions — docs/menus.md "Future surfaces") each hold a label and a URL of exactly
+`.desktop` actions — [docs/menus.md](menus.md) "Future surfaces") each hold a label and a URL of exactly
 this form. They add no new delivery machinery; they are declarations that emit these URLs
 into the intake above.
 

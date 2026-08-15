@@ -71,6 +71,13 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Play => ("media-playback-start", sp::MEDIA_PLAY),
         Symbol::Pause => ("media-playback-pause", sp::MEDIA_PAUSE),
         Symbol::Stop => ("media-playback-stop", sp::MEDIA_STOP),
+        Symbol::Camera => ("camera-photo", sp::NONE),
+        // A generic file is the closest QStyle has to "source"; better than the item
+        // falling back to its full label, which is what makes a toolbar item wide.
+        Symbol::Code => ("text-x-script", sp::FILE_ICON),
+        Symbol::Light => ("weather-clear", sp::NONE),
+        Symbol::Dark => ("weather-clear-night", sp::NONE),
+        Symbol::Auto => ("preferences-desktop-theme", sp::NONE),
         Symbol::ZoomIn => ("zoom-in", sp::NONE),
         Symbol::ZoomOut => ("zoom-out", sp::NONE),
         Symbol::Undo => ("edit-undo", sp::NONE),
@@ -130,7 +137,9 @@ pub(crate) extern "C" fn on_toolbar_value(
             crate::toggle_sidebar();
             return;
         }
-        let value = if kind == 0 {
+        let value = if kind == 2 {
+            ToolbarValue::Selected(on.max(0) as usize)
+        } else if kind == 0 {
             ToolbarValue::On(on != 0)
         } else {
             let text = unsafe { CStr::from_ptr(text) }
@@ -186,6 +195,37 @@ impl Qt {
                             item.enabled as c_int,
                             checkable,
                             checked,
+                        )
+                    };
+                }
+                ToolbarItemKind::Segmented { segments, selected } => {
+                    // Titles and theme icon names as unit-separated lists — one call rather than
+                    // one per segment, the same shape the canvas op stream and the label runs use.
+                    let titles = segments
+                        .iter()
+                        .map(|s| s.title.clone())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
+                    let icons = segments
+                        .iter()
+                        .map(|s| match &s.icon {
+                            Some(day_spec::Icon::Symbol(sym)) => {
+                                icon_args(Some(&day_spec::Icon::Symbol(*sym))).0
+                            }
+                            _ => String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
+                    let (titles, icons) = (cstr(&titles), cstr(&icons));
+                    unsafe {
+                        ffi::day_qt_toolbar_add_segmented(
+                            bar,
+                            id.as_ptr(),
+                            titles.as_ptr(),
+                            icons.as_ptr(),
+                            *selected as c_int,
+                            item.action,
+                            item.enabled as c_int,
                         )
                     };
                 }
@@ -247,6 +287,10 @@ impl Qt {
             ToolbarPatch::On { item, on } => {
                 let id = cstr(item);
                 unsafe { ffi::day_qt_toolbar_set_checked(id.as_ptr(), *on as c_int) };
+            }
+            ToolbarPatch::Selected { item, index } => {
+                let id = cstr(item);
+                unsafe { ffi::day_qt_toolbar_set_selected(id.as_ptr(), *index as c_int) };
             }
             ToolbarPatch::Suggestions { item, list } => unsafe {
                 let id = cstr(item);

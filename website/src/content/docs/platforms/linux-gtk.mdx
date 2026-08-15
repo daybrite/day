@@ -65,11 +65,13 @@ its own GTK: `chmod +x` and run, no package manager involved.
   ([Tier 4](/docs/platforms#support-tiers)) — no packaging, and no accessibility tree (GTK's a11y
   bridge is Linux-only). `windows-gtk` builds
   against MSYS2's GTK 4 with a GNU Rust toolchain
-  ([setup](/docs/getting-started#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
+  ([setup](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
   Windows, so the web view is a placeholder there, and bundled custom fonts don't register with
   Pango.
 
 ## What each piece becomes
+
+The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
 
 | Day piece | GTK widget |
 |---|---|

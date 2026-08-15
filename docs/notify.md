@@ -1,3 +1,8 @@
+---
+title: "Notifications (proposed)"
+description: "The proposed notification story: local scheduling and push, as two parts and a sending tool."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -46,7 +51,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > which reads as "the button did nothing"; `Importance::High` or above is what shows a banner.
 >
 > Two framework gaps this part needed are DONE and proven by it: `manifest-components` in
-> `[package.metadata.day.android]` (docs/extending.md), which is how the two receivers reach the
+> `[package.metadata.day.android]` ([docs/extending.md](extending.md)), which is how the two receivers reach the
 > APK, and `day_core::request_route`.
 >
 > macOS caveat: `day launch` runs an unbundled binary, where `UNUserNotificationCenter` does not
@@ -55,7 +60,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Notifications are the most-requested capability missing from Day: twelve Modern Apps declare
 `POST_NOTIFICATIONS`, and Clock, Email, and Messages are Blocked on some platform for want of
-them. Day already asks for the `Notifications` permission (docs/permissions.md) and cannot post
+them. Day already asks for the `Notifications` permission ([docs/permissions.md](permissions.md)) and cannot post
 one. This closes that gap.
 
 ## Two capabilities, so two parts
@@ -264,7 +269,7 @@ whole flow is unit-testable on `day-mock` without a display, matching every othe
 
 ## Build-time declarations (local is light)
 
-Through the existing machinery (docs/permissions.md, §15.2), and only what the app uses:
+Through the existing machinery ([docs/permissions.md](permissions.md), §15.2), and only what the app uses:
 
 - **Always**: `POST_NOTIFICATIONS` (Android 13+) and the notification permission prompt, via
   `day-part-permissions` (`Permission::Notifications`) — the parts compose, they do not duplicate
@@ -578,7 +583,7 @@ fact rather than a documentation note.
 | Tap / action | A delegate defined with `objc2::define_class!` implementing `UNUserNotificationCenterDelegate`: `userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:` for taps and actions (`actionIdentifier`, plus `userText` on a `UNTextInputNotificationResponse`), and `willPresentNotification:` returning `.banner | .sound | .list` so a notification shows while the app is foreground |
 
 The delegate must be installed **before** the app finishes launching, or the cold-launch response
-is dropped. The part registers it from a `WillLaunch` lifecycle hook (docs/lifecycle.md) and
+is dropped. The part registers it from a `WillLaunch` lifecycle hook ([docs/lifecycle.md](lifecycle.md)) and
 buffers the first response until routing is live. macOS additionally requires a signed, bundled
 `.app` with a bundle identifier — `day pack` produces one, `day launch` may not, so `day doctor`
 should report "local notifications need a signed bundle" on macOS rather than leaving a silent
@@ -669,7 +674,7 @@ supports none). New shim imports (`day_dom_notify_post`, `day_dom_notify_cancel`
 arrive at the service worker's `notificationclick`, which `postMessage`s to the page, which calls
 back into wasm. `capabilities()` reports no `schedule_while_dead`; a running page schedules through
 the delayed poster. The service worker must be a served file, not a bundled asset, since
-`resource()` returns `None` on web-dom (docs/web.md).
+`resource()` returns `None` on web-dom ([docs/web.md](web.md)).
 
 ### mock
 

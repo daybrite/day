@@ -1,3 +1,8 @@
+---
+title: "Store listings"
+description: "store/: localized App Store and Google Play listing sources, validated by day lint and packaged by the release pipeline."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

@@ -1,3 +1,8 @@
+---
+title: "Accessibility"
+description: "Uniform accessibility annotations over each platform's native tree: labels, values, focus order, stable identifiers, and the CI audit that diffs them."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

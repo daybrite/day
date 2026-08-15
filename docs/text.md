@@ -1,3 +1,8 @@
+---
+title: "Text & typography"
+description: "Labels, symbolic fonts, dynamic type, selection, and the text pipeline on every backend."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -32,7 +37,7 @@ Largest → smallest, mirroring SwiftUI's `Font.TextStyle`:
 `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body` (default), `Callout`,
 `Footnote`, `Caption`, `Caption2`. Plus `System(pt)` for a custom point size, and
 `Custom("Family", pt)` for a bundled custom font referenced by family name (ship the file in the
-project's `resource/fonts/` directory; see docs/resources.md §18.4 for the packaging and naming rules).
+project's `resource/fonts/` directory; see [docs/resources.md](resources.md) §18.4 for the packaging and naming rules).
 
 Each maps to the platform's native text style where one exists, so sizes and weights match the OS:
 
@@ -71,7 +76,7 @@ accessibility text-size setting (iOS runs it through `UIFontMetrics`, Android us
 text-scaling factor, web-dom expresses it as `pt/16` rem so it rides the browser's font-size
 preference), so a hard-coded size never turns into a fixed, unreadable pixel size.
 
-`Font::Custom("Family", pt)` scales the same way; a bundled font never opts out of accessibility
+`Font::custom(res::fonts::family, pt)` (and the unchecked `Font::Custom`) scales the same way; a bundled font never opts out of accessibility
 sizing.
 
 ## Selectable text

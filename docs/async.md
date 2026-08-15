@@ -1,3 +1,8 @@
+---
+title: "Async without a runtime"
+description: "day::task futures on the main thread with no tokio: how background work returns to the UI through Setter and on_main."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -8,8 +13,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: implemented** (DESIGN.md §4.5, revised 2026-07). Day runs futures on its own
 > main-loop executor (`day::task`) without an async runtime: nothing brings in tokio, and
 > there is no reactor or thread pool. The executor polls `!Send` futures on the UI thread; wakers re-poll through the same
-> `on_main` poster everything else rides. On top of it sit `present().await` (docs/dialogs.md),
-> `day_part_http::fetch_future` (docs/http.md), and `day::reactive::Resource` (below).
+> `on_main` poster everything else rides. On top of it sit `present().await` ([docs/dialogs.md](dialogs.md)),
+> `day_part_http::fetch_future` ([docs/http.md](http.md)), and `day::reactive::Resource` (below).
 
 ## The policy
 
@@ -24,7 +29,7 @@ contract for every `day-*` crate and the recommended shape for apps:
    marshaling. Futures that never touch signals may run anywhere.
 3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
    plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
-   (so a part never calls `on_main` itself, per docs/http.md's contract).
+   (so a part never calls `on_main` itself, per [docs/http.md](http.md)'s contract).
 4. **Foreign runtimes are quarantined in app-private crates.** A dependency that demands tokio
    (matrix-rust-sdk) gets a headless core crate owning that runtime on background threads;
    results cross back only through `Setter`/`on_main`, and `!Send` handles never leave the
@@ -81,7 +86,7 @@ stations.refetch();                                         // force, even if re
 - The fetcher runs on the main-loop executor, so it may read and write signals after its
   awaits, and its source value needs no `Send` bound. §4.5's `MaybeSend` seam collapsed for
   this reason. See the DESIGN status note.
-- Namespacing: the prelude's `Resource` is the ASSET handle (docs/resources.md), which
+- Namespacing: the prelude's `Resource` is the ASSET handle ([docs/resources.md](resources.md)), which
   predates this type; the async one lives at `day::reactive::Resource`, or depend on
   `day-reactive` directly.
 
@@ -98,7 +103,7 @@ its previous in-flight task on re-tap).
   `day_core::launch_with` wires it on every backend (including mock). The spawner returns an
   abort closure that MUST be a no-op after completion: the spawner polls eagerly, so a
   synchronously-ready fetcher finishes before `Resource` can store the abort.
-- `FetchFuture` (docs/http.md) is oneshot plumbing over `fetch_async`'s completion callback;
+- `FetchFuture` ([docs/http.md](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
   its `Drop` runs the platform cancel. It has no executor dependency; any executor can await
   it, including a test's `block_on`.
 

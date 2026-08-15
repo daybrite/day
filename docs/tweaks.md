@@ -1,3 +1,8 @@
+---
+title: "Tweaks"
+description: "Per-toolkit configuration of built-in pieces: reach the real native widget behind a piece, safely."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -79,7 +84,7 @@ the accessor hands you that widget's concrete class name:
   `object_getClass` (`"NSSlider"`, `"UILabel"`), GTK's GType name (`"GtkScale"`). Because it reads
   the real object, it stays correct even when a piece has a **conditional backing** — which is no
   longer hypothetical: a `.selectable()` label on UIKit is realized as a read-only `UITextView`,
-  because `UILabel` has no selection support to switch on (docs/text.md). The class tells you
+  because `UILabel` has no selection support to switch on ([docs/text.md](text.md)). The class tells you
   which one you got, and a `downcast_ref` you'd have guessed wrong is avoided:
 
   ```rust

@@ -1,3 +1,8 @@
+---
+title: "Environment variables"
+description: "Every environment variable day reads: toolchain and SDK discovery, capture and theming overrides, and CI switches."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -66,7 +71,7 @@ the affected script instead of keeping stale results.
 | `DAY_LOCAL` | Make `day new` scaffolds depend on a local day checkout instead of the git remote (CI) |
 | `DAY_THEME` | `light` \| `dark` — forces the app's theme on every backend (AppKit appearance, libadwaita color scheme, Qt 6.8+ color scheme, UIKit interface style, Android night mode, XAML element theme, OHOS color mode); unset = follow the system. CI's themed screenshot cycles pass it via `day launch --env` |
 | `DAY_WINDOW` | `<width>x<height>` (e.g. `700x850`) — overrides the app's initial window size for responsive-layout testing on desktop backends; mobile/web size to the screen and ignore it |
-| `DAY_APP_VERSION`, `DAY_SCRIPT` | The app's version and the driving script's file name, set by `day launch` on every run. A DEBUG build appends them to every window title as `(version/toolkit[/script])` — docs/windows.md. Release builds ignore both |
+| `DAY_APP_VERSION`, `DAY_SCRIPT` | The app's version and the driving script's file name, set by `day launch` on every run. A DEBUG build appends them to every window title as `(version/toolkit[/script])` — [docs/windows.md](windows.md). Release builds ignore both |
 | `ANDROID_SERIAL` | adb's standard device selector — when set, `day build/launch` and dayscript sessions target ONLY that device instead of every connected one |
 | `DAY_LOG_ACTIONS` | `1` narrates every user action to stdout in the dayscript vocabulary (`dayscript ▸ tap inc  "Add"`) without recording anything — the same lines a recording echoes (§14.6). An app can also call `day::record::log_actions(true)`; Day-Showcase does, and reads `DAY_LOG_ACTIONS=0` as the way to silence it |
 | `DAY_VERBOSE` | `1` \| `true` — the global `--verbose` flag, from the environment: every `day` command forwards its sub-commands' raw output (cargo, gradle, xcodebuild, hvigor, adb, codesign, …) instead of capturing it. One `env:` line turns a whole CI job verbose, including invocations no flag can reach (the launches a generated dayscript runner performs). An explicit `--verbose` on the command line also turns it on; any other value (or unset) leaves the default quiet output |

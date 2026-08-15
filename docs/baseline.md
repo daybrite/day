@@ -1,3 +1,8 @@
+---
+title: "Baseline alignment"
+description: "How text in a row sits on a shared baseline across toolkits, and the layout rules that keep mixed fonts aligned."
+---
+
 <!-- Copyright © The Daybrite Project
      SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
@@ -92,7 +97,7 @@ like it simply did not work. The `decorated_children_keep_their_baseline` test i
 `day-pieces/tests/mock_e2e.rs` pins it.
 
 Grid cells are **not** baseline-aligned; `grid_row(..).align(VAlign::FirstBaseline)` reads as
-`Center`. See docs/grid.md.
+`Center`. See [docs/grid.md](grid.md).
 
 ## Row height
 

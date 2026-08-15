@@ -1,3 +1,8 @@
+---
+title: "HarmonyOS backend"
+description: "The ArkUI backend in depth: the C node API, the ArkTS shim, hvigor packaging, and emulator workflows."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -175,10 +180,10 @@ NodeAPI nodes, verified on the Oniro emulator:
 - **Frame clock** (§8.4) — `Platform::request_frame` rides a ~16 ms one-shot `uv_timer` on the
   JS loop (the NodeAPI has no re-armable vsync callback), so `frame_clock` game loops and
   self-driven animations run; Day-Games' breakout/sirtet/2048 play on the emulator.
-- **Fullscreen cover** (docs/cover.md) — `Cap::Cover` answers `Emulated`: the cover node is
+- **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 
-- **ArkTS-built pieces** (docs/extending.md) — a piece whose component exists only in ArkTS (the
+- **ArkTS-built pieces** ([docs/extending.md](extending.md)) — a piece whose component exists only in ArkTS (the
   declarative `Web` has no ArkUI C node kind) ships its own `.ets`; `day build` stages it into the
   hvigor project and generates `entry/src/main/ets/daypieces/DayPieces.ets`, which the host page
   registers with the shim (`registerPiece`) before `start()`. `day-piece-webview` is the first user.

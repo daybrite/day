@@ -1,3 +1,8 @@
+---
+title: "App icons"
+description: "day icon generates every platform's icon family from one master SVG, including the seeded generator for new apps."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -101,4 +106,4 @@ byte drift.
 ## Engine
 
 [day-vector](../crates/day-vector) — resvg/usvg/tiny-skia with text shaping off, plus hand-rolled
-`.ico`/`.icns` writers. The same crate powers `resource/vectors/` staging (docs/vectors.md).
+`.ico`/`.icns` writers. The same crate powers `resource/vectors/` staging ([docs/vectors.md](vectors.md)).

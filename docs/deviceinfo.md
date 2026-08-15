@@ -1,3 +1,8 @@
+---
+title: "Device info"
+description: "Device identity — OS, version, model, form factor — as a headless capability crate."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

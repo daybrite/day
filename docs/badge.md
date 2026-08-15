@@ -1,3 +1,8 @@
+---
+title: "App icon badge (proposed)"
+description: "A proposed piece for the app icon's numeric badge, with the per-platform conveyance it would need."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -8,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > [!NOTE]
 > **Status: phase 1 shipped.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`, the defaulted
 > `Toolkit::set_app_badge` duty, the `day::set_app_badge` facade, and the **AppKit, UIKit, and
-> web-dom** arms are implemented; docs/duty-matrix.md and docs/coverage-matrix.md carry the rows.
+> web-dom** arms are implemented; [docs/duty-matrix.md](duty-matrix.md) and [docs/coverage-matrix.md](coverage-matrix.md) carry the rows.
 > Every other backend inherits the default no-op and answers `Unsupported`, which is the honest
 > answer for Android (it has no API) and a to-do for Linux, Windows, and HarmonyOS.
 >
@@ -30,7 +35,7 @@ Three reasons, in order of weight:
 `set_window_title`, and `set_appearance` are all Toolkit duties today. A Dock badge sits in exactly
 that category — it decorates the running application, it is per-toolkit, and it has no meaning
 outside a running app. Parts are for headless OS services that work in a plain `main` with no Day
-runtime (docs/clipboard.md is explicit about this); a badge has nothing to say in that context.
+runtime ([docs/clipboard.md](clipboard.md) is explicit about this); a badge has nothing to say in that context.
 
 **The handle a badge needs is the one the toolkit already holds.** Windows attaches an overlay icon
 to an `HWND`. macOS needs `NSApplication`'s dock tile. A part reaching those would need a `day-core`
@@ -141,7 +146,7 @@ badge::set(b);
 
 An iOS badge is a property of the installed app and **survives termination** — an app that exits
 without clearing leaves a stale number on the home screen, so a `WillTerminate` handler
-(docs/lifecycle.md) is usually wanted. A macOS Dock badge dies with the process. The web badge
+([docs/lifecycle.md](lifecycle.md)) is usually wanted. A macOS Dock badge dies with the process. The web badge
 persists for the installed PWA. This belongs in the doc because it is the one behavior that
 silently differs and cannot be probed.
 
@@ -150,7 +155,7 @@ silently differs and cannot be probed.
 `setBadgeCount` needs the `.badge` authorization option, which is part of the notification grant. So
 on iOS a badge is invisible until the user has allowed notifications, and the duty should declare
 `uses = ["notifications"]` through the same permission machinery `day-part-local-notify` uses
-(docs/permissions.md). Two subsystems declaring the same permission is fine — the app grants once.
+([docs/permissions.md](permissions.md)). Two subsystems declaring the same permission is fine — the app grants once.
 
 ## A naming collision to resolve first
 
@@ -180,7 +185,7 @@ feature and should not be smuggled into `Badge`.
    AppKit, UIKit, and web-dom arms.** Those three are small and cover the platforms with a real API:
    `badgeLabel`, `setBadgeCount`, `setAppBadge`. Android answers `Unsupported` from the default and
    its doc points at `Notification::badge`.
-2. **Linux**, over the Unity D-Bus signal, reusing the std-only D-Bus approach docs/notify.md
+2. **Linux**, over the Unity D-Bus signal, reusing the std-only D-Bus approach [docs/notify.md](notify.md)
    specifies for `org.freedesktop.Notifications` rather than adding a D-Bus crate. Reports
    `Emulated`, because whether it shows depends on the shell.
 3. **HarmonyOS**, once the ArkTS-versus-NDK question is settled, and **Windows**, which needs the
@@ -193,6 +198,6 @@ makes the capability honest everywhere else through one defaulted method.
 
 A badge is drawn by the Dock, the launcher, or the home screen — **outside the app's own window**.
 `snapshot_window` cannot capture it and a dayscript cannot assert it, exactly like a notification
-banner (docs/notify.md). Scripts can assert that `set` was called and what the caps report; that a
+banner ([docs/notify.md](notify.md)). Scripts can assert that `set` was called and what the caps report; that a
 number actually appeared on the icon needs a person looking at a device, and the CI gallery should
 not imply otherwise.

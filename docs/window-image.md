@@ -1,3 +1,8 @@
+---
+title: "Window capture"
+description: "day::window_image(): the app capturing its own window as a PNG on every platform."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

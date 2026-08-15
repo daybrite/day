@@ -1,3 +1,8 @@
+---
+title: "Search field"
+description: "The standalone native search field as an external piece."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0

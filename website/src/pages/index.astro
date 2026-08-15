@@ -76,7 +76,7 @@ const features = [
   {
     icon: 'm422-232 207-248H469l29-227-185 267h139l-30 208Zm-62-128H236q-24 0-35.5-21.5T203-423l299-430q10-14 26-19.5t33 .5q17 6 25 21t6 32l-32 259h155q26 0 36.5 23t-6.5 43L416-100q-11 13-27 17t-31-3q-15-7-23.5-21.5T328-139l32-221Zm111-110Z',
     color: 'var(--sun)',
-    title: 'No browser, no bundled engine',
+    title: 'Milliseconds to launch, megabytes to install',
     body: 'Day apps are small native binaries that talk directly to the operating system. With no embedded browser and no rendering engine, they start in milliseconds and install in megabytes.',
   },
   {
@@ -88,7 +88,7 @@ const features = [
   {
     icon: 'M423.5-743.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5ZM360-120v-480q-49-4-99-11t-98-18q-17-4-27.5-19t-5.5-32q5-17 21-25t34-4q70 15 145.5 22t149.5 7q74 0 149.5-7T775-709q18-4 34 4t21 25q5 17-5.5 32T797-629q-48 11-98 18t-99 11v480q0 17-11.5 28.5T560-80q-17 0-28.5-11.5T520-120v-200h-80v200q0 17-11.5 28.5T400-80q-17 0-28.5-11.5T360-120Z',
     color: 'var(--pf-macos-appkit)',
-    title: 'Accessibility & localization, built in',
+    title: 'Accessible and localized from the first build',
     body: 'Screen-reader support uses each platform’s own accessibility tree, and every user-facing string is localized with Mozilla Fluent. The groundwork for accessibility requirements and new markets is in the framework, not on your backlog.',
   },
   {
@@ -103,7 +103,27 @@ const features = [
     title: 'One CLI for the whole pipeline',
     body: 'One command line creates, runs, tests, and packages signed installers for every platform: dmg, App Store, Android, flatpak, Windows. The same automation scripts drive the app everywhere, for CI and for AI-assisted development.',
   },
+
+  {
+    icon: 'M420-180v-100H140q-24 0-42-18t-18-42v-440q0-24 18-42t42-18h680q24 0 42 18t18 42v440q0 24-18 42t-42 18H540v100h56q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H364q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h56ZM140-340h680v-440H140v440Zm0 0v-440 440Z',
+    color: 'var(--pf-windows-xaml)',
+    title: 'First-class on the desktop',
+    body: 'Menu bar, keyboard shortcuts, a preferences window, toolbars, multi-window: Day treats the desktop as a first platform, not a stretched phone screen. The Window menu on macOS even assembles itself.',
+  },
+  {
+    icon: 'M180-180h560v-173q0-9 4.5-16t12.5-11l24-11q19-8 30.5-27t11.5-40q0-21.43-11.5-39.72Q800-516 781-525l-24-11q-8.13-3.75-12.57-10.88Q740-554 740-563v-177H564q-10.66 0-18.83-7-8.17-7-10.17-18.33L530-791q-5-27-24.67-45.5-19.68-18.5-45.91-18.5Q432-855 412-836.5T387-791l-5 25.67Q380-754 371.83-747q-8.17 7-18.83 7H181v110q55 20 89 66.78t34 105.5q0 59.72-34 107.22T180-287v107Zm11 60q-29 0-50-21t-21-51v-121q0-8 5-13t13-7q45-9 75.5-43.08T244-458q0-48.03-30-82.52Q184-575 139-583q-8-2-13-7t-5-13v-126q0-30 20.5-50.5T192-800h136q6.63-48.88 43.58-81.94Q408.53-915 458.74-915q49.26 0 86.45 33.06Q582.37-848.88 590-800h139q30 0 50.5 20.5T800-729v147q38 18 60.5 49.5T883-458q0 43-22.5 75T800-334v142q0 30-20.5 51T729-120H191Zm311-338Z',
+    color: 'var(--pf-ios-uikit)',
+    title: 'Drop down to the platform',
+    body: 'When you need the platform\u2019s own UI framework, use it: SwiftUI views embed in the Day tree on Apple platforms with typed Rust constructors, and per-platform tweaks reach any native widget\u2019s real API. Day is a default, not a cage.',
+  },
+  {
+    icon: 'M179-120q-24 0-42-18t-18-42v-339q-28-24-37-59t2-70l43-135q8-27 28-42t46-15h553q28 0 49 15.5t29 41.5l44 135q11 35 1.5 70T840-519v339q0 24-18 42t-42 18H179Zm391-430q29 0 49-19t16-46l-25-165H510v165q0 26 17 45.5t43 19.5Zm-187 0q28 0 47.5-19t19.5-46v-165H350l-25 165q-4 26 14 45.5t44 19.5Zm-182 0q24 0 41.5-16.5T263-607l26-173H189l-46 146q-10 31 8 57.5t50 26.5Zm557 0q32 0 50.5-26t8.5-58l-46-146H671l26 173q3 24 20.5 40.5T758-550ZM179-180h601v-311q1 1-6.5 1H758q-25 0-47.5-10.5T666-533q-16 20-40 31.5T573-490q-30 0-51.5-8.5T480-527q-15 18-38 27.5t-52 9.5q-31 0-55-11t-41-32q-24 21-47 32t-46 11h-13.5q-6.5 0-8.5-1v311Zm601 0H179h601Z',
+    color: 'var(--pf-harmony-arkui)',
+    title: 'From test run to store listing',
+    body: 'One dayscript walkthrough is an end-to-end test, an accessibility pass, and your screenshot shoot \u2014 per locale and theme. The captures feed the store listings in store/ and a generated app website, so shipping collateral stays as current as the build.',
+  },
 ];
+
 
 // One-paragraph contrasts for teams evaluating a cross-platform stack. Factual and
 // non-disparaging — the docs' "Why Day" page carries the full, frank comparison.
@@ -122,6 +142,11 @@ const compare = [
     name: 'Per-platform native',
     examples: 'Swift + Kotlin + C++ teams',
     body: 'The most flexibility and fidelity, but paid for once per platform. Every feature is built, reviewed, and maintained N times, and the versions drift apart when schedules diverge.',
+  },
+  {
+    name: 'Single-platform today',
+    examples: 'Just a Mac app? Just Linux?',
+    body: 'A Day app on one platform is a native app on that platform \u2014 real chrome, native packaging, scriptable testing \u2014 with no cross-platform tax paid up front. A second platform later is one command (day app add-toolkit), not a rewrite.',
   },
 ];
 ---
@@ -202,8 +227,8 @@ const compare = [
           platform components, from this exact kind of code.
         </p>
         <ul class="how-list">
-          <li><b>Just Rust:</b> plain functions and builder calls, with no markup language, no macros, and no per-platform branches.</li>
-          <li><b>Reactive by binding:</b> change a signal and only the control showing it updates. No re-render, no virtual tree.</li>
+          <li><b>Just Rust:</b> functions and builder calls in the same language as your logic and tests.</li>
+          <li><b>Reactive by binding:</b> change a signal and only the control showing it updates — one native setter call, not a re-render.</li>
           <li><b>Native on the other side:</b> the widgets it produces are the platform's own, not lookalikes drawn by an engine.</li>
         </ul>
         <div class="hero-cta">
@@ -309,10 +334,10 @@ const compare = [
         <h2 class="sec-title">When data changes, the right control updates.</h2>
         <p class="lead">
           Day builds your interface from real platform components once, then keeps each one
-          connected to your application's state. When a value changes, the exact label or control
-          showing it updates. There is no re-rendering, no shadow copy of the interface to reconcile, no
-          engine in between. Day apps perform like hand-written platform code because, at runtime,
-          that's what they are.
+          connected to your application's state. Nothing re-renders and there is no shadow tree
+          to reconcile: a change runs the closures that read it and ends in one native setter
+          call. Day apps perform like hand-written platform code because, at runtime, that's
+          what they are.
         </p>
         <ul class="how-list">
           <li><b>Plain Rust:</b> functions and builder calls any engineer can read, with no macros and no separate UI language.</li>
@@ -334,7 +359,7 @@ const compare = [
   <section class="section cta">
     <div class="container cta-inner">
       <Logo size={40} />
-      <h2>Build it once. Ship it everywhere your users are.</h2>
+      <h2>Your first Day app is ten minutes away.</h2>
       <div class="hero-cta">
         <a class="btn btn-primary" href={url('docs/getting-started')}>Get started</a>
         <a class="btn btn-ghost" href={url('gallery')}>Browse the gallery</a>

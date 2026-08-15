@@ -1,3 +1,8 @@
+---
+title: "Secondary windows"
+description: "Real secondary windows on desktop, covers on mobile: open_window, the preferences singleton, and the Window menu."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -60,7 +65,7 @@ win.close();                              // async: confirmed by the platform, T
 - Probe `Cap::MultiWindow` to adapt chrome: on `Unsupported` backends the surface is a
   fullscreen cover with no native title bar or close button; content that needs a close
   affordance should carry its own (system back closes it on Android).
-- Dialogs (`docs/dialogs.md`) attach to the KEY window at present time, falling back to the
+- Dialogs ([`docs/dialogs.md`](dialogs.md)) attach to the KEY window at present time, falling back to the
   primary.
 
 ## The preferences paradigm
@@ -130,7 +135,7 @@ place that says which window is which. Release builds get none of it: `day_core:
 returns `None` outside `debug_assertions`, so the decoration can never ship.
 
 The version and script name arrive as `DAY_APP_VERSION` and `DAY_SCRIPT`, which `day launch` sets
-from the project manifest and the `--script` arguments (docs/environment.md). Run the binary
+from the project manifest and the `--script` arguments ([docs/environment.md](environment.md)). Run the binary
 another way and the tag carries only what it knows: `(gtk)`. Apps do nothing: **do not** put the
 toolkit in your own title, or it will be there twice.
 

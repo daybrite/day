@@ -1,3 +1,8 @@
+---
+title: "Localization"
+description: "Fluent catalogs, checked keys, plurals and formatting, runtime locale switching, RTL, and the pseudolocale."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -279,7 +284,7 @@ Keys are namespaced `day-*`. The catalog covers the strings Day emits itself:
 | Dialog buttons | `day-ok` `day-cancel` `day-yes` `day-no` `day-done` `day-save` `day-close` `day-delete` |
 | Menu commands (`MenuRole`) | `day-cut` `day-copy` `day-paste` `day-select-all` `day-undo` `day-redo` `day-about` `day-quit` `day-preferences` `day-minimize` `day-fullscreen` `day-new-window` |
 | App-name commands | `day-about-app` (`About {$app}`), `day-quit-app` (`Quit {$app}`), `day-edit` |
-| Window management (docs/windows.md) | `day-window` `day-zoom` `day-bring-all-front` |
+| Window management ([docs/windows.md](windows.md)) | `day-window` `day-zoom` `day-bring-all-front` |
 | Settings pieces (day-piece-settings) | `day-settings-language` `day-settings-theme` `day-theme-light` `day-theme-dark` `day-theme-system` |
 
 The catalog ships en, fr, es, de, ja, zh, and ar (Arabic joined with the windows work; the

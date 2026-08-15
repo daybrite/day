@@ -1,3 +1,8 @@
+---
+title: "Haptics"
+description: "Haptic feedback via day-part-haptics: impact styles per platform, and where haptics are silently unavailable."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -74,7 +79,7 @@ plain `main` that uses it with no Day framework at all.
 
 Like `day-part-battery` and `day-part-network`, this is a headless external crate: it has no UI
 Piece and registers nothing into any backend's `RENDERERS` slice. It exercises the
-**manifest-permission overlay** (docs/extending.md): `[package.metadata.day.android]` stages its own
+**manifest-permission overlay** ([docs/extending.md](extending.md)): `[package.metadata.day.android]` stages its own
 Java shim and contributes `android.permission.VIBRATE`, which `day build` merges into the app
 manifest with no edits to any core day crate. On Android the crate rides on the Day runtime
 (day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

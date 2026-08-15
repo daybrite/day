@@ -381,6 +381,99 @@ fn image_url(name: &str) -> String {
     format!("assets/images/{n}.{}", image_ext(&n))
 }
 
+/// A [`Symbol`](day_spec::Symbol) as an inline-SVG `data:` URL, for the same CSS mask the shim
+/// draws a bundled image through — so a toolbar looks the same whether its items asked for a
+/// standard symbol or shipped their own art.
+///
+/// The web has no system icon set. Every other backend hands a `Symbol` to one the OS supplies
+/// (SF Symbols, freedesktop names, Fluent glyphs); here the alternative to drawing them is what
+/// this used to do, which was to draw nothing and let the label carry the item — leaving a bar
+/// where some items had icons and some did not, depending on whether they happened to use a
+/// bundled image.
+///
+/// The paths are deliberately plain geometry on a 24×24 grid, authored here rather than taken
+/// from an icon set: it keeps day free of a third-party icon licence, and at toolbar size the
+/// shapes are what read, not their styling. `None` for a symbol with no glyph yet — the item
+/// falls back to its label, which is what the whole set did before.
+fn symbol_svg(sym: day_spec::Symbol) -> Option<String> {
+    use day_spec::Symbol as S;
+    let d = match sym {
+        S::Add => "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",
+        S::Remove => "M5 11h14v2H5z",
+        S::Delete => "M9 3h6l1 2h4v2H4V5h4zM6 8h12l-1 13H7z",
+        S::Edit => {
+            "M3 17.3V21h3.7L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7z"
+        }
+        S::New => "M13 2H6v20h12V7h-5zm2 .5L19.5 7H15z",
+        S::Open => "M2 5h7l2 2h11v12H2z",
+        S::Save => "M3 3h13l5 5v13H3zm5 0h7v6H8zm-1 11h10v7H7z",
+        S::Print => "M7 3h10v4H7zM4 8h16v8h-3v6H7v-6H4z",
+        S::Refresh => "M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z",
+        S::Search => {
+            "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4m0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8"
+        }
+        S::Share => "M12 3l5 5h-3v7h-4V8H7zM5 17h14v4H5z",
+        S::Settings => {
+            "M12 2l2 3h3l1 3-2 4 2 4-1 3h-3l-2 3-2-3H7l-1-3 2-4-2-4 1-3h3zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8"
+        }
+        S::Info => "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-1 5h2v2h-2zm0 4h2v6h-2z",
+        S::Star => "M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z",
+        S::Bookmark => "M6 2h12v20l-6-4-6 4z",
+        S::Back => "M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z",
+        S::Forward => "M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z",
+        S::Up => "M5.4 15.4L4 14l8-8 8 8-1.4 1.4L12 8.8z",
+        S::Down => "M5.4 8.6L4 10l8 8 8-8-1.4-1.4L12 15.2z",
+        S::Home => "M12 3l9 8h-3v10h-5v-6h-2v6H6V11H3z",
+        S::Sidebar => "M3 4h18v16H3zm2 2v12h4V6zm6 0v12h8V6z",
+        S::Filter => "M3 5h18l-7 8v6l-4 2v-8z",
+        S::Sort => "M8 4v12H4l4 4 4-4H10V4zM14 6h7v2h-7zm0 4h5v2h-5zm0 4h3v2h-3z",
+        S::More => {
+            "M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4m6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4m6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4"
+        }
+        S::Play => "M8 5l11 7-11 7z",
+        S::Pause => "M7 5h3v14H7zm7 0h3v14h-3z",
+        S::Stop => "M6 6h12v12H6z",
+        S::Camera => {
+            "M9 3h6l1.5 2H20a2 2 0 0 1 2 2v12H2V7a2 2 0 0 1 2-2h3.5zm3 6a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9m0 1.6a2.9 2.9 0 1 1 0 5.8 2.9 2.9 0 0 1 0-5.8"
+        }
+        S::Code => "M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6zm5.2 0l4.6-4.6L14.6 7.4 16 6l6 6-6 6z",
+        S::Light => {
+            "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM3.5 4.9l1.4-1.4 2.1 2.1-1.4 1.4zm13.5 13.5l1.4-1.4 2.1 2.1-1.4 1.4zM4.9 20.5l-1.4-1.4 2.1-2.1 1.4 1.4zm13.5-13.5l-1.4-1.4 2.1-2.1 1.4 1.4z"
+        }
+        S::Dark => "M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9",
+        // "Automatic": the half-filled circle every platform uses — the left half solid, the
+        // right half an outline, which `evenodd` below turns into the ring it should be.
+        S::Auto => "M12 2a10 10 0 0 0 0 20zM12 4a8 8 0 0 1 0 16v-1.6a6.4 6.4 0 0 0 0-12.8z",
+        S::ZoomIn => {
+            "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M9 7h2v2h2v2h-2v2H9v-2H7V9h2z"
+        }
+        S::ZoomOut => "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M7 9h6v2H7z",
+        S::Undo => "M12 5V2L7 7l5 5V9a5 5 0 1 1 0 10H8v2h4a7 7 0 0 0 0-14z",
+        S::Redo => "M12 5V2l5 5-5 5V9a5 5 0 1 0 0 10h4v2h-4a7 7 0 0 1 0-14z",
+        S::Copy => "M8 2h10v14H8zM4 6h2v14h12v2H4z",
+        S::Cut => {
+            "M9 4l5.5 9.5-1.2 2L7.8 6zM15 4L9.5 13.5l1.2 2L16.2 6zM6 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m12 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6"
+        }
+        S::Paste => "M9 2h6v2h3v18H6V4h3zm0 2v2h6V4z",
+        S::Mail => "M2 5h20v14H2zm2 3.2V17h16V8.2l-8 5z",
+        S::Folder => "M2 5h7l2 2h11v12H2z",
+        S::Document => "M14 2H6v20h12V6zm.5.8L17.2 6H14.5z",
+        S::Check => "M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
+        S::Close => {
+            "M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"
+        }
+        S::Warning => "M12 2l10 19H2zm-1 7h2v6h-2zm0 8h2v2h-2z",
+        // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
+        // than failing to compile, and its item keeps its label.
+        _ => return None,
+    };
+    // A data: URL inside CSS `url("…")`. Single quotes in the markup and a percent-encoded `<`,
+    // `>` and `#` keep it valid in both the CSS value and the attribute the shim assigns it to.
+    Some(format!(
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='{d}'/%3E%3C/svg%3E"
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Element kinds the shim knows how to create (shim.js `create()` mirrors this table).
 // ---------------------------------------------------------------------------
@@ -773,6 +866,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
             K::SidebarToggle => "S",
             K::Menu { .. } => "M",
             K::Search { .. } => "F",
+            K::Segmented { .. } => "G",
             K::Label => "L",
             K::Separator => "-",
             K::Space => "_",
@@ -794,6 +888,29 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
             json.push_str(",\"on\":");
             json.push_str(if on { "true" } else { "false" });
         }
+        if let K::Segmented { segments, selected } = &it.kind {
+            json.push_str(",\"selected\":");
+            json.push_str(&selected.to_string());
+            json.push_str(",\"segments\":[");
+            for (n, seg) in segments.iter().enumerate() {
+                if n > 0 {
+                    json.push(',');
+                }
+                json.push_str("{\"title\":");
+                json_str(&mut json, &seg.title);
+                let ic = match &seg.icon {
+                    Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
+                    Some(day_spec::Icon::Symbol(sym)) => symbol_svg(*sym),
+                    None => None,
+                };
+                if let Some(url) = ic {
+                    json.push_str(",\"icon\":");
+                    json_str(&mut json, &url);
+                }
+                json.push('}');
+            }
+            json.push(']');
+        }
         if let K::Search {
             text,
             placeholder,
@@ -814,11 +931,21 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
             }
             json.push(']');
         }
-        // A bundled image crosses as a staged URL; a Symbol has no web icon set to draw from,
-        // so the label carries the item on its own rather than inventing a glyph.
-        if let Some(day_spec::Icon::Image(name)) = &it.icon {
+        // A bundled image crosses as a staged URL; a standard symbol as an inline-SVG data URL
+        // (`symbol_svg`). Both reach the shim as one `icon` field and draw through the same CSS
+        // mask, so a bar mixing the two looks like one bar.
+        let icon = match &it.icon {
+            Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
+            Some(day_spec::Icon::Symbol(s)) => symbol_svg(*s),
+            // The sidebar toggle carries no icon from the app — every other toolkit draws its
+            // own platform glyph for it (docs/toolbars.md). The web has none to draw, so it takes
+            // the standard one here rather than being the one item in the bar showing bare text.
+            None if matches!(it.kind, K::SidebarToggle) => symbol_svg(day_spec::Symbol::Sidebar),
+            None => None,
+        };
+        if let Some(url) = icon {
             json.push_str(",\"icon\":");
-            json_str(&mut json, &image_url(name));
+            json_str(&mut json, &url);
         }
         json.push('}');
     }
@@ -1830,6 +1957,11 @@ impl Toolkit for Dom {
                 json.push_str(",\"on\":");
                 json.push_str(if *on { "true" } else { "false" });
             }
+            P::Selected { item, index } => {
+                json_str(&mut json, item);
+                json.push_str(",\"selected\":");
+                json.push_str(&index.to_string());
+            }
             P::Enabled { item, on } => {
                 json_str(&mut json, item);
                 json.push_str(",\"enabled\":");
@@ -2772,6 +2904,20 @@ pub extern "C" fn day_dom_toolbar_on(action: f64, on: u32) {
             Event::ToolbarChanged {
                 action: action as u64,
                 value: day_spec::ToolbarValue::On(on != 0),
+            },
+        );
+    });
+}
+
+/// A toolbar segmented control's choice changed.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_toolbar_value(action: f64, index: u32) {
+    day_spec::ffi_guard::contain((), || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged {
+                action: action as u64,
+                value: day_spec::ToolbarValue::Selected(index as usize),
             },
         );
     });

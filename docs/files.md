@@ -1,3 +1,8 @@
+---
+title: "File pickers"
+description: "Native open and save dialogs, scoped access on sandboxed platforms, and the piece-level API."
+---
+
 <!--
 Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
@@ -88,7 +93,7 @@ so the main loop keeps running and dayscript stays live while a picker is up.
 
 ## Plumbing
 
-Files ride the existing `present` seam (docs/dialogs.md) rather than adding new `Toolkit` methods:
+Files ride the existing `present` seam ([docs/dialogs.md](dialogs.md)) rather than adding new `Toolkit` methods:
 
 - `day_spec::present::PresentSpec::{OpenFile, SaveFile}` + `FileFilter { name, extensions }`.
 - `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
@@ -99,7 +104,7 @@ Files ride the existing `present` seam (docs/dialogs.md) rather than adding new 
 
 ## dayscript
 
-A file picker is a presentation, so a script answers it with a path (docs/dialogs.md):
+A file picker is a presentation, so a script answers it with a path ([docs/dialogs.md](dialogs.md)):
 
 ```yaml
 - tap: { id: btn-save-file }

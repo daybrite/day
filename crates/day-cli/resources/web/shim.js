@@ -402,6 +402,36 @@ const env = {
       else if (it.kind === '-') el = div('day-toolbar-sep');
       else if (it.kind === '_') el = div('day-toolbar-gap');
       else if (it.kind === 'L') { el = div('day-toolbar-label'); el.textContent = it.label; }
+      else if (it.kind === 'G') {
+        // A segmented control, reusing the picker piece's own `.day-segmented` styling so the
+        // one in the bar and the one on a page are the same control.
+        el = div('day-segmented day-toolbar-segmented');
+        el.setAttribute('role', 'radiogroup');
+        (it.segments || []).forEach((seg, n) => {
+          const b = document.createElement('button');
+          b.className = 'day-seg' + (n === it.selected ? ' selected' : '');
+          b.type = 'button';
+          b.disabled = !it.enabled;
+          b.title = seg.title;
+          b.setAttribute('role', 'radio');
+          b.setAttribute('aria-checked', n === it.selected ? 'true' : 'false');
+          b.setAttribute('aria-label', seg.title);
+          if (seg.icon) {
+            const ic = div('day-toolbar-icon');
+            ic.style.maskImage = `url("${seg.icon}")`;
+            ic.style.webkitMaskImage = `url("${seg.icon}")`;
+            b.append(ic);
+          } else {
+            b.textContent = seg.title;
+          }
+          b.addEventListener('click', () => {
+            if (b.classList.contains('selected')) return; // already the choice
+            selectAmong(el, n);
+            if (it.action) wasm.day_dom_toolbar_value(it.action, n);
+          });
+          el.append(b);
+        });
+      }
       else if (it.kind === 'F') {
         el = document.createElement('input');
         el.type = 'search'; el.className = 'day-toolbar-search';
@@ -431,7 +461,14 @@ const env = {
           ic.style.webkitMaskImage = `url("${it.icon}")`;
           el.append(ic);
         }
-        const t = document.createElement('span'); t.textContent = it.label; el.append(t);
+        // Icon ALONE where there is one, as every desktop toolbar does — the label stays as the
+        // tooltip and the accessible name, so nothing is lost to a screen reader or a hover. An
+        // item with no icon keeps its text, which is also what a desktop bar does with one.
+        if (it.icon) {
+          el.setAttribute('aria-label', it.label);
+        } else {
+          const t = document.createElement('span'); t.textContent = it.label; el.append(t);
+        }
         if (it.kind === 'T') {
           el.classList.add('day-toolbar-toggle');
           el.setAttribute('aria-pressed', it.on ? 'true' : 'false');
@@ -467,6 +504,12 @@ const env = {
     if (!el) return;
     if (p.text !== undefined && el.value !== p.text) el.value = p.text;
     if (p.on !== undefined) el.setAttribute('aria-pressed', p.on ? 'true' : 'false');
+    // A segmented item: move the selection without firing its click handler (see the toggle
+    // echo the native backends guard against).
+    if (p.selected !== undefined && el.classList.contains('day-segmented')) selectAmong(el, p.selected);
+    if (p.enabled !== undefined && el.classList.contains('day-segmented')) {
+      [...el.children].forEach((b) => { b.disabled = !p.enabled; });
+    }
     if (p.enabled !== undefined) el.disabled = !p.enabled;
     if (p.suggestions !== undefined && el.__datalist) setSuggestions(el.__datalist, p.suggestions);
   },

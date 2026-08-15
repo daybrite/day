@@ -17,6 +17,7 @@
 #include <QEasingCurve>
 #include <QFrame>
 #include <QGraphicsEffect>
+#include <QButtonGroup>
 #include <QHBoxLayout>
 #include <QFileInfo>
 #include <QPainter>
@@ -1940,6 +1941,9 @@ void day_qt_set_toolbar_cb(void (*cb)(uint64_t, int, int, const char *)) { g_too
 // clear raced a re-install. A QPointer reads null once its object dies, so a stale patch is a
 // no-op instead.
 static std::map<std::string, QPointer<QWidget>> g_toolbar_widgets;
+// A segmented item's exclusive button group, so a patch can move the selection without the
+// echo — the group emits for the button going off as well as the one coming on.
+static std::map<std::string, QPointer<QButtonGroup>> g_toolbar_groups;
 static std::map<std::string, QAction *> g_toolbar_actions;
 
 // The icon for a standard symbol: the freedesktop theme first (Linux, where KDE and GNOME
@@ -1980,6 +1984,7 @@ void *day_qt_window_toolbar(void *win) {
     }
     bar->clear();
     g_toolbar_widgets.clear();
+    g_toolbar_groups.clear();
     g_toolbar_actions.clear();
     return bar;
 }
@@ -2012,6 +2017,55 @@ void day_qt_toolbar_add_action(void *bar, const char *id, const char *label, con
         });
     }
     g_toolbar_actions[std::string(id)] = a;
+}
+
+// A segmented control: Qt has no such widget, so it is what Qt apps build — a row of checkable
+// QToolButtons in an EXCLUSIVE QButtonGroup, hosted in one widget so the toolbar treats it as a
+// single item. `titles` and `icons` are unit-separated lists, one entry per segment.
+void day_qt_toolbar_add_segmented(void *bar, const char *id, const char *titles, const char *icons,
+                                  int selected, uint64_t action, int enabled) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    auto *host = new QWidget(tb);
+    auto *lay = new QHBoxLayout(host);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(0);
+    auto *group = new QButtonGroup(host);
+    group->setExclusive(true);
+    const QStringList ts = QString::fromUtf8(titles).split(QChar(0x1f));
+    const QStringList is = QString::fromUtf8(icons).split(QChar(0x1f));
+    for (int i = 0; i < ts.size(); ++i) {
+        auto *b = new QToolButton(host);
+        b->setCheckable(true);
+        QIcon ic = (i < is.size() && !is[i].isEmpty()) ? QIcon::fromTheme(is[i]) : QIcon();
+        if (!ic.isNull()) {
+            b->setIcon(ic);
+        } else {
+            b->setText(ts[i]);
+        }
+        b->setToolTip(ts[i]);
+        b->setEnabled(enabled != 0);
+        b->setChecked(i == selected);
+        group->addButton(b, i);
+        lay->addWidget(b);
+    }
+    const uint64_t aid = action;
+    QObject::connect(group, &QButtonGroup::idToggled, [aid](int which, bool on) {
+        // Only the segment coming ON is the choice; the one going off is its other half.
+        if (on && g_toolbar_cb) g_toolbar_cb(aid, 2, which, "");
+    });
+    g_toolbar_widgets[std::string(id)] = host;
+    g_toolbar_groups[std::string(id)] = group;
+    tb->addWidget(host);
+}
+
+void day_qt_toolbar_set_selected(const char *id, int index) {
+    auto it = g_toolbar_groups.find(std::string(id));
+    if (it == g_toolbar_groups.end() || !it->second) return;
+    QAbstractButton *b = it->second->button(index);
+    if (!b || b->isChecked()) return;
+    const bool blocked = it->second->blockSignals(true);
+    b->setChecked(true);
+    it->second->blockSignals(blocked);
 }
 
 // A pull-down: a QToolButton in InstantPopup mode, which is how Qt draws a menu button on a

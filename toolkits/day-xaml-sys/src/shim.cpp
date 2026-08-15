@@ -3724,6 +3724,8 @@ static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::stri
 // back through g_toolbar_cb. (The search field can't use one: AutoSuggestBox raises TextChanged
 // asynchronously, which is why that handler filters on the change REASON instead.)
 static bool g_toolbar_setting_checked = false;
+// Each segmented item's buttons, so a patch can move the selection.
+static std::map<std::string, std::shared_ptr<std::vector<WUXC::ToggleButton>>> g_toolbar_segments;
 
 extern "C" void day_xaml_set_toolbar_cb(void (*cb)(unsigned long long, int, int, const char*)) {
     g_toolbar_cb = cb;
@@ -3933,6 +3935,65 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                 });
             }
             place_command(toggle, id);
+        } else if (kind == "G") {
+            // WinUI has no segmented control in the SDK day targets, so this is what a Fluent app
+            // builds: a tight row of toggle buttons kept exclusive here. One AppBarElementContainer
+            // holds them, so the CommandBar still treats the group as ONE item.
+            std::vector<std::tuple<std::string, std::string, std::string>> segs; // glyph, image, title
+            size_t j = i + 1;
+            for (; j < lines.size(); ++j) {
+                auto ff = split_tabs(lines[j]);
+                if (!ff.empty() && ff[0] == "X") break;
+                if (ff.size() >= 4 && ff[0] == "g") segs.emplace_back(ff[1], ff[2], ff[3]);
+            }
+            i = j;
+            WUXC::StackPanel row;
+            row.Orientation(WUXC::Orientation::Horizontal);
+            auto buttons = std::make_shared<std::vector<WUXC::ToggleButton>>();
+            for (size_t n = 0; n < segs.size(); ++n) {
+                WUXC::ToggleButton b;
+                const auto& [g, img, title] = segs[n];
+                auto ic = toolbar_icon(g, img, "");
+                if (ic) {
+                    b.Content(ic);
+                } else {
+                    b.Content(winrt::box_value(hs(title.c_str())));
+                }
+                WUXC::ToolTipService::SetToolTip(b, winrt::box_value(hs(title.c_str())));
+                b.IsEnabled(enabled);
+                b.IsChecked(static_cast<int>(n) == on);
+                buttons->push_back(b);
+                row.Children().Append(b);
+            }
+            // Exclusivity, and the report: a click checks one and unchecks the rest, and only the
+            // one coming ON is the choice. `g_toolbar_setting_checked` covers the programmatic
+            // path, exactly as the plain toggle above does.
+            for (size_t n = 0; n < buttons->size(); ++n) {
+                auto b = (*buttons)[n];
+                b.Checked([action, buttons, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    if (g_toolbar_setting_checked) return;
+                    g_toolbar_setting_checked = true;
+                    for (size_t k = 0; k < buttons->size(); ++k)
+                        if (k != n) (*buttons)[k].IsChecked(false);
+                    g_toolbar_setting_checked = false;
+                    if (g_toolbar_cb) g_toolbar_cb(action, 2, static_cast<int>(n), "");
+                });
+                // Un-checking the chosen segment is not a state a radio row has: put it back.
+                b.Unchecked([buttons, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    if (g_toolbar_setting_checked) return;
+                    bool any = false;
+                    for (auto const& x : *buttons) if (x.IsChecked().GetBoolean()) any = true;
+                    if (!any) {
+                        g_toolbar_setting_checked = true;
+                        (*buttons)[n].IsChecked(true);
+                        g_toolbar_setting_checked = false;
+                    }
+                });
+            }
+            WUXC::AppBarElementContainer host;
+            host.Content(row);
+            g_toolbar_segments[id] = buttons;
+            place_command(host, id);
         } else if (kind == "M") {
             // The item's own menu spec follows, closed by an `X` line: slice it out and let the
             // menu builder fill a MenuFlyout with it, so a toolbar menu and its menu-bar twin are
@@ -4018,6 +4079,20 @@ extern "C" void day_xaml_toolbar_set_text(void* win, const char* id, const char*
     auto next = hs(text);
     if (box.Text() != next) box.Text(next);
 } catch (...) {
+}
+
+extern "C" void day_xaml_toolbar_set_selected(void* win, const char* id, int index) try {
+    (void)win;
+    auto it = g_toolbar_segments.find(std::string(id));
+    if (it == g_toolbar_segments.end() || !it->second) return;
+    auto& buttons = *it->second;
+    if (index < 0 || static_cast<size_t>(index) >= buttons.size()) return;
+    g_toolbar_setting_checked = true;
+    for (size_t k = 0; k < buttons.size(); ++k)
+        buttons[k].IsChecked(static_cast<int>(k) == index);
+    g_toolbar_setting_checked = false;
+} catch (...) {
+    g_toolbar_setting_checked = false;
 }
 
 extern "C" void day_xaml_toolbar_set_checked(void* win, const char* id, int on) try {
