@@ -3725,7 +3725,7 @@ static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::stri
 // asynchronously, which is why that handler filters on the change REASON instead.)
 static bool g_toolbar_setting_checked = false;
 // Each segmented item's buttons, so a patch can move the selection.
-static std::map<std::string, std::shared_ptr<std::vector<WUXC::ToggleButton>>> g_toolbar_segments;
+static std::map<std::string, std::shared_ptr<std::vector<WUXCP::ToggleButton>>> g_toolbar_segments;
 
 extern "C" void day_xaml_set_toolbar_cb(void (*cb)(unsigned long long, int, int, const char*)) {
     g_toolbar_cb = cb;
@@ -3949,9 +3949,9 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             i = j;
             WUXC::StackPanel row;
             row.Orientation(WUXC::Orientation::Horizontal);
-            auto buttons = std::make_shared<std::vector<WUXC::ToggleButton>>();
+            auto buttons = std::make_shared<std::vector<WUXCP::ToggleButton>>();
             for (size_t n = 0; n < segs.size(); ++n) {
-                WUXC::ToggleButton b;
+                WUXCP::ToggleButton b;
                 const auto& [g, img, title] = segs[n];
                 auto ic = toolbar_icon(g, img, "");
                 if (ic) {
