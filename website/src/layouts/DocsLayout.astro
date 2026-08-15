@@ -102,6 +102,17 @@ for (const d of docs) {
     position: sticky;
     top: 82px;
     align-self: start;
+    /* The nav is taller than the viewport, and a sticky box taller than the viewport pins
+       immediately and only yields when the container's bottom pushes it — so everything below
+       the fold was unreachable until the page was nearly fully scrolled. Capping the box at
+       the viewport (minus the 82px header offset and a little breathing room) makes the
+       sidebar scroll ITS OWN content under the cursor instead; `overscroll-behavior` keeps a
+       wheel at either end from spilling into the page scroll. */
+    max-height: calc(100vh - 98px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding-right: 6px;
   }
   .side-h {
     text-transform: uppercase;
@@ -158,6 +169,9 @@ for (const d of docs) {
       border: 1px solid var(--border-soft);
       border-radius: var(--radius);
       padding: 14px;
+      /* Static above the content here — the viewport cap is the sticky layout's fix only. */
+      max-height: none;
+      overflow-y: visible;
     }
     .sidebar nav { display: flex; flex-wrap: wrap; gap: 6px; }
     .side-h { width: 100%; }
