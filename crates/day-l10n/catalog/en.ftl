@@ -50,3 +50,12 @@ day-services = Services
 day-hide = Hide
 day-hide-others = Hide Others
 day-show-all = Show All
+
+# The composed color picker (docs/colorpicker.md) — the panel Day draws itself on the two
+# toolkits that ship no color chooser, and on any target that asks for one picker everywhere.
+# These name the three drawn controls for a screen reader; the panel itself carries no visible
+# labels, because a hue strip explains itself and a translated caption over every band does not.
+day-color = Colors
+day-color-hue = Hue
+day-color-shade = Saturation and brightness
+day-color-opacity = Opacity

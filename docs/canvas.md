@@ -113,6 +113,31 @@ Canvas text takes a size and a color, not a `FontSpec`: it is for labels inside 
 carries neither the reader's font-scale setting nor RTL mirroring. Anything a user reads as
 content belongs in a `label` piece, which does.
 
+## Interaction
+
+A canvas is a real native view, so it takes the ordinary gestures — and two of them report WHERE:
+
+```rust
+canvas(draw)
+    .on_tap_at(move |p| pick(p))                      // Event::Tap's point
+    .on_drag(move |drag| pick(drag.location))         // and every phase of a drag
+    .frame(width, height)
+```
+
+Both points are in the canvas's own coordinate space, origin at its top-leading corner, which is
+what lets a drawn control turn "the user pressed here" into a value — a color wheel, a map, a
+waveform scrubber. `on_tap` (no location) stays for the common case.
+
+Wire both when a press should count as a pick: a press that never moves is a tap on some backends
+and a zero-length drag on others, and since both handlers write the same value, a backend that
+reports both costs nothing. Put them on the canvas **before** any wrapping decorator — `.frame`
+and `.corner_radius` build layout nodes of their own, and a point in a wrapper's space is not a
+point in the canvas's.
+
+The reference use is `day-piece-colorpicker`'s composed panel
+([docs/colorpicker.md](colorpicker.md)): its saturation/brightness field, hue strip and opacity
+strip are three canvases that read their value straight out of the press location.
+
 ## Performance
 
 `CanvasProps` holds the whole op list and a change replaces it, so a canvas is cheapest when its

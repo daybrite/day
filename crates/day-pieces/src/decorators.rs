@@ -351,6 +351,30 @@ pub trait Decorate: Piece + Sized {
         })
     }
 
+    /// [`on_tap`](Self::on_tap), told WHERE — the point in the piece's own coordinate space,
+    /// origin at its top-leading corner.
+    ///
+    /// What a drawn control needs and a native one does not: a canvas showing a color wheel, a
+    /// map, or a waveform has to turn "the user pressed here" into a value, and only the piece
+    /// knows how. Pair it with [`on_drag`](Self::on_drag) — which already reports a location — to
+    /// track a press that turns into a drag; the two are idempotent together, so a backend that
+    /// reports a tap as a zero-length drag costs nothing.
+    ///
+    /// `Event::Tap` has always carried the point; this is the decorator that stops throwing it
+    /// away.
+    fn on_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> AnyPiece {
+        piece_fn(move |cx| {
+            let n = self.build(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Tap));
+            cx.on(n, move |ev| {
+                if let Event::Tap(p) = ev {
+                    f(*p);
+                }
+            });
+            n
+        })
+    }
+
     /// Bind this control's keyboard focus to a signal (docs/focus.md), two-way like every other
     /// binding: native focus changes write the signal; writing the signal moves focus. Takes a
     /// `Signal<bool>` for one control, or `(Signal<Option<K>>, K::Variant)` binding one control

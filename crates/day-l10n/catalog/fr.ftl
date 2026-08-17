@@ -41,3 +41,8 @@ day-services = Services
 day-hide = Masquer
 day-hide-others = Masquer les autres
 day-show-all = Tout afficher
+
+day-color = Couleurs
+day-color-hue = Teinte
+day-color-shade = Saturation et luminosité
+day-color-opacity = Opacité

@@ -2725,6 +2725,7 @@ pub struct Cover<S, R: Route> {
     open: S,
     build: Rc<dyn Fn(&R) -> AnyPiece>,
     background: Option<CoverBackground<R>>,
+    routed: bool,
     _marker: std::marker::PhantomData<R>,
 }
 
@@ -2739,6 +2740,7 @@ pub fn cover<R: Route, S: SignalRw<Option<R>>>(
         open,
         build: Rc::new(build),
         background: None,
+        routed: true,
         _marker: std::marker::PhantomData,
     }
 }
@@ -2751,6 +2753,29 @@ impl<S: SignalRw<Option<R>>, R: Route> Cover<S, R> {
         self.background = Some(Rc::new(f));
         self
     }
+
+    /// Keep this cover OUT of the app's route space: no `navigate("<key>")` to present it, no
+    /// contribution to `current_route()`, and `nav_back()` walks past it.
+    ///
+    /// For a cover that is a **control's own panel** rather than an app destination — a color
+    /// picker's chooser, a media scrubber's fullscreen mode — presented and dismissed by the
+    /// control, never linked to. Two reasons that matters:
+    ///
+    /// - **A routed cover claims route segments**, and over the untyped `Route` (`String`,
+    ///   whose `from_key` accepts anything) it claims *every* segment: mount one and the next
+    ///   `navigate("settings")` presents the cover with the key `"settings"` instead of going to
+    ///   settings. A piece that mounts a cover would be silently rewriting its host app's
+    ///   navigation.
+    /// - **It is not a place.** `current_route()` naming a transient chooser makes a restored
+    ///   session reopen it, and a "share this screen" link point at a modal.
+    ///
+    /// Interactive dismissal is unaffected: the cover still answers Android's system back through
+    /// [`Event::NavBack`](day_spec::Event::NavBack) on its own node, which never went through the
+    /// route adapter.
+    pub fn unrouted(mut self) -> Self {
+        self.routed = false;
+        self
+    }
 }
 
 impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
@@ -2760,6 +2785,7 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
             open,
             build,
             background,
+            routed,
             ..
         } = self;
 
@@ -2914,6 +2940,11 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
 
         // String-route adapter (docs/navigation.md): `navigate("<key>")` presents, `nav_back()`
         // dismisses, and the presented key is this surface's `current_route()` contribution.
+        // Skipped for an `unrouted()` cover, which is a control's own panel rather than a place
+        // the app navigates to — see `Cover::unrouted` for why that distinction has teeth.
+        if !routed {
+            return node;
+        }
         let o_push = open.clone();
         let o_pop = open.clone();
         let o_cur = open.clone();

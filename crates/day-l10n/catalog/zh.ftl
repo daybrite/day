@@ -41,3 +41,8 @@ day-services = 服务
 day-hide = 隐藏
 day-hide-others = 隐藏其他
 day-show-all = 全部显示
+
+day-color = 颜色
+day-color-hue = 色相
+day-color-shade = 饱和度与明度
+day-color-opacity = 不透明度

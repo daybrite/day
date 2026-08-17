@@ -173,10 +173,15 @@ Known gaps, in rough order of interest:
 - **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
   standard placeholder. `day-piece-media` now renders a real `<video>` ([docs/media.md](media.md)): the browser
   supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
-  `.muted(true)`. The seam is open for the others: day-dom exposes a RUNTIME renderer registry
+  `.muted(true)`. `day-piece-colorpicker` renders `<input type="color">`
+  ([docs/colorpicker.md](colorpicker.md)) — the browser's own picker, which on desktop IS the system
+  chooser; its value is 8-bit `#rrggbb`, and the `alpha` attribute is set but honored only where the
+  browser has shipped it. The seam is open for the others: day-dom exposes a RUNTIME renderer registry
   (`day_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
   use, because `#[distributed_slice]` does not compile for wasm32; a piece self-registers from its
-  own constructor. Parts other than prefs, http, sensors and location (battery,
+  own constructor. A piece that needs to report back asks for the shim's listeners with
+  `Dom::listen(&handle, listen::INPUT)` — the same wiring the built-in kinds get, exposed for
+  pieces alongside `element` / `set_attr` / `call`. Parts other than prefs, http, sensors and location (battery,
   clipboard, haptics…) answer their unavailable tier. `day-part-sensors` streams the accelerometer
   and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; [docs/sensors.md](sensors.md)),
   `day-part-location` rides `navigator.geolocation`, and `day-part-permissions` answers from

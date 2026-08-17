@@ -81,7 +81,8 @@ the architecture-level view and the rationale.
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (webview, media, map, lottie, searchfield, combobox, …) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [docs/lottie.md](docs/lottie.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (webview, media, map, lottie, searchfield, combobox, color picker, …) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [docs/lottie.md](docs/lottie.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | built-in controls — picker, text area | [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | HarmonyOS / OpenHarmony | [docs/harmonyos.md](docs/harmonyos.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -4152,6 +4153,32 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > slice. Values are civil/zoneless; controls are pinned to a Gregorian-UTC calendar with the
 > user's locale, so platforms localize month names while the value never shifts by zone; dayscript
 > drives every picker via the existing `input:` step (`Event::TextChanged` with ISO text).
+
+### B.9 Color picker (the piece that is native OR composed, per target and per call)
+
+> [!NOTE]
+> **Shipped** as `pieces/day-piece-colorpicker` ([docs/colorpicker.md](docs/colorpicker.md)):
+> `color_picker(Signal<Color>)`, a color well bound two-way, and the first piece to ship TWO idioms
+> behind one API. `PickerIdiom::Native` realizes a leaf that six toolkits render with the system
+> chooser (`NSColorWell` → the shared `NSColorPanel`, `UIColorWell` → the iOS picker,
+> `GtkColorDialogButton`, a `QColorDialog` shim, the XAML `ColorPicker` in a flyout,
+> `<input type="color">`); `PickerIdiom::Composed` builds the whole picker out of ordinary Day
+> pieces and a canvas — a saturation/brightness field, a hue strip, an opacity strip and a preset
+> palette in a [`cover`](docs/cover.md) — so it needs no renderer arm and behaves identically on all
+> nine targets. `Automatic` (the default) picks native where the toolkit has a chooser and composed
+> where it does not, which is android-mdc and harmony-arkui: neither platform ships a color picker
+> in its framework, its design library, or its NDK. Writing one twice in two foreign languages
+> would have produced two dialogs that were neither the platform's nor each other's; one panel
+> written once in Rust also gives every other target the option. This is the first piece whose
+> "emulated" tier is a COMPOSITION rather than a per-backend hand-roll, and the pattern generalizes
+> to any control the platforms disagree about.
+>
+> Two framework changes came with it, both small and both general: `Decorate::on_tap_at` reports
+> the tap's location in the piece's own space (`Event::Tap` always carried the point; the
+> decorator threw it away), which is what lets a canvas turn a press into a value; and
+> `Dom::listen` gives a web piece the shim's event wiring that the built-in kinds already had.
+> [docs/color.md](docs/color.md) records what a native pick can carry that `Color` cannot — wide-gamut
+> spaces, the authoring model, dynamic system colors — and proposes what to do about it.
 
 ### B.8 SwiftUI embedding (user views inside a Day app)
 

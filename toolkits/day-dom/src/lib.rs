@@ -1034,6 +1034,50 @@ impl Dom {
     pub fn call(&mut self, h: &DomHandle, method: &str) {
         unsafe { day_dom_call(h.0, method.as_ptr(), method.len()) };
     }
+
+    /// Attach the shim's DOM listeners to a piece's element, so it can report back.
+    ///
+    /// The built-in kinds get this from their own `realize` arms; a piece renderer that needs
+    /// events (`day-piece-colorpicker`'s `<input type="color">`) asks here, with a mask built
+    /// from [`listen`]'s constants. The element the piece's `make` returned is already bound to
+    /// its `NodeId`, so what the shim reports arrives at the piece's `cx.on` as the ordinary
+    /// [`Event`] for that bit — `listen::INPUT` on an `<input>` becomes `Event::TextChanged`.
+    ///
+    /// Idempotent it is NOT: each call adds listeners, so call it once, from `make`.
+    pub fn listen(&mut self, h: &DomHandle, mask: u32) {
+        unsafe { day_dom_listen(h.0, mask) };
+    }
+}
+
+/// Listener bits for [`Dom::listen`] — which DOM events the shim wires to a piece's element, and
+/// the [`Event`] each becomes. The numbers are the shim's own table (`listen(id, mask)` in
+/// `shim.js`); naming them keeps a piece from passing a magic constant that silently means
+/// something else after a shim change.
+pub mod listen {
+    // Nothing here names `Event` in code — the import is what makes the `[`Event::…`]` links in
+    // the constants' docs below resolve to day-spec's type instead of rendering as plain text.
+    #[allow(unused_imports)]
+    use day_spec::Event;
+    /// `click` → [`Event::Pressed`].
+    pub const CLICK: u32 = 1;
+    /// `input` → [`Event::TextChanged`] with the element's value (or [`Event::ValueChanged`] on a
+    /// `type="range"`).
+    pub const INPUT: u32 = 2;
+    /// `change` → [`Event::ToggleChanged`] on a checkbox, [`Event::SelectionChanged`] on a
+    /// `<select>`, [`Event::ValueCommitted`] on a range.
+    pub const CHANGE: u32 = 4;
+    /// `focus`/`blur` → [`Event::FocusChanged`].
+    pub const FOCUS: u32 = 8;
+    /// Enter `keydown` → [`Event::Submitted`].
+    pub const SUBMIT: u32 = 16;
+    /// A `ResizeObserver` → [`Event::FrameChanged`].
+    pub const RESIZE: u32 = 32;
+    /// `scroll` → [`Event::ScrollChanged`].
+    pub const SCROLL: u32 = 64;
+    /// `pointerdown` → [`Event::Tap`].
+    pub const POINTER: u32 = 128;
+    /// The pointer-capture trio → [`Event::Drag`].
+    pub const DRAG: u32 = 256;
 }
 
 impl Toolkit for Dom {

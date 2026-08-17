@@ -1598,21 +1598,21 @@ public final class DayBridge {
                 mode == 2 ? android.widget.ImageView.ScaleType.FIT_XY
                         : mode == 1 ? android.widget.ImageView.ScaleType.CENTER_CROP
                                 : android.widget.ImageView.ScaleType.FIT_CENTER);
-        // Prefer a processed drawable resource by name (§18.3): images/<name> is staged into
-        // res/drawable -> R.drawable.<name>, crunched/optimized by aapt2. Fall back to a raw asset
-        // by path (back-compat for image("file.png") loaded straight from assets/).
-        int id = ctx.getResources().getIdentifier(name, "drawable", ctx.getPackageName());
-        if (id != 0) {
-            iv.setImageResource(id);
+        // Resolution goes through drawableByName, which is ALSO where the weight-alias fallback
+        // lives (docs/vectors.md): a plain SVG stages one asset, so `<glyph>__light`/`__bold` must
+        // land back on `<glyph>` rather than draw nothing. This path used to do its own
+        // getIdentifier + assets lookup and skip that fallback, which is why every
+        // `vector(plain).weight(Light|Bold)` was blank on Android while it resolved everywhere
+        // else — invisible to `assert_visible`, since the ImageView had a frame either way.
+        //
+        // `.mutate()` because the drawable comes from the shared resource cache and the caller
+        // tints it: without it a tint would follow every other view showing the same glyph.
+        android.graphics.drawable.Drawable d = drawableByName(ctx, name);
+        if (d == null) {
+            android.util.Log.w("Day", "no drawable or asset resolved for image " + name);
             return iv;
         }
-        try {
-            android.graphics.Bitmap bm =
-                    android.graphics.BitmapFactory.decodeStream(ctx.getAssets().open(name));
-            iv.setImageBitmap(bm);
-        } catch (Exception e) {
-            android.util.Log.w("Day", "image asset decode failed for " + name, e);
-        }
+        iv.setImageDrawable(d.mutate());
         return iv;
     }
     /** Load a bundled image by NAME (docs/navigation.md) as a mutable Drawable: a processed

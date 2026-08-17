@@ -93,6 +93,29 @@ presents the parsed route, `nav_back()` dismisses, and the presented key is the 
 contribution to `current_route()`. Day-Games' walkthrough drives games with plain
 `- navigate: { route: breakout }` / `- nav_back:` steps.
 
+### `.unrouted()` — a cover that is a panel, not a place
+
+`cover(open, build).unrouted()` skips that registration: no `navigate("<key>")`, no
+`current_route()` contribution, and `nav_back()` walks past it. Interactive dismissal is
+unaffected — Android's system back arrives as `Event::NavBack` on the cover's own node, which
+never went through the adapter.
+
+Reach for it whenever the cover belongs to a **control** rather than to the app: a color picker's
+chooser ([docs/colorpicker.md](colorpicker.md)), a scrubber's fullscreen mode. Two things go wrong
+otherwise.
+
+The sharper problem is that a routed cover claims route segments through `R::from_key`, and the
+untyped route is `String`, whose `from_key` accepts **anything**. So a routed `cover(Signal<Option<String>>, …)`
+claims every segment: mount one, and the app's next `navigate("settings")` presents that cover
+keyed `"settings"` instead of going to settings. A piece that mounts a cover would be silently
+rewriting its host app's navigation — which is exactly what happened to the showcase's walkthrough
+the first time the color picker's panel went in. A typed `Route` enum does not have this problem,
+because its `from_key` rejects what is not its own; `.unrouted()` is the fix when the key is a
+string, and the right answer regardless when the surface is not a destination.
+
+The quieter problem is that `current_route()` naming a transient chooser makes a restored session
+reopen it, and a "link me to this screen" URL point at a modal.
+
 ## How it works
 
 - `kinds::COVER` is realized DETACHED from the visible hierarchy (its `set_frame` is a

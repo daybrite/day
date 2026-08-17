@@ -57,6 +57,7 @@ members = [
     "pieces/day-piece-rating",
     "pieces/day-piece-pullrefresh",
     "pieces/day-piece-datetime",
+    "pieces/day-piece-colorpicker",
     "pieces/day-piece-settings",
     "tweaks/day-tweak-button-bezel",
     "tweaks/day-tweak-tooltip",
@@ -140,6 +141,7 @@ day-piece-rating = { path = "pieces/day-piece-rating", version = "0.2.4" }
 day-piece-settings = { path = "pieces/day-piece-settings", version = "0.2.4" }
 day-piece-pullrefresh = { path = "pieces/day-piece-pullrefresh", version = "0.2.4" }
 day-piece-datetime = { path = "pieces/day-piece-datetime", version = "0.2.4" }
+day-piece-colorpicker = { path = "pieces/day-piece-colorpicker", version = "0.2.4" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
 day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.2.4" }
 day-tweak-tooltip = { path = "tweaks/day-tweak-tooltip", version = "0.2.4" }

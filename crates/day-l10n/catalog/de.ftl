@@ -41,3 +41,8 @@ day-services = Dienste
 day-hide = Ausblenden
 day-hide-others = Andere ausblenden
 day-show-all = Alle einblenden
+
+day-color = Farben
+day-color-hue = Farbton
+day-color-shade = Sättigung und Helligkeit
+day-color-opacity = Deckkraft

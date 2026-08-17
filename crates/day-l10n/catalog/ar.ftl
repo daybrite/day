@@ -43,3 +43,8 @@ day-services = الخدمات
 day-hide = إخفاء
 day-hide-others = إخفاء الآخرين
 day-show-all = إظهار الكل
+
+day-color = الألوان
+day-color-hue = تدرج اللون
+day-color-shade = التشبع والسطوع
+day-color-opacity = العتامة

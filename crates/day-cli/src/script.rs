@@ -442,7 +442,7 @@ pub fn run_scripts(
         // Desktop renders in-process (there is no device tool to ask); everything else is
         // captured from the device, which decides whether the engine's payload is wanted.
         let device_first = target.kind != TargetKind::Desktop;
-        for (op, mut step) in steps {
+        for (op, step) in steps {
             run.steps_total += 1;
             // The target gates run BEFORE the runner-side steps below (`pause`, `expect_exit`):
             // those `continue` on their own, so evaluating them first made a gated `pause` sleep

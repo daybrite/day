@@ -683,7 +683,12 @@ impl Layout for StackLayout {
         let needed = sizes.iter().map(|&s| self.main(s)).sum::<f64>()
             + self.spacing * (kids.len() - 1) as f64;
         let available = self.main(bounds.size);
-        if needed > available + 0.5 {
+        // A container with NO extent is not overflowing, it is not laid out yet — the state a
+        // native-owned surface is in until the backend reports its frame (a `cover` lays its
+        // content out once before `Event::FrameChanged` arrives, §7.6/docs/cover.md). Reporting
+        // it would name a real developer's ids for a transient the developer cannot act on:
+        // no fit policy makes a stack fit in zero points.
+        if available > 0.5 && needed > available + 0.5 {
             cx.report_overflow(needed, available);
         }
         let bounds_cross = self.cross(bounds.size);

@@ -41,3 +41,8 @@ day-services = サービス
 day-hide = 隠す
 day-hide-others = ほかを隠す
 day-show-all = すべてを表示
+
+day-color = カラー
+day-color-hue = 色相
+day-color-shade = 彩度と明度
+day-color-opacity = 不透明度

@@ -373,6 +373,112 @@ impl Color {
         (h.rem_euclid(360.0), s.clamp(0.0, 1.0), l)
     }
 
+    /// Decompose to `(hue°, saturation, value)` (HSV/HSB) — the model every native color picker's
+    /// spectrum tab is built on, so this is what a renderer seeds its sliders from. Hue is `0.0`
+    /// for grays. Inverse of [`Color::hsv`].
+    pub fn to_hsv(&self) -> (f64, f64, f64) {
+        let (r, g, b) = (self.r, self.g, self.b);
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let d = max - min;
+        if d.abs() < 1e-9 {
+            return (0.0, 0.0, max);
+        }
+        let h = if max == r {
+            60.0 * (((g - b) / d).rem_euclid(6.0))
+        } else if max == g {
+            60.0 * ((b - r) / d + 2.0)
+        } else {
+            60.0 * ((r - g) / d + 4.0)
+        };
+        (h.rem_euclid(360.0), d / max, max)
+    }
+
+    /// The same color at a different opacity — what a picker's alpha slider produces, and what
+    /// tinting a surface down to a wash needs (`palette.with_alpha(0.14)`).
+    pub fn with_alpha(self, a: f64) -> Color {
+        Color { a, ..self }
+    }
+
+    /// `#rrggbb`, or `#rrggbbaa` when the color is not fully opaque. The 8-bit form every
+    /// platform's own color field speaks, and what [`Color::parse`] round-trips.
+    pub fn to_hex_string(&self) -> String {
+        let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        if self.a >= 1.0 {
+            format!("#{:02x}{:02x}{:02x}", q(self.r), q(self.g), q(self.b))
+        } else {
+            format!(
+                "#{:02x}{:02x}{:02x}{:02x}",
+                q(self.r),
+                q(self.g),
+                q(self.b),
+                q(self.a)
+            )
+        }
+    }
+
+    /// Parse a color from either interchange form:
+    ///
+    /// - **hex** — `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (the leading `#` optional). What a
+    ///   person types, and what an 8-bit platform field (`<input type="color">`, `Windows.UI.Color`,
+    ///   `android.graphics.Color`) hands back.
+    /// - **components** — 3 or 4 space-separated floats in `0.0..=1.0`, `"r g b"` / `"r g b a"`.
+    ///   The lossless form, for the toolkits whose picker really is float-precision (`NSColor`,
+    ///   `GdkRGBA`, `QColor::getRgbF`).
+    ///
+    /// `None` on anything else. See [docs/color.md](https://daybrite.dev/docs/internal/color/) for
+    /// why the currency stays sRGB for now and what a wider one would carry.
+    pub fn parse(s: &str) -> Option<Color> {
+        let s = s.trim();
+        let hex = s.strip_prefix('#').unwrap_or(s);
+        if !hex.is_empty() && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let nib = |i: usize| u8::from_str_radix(&hex[i..i + 1], 16).ok().map(f64::from);
+            let byte = |i: usize| {
+                u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16)
+                    .ok()
+                    .map(f64::from)
+            };
+            return match hex.len() {
+                3 | 4 => Some(Color::rgba(
+                    nib(0)? / 15.0,
+                    nib(1)? / 15.0,
+                    nib(2)? / 15.0,
+                    if hex.len() == 4 { nib(3)? / 15.0 } else { 1.0 },
+                )),
+                6 | 8 => Some(Color::rgba(
+                    byte(0)? / 255.0,
+                    byte(1)? / 255.0,
+                    byte(2)? / 255.0,
+                    if hex.len() == 8 {
+                        byte(3)? / 255.0
+                    } else {
+                        1.0
+                    },
+                )),
+                _ => None,
+            };
+        }
+        let mut it = s.split_whitespace();
+        let (r, g, b) = (
+            it.next()?.parse::<f64>().ok()?,
+            it.next()?.parse::<f64>().ok()?,
+            it.next()?.parse::<f64>().ok()?,
+        );
+        let a = match it.next() {
+            Some(a) => a.parse::<f64>().ok()?,
+            None => 1.0,
+        };
+        if it.next().is_some() {
+            return None;
+        }
+        Some(Color::rgba(
+            r.clamp(0.0, 1.0),
+            g.clamp(0.0, 1.0),
+            b.clamp(0.0, 1.0),
+            a.clamp(0.0, 1.0),
+        ))
+    }
+
     /// Interpolate toward `to` in HSL space, taking the shortest hue arc (`t` in `0.0..=1.0`). A
     /// hue-space blend (red→green sweeps through yellow) rather than the muddy RGB straight line —
     /// used by the canvas / self-driven animation path (native widget color animation interpolates
@@ -386,6 +492,17 @@ impl Color {
         }
         let lerp = |a: f64, b: f64| a + (b - a) * t;
         Color::hsla(h0 + dh * t, lerp(s0, s1), lerp(l0, l1), lerp(self.a, to.a))
+    }
+}
+
+/// The lossless interchange form — four space-separated components, exactly what
+/// [`Color::parse`] reads back. This is what crosses a JNI / C-ABI / JS boundary when a native
+/// color picker reports a pick, so the float precision `NSColor` and `GdkRGBA` really carry is
+/// not rounded to 8 bits on the way. For the form a person reads (and types into a dayscript
+/// step) use [`Color::to_hex_string`].
+impl std::fmt::Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {} {} {}", self.r, self.g, self.b, self.a)
     }
 }
 
@@ -612,6 +729,56 @@ mod tests {
         // through green; midpoint hue ≈ 330.
         let mid = Color::hsl(0.0, 1.0, 0.5).lerp_hsl(Color::hsl(300.0, 1.0, 0.5), 0.5);
         assert!((mid.to_hsl().0 - 330.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn hsv_roundtrip_and_gray_hue() {
+        let c = Color::rgb(0.2, 0.7, 0.45);
+        let (h, s, v) = c.to_hsv();
+        let back = Color::hsv(h, s, v);
+        assert!((back.r - c.r).abs() < 1e-6 && (back.g - c.g).abs() < 1e-6);
+        assert!((back.b - c.b).abs() < 1e-6);
+        // A gray has no hue to report; saturation 0 is what the sliders need to show.
+        assert_eq!(Color::rgb(0.4, 0.4, 0.4).to_hsv(), (0.0, 0.0, 0.4));
+    }
+
+    #[test]
+    fn color_hex_and_component_parsing() {
+        // Every hex width, with and without the `#`.
+        let coral = Color::hex(0xE86A3C);
+        for s in ["#e86a3c", "E86A3C", "#e86a3cff"] {
+            let p = Color::parse(s).unwrap();
+            assert!((p.r - coral.r).abs() < 1e-9, "{s}");
+            assert!(
+                (p.g - coral.g).abs() < 1e-9 && (p.b - coral.b).abs() < 1e-9,
+                "{s}"
+            );
+            assert_eq!(p.a, 1.0, "{s}");
+        }
+        assert_eq!(Color::parse("#f00").unwrap(), Color::rgb(1.0, 0.0, 0.0));
+        assert_eq!(
+            Color::parse("#0000").unwrap(),
+            Color::rgba(0.0, 0.0, 0.0, 0.0)
+        );
+        assert_eq!(Color::parse("#00000080").unwrap().a, 128.0 / 255.0);
+        // The lossless component form — what a native pick crosses a boundary as.
+        assert_eq!(Color::parse("1 0 0").unwrap(), Color::rgb(1.0, 0.0, 0.0));
+        let c = Color::rgba(0.937_254_901, 0.4, 0.298, 0.6);
+        assert_eq!(
+            Color::parse(&c.to_string()).unwrap(),
+            c,
+            "Display round-trips"
+        );
+        // 8-bit round trip through the human form.
+        assert_eq!(Color::parse(&coral.to_hex_string()).unwrap(), coral);
+        assert_eq!(
+            Color::rgba(0.0, 0.0, 0.0, 0.5).to_hex_string(),
+            "#00000080",
+            "alpha appears only when it is not opaque"
+        );
+        for bad in ["", "#12345", "not-a-color", "1 0", "1 0 0 0 0", "#gg0000"] {
+            assert!(Color::parse(bad).is_none(), "{bad:?} rejected");
+        }
     }
 
     #[test]
