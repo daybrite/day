@@ -166,6 +166,60 @@ Traps worth knowing, all found the hard way and all silent:
   layout collapses into garbage. This is what the `Stack`-is-literal lowering rule exists for —
   the nested host realizes as a plain navigation controller instead.
 
+## Row fit policies
+
+A `row` keeps its children on one line no matter what. That is the right contract for a label
+beside a value, and the wrong one for five buttons on a phone: the line overflows the window and
+the tail lands offscreen, still green under every dayscript assertion because the synthetic rail
+does not hit-test. `.fit(RowFit::…)` names what should happen instead — same children, same
+call shape, four answers:
+
+```rust
+row((a, b, c)).spacing(8.0)                                  // RowFit::Clip, the default
+row((chips,)).spacing(8.0).fit(RowFit::Wrap { run_spacing: 8.0 })
+row((keys,)).spacing(8.0).fit(RowFit::WrapColumns { run_spacing: 8.0 })
+row((label, control)).fit(RowFit::ColumnAt(WidthClass::Compact))
+row((chips,)).spacing(8.0).fit(RowFit::Scroll)
+```
+
+`Clip` is the default: one line at natural sizes, and whatever does not fit lands offscreen. In
+debug builds the engine logs the overflow once per container, naming the dayscript ids in reach
+(`day layout: children overflow their container …`), so the silent version of this failure no
+longer exists. Release builds skip the check entirely.
+
+`Wrap` breaks onto additional lines where the next child would overflow, like wrapped text — the
+shape a chip row, a button strip, or a tag cloud wants. Lines are `run_spacing` apart, and
+children align within their line via `.align(VAlign::…)`. Wrapping replaces main-axis
+negotiation, so `.grow()` and `spacer()` are inert, and a single child wider than the window
+still overflows.
+
+`WrapColumns` wraps the same way but into aligned COLUMNS: every cell takes the widest child's
+width, and each line holds as many as the window fits. `Wrap` keeps each child at its natural
+width, so the lines come out ragged — right for chips of unequal weight, wrong for a set of
+peers that should read as a grid (a keypad, a palette, a row of equal choices):
+
+```
+Wrap          [Item 1][ Item 2 ][Item 3][ Item 4 ]     WrapColumns   [ Item 1 ][ Item 2 ][ Item 3 ]
+              [ Item 5 ][Item 6][ Item 7 ]                           [ Item 4 ][ Item 5 ][ Item 6 ]
+```
+
+The column count follows the available width, so it re-flows as the window changes. An
+authored, fixed column count with per-cell spans is a different job — that is [`grid`](grid.md),
+whose children are rows rather than items.
+
+`ColumnAt(class)` re-arranges the row into a leading-aligned column while the window's width
+class is at or below `class` — the shape a label-plus-control-plus-result line wants, where
+wrapping members independently would tear apart what reads as one sentence. The `size_class()`
+read is tracked, so crossing the breakpoint re-arranges it live; app state lives in signals and
+survives the rebuild.
+
+`Scroll` keeps the single line and makes it a horizontal scroll strip: one row tall, filling the
+width it is given, with the tail a swipe away instead of gone. The policy for rows whose order
+matters more than their visibility — a timeline, a filmstrip, a rail of shortcuts.
+
+The showcase's Layout page renders one row under each policy with a live component count, which
+is the quickest way to feel the difference.
+
 ## Testing it
 
 dayscript's `size_class:` step reports a class the way a backend would, without resizing anything:

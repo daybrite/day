@@ -60,7 +60,7 @@ the architecture-level view and the rationale.
 | deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
-| size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint | [docs/size-classes.md](docs/size-classes.md) | [§10.5](#105-navigation-and-presentation) |
+| size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | [docs/vectors.md](docs/vectors.md) | [§18.3](#183-images-and-data) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
@@ -688,6 +688,10 @@ divider()   spacer()
 // layout containers
 column(children).spacing(8.0).align(HAlign::Leading)
 row(children).spacing(8.0).align(VAlign::Center)
+    .fit(RowFit::Wrap { run_spacing })   // what happens when the row outgrows its width
+    .fit(RowFit::WrapColumns { run_spacing })     //   (docs/size-classes.md "Row fit
+    .fit(RowFit::ColumnAt(WidthClass::Compact))   //   policies"); Wrap is ragged, WrapColumns
+    .fit(RowFit::Scroll)                 //   uniform; default Clip logs overflow in debug
 zstack(children)                   // overlay
 grid((grid_row((…)), …)).spacing(8.0)   // SwiftUI-style eager grid (docs/grid.md): columns
                                    //   infer from cells; .grid_span(n)/.grid_align(a) per cell

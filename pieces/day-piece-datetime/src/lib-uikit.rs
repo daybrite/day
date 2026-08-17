@@ -112,9 +112,17 @@ fn set_if_changed(p: &UIDatePicker, secs: i64) {
     }
 }
 
-fn measure_picker(h: &Retained<UIView>) -> Size {
-    let s = h.sizeThatFits(CGSize::new(1.0e6, 1.0e6));
-    Size::new(s.width.ceil().max(60.0), s.height.ceil().max(28.0))
+fn measure_picker(h: &Retained<UIView>, p: Proposal) -> Size {
+    // The probe must be the PROPOSAL, never an unbounded sentinel: the compact style ECHOES
+    // whatever width it is asked about (the compact view stretches to fill and right-aligns
+    // its pill inside), so probing at 1e6 measured every compact picker a million points wide
+    // and laid its pill that far offscreen — invisible pickers on every iPhone and iPad.
+    // Probed at the width the cell can actually give, the picker fills that cell and the
+    // trailing pill lands at its visible edge (the iOS Settings-row idiom). The inline
+    // calendar and wheels report their intrinsic size regardless of the probe.
+    let cap = p.width.unwrap_or(400.0).clamp(60.0, 400.0);
+    let s = h.sizeThatFits(CGSize::new(cap, 1.0e6));
+    Size::new(s.width.ceil().clamp(60.0, cap.ceil()), s.height.ceil().max(28.0))
 }
 
 /// Drop the retained target when the picker goes away (shared by both renderers — the map is).
@@ -159,8 +167,8 @@ mod date_renderer {
         }
     }
 
-    fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
-        measure_picker(h)
+    fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
+        measure_picker(h, p)
     }
 
     day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
@@ -194,8 +202,8 @@ mod time_renderer {
         }
     }
 
-    fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
-        measure_picker(h)
+    fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
+        measure_picker(h, p)
     }
 
     day_pieces::renderer!(day_uikit::RENDERERS, Uikit,

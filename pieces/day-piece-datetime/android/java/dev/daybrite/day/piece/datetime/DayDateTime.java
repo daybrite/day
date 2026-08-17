@@ -98,6 +98,11 @@ public final class DayDateTime {
         // a DIALOG, not a popover; same gesture contract, platform chrome).
         final Button b = new Button(DayBridge.ctx);
         b.setAllCaps(false);
+        // One line, always: squeezed below its natural width the label wrapped mid-date
+        // ("Dec 31,/2026") and the button's fixed height clipped the second line. Single-line
+        // it measures at full width where there is room and ellipsizes where there is not.
+        b.setSingleLine(true);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setTag(epochDays);
         b.setText(dateLabel(epochDays));
         b.setOnClickListener(v -> {
@@ -159,6 +164,9 @@ public final class DayDateTime {
         }
         final Button b = new Button(DayBridge.ctx);
         b.setAllCaps(false);
+        // Same single-line contract as the date button above.
+        b.setSingleLine(true);
+        b.setEllipsize(android.text.TextUtils.TruncateAt.END);
         b.setTag(secs);
         b.setText(timeLabel(secs));
         b.setOnClickListener(v -> {

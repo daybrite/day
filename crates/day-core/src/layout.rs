@@ -47,6 +47,12 @@ pub trait LayoutOps {
     fn baseline_of(&mut self, child: RNode, size: Size) -> Option<f64>;
     /// Report scroll content size for the CURRENT node (§7.6).
     fn set_scroll_content(&mut self, content: Size);
+    /// Report that the CURRENT node's children outgrew the bounds its `place()` was given
+    /// (`needed` vs `available` main-axis points). A diagnostic seam, not a layout input:
+    /// the engine logs it once per node in debug builds and ignores it in release, and
+    /// placement proceeds unchanged either way. Scroll containers never report — content
+    /// larger than the viewport is their normal state.
+    fn report_overflow(&mut self, _needed: f64, _available: f64) {}
 }
 
 pub struct EngineCx<'a, B: Toolkit> {
@@ -113,6 +119,46 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         n.scroll_content = Some(content);
         let Some(h) = n.handle.clone() else { return };
         self.tree.toolkit.set_scroll_content(&h, content);
+    }
+
+    #[cfg(debug_assertions)]
+    fn report_overflow(&mut self, needed: f64, available: f64) {
+        use std::cell::RefCell;
+        use std::collections::HashSet;
+        // Once per node, not per frame: layout re-runs constantly, and the point is a greppable
+        // hint, not a firehose. A rebuilt page gets a fresh node and may report again — fine.
+        thread_local! {
+            static REPORTED: RefCell<HashSet<RNode>> = RefCell::new(HashSet::new());
+        }
+        if REPORTED.with(|r| !r.borrow_mut().insert(self.current)) {
+            return;
+        }
+        // Name the container by the dayscript ids in reach, because an id is the one thing a
+        // developer can grep straight to the source. Ids usually sit a wrapper or two below
+        // the overflowing stack (`.id` tags the piece, decorators wrap it), so this walks the
+        // subtree depth-first and keeps the first few it meets.
+        let mut ids: Vec<String> = Vec::new();
+        let mut stack = vec![self.current];
+        while let Some(node) = stack.pop() {
+            if ids.len() >= 6 {
+                break;
+            }
+            if let Some(n) = self.tree.node(node) {
+                ids.extend(n.id.clone());
+                stack.extend(n.children.iter().rev());
+            }
+        }
+        let who = if ids.is_empty() {
+            String::from("no .id in reach")
+        } else {
+            ids.join(", ")
+        };
+        crate::diag(format_args!(
+            "day layout: children overflow their container by {:.0}pt ({needed:.0} needed, \
+             {available:.0} available; {who}) — give the row a fit policy: \
+             .fit(RowFit::Wrap/ColumnAt/Scroll) (docs/size-classes.md)",
+            needed - available,
+        ));
     }
 }
 
@@ -630,6 +676,16 @@ impl Layout for StackLayout {
             return;
         }
         let sizes = self.negotiate(cx, &kids, Proposal::exact(bounds.size));
+        // The children's settled extent against what this stack was actually given: rigid
+        // children are free to answer a shrink proposal with their natural size (native
+        // buttons and labels routinely do), and then the tail of the stack lands offscreen
+        // with every assertion still green. Say so, once, where a developer will see it.
+        let needed = sizes.iter().map(|&s| self.main(s)).sum::<f64>()
+            + self.spacing * (kids.len() - 1) as f64;
+        let available = self.main(bounds.size);
+        if needed > available + 0.5 {
+            cx.report_overflow(needed, available);
+        }
         let bounds_cross = self.cross(bounds.size);
         // Baseline row (docs/baseline.md): every child that has a baseline is shifted down so
         // they all land on the deepest one, which is the offset that keeps every child inside
@@ -653,6 +709,168 @@ impl Layout for StackLayout {
             };
             cx.place_child(k, rect);
             pos += self.main(s) + self.spacing;
+        }
+    }
+}
+
+/// A wrapping row (docs/size-classes.md "Adaptive pieces"): children keep their natural
+/// measure and lay out leading-to-trailing, breaking onto a new line where the next child
+/// would overflow the proposed width. Wrapping replaces main-axis negotiation, so flex is
+/// inert here: nothing grows, and a `spacer()` contributes nothing. RTL mirroring comes from
+/// `place_child`, the same as every layout.
+pub struct FlowLayout {
+    pub spacing: f64,
+    /// Vertical gap between lines.
+    pub run_spacing: f64,
+    /// How children align within their own line (a line is as tall as its tallest child).
+    pub align: CrossAlign,
+    /// Uniform columns ([`RowFit::WrapColumns`]): every cell takes the widest child's width and
+    /// each line holds as many as the available width fits, so the wrapped lines align into
+    /// columns. `false` packs each line at natural widths, which comes out ragged.
+    pub uniform: bool,
+}
+
+/// One packed flow line: the child range it holds and its settled extent.
+struct FlowLine {
+    start: usize,
+    end: usize,
+    height: f64,
+}
+
+/// A solved flow: the size each child is placed at, and the lines they pack into. Measure and
+/// place both go through this, so the two never disagree about where a line breaks.
+struct FlowPlan {
+    sizes: Vec<Size>,
+    lines: Vec<FlowLine>,
+}
+
+impl FlowLayout {
+    /// Pack natural sizes into lines under `max_w`. Unbounded → one line, the degenerate case
+    /// that keeps a flow inside a horizontal scroll behaving like a plain row.
+    fn pack(&self, sizes: &[Size], max_w: Option<f64>) -> Vec<FlowLine> {
+        let mut lines = Vec::new();
+        let mut start = 0;
+        let mut w = 0.0;
+        let mut h: f64 = 0.0;
+        for (i, s) in sizes.iter().enumerate() {
+            let grown = if i == start {
+                s.width
+            } else {
+                w + self.spacing + s.width
+            };
+            if i > start && max_w.is_some_and(|m| grown > m + 0.5) {
+                lines.push(FlowLine {
+                    start,
+                    end: i,
+                    height: h,
+                });
+                start = i;
+                w = s.width;
+                h = s.height;
+            } else {
+                w = grown;
+                h = h.max(s.height);
+            }
+        }
+        if start < sizes.len() {
+            lines.push(FlowLine {
+                start,
+                end: sizes.len(),
+                height: h,
+            });
+        }
+        lines
+    }
+
+    fn natural_sizes(cx: &mut dyn LayoutOps, kids: &[RNode]) -> Vec<Size> {
+        kids.iter()
+            .map(|&k| cx.measure_child(k, Proposal::UNCONSTRAINED))
+            .collect()
+    }
+
+    /// Solve the flow for an available width: ragged lines at natural widths, or — under
+    /// `uniform` — one column width for every cell with as many columns per line as fit.
+    fn plan(&self, cx: &mut dyn LayoutOps, kids: &[RNode], max_w: Option<f64>) -> FlowPlan {
+        let natural = Self::natural_sizes(cx, kids);
+        if !self.uniform {
+            let lines = self.pack(&natural, max_w);
+            return FlowPlan {
+                sizes: natural,
+                lines,
+            };
+        }
+        // The widest child sets the column, so no cell is ever narrower than its content.
+        let cell_w = natural.iter().map(|s| s.width).fold(0.0, f64::max);
+        let cols = match max_w {
+            // How many whole columns fit, counting the gutter between them; never zero, or a
+            // window narrower than one cell would produce no lines at all.
+            Some(m) if cell_w > 0.0 => {
+                (((m + self.spacing) / (cell_w + self.spacing)).floor() as usize).max(1)
+            }
+            // Unbounded (inside a horizontal scroll): one line, like a plain row.
+            _ => kids.len().max(1),
+        };
+        // Re-measure at the column width: a child handed more width than it asked for can
+        // settle shorter (a label unwrapping), and the line's height follows what it settles
+        // on rather than what it wanted.
+        let sizes: Vec<Size> = kids
+            .iter()
+            .map(|&k| {
+                let s = cx.measure_child(k, Proposal::new(Some(cell_w), None));
+                Size::new(cell_w, s.height)
+            })
+            .collect();
+        let mut lines = Vec::new();
+        let mut start = 0;
+        while start < sizes.len() {
+            let end = (start + cols).min(sizes.len());
+            let height = sizes[start..end]
+                .iter()
+                .map(|s| s.height)
+                .fold(0.0, f64::max);
+            lines.push(FlowLine { start, end, height });
+            start = end;
+        }
+        FlowPlan { sizes, lines }
+    }
+}
+
+impl Layout for FlowLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let mut kids = Vec::new();
+        StackLayout::flatten(cx, children, &mut kids);
+        if kids.is_empty() {
+            return Size::ZERO;
+        }
+        let plan = self.plan(cx, &kids, p.width);
+        let height = plan.lines.iter().map(|l| l.height).sum::<f64>()
+            + self.run_spacing * plan.lines.len().saturating_sub(1) as f64;
+        // Bounded → fill the proposal (lines pack leading inside it, like wrapped text);
+        // unbounded → the single packed line's own extent.
+        let width = p.width.unwrap_or_else(|| {
+            plan.sizes.iter().map(|s| s.width).sum::<f64>()
+                + self.spacing * plan.sizes.len().saturating_sub(1) as f64
+        });
+        Size::new(width, height)
+    }
+
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        let mut kids = Vec::new();
+        StackLayout::flatten(cx, children, &mut kids);
+        if kids.is_empty() {
+            return;
+        }
+        let plan = self.plan(cx, &kids, Some(bounds.size.width));
+        let mut y = 0.0;
+        for line in &plan.lines {
+            let mut x = 0.0;
+            let range = line.start..line.end;
+            for (&k, &s) in kids[range.clone()].iter().zip(&plan.sizes[range]) {
+                let dy = ((line.height - s.height) * self.align.fraction()).max(0.0);
+                cx.place_child(k, Rect::new(x, y + dy, s.width, s.height));
+                x += s.width + self.spacing;
+            }
+            y += line.height + self.run_spacing;
         }
     }
 }

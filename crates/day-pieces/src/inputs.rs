@@ -68,6 +68,11 @@ impl Piece for Picker {
             style,
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
+        // A menu-style picker's intrinsic size follows the SELECTED VALUE (the collapsed
+        // control renders it), so its selection patch must remeasure — without that the
+        // control keeps the width of the build-time value and ellipsizes anything longer.
+        // Segmented and inline render every option at once; selection moves a mark only.
+        let affects_size = matches!(initial.style, day_spec::props::PickerStyle::Menu);
         bind_seeded(
             initial.selected,
             move || selected.get(),
@@ -76,7 +81,7 @@ impl Piece for Picker {
                     t.patch(
                         node,
                         Box::new(day_spec::props::PickerPatch::Selected(*v)),
-                        false,
+                        affects_size,
                     )
                 });
             },

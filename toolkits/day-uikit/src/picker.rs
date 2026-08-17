@@ -67,6 +67,10 @@ impl PickerTarget {
 struct ViewState {
     buttons: Vec<Retained<UIButton>>, // inline rows
     menu_button: Option<Retained<UIButton>>,
+    /// The menu style's actions, in option order, so `update` can move the ✓ there too. A
+    /// UIMenu's children are immutable, so the selection change reattaches a fresh menu built
+    /// over these same actions (their handlers stay wired).
+    menu_actions: Vec<Retained<UIAction>>,
     options: Vec<String>,
     _target: Retained<PickerTarget>,
 }
@@ -141,9 +145,13 @@ fn make_inline(
     )
 }
 
-fn make_menu(mtm: MainThreadMarker, p: &PickerProps, node: NodeId) -> Retained<UIButton> {
+fn make_menu(
+    mtm: MainThreadMarker,
+    p: &PickerProps,
+    node: NodeId,
+) -> (Retained<UIButton>, Vec<Retained<UIAction>>) {
     let btn = UIButton::buttonWithType(objc2_ui_kit::UIButtonType::System, mtm);
-    let mut actions: Vec<Retained<UIMenuElement>> = Vec::new();
+    let mut actions: Vec<Retained<UIAction>> = Vec::new();
     for (i, opt) in p.options.iter().enumerate() {
         let handler = RcBlock::new(move |_action: core::ptr::NonNull<UIAction>| {
             crate::emit(node, Event::SelectionChanged(i as i64));
@@ -160,17 +168,26 @@ fn make_menu(mtm: MainThreadMarker, p: &PickerProps, node: NodeId) -> Retained<U
         if i == p.selected {
             action.setState(objc2_ui_kit::UIMenuElementState::On);
         }
-        actions.push(Retained::from(<UIAction as AsRef<UIMenuElement>>::as_ref(
-            &action,
-        )));
+        actions.push(action);
     }
-    let arr = NSArray::from_retained_slice(&actions);
-    let menu = UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm);
-    btn.setMenu(Some(&menu));
+    attach_menu(mtm, &btn, &actions);
     btn.setShowsMenuAsPrimaryAction(true);
     let title = p.options.get(p.selected).cloned().unwrap_or_default();
     btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
-    btn
+    (btn, actions)
+}
+
+/// (Re)attach a UIMenu built over `actions` — creation and every selection change go through
+/// here, because an attached menu is a snapshot: editing an action's state alone leaves an
+/// already-materialized menu showing the old ✓.
+fn attach_menu(mtm: MainThreadMarker, btn: &UIButton, actions: &[Retained<UIAction>]) {
+    let elems: Vec<Retained<UIMenuElement>> = actions
+        .iter()
+        .map(|a| Retained::from(<UIAction as AsRef<UIMenuElement>>::as_ref(a)))
+        .collect();
+    let arr = NSArray::from_retained_slice(&elems);
+    let menu = UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm);
+    btn.setMenu(Some(&menu));
 }
 
 fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
@@ -183,10 +200,14 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
             (v, b, None)
         }
         PickerStyle::Menu => {
-            let btn = make_menu(mtm, p, id);
+            let (btn, actions) = make_menu(mtm, p, id);
             let v = Retained::from(<UIButton as AsRef<UIView>>::as_ref(&btn));
-            (v, vec![], Some(btn))
+            (v, vec![], Some((btn, actions)))
         }
+    };
+    let (menu_button, menu_actions) = match menu_button {
+        Some((b, a)) => (Some(b), a),
+        None => (None, Vec::new()),
     };
     STATE.with(|t| {
         t.insert(
@@ -194,6 +215,7 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
             ViewState {
                 buttons,
                 menu_button,
+                menu_actions,
                 options: p.options.clone(),
                 _target: target,
             },
@@ -216,6 +238,18 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
             if let Some(btn) = &st.menu_button {
                 let title = st.options.get(i).cloned().unwrap_or_default();
                 btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
+                // Move the ✓ with the selection — without this the menu kept showing the
+                // build-time mark no matter what was picked since.
+                for (j, a) in st.menu_actions.iter().enumerate() {
+                    a.setState(if j == i {
+                        objc2_ui_kit::UIMenuElementState::On
+                    } else {
+                        objc2_ui_kit::UIMenuElementState::Off
+                    });
+                }
+                if !st.menu_actions.is_empty() {
+                    attach_menu(crate::mtm(), btn, &st.menu_actions);
+                }
             }
             for (j, b) in st.buttons.iter().enumerate() {
                 if let Some(img) = checkmark(j == i) {

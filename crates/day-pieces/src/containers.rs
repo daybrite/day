@@ -83,10 +83,46 @@ impl<C: PieceSeq> Piece for Column<C> {
     }
 }
 
+/// How a [`row`] treats content wider than the window it is in
+/// (docs/size-classes.md "Row fit policies").
+///
+/// A row's children negotiate one line; the fit policy is what happens when that line is
+/// wider than the space the row is given. Every policy keeps the same children and the same
+/// call shape — `row((…)).fit(…)` — so a page can move between them as its needs change.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum RowFit {
+    /// One line at natural sizes; what does not fit lands offscreen. The default, and the
+    /// right contract for a label beside a value. Debug builds log the overflow once per
+    /// container, naming the dayscript ids in reach.
+    #[default]
+    Clip,
+    /// Break onto additional lines where the next child would overflow, like wrapped text —
+    /// the shape a chip row or button strip wants. `run_spacing` is the vertical gap between
+    /// lines. Wrapping replaces main-axis negotiation, so `.grow()` and `spacer()` are inert.
+    Wrap { run_spacing: f64 },
+    /// Wrap into aligned COLUMNS rather than ragged lines: every cell takes the widest
+    /// child's width, and each line holds as many as the window fits. The tidier arm of
+    /// [`Wrap`](RowFit::Wrap) — same wrapping, but the lines stack into a grid, which is what
+    /// a set of peer choices (a keypad, a palette, evenly-weighted chips) wants. The column
+    /// count follows the available width; an authored, fixed column count with per-cell spans
+    /// is [`grid`]'s job instead (docs/grid.md).
+    WrapColumns { run_spacing: f64 },
+    /// Re-arrange into a leading-aligned column while the window's [`WidthClass`] is at or
+    /// below the given one — the shape a label-plus-control-plus-result line wants, where
+    /// wrapping members independently would tear apart what reads as one sentence. The
+    /// `size_class()` read is tracked, so crossing the breakpoint re-arranges it live; app
+    /// state lives in signals and survives the rebuild.
+    ColumnAt(day_spec::WidthClass),
+    /// Keep the single line and make it a horizontal scroll strip instead of clipping. The
+    /// strip stays one row tall and fills the width it is given.
+    Scroll,
+}
+
 pub struct Row<C: PieceSeq> {
     children: C,
     spacing: f64,
     align: CrossAlign,
+    fit: RowFit,
 }
 
 pub fn row<C: PieceSeq>(children: C) -> Row<C> {
@@ -94,6 +130,7 @@ pub fn row<C: PieceSeq>(children: C) -> Row<C> {
         children,
         spacing: 0.0,
         align: CrossAlign::Center,
+        fit: RowFit::Clip,
     }
 }
 
@@ -111,23 +148,89 @@ impl<C: PieceSeq> Row<C> {
         };
         self
     }
+    /// What happens when the children outgrow the row's width (docs/size-classes.md).
+    pub fn fit(mut self, fit: RowFit) -> Self {
+        self.fit = fit;
+        self
+    }
 }
 
-impl<C: PieceSeq> Piece for Row<C> {
-    fn build(self, cx: &mut BuildCx) -> RNode {
+impl<C: PieceSeq> Row<C> {
+    /// The plain one-line container every policy bottoms out in.
+    fn build_line(self, cx: &mut BuildCx, axis: Axis, align: CrossAlign) -> RNode {
         let node = cx.native(
             kinds::CONTAINER,
             &ContainerProps::default(),
             Rc::new(StackLayout {
-                axis: Axis::Horizontal,
+                axis,
                 spacing: self.spacing,
-                align: self.align,
+                align,
             }),
             Flex::default(),
             Boundary::No,
         );
         cx.under(node, |cx| self.children.build_each(cx));
         node
+    }
+}
+
+impl<C: PieceSeq> Piece for Row<C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        match self.fit {
+            RowFit::Clip => {
+                let align = self.align;
+                self.build_line(cx, Axis::Horizontal, align)
+            }
+            RowFit::Wrap { run_spacing } | RowFit::WrapColumns { run_spacing } => {
+                let node = cx.native(
+                    kinds::CONTAINER,
+                    &ContainerProps::default(),
+                    Rc::new(FlowLayout {
+                        spacing: self.spacing,
+                        run_spacing,
+                        align: self.align,
+                        uniform: matches!(self.fit, RowFit::WrapColumns { .. }),
+                    }),
+                    Flex::default(),
+                    Boundary::No,
+                );
+                cx.under(node, |cx| self.children.build_each(cx));
+                node
+            }
+            RowFit::ColumnAt(limit) => {
+                let stacked = size_class().is_some_and(|c| c.width <= limit);
+                if stacked {
+                    // Leading, not centered: stacked, these read as a control and the line
+                    // it produced, and a centered member floats away from what it belongs to.
+                    self.build_line(cx, Axis::Vertical, CrossAlign::Leading)
+                } else {
+                    let align = self.align;
+                    self.build_line(cx, Axis::Horizontal, align)
+                }
+            }
+            RowFit::Scroll => {
+                // The row keeps its natural one-line measure inside a horizontal scroll
+                // viewport. `grow_h` stays OFF — the strip is as tall as the row, not as
+                // tall as whatever pane it happens to sit in.
+                let strip = cx.native(
+                    kinds::SCROLL,
+                    &day_spec::props::ScrollProps { horizontal: true },
+                    Rc::new(ScrollLayout {
+                        axis: Axis::Horizontal,
+                    }),
+                    Flex {
+                        grow_w: true,
+                        ..Default::default()
+                    },
+                    Boundary::Yes, // scroll viewports are layout boundaries (§7.4)
+                );
+                cx.under(strip, |cx| {
+                    let align = self.align;
+                    let _ = self.build_line(cx, Axis::Horizontal, align);
+                });
+                strip
+            }
+        }
     }
 }
 
