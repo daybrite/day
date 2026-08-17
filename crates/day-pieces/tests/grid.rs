@@ -90,7 +90,7 @@ fn grid_flexible_column_shares_leftover() {
         .any()
     });
     // A shape grows on both axes, so col1 is flexible: 400 (window) − 32 (col0) = 368. The
-    // grow_h cell stretches to the row height set by its 16pt neighbour.
+    // grow_h cell stretches to the row height set by its 16pt neighbor.
     let canvas = &probe.find_by_kind("day.canvas")[0].1;
     assert_eq!(canvas.frame, Rect::new(32.0, 0.0, 368.0, 16.0));
     // A rigid cell in the flexible column keeps its own width.

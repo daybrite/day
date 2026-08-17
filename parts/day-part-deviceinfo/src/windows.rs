@@ -3,7 +3,7 @@
 
 // Windows: RtlGetVersion (ntdll) fills an OSVERSIONINFOW with the REAL running version — unlike the
 // Win32 GetVersionExW, which lies (reports 6.2 for Windows 8+) unless the app ships a compatibility
-// manifest. RtlGetVersion is the documented driver-facing escape hatch and honours no manifest, so it
+// manifest. RtlGetVersion is the documented driver-facing escape hatch and honors no manifest, so it
 // is the reliable choice here. Raw FFI — no dependencies. Written blind (no Windows host); compiled
 // only on the windows target. There is no simulator concept on desktop Windows.
 

@@ -429,7 +429,7 @@ fn take_slot(
     stock(role)
 }
 
-/// The slot's standard name in the current locale — the same catalog key a stock menu is labelled
+/// The slot's standard name in the current locale — the same catalog key a stock menu is labeled
 /// from, so an app's "Edit" matches in English and its "Édition" matches under `--locale fr`.
 fn role_title(role: day_spec::MenuBarRole) -> Option<String> {
     use day_spec::MenuBarRole as B;

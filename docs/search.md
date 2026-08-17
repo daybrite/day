@@ -52,7 +52,7 @@ This is the same move SwiftUI made with `.searchable()`, for the same reason.
 ## Placement is a preference, not an instruction
 
 `SearchPlacement::{Automatic, Toolbar, Inline}` asks; it does not command. A backend that cannot
-honour the request falls back to its platform's own convention — exactly as SwiftUI documents
+honor the request falls back to its platform's own convention — exactly as SwiftUI documents
 ("depending on the containing view hierarchy and platform, the requested placement may not be able
 to be fulfilled"). `Automatic` is almost always the right answer: it is what lets the field live in
 the toolbar on a desktop window and move into the navigation list on a phone.
@@ -78,7 +78,7 @@ Each platform's own convention, not one gesture forced onto all of them.
 
 Android has **no** `hidesSearchBarWhenScrolling` equivalent, and that is deliberate on Material's
 part: `SearchBar` supports fixed / scroll-away / lift-on-scroll through `CoordinatorLayout`
-behaviours, but scroll-away hides on scroll DOWN and returns on scroll UP — there is no
+behaviors, but scroll-away hides on scroll DOWN and returns on scroll UP — there is no
 pull-past-the-top reveal. Forcing the iOS gesture onto Android would make a Day app the only one on
 the device that behaves that way.
 

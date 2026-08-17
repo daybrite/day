@@ -49,7 +49,7 @@ pub(crate) fn capabilities() -> Capabilities {
         schedule_while_dead: available,
         // The one platform with a real user-facing channel model.
         channels: available,
-        // `setNumber` is honoured only by launchers that draw badges, so this is the platform
+        // `setNumber` is honored only by launchers that draw badges, so this is the platform
         // saying "supported", not a promise that every launcher shows it.
         badge: available,
         icon: available,
@@ -67,7 +67,7 @@ fn importance_value(i: Importance) -> i32 {
         Importance::Min => 1,     // IMPORTANCE_MIN
         Importance::Low => 2,     // IMPORTANCE_LOW
         Importance::Default => 3, // IMPORTANCE_DEFAULT
-        // There is no level above HIGH; Urgent differs from High only in interruption behaviour,
+        // There is no level above HIGH; Urgent differs from High only in interruption behavior,
         // which on Android is a full-screen intent this phase does not use.
         Importance::High | Importance::Urgent => 4, // IMPORTANCE_HIGH
     }

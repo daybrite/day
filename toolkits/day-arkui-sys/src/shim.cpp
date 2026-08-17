@@ -428,7 +428,7 @@ void day_ark_label_runs_add(void* n, const char* text, int flags, uint32_t argb)
     }
     if (flags & 4) set_str(span, NODE_FONT_FAMILY, "HarmonyOS Sans Mono, monospace");
     if (flags & 8) {
-        // Decoration takes {type, colour, style}; the colour slot repeats the text colour so the
+        // Decoration takes {type, color, style}; the color slot repeats the text color so the
         // line matches the glyphs.
         ArkUI_NumberValue v[] = {{.i32 = ARKUI_TEXT_DECORATION_TYPE_LINE_THROUGH},
                                  {.u32 = (flags & 16) ? argb : 0xFF000000u}};
@@ -627,7 +627,7 @@ void day_ark_measure(void* n, double max_w, double max_h, double* out_w, double*
 
 // First text baseline from the node's top, in vp, for a box `box_h` tall (docs/baseline.md).
 // The ArkUI C API exposes no baseline: NODE_FONT_SIZE is the only type metric a native node will
-// answer, so this centres one line box of that font in the node's height and puts the baseline an
+// answer, so this centers one line box of that font in the node's height and puts the baseline an
 // ascent below its top — the same model the Qt and XAML shims use. `-1` ⇒ the node carries no
 // font attribute, which is how a container or an image opts out.
 double day_ark_baseline(void* n, double box_h) {

@@ -247,7 +247,7 @@ mod imp {
     /// Route the process's stdout (fd 1) and stderr (fd 2) into logcat under the tag
     /// `Day` — Android sends both to /dev/null otherwise, so `println!`/`eprintln!`
     /// (and Rust panics) would be invisible. stdout logs at INFO, stderr at ERROR, so
-    /// the `Day` CLI can colour them apart. Idempotent; safe to call once at startup.
+    /// the `Day` CLI can color them apart. Idempotent; safe to call once at startup.
     pub fn redirect_stdio_to_logcat() {
         static DONE: OnceLock<()> = OnceLock::new();
         if DONE.set(()).is_err() {
@@ -762,7 +762,7 @@ mod imp {
     /// visible `⟨method⟩` placeholder label stands in, so one broken view cannot take down
     /// the whole tree build. [`try_make_view`] is the fallible form for callers that want
     /// to handle the failure themselves.
-    /// Pack a colour the way `android.graphics.Color` wants it (`0xAARRGGBB`, as a signed int).
+    /// Pack a color the way `android.graphics.Color` wants it (`0xAARRGGBB`, as a signed int).
     pub fn argb(c: day_spec::Color) -> i32 {
         let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
         ((f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)) as i32
@@ -2220,7 +2220,7 @@ mod imp {
                     if let Some(day_spec::props::ImagePatch::Tint(c)) =
                         patch.downcast_ref::<day_spec::props::ImagePatch>()
                     {
-                        // Drawable tint, as at realize (docs/vectors.md); 0 = authored colours.
+                        // Drawable tint, as at realize (docs/vectors.md); 0 = authored colors.
                         let tint = c.map(argb_i32).unwrap_or(0);
                         with_env(|env| {
                             let _ = env.dcall_static(
@@ -3203,7 +3203,7 @@ mod imp {
         fn locale_hints(&self) -> Vec<String> {
             // The device's ordered language preference, which is the ambient locale Day
             // negotiates its catalogs against (§12.2, docs/localization.md). Comma-joined on the
-            // Java side because a `String[]` return would need array marshalling for a list that
+            // Java side because a `String[]` return would need array marshaling for a list that
             // is never more than a handful of tags.
             if !vm_ready() {
                 return Vec::new();

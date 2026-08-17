@@ -37,13 +37,13 @@ trap 'rm -f "$hdr" "$after"' EXIT
 cat > "$hdr" <<'CSS'
 <style>
   .day-api-bar{position:fixed;right:16px;bottom:16px;z-index:1000;
-    padding:.42rem .8rem;background:#201512;border:1px solid #B7410E;border-radius:999px;
+    padding:.42rem .8rem;background:#123246;border:1px solid #E8541C;border-radius:999px;
     display:flex;align-items:center;gap:.55rem;box-shadow:0 2px 12px rgba(0,0,0,.45);
     font:600 .8rem/1 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;}
-  .day-api-bar a{color:#EFA94A;text-decoration:none;}
+  .day-api-bar a{color:#FFD84D;text-decoration:none;}
   .day-api-bar a:hover{text-decoration:underline;}
-  .day-api-bar .day-api-home{color:#EFA94A;font-weight:800;letter-spacing:-.01em;}
-  .day-api-bar .sep{color:#B7410E;}
+  .day-api-bar .day-api-home{color:#FFD84D;font-weight:800;letter-spacing:-.01em;}
+  .day-api-bar .sep{color:#E8541C;}
   @media (max-width:700px){.day-api-bar{display:none;}}
 </style>
 CSS

@@ -68,7 +68,7 @@ so it works on a whole label (`label("…").monospace()`) as well as on a run.
 | `.strong(s)` | bold |
 | `.emphasis(s)` | italic |
 | `.code(s)` | the fixed-pitch face |
-| `.colored(s, c)` | a colour |
+| `.colored(s, c)` | a color |
 | `.strikethrough(s)` | struck through |
 | `.link(s, url)` | drawn as a link (see below) |
 

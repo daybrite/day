@@ -90,6 +90,24 @@ jobs:
           # versions sat on main for four days, breaking only `--workspace` builds.
           cargo clippy --locked -p day-cli -p day-script -p day-lite --all-targets
 
+  # Spelling + the American-English rule (STYLE_GUIDE.md), enforced by `typos` over the whole
+  # tree — prose, doc comments, and code comments alike. It is a spelling gate and a dialect gate
+  # at once: typos.toml sets `locale = "en-us"`, which is what makes a British variant a finding
+  # rather than a matter of taste. The mixed state this replaced had 355 of them, and the reason
+  # was drift rather than disagreement — nobody decides a dialect one comment at a time.
+  #
+  # Every exception is a named entry in typos.toml with a reason beside it, so the allow-list
+  # reads as decisions rather than as noise someone silenced. Run `typos` locally to reproduce
+  # this job exactly; `typos --write-changes` applies what it can fix on its own.
+  spelling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Pinned rather than floating on @master: the dictionary ships inside the action, so an
+      # unpinned bump turns this job red on a commit that changed nothing. Keep it in step with
+      # whatever `typos --version` reports locally, or the two disagree about what a word is.
+      - uses: crate-ci/typos@v1.49.0
+
   duty-matrix-drift:
     runs-on: ubuntu-latest
     steps:

@@ -1880,7 +1880,7 @@ fn reactive_background_patches_the_surface() {
     );
 }
 
-// `grow_w` makes the surface fill the offered width (a filling pane) — the layout honours Flex.
+// `grow_w` makes the surface fill the offered width (a filling pane) — the layout honors Flex.
 #[test]
 fn grow_w_fills_the_available_width() {
     let probe = boot(|| row((label("a").background(Color::hex(0x222222)).grow_w(),)).any());
@@ -1956,7 +1956,7 @@ fn shape_tap_enables_gesture_and_hit_tests_the_path() {
         "shape must enable the Tap gesture"
     );
     let node = node_id(&probe, "day.canvas", 0);
-    // Centre of the 100×100 frame is inside the inscribed circle → fires.
+    // Center of the 100×100 frame is inside the inscribed circle → fires.
     probe.emit(node, Event::Tap(Point::new(50.0, 50.0)));
     flush_sync();
     assert_eq!(taps.get(), 1);
@@ -1991,7 +1991,7 @@ fn shape_fill_rebinds_reactively() {
     flush_sync();
     assert!(
         red(&probe),
-        "fill colour must re-record when its signal flips"
+        "fill color must re-record when its signal flips"
     );
 }
 
@@ -2497,7 +2497,7 @@ fn modifier_closure_wraps_the_piece() {
 }
 
 #[test]
-fn a_tint_picks_a_readable_label_colour() {
+fn a_tint_picks_a_readable_label_color() {
     use day_spec::props::ButtonStyleSpec as S;
     // The showcase palette, which is what this rule is judged on in practice.
     assert_eq!(S::on_tint(Color::hex(0x2F6FDE)), Color::WHITE, "sky");
@@ -2508,7 +2508,7 @@ fn a_tint_picks_a_readable_label_colour() {
     assert_eq!(S::on_tint(Color::hex(0xF0A64C)), Color::BLACK, "amber");
     assert_eq!(S::on_tint(Color::WHITE), Color::BLACK);
     assert_eq!(S::on_tint(Color::BLACK), Color::WHITE);
-    // Either choice must clear WCAG AA for large text (3:1) on every colour above.
+    // Either choice must clear WCAG AA for large text (3:1) on every color above.
     for hex in [0x2F6FDE, 0xC2491D, 0x7C5CD6, 0xF0A64C, 0x3AA76D] {
         let fill = Color::hex(hex);
         let lin = |c: f64| {
@@ -2531,7 +2531,7 @@ fn a_tint_picks_a_readable_label_colour() {
     }
 }
 
-/// The invariant: `button()` ALWAYS realizes a native button leaf. A tint changes its colour and
+/// The invariant: `button()` ALWAYS realizes a native button leaf. A tint changes its color and
 /// nothing else — it must never be composed into a container with a tap handler, which would
 /// cost the platform's focus ring, its pressed rendering and its accessibility role.
 #[test]

@@ -11,7 +11,7 @@ description: "The button piece and its styles on every backend, from plain to pr
 ```rust
 button("Save").action(save)                 // the platform's ordinary button
 button("Save").prominent().action(save)     // its accent / default-action button
-button("Delete").tint(RUST).action(delete)  // filled in a colour you choose
+button("Delete").tint(RUST).action(delete)  // filled in a color you choose
 button("Send").enabled(move || !busy.get()) // the platform's own disabled rendering
 ```
 
@@ -20,7 +20,7 @@ button("Send").enabled(move || !busy.get()) // the platform's own disabled rende
 `button()` realizes the platform's own button control on every backend, whatever modifiers it
 carries. It is never composed into a container with a tap handler.
 
-This is not a style preference. A native button carries a large amount of behaviour an app would
+This is not a style preference. A native button carries a large amount of behavior an app would
 have to reimplement, badly, one platform at a time:
 
 - **Focus and keyboard.** Tab order, the focus ring, Space and Enter activation, and on macOS the
@@ -30,11 +30,11 @@ have to reimplement, badly, one platform at a time:
 - **Pressed and hover rendering.** Every platform's own timing and treatment — Material's ripple,
   UIKit's dimming, AppKit's bezel highlight, the `:active` state on the web.
 - **Platform subtleties.** Pointer effects on iPadOS, the Windows focus rectangle, right-to-left
-  mirroring, high-contrast and reduced-motion behaviour, minimum hit targets.
+  mirroring, high-contrast and reduced-motion behavior, minimum hit targets.
 
-So when a backend cannot honour a modifier, it **ignores that modifier** and still draws a button.
+So when a backend cannot honor a modifier, it **ignores that modifier** and still draws a button.
 It never substitutes something that is not one. A plain button on one platform is a much smaller
-loss than a coloured rectangle that no longer behaves like a button anywhere.
+loss than a colored rectangle that no longer behaves like a button anywhere.
 
 ## Styles
 
@@ -43,16 +43,16 @@ loss than a coloured rectangle that no longer behaves like a button anywhere.
 | *(none)* | The platform's ordinary button |
 | `.bordered()` | A visually contained button where the stock look is borderless (iOS's plain button reads as a link) |
 | `.prominent()` | The platform's accent / default-action button |
-| `.tint(color)` | A filled button in an app-chosen colour |
+| `.tint(color)` | A filled button in an app-chosen color |
 
 `.tint()` wins over `.bordered()` and `.prominent()`, being the more specific ask. It takes a
-reactive colour, so a button can recolour with app state without being rebuilt:
+reactive color, so a button can recolour with app state without being rebuilt:
 
 ```rust
 button("Record").tint(move || if recording.get() { RUST } else { SLATE })
 ```
 
-The **label colour is not yours to set**: `ButtonStyleSpec::on_tint` picks whichever of black or
+The **label color is not yours to set**: `ButtonStyleSpec::on_tint` picks whichever of black or
 white contrasts better against the fill, by WCAG's contrast ratio. A pale amber gets dark text and
 a saturated navy gets white, with nothing said at the call site.
 
@@ -66,18 +66,18 @@ where black would be 9.7:1. The two ratios cross at 0.179, not 0.5.
 | --- | --- | --- |
 | AppKit | return-key default button | `bezelColor` + an attributed title (see below) |
 | UIKit | `borderedProminent` configuration | `filled` configuration + `baseBackgroundColor` |
-| GTK | `suggested-action` | a per-colour CSS class on the display's provider |
+| GTK | `suggested-action` | a per-color CSS class on the display's provider |
 | Qt | `setDefault` (styles vary) | a stylesheet with explicit `:hover`/`:pressed`/`:disabled` |
 | Android | the stock M3 filled button | `backgroundTint` on the `MaterialButton` |
 | ArkUI | the stock filled capsule | `NODE_BACKGROUND_COLOR` + `NODE_FONT_COLOR` |
 | XAML | `AccentButtonStyle` where the resource set has it | `Background` + `Foreground` |
-| web-dom | `.day-btn.prominent` | `.day-btn.tinted` with the colour in a CSS variable |
+| web-dom | `.day-btn.prominent` | `.day-btn.tinted` with the color in a CSS variable |
 
 Three honest caveats:
 
-**AppKit** colours the label through an ATTRIBUTED title rather than `contentTintColor`. On a
+**AppKit** colors the label through an ATTRIBUTED title rather than `contentTintColor`. On a
 bordered `NSButton`, `contentTintColor` tints template images and AppKit keeps drawing the title
-in its own control text colour — which rendered white-on-rust as black-on-rust. The consequence
+in its own control text color — which rendered white-on-rust as black-on-rust. The consequence
 is that `ButtonPatch::Title` has to re-apply the attributed title, so the backend remembers each
 button's style to do that.
 

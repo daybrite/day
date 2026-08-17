@@ -58,7 +58,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
      pixels of slack on a narrow tile and never overflows. */
   --chrome-h: 31px; /* .sh-chrome height + its bottom border */
   /* No fallback for --shell-h on purpose: unset makes the calc invalid, the declaration drops,
-     and the width falls back to `auto` — the old shrink-wrap behaviour — rather than resolving a
+     and the width falls back to `auto` — the old shrink-wrap behavior — rather than resolving a
      percentage against the WIDTH of the containing block, which would be silently wrong. */
   width: min(100%, calc((var(--shell-h) - var(--chrome-h)) * var(--ar)));
 }
@@ -159,7 +159,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   justify-content: center;
   background: rgba(0, 0, 6, 0.08);
 }
-/* A drawn cross, shared by both shells: at 9px a glyph renders soft and sits off-centre. */
+/* A drawn cross, shared by both shells: at 9px a glyph renders soft and sits off-center. */
 .b-close { display: block; position: relative; width: calc(9 * var(--sh-u)); height: calc(9 * var(--sh-u)); }
 .b-close::before,
 .b-close::after {
@@ -188,7 +188,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 .c-gnome { background: #ffffff; color: rgba(0, 0, 6, 0.8); border-bottom-color: rgba(0, 0, 6, 0.12); }
 .sh-win[data-dark] .c-gnome { background: #2e2e32; color: #ffffff; border-bottom-color: rgba(0, 0, 6, 0.36); }
 .sh-win[data-dark] .c-gnome .sh-gbtn { background: rgba(255, 255, 255, 0.1); }
-/* Breeze's [WM] activeBackground/activeForeground, from the shipped colour schemes. The old
+/* Breeze's [WM] activeBackground/activeForeground, from the shipped color schemes. The old
    #eff0f1 was Breeze's INACTIVE titlebar (and its window background), so every window read as
    unfocused. https://invent.kde.org/plasma/breeze/-/blob/master/colors/ */
 .c-kde { background: #e3e5e7; color: #232629; border-bottom-color: rgba(0, 0, 0, 0.1); }

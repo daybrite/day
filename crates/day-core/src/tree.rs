@@ -438,7 +438,7 @@ impl<B: Toolkit> Tree<B> {
             if let Some(h) = data.handle {
                 // …but a cell anchor's handle is NOT day's to free: it is the native list host's
                 // own cell, borrowed through `adopt` (§15.3), and the host frees its cell pool
-                // when IT is released. Queueing it here deletes it a second time — heap
+                // when IT is released. Queuing it here deletes it a second time — heap
                 // corruption on the raw-pointer backends (xaml/qt). Dropping the handle still
                 // balances whatever `adopt` retained (AppKit/UIKit/GTK/Android refcounts).
                 if data.kind != kinds::LIST_CELL {

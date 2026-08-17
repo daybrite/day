@@ -1,8 +1,8 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
-// The Day mark: an "Ember Dawn" rising sun — a rust→amber gradient dome under amber rays on a
-// charcoal ground, the same icon the Showcase app uses (master art: daybrite/Day-Showcase icons/day-icon.svg).
+// The Day mark: a "Dawn Sky" rising sun — a rust→marigold gradient dome under marigold rays on a
+// teal-blue ground, the same icon the Showcase app uses (master art: daybrite/Day-Showcase icons/day-icon.svg).
 // Inline SVG so it stays crisp at any size and needs no network request. `gid` keeps the gradient id
 // unique per instance (the mark renders several times per page, and a shared id would cross-wire them).
 interface Props { size?: number; class?: string }
@@ -20,13 +20,13 @@ const gid = 'daygrad-' + Math.random().toString(36).slice(2, 8);
 >
   <defs>
     <linearGradient id={gid} x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0" stop-color="#B7410E" />
-      <stop offset="1" stop-color="#EFA94A" />
+      <stop offset="0" stop-color="#E8541C" />
+      <stop offset="1" stop-color="#FFD84D" />
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="120" height="120" rx="27" fill="#201512" />
+  <rect x="0" y="0" width="120" height="120" rx="27" fill="#123246" />
   <!-- amber rays, alternating long/short -->
-  <g stroke="#EFA94A" stroke-width="6" stroke-linecap="round">
+  <g stroke="#FFD84D" stroke-width="6" stroke-linecap="round">
     <line x1="60" y1="48" x2="60" y2="30" />
     <line x1="60" y1="48" x2="60" y2="40" transform="rotate(20 60 78)" />
     <line x1="60" y1="48" x2="60" y2="40" transform="rotate(-20 60 78)" />
@@ -39,6 +39,6 @@ const gid = 'daygrad-' + Math.random().toString(36).slice(2, 8);
   </g>
   <!-- gradient dome + two ember horizon lines -->
   <path d="M38 78 A22 22 0 0 1 82 78 Z" fill={`url(#${gid})`} stroke={`url(#${gid})`} stroke-width="5" stroke-linejoin="round" />
-  <line x1="28" y1="90" x2="92" y2="90" stroke="#D95B29" stroke-width="4" stroke-linecap="round" />
-  <line x1="38" y1="98" x2="82" y2="98" stroke="#D95B29" stroke-width="4" stroke-linecap="round" />
+  <line x1="28" y1="90" x2="92" y2="90" stroke="#FF8A3C" stroke-width="4" stroke-linecap="round" />
+  <line x1="38" y1="98" x2="82" y2="98" stroke="#FF8A3C" stroke-width="4" stroke-linecap="round" />
 </svg>

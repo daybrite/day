@@ -175,7 +175,7 @@ public final class DayBridge {
      * The device's ordered language preference as BCP-47 tags, comma-joined ("fr-FR,en-US").
      *
      * The CONFIGURATION's list, not `Locale.getDefault()`: it carries every language the user
-     * ranked in Settings, and it honours a per-app language override (Android 13+). Day negotiates
+     * ranked in Settings, and it honors a per-app language override (Android 13+). Day negotiates
      * its catalogs against the whole list (docs/localization.md).
      */
     public static String localeTags() {
@@ -554,7 +554,7 @@ public final class DayBridge {
                 // A ClickableSpan rather than a URLSpan: the target goes back to Rust, so the
                 // app's `.on_link()` decides (route in-app, confirm, open) instead of Android
                 // firing an implicit VIEW intent behind Day's back. It keeps URLSpan's own
-                // rendering — accent colour and underline — from updateDrawState.
+                // rendering — accent color and underline — from updateDrawState.
                 final String target = links[i];
                 s.setSpan(new android.text.style.ClickableSpan() {
                     @Override public void onClick(View widget) {
@@ -567,7 +567,7 @@ public final class DayBridge {
         tv.setText(s);
         // Clicks on spans need a movement method. It is set ONLY when a link is present: it
         // replaces the selection movement method, so a selectable label without links keeps
-        // its selection behaviour intact (docs/text-runs.md).
+        // its selection behavior intact (docs/text-runs.md).
         if (anyLink) {
             tv.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         }
@@ -1175,7 +1175,7 @@ public final class DayBridge {
             row.setPadding((int) (16 * d), 0, (int) (16 * d), 0);
             row.setBackgroundResource(tv.resourceId);
             row.setClickable(true);
-            // Leading icon: a template glyph tinted to the row's text colour (so it reads in light
+            // Leading icon: a template glyph tinted to the row's text color (so it reads in light
             // and dark), 24dp, with padding before the label — the Material nav-drawer idiom.
             String iconName = i < icons.length ? icons[i] : "";
             android.graphics.drawable.Drawable icon = drawableByName(ctx, iconName);
@@ -1198,7 +1198,7 @@ public final class DayBridge {
     }
 
     /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted —
-     *  the row keeps its text-colour template tint). Best-effort by design: called AFTER
+     *  the row keeps its text-color template tint). Best-effort by design: called AFTER
      *  makeNavMenu/updateNavMenu so a failure here can never abort the native tree build. */
     public static void setNavMenuTints(View navMenu, String joinedTints) {
         try {
@@ -1222,7 +1222,7 @@ public final class DayBridge {
     }
 
     /** Per-row trailing status glyphs (docs/navigation.md) — a starred page's star. Index-aligned
-     *  names ("" = none) with matching ARGB tints ("0" = keep the row's text-colour template
+     *  names ("" = none) with matching ARGB tints ("0" = keep the row's text-color template
      *  tint). The glyph goes in the compound drawable's END slot, so the row needs no new layout
      *  and the label still ellipsizes into what is left.
      *
@@ -1571,7 +1571,7 @@ public final class DayBridge {
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {
         ((DayCanvasView) v).setOps(nums, textsJoined);
     }
-    /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colours. */
+    /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colors. */
     public static void setImageTint(View v, int tint) {
         if (!(v instanceof android.widget.ImageView)) {
             return;

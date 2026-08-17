@@ -1,12 +1,12 @@
 <svg width="48" height="48" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="g" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0" stop-color="#B7410E"/>
-      <stop offset="1" stop-color="#EFA94A"/>
+      <stop offset="0" stop-color="#E8541C"/>
+      <stop offset="1" stop-color="#FFD84D"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="120" height="120" rx="27" fill="#201512"/>
-  <g stroke="#EFA94A" stroke-width="6" stroke-linecap="round">
+  <rect x="0" y="0" width="120" height="120" rx="27" fill="#123246"/>
+  <g stroke="#FFD84D" stroke-width="6" stroke-linecap="round">
     <line x1="60" y1="48" x2="60" y2="30"/>
     <line x1="60" y1="48" x2="60" y2="40" transform="rotate(20 60 78)"/>
     <line x1="60" y1="48" x2="60" y2="40" transform="rotate(-20 60 78)"/>
@@ -18,6 +18,6 @@
     <line x1="60" y1="48" x2="60" y2="30" transform="rotate(-80 60 78)"/>
   </g>
   <path d="M38 78 A22 22 0 0 1 82 78 Z" fill="url(#g)" stroke="url(#g)" stroke-width="5" stroke-linejoin="round"/>
-  <line x1="28" y1="90" x2="92" y2="90" stroke="#D95B29" stroke-width="4" stroke-linecap="round"/>
-  <line x1="38" y1="98" x2="82" y2="98" stroke="#D95B29" stroke-width="4" stroke-linecap="round"/>
+  <line x1="28" y1="90" x2="92" y2="90" stroke="#FF8A3C" stroke-width="4" stroke-linecap="round"/>
+  <line x1="38" y1="98" x2="82" y2="98" stroke="#FF8A3C" stroke-width="4" stroke-linecap="round"/>
 </svg>

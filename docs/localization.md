@@ -75,7 +75,7 @@ translated:
 # TODO: translate — 6 starter string(s) translated; the rest copied from en/ by `day localize add ja-JP`.
 ```
 
-A tag the table does not carry simply gets the English copy, so the fallback is the old behaviour
+A tag the table does not carry simply gets the English copy, so the fallback is the old behavior
 rather than a failure.
 
 ## Checked keys: `res::str::…()` (§18.5)
@@ -211,7 +211,7 @@ no separate rule: `canvas &` matches "Canvas & shapes".
 > Matching is on **case** only. `é` does not match `e`, and `ä` does not match `a`. Accent-
 > insensitive search would mean comparing at the collator's primary strength, which is a
 > different (and slower) operation than a prefix test; it is a possible follow-up, not a
-> current behaviour.
+> current behavior.
 
 The segmenter's `auto` models are the reason this section's data footprint is not free. See the
 next section.
@@ -231,7 +231,7 @@ on individual icu4x components rather than the `icu` meta-crate.
 (2026-08: removed). Thinning saved those 650 KB per app, and cost the CLI 57% of its dependency
 graph, 19% of its compile time, and 2 MB of its own binary — a wasm interpreter among them, to
 run one trie builder. An app that needs the smaller data can still bake its own directory and set
-`ICU4X_DATA_DIR`, which icu4x honours directly.
+`ICU4X_DATA_DIR`, which icu4x honors directly.
 
 ## Which language an app opens in
 
@@ -243,7 +243,7 @@ The initial locale is the first of these that the app can actually serve:
 2. **A host override** — web-dom's `?locale=` query parameter, set by the page glue.
 3. **The device's own language preference**, in the user's ranked order. Each backend reports it
    through `Toolkit::locale_hints`: `NSLocale.preferredLanguages` on iOS and macOS, the
-   configuration's `LocaleList` on Android (which honours a per-app language override), the
+   configuration's `LocaleList` on Android (which honors a per-app language override), the
    browser's languages on the web, `LANGUAGE`/`LC_ALL`/`LC_MESSAGES`/`LANG` on Linux.
 4. **The catalog default** passed to `install`.
 

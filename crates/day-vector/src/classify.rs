@@ -104,7 +104,7 @@ pub fn extract_variant(xml: &str, weight: &str, scale: &str) -> Result<String, S
     let tree = crate::parse(probe.as_bytes())?;
     let b = crate::content_bbox(&tree).ok_or("the variant renders no content")?;
 
-    // Pad, then square around the centre.
+    // Pad, then square around the center.
     let pad = 0.06 * b.width().max(b.height());
     let (w, h) = (b.width() + 2.0 * pad, b.height() + 2.0 * pad);
     let edge = w.max(h);

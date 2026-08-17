@@ -5,8 +5,8 @@
          own nav/toolbar chrome). Requires com.google.android.material. -->
     <style name="AppTheme" parent="Theme.Material3Expressive.DayNight.NoActionBar">
         <!-- Status bar: the app's own surface, with icons in the matching polarity. Left at the
-             Material default it paints colorPrimary, which reads as a coloured band above a
-             surface-coloured app bar in light and clashes outright in dark, where primary is a
+             Material default it paints colorPrimary, which reads as a colored band above a
+             surface-colored app bar in light and clashes outright in dark, where primary is a
              pale tone. Both attributes resolve per scheme (?attr/isLightTheme is true in the day
              half of DayNight), so one declaration covers both. Android 15+ (targetSdk 35) forces
              edge-to-edge and ignores statusBarColor — there the window background shows through

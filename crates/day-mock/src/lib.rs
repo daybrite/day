@@ -100,7 +100,7 @@ pub struct MockState {
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
     /// `Cap::NavSplit` answers `Native` — the harness for split and re-presenting nav hosts
-    /// (docs/size-classes.md). Off by default, so the mock keeps modelling a phone.
+    /// (docs/size-classes.md). Off by default, so the mock keeps modeling a phone.
     pub nav_split: bool,
     /// `open_window` answers `Pending` (the async-completion test harness); the test
     /// finishes the open through [`MockProbe::complete_window`].
@@ -428,7 +428,7 @@ impl Toolkit for MockToolkit {
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             // Styled runs land in `WidgetProbe::runs`, which is what a test asserts on
-            // (docs/text-runs.md). ACTIVATING a link is not modelled — nothing in the mock
+            // (docs/text-runs.md). ACTIVATING a link is not modeled — nothing in the mock
             // hit-tests text — so `Cap::TextLinks` stays Unsupported in the default arm; a test
             // that wants the rail emits `Event::LinkActivated` itself.
             Cap::TextRuns => Support::Native,
@@ -827,7 +827,7 @@ impl Toolkit for MockToolkit {
         size
     }
 
-    /// A synthetic first baseline (docs/baseline.md), modelling the one fact that matters for
+    /// A synthetic first baseline (docs/baseline.md), modeling the one fact that matters for
     /// the layout math: text sits at different heights inside different widgets. The mock's
     /// line box is 16pt with a 12pt ascent, and a widget that frames its text (a field, a
     /// button) insets it — so a label beside a text field must drop by exactly that inset for

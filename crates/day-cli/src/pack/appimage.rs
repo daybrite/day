@@ -191,7 +191,7 @@ fn toolkit_plugin(toolkit: &str) -> Option<&'static str> {
     }
 }
 
-/// Locate a tool, honouring a `DAY_<TOOL>` override before PATH — the linuxdeploy releases are
+/// Locate a tool, honoring a `DAY_<TOOL>` override before PATH — the linuxdeploy releases are
 /// downloaded AppImages rather than packaged, so they often live outside PATH. Shared with
 /// `day doctor`'s probes ([`super::appimage_tool_probe`]) so both answer the same question.
 pub(super) fn tool(name: &str) -> Option<PathBuf> {

@@ -86,7 +86,7 @@ unsafe extern "C" {
         dur_ms: c_int,
         curve: c_int,
     );
-    // Animated fill. XAML is the only desktop backend that can tween a background colour (§8.4).
+    // Animated fill. XAML is the only desktop backend that can tween a background color (§8.4).
     pub fn day_xaml_container_animate_bg(w: *mut c_void, argb: u32, dur_ms: c_int, curve: c_int);
     pub fn day_xaml_cover_ground(w: *mut c_void);
     /// Best-effort rounded clip for a `corner_radius` container: a rounded `RectangleGeometry`
@@ -327,7 +327,7 @@ unsafe extern "C" {
     /// has no window parameter, so the same spec is installed into each window that opens.
     pub fn day_xaml_window_set_menu2(win: *mut c_void, spec: *const c_char);
     pub fn day_xaml_window_set_toolbar2(win: *mut c_void, spec: *const c_char);
-    // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behaviour, also
+    // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behavior, also
     // reachable from dayscript through the toolkit duty. 0 = no split nav in this window.
     pub fn day_xaml_toggle_sidebar() -> c_int;
     // Completions for a toolbar search field: the AutoSuggestBox's own ItemsSource

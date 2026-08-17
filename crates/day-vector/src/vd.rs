@@ -251,7 +251,7 @@ fn vd_path(p: &usvg::Path) -> Result<Option<VdPath>, Unsupported> {
     }))
 }
 
-/// `#AARRGGBB` for a colour, a [`VdGradient`] for a gradient VD can express, else Unsupported.
+/// `#AARRGGBB` for a color, a [`VdGradient`] for a gradient VD can express, else Unsupported.
 ///
 /// `ts` is the path's absolute transform — already baked into the path data, so the gradient's
 /// coordinates must travel through it too, combined with the gradient's own `gradientTransform`.
@@ -278,8 +278,8 @@ fn paint_of(
             }))
         }
         usvg::Paint::RadialGradient(g) => {
-            // VD's radial is a circle around one centre. SVG's focal point (fx, fy) offsets the
-            // colour origin and has no VD equivalent, so a real focal gradient rasterizes.
+            // VD's radial is a circle around one center. SVG's focal point (fx, fy) offsets the
+            // color origin and has no VD equivalent, so a real focal gradient rasterizes.
             if (g.fx() - g.cx()).abs() > 1e-4 || (g.fy() - g.cy()).abs() > 1e-4 {
                 return Err(Unsupported("radial gradient with a focal point".into()));
             }
@@ -311,7 +311,7 @@ fn argb(c: usvg::Color, opacity: f32) -> String {
     format!("#{:02X}{:02X}{:02X}{:02X}", a, c.red, c.green, c.blue)
 }
 
-/// Whether a linear gradient survives `m` intact: VD's colour bands are always PERPENDICULAR to
+/// Whether a linear gradient survives `m` intact: VD's color bands are always PERPENDICULAR to
 /// the start→end vector, so the transform must keep them that way. The bands run along `rot90(d)`
 /// in gradient space, so the test is that the two stay perpendicular after `m`.
 ///

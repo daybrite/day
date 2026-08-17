@@ -5,7 +5,7 @@
 // ("iOS"/"iPadOS") and systemVersion ("17.5"). UIDevice is MainThreadOnly, so this reads on the main
 // thread; called off it, the OS fields fall back to "Unknown" (the simulator flag is still reported,
 // as it does not need UIDevice). Simulator detection: the `sim` target ABI is definitive; a device
-// build additionally honours the SIMULATOR_* environment the simulator injects.
+// build additionally honors the SIMULATOR_* environment the simulator injects.
 
 use super::DeviceInfo;
 use objc2::MainThreadMarker;

@@ -49,7 +49,7 @@ unsafe extern "C" {
         dur_ms: c_int,
         curve: c_int,
     );
-    /// Update only the background colour, preserving the corner radius captured by the last
+    /// Update only the background color, preserving the corner radius captured by the last
     /// `day_qt_widget_set_surface` (so a reactive `.background` keeps its rounded corners).
     pub fn day_qt_widget_set_bg(w: *mut c_void, r: c_double, g: c_double, b: c_double, a: c_double);
     pub fn day_qt_widget_set_section_card(w: *mut c_void, radius: f64);
@@ -171,9 +171,9 @@ unsafe extern "C" {
         n: c_int,
         texts_joined: *const c_char,
     );
-    /// `tint` is "#rrggbb" or "" for the authored colours.
+    /// `tint` is "#rrggbb" or "" for the authored colors.
     pub fn day_qt_image_new(path: *const c_char, mode: c_int, tint: *const c_char) -> *mut c_void;
-    /// Repaint a realized glyph with a new tint ("" restores the authored colours).
+    /// Repaint a realized glyph with a new tint ("" restores the authored colors).
     pub fn day_qt_image_set_tint(w: *mut c_void, tint: *const c_char);
     // App icon (§18.2): Dock icon on macOS, taskbar icon on Linux/Windows.
     pub fn day_qt_set_app_icon(path: *const c_char);

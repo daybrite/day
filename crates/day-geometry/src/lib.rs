@@ -352,7 +352,7 @@ impl Color {
         Color::rgba(r + m, g + m, b + m, a)
     }
 
-    /// Decompose to `(hue°, saturation, lightness)` (HSL). Hue is `0.0` for greys.
+    /// Decompose to `(hue°, saturation, lightness)` (HSL). Hue is `0.0` for grays.
     pub fn to_hsl(&self) -> (f64, f64, f64) {
         let (r, g, b) = (self.r, self.g, self.b);
         let max = r.max(g).max(b);
@@ -603,7 +603,7 @@ mod tests {
             Color::hsl(240.0, 1.0, 0.5),
             Color::rgb(0.0, 0.0, 1.0)
         )); // blue
-        assert!(approx(Color::hsl(0.0, 0.0, 0.5), Color::rgb(0.5, 0.5, 0.5))); // grey
+        assert!(approx(Color::hsl(0.0, 0.0, 0.5), Color::rgb(0.5, 0.5, 0.5))); // gray
         assert!(approx(Color::hsv(0.0, 1.0, 1.0), Color::rgb(1.0, 0.0, 0.0))); // hsv red
         // Hue wraps, and to_hsl inverts hsl.
         let (h, s, l) = Color::hsl(370.0, 0.6, 0.4).to_hsl();

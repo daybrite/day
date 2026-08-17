@@ -30,7 +30,7 @@ const CATALOG_ROOT: &str = "{ \"info\" : { \"author\" : \"day\", \"version\" : 1
 /// `vectors` are `(name, glyph-svg path)` pairs from `resource/vectors/` (docs/vectors.md): each
 /// becomes an SVG imageset with `"preserves-vector-representation": true` (the Xcode 12+ vector
 /// asset), so `UIImage(named:)` renders the outline at display size instead of resampling a
-/// bitmap — the raster-cache PNG of the same name is excluded here in its favour.
+/// bitmap — the raster-cache PNG of the same name is excluded here in its favor.
 pub fn write_media_xcassets(
     sources_dir: &Path,
     images: &[ResourceFile],

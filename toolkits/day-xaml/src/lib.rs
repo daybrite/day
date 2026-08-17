@@ -530,14 +530,14 @@ fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
         S::Tinted(c) => (3, c),
     };
     // SAFETY: `h` is a live Button handle from `day_xaml_button_new`; the shim only reads the
-    // packed colours.
+    // packed colors.
     unsafe { ffi::day_xaml_button_set_style(h, kind, argb(fill), argb(S::on_tint(fill))) };
 }
 
 /// Send a label's runs across as a begin + one add per run (docs/text-runs.md).
 ///
 /// Runs become `Inline`s in the one `TextBlock`, so the paragraph still wraps and selects as a
-/// unit. Flags pack the styling so each run is a single call with no marshalling.
+/// unit. Flags pack the styling so each run is a single call with no marshaling.
 fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextRun]) {
     if runs.is_empty() {
         // The plain setter also clears the Inlines, so a label losing its runs stops rendering
@@ -675,7 +675,7 @@ pub struct Xaml {
     /// The app menu's serialized spec, replayed into each window that opens after it was set
     /// (docs/menus.md): one menu for the app, but Windows draws it per window.
     menu_spec: String,
-    /// The primary window's root container. Held so `release` can recognise it and destroy the
+    /// The primary window's root container. Held so `release` can recognize it and destroy the
     /// host — the primary is an ordinary window now (docs/windows.md close policy), torn down
     /// on the same released-root signal as any other.
     primary_root: *mut c_void,
@@ -1429,7 +1429,7 @@ impl Toolkit for Xaml {
                         );
                         (!h.is_null()).then_some(h)
                     });
-                    // Raster fallbacks: a monochrome BitmapIcon still honours a tint, and a
+                    // Raster fallbacks: a monochrome BitmapIcon still honors a tint, and a
                     // plain Image carries the art as authored.
                     let tinted = || {
                         p.tint.and_then(|c| {
@@ -1475,7 +1475,7 @@ impl Toolkit for Xaml {
                         // A cleared background maps to fully transparent (best-effort on XAML).
                         // Unlike the other desktop backends this one INTERPOLATES an animated fill
                         // (DESIGN.md §8.4): the fill is a SolidColorBrush we own, and XAML tweens
-                        // brush colour given EnableDependentAnimation.
+                        // brush color given EnableDependentAnimation.
                         let (dur, curve) = xaml_anim_args(anim);
                         ffi::day_xaml_container_animate_bg(
                             h.0,
@@ -2039,7 +2039,7 @@ impl Toolkit for Xaml {
     }
 
     fn set_transform(&mut self, h: &WinHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
-        // A CompositeTransform about the element's centre — the same anchor AppKit's layer and
+        // A CompositeTransform about the element's center — the same anchor AppKit's layer and
         // Qt's painter transform use, so a rotated/scaled box matches across backends.
         let (dur, curve) = xaml_anim_args(anim);
         unsafe {
@@ -2394,7 +2394,7 @@ impl Toolkit for Xaml {
     /// default, which reads DAY_THEME and nothing else — so on Windows every palette closure day
     /// evaluated resolved LIGHT no matter what the system was set to, while the XAML controls
     /// around it themed themselves correctly. That mismatch is what made a dark-mode window show
-    /// app-painted surfaces in light colours.
+    /// app-painted surfaces in light colors.
     fn dark_mode(&mut self) -> bool {
         unsafe { ffi::day_xaml_is_dark() != 0 }
     }
@@ -2433,7 +2433,7 @@ fn argb(c: day_spec::Color) -> u32 {
 }
 
 /// Per-row nav icon tints (docs/vectors.md) as one line-joined ARGB list, parallel to the rows.
-/// `0` is the untinted row — fully transparent is not a colour anyone can mean, and it keeps the
+/// `0` is the untinted row — fully transparent is not a color anyone can mean, and it keeps the
 /// list positional so a row without a tint cannot shift the ones after it.
 fn join_tints(tints: &[Option<day_spec::Color>]) -> String {
     tints
@@ -2452,7 +2452,7 @@ pub(crate) fn vector_geometry(name: &str) -> Option<String> {
 
 /// Per-row nav geometry, parallel to the rows. The specs are multi-line, and the FFI carries one
 /// row per line, so each spec's newlines ride as `\x1f` (a unit separator cannot occur in path
-/// data or a colour) and the shim puts them back.
+/// data or a color) and the shim puts them back.
 fn join_geoms(icons: &[Option<String>]) -> String {
     icons
         .iter()

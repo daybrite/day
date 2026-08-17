@@ -365,7 +365,7 @@ fn array_xml(key: &str, values: &[String], indent: &str) -> String {
     s
 }
 
-/// One `<key>`/`<string>` pair, indented to match its neighbours.
+/// One `<key>`/`<string>` pair, indented to match its neighbors.
 fn entry_xml(key: &str, value: &str, indent: String) -> String {
     format!(
         "{indent}<key>{}</key>\n{indent}<string>{}</string>\n",

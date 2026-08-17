@@ -78,7 +78,7 @@ on Qt, a tight `ToggleButton` row inside one `AppBarElementContainer` on XAML, a
 `.day-segmented` element the picker piece uses on the web. Exclusivity is the CONTROL's, not the
 app's; the signal only ever holds the chosen index.
 
-`toolbar_sidebar_toggle` takes no `.action` and needs no icon. It is the one item whose behaviour
+`toolbar_sidebar_toggle` takes no `.action` and needs no icon. It is the one item whose behavior
 belongs to the toolkit rather than the app: each backend binds it to the `selector(Sidebar)` host
 in that window and drives that host's own collapse — `NSToolbarToggleSidebarItem` on AppKit,
 `AdwOverlaySplitView`'s `show-sidebar` on GTK, the splitter pane on Qt,
@@ -127,7 +127,7 @@ template is a flat black shape, invisible on a dark toolbar).
 On the WEB there is no system icon set to borrow, so day-dom draws the standard symbols itself,
 as inline-SVG `data:` URLs through the same CSS mask a bundled image uses. They are plain
 geometry authored in day rather than a third-party icon set, which keeps the framework free of an
-icon licence. Before that, `Icon::Symbol` was dropped on the web entirely and only items carrying
+icon license. Before that, `Icon::Symbol` was dropped on the web entirely and only items carrying
 a bundled image had a glyph — a bar where some items were icons and some were words.
 
 `Symbol` is `#[non_exhaustive]`. A backend that has no glyph for a symbol draws none and the item

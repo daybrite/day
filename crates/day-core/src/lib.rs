@@ -469,7 +469,7 @@ fn autodrive(spec: &str) {
             eprintln!("day autodrive: id {:?} not found", parts[0]);
             continue;
         };
-        // Gesture drivers (docs/shapes.md): tap fires at the node's local centre; drag runs a
+        // Gesture drivers (docs/shapes.md): tap fires at the node's local center; drag runs a
         // Began→Changed→Ended sequence translated by dx,dy — exercising `.on_tap`/`.on_drag`
         // hit-testing through Day's own event path (the native recognizers deliver the same events).
         if parts.get(1) == Some(&"tap") {

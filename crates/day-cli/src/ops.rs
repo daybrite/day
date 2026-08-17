@@ -319,7 +319,7 @@ pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
 pub fn apply_determinism(cmd: &mut Command) {
     cmd.env("ZERO_AR_DATE", "1");
     // Export the resolved epoch so any SOURCE_DATE_EPOCH-aware tool downstream agrees with the
-    // value Day stamps into archives itself — flatpak-builder honours it (1.3.1+), as do many
+    // value Day stamps into archives itself — flatpak-builder honors it (1.3.1+), as do many
     // compilers and archivers. Passing through the caller's value when they set one, and Day's
     // default otherwise, means one clock governs the whole pack.
     cmd.env(
@@ -833,7 +833,7 @@ pub fn launch(
     }
 }
 
-/// Which standard stream a forwarded line came from — sets its colour and destination.
+/// Which standard stream a forwarded line came from — sets its color and destination.
 #[derive(Clone, Copy)]
 pub enum LogStream {
     /// App stdout: blue, forwarded to our stdout.
@@ -842,11 +842,11 @@ pub enum LogStream {
     Err,
 }
 
-/// Print one already-classified log line with the `[target]` prefix and stream colour.
+/// Print one already-classified log line with the `[target]` prefix and stream color.
 /// Public so the mobile log pumps (logcat/simctl) can reuse the exact formatting.
 pub fn emit_log(name: &str, stream: LogStream, line: &str) {
     match stream {
-        // 34 = blue, 33 = yellow; the whole line is coloured so streams read apart at a glance.
+        // 34 = blue, 33 = yellow; the whole line is colored so streams read apart at a glance.
         LogStream::Out => anstream::println!("{LOG_OUT}[{name}]{LOG_OUT:#} {line}"),
         LogStream::Err => anstream::eprintln!("{LOG_ERR}[{name}]{LOG_ERR:#} {line}"),
     }
@@ -924,7 +924,7 @@ mod headless_tests {
             headless_wrap("gtk", "macos", false, 1.0, 1.0),
             HeadlessWrap::None
         );
-        // External toolkits (Stage 0) own their headless behaviour.
+        // External toolkits (Stage 0) own their headless behavior.
         assert_eq!(
             headless_wrap("wxwidgets", "linux", false, 1.0, 1.0),
             HeadlessWrap::None

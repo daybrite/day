@@ -290,9 +290,9 @@ const env = {
       if (e.clientY < r.top + 24) host.scrollTop -= 12;
       else if (e.clientY > r.bottom - 24) host.scrollTop += 12;
       // The slot under the dragged cell's center, vetted by the app's guard.
-      const centre = d.cell.offsetTop + dy + d.rowH / 2;
+      const center = d.cell.offsetTop + dy + d.rowH / 2;
       const n = cells().length;
-      const slot = Math.max(0, Math.min(n - 1, Math.floor(centre / d.rowH)));
+      const slot = Math.max(0, Math.min(n - 1, Math.floor(center / d.rowH)));
       const verdict = wasm.day_dom_list_can_move(id, d.from, slot);
       d.accepted = verdict < 0 ? null : verdict;
       host.classList.toggle('day-no-drop', d.accepted === null);
@@ -371,7 +371,7 @@ const env = {
       }
       const t = document.createElement('span'); t.textContent = item.title; row.append(t);
       // The trailing status glyph (docs/navigation.md), masked like the leading icon so it
-      // follows the row's text color unless the app named a colour that means something.
+      // follows the row's text color unless the app named a color that means something.
       if (item.badgeIcon) {
         const badge = div('day-navmenu-badge');
         badge.style.maskImage = `url("${item.badgeIcon}")`;
@@ -450,7 +450,7 @@ const env = {
           wasm.day_dom_toolbar_text(it.action, ptr, len);
         });
       } else {
-        // B, T, S and M are all buttons; only their click behaviour differs.
+        // B, T, S and M are all buttons; only their click behavior differs.
         el = document.createElement('button');
         el.className = 'day-toolbar-btn';
         el.disabled = !it.enabled;
@@ -478,7 +478,7 @@ const env = {
             if (it.action) wasm.day_dom_toolbar_on(it.action, on ? 1 : 0);
           });
         } else if (it.kind === 'S') {
-          // The sidebar toggle owns its behaviour: no app action to dispatch.
+          // The sidebar toggle owns its behavior: no app action to dispatch.
           el.classList.add('day-toolbar-sidebar');
           el.setAttribute('aria-expanded', 'true');
           el.addEventListener('click', () => {

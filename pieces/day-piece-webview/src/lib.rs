@@ -359,7 +359,7 @@ fn js_string_literal(s: &str) -> String {
 ///   "no result". `eval` compiles at run time, inside the `try`.
 /// - **Statements work.** `throw new Error("x")` and `var a = 1; a + 1` are statements, so
 ///   `v = (…)` around them is itself a syntax error. `eval` takes a program and yields its
-///   completion value, which is the behaviour a console user expects.
+///   completion value, which is the behavior a console user expects.
 /// - **No lexical hazards.** A trailing `//` comment or an unbalanced brace in the script cannot
 ///   reach the wrapper's own tokens.
 ///

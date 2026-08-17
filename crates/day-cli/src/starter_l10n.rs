@@ -7,7 +7,7 @@
 //! which is right for an app's own strings — the CLI cannot know what they mean. It CAN know
 //! what the scaffold's own strings mean, because it wrote them. So for the handful of keys the
 //! generated sample app shows on its opening screen, a locale added here starts translated
-//! rather than starting as English labelled otherwise.
+//! rather than starting as English labeled otherwise.
 //!
 //! Scope is deliberately narrow. A key is listed only if the scaffold ships it AND the phrase is
 //! a UI label with one obvious rendering in each language. Anything longer (the panel blurbs)

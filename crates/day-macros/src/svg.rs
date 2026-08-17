@@ -250,7 +250,7 @@ pub fn parse(data: &str) -> Result<Vec<Seg>, ParseError> {
     Ok(out)
 }
 
-/// Convert an elliptical arc to cubics, following SVG 1.1 §F.6 (endpoint to centre
+/// Convert an elliptical arc to cubics, following SVG 1.1 §F.6 (endpoint to center
 /// parameterization), then splitting the sweep into pieces of at most 90° because a single cubic
 /// only approximates a circular arc well up to about that.
 #[allow(clippy::too_many_arguments)]

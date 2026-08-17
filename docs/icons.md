@@ -29,10 +29,10 @@ An SVG master may mark **top-level** elements as semantic layers by id:
 ```
 
 The composite (background + foregrounds) feeds every full-bleed output; the split layers feed
-Android's adaptive icon (foreground tightened to its content box and centred in the 66/108 dp
+Android's adaptive icon (foreground tightened to its content box and centered in the 66/108 dp
 safe zone; background full-bleed). An **unlayered** SVG or a **PNG** master still produces the
 complete legacy set — the adaptive foreground is then the whole art in the safe zone over a
-derived background colour (the composite's corner pixel; white when transparent).
+derived background color (the composite's corner pixel; white when transparent).
 
 Text must be outlined: text shaping is deliberately not compiled into day (`<text>` is a hard
 error naming the fix).

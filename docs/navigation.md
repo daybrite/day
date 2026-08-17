@@ -134,7 +134,7 @@ and `.immersive()` on it marks that row's pushed page immersive-chrome, same as 
 form above.
 
 `.badge_icon(name)` puts a GLYPH at the row's trailing edge, with `.badge_tint(color)` for a
-colour that carries meaning (a starred page's yellow star). It shares the trailing slot with the
+color that carries meaning (a starred page's yellow star). It shares the trailing slot with the
 text `.badge(…)` and is drawn after it, so a row can show a count and a status at once:
 
 ```rust
@@ -144,8 +144,8 @@ item(section, title)
     .badge_tint(AMBER)
 ```
 
-Both are template glyphs, so an untinted one takes the backend's neutral row colour and follows
-the theme; a tinted one keeps its colour because the colour is the point. Every backend draws it:
+Both are template glyphs, so an untinted one takes the backend's neutral row color and follows
+the theme; a tinted one keeps its color because the color is the point. Every backend draws it:
 the trailing slot of the AppKit cell, the GTK row box, a `QStyledItemDelegate` on Qt (a
 `QListWidgetItem` has only the leading icon slot), the `end` compound drawable on Android, the
 composed `NavigationViewItem.Content` on XAML, between label and chevron on ArkUI, a masked

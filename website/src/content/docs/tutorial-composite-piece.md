@@ -307,7 +307,7 @@ let the native leaves do the platform work. The same idea covers most of a desig
   avatar or icon without disturbing its layout size. `day-piece-rating` ships one as
   `badge(count, over)`.
 
-- **A chip** is a labelled `.background(...).corner_radius(...)` capsule; a **pill button** is a
+- **A chip** is a labeled `.background(...).corner_radius(...)` capsule; a **pill button** is a
   `ButtonStyle` (`FilledButtonStyle` is the shipped example) applied with `Button::style`.
 
 - **Themed subtrees** flow through `with_environment(value, || …)` and are read back with

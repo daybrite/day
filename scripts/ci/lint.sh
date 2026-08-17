@@ -69,6 +69,15 @@ app_leg() {
 # 1) Formatting — the whole workspace, the exact command CI fails on.
 leg "fmt --all --check" cargo fmt --all -- --check
 
+# 1b) Spelling + the American-English rule (typos.toml, STYLE_GUIDE.md) — the local twin of
+# ci.yml's `spelling` job. Not installed is a SKIP rather than a failure, since it is the one leg
+# here that needs a tool outside the Rust toolchain; CI still runs it either way.
+if command -v typos >/dev/null 2>&1; then
+  leg "typos (spelling + en-us)" typos
+else
+  skip "typos (spelling + en-us)" "not installed — brew install typos-cli, or cargo install typos-cli"
+fi
+
 # 2) Host clippy — the default members plus the CLI, dayscript, and mock-backend showcase.
 leg "clippy host (default members)"    cargo clippy --locked --all-targets
 # day-lite rides along here rather than in the line above: it is a member but not a

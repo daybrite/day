@@ -55,7 +55,7 @@ pub fn register_remote_stop(argv: Vec<String>) {
 
 /// Drop the registered device stops without running them — for a run that DELIBERATELY leaves the
 /// app up (`--keep-alive`, whose whole promise is that the app outlives `day`). Without this the
-/// normal-exit `kill_all` would honour the interrupt contract over the explicit flag and stop the
+/// normal-exit `kill_all` would honor the interrupt contract over the explicit flag and stop the
 /// app anyway. The log-pump children are still reaped; only the app is spared.
 pub fn forget_remote_stops() {
     if let Ok(mut r) = REMOTE_STOPS.lock() {

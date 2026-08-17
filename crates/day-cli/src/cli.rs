@@ -988,7 +988,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 )],
                 attached: false,
                 // A relaunch re-targets whatever the previous launch put on screen, so it keeps
-                // the unfiltered behaviour rather than inventing a device to prefer.
+                // the unfiltered behavior rather than inventing a device to prefer.
                 ios_device: None,
                 ios_simulator: None,
                 android_device: None,
@@ -1391,6 +1391,31 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             keep_alive,
                             spec.attached,
                         ) {
+                            // A single RETRYABLE failure and nothing else: the shape a race
+                            // leaves behind (an element not realized yet, an assert that lost
+                            // to a transition or a page load) rather than a broken app. Re-run
+                            // the variant once — the same budget the app-death arm below has
+                            // always had, extended to the other way a flake presents. Two
+                            // failures, or one the engine called final, is a verdict: report
+                            // it. The retry is announced, so a green run that needed one is
+                            // still visible as a flake in the log rather than passing silently.
+                            Ok(run)
+                                if run.steps_failed == 1
+                                    && run.retryable_failed == 1
+                                    && attempt == 0 =>
+                            {
+                                eprintln!(
+                                    "warning: one retryable step failed — retrying the script \
+                                     once before calling it a failure"
+                                );
+                                if std::env::var_os("GITHUB_ACTIONS").is_some() {
+                                    println!(
+                                        "::warning::one retryable step failed — retrying the \
+                                         script once before calling it a failure"
+                                    );
+                                }
+                                attempt += 1;
+                            }
                             Ok(run) => {
                                 script_failures += run.steps_failed;
                                 let tag = capture

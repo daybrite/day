@@ -43,16 +43,16 @@ pub struct Fix {
     pub latitude: f64,
     /// Degrees east of the prime meridian (WGS-84).
     pub longitude: f64,
-    /// Metres above the reference surface. Apple reports height above the WGS-84 ellipsoid, Android
+    /// Meters above the reference surface. Apple reports height above the WGS-84 ellipsoid, Android
     /// above the WGS-84 ellipsoid too, and the browser whatever its provider gives — treat it as
     /// approximate.
     pub altitude: Option<f64>,
-    /// Horizontal accuracy radius in metres: the true position is within this distance with ~68%
+    /// Horizontal accuracy radius in meters: the true position is within this distance with ~68%
     /// confidence. `None` where the platform declines to say.
     pub accuracy_m: Option<f64>,
-    /// Vertical accuracy in metres, when reported.
+    /// Vertical accuracy in meters, when reported.
     pub vertical_accuracy_m: Option<f64>,
-    /// Ground speed in metres per second, when reported.
+    /// Ground speed in meters per second, when reported.
     pub speed_mps: Option<f64>,
     /// Direction of travel in degrees clockwise from true north, when reported. Meaningless when
     /// stationary, and platforms differ on whether they say so — treat a `Some` at zero speed with

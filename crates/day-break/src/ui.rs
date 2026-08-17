@@ -11,7 +11,7 @@ use day_pieces::prelude::*;
 use crate::ReportMeta;
 use crate::i18n::t;
 
-/// Theme-neutral card surface (translucent mid-grey reads on both light and dark themes, so the
+/// Theme-neutral card surface (translucent mid-gray reads on both light and dark themes, so the
 /// default label colors stay legible — the showcase idiom; see day-ui-visual-checks).
 const CARD: Color = Color::rgba(0.5, 0.5, 0.55, 0.16);
 

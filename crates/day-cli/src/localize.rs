@@ -227,7 +227,7 @@ fn pbx_with_region(text: &str, region: &str) -> Result<Option<String>, String> {
     for line in text.split_inclusive('\n') {
         let trimmed = line.trim();
         if state == 1 && (trimmed == "Base," || trimmed == ");") {
-            // Indentation copied from the neighbour so the file stays Xcode-shaped; entries
+            // Indentation copied from the neighbor so the file stays Xcode-shaped; entries
             // sit one level deeper than the closing `);`.
             let mut indent = line[..line.len() - line.trim_start().len()].to_string();
             if trimmed == ");" {

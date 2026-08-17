@@ -66,7 +66,7 @@ GROUPS = {
 
 
 def _ansi(stream):
-    """Whether to colour `stream`. Windows consoles need VT processing turned on explicitly."""
+    """Whether to color `stream`. Windows consoles need VT processing turned on explicitly."""
     if os.environ.get("NO_COLOR") is not None or not stream.isatty():
         return False
     if os.name == "nt":

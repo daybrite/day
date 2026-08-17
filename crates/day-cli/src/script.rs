@@ -20,6 +20,11 @@ use anstream::eprintln;
 pub struct ScriptRun {
     pub steps_total: usize,
     pub steps_failed: usize,
+    /// How many of `steps_failed` the engine marked RETRYABLE — an element not realized yet,
+    /// an assert still pending. Those are the failures a race can produce, so a run whose only
+    /// failure is one of them is a retry candidate (cli.rs); a non-retryable failure is a
+    /// verdict and re-running would only spend the time again.
+    pub retryable_failed: usize,
     pub screenshots: Vec<PathBuf>,
 }
 
@@ -411,6 +416,7 @@ pub fn run_scripts(
     let mut run = ScriptRun {
         steps_total: 0,
         steps_failed: 0,
+        retryable_failed: 0,
         screenshots: Vec::new(),
     };
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
@@ -433,8 +439,43 @@ pub fn run_scripts(
             target.name,
             steps.len()
         );
-        for (op, step) in steps {
+        // Desktop renders in-process (there is no device tool to ask); everything else is
+        // captured from the device, which decides whether the engine's payload is wanted.
+        let device_first = target.kind != TargetKind::Desktop;
+        for (op, mut step) in steps {
             run.steps_total += 1;
+            // The target gates run BEFORE the runner-side steps below (`pause`, `expect_exit`):
+            // those `continue` on their own, so evaluating them first made a gated `pause` sleep
+            // on every target regardless of its `only_on`/`skip_on` — 10s a variant on Android
+            // and 21s on HarmonyOS, spent waiting for blocks those targets never run.
+            //
+            // `skip_on:` — a per-step target filter: the step is dropped on the named targets
+            // or toolkits (`skip_on: [web-dom]`), so ONE walkthrough stays honest across
+            // platforms with genuinely absent capabilities (docs/agent.md).
+            if let Some(skips) = step.get("skip_on").and_then(|v| v.as_array()) {
+                let hit = skips
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|s| s == target.name || s == target.toolkit);
+                if hit {
+                    eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
+                    continue;
+                }
+            }
+            // `only_on:` — skip_on's mirror, for a step whose expectations are per-target (an
+            // `assert_no_placeholders` allow-list differs sharply between, say, appkit and
+            // web-dom, so the script carries one step per target group).
+            if let Some(onlys) = step.get("only_on").and_then(|v| v.as_array()) {
+                let hit = onlys
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .any(|s| s == target.name || s == target.toolkit);
+                if !hit {
+                    eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {})", target.name);
+                    continue;
+                }
+            }
+            let mut step = step;
             // `pause` sleeps runner-side (the engine must not block the UI thread).
             if op == "pause" {
                 let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
@@ -493,33 +534,6 @@ pub fn run_scripts(
                 }
                 continue;
             }
-            // `skip_on:` — a per-step target filter: the step is dropped on the named targets
-            // or toolkits (`skip_on: [web-dom]`), so ONE walkthrough stays honest across
-            // platforms with genuinely absent capabilities (docs/agent.md).
-            if let Some(skips) = step.get("skip_on").and_then(|v| v.as_array()) {
-                let hit = skips
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .any(|s| s == target.name || s == target.toolkit);
-                if hit {
-                    eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
-                    continue;
-                }
-            }
-            // `only_on:` — skip_on's mirror, for a step whose expectations are per-target (an
-            // `assert_no_placeholders` allow-list differs sharply between, say, appkit and
-            // web-dom, so the script carries one step per target group).
-            if let Some(onlys) = step.get("only_on").and_then(|v| v.as_array()) {
-                let hit = onlys
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .any(|s| s == target.name || s == target.toolkit);
-                if !hit {
-                    eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {})", target.name);
-                    continue;
-                }
-            }
-            let mut step = step;
             let mut shot_meta = crate::screenshot::ShotMeta::default();
             if let Some(map) = step.as_object_mut() {
                 map.remove("skip_on");
@@ -529,8 +543,16 @@ pub fn run_scripts(
                 // reach the engine — apps predate it and never need it.
                 if op == "screenshot" {
                     shot_meta = crate::screenshot::extract_meta(map);
+                    // A device target's capture comes from `simctl`/`adb` below, so the
+                    // engine's own render would be encoded and discarded. Ask it not to.
+                    // The fallback path re-asks, so nothing is lost when a device refuses.
+                    if device_first {
+                        map.insert("in_process".into(), serde_json::Value::Bool(false));
+                    }
                 }
             }
+            // Kept for the fallback re-request: `step` itself is moved into the request.
+            let step_for_retry = step.clone();
             let req = serde_json::json!({"token": token, "step": step});
             let mut line = serde_json::to_string(&req).unwrap();
             line.push('\n');
@@ -562,6 +584,13 @@ pub fn run_scripts(
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} {op} {detail}");
             } else {
                 run.steps_failed += 1;
+                if reply
+                    .get("retryable")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    run.retryable_failed += 1;
+                }
                 let err = reply
                     .get("error")
                     .and_then(|v| v.as_str())
@@ -586,22 +615,42 @@ pub fn run_scripts(
                 // the FALLBACK instead: a refusing device tool used to abandon the shot outright.
                 // Desktop is the other way round — the in-process render is the real capture there
                 // and `device_screenshot` has no desktop arm at all.
-                let device_first = target.kind != TargetKind::Desktop;
                 let prev = run.screenshots.last().cloned();
                 let mut saved = false;
                 if device_first {
                     match device_screenshot(target, &path, prev.as_deref()) {
                         Ok(()) => saved = true,
-                        Err(e) => match in_process.as_deref() {
-                            Some(bytes) => {
-                                eprintln!(
-                                    "    (device screenshot failed: {e} — captured in-process \
-                                     instead: app content only)"
-                                );
-                                saved = write_in_process(bytes);
+                        Err(e) => {
+                            // The payload was skipped on purpose, so fetch it now — this arm
+                            // runs when a device tool refuses, not once per shot.
+                            let mut again = step_for_retry.clone();
+                            if let Some(m) = again.as_object_mut() {
+                                m.insert("in_process".into(), serde_json::Value::Bool(true));
                             }
-                            None => eprintln!("    (device screenshot failed: {e})"),
-                        },
+                            let req = serde_json::json!({"token": token, "step": again});
+                            let mut l = serde_json::to_string(&req).unwrap();
+                            l.push('\n');
+                            let bytes = roundtrip(&mut stream, &mut reader, &l, 0.0)
+                                .ok()
+                                .and_then(|r| {
+                                    serde_json::from_str::<serde_json::Value>(r.trim()).ok()
+                                })
+                                .and_then(|r| {
+                                    r.get("png_base64")
+                                        .and_then(|v| v.as_str())
+                                        .map(day_script_b64::b64decode)
+                                });
+                            match bytes {
+                                Some(b) => {
+                                    eprintln!(
+                                        "    (device screenshot failed: {e} — captured \
+                                         in-process instead: app content only)"
+                                    );
+                                    saved = write_in_process(&b);
+                                }
+                                None => eprintln!("    (device screenshot failed: {e})"),
+                            }
+                        }
                     }
                 } else {
                     if let Some(bytes) = in_process.as_deref() {
@@ -680,7 +729,7 @@ pub fn run_scripts(
     Ok(run)
 }
 
-/// Regenerate `build/day/screenshots/index.html`: one labelled thumbnail per capture, grouped
+/// Regenerate `build/day/screenshots/index.html`: one labeled thumbnail per capture, grouped
 /// by `<target>/<variant>`, each linking to the full-size image — a quick browsable index of
 /// everything captured on this machine (open it with `open build/day/screenshots/index.html`).
 fn write_gallery(root: &Path) {

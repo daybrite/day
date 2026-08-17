@@ -523,7 +523,7 @@ body.day-has-toolbar #day-root {
   color: var(--day-accent-fg);
 }
 /* Template rendering, as the nav rows do: the icon is a mask painted with currentColor, so it
-   follows the button's text colour in both schemes and while pressed. */
+   follows the button's text color in both schemes and while pressed. */
 .day-toolbar-icon {
   width: 16px;
   height: 16px;

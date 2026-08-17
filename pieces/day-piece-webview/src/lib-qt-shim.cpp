@@ -165,7 +165,7 @@ void day_webview_eval(void *w, uint64_t req, const char *script) {
     // page's own globals on every backend alike.
     //
     // Capture PODs ONLY. Qt guarantees this callback runs even while the page is being destroyed,
-    // and touching the page or view from there is undefined behaviour — the guarantee is what keeps
+    // and touching the page or view from there is undefined behavior — the guarantee is what keeps
     // the Rust future from leaking, and the constraint is the price of it.
     self->view->page()->runJavaScript(QString::fromUtf8(script), [id, req](const QVariant &v) {
         if (!g_eval_cb)

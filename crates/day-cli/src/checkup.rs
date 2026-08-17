@@ -223,7 +223,7 @@ fn skip_reason(slot: &Slot) -> &str {
 /// depends on. Both halves come from one `--day-version`, so the tool and the framework it
 /// scaffolds against can never drift apart within a run.
 struct Under {
-    /// `None` = this binary, with `day new`'s own default dependency source (today's behaviour).
+    /// `None` = this binary, with `day new`'s own default dependency source (today's behavior).
     source: Option<DaySource>,
     bin: PathBuf,
 }

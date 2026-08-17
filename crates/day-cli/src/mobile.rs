@@ -1286,7 +1286,7 @@ fn stream_devicectl(
             let t = line.trim().to_string();
             // devicectl reports a failed launch as a nested tree of error domains — a dozen lines
             // whose useful content is one sentence. Buffer from the first ERROR: to the end of the
-            // stream (devicectl exits after it) and summarise once, rather than relaying the tree.
+            // stream (devicectl exits after it) and summarize once, rather than relaying the tree.
             if !failure.is_empty() || t.starts_with("ERROR:") {
                 failure.push(t);
                 continue;
@@ -1374,7 +1374,7 @@ pub fn launch_ios(
         cmd.args(["simctl", "launch"]);
         if spec.attached {
             // `--console` (not `--console-pty`) keeps the app's stdout and stderr on
-            // simctl's separate fds, so we can colour them apart.
+            // simctl's separate fds, so we can color them apart.
             cmd.arg("--console");
         }
         cmd.args([udid.as_str(), &bundle_id]);

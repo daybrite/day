@@ -166,7 +166,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   .hc-plat { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
   /* The platform mark, wearing the same accent as the OS name beside it. */
   /* The mark sits ON the text baseline, like a capital letter: an SVG's baseline is its bottom
-     margin edge, so letting it take part in the row's baseline alignment (rather than centring it
+     margin edge, so letting it take part in the row's baseline alignment (rather than centering it
      against the line box) puts its foot exactly where "iOS" and "UIKit" put theirs. */
   .hc-icon { display: inline-flex; color: var(--hc-accent, var(--text)); }
   .hc-icon :global(.pf-icon) { width: 1.35rem; height: 1.35rem; }

@@ -317,7 +317,7 @@ and `Context` that `day-android` already caches.
 > writing one looks like.
 
 The Java shim reads the sticky `ACTION_BATTERY_CHANGED` intent and packs the reading into a `long` so
-it crosses the JNI boundary as a single primitive (no object marshalling):
+it crosses the JNI boundary as a single primitive (no object marshaling):
 
 ```java
 package dev.daybrite.day.battery;
@@ -447,7 +447,7 @@ For completeness, the two remaining targets are both raw C-ABI FFI, in the same 
   ```
 
 Six platforms, three different interop styles (raw C FFI, typed objc2, JNI-to-Java), and one
-pure-std path, all funnelling into the same `Option<BatteryStatus>`.
+pure-std path, all funneling into the same `Option<BatteryStatus>`.
 
 ## 4. Contribute native artifacts to the app build
 

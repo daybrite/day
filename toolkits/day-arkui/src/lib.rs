@@ -62,7 +62,7 @@ mod imp {
         /// Keys whose next `navPopped` acknowledges a DAY-initiated pop (must not sync back
         /// as a native back). Keyed, not counted: a page pushed and popped within one frame
         /// never mounts, so ArkUI fires NO disappear for it — a counter would wait forever
-        /// on an acknowledgement that never comes (the CI post-stack blank-screenshot wedge).
+        /// on an acknowledgment that never comes (the CI post-stack blank-screenshot wedge).
         static NAV_EXPECT_POP: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
         /// Rust's own order of pushed page keys — what a `NavPatch::Popped` pops, so the pop
@@ -133,7 +133,7 @@ mod imp {
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
         /// Nav transitions in flight, for [`Toolkit::ui_idle`] (dayscript screenshots wait on
         /// it): pushed page keys awaiting their destination's first area report, and popped
-        /// page keys awaiting their `navPopped` acknowledgement. Both hold only keys whose
+        /// page keys awaiting their `navPopped` acknowledgment. Both hold only keys whose
         /// native event is actually COMING: a pop retires its own pending-push entry (a
         /// never-mounted page reports neither), and only lands in the pending-pop set when
         /// the page had mounted.
@@ -487,7 +487,7 @@ mod imp {
             (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
         };
         if let S::Tinted(c) = style {
-            // SAFETY: `n` is a live ARKUI_NODE_BUTTON; both setters take a packed colour.
+            // SAFETY: `n` is a live ARKUI_NODE_BUTTON; both setters take a packed color.
             unsafe {
                 ffi::day_ark_set_bg_color(n, argb(c));
                 ffi::day_ark_set_font_color(n, argb(S::on_tint(c)));
@@ -847,7 +847,7 @@ mod imp {
     }
 
     /// A NavDestination disappeared on the ArkTS side (docs/navigation.md). For a pop DAY
-    /// initiated (NavPatch::Popped) this is just the acknowledgement; for a NATIVE back
+    /// initiated (NavPatch::Popped) this is just the acknowledgment; for a NATIVE back
     /// (system gesture / title-bar back button) sync the route state: the toolkit already
     /// popped, so the host receives `NavBack { already_popped: true }`.
     #[unsafe(no_mangle)]
@@ -871,7 +871,7 @@ mod imp {
         NAV_STACK.with(|s| s.borrow_mut().retain(|k| *k != key));
         let expected = NAV_EXPECT_POP.with(|e| e.borrow_mut().remove(&key));
         if expected {
-            // The acknowledgement of a Day-initiated pop (`ui_idle`'s pending-pop signal).
+            // The acknowledgment of a Day-initiated pop (`ui_idle`'s pending-pop signal).
             NAV_PENDING_POP.with(|p| {
                 p.borrow_mut().remove(&key);
             });
@@ -1180,7 +1180,7 @@ mod imp {
                     }
                     n
                 }
-                // A 1-vp hairline: a thin Stack tinted with a faint separator colour.
+                // A 1-vp hairline: a thin Stack tinted with a faint separator color.
                 Some(Builtin::Divider) => {
                     let n = new_node(K_STACK);
                     unsafe {
@@ -1383,7 +1383,7 @@ mod imp {
                                     // A page popped before it ever landed (pushed and popped
                                     // within one frame) mounts nothing: ArkUI will fire
                                     // neither its area report nor its disappear. Retire the
-                                    // pending push and wait on no acknowledgement — only a
+                                    // pending push and wait on no acknowledgment — only a
                                     // LANDED page's pop blocks `ui_idle`.
                                     let landed =
                                         NAV_PENDING_PUSH.with(|s| !s.borrow_mut().remove(&key));

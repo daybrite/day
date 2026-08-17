@@ -86,11 +86,11 @@ fn set_label_runs(label: &gtk4::Label, text: &str, runs: &[day_spec::TextRun]) {
     label.set_markup(&rich_markup(text, runs, &style));
 }
 
-// Tint colours whose CSS provider is already installed on the display, keyed by `rrggbb`.
+// Tint colors whose CSS provider is already installed on the display, keyed by `rrggbb`.
 //
 // GTK 4.10 deprecated per-widget providers, and the replacement is DISPLAY-wide — so the rule
-// has to be selective rather than the widget. Each colour gets its own class and its own
-// provider, installed once; a second button in the same colour reuses it.
+// has to be selective rather than the widget. Each color gets its own class and its own
+// provider, installed once; a second button in the same color reuses it.
 thread_local! {
     static TINT_PROVIDERS: RefCell<std::collections::HashSet<String>> =
         RefCell::new(std::collections::HashSet::new());
@@ -100,7 +100,7 @@ thread_local! {
 ///
 /// Prominent is Adwaita's own `suggested-action`. A tint sets `background-image` (which is what
 /// Adwaita's button styling uses, so a plain `background-color` would be painted over) and the
-/// label colour. GTK keeps drawing the button, so `:hover`, `:active`, `:focus` and `:disabled`
+/// label color. GTK keeps drawing the button, so `:hover`, `:active`, `:focus` and `:disabled`
 /// still come from the theme.
 fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpec) {
     use day_spec::props::ButtonStyleSpec as S;
@@ -939,7 +939,7 @@ thread_local! {
 }
 
 /// Apply Day's layout origin AND the animation transform `t` to `widget` as its `GtkFixed` child
-/// transform, about the widget's centre. GTK positions a Fixed child *through* its child transform,
+/// transform, about the widget's center. GTK positions a Fixed child *through* its child transform,
 /// so the laid-out origin and the animation transform share one slot and MUST be composed here —
 /// otherwise setting the transform would strand the widget at the fixed's (0,0) corner.
 fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform, size: Size) {
@@ -954,7 +954,7 @@ fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform,
         return;
     }
     // The laid-out size (from Day) is reliable; `widget.width()` can be 0 before allocation, which
-    // would pivot scale/rotation on the top-left corner instead of the centre.
+    // would pivot scale/rotation on the top-left corner instead of the center.
     let w = if size.width > 0.0 {
         size.width as f32
     } else {
@@ -967,7 +967,7 @@ fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform,
     };
     let cx = w * t.anchor_x as f32;
     let cy = hgt * t.anchor_y as f32;
-    // GSK applies the FIRST-chained op first to a point, so to rotate/scale about the centre and
+    // GSK applies the FIRST-chained op first to a point, so to rotate/scale about the center and
     // then translate: move to origin + pivot, scale, rotate, move back. Folding the laid-out
     // origin (ox, oy) into the outer translation places the transformed box at its layout position.
     let transform = gtk4::gsk::Transform::new()
@@ -1058,7 +1058,7 @@ fn fill_nav_menu(
             b.set_halign(gtk4::Align::End);
             b
         });
-        // The trailing status glyph, tinted where the app gave it a meaning-bearing colour —
+        // The trailing status glyph, tinted where the app gave it a meaning-bearing color —
         // the same `tinted_template_icon` path the leading icon takes, so a symbol resolves and
         // recolors identically at either end of the row.
         let badge_icon = badge_icons
@@ -1679,30 +1679,30 @@ fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
     }
 }
 
-/// A label's remembered style: the base font, its colour, and — for a label with styled runs —
+/// A label's remembered style: the base font, its color, and — for a label with styled runs —
 /// the text and runs the markup is built from.
 #[derive(Default, Clone)]
 struct LabelStyle {
     font: day_spec::FontSpec,
     color: Option<day_spec::Color>,
     /// `Some` once `.runs()` has put styled runs on this label; the pair rebuilds the markup
-    /// whenever the base font or colour is patched.
+    /// whenever the base font or color is patched.
     rich: Option<(String, Vec<day_spec::TextRun>)>,
 }
 
 thread_local! {
-    /// Per-label style state, keyed by widget ptr. Font and colour render through ONE Pango
+    /// Per-label style state, keyed by widget ptr. Font and color render through ONE Pango
     /// attribute list (set_attributes replaces the whole list), but a `LabelPatch` carries only
     /// the half that changed — so each patch updates its half here and re-applies the whole.
     /// Entries drop in `release`.
     static LABEL_STYLE: RefCell<HashMap<usize, LabelStyle>> = RefCell::new(HashMap::new());
 }
 
-/// The base font and colour as a Pango markup span that WRAPS a label's run markup.
+/// The base font and color as a Pango markup span that WRAPS a label's run markup.
 ///
 /// A `GtkLabel`'s attribute list OVERRIDES the attributes its markup parsed, so a base weight
 /// attribute spanning the whole label silently defeats a `<b>` run — bold text rendered at the
-/// body weight while italic, colour and the monospace family (which set no base attribute) came
+/// body weight while italic, color and the monospace family (which set no base attribute) came
 /// through. A rich label therefore carries NO attribute list, and its base font arrives as this
 /// wrapping span. Inside one markup parse a nested tag wins over an enclosing span, which is the
 /// ordering the run tags need.
@@ -2714,7 +2714,7 @@ impl Toolkit for Gtk {
                     if let Some(source) = source {
                         match c.and_then(|t| tinted_image_texture(&source, t)) {
                             Some(texture) => pic.set_paintable(Some(&texture)),
-                            // Back to the authored colours: reload the file untinted.
+                            // Back to the authored colors: reload the file untinted.
                             None => {
                                 if let Some(path) = day_spec::resource::resolve_image_file(&source)
                                 {
@@ -3132,7 +3132,7 @@ impl Toolkit for Gtk {
                 .stack
                 .add_titled(child, Some(&format!("tab{index}")), &title);
             state.pages.insert(at, (child.clone(), id));
-            // …and a grouped toggle button (radio behaviour) into the `.linked` switcher.
+            // …and a grouped toggle button (radio behavior) into the `.linked` switcher.
             let toggle = gtk4::ToggleButton::with_label(&title);
             if let Some(first) = state.toggles.first() {
                 toggle.set_group(Some(first));
@@ -4422,7 +4422,7 @@ impl Platform for Gtk {
         // activate, below) verifies the families actually resolved and warns loudly if not.
         register_bundled_fonts();
 
-        // AdwApplication initialises libadwaita and loads the Adwaita stylesheet, so
+        // AdwApplication initializes libadwaita and loads the Adwaita stylesheet, so
         // AdwNavigationSplitView / AdwNavigationView render with the GNOME treatment.
         let app = adw::Application::builder()
             .application_id("dev.daybrite.day.app")

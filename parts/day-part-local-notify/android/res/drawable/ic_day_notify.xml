@@ -1,5 +1,5 @@
 <!-- The default notification small icon. Android renders the small icon as a MASK: anything that
-     is not fully transparent becomes solid white, so a full-colour drawable shows up as a white
+     is not fully transparent becomes solid white, so a full-color drawable shows up as a white
      square. This is a monochrome silhouette (a bell) for that reason. An app overrides it by
      passing Notification::icon("some_drawable_name"). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"

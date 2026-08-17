@@ -88,7 +88,7 @@ trait Toolkit {
 }
 ```
 
-day-core builds the `ListSource` when it realises a `LIST` node; each closure re-enters the tree
+day-core builds the `ListSource` when it realizes a `LIST` node; each closure re-enters the tree
 via `with_tree(...)`. The backend calls them on the UI thread from *outside* any `with_tree`
 borrow (a fresh native scroll callback), so the re-entry is safe.
 

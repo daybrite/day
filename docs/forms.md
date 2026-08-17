@@ -39,7 +39,7 @@ form((
   `labeled` rows are just the ones that participate in alignment. A `section` also works
   standalone, outside any `form`.
 - `labeled(text, control)` — one form row: the label sits right-aligned in the form-wide column,
-  on the same text BASELINE as the control ([docs/baseline.md](baseline.md) — centred instead when either side
+  on the same text BASELINE as the control ([docs/baseline.md](baseline.md) — centered instead when either side
   has no baseline, e.g. a toggle, or on a toolkit that reports none); the control starts at the
   column edge + 12. A control marked `.grow()`
   (text fields, sliders, or a `row(( … ))` wrapper) stretches to the row's remaining width;
@@ -74,7 +74,7 @@ growing column width never changes a row's measured size and can't oscillate the
 Vertically the row asks both children for their first text baseline ([docs/baseline.md](baseline.md)) and shifts
 each down to the deeper of the two, so the label meets the control's inset text instead of the
 middle of its box. The row is then as tall as that shared baseline plus the deepest descent below
-it. When either side reports no baseline the row centres both, exactly as it always did.
+it. When either side reports no baseline the row centers both, exactly as it always did.
 
 ## Verification
 

@@ -73,7 +73,7 @@ public class DayTabs extends LinearLayout {
             android.graphics.drawable.Drawable icon =
                     DayBridge.drawableByName(getContext(), iconName);
             if (icon != null) {
-                // A real bundled glyph: the bar's itemIconTintList tints it (grey when unselected,
+                // A real bundled glyph: the bar's itemIconTintList tints it (gray when unselected,
                 // the accent when selected) — the standard M3 bottom-bar icon look, matching iOS.
                 bar.setItemIconSize(dp(24));
                 item.setIcon(icon);

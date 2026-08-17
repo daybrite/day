@@ -6,7 +6,7 @@
 //
 // Before this file the same twelve targets were spelled out four times — the gallery config, the
 // landing page's grid, the showcase downloads, and the shell map — which is how `windows-xaml`
-// ended up labelled "XAML" in one place, "XAML (system XAML)" in another, and "System XAML ·
+// ended up labeled "XAML" in one place, "XAML (system XAML)" in another, and "System XAML ·
 // XAML Islands" in a third. Pages still own their own PROSE (a blurb, an install note); what
 // lives here is the identity every page has to agree on.
 //

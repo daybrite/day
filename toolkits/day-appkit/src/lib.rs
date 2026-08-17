@@ -87,7 +87,7 @@ thread_local! {
     /// The style each button currently carries, keyed by its view pointer.
     ///
     /// Needed because a tinted title is an ATTRIBUTED string (see `set_button_title`), and
-    /// `ButtonPatch::Title` would otherwise replace it with a plain one and lose the colour.
+    /// `ButtonPatch::Title` would otherwise replace it with a plain one and lose the color.
     static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
         RefCell::new(HashMap::new());
 }
@@ -584,7 +584,7 @@ struct NavState {
     node: NodeId,
 }
 
-/// The stack presentation's back header: a chevron + centred title docked above the pages,
+/// The stack presentation's back header: a chevron + centered title docked above the pages,
 /// hidden at the root. Desktop has no system back affordance, so a pushed page carries its own
 /// way out (docs/navigation.md).
 ///
@@ -802,7 +802,7 @@ thread_local! {
 // ---------------------------------------------------------------------------
 // The sidebar pane holds its width through NSSplitViewController's own holding priorities
 // (docs/navigation.md) — a sidebar NSSplitViewItem pins its thickness and lets the detail
-// absorb a window resize, which is exactly the Finder/Mail behaviour the hand-rolled
+// absorb a window resize, which is exactly the Finder/Mail behavior the hand-rolled
 // `splitView:shouldAdjustSizeOfSubview:` delegate used to approximate. The controller IS the
 // split's delegate, so Day must not install one of its own.
 // ---------------------------------------------------------------------------
@@ -1198,7 +1198,7 @@ define_class!(
                         }
                         None => objc2::rc::Retained::into_super(accessory.clone()),
                     };
-                    // The status glyph, tinted where the app gave it a meaning-bearing colour
+                    // The status glyph, tinted where the app gave it a meaning-bearing color
                     // (a star is yellow because that is what a star IS, not because the theme
                     // says so). Template images take contentTintColor exactly as the row's
                     // leading icon does.
@@ -2106,12 +2106,12 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
     set_button_title(btn, &title, style);
 }
 
-/// Set a button's title, colouring it for the tint where there is one.
+/// Set a button's title, coloring it for the tint where there is one.
 ///
 /// `contentTintColor` is NOT the seam for this: on a bordered `NSButton` it tints template
-/// IMAGES, and AppKit keeps drawing the title in its own control text colour — which is how a
+/// IMAGES, and AppKit keeps drawing the title in its own control text color — which is how a
 /// white-on-rust button came out black-on-rust. An ATTRIBUTED title is the documented way to
-/// control the text colour, so that is what a tinted button gets.
+/// control the text color, so that is what a tinted button gets.
 ///
 /// The button's own font is carried into the attributes: an attributed title supplies the whole
 /// run, so leaving the font out would drop the control font and render at the system default.
@@ -2122,7 +2122,7 @@ fn set_button_title(
 ) {
     use day_spec::props::ButtonStyleSpec as S;
     let S::Tinted(fill) = style else {
-        // Plain title: AppKit picks the label colour that suits the bezel it is drawing.
+        // Plain title: AppKit picks the label color that suits the bezel it is drawing.
         unsafe { btn.setTitle(&NSString::from_str(title)) };
         return;
     };
@@ -2131,7 +2131,7 @@ fn set_button_title(
         let font = btn
             .font()
             .unwrap_or_else(|| NSFont::systemFontOfSize(NSFont::systemFontSize()));
-        // Centred, matching a plain NSButton title: an attributed title carries its own
+        // Centered, matching a plain NSButton title: an attributed title carries its own
         // paragraph style, and the default is left-aligned.
         let para = objc2_app_kit::NSMutableParagraphStyle::new();
         para.setAlignment(objc2_app_kit::NSTextAlignment::Center);
@@ -2626,7 +2626,7 @@ fn attributed_label(
     let whole = NSRange::new(0, ns.length());
     unsafe {
         s.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, base_font, whole);
-        // ALWAYS a foreground: an attributed range with no colour attribute draws in black,
+        // ALWAYS a foreground: an attributed range with no color attribute draws in black,
         // which is unreadable in dark mode. `labelColor` is the adaptive default the field
         // would have used on its own.
         let fg = color
@@ -4228,7 +4228,7 @@ impl Toolkit for AppKit {
     /// is exactly the drift baseline alignment exists to remove.
     ///
     /// So derive it from the metrics AppKit rounded: a single line of the control's own font,
-    /// centred in its alignment rect, with the baseline an ascender below the line's top. That
+    /// centered in its alignment rect, with the baseline an ascender below the line's top. That
     /// reproduces AppKit's own numbers for a plain label and a bezeled field (12.91 → its 13,
     /// 19.91 → its 20) while keeping the fractional part that makes a picker land on the line.
     /// Controls with no font of their own keep AppKit's answer.
@@ -4249,7 +4249,7 @@ impl Toolkit for AppKit {
             .and_then(|c| unsafe { c.font() });
         let offset = match font {
             // A multi-line editor's first line sits at the TOP of its text container, not
-            // centred in it, so the centring model would put its baseline half a box too low.
+            // centered in it, so the centering model would put its baseline half a box too low.
             Some(_) if kind == kinds::TEXT_AREA => reported,
             Some(f) => {
                 let (ascender, descender) = unsafe { (f.ascender(), f.descender()) };
@@ -4275,7 +4275,7 @@ impl Toolkit for AppKit {
             NSSize::new(frame.size.width, frame.size.height),
         );
         // Nav host: the sidebar HOLDS its width when the window resizes and the detail pane
-        // absorbs the change. That is now the sidebar NSSplitViewItem's own behaviour, so the
+        // absorbs the change. That is now the sidebar NSSplitViewItem's own behavior, so the
         // only thing left to do here is give the split its frame and place the divider ONCE —
         // re-placing it on every resize would fight the item and undo a user's drag.
         if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {

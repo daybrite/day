@@ -205,6 +205,20 @@ pub enum Step {
         /// opening).
         #[serde(default)]
         window: Option<String>,
+        /// Whether the reply carries the engine's OWN capture (`png_base64`).
+        ///
+        /// On a device target the runner captures through `simctl`/`adb` and that image —
+        /// whole screen, system chrome and all — is what the gallery publishes, so a payload
+        /// rendered here would be encoded, shipped over the socket and dropped on the floor.
+        /// Measured at 819ms per shot on the iOS simulator (33.6s across one walkthrough
+        /// variant, ~4.5 minutes across a CI job's eight), so the runner asks for it only
+        /// where it will be used, and re-asks with this set if the device capture fails.
+        ///
+        /// Defaults to `true`: an older runner, `day drive`, or a hand-written step says
+        /// nothing and still gets the image. The idle wait above happens either way — it is
+        /// what makes a capture land on a settled frame, not an artifact of the encoding.
+        #[serde(default = "default_true")]
+        in_process: bool,
     },
     Pause {
         secs: f64,
@@ -328,6 +342,12 @@ impl Step {
             _ => DEFAULT_TIMEOUT_SECS,
         }
     }
+}
+
+/// `#[serde(default)]` for a bool is `false`; these fields default to ON so a step that
+/// predates them behaves exactly as it did before.
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -744,7 +764,7 @@ fn exec(step: Step) -> Reply {
                 Ok(Reply::ok())
             }
             Step::Tap { id, repeat } => {
-                // Deliver a button `Pressed` AND a gesture `Tap` at the node's local centre, so one
+                // Deliver a button `Pressed` AND a gesture `Tap` at the node's local center, so one
                 // step exercises buttons (which ignore `Tap`) and shape/`.on_tap` pieces (which
                 // ignore `Pressed`) alike — the native recognizers deliver the same `Tap`.
                 let node = find(&id)?;
@@ -920,7 +940,7 @@ fn exec(step: Step) -> Reply {
                 if !found.enabled {
                     return Err(Reply::fail(format!("toolbar: {item:?} is disabled"), false));
                 }
-                // The sidebar toggle carries no app closure — the toolkit owns the behaviour, so
+                // The sidebar toggle carries no app closure — the toolkit owns the behavior, so
                 // it is driven through the duty rather than the action registry. Same call the
                 // native button makes, which is the point: the walkthrough exercises the real
                 // path (docs/toolbars.md).
@@ -1125,11 +1145,19 @@ fn exec(step: Step) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
-            Step::Screenshot { window, .. } => {
+            Step::Screenshot {
+                window, in_process, ..
+            } => {
                 // Wait (retryable, bounded by the step timeout) for native transitions to
                 // settle so the capture never shows a half-dismissed dialog or mid-push page.
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
+                }
+                // The runner is capturing this one itself (see `in_process`): the settle above
+                // is the whole job, and rendering an image nobody reads is the single most
+                // expensive thing this engine does.
+                if !in_process {
+                    return Ok(Reply::ok());
                 }
                 let png = match window.as_deref() {
                     Some(key) => match day_core::windows::window_root_by_key(key) {

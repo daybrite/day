@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(posix_signo(0xC000_0094), POSIX_SIGFPE); // int divide by zero
         assert_eq!(posix_signo(0x8000_0003), POSIX_SIGTRAP);
         assert_eq!(posix_signo(0x8000_0002), POSIX_SIGBUS);
-        // Anything unrecognised still reports as a fault rather than as "no signal".
+        // Anything unrecognized still reports as a fault rather than as "no signal".
         assert_eq!(posix_signo(0xDEAD_BEEF), POSIX_SIGSEGV);
     }
 

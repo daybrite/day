@@ -118,7 +118,12 @@ different goal, and it does **not** simply call this API.
   whole screen, status bar and system chrome included, which is what the published mobile
   galleries show; an in-process capture frames the app's view tree alone and would silently
   re-crop all of them. Where a mobile backend has an in-process capture it now serves as the
-  **fallback** — a refusing device tool used to abandon the shot outright.
+  **fallback** — a refusing device tool used to abandon the shot outright. Because that image is
+  wanted only when the device tool refuses, the runner tells the engine not to render one
+  (`in_process: false` on the step) and re-asks on the failure path: rendering and encoding a
+  capture per shot only to discard it cost 819ms each on the iOS simulator, 33.6s across one
+  walkthrough variant. The idle wait that makes a capture land on a settled frame happens either
+  way — it is the point of the step, not a side effect of the encoding.
 - **web-dom** — the `DAY_WEB_DRIVER` browser captures the page.
 
 `day drive` follows the same precedence, so the same screen frames the same way whichever entry

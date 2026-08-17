@@ -169,7 +169,7 @@ pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> Toolba
 ///
 /// Takes no `.action`: the toolkit binds it to the sidebar host in this window and drives that
 /// host's own collapse, so the app declares the affordance and each platform supplies its
-/// native behaviour and glyph. Place it first, before any [`toolbar_flexible_space`]. In a
+/// native behavior and glyph. Place it first, before any [`toolbar_flexible_space`]. In a
 /// window with no sidebar it renders disabled rather than vanishing, so the bar keeps its shape
 /// as the route changes. docs/toolbars.md.
 pub fn toolbar_sidebar_toggle<M>(id: impl Into<String>, label: impl IntoText<M>) -> ToolbarEntry {

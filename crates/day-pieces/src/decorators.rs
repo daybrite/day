@@ -758,7 +758,7 @@ impl A11yBuilder {
         self
     }
     /// Hide this element from assistive tech (still visible on screen) — e.g. a redundant chrome
-    /// element already announced by its labelled sibling.
+    /// element already announced by its labeled sibling.
     pub fn hidden(mut self) -> Self {
         self.0.hidden = true;
         self

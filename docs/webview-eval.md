@@ -141,7 +141,7 @@ Qt reports these to stderr via `qWarning` instead. This is a design fact confirm
 The compensating strength is lifetime: Qt guarantees the callback runs even during page destruction
 (with an invalid value), so a boxed Rust closure is always reclaimed exactly once. The matching
 hazard is that touching the `QWebEnginePage`/`QWebEngineView` inside that late callback is undefined
-behaviour — the shim lambda must capture PODs only.
+behavior — the shim lambda must capture PODs only.
 
 Values round-trip through Chromium's `base::Value`, so `Date` arrives as a string and `1` vs `1.0`
 can differ in `QVariant` type. `QJsonDocument::fromVariant` is lossy for top-level scalars, which is
@@ -299,7 +299,7 @@ pub enum EvalError {
     ViewGone,
     Engine(String),                                // could not run or decode
 }
-pub enum EvalWorld { Isolated, Page }              // honoured on apple/gtk/qt, ignored elsewhere
+pub enum EvalWorld { Isolated, Page }              // honored on apple/gtk/qt, ignored elsewhere
 pub enum EvalMode  { Expression, Statements }
 ```
 
@@ -340,5 +340,5 @@ arm loads pages but cannot evaluate at all.
 - Whether WebKitGTK still invokes the callback when `WebKitSettings:enable-javascript` is false. The
   docs say the method "will do nothing"; do not assume the callback arrives.
 - Any practical script-length ceiling on Android's Mojo transport. None is documented.
-- Whether Apple's cycle-preservation and `Map`/`Set` → empty-dictionary behaviour hold on releases
+- Whether Apple's cycle-preservation and `Map`/`Set` → empty-dictionary behavior hold on releases
   older than the 2025 `JavaScriptEvaluationResult` rewrite. The envelope makes this moot in practice.

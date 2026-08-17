@@ -59,7 +59,7 @@ pub fn parse(md: &str, base: Font) -> (String, Vec<TextRun>) {
     (p.out, p.runs)
 }
 
-/// The colour a link run takes when the markdown does not say otherwise: the platform-ish tint
+/// The color a link run takes when the markdown does not say otherwise: the platform-ish tint
 /// blue, matching the `link()` piece so the two read as the same affordance.
 const LINK_COLOR: Color = Color::rgb(0.0, 0.478, 1.0);
 
@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn a_link_carries_its_target_and_a_colour() {
+    fn a_link_carries_its_target_and_a_color() {
         let (t, r) = render("see [the docs](https://day.dev/x) now");
         assert_eq!(t, "see the docs now");
         assert_eq!(r.len(), 1);

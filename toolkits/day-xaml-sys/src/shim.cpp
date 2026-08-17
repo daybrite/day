@@ -546,7 +546,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // Everything, not just this window's title bar: the roots' grounds are as stale as the
             // chrome after a system flip, and other windows get no broadcast of their own.
             apply_appearance_everywhere();
-            // …and tell day, so APP-PAINTED colour follows too. XAML's own controls re-theme
+            // …and tell day, so APP-PAINTED color follows too. XAML's own controls re-theme
             // themselves from theme resources, which is why the window looked like it was
             // following all along — but every palette closure day evaluates reads day's dark
             // signal, and nothing was ever updating it here.
@@ -1893,7 +1893,7 @@ static WUX::ElementTheme element_theme_now() {
 /// TRANSPARENT so the material shows through — and that material is drawn by DWM from the SYSTEM
 /// scheme, with no way to ask it for the other one. So under an override the backdrop has to be
 /// covered by an opaque ground; without that, every surface that does not paint itself kept the
-/// system's colour while the controls went dark, which is the bug this whole chain was chasing.
+/// system's color while the controls went dark, which is the bug this whole chain was chasing.
 /// Following the system again puts the transparency back, so Mica returns.
 static void ground_root(WUXC::Canvas const& root, bool dark) {
     if (!root) return;
@@ -1901,7 +1901,7 @@ static void ground_root(WUXC::Canvas const& root, bool dark) {
     if (overridden) {
         root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
     } else if (root.Background()) {
-        // Already grounded (Mica refused at creation): keep it opaque, just re-colour it.
+        // Already grounded (Mica refused at creation): keep it opaque, just re-color it.
         root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
     } else {
         root.Background(nullptr); // Mica window back on the system scheme: let the material show
@@ -2109,7 +2109,7 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
                 i < tints.size()
                     ? static_cast<unsigned int>(std::strtoul(tints[i].c_str(), nullptr, 10))
                     : 0u;
-            // A fully transparent value is the "no tint" encoding, not a real colour.
+            // A fully transparent value is the "no tint" encoding, not a real color.
             bool tinted = (argb >> 24) != 0;
             void* icon = nullptr;
             if (i < geoms.size() && !geoms[i].empty()) {
@@ -2281,8 +2281,8 @@ static void animate_double(void* key, WUX::DependencyObject const& target, std::
 }
 
 // The CompositeTransform every transform channel animates through. Installed once per element;
-// RenderTransformOrigin is the CENTRE, matching AppKit's layer anchor and Qt's painter transform
-// (Day's anchor_x/anchor_y are 0.5/0.5 in practice and the other backends centre unconditionally).
+// RenderTransformOrigin is the CENTER, matching AppKit's layer anchor and Qt's painter transform
+// (Day's anchor_x/anchor_y are 0.5/0.5 in practice and the other backends center unconditionally).
 static WUXM::CompositeTransform ensure_transform(WUX::UIElement const& el) {
     if (auto existing = el.RenderTransform().try_as<WUXM::CompositeTransform>()) return existing;
     WUXM::CompositeTransform t;
@@ -2329,7 +2329,7 @@ void day_xaml_set_transform(void* h, double tx, double ty, double sx, double sy,
     }
 }
 
-// Animated background fill. Unlike the transform channels a brush colour is NOT composited
+// Animated background fill. Unlike the transform channels a brush color is NOT composited
 // independently, so this one needs EnableDependentAnimation — it is a single box, not a per-frame
 // layout cost. XAML is the only desktop backend that can tween this (DESIGN.md §8.4).
 void day_xaml_container_animate_bg(void* h, unsigned int argb, int dur_ms, int curve) {
@@ -2448,7 +2448,7 @@ void day_xaml_container_set_corner(void* h, double radius) {
         });
     } catch (...) {
         // CreateGeometricClip needs 1809+; on older builds the corners stay square, which is the
-        // behaviour this backend already had.
+        // behavior this backend already had.
     }
 }
 
@@ -2511,7 +2511,7 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
     }
     if (link && link[0]) {
         // A Hyperlink is an inline container: the run goes INSIDE it, so the link sits in the
-        // same wrapping paragraph as its neighbours. Activation is Phase 4.
+        // same wrapping paragraph as its neighbors. Activation is Phase 4.
         WUXD::Hyperlink hl;
         hl.Inlines().Append(run);
         // NavigateUri is deliberately NOT set: it would make the shell open the target itself,
@@ -2849,7 +2849,7 @@ static WSS::IRandomAccessStream read_file_stream(const char* path) {
 // into the shape list this parses (`build/day/vectors/xaml/<name>.xamlgeom`), so the glyph is
 // resolution-INDEPENDENT — XAML rasterizes the geometry at whatever size the layout gives it,
 // every frame, instead of scaling a 256 px cache. It is also what makes a tint a runtime
-// composition: the colour is a Brush set on the shape when it is realized, so one staged glyph
+// composition: the color is a Brush set on the shape when it is realized, so one staged glyph
 // serves every tint at every size. Art the CLI could not convert (gradients, clips, embedded
 // rasters) stages no geometry, and the callers below fall back to the raster.
 
@@ -2971,7 +2971,7 @@ static WUXM::Geometry geometry_from_data(const std::string& data, bool even_odd)
 
 // A glyph sized by the layout: the shapes go in a Canvas the size of the source viewport, and a
 // Viewbox scales that to whatever frame day assigns — so one geometry serves every size.
-// `tinted` replaces every authored paint with `argb`; otherwise the art keeps its own colours.
+// `tinted` replaces every authored paint with `argb`; otherwise the art keeps its own colors.
 void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tinted) {
     Geom g = parse_geom(spec);
     if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
@@ -3021,11 +3021,11 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
 // The same geometry as a `PathIcon`, for the slots that demand an IconElement (nav rows).
 // PathIcon draws its geometry in its OWN coordinates with no scaling of its own, so the source
 // viewport is mapped onto `box` here; an untinted icon leaves Foreground alone and inherits the
-// pane's theme colour, which is what keeps unstyled rows theme-adaptive.
+// pane's theme color, which is what keeps unstyled rows theme-adaptive.
 void* day_xaml_vector_icon_new(const char* spec, unsigned int argb, int tinted, double box) {
     Geom g = parse_geom(spec);
     if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
-    // One Geometry for the icon: an IconElement carries a single colour anyway, so the shapes
+    // One Geometry for the icon: an IconElement carries a single color anyway, so the shapes
     // concatenate into one figure list rather than losing their per-shape paints twice over.
     std::string all;
     bool even_odd = g.shapes.front().even_odd;
@@ -3318,7 +3318,7 @@ static int png_encoder_clsid(CLSID* clsid) {
 //
 // Deliberately not `RenderTargetBitmap` (which this used to use). RTB re-renders the XAML tree
 // into an offscreen surface, and what comes back is not what the user sees: templated control
-// chrome — TextBox and ComboBox borders, the date/time pickers — arrived as flat grey blocks,
+// chrome — TextBox and ComboBox borders, the date/time pickers — arrived as flat gray blocks,
 // so the CI gallery misreported styling on every page that has an input. It also cannot capture
 // anything the compositor draws outside the tree. Reading the window back is the only way a
 // screenshot can be evidence of what shipped.
@@ -3765,7 +3765,7 @@ static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::strin
     }
     // Vector before raster, as the nav pane does: a PathIcon is resolution-independent and takes
     // the bar's Foreground, so it themes itself. No tint channel here — a toolbar command is
-    // monochrome chrome by definition, and the CommandBar's own foreground is the right colour in
+    // monochrome chrome by definition, and the CommandBar's own foreground is the right color in
     // both schemes and in the disabled/pressed visuals.
     if (!geom.empty()) {
         std::string spec = geom;

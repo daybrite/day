@@ -288,7 +288,7 @@ fn merge_search(root: RNode, mut items: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
     items
 }
 
-/// Show/hide the window's `selector(Sidebar)` pane — the behaviour behind a
+/// Show/hide the window's `selector(Sidebar)` pane — the behavior behind a
 /// [`day_spec::ToolbarItemKind::SidebarToggle`] item. `false` when this toolkit has no split
 /// host to toggle. The native toolbar button and dayscript's `toolbar:` step share this call,
 /// so a walkthrough drives the same path a click does (docs/toolbars.md).

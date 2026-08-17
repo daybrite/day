@@ -201,7 +201,7 @@ public:
     // The window toolbar (docs/toolbars.md), a strip under the menu bar. A plain QToolBar
     // parented to the window rather than a QMainWindow dock: the geometry here is already
     // hand-managed, and the toolbar is a genuine QToolBar either way — it gets the style's
-    // icon size, button style and hover behaviour. What it does not get is dragging between
+    // icon size, button style and hover behavior. What it does not get is dragging between
     // dock areas, which needs QMainWindow.
     QToolBar *toolbar = nullptr;
 
@@ -312,7 +312,7 @@ void day_qt_open_url(const char *url) {
 // a parent QWidget cascades into every descendant and replaces their native drawing (flat buttons).
 // A QWidget has neither an opacity of its own nor a 2-D transform, so both ride a single custom
 // QGraphicsEffect (§8.4). The effect grabs the widget (and its children) as a pixmap and re-draws
-// it through a transformed painter — rotate/scale/translate about the centre — with a padded
+// it through a transformed painter — rotate/scale/translate about the center — with a padded
 // bounding rect so the result can spill OUTSIDE the widget's own 112px frame (into the parent, like
 // a drop shadow) instead of clipping to the widget rect. A rounded clip (matching the surface's
 // corner radius) is re-applied here because the grabbed pixmap has square corners. No Q_OBJECT/moc:
@@ -336,7 +336,7 @@ public:
         }
         // The pixmap is padded to boundingRectFor (so a transform can spill beyond the frame), so it
         // is NOT the widget's size. sourceBoundingRect() is the widget's real rect — use it for the
-        // pivot and the rounded clip; the widget content sits centred within the padded pixmap.
+        // pivot and the rounded clip; the widget content sits centered within the padded pixmap.
         QRectF src = sourceBoundingRect();
         QPointF c = src.center();
         painter->save();
@@ -419,7 +419,7 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
     }
 }
 
-// Update only the background colour, preserving the radius/clips captured by the last
+// Update only the background color, preserving the radius/clips captured by the last
 // day_qt_widget_set_surface (so a reactive `.background` doesn't square off a rounded surface).
 void day_qt_widget_set_bg(void *w, double r, double g, double b, double a) {
     QWidget *widget = static_cast<QWidget *>(w);
@@ -995,7 +995,7 @@ static QPixmap day_qt_load_glyph(const QString &path, int px) {
     return pm;
 }
 
-// Recolor a template glyph: keep the alpha, replace every colour (docs/vectors.md "Tint").
+// Recolor a template glyph: keep the alpha, replace every color (docs/vectors.md "Tint").
 static QPixmap day_qt_tint_glyph(const QPixmap &src, const QColor &color) {
     if (src.isNull()) return src;
     QPixmap tinted = src;
@@ -1566,7 +1566,7 @@ void *day_qt_image_new(const char *path, int mode, const char *tint) {
 }
 
 // `ImagePatch::Tint`: repaint the realized glyph from its source, so a tint that follows a signal
-// never rebuilds the view. An empty tint restores the authored colours.
+// never rebuilds the view. An empty tint restores the authored colors.
 void day_qt_image_set_tint(void *w, const char *tint) {
     auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
     if (!l) return;
@@ -1937,7 +1937,7 @@ void day_qt_set_toolbar_cb(void (*cb)(uint64_t, int, int, const char *)) { g_too
 // Item widgets by id, for the targeted patches (search text, toggle state, enabled).
 // QPointer, not a raw pointer: a toolbar REBUILD destroys these widgets, and any patch that
 // arrives between the destroy and the rebuild's re-add would otherwise `qobject_cast` a freed
-// QObject — undefined behaviour that showed up as a crash inside `deleteLater` when a search
+// QObject — undefined behavior that showed up as a crash inside `deleteLater` when a search
 // clear raced a re-install. A QPointer reads null once its object dies, so a stale patch is a
 // no-op instead.
 static std::map<std::string, QPointer<QWidget>> g_toolbar_widgets;
@@ -1953,7 +1953,7 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
     QString name = QString::fromUtf8(theme);
     // A BUNDLED image arrives here as a resolved file path (day-qt's `icon_args`), and it is a
     // template glyph: black on transparent. Loading it as-is drew a flat black star on the
-    // toolbar, invisible in dark mode and wrong in light. Tint it to the palette text colour,
+    // toolbar, invisible in dark mode and wrong in light. Tint it to the palette text color,
     // exactly as the sidebar rows do — the file test is what tells a path from a theme NAME.
     if (!name.isEmpty() && QFileInfo(name).isFile()) {
         QColor fg = QApplication::palette().color(QPalette::WindowText);

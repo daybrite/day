@@ -113,7 +113,7 @@ public final class DayLocalNotify {
     }
 
     /**
-     * The small icon must be a MONOCHROME silhouette — a full-colour drawable renders as a white
+     * The small icon must be a MONOCHROME silhouette — a full-color drawable renders as a white
      * square. The crate ships ic_day_notify as the default; an app overrides it by name. Resolved
      * with getIdentifier because a piece cannot know the app's R class (docs/extending.md).
      */

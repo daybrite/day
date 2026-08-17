@@ -85,7 +85,7 @@ at native size, the same mechanism nav pages use. Pages with native-owned frames
 **Icons are drawn where the tab widget has a slot for one.** `item_icon` names a bundled image or
 vector ([docs/vectors.md](vectors.md)), which UIKit's tab bar, Android's navigation bar, and Qt's `QTabWidget`
 all render beside the label. `NSTabView` and the Adwaita switcher have no icon slot, so they show
-the label alone — the same call is correct everywhere, and a backend that cannot honour it ignores
+the label alone — the same call is correct everywhere, and a backend that cannot honor it ignores
 it rather than failing. Prefer a **vector**: a tab bar picks its own icon size, and a bitmap
 scaled to it is visibly soft on a phone.
 

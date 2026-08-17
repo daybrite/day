@@ -7,7 +7,7 @@
 // animated platform caption. This script gathers the candidate images and — per the design — only
 // admits a screenshot that (a) actually exists and (b) is NOT blank/solid (a capture that failed
 // or a placeholder). Verification uses `sharp`'s per-channel standard deviation: a blank or
-// single-colour image has ~0 stdev, real UI has plenty.
+// single-color image has ~0 stdev, real UI has plenty.
 //
 // Sources, in order of preference per (platform, shot):
 //   1. `public/gallery/<suite>/<platform>/<variant>/<shot>.png` — the real CI artifacts, already
@@ -206,12 +206,12 @@ export async function assembleHeroShots(opts = {}) {
   mkdirSync(outDir, { recursive: true });
   mkdirSync(dirname(manifestPath), { recursive: true });
 
-  // Normalise for the web: cap the longest side (the iOS captures are ~2600px tall) so the hero
+  // Normalize for the web: cap the longest side (the iOS captures are ~2600px tall) so the hero
   // stays light, and re-encode PNG. Never enlarge — desktop shots are already ~1000px.
   // Emitted size travels with the image: the carousel frames each shot in its platform's window
   // chrome or phone bezel, which shrink-wrap the picture — so the <img> needs the capture's REAL
   // aspect ratio, not one nominal ratio for portrait phones and landscape desktops alike.
-  const normalise = async (buf) => {
+  const normalize = async (buf) => {
     const { data, info } = await sharp(buf, { failOn: 'none' })
       .resize({ width: 1000, height: 1000, fit: 'inside', withoutEnlargement: true })
       .png({ compressionLevel: 9 })
@@ -245,7 +245,7 @@ export async function assembleHeroShots(opts = {}) {
       if (!buf) continue;
       if (!(await isContentful(buf))) continue;
       const file = `${platform.id}-${shot}.png`;
-      const light = await normalise(buf);
+      const light = await normalize(buf);
       writeFileSync(join(outDir, file), light.data);
       const toolkit = CAROUSEL_TOOLKIT[platform.id] ?? platform.toolkit;
       const entry = {
@@ -267,7 +267,7 @@ export async function assembleHeroShots(opts = {}) {
       const darkBuf = await obtain(platform.id, shot, 'dark');
       if (darkBuf && (await isContentful(darkBuf)) && (await isDark(darkBuf))) {
         const darkFile = `${platform.id}-${shot}-dark.png`;
-        writeFileSync(join(outDir, darkFile), (await normalise(darkBuf)).data);
+        writeFileSync(join(outDir, darkFile), (await normalize(darkBuf)).data);
         entry.srcDark = `hero/${darkFile}`;
       }
       shots.push(entry);

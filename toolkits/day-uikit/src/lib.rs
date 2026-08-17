@@ -576,7 +576,7 @@ mod imp {
                 url: &objc2_foundation::NSURL,
                 _range: objc2_foundation::NSRange,
                 // `UITextItemInteraction`, taken as the NSInteger it wraps: objc2 deprecates
-                // the newtype in favour of iOS 17 text-item methods that do not exist on the
+                // the newtype in favor of iOS 17 text-item methods that do not exist on the
                 // versions Day targets. Unused either way.
                 _interaction: isize,
             ) -> bool {
@@ -801,7 +801,7 @@ mod imp {
         }
     }
 
-    /// The UIResponder standard-edit selector a role routes to (None → a no-op labelled action, since
+    /// The UIResponder standard-edit selector a role routes to (None → a no-op labeled action, since
     /// iOS has no responder equivalent — e.g. Quit/About/window management).
     fn ui_role_selector(role: day_spec::MenuRole) -> Option<objc2::runtime::Sel> {
         use day_spec::MenuRole::*;
@@ -935,7 +935,7 @@ mod imp {
     struct SplitParts {
         /// The adaptive host. `NavState::nav` is its SECONDARY column; the sidebar page's
         /// controller is its primary. Retained because a view holds no strong reference to its
-        /// controller, and this one owns the columns and the collapse behaviour.
+        /// controller, and this one owns the columns and the collapse behavior.
         split_vc: Retained<objc2_ui_kit::UISplitViewController>,
         /// The PRIMARY column's navigation controller — the sidebar page's stack.
         ///
@@ -1813,9 +1813,9 @@ mod imp {
     // -------------------------------------------------------------------
     // -----------------------------------------------------------------------
     // DayNavCell — a nav row whose icon reads as a natural iOS glyph: a small
-    // (20pt) template image tinted with the neutral secondaryLabel colour (NOT
-    // the accent), vertically centred on the row like the label, so the glyph's
-    // optical centre matches the text's line centre (the UIListContentConfiguration
+    // (20pt) template image tinted with the neutral secondaryLabel color (NOT
+    // the accent), vertically centered on the row like the label, so the glyph's
+    // optical center matches the text's line center (the UIListContentConfiguration
     // idiom). The stock UITableViewCell accent-tints its imageView, so we lay the
     // row out ourselves (docs/navigation.md).
     // -----------------------------------------------------------------------
@@ -1869,10 +1869,10 @@ mod imp {
                     }
                     iv.icon.setHidden(!has_icon);
                     if has_icon {
-                        // Centre the icon on the row, matching the centred label. Bottoming
+                        // Center the icon on the row, matching the centered label. Bottoming
                         // the box on the text BASELINE rode visibly high: Material template
                         // PNGs pad the glyph inside the canvas, so the box must align by
-                        // optical centre, not by edge.
+                        // optical center, not by edge.
                         iv.icon.setFrame(CGRect::new(
                             CGPoint::new(LEADING, ((ch - ICON) / 2.0).max(0.0)),
                             CGSize::new(ICON, ICON),
@@ -1958,7 +1958,7 @@ mod imp {
         /// Per-row icon tint (docs/vectors.md); `None` keeps the neutral template look.
         tints: RefCell<Vec<Option<day_spec::Color>>>,
         /// Pre-resolved template icons per row (docs/navigation.md), `None` where a row has none.
-        /// Template mode tints them with the cell's tint colour (the iOS list idiom).
+        /// Template mode tints them with the cell's tint color (the iOS list idiom).
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
         /// Trailing status glyphs per row, resolved the same way as `icons`.
         badge_icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
@@ -2080,7 +2080,7 @@ mod imp {
     /// Load a bundled image by NAME for a nav/tab icon (docs/navigation.md): by-name from the
     /// DayPieces asset catalog first — the reliable iOS path, same as the `image()` piece — then a
     /// loose staged file (dev / assets). Callers apply `.alwaysTemplate` so it tints with the
-    /// control's colour.
+    /// control's color.
     fn load_bundled_uiimage(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
         let nsname = NSString::from_str(name);
         let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
@@ -3301,7 +3301,7 @@ mod imp {
         let whole = NSRange::new(0, ns.length());
         unsafe {
             s.addAttribute_value_range(objc2_ui_kit::NSFontAttributeName, base_font, whole);
-            // ALWAYS a foreground: a UITextView draws an attributed range with no colour
+            // ALWAYS a foreground: a UITextView draws an attributed range with no color
             // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
             // default a plain label would have used.
             let fg = color.map(uicolor).unwrap_or_else(UIColor::labelColor);
@@ -3528,7 +3528,7 @@ mod imp {
                     // navigation controller. A `UISplitViewController` assumes it owns the
                     // window; nested inside a detail pane its column layout collapses into
                     // garbage (the embedded-split trap), which is exactly what a pane-sized
-                    // grey void looked like.
+                    // gray void looked like.
                     let (host, split) = if p.presentation == day_spec::props::NavPresentation::Stack
                     {
                         if let Some(root_vc) = root_vc {
@@ -3635,7 +3635,7 @@ mod imp {
                                     &*updater,
                                 )));
                                 // The results controller is the app's own list, not a separate
-                                // one, so dimming it while typing would grey out the very rows
+                                // one, so dimming it while typing would gray out the very rows
                                 // being filtered.
                                 sc.setObscuresBackgroundDuringPresentation(false);
                                 let bar = sc.searchBar();
@@ -3753,13 +3753,13 @@ mod imp {
                     }
                     // Optional tab icon (docs/tabs.md): a bundled template image on the tab item,
                     // the iOS-idiomatic tab bar (icon over label). Template mode tints with the tab
-                    // bar's colour (unselected grey, selected accent).
+                    // bar's color (unselected gray, selected accent).
                     if let Some(name) = p.icon.as_deref()
                         && let Some(img) = load_bundled_uiimage(name)
                     {
                         // Tab-bar icons are ~25pt; the shared 96px asset must be downscaled (a
                         // UITabBar shows an image at its full point size otherwise). Prepare a
-                        // thumbnail, then template so it tints with the bar (grey/selected accent).
+                        // thumbnail, then template so it tints with the bar (gray/selected accent).
                         let sized =
                             unsafe { img.imageByPreparingThumbnailOfSize(CGSize::new(26.0, 26.0)) }
                                 .unwrap_or(img);
@@ -4630,7 +4630,7 @@ mod imp {
                         // page, because that is the configuration the collapse actually belongs
                         // to. Mail, Settings and Files all do this: the search bar sits under a
                         // large title and the two collapse together as the list scrolls, then
-                        // come back on a pull down. With a small centred title UIKit keeps the
+                        // come back on a pull down. With a small centered title UIKit keeps the
                         // field pinned and nothing hides (docs/search.md).
                         item.setHidesSearchBarWhenScrolling(true);
                         // The collapse is driven by a SCROLL VIEW the navigation controller can
@@ -4779,7 +4779,7 @@ mod imp {
                 tv.setTextColor(label.textColor().as_deref());
                 // Styled runs live in the label's ATTRIBUTED text; copying `text()` alone would
                 // hand the text view the plain string and silently drop every run. Font and
-                // colour go on first so they still stand as the view's defaults.
+                // color go on first so they still stand as the view's defaults.
                 match label.attributedText() {
                     Some(a) => tv.setAttributedText(Some(&a)),
                     None => tv.setText(label.text().as_deref()),
@@ -5274,7 +5274,7 @@ mod imp {
                     // On iPad an action sheet presents as a POPOVER, and a popover without an
                     // anchor is an NSGenericException at transition time — the app dies. The
                     // dialog surface has no anchor concept (a sheet is logically modal,
-                    // docs/dialogs.md), so anchor it to the window's centre, arrowless: the
+                    // docs/dialogs.md), so anchor it to the window's center, arrowless: the
                     // pad convention for source-less sheets. On iPhone the popover controller
                     // is unused and this is inert.
                     if *sheet
@@ -5415,7 +5415,7 @@ mod imp {
             else {
                 return;
             };
-            // `openURL:` is deprecated in favour of the options/completion form, which only adds an
+            // `openURL:` is deprecated in favor of the options/completion form, which only adds an
             // options-key type and a result block a fire-and-forget link ignores. This still hands
             // the URL to the system (Safari for http(s), Mail for mailto:, …).
             #[allow(deprecated)]

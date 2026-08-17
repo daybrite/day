@@ -48,6 +48,6 @@ objc2-app-kit = { version = "0.3", features = [
     # pasteboard writer that carries the dragged row index.
     "NSDragging", "NSDraggingSession", "NSDraggingItem", "NSPasteboard", "NSPasteboardItem",
     # Window toolbars (docs/toolbars.md): NSToolbar plus the item classes that give search and
-    # pull-down items their real macOS behaviour (collapsing search, menu indicator).
+    # pull-down items their real macOS behavior (collapsing search, menu indicator).
     "NSToolbar", "NSToolbarItem", "NSSearchToolbarItem", "NSMenuToolbarItem", "NSSearchField",
 ] }

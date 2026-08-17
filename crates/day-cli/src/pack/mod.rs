@@ -626,7 +626,7 @@ mod repro_tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn epoch_honours_source_date_epoch_above_the_zip_floor() {
+    fn epoch_honors_source_date_epoch_above_the_zip_floor() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe { std::env::remove_var("SOURCE_DATE_EPOCH") };
         assert_eq!(

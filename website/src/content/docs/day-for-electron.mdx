@@ -141,7 +141,7 @@ button("Open…").action(move || {
 The three-file round trip on the left is the cost of the process boundary: every capability
 needs a handler, a bridge entry, and a serializable payload. On the right the dialog is `open_file()`, the battery
 is `day_part_battery::status()`, the clipboard is `day_part_clipboard::get_text()`. All are
-plain functions, typed end to end, with nothing marshalled through strings. When a capability needs
+plain functions, typed end to end, with nothing marshaled through strings. When a capability needs
 platform code Day doesn't ship (your N-API module case), you write a [part](/docs/parts): the
 platform halves live in one crate and calls into it stay ordinary Rust.
 

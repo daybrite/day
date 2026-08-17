@@ -645,7 +645,7 @@ inherent methods (good rustdoc, good autocomplete) — the modifiers that apply 
 (`padding`, `id`, `a11y`, `background`, `on_tap`…) come from a blanket `Decorate` extension trait,
 while a modifier only some pieces can honor stays an inherent method on those pieces: `style` is
 typed per piece (`Button::style` takes a `ButtonStyle`, `Picker::style` a `PickerStyle`), and
-`enabled` needs a control to grey out (`Button::enabled`, `Toggle::enabled`).
+`enabled` needs a control to gray out (`Button::enabled`, `Toggle::enabled`).
 
 ### §5.3 Built-in pieces (MVP set)
 
@@ -656,7 +656,7 @@ typed per piece (`Button::style` takes a `ButtonStyle`, `Picker::style` a `Picke
 > the navigation containers); the gesture decorators shipped as `.on_tap`/`.on_drag` (context
 > menus are declarative — `.context_menu(items)`, [docs/menus.md](docs/menus.md)). Three modifiers the design-era
 > §5.2 text listed as `Decorate` members never shipped there: `disabled` is spelled `enabled` and
-> is per-piece (`Button`, `Toggle`) because it needs a native control to grey out, and `visible`
+> is per-piece (`Button`, `Toggle`) because it needs a native control to gray out, and `visible`
 > and `on_key` do not exist at all — hide a subtree with `when`, and while `Event::Key` rides the
 > event sink, no piece-level API consumes it yet. `Decorate` did instead grow the
 > transform family (`.opacity()`, `.rotation()`, `.scale()`, `.translation()`, `.transform()`) and
@@ -1433,7 +1433,7 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > no-ops until now, so scale, rotation, offset and opacity did nothing at all on Windows
 > (the color still applied, which made the page look half-alive). Both are implemented as
 > XAML `Storyboard`s: opacity on `UIElement.Opacity` and the transform channels on a
-> `CompositeTransform` about the element's centre — the same anchor AppKit's layer and Qt's
+> `CompositeTransform` about the element's center — the same anchor AppKit's layer and Qt's
 > painter transform use. Storyboards are kept per (element, property) and stopped before
 > re-animating, since two live storyboards on one property fight and a stopped one snaps its
 > property back; `FillBehavior::HoldEnd` keeps the settled value.
@@ -1717,7 +1717,7 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   OBSERVED instead — `Cap::NavRepresent = Emulated`, with the toolkit reporting through
 >   `Event::NavPresentationChanged`. Shipped: web-dom, macos-appkit and Qt (told); ios-uikit
 >   (`UISplitViewController`) and android-mdc (`SlidingPaneLayout`) (observed). GTK and XAML keep
->   the pre-size-class behaviour; ArkUI is untouched. `safe_area` moved to the same per-window
+>   the pre-size-class behavior; ArkUI is untouched. `safe_area` moved to the same per-window
 >   signal in the same change. [docs/size-classes.md](docs/size-classes.md) is normative.
 > - **`stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
 >   (iOS swipe/button, Android system + predictive back) arrives as
@@ -2018,8 +2018,10 @@ release artifacts without the opt-in contain no engine). It:
 - is honest about **what it cannot verify**: the native keyboard and IME, native hit-testing,
   native animations, and out-of-process UI. Manual smokes in M2/M5/M6 acceptance carry that load.
 - serves the **transport** ([§14.5](#145-transport-and-rendezvous)), implements `screenshot` via `Toolkit::snapshot_window` (on a
-  device or simulator the runner prefers the platform's own screen capture and keeps that
-  in-process image as the fallback — [docs/window-image.md](docs/window-image.md)), and
+  device or simulator the runner prefers the platform's own screen capture, so it asks the
+  engine to SKIP its render — `in_process: false` — and re-asks only if that capture fails;
+  rendering one per shot and discarding it cost 33.6s of a single iOS walkthrough variant —
+  [docs/window-image.md](docs/window-image.md)), and
   implements **`a11y_audit`**: walk the *native* accessibility tree in-process
   (NSAccessibility/UIAccessibility — hop's proven recipe; `AccessibilityNodeInfo` on Android;
   GtkAccessible/QAccessibleInterface where present), diff role/label/identifier against day-core's
@@ -2732,7 +2734,7 @@ exactly where a hand-rolled bundler goes wrong. Without the plugin the AppImage 
 still runs on a machine that already has the toolkit, and says so loudly (§20). The payload tree
 inside both is staged once (`pack/linux.rs`), so one recorded digest set verifies either (§20.3).
 GTK/Qt bundling on non-native OSes remains unsupported (the extra combos are dev targets), and
-the designed LGPL/licences-stage guard rails remain future work.
+the designed LGPL/licenses-stage guard rails remain future work.
 
 Every format lands on one filename pattern (`pack/naming.rs`):
 
@@ -3285,10 +3287,20 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 1. **Fast checks** — rustfmt, MSRV build, and the toolkit-independent clippy (host-portable
    crates + CLI/dayscript + mock-backend showcase, all `--all-targets`; the android
    cross-*check* lint; the drift checks for all three generated tables — duty, piece-vocabulary
-   coverage, and recorder coverage). Clippy is a required status but NOT in
+   coverage, and recorder coverage); plus **`spelling`** (2026-08), which runs `typos` over the
+   whole tree. It gates two things at once: misspellings, and STYLE_GUIDE.md's American-English
+   rule, which `typos.toml`'s `locale = "en-us"` turns from a convention into a check. The gate
+   arrived with the cleanup it enforces — 355 British spellings had accumulated across 116 files,
+   90% of them in doc and code comments rather than in the prose the style guide names, because a
+   dialect is not something anyone decides one comment at a time. Exceptions live in `typos.toml`,
+   each with its reason: `cancelled` (pinned by `HttpError::Cancelled` and by GitHub Actions'
+   own `cancelled()`), the deliberate misspellings that ARE test fixtures (`--profile relaese`,
+   the `stlye:` Fluent lint case), and the starter-app translations, which are not English.
+   Clippy is a required status but NOT in
    the combos' `needs:`, so a lint error blocks merge without suppressing the platform
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
-   failure killed the CLI artifact and with it every Linux-descended combo).
+   failure killed the CLI artifact and with it every Linux-descended combo). `spelling` and
+   `deny` sit the same way.
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
    later job (and the release lane). The native-arch leg of each OS runs the host-portable
    `cargo test` first — one run per operating system — so a failing host test fails that leg
@@ -3658,7 +3670,7 @@ in `pack/mod.rs`. Which one applies depends on whether Day stages the tree the a
 | `.hap` | `normalize_zip_mtimes` — hvigor emits the zip itself, so the finished archive is patched instead. |
 | `.apk` / `.aab` | Gradle's own `isPreserveFileTimestamps = false` + `isReproducibleFileOrder = true`, in the app template and the showcase project. |
 | `-setup.exe` | `SetDateSave off` in the generated `.nsi`; the `/SOLID lzma` compressor was already deterministic. |
-| `.flatpak` | `SOURCE_DATE_EPOCH`, honoured by flatpak-builder 1.3.1+. `ops::apply_determinism` now EXPORTS the resolved epoch to every child, so one clock governs the whole pack rather than each tool inventing its own. |
+| `.flatpak` | `SOURCE_DATE_EPOCH`, honored by flatpak-builder 1.3.1+. `ops::apply_determinism` now EXPORTS the resolved epoch to every child, so one clock governs the whole pack rather than each tool inventing its own. |
 
 `normalize_zip_mtimes` rewrites the DOS date/time words in both the local headers and the central
 directory, and the Unix times inside the `0x5455` extended-timestamp and `0x000a` NTFS extra fields
@@ -3707,7 +3719,7 @@ payload file. It is machine-specific by nature, so it is never embedded: doing s
 artifact differ whenever a tool version differed.
 
 `[sbom]` in `Day.toml` ([§17.3](#173-daytoml)) picks the mode (`sidecar`, the default; `embed`,
-for an app that shows its own licence screen; `none`) and the formats (CycloneDX 1.5 and SPDX 2.3
+for an app that shows its own license screen; `none`) and the formats (CycloneDX 1.5 and SPDX 2.3
 JSON, both by default). The buildinfo is always a sidecar.
 
 **Sidecars are named after the artifact they describe**, whole file name including the extension:
@@ -4182,7 +4194,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 |---|---|---|
 | `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
 | `wait_idle` | — | flush the reactive drain |
-| `tap` | `id`, `repeat?` | delivers `Pressed` AND a gesture `Tap` at the node's centre |
+| `tap` | `id`, `repeat?` | delivers `Pressed` AND a gesture `Tap` at the node's center |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |

@@ -615,7 +615,7 @@ impl Art {
         }
     }
 
-    /// The adaptive foreground: content tightened, centred in the 66/108 safe zone, transparent.
+    /// The adaptive foreground: content tightened, centered in the 66/108 safe zone, transparent.
     fn adaptive_foreground(&self) -> Result<Vec<u8>, String> {
         let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
         match self {
@@ -721,7 +721,7 @@ impl Art {
         Ok(MonoDrawable::Bitmap(self.adaptive_foreground()?))
     }
 
-    /// The HarmonyOS layered-icon foreground: the motif centred in a safe zone on a 216 canvas.
+    /// The HarmonyOS layered-icon foreground: the motif centered in a safe zone on a 216 canvas.
     fn ohos_foreground(&self) -> Result<Vec<u8>, String> {
         // Reuse the Android adaptive geometry, downscaled to the OHOS 216 canvas.
         let png = self.adaptive_foreground()?;

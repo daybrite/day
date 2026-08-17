@@ -108,7 +108,7 @@ impl TextBuilder {
             )
         })
     }
-    /// A coloured phrase.
+    /// A colored phrase.
     pub fn colored(self, s: &str, color: day_spec::Color) -> Self {
         let base = self.base;
         self.run(s, move |range| day_spec::TextRun {
@@ -221,7 +221,7 @@ impl Label {
         self
     }
     /// Style spans WITHIN this label's text (docs/text-runs.md): one wrapping paragraph with
-    /// emphasis, colour, code or a link inside it, rather than several labels in a row.
+    /// emphasis, color, code or a link inside it, rather than several labels in a row.
     ///
     /// Ranges are byte offsets into the label's text, ascending and non-overlapping; text not
     /// covered by a run draws with the label's own font. Invalid runs are REJECTED at build time
@@ -363,7 +363,7 @@ impl Piece for Label {
     }
 }
 
-/// The platform "tint" blue (iOS system blue, `#007AFF`) used as the default [`link`] colour.
+/// The platform "tint" blue (iOS system blue, `#007AFF`) used as the default [`link`] color.
 /// Override per-link with [`Link::color`] to match an app's accent.
 const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
 
@@ -371,7 +371,7 @@ const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
 /// for `http`/`https`, the mail client for `mailto:`, and so on. This is Day's analogue of
 /// SwiftUI's `Link`.
 ///
-/// It renders as accent-coloured [`label`] text and announces itself as actionable to assistive
+/// It renders as accent-colored [`label`] text and announces itself as actionable to assistive
 /// technology. The opening itself is delegated to the running backend
 /// ([`Toolkit::open_url`](../day_spec/trait.Toolkit.html#method.open_url)), so it works the same on
 /// every platform.
@@ -399,7 +399,7 @@ impl Link {
         self.label = self.label.font(f);
         self
     }
-    /// Override the link colour (default the platform tint blue).
+    /// Override the link color (default the platform tint blue).
     pub fn color(mut self, c: day_spec::Color) -> Self {
         self.label = self.label.color(c);
         self
@@ -425,7 +425,7 @@ pub struct Button {
     title: TextSource,
     action: Option<Rc<dyn Fn()>>,
     native_style: day_spec::props::ButtonStyleSpec,
-    /// A reactive tint, kept apart from `native_style` so the colour can follow a signal. Set by
+    /// A reactive tint, kept apart from `native_style` so the color can follow a signal. Set by
     /// [`Button::tint`]; it wins over `bordered`/`prominent` because it is the more specific ask.
     tint: Option<Reactive<day_spec::Color>>,
     enabled: Reactive<bool>,
@@ -454,7 +454,7 @@ impl Button {
         self
     }
 
-    /// Whether the button is interactive (default `true`; `false` = disabled/greyed by the native
+    /// Whether the button is interactive (default `true`; `false` = disabled/grayed by the native
     /// control). Reactive, so it can follow app state — e.g. `.enabled(move || !busy.get())` to
     /// lock a control while a long operation runs.
     ///
@@ -473,19 +473,19 @@ impl Button {
         self
     }
 
-    /// A filled button in a colour of your choosing, still drawn by the NATIVE control.
+    /// A filled button in a color of your choosing, still drawn by the NATIVE control.
     ///
     /// The platform keeps everything that makes a button a button: its pressed and hover
     /// rendering, its focus ring, its disabled look, its accessibility role, and keyboard
-    /// activation. Only the fill is yours. The label colour is chosen for contrast against the
+    /// activation. Only the fill is yours. The label color is chosen for contrast against the
     /// fill, so a pale tint gets dark text and a saturated one white.
     ///
-    /// Reactive, so the colour can follow app state — `.tint(move || if recording { RUST } else
+    /// Reactive, so the color can follow app state — `.tint(move || if recording { RUST } else
     /// { SKY })` recolors in place rather than rebuilding the button.
     ///
     /// A backend that cannot recolor its button ignores the tint and draws its ordinary button
     /// (docs/buttons.md). That is deliberate: a plain button on one platform is a far smaller
-    /// loss than a coloured rectangle that is no longer a button.
+    /// loss than a colored rectangle that is no longer a button.
     pub fn tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
         self.tint = Some(color.into_reactive());
         self
@@ -543,7 +543,7 @@ impl Piece for Button {
             // disabled UIButton/MaterialButton never produces `Pressed`, so this is belt-and-braces
             // for users — but an event delivered by another route (a dayscript `tap`, which
             // dispatches to the node rather than simulating a touch) would otherwise fire an action
-            // the user cannot reach. `.enabled(false)` should mean "cannot fire", not "looks grey".
+            // the user cannot reach. `.enabled(false)` should mean "cannot fire", not "looks gray".
             let gate = enabled_gate;
             cx.on(node, move |ev| {
                 if matches!(ev, Event::Pressed) && gate.get() {
@@ -570,7 +570,7 @@ pub fn toggle<S: SignalRw<bool>>(value: S) -> Toggle<S> {
 }
 
 impl<S: SignalRw<bool>> Toggle<S> {
-    /// Whether the toggle is interactive (default `true`; `false` = disabled/greyed). Reactive —
+    /// Whether the toggle is interactive (default `true`; `false` = disabled/grayed). Reactive —
     /// e.g. `.enabled(capability(Cap::TextSpellCheck) == Support::Native)` to gray it out where a
     /// backend can't honor the thing it controls.
     pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {

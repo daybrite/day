@@ -99,13 +99,13 @@ on the `Path` shapes on XAML — composed over the geometry when the glyph is re
 staged glyph serves every tint at every size with no second asset and no recoloured copy.
 `None` (and every raster `image(…)`) means "as authored".
 
-**A tint can follow a signal.** `.tint(…)` takes a plain colour or anything reactive; a change
+**A tint can follow a signal.** `.tint(…)` takes a plain color or anything reactive; a change
 repaints the realized view through `ImagePatch::Tint` rather than rebuilding it, so a glyph that
 recolors with the selection or the theme keeps its native view (and its layout, and any animation
 in flight). Implemented on AppKit, UIKit, Android, GTK, Qt and web; XAML and ArkUI still take the
 tint at realize only, so a reactive tint there lands on the next rebuild.
 
-A tint follows the art it was authored with: the colour fills where the glyph filled and strokes
+A tint follows the art it was authored with: the color fills where the glyph filled and strokes
 where it stroked, so an outline glyph stays an outline rather than becoming a silhouette. Where
 XAML has no geometry to draw (art outside the convertible subset) the tint degrades to a
 monochrome `BitmapIcon` over the raster — still tinted, but from the 256 px cache.

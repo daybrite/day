@@ -9,9 +9,9 @@
 //! 24 weight/scale variants are derived by the system. The generated document reproduces the
 //! geometry every real template carries (measured from SF Symbols app exports): a 3300×2200
 //! artboard, the S-row capline at y 625.541 and baseline at y 696 (cap height 70.459), the
-//! `H-reference` glyph, and per-weight column centres. The input glyph is embedded three times
+//! `H-reference` glyph, and per-weight column centers. The input glyph is embedded three times
 //! (identical art per weight — weight differentiation needs true per-weight sources, a
-//! template-form master's job), scaled so its box spans the cap height and centred on each
+//! template-form master's job), scaled so its box spans the cap height and centered on each
 //! column.
 
 const ARTBOARD_W: f32 = 3300.0;
@@ -118,7 +118,7 @@ mod tests {
     fn extracted_variant_fills_its_padded_box() {
         // The extracted glyph is measured in CANVAS coordinates (the viewBox maps to origin):
         // the content must sit inside the squared box and span most of it — proving the
-        // wrap-then-extract geometry (cap-height scale, column centring, padding) holds.
+        // wrap-then-extract geometry (cap-height scale, column centering, padding) holds.
         let (template, _) = wrap_symbolset(GLYPH, "square").unwrap();
         let glyph = crate::extract_variant(&template, "Regular", "S").unwrap();
         let t2 = crate::parse(glyph.as_bytes()).unwrap();

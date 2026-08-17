@@ -87,7 +87,7 @@ fn emit_deferred(id: NodeId, ev: Event) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
-/// Pack a colour as `0xAARRGGBB`, the form the shim reads.
+/// Pack a color as `0xAARRGGBB`, the form the shim reads.
 fn argb(c: day_spec::Color) -> u32 {
     let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
     (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
@@ -105,7 +105,7 @@ fn apply_button_style(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
         S::Tinted(c) => (3, c),
     };
     // SAFETY: `w` is a live QPushButton created by `day_qt_button_new`; the shim only reads the
-    // packed colours.
+    // packed colors.
     unsafe { ffi::day_qt_button_set_style(w, kind, argb(fill), argb(S::on_tint(fill))) };
 }
 
@@ -2005,7 +2005,7 @@ impl Toolkit for Qt {
     }
 
     fn set_transform(&mut self, h: &QtHandle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
-        // The effect re-draws the widget through a painter transformed about its centre, spilling
+        // The effect re-draws the widget through a painter transformed about its center, spilling
         // beyond the widget's own frame (§8.4) so a moved/scaled/rotated box isn't clipped.
         let (dur, curve) = qt_anim_args(anim);
         unsafe { ffi::day_qt_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve) };

@@ -64,7 +64,7 @@ menu_item("Delete").shortcut(Shortcut::plain("Delete"))      // no primary modif
 
 `Shortcut::new(key)` sets `primary`; `Shortcut::plain(key)` sets no modifiers; `.shift()`, `.alt()`,
 `.control()` add the others (`.control()` is the physical Control key, distinct from `primary` on
-macOS). Named keys (`"Return"`, `"Delete"`, `"Space"`, `"F5"`, arrows) are recognised alongside
+macOS). Named keys (`"Return"`, `"Delete"`, `"Space"`, `"F5"`, arrows) are recognized alongside
 single characters. The shortcut is drawn in the native accelerator position and is live whenever the
 menu (or its window) is in the responder/focus chain.
 
@@ -98,7 +98,7 @@ app_menu(vec![
 
 You can override a role's label (`menu_role(r)` starts empty and the backend fills the standard label;
 supply your own via `MenuEntry::role` on a `menu_item` if you want a custom title). Roles with no native
-equivalent on a platform render as an inert labelled item; no behavior is imposed.
+equivalent on a platform render as an inert labeled item; no behavior is imposed.
 
 ¹ Android editable views raise the system selection toolbar for Cut/Copy/Paste; a role in a Day menu is
 shown for parity and dispatches nothing.

@@ -14,8 +14,8 @@
 //! resvg/usvg into every Windows binary to read a handful of icons, and Android already sets
 //! the precedent of converting once, in the CLI, into the form the toolkit loads natively.
 //!
-//! Keeping geometry (not a rasterized or pre-coloured image) is what lets the backend compose a
-//! tint at runtime: the colour is a brush on the shape, applied when the glyph is realized, so
+//! Keeping geometry (not a rasterized or pre-colored image) is what lets the backend compose a
+//! tint at runtime: the color is a brush on the shape, applied when the glyph is realized, so
 //! one staged glyph serves every tint at every size without a second asset.
 
 use resvg::tiny_skia;

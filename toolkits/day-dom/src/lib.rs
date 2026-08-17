@@ -146,7 +146,7 @@ fn text(el: u32, t: &str) {
 /// Put a [`ButtonStyleSpec`] on a `<button>`, keeping it a `<button>`.
 ///
 /// A tint sets two CSS custom properties and adds `.tinted`; day.css does the rest, including
-/// the `:hover`/`:active`/`:disabled` rules every `.day-btn` already has. Painting the colours
+/// the `:hover`/`:active`/`:disabled` rules every `.day-btn` already has. Painting the colors
 /// through variables rather than inline `background` is what lets those state rules keep
 /// working — an inline background would win over them.
 fn apply_button_style(el: u32, style: ButtonStyleSpec) {
@@ -392,7 +392,7 @@ fn image_url(name: &str) -> String {
 /// bundled image.
 ///
 /// The paths are deliberately plain geometry on a 24×24 grid, authored here rather than taken
-/// from an icon set: it keeps day free of a third-party icon licence, and at toolbar size the
+/// from an icon set: it keeps day free of a third-party icon license, and at toolbar size the
 /// shapes are what read, not their styling. `None` for a symbol with no glyph yet — the item
 /// falls back to its label, which is what the whole set did before.
 fn symbol_svg(sym: day_spec::Symbol) -> Option<String> {
@@ -1425,7 +1425,7 @@ impl Toolkit for Dom {
                     // The mask needs the same URL the element already loads.
                     let src = IMAGE_SRC.with(|m| m.borrow().get(&el).cloned());
                     if let Some(src) = src {
-                        // Only the colour changes here: an element realized with a tint is
+                        // Only the color changes here: an element realized with a tint is
                         // already the masked div, so this repaints the mask's fill.
                         apply_image_tint(el, &src, "contain", *c);
                     }

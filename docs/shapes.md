@@ -103,7 +103,7 @@ shape animation. The shape API is animation-ready now; the frame-clock engine la
 pub enum ShapeKind {
     Rectangle,
     RoundedRectangle { corner: Corner },
-    Circle,                              // inscribed centred circle (min(w,h))
+    Circle,                              // inscribed centered circle (min(w,h))
     Ellipse,                             // fills the rect
     Capsule,                             // RoundedRectangle with corner = min(w,h)/2
     Arc { start_deg: f64, sweep_deg: f64 },   // stroked arc of the inscribed ellipse
@@ -121,7 +121,7 @@ impl From<f64> for Corner { fn from(v: f64) -> Self { Corner::Fixed(v) } }
 
 impl ShapeKind {
     /// Lower to a drawable path within `rect` (v1: the existing `Shape` enum; phase 2: `PathData`).
-    fn resolve(&self, rect: Rect) -> Geometry { /* Circle → Ellipse(square inset & centred), … */ }
+    fn resolve(&self, rect: Rect) -> Geometry { /* Circle → Ellipse(square inset & centered), … */ }
 }
 ```
 
@@ -215,7 +215,7 @@ impl ShapePiece {
 ```
 
 `IntoReactive<T>` is a marker-trait conversion accepting `T`, `Signal<T>`, or `Fn() -> T`. It
-generalises today's `IntoText`/`IntoFraction` into one reusable source type
+generalizes today's `IntoText`/`IntoFraction` into one reusable source type
 `Reactive<T> = Const(T) | Dyn(Rc<dyn Fn() -> T>)`. (Adopting it also lets us collapse the existing
 per-type `*Source` enums, an optional cleanup.)
 
@@ -346,7 +346,7 @@ Two entry points, matching SwiftUI:
 - **Explicit**: `with_animation(Animation::spring(...), || path.set(newValue))` animates any signal
   writes in the closure through their dependent animated shapes.
 
-**Realisation (§8.4).** Day owns one per-window frame clock (CVDisplayLink / Choreographer /
+**Realization (§8.4).** Day owns one per-window frame clock (CVDisplayLink / Choreographer /
 GdkFrameClock / DispatchSourceTimer), started only while ≥1 animation is live and stopped when the
 pool drains (no idle wakeups). Each tick advances active `Animatable` transitions and `notify()`s a
 Trigger that the animated shapes' canvas `bind`s track, so the existing record→diff→replay path
@@ -407,7 +407,7 @@ natively per backend (CAShapeLayer / GtkSnapshot / QGraphics / android.graphics 
 - **Cons**: six backend implementations; more `day-spec` surface; diverges from "atop canvas";
   reactivity needs explicit `bind_seeded` per prop (loses D4's freebie); duplicates what canvas does.
 
-**Recommendation: A now, B as a transparent optimisation later.** Because the public API
+**Recommendation: A now, B as a transparent optimization later.** Because the public API
 (`shape`/`ShapeKind`/`Paint`) is renderer-agnostic (D3), a future `ShapePiece::build` may lower to a
 native `SHAPE` leaf for shapes that need native fidelity (drop shadows, `Material`, smooth native
 morphs), chosen by capability or a `.native()` hint, with no change to user code. Ship A;

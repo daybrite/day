@@ -530,14 +530,14 @@ impl<K> NavItem<K> {
     /// (`Symbol::Star`) or an app image both work.
     ///
     /// This is what a row-level STATUS gets drawn with — a starred page's star — where `badge`
-    /// carries a count or a word. Pair it with [`Self::badge_tint`] when the glyph's colour is
+    /// carries a count or a word. Pair it with [`Self::badge_tint`] when the glyph's color is
     /// part of its meaning; left untinted it takes the backend's neutral template tint and reads
     /// as another piece of chrome.
     pub fn badge_icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
         self.badge_icon = Some(icon.into().to_string());
         self
     }
-    /// The colour for [`Self::badge_icon`]. `None` (the default) keeps the neutral template tint.
+    /// The color for [`Self::badge_icon`]. `None` (the default) keeps the neutral template tint.
     pub fn badge_tint(mut self, color: day_spec::Color) -> Self {
         self.badge_tint = Some(color);
         self
@@ -1063,7 +1063,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         }
         self
     }
-    /// The colour for [`Self::badge_icon`] on the item just added.
+    /// The color for [`Self::badge_icon`] on the item just added.
     pub fn badge_tint(mut self, color: day_spec::Color) -> Self {
         match self.sources.last_mut() {
             Some(ItemSource::Static(it)) => it.badge_tint = Some(color),
@@ -1284,7 +1284,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
         self
     }
 
-    /// Ask for a particular placement. A PREFERENCE: a backend that cannot honour it falls back
+    /// Ask for a particular placement. A PREFERENCE: a backend that cannot honor it falls back
     /// to its platform's own convention, so `Automatic` (the default) is almost always right.
     pub fn search_placement(mut self, placement: day_spec::props::SearchPlacement) -> Self {
         if let Some(s) = self.search.as_mut() {

@@ -264,12 +264,12 @@ impl ShapePiece {
         self.spec.inset = v.into_reactive();
         self
     }
-    /// Rotate the drawn shape about its centre, in degrees.
+    /// Rotate the drawn shape about its center, in degrees.
     pub fn rotate<M>(mut self, deg: impl IntoReactive<f64, M>) -> Self {
         self.spec.rotate = deg.into_reactive();
         self
     }
-    /// Scale the drawn shape about its centre (uniform).
+    /// Scale the drawn shape about its center (uniform).
     pub fn scale<M>(mut self, s: impl IntoReactive<f64, M>) -> Self {
         self.spec.scale = s.into_reactive();
         self
@@ -302,7 +302,7 @@ impl ShapePiece {
     }
 }
 
-/// Compose the shape's rotate/scale (about its centre) + offset into one affine.
+/// Compose the shape's rotate/scale (about its center) + offset into one affine.
 fn shape_transform(rect: Rect, rot_deg: f64, scale: f64, ox: f64, oy: f64) -> Affine {
     let c = rect.center();
     Affine::translate(-c.x, -c.y)

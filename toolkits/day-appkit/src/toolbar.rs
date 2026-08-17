@@ -32,7 +32,7 @@ use objc2_foundation::{NSArray, NSCopying, NSNotification, NSObject, NSString};
 use crate::{AppKit, Handle, emit};
 
 /// The SF Symbol each standard symbol draws as. These are the system's own glyphs, so they
-/// match the user's Mac — weight, optical size, accent colour and all.
+/// match the user's Mac — weight, optical size, accent color and all.
 fn sf_symbol(s: Symbol) -> &'static str {
     match s {
         Symbol::Add => "plus",
@@ -483,7 +483,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
     bar_item.setLabel(&label);
     bar_item.setPaletteLabel(&label);
     bar_item.setToolTip(Some(&tip));
-    // day owns the enabled state; without this AppKit's automatic validation would grey out
+    // day owns the enabled state; without this AppKit's automatic validation would gray out
     // every item whose target does not implement `validateToolbarItem:`.
     bar_item.setAutovalidates(false);
     bar_item.setEnabled(item.enabled);

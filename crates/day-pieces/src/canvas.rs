@@ -109,7 +109,7 @@ impl PathBuilder {
     /// chart wants through its data points, without the caller doing bezier arithmetic.
     ///
     /// The curve passes through every point (unlike a plain bezier fit), and the tangent at each
-    /// point follows its neighbours. `tension` 0.0 is a straight polyline and 1.0 is the
+    /// point follows its neighbors. `tension` 0.0 is a straight polyline and 1.0 is the
     /// standard Catmull-Rom; values above about 1.2 overshoot visibly.
     pub fn smooth_polyline(mut self, pts: &[Point], tension: f64) -> Self {
         if pts.len() < 2 {
@@ -121,7 +121,7 @@ impl PathBuilder {
         self.segs.push(PathSeg::Move(pts[0]));
         let t = tension / 6.0;
         for i in 0..pts.len() - 1 {
-            // The neighbours on each side, clamped at the ends so the first and last segments
+            // The neighbors on each side, clamped at the ends so the first and last segments
             // keep the same construction as the middle ones.
             let p0 = pts[i.saturating_sub(1)];
             let (p1, p2) = (pts[i], pts[i + 1]);
@@ -285,7 +285,7 @@ pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> AnyPiece 
 }
 
 // ---------------------------------------------------------------------------
-// Reactive<T>: a value, a Signal, or a closure — the generalisation of IntoText/IntoFraction.
+// Reactive<T>: a value, a Signal, or a closure — the generalization of IntoText/IntoFraction.
 // ---------------------------------------------------------------------------
 
 /// A parameter that is either a constant or a reactive source. `get()` is a tracked read, so any

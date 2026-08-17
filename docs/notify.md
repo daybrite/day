@@ -210,7 +210,7 @@ for tap and action routing. Two implementation tiers, matching how `day-part-cli
 missing native API: first cut shells out to `notify-send` (from libnotify-bin, common but not
 guaranteed), which shows the notification but gives no action callbacks or stable id; the full
 path speaks the D-Bus wire protocol directly over `$DBUS_SESSION_BUS_ADDRESS` (the EXTERNAL auth
-handshake plus message marshalling, std only) to get actions, tap, and replace-by-id. The portable
+handshake plus message marshaling, std only) to get actions, tap, and replace-by-id. The portable
 path is deliberately **not** `Gio.Notification`/`GApplication.send_notification`: that needs
 `GApplication` and an installed `.desktop` file and does not work in a `day-qt` binary, the same
 toolkit-independence reason clipboard avoids GDK. There is **no OS-held scheduler** — a running
@@ -426,7 +426,7 @@ day notify send --to "apns:9c8b…" --title "Build done" --body "macos-appkit pa
 
 ## Crate configuration
 
-Modelled on `day-part-location`'s manifest (the closest existing part: per-OS halves, a Java
+Modeled on `day-part-location`'s manifest (the closest existing part: per-OS halves, a Java
 shim, an Apple framework). Platform selection is `cfg(target_os)` with no backend features,
 because a notification is an OS concern, not a widget-toolkit one.
 
@@ -460,7 +460,7 @@ license.workspace = true
 # the same split day-part-location keeps.
 
 [dependencies]
-day-reactive = { workspace = true }   # Signal for `pending()`/`last_action`, on_main marshalling
+day-reactive = { workspace = true }   # Signal for `pending()`/`last_action`, on_main marshaling
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"

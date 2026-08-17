@@ -1089,7 +1089,7 @@ fn normalize(path: &Path) -> Result<(), String> {
     // so two builds of one commit from two directories carry different strings AND different
     // sizes, since the paths differ in length. That is a map of the machine that built the code,
     // not the code, so it comes off before the comparison: `-S` drops the debug symbols and
-    // leaves everything that determines behaviour. `day build` also passes `-oso_prefix` to shrink
+    // leaves everything that determines behavior. `day build` also passes `-oso_prefix` to shrink
     // these to project-relative paths at link time (mobile.rs), but it cannot reach the objects a
     // SwiftPM package prelinks with `ld -r`, and this check must not depend on that.
     //

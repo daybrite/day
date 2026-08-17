@@ -164,8 +164,8 @@ pub fn kind_has_baseline(kind: PieceKind) -> bool {
 /// Placeholder leaves: the one hole in Day's rendering that is invisible to a screenshot.
 ///
 /// When a backend has no renderer for a kind it realizes a visible `⟨kind⟩` label rather than
-/// failing — the right runtime behaviour, but it means a missing renderer LOOKS like a rendered
-/// app: the walkthrough passes, and the gallery's validator (which counts distinct colours) sees
+/// failing — the right runtime behavior, but it means a missing renderer LOOKS like a rendered
+/// app: the walkthrough passes, and the gallery's validator (which counts distinct colors) sees
 /// nothing wrong. That is how a stale `skip_on:` survived in the showcase walkthrough after the
 /// renderer it skipped had actually landed.
 ///
@@ -1018,7 +1018,7 @@ pub enum ToolbarItemKind {
     Toggle { on: bool },
     /// Show/hide this window's sidebar. The item carries NO `action`: the toolkit binds it to
     /// whatever `selector(Sidebar)` host the window contains and drives that host's own
-    /// collapse, so the app declares the affordance and the platform supplies the behaviour —
+    /// collapse, so the app declares the affordance and the platform supplies the behavior —
     /// `NSToolbarToggleSidebarItemIdentifier` on AppKit, the split view's collapse on GTK,
     /// `NavigationView.IsPaneOpen` on XAML. Place it where the platform expects it (leading,
     /// before the first [`ToolbarItemKind::FlexibleSpace`]); a window with no sidebar renders
@@ -1325,13 +1325,13 @@ pub enum Cap {
     /// `Unsupported` ⇒ baseline-aligned rows fall back to centering and look exactly as they do
     /// today.
     BaselineAlignment,
-    /// The toolkit draws a label's [`TextRun`]s — bold, italic, colour or a monospace face within
+    /// The toolkit draws a label's [`TextRun`]s — bold, italic, color or a monospace face within
     /// one wrapping paragraph (docs/text-runs.md). `Unsupported` ⇒ the label renders its text
     /// uniformly, which reads correctly and loses only the emphasis.
     TextRuns,
     /// The toolkit makes a run carrying [`TextRun::link`] ACTIVATABLE, emitting
     /// [`Event::LinkActivated`]. A strictly smaller set than [`Cap::TextRuns`]: several toolkits
-    /// draw a link run in link colours but have no way to hit-test it, and one (Android) can do
+    /// draw a link run in link colors but have no way to hit-test it, and one (Android) can do
     /// links or selection but not both (docs/text-runs.md).
     TextLinks,
     Lottie,
@@ -2319,7 +2319,7 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
         escape_markup(url, out);
         out.push_str("\">");
     }
-    // The span carries colour and the monospace family; bold/italic/strike are their own tags in
+    // The span carries color and the monospace family; bold/italic/strike are their own tags in
     // both dialects, which keeps the attribute string short and the escaping trivial.
     let color = r.color.map(hex);
     let mono = r.font.monospace;
@@ -2340,7 +2340,7 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
                 out.push('>');
             }
             MarkupDialect::QtHtml => {
-                // Colour only. Qt's rich text does NOT resolve the generic `monospace` family
+                // Color only. Qt's rich text does NOT resolve the generic `monospace` family
                 // from a style attribute — it rendered proportional — so the fixed face comes
                 // from the `<code>` tag below, which Qt maps to its own fixed font.
                 out.push_str("<span style=\"");
@@ -2463,7 +2463,7 @@ pub mod props {
         pub color: Option<Color>,
         pub wraps: bool,
         /// Styled spans within `text` (docs/text-runs.md). EMPTY is the overwhelmingly common
-        /// case and means exactly what a label has always meant: one font, one colour. A backend
+        /// case and means exactly what a label has always meant: one font, one color. A backend
         /// that cannot draw runs ignores this and renders `text` uniformly, which is legible and
         /// correct — just unstyled.
         pub runs: Vec<crate::TextRun>,
@@ -2484,7 +2484,7 @@ pub mod props {
     /// system button reads as a link); `Prominent` asks for the platform's accent-filled /
     /// default-action affordance. Toolkits whose stock buttons are already contained treat
     /// `Bordered` as `Automatic`.
-    // `Eq` is gone with the `Tinted` colour: `Color` holds floats. `PartialEq` is what the
+    // `Eq` is gone with the `Tinted` color: `Color` holds floats. `PartialEq` is what the
     // props diff uses, and that is unaffected.
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub enum ButtonStyleSpec {
@@ -2499,7 +2499,7 @@ pub mod props {
         /// platform's own tinted buttons make.
         ///
         /// A backend with no way to recolor its button ignores this and draws its ordinary
-        /// button. That is the deliberate trade: a plain button everywhere beats a coloured
+        /// button. That is the deliberate trade: a plain button everywhere beats a colored
         /// rectangle that is no longer a button on the platforms that cannot.
         Tinted(Color),
     }
@@ -2800,7 +2800,7 @@ pub mod props {
 
     /// Where a searchable surface's field should be drawn.
     ///
-    /// A PREFERENCE, not an instruction: a backend that cannot honour the request falls back to
+    /// A PREFERENCE, not an instruction: a backend that cannot honor the request falls back to
     /// whatever its platform does, exactly as SwiftUI's `searchable(placement:)` does ("depending
     /// on the containing view hierarchy and platform, the requested placement may not be able to
     /// be fulfilled"). `Automatic` is the one to reach for — it is what lets the field live in the
@@ -4538,7 +4538,7 @@ mod markup_tests {
     }
 
     #[test]
-    fn colour_and_monospace_differ_per_dialect() {
+    fn color_and_monospace_differ_per_dialect() {
         let text = "code";
         let run = TextRun {
             range: 0..4,

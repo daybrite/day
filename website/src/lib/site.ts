@@ -48,7 +48,7 @@ export function internalExcerpt(body: string, max = 155): string {
     while (i < lines.length && lines[i].trim() === '') i++;
   };
   // These docs carry HTML comments — the CC-BY-SA-4.0 header, and a "generated, do not edit" line
-  // on the matrices. Without skipping them the "first prose paragraph" below is the licence, which
+  // on the matrices. Without skipping them the "first prose paragraph" below is the license, which
   // is what every card on /docs/internal used to show. Three shapes appear in the tree: `<!--`
   // alone on its line, an opener with text after it, and a whole comment on one line — so skip to
   // whichever line closes it, and loop for a doc that leads with two.
@@ -60,7 +60,7 @@ export function internalExcerpt(body: string, max = 155): string {
     }
   };
   skipBlank();
-  // Both sides of the H1: most docs lead with the licence comment, while the generated matrices
+  // Both sides of the H1: most docs lead with the license comment, while the generated matrices
   // put their heading first and the "do not edit" banner under it.
   skipComments();
   if (i < lines.length && /^#\s/.test(lines[i])) i++; // skip the H1
