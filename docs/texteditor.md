@@ -284,6 +284,13 @@ collapsed `Document.Selection`'s format is the typing style. `BatchDisplayUpdate
 `ApplyDisplayUpdates` bracket a sweep. This is the one arm whose underline vocabulary is complete —
 single, double, dotted and wave all exist.
 
+It is also the one arm whose text does not arrive in Day's spelling: RichEdit's paragraph mark is a
+CR and its Shift+Enter line break a VT, where the other seven report LF. The shim rewrites both to
+LF on the way out, one code unit for one — never collapsing a pair — because that string's offsets
+are the ones the selection and every attribute range are expressed in. An arm whose control does
+the same owes the same rewrite: an app that splits its document on `\n` finds nothing otherwise,
+and only on that platform.
+
 ## 5. What a toolkit with no styled editor gets — and what it must not
 
 None of the eight is in this position; the mock backend is, and an external toolkit
