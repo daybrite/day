@@ -368,7 +368,8 @@ mod imp {
     }
 
     /// Semantic [`Font`] → a vp point size (ArkUI's default length unit is vp ≈ day points).
-    fn font_vp(f: FontSpec) -> f64 {
+    /// Public for standalone pieces (docs/extending.md), which resolve the same scale.
+    pub fn font_vp(f: FontSpec) -> f64 {
         match f.style {
             Font::LargeTitle => 34.0,
             Font::Title => 28.0,
@@ -439,7 +440,15 @@ mod imp {
         let add = |slice: &str, run: Option<&day_spec::TextRun>| {
             let mut flags = 0i32;
             let mut color = 0u32;
+            let mut bg = 0u32;
+            let mut scale_permille = 1000i32;
+            let mut base_fp = 0.0f64;
             if let Some(r) = run {
+                // The span's size is absolute in ArkUI, so a relative scale multiplies against
+                // the size this run's own style resolves to — the same `font_vp` ramp the label
+                // itself uses.
+                base_fp = font_vp(r.font);
+                scale_permille = (r.font.scale * 1000.0).round() as i32;
                 if r.font
                     .weight
                     .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
@@ -459,8 +468,25 @@ mod imp {
                     flags |= 16;
                     color = argb(c);
                 }
+                if let Some(c) = r.background {
+                    flags |= 32;
+                    bg = argb(c);
+                }
+                if r.underline.is_on() {
+                    flags |= 64;
+                }
             }
-            unsafe { ffi::day_ark_label_runs_add(n, cstr(slice).as_ptr(), flags, color) };
+            unsafe {
+                ffi::day_ark_label_runs_add(
+                    n,
+                    cstr(slice).as_ptr(),
+                    flags,
+                    color,
+                    bg,
+                    scale_permille,
+                    base_fp,
+                )
+            };
         };
         let mut at = 0usize;
         for r in runs {

@@ -1640,11 +1640,12 @@ impl Default for Gtk {
     }
 }
 
-/// Point size + the style's inherent weight for a logical [`Font`]. GTK has no semantic text styles,
+/// Point size + the style's inherent weight for a logical [`Font`]. Public for standalone pieces
+/// (docs/extending.md), which have to resolve the same scale their labels do. GTK has no semantic text styles,
 /// so we approximate the platform typographic scale (matching the Apple text-style sizes for cross-
 /// platform consistency). Pango point sizes are rendered through the Xft DPI, which GNOME's
 /// text-scaling-factor (Settings ▸ Accessibility ▸ Large Text) feeds — so these scale for accessibility.
-fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
+pub fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
     use day_spec::FontWeight::*;
     match f {
         Font::LargeTitle => (26.0, Regular),
@@ -1663,7 +1664,9 @@ fn gtk_style(f: Font) -> (f64, day_spec::FontWeight) {
     }
 }
 
-fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
+/// A Day weight as a Pango one. Public for standalone pieces that build their own Pango
+/// attributes or text tags (docs/extending.md).
+pub fn pango_weight(w: day_spec::FontWeight) -> gtk4::pango::Weight {
     use day_spec::FontWeight as W;
     use gtk4::pango::Weight;
     match w {
@@ -1755,6 +1758,7 @@ fn rich_markup(text: &str, runs: &[day_spec::TextRun], style: &LabelStyle) -> St
         text,
         runs,
         day_spec::MarkupDialect::Pango,
+        gtk_style(style.font.style).0,
     ));
     m.push_str("</span>");
     m

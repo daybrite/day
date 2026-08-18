@@ -187,6 +187,10 @@ const env = {
   // the built-in vocabulary, so an external piece creates its element by tag name and drives it
   // with zero-argument method calls (`play`, `pause`, `load`, …).
   day_dom_create_tag(t, tl) { return register(document.createElement(str(t, tl))); },
+  // Styled-text editing (docs/texteditor.md): the markup comes from Day's own HTML serializer,
+  // which escapes every character of app text, and the caret survives the swap.
+  day_dom_set_html(id, p, l) { dayEditorSetHtml(V(id), str(p, l)); },
+  day_dom_editor_select(id, a, b) { dayEditorSelect(V(id), a, b); },
   day_dom_call(id, m, ml) {
     const el = V(id); const name = str(m, ml);
     try { el[name]?.(); } catch (e) { console.error('day: ' + name + '()', e); }
@@ -948,6 +952,248 @@ function dayInlineHook(id, frame, base) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Styled-text editing (day-piece-texteditor, docs/texteditor.md).
+//
+// A `contenteditable` element IS the browser's rich text editing — IME, undo, spell-check,
+// drag-and-drop and the accessibility tree all come with it, and none of them can be rebuilt in a
+// canvas. What it does NOT give is a stable document model: pressing Enter inserts a <div> in one
+// browser and a <p> in another, and a paste brings whatever markup it came with. So Day reads the
+// DOM through ONE flattening (dayEditorText) and writes it back in ONE canonical shape (spans
+// inside <p> blocks), and every offset it exchanges with Rust is a UTF-8 BYTE offset, because
+// that is what a Rust `String` indexes by.
+// ---------------------------------------------------------------------------
+
+const dayEnc = new TextEncoder();
+const dayBlockTags = new Set(['P', 'DIV', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE']);
+const dayByteLen = (s) => dayEnc.encode(s).length;
+
+// Is this <br> the filler that makes an empty block visible, rather than a line break the user
+// typed? A trailing <br> is the browser's own convention for "this block is empty".
+function dayFillerBr(node) {
+  return node.nodeName === 'BR' && node.nextSibling === null;
+}
+
+// The DOM ⇄ flat-text mapping, and the ONE traversal all of it goes through.
+//
+// Day's serializer writes ONE BLOCK PER LINE of the document, so read backwards the text is the
+// blocks' text JOINED with "\n" — an empty block is an empty line and still contributes its
+// separator. Inside a block a <br> is a line break too, except the filler one above.
+//
+// Both directions must agree byte for byte, which is why they share this walk rather than each
+// having their own. When they disagreed (the locator counted only text nodes) two things broke:
+// restoring a selection after a restyle landed one character further right per preceding line,
+// and the first keystroke reported a text that had lost every blank line — which Day then read
+// as a deletion and reflowed the paragraph runs onto the wrong lines.
+//
+// `onEvent(kind, node)` sees, in document order: 'break' where the text gains a "\n", 'text' for
+// each text node, and 'enter' for each element (which is how a position inside an EMPTY block is
+// named at all). Returning true stops the walk.
+function dayEditorScan(el, onEvent) {
+  let started = false; // a join has no leading separator
+  let stop = false;
+  const visit = (node) => {
+    for (const child of node.childNodes) {
+      if (stop) return;
+      if (child.nodeType === 3) {
+        started = true;
+        stop = onEvent('text', child) === true;
+      } else if (child.nodeName === 'BR') {
+        if (!dayFillerBr(child)) {
+          started = true;
+          stop = onEvent('break', child) === true;
+        }
+      } else if (child.nodeType === 1) {
+        if (dayBlockTags.has(child.nodeName)) {
+          if (started) stop = onEvent('break', child) === true;
+          started = true;
+          if (stop) return;
+        }
+        stop = onEvent('enter', child) === true;
+        if (stop) return;
+        visit(child);
+      }
+    }
+  };
+  visit(el);
+}
+
+// The element's text, as Day's model spells it.
+function dayEditorText(el) {
+  let out = '';
+  dayEditorScan(el, (kind, node) => {
+    if (kind === 'text') out += node.nodeValue;
+    else if (kind === 'break') out += '\n';
+  });
+  return out;
+}
+
+// A selection endpoint can be an ELEMENT with a CHILD INDEX rather than a text node with a
+// character offset — a triple-click, or a caret sitting in an empty block. Resolve it to what it
+// denotes: a text position where there is text, else the element itself, whose 'enter' names the
+// empty line.
+function dayEditorTextPoint(node, offset) {
+  if (node.nodeType === 3) return [node, offset];
+  const child = node.childNodes[offset];
+  if (child && child.nodeType === 3) return [child, 0];
+  if (child && child.nodeType === 1) {
+    const first = document.createTreeWalker(child, NodeFilter.SHOW_TEXT).nextNode();
+    if (first) return [first, 0];
+    return [node, 0]; // e.g. a <br>-only block: the block's own start
+  }
+  // Past the last child: the end of this element's text, else the element itself.
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+  let last = null;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) last = n;
+  return last ? [last, last.nodeValue.length] : [node, 0];
+}
+
+// A DOM position as a BYTE offset into the flattened text.
+function dayEditorOffset(el, node, offset) {
+  if (!node || !el.contains(node)) return 0;
+  const [target, into] = dayEditorTextPoint(node, offset);
+  let bytes = 0;
+  let found = null;
+  dayEditorScan(el, (kind, n) => {
+    if (kind === 'break') {
+      bytes += 1;
+      return false;
+    }
+    if (kind === 'enter') {
+      if (n === target) {
+        found = bytes;
+        return true;
+      }
+      return false;
+    }
+    if (n === target) {
+      found = bytes + dayByteLen(n.nodeValue.slice(0, into));
+      return true;
+    }
+    bytes += dayByteLen(n.nodeValue);
+    return false;
+  });
+  return found === null ? bytes : found;
+}
+
+// The inverse: a byte offset as a [node, offset] pair to put a caret at.
+function dayEditorLocate(el, target) {
+  let bytes = 0;
+  let hit = null;
+  let emptyLine = null;
+  let last = null;
+  dayEditorScan(el, (kind, n) => {
+    if (kind === 'break') {
+      bytes += 1;
+      return false;
+    }
+    if (kind === 'enter') {
+      // A block starting exactly at the target with no text of its own IS the position — an
+      // empty line, which no text node can name.
+      if (bytes === target && emptyLine === null) emptyLine = [n, 0];
+      return false;
+    }
+    const len = dayByteLen(n.nodeValue);
+    // Both bounds: a target that fell on a separator belongs to the line before it, not to the
+    // first text node after it.
+    if (target >= bytes && target <= bytes + len) {
+      const want = target - bytes;
+      let acc = 0;
+      for (let i = 0; i <= n.nodeValue.length; i++) {
+        // Walk the code units until their byte length reaches the remainder, so an emoji or a
+        // CJK character never lands a caret inside its own encoding.
+        if (acc >= want) {
+          hit = [n, i];
+          return true;
+        }
+        acc = dayByteLen(n.nodeValue.slice(0, i + 1));
+      }
+      hit = [n, n.nodeValue.length];
+      return true;
+    }
+    bytes += len;
+    last = n;
+    return false;
+  });
+  if (hit) return hit;
+  if (emptyLine) return emptyLine;
+  return last ? [last, last.nodeValue.length] : [el, 0];
+}
+
+function dayEditorSelect(el, startByte, endByte, force) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  const lo = Math.min(startByte, endByte);
+  const hi = Math.max(startByte, endByte);
+  if (!force) {
+    if (el.__daySel && el.__daySel[0] === lo && el.__daySel[1] === hi) return;
+    if (el.__dayDragging) return;
+  }
+  const [startNode, startOffset] = dayEditorLocate(el, startByte);
+  const [endNode, endOffset] = dayEditorLocate(el, endByte);
+  const range = document.createRange();
+  try {
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+  } catch { return; }
+  el.__daySel = [lo, hi];
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// Replace the markup, keeping the caret. Day sends fresh HTML on every attribute change — a
+// syntax highlighter does it per keystroke — so preserving the caret here is what makes the arm
+// usable at all. A rewrite during IME composition is SKIPPED: replacing the nodes mid-composition
+// cancels the candidate window, and Day's next patch repaints anyway.
+function dayEditorSetHtml(el, html) {
+  if (el.__dayComposing) return;
+  const sel = window.getSelection();
+  let caret = null;
+  if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+    caret = [
+      dayEditorOffset(el, sel.anchorNode, sel.anchorOffset),
+      dayEditorOffset(el, sel.focusNode, sel.focusOffset),
+    ];
+  }
+  el.innerHTML = html;
+  // `force`: the swap threw away the nodes the old selection pointed at, so restoring it is not
+  // a redundant write even when the byte offsets are unchanged.
+  if (caret) dayEditorSelect(el, caret[0], caret[1], true);
+}
+
+// The editable listener set (listen bit 512). `input` reports the flattened text; the document's
+// `selectionchange` reports the caret, filtered to selections that are actually inside this
+// element.
+function dayEditorListen(id, el) {
+  el.addEventListener('compositionstart', () => { el.__dayComposing = true; });
+  el.addEventListener('compositionend', () => {
+    el.__dayComposing = false;
+    const [p, l] = intoWasm(dayEditorText(el));
+    wasm.day_dom_event_text(id, 2, p, l);
+  });
+  el.addEventListener('input', () => {
+    if (el.__dayComposing) return; // reported once, on compositionend
+    const [p, l] = intoWasm(dayEditorText(el));
+    wasm.day_dom_event_text(id, 2, p, l);
+  });
+  // A drag owns the selection until the button comes up — including a release outside the
+  // element, which is why the end listeners are on the document.
+  el.addEventListener('pointerdown', () => { el.__dayDragging = true; });
+  document.addEventListener('pointerup', () => { el.__dayDragging = false; });
+  document.addEventListener('pointercancel', () => { el.__dayDragging = false; });
+  document.addEventListener('selectionchange', () => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) return;
+    const a = dayEditorOffset(el, sel.anchorNode, sel.anchorOffset);
+    const b = dayEditorOffset(el, sel.focusNode, sel.focusOffset);
+    // Remembered ORDERED, because the piece reports a backwards drag ordered as well — an
+    // unordered comparison would miss the echo and re-anchor the drag at its far end.
+    el.__daySel = [Math.min(a, b), Math.max(a, b)];
+    const [p, l] = intoWasm('sel ' + a + ' ' + b);
+    wasm.day_dom_event_text(id, 17, p, l);
+  });
+}
+
 function listen(id, mask) {
   const host = E(id); const el = V(id);
   if (mask & 1) el.addEventListener('click', (e) => wasm.day_dom_event(id, 1, mods(e), 0, 0, 0));
@@ -967,6 +1213,7 @@ function listen(id, mask) {
     el.addEventListener('blur', () => wasm.day_dom_event(id, 7, 0, 0, 0, 0));
   }
   if (mask & 16) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') wasm.day_dom_event(id, 3, 0, 0, 0, 0); });
+  if (mask & 512) dayEditorListen(id, el);
   if (mask & 32) resizeObserver.observe(host);
   if (mask & 64) host.addEventListener('scroll', () => wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0));
   if (mask & 128) host.addEventListener('pointerdown', (e) => {

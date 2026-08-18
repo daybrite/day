@@ -550,8 +550,11 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
     let add = |slice: &str, run: Option<&day_spec::TextRun>| {
         let mut flags = 0i32;
         let mut argb = 0u32;
+        let mut bg_argb = 0u32;
+        let mut scale_permille = 1000i32;
         let mut link = String::new();
         if let Some(r) = run {
+            scale_permille = (r.font.scale * 1000.0).round() as i32;
             if r.font
                 .weight
                 .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
@@ -572,12 +575,31 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
                 let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
                 argb = (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b);
             }
+            let pack = |c: day_spec::Color| {
+                let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
+                (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
+            };
+            if let Some(c) = r.background {
+                flags |= 32;
+                bg_argb = pack(c);
+            }
+            if r.underline.is_on() {
+                flags |= 64;
+            }
             if let Some(u) = r.link.as_deref() {
                 link = u.to_string();
             }
         }
         unsafe {
-            ffi::day_xaml_label_runs_add(h, cstr(slice).as_ptr(), flags, argb, cstr(&link).as_ptr())
+            ffi::day_xaml_label_runs_add(
+                h,
+                cstr(slice).as_ptr(),
+                flags,
+                argb,
+                bg_argb,
+                scale_permille,
+                cstr(&link).as_ptr(),
+            )
         };
     };
     for r in runs {

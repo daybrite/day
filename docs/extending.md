@@ -207,9 +207,13 @@ side) and App Fair's `android/proguard-rules.pro` (app side) are the references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
-The Rust side calls its own Java class through the re-exported `jni` (`with_env` + `call_static_method`
-+ `AHandle`); `day_android::make_view` is a convenience hardcoded to `DayBridge`, so a standalone piece
-uses raw `call_static_method` on its class. See `pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`.
+The Rust side calls its own Java class through the re-exported `jni` (`with_env` +
+`call_static_method` + `AHandle`); `day_android::make_view` is a convenience hardcoded to
+`DayBridge`, so a standalone piece calls `day_android::try_make_view_on(env, ITS_CLASS, …)` — which
+is the same non-panicking path with the class as a parameter — and falls back to
+`placeholder_view` on a throw. See
+`pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`, and
+`pieces/day-piece-texteditor/src/lib-android.rs` for the fallback.
 
 > **Gradle configuration cache.** The scaffold reads `day-pieces.json` at *configuration* time, and
 > `day build` rewrites it every build; the config cache can't track that read, so it would serve stale

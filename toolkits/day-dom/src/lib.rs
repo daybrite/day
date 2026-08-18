@@ -49,6 +49,11 @@ unsafe extern "C" {
     fn day_dom_create_tag(tag: *const u8, tag_len: usize) -> u32;
     /// Invoke a zero-argument method on an element (`play`, `pause`, `load`, …).
     fn day_dom_call(el: u32, method: *const u8, method_len: usize);
+    /// Replace an element's markup, keeping the caret (docs/texteditor.md). The HTML comes from
+    /// Day's own serializer, which escapes every character of app text.
+    fn day_dom_set_html(el: u32, html: *const u8, html_len: usize);
+    /// Put the selection at a BYTE range in a contenteditable element's flattened text.
+    fn day_dom_editor_select(el: u32, start: u32, end: u32);
     fn day_dom_set_app_badge(count: i32);
     fn day_dom_insert(parent: u32, child: u32, index: u32);
     fn day_dom_remove(child: u32);
@@ -64,7 +69,7 @@ unsafe extern "C" {
     fn day_dom_set_value(el: u32, v: f64);
     fn day_dom_set_checked(el: u32, on: u32);
     /// Attach shim listeners; `mask` bits: 1 click, 2 input, 4 change, 8 focus, 16 submit,
-    /// 32 resize-observer, 64 scroll, 128 pointer-tap, 256 pointer-drag.
+    /// 32 resize-observer, 64 scroll, 128 pointer-tap, 256 pointer-drag, 512 contenteditable.
     fn day_dom_listen(el: u32, mask: u32);
     fn day_dom_measure_text(
         t: *const u8,
@@ -222,8 +227,15 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
         if let Some(c) = r.color {
             s(el, "color", &color_css(c));
         }
-        if r.strikethrough {
-            s(el, "text-decoration", "line-through");
+        if let Some(c) = r.background {
+            s(el, "background-color", &color_css(c));
+        }
+        // ONE `text-decoration`, because the shorthand replaces itself: a run that is both
+        // underlined and struck through needs both words in one declaration, and setting the
+        // property twice would keep only the second.
+        let deco = decoration_css(r);
+        if !deco.is_empty() {
+            s(el, "text-decoration", &deco);
         }
         if let Some(url) = r.link.as_deref() {
             unsafe { day_dom_link(el, parent, url.as_ptr(), url.len()) };
@@ -723,6 +735,9 @@ fn weight_css(w: FontWeight) -> u32 {
 fn font_css(f: &FontSpec) -> String {
     let (rem, default_weight) = font_rem(f.style);
     // A ramp step takes the stylesheet's scale; an explicit pt size is already a size.
+    // `FontSpec::scale` multiplies either — the same relative-size idea CSS spells `em`, so it
+    // folds into the rem figure rather than needing a property of its own.
+    let rem = rem * f.scale;
     let size = match f.style {
         Font::System(_) | Font::Custom(_, _) => format!("{rem}rem"),
         _ => scaled_rem(rem),
@@ -741,6 +756,32 @@ fn font_css(f: &FontSpec) -> String {
         _ => stack.to_string(),
     };
     format!("{italic}{weight} {size}/1.3 {family}")
+}
+
+/// A run's `text-decoration`: the lines and, for the patterned underlines, the style word CSS
+/// spells them with. Empty when the run has neither.
+fn decoration_css(r: &day_spec::TextRun) -> String {
+    use day_spec::Underline as U;
+    let mut lines = String::new();
+    if r.underline.is_on() {
+        lines.push_str("underline");
+    }
+    if r.strikethrough {
+        if !lines.is_empty() {
+            lines.push(' ');
+        }
+        lines.push_str("line-through");
+    }
+    if lines.is_empty() {
+        return lines;
+    }
+    match r.underline {
+        U::Double => lines.push_str(" double"),
+        U::Dotted => lines.push_str(" dotted"),
+        U::Wavy => lines.push_str(" wavy"),
+        U::Single | U::None => {}
+    }
+    lines
 }
 
 fn color_css(c: day_spec::Color) -> String {
@@ -1035,6 +1076,22 @@ impl Dom {
         unsafe { day_dom_call(h.0, method.as_ptr(), method.len()) };
     }
 
+    /// Replace the element's markup, KEEPING the caret and the selection where they were
+    /// (docs/texteditor.md) — which is what lets a styled-text editor repaint its attributes on
+    /// every keystroke without fighting the user.
+    ///
+    /// `html` must come from Day's own serializer ([`day_spec::styled_to_html`]), which escapes
+    /// every character of app text; this is not a hole to hand arbitrary markup through.
+    pub fn set_html(&mut self, h: &DomHandle, html: &str) {
+        unsafe { day_dom_set_html(h.0, html.as_ptr(), html.len()) };
+    }
+
+    /// Select a BYTE range of a contenteditable element's flattened text — the same offsets
+    /// [`listen::EDITABLE`] reports.
+    pub fn set_editor_selection(&mut self, h: &DomHandle, start: usize, end: usize) {
+        unsafe { day_dom_editor_select(h.0, start as u32, end as u32) };
+    }
+
     /// Attach the shim's DOM listeners to a piece's element, so it can report back.
     ///
     /// The built-in kinds get this from their own `realize` arms; a piece renderer that needs
@@ -1078,6 +1135,10 @@ pub mod listen {
     pub const POINTER: u32 = 128;
     /// The pointer-capture trio → [`Event::Drag`].
     pub const DRAG: u32 = 256;
+    /// A `contenteditable` element's editing listeners (docs/texteditor.md): `input` (and an IME
+    /// `compositionend`) → [`Event::TextChanged`] carrying the FLATTENED text, and
+    /// `selectionchange` → [`Event::Custom`] carrying `"sel <start> <end>"` in byte offsets.
+    pub const EDITABLE: u32 = 512;
 }
 
 impl Toolkit for Dom {
@@ -2902,6 +2963,13 @@ pub extern "C" fn day_dom_event_text(el: u32, kind: u32, ptr: *mut u8, len: usiz
                 node,
                 match kind {
                     16 => Event::LinkActivated(t),
+                    // The piece channel (§8.2), as the Android and ArkTS bridges spell it: the
+                    // payload IS the event, since no tag survives the boundary.
+                    17 => Event::Custom {
+                        tag: "",
+                        num: 0.0,
+                        text: t,
+                    },
                     _ => Event::TextChanged(t),
                 },
             );

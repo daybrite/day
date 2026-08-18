@@ -106,5 +106,7 @@ round-trips.
 - **XAML + ArkUI attribute setters**: `TextBox`/`ARKUI_NODE_TEXT_AREA` support editable/selectable/
   spell-check natively, but their shims don't expose the setters yet; they report `Unsupported` and
   ignore the props for now.
-- Rich text / attributed runs (a separate `RichText` piece; DESIGN §B.5).
+- Styled text is a different control: `day-piece-texteditor` edits a whole `StyledText` — the
+  document labels render and `.markdown()` produces — in each platform's rich-text view
+  ([docs/texteditor.md](texteditor.md)). `text_area` stays the plain-text one.
 - Reactive placeholder; a character/line counter affordance.

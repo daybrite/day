@@ -504,7 +504,8 @@ fn content_of(parent: &QtHandle) -> *mut c_void {
 
 /// Point size + the style's inherent weight for a logical [`Font`] (Qt has no semantic text styles;
 /// we approximate the platform typographic scale, matching Apple's text-style sizes for consistency).
-fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
+/// Public for standalone pieces (docs/extending.md), which have to resolve the same scale.
+pub fn qt_style(f: Font) -> (f64, day_spec::FontWeight) {
     use day_spec::FontWeight::*;
     match f {
         Font::LargeTitle => (26.0, Regular),
@@ -534,8 +535,16 @@ fn set_label_runs(w: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
         unsafe { ffi::day_qt_label_set_text(w, cstr(text).as_ptr()) };
         return;
     }
-    let html = day_spec::runs_to_markup(text, runs, day_spec::MarkupDialect::QtHtml);
+    let base_pt = LABEL_PT
+        .with(|t| t.get(w as usize))
+        .unwrap_or_else(|| qt_style(Font::Body).0);
+    let html = day_spec::runs_to_markup(text, runs, day_spec::MarkupDialect::QtHtml, base_pt);
     unsafe { ffi::day_qt_label_set_rich_text(w, cstr(&html).as_ptr()) };
+}
+
+/// Remember a label's resolved point size for [`set_label_runs`].
+fn remember_label_pt(w: *mut c_void, f: day_spec::FontSpec) {
+    LABEL_PT.with(|t| t.insert(w as usize, f.resolved_points(qt_style(f.style).0)));
 }
 
 /// Apply a `Font::Custom` family on top of `day_qt_label_set_font` (which set size/weight/italic).
@@ -766,6 +775,13 @@ thread_local! {
     /// Each tab page's bundled icon NAME, resolved to a file path when the tab is inserted —
     /// QTabWidget draws it beside the label (docs/tabs.md). A SideTable: swept in `release`.
     static TABS_PAGE_ICONS: SideTable<String> = SideTable::new();
+    /// Each label's own resolved point size, so a RELATIVE-size run can be written as the
+    /// absolute `pt` Qt's rich-text CSS understands (a percentage is silently ignored there).
+    ///
+    /// A side table because the patch that carries runs does not carry the font: `LabelPatch`
+    /// splits them, and by the time `Runs` arrives the `Font` it should scale against is
+    /// whatever the last `Font` patch set. Swept with the widget in `release`.
+    static LABEL_PT: SideTable<f64> = SideTable::new();
 }
 
 extern "C" fn tabs_changed(id: u64, index: c_int) {
@@ -1328,6 +1344,7 @@ impl Toolkit for Qt {
                     if let Some(c) = p.color {
                         ffi::day_qt_label_set_color(w, c.r, c.g, c.b, c.a, 1);
                     }
+                    remember_label_pt(w, p.font);
                     set_label_runs(w, &p.text, &p.runs);
                     // Wired unconditionally: runs can arrive later by patch, and connecting a
                     // signal on a label that never gets a link costs nothing.
@@ -1680,6 +1697,7 @@ impl Toolkit for Qt {
                                 let (pt, weight, italic, tabular) = font_params(*f);
                                 ffi::day_qt_label_set_font(h.0, pt, weight, italic, tabular);
                                 apply_custom_family(h.0, *f);
+                                remember_label_pt(h.0, *f);
                             }
                             LabelPatch::Runs(text, runs) => set_label_runs(h.0, text, runs),
                             LabelPatch::Color(c) => match c {

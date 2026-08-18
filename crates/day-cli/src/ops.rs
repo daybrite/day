@@ -5,6 +5,8 @@
 //! (§16.5 — parallel targets never contend on the cargo build-dir lock). Mobile pipelines
 //! attach here at M5 (xcodebuild + simctl; gradle + adb).
 
+use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -300,10 +302,30 @@ pub fn died_on_signal(code: i32) -> bool {
 /// reading platform manifests at runtime (docs/break.md); on launch commands they double as the
 /// runtime fallback for dev flows whose binary predates the vars.
 pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
-    cmd.env("DAY_APP_ID", &project.manifest.app.id)
-        .env("DAY_APP_VERSION", &project.manifest.app.version)
-        .env("DAY_APP_BUILD", project.manifest.app.build.to_string());
-    apply_determinism(cmd);
+    for (k, v) in app_identity_env(project) {
+        cmd.env(k, v);
+    }
+}
+
+/// The same variables as a map, for callers that report an environment instead of spawning with
+/// one (`desktop_launch_plan`, and `day build --format json` through it).
+pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
+    let mut env = BTreeMap::from([
+        (
+            "DAY_APP_ID".to_string(),
+            project.manifest.app.id.clone().into(),
+        ),
+        (
+            "DAY_APP_VERSION".to_string(),
+            project.manifest.app.version.clone().into(),
+        ),
+        (
+            "DAY_APP_BUILD".to_string(),
+            project.manifest.app.build.to_string().into(),
+        ),
+    ]);
+    env.extend(determinism_env());
+    env
 }
 
 /// Environment that makes Apple's toolchain stop stamping the clock into its output
@@ -317,15 +339,24 @@ pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
 /// Scope: archive and debug-map timestamps only. It does NOT touch `__DATE__`/`__TIME__` (Day uses
 /// neither), and it is inert on non-Apple hosts.
 pub fn apply_determinism(cmd: &mut Command) {
-    cmd.env("ZERO_AR_DATE", "1");
-    // Export the resolved epoch so any SOURCE_DATE_EPOCH-aware tool downstream agrees with the
-    // value Day stamps into archives itself — flatpak-builder honors it (1.3.1+), as do many
-    // compilers and archivers. Passing through the caller's value when they set one, and Day's
-    // default otherwise, means one clock governs the whole pack.
-    cmd.env(
-        "SOURCE_DATE_EPOCH",
-        crate::pack::reproducible_epoch().to_string(),
-    );
+    for (k, v) in determinism_env() {
+        cmd.env(k, v);
+    }
+}
+
+/// The determinism variables as a map — see `app_identity_env` for why the map form exists.
+pub fn determinism_env() -> BTreeMap<String, OsString> {
+    BTreeMap::from([
+        ("ZERO_AR_DATE".to_string(), OsString::from("1")),
+        // Export the resolved epoch so any SOURCE_DATE_EPOCH-aware tool downstream agrees with the
+        // value Day stamps into archives itself — flatpak-builder honors it (1.3.1+), as do many
+        // compilers and archivers. Passing through the caller's value when they set one, and Day's
+        // default otherwise, means one clock governs the whole pack.
+        (
+            "SOURCE_DATE_EPOCH".to_string(),
+            crate::pack::reproducible_epoch().to_string().into(),
+        ),
+    ])
 }
 
 /// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the
@@ -606,6 +637,209 @@ impl LaunchSpec {
     }
 }
 
+/// Everything needed to start a desktop target's own binary: the program, its arguments, the
+/// working directory, and the environment Day layers onto the caller's.
+///
+/// `launch` spawns exactly this, and `day build --format json` reports it verbatim — which is what
+/// lets an outside debugger (the VS Code extension delegating to lldb) start the app the way Day
+/// would. Having ONE producer is the point: an env var added for a launch but not mirrored here
+/// would leave the app resource-less under the debugger, and only there.
+pub struct DesktopLaunchPlan {
+    /// The executable to start. For a macOS `.app` bundle this is the binary INSIDE it — a
+    /// debugger needs a Mach-O to load, and macOS reads the adjacent Info.plist either way.
+    pub program: PathBuf,
+    pub args: Vec<String>,
+    pub cwd: PathBuf,
+    /// Day's ADDITIONS to the inherited environment, not a complete environment block.
+    pub env: BTreeMap<String, OsString>,
+    /// The wrapper argv this host needs to give the app a display (`xvfb-run`, under
+    /// `dbus-run-session` when there is one), if any. `program`/`args` describe the app itself
+    /// either way, so a caller that cannot wrap — a debugger launches the binary directly — still
+    /// has something to run, and something to warn about.
+    pub wrapper: Option<Vec<String>>,
+}
+
+/// Compute the plan without spawning anything and without printing. The `xvfb-run` probe lives
+/// here because it decides the wrapper, but the narration belongs to `launch`: a `build` that only
+/// wants the plan must stay quiet.
+pub fn desktop_launch_plan(
+    project: &Project,
+    target: &'static Target,
+    outcome: &BuildOutcome,
+    spec: &LaunchSpec,
+) -> Result<DesktopLaunchPlan, String> {
+    let mut env: BTreeMap<String, OsString> = BTreeMap::new();
+
+    // Headless CI (a linux host with no display server): give the toolkit what the CI shims used
+    // to wrap around the CLI — linux-gtk under xvfb sized to `[window]` (the root-capture
+    // screenshot fallback then frames exactly the app) plus the WebKit flags, linux-qt on the
+    // offscreen platform. This knowledge lived in TWO workflow files (day's ci.yml and
+    // build-day-app.yml) and drifted between them; the CLI knows the target and the window, so it
+    // decides.
+    let wrap = headless_wrap(
+        target.toolkit,
+        crate::targets::host_os(),
+        std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        project.manifest.window.width,
+        project.manifest.window.height,
+    );
+    let wrapper = match &wrap {
+        HeadlessWrap::Xvfb { width, height } => {
+            // Probe rather than assume: without xvfb-run the bare run at least fails with the
+            // toolkit's own display error, which is more actionable than "No such file or
+            // directory" from the wrapper.
+            if Command::new("xvfb-run").arg("--help").output().is_ok() {
+                // …and under a session bus, when one can be had. A headless runner has no D-Bus
+                // session, and GTK's file dialogs are portal-backed: with no bus `g_bus_get`
+                // yields NULL and GTK carries on with it, which shows up as
+                //   g_dbus_connection_send_message_with_reply_finish:
+                //     assertion 'G_IS_DBUS_CONNECTION (connection)' failed
+                // and then SIGSEGV on the NEXT dialog. `dbus-run-session` starts a private bus for
+                // the app's lifetime and tears it down after, so the portal call gets a real
+                // connection — and fails cleanly (no portal service answers) instead of
+                // dereferencing nothing.
+                let bus = Command::new("dbus-run-session")
+                    .arg("--version")
+                    .output()
+                    .is_ok_and(|o| o.status.success());
+                let mut w: Vec<String> = Vec::new();
+                if bus {
+                    w.push("dbus-run-session".to_string());
+                    w.push("--".to_string());
+                }
+                w.push("xvfb-run".to_string());
+                w.push("-a".to_string());
+                w.push("-s".to_string());
+                w.push(format!("-screen 0 {width}x{height}x24"));
+                env.insert(
+                    "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS".to_string(),
+                    OsString::from("1"),
+                );
+                env.insert(
+                    "WEBKIT_DISABLE_COMPOSITING_MODE".to_string(),
+                    OsString::from("1"),
+                );
+                Some(w)
+            } else {
+                None
+            }
+        }
+        HeadlessWrap::QtOffscreen => {
+            env.insert("QT_QPA_PLATFORM".to_string(), OsString::from("offscreen"));
+            None
+        }
+        HeadlessWrap::None => None,
+    };
+
+    // An Xcode-built `.app` bundle (platform/macos/, §17.4): name its inner binary. macOS resolves
+    // the adjacent Info.plist, so bundle identity, the Dock icon (compiled appiconset), and
+    // `Contents/Resources` are all REAL — none of the bare-binary environment below applies, and
+    // naming the binary rather than `open`ing the bundle keeps stdio attached for log streaming
+    // and dayscript.
+    let bundled = outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app");
+    let program = if bundled {
+        // The executable is named by the pbxproj's PRODUCT_NAME, not the crate — take the bundle's
+        // single Contents/MacOS entry rather than guess.
+        let macos_dir = outcome.artifact.join("Contents/MacOS");
+        std::fs::read_dir(&macos_dir)
+            .ok()
+            .and_then(|rd| rd.flatten().map(|e| e.path()).next())
+            .ok_or_else(|| format!("no executable under {}", macos_dir.display()))?
+    } else {
+        outcome.artifact.clone()
+    };
+
+    if !bundled {
+        env.insert(
+            "DAY_ASSET_ROOT".to_string(),
+            project.root.join("resource/assets").into_os_string(),
+        );
+        env.insert(
+            "DAY_IMAGE_ROOT".to_string(),
+            project.root.join("resource/images").into_os_string(),
+        );
+        // The vector raster cache (docs/vectors.md): how the file-loading desktop backends resolve
+        // `vector(…)` names — written by resources::stage at build. The FALLBACK rasters, not the
+        // whole cache: a dev launch has to fail the same way a shipped app would, or a broken
+        // vector path stays hidden behind a stand-in PNG right where it would be caught.
+        env.insert(
+            "DAY_VECTOR_RASTER_ROOT".to_string(),
+            crate::resources::vector_fallback_dir(project, target.toolkit).into_os_string(),
+        );
+        // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG at display
+        // size on macOS 11+), so vectors stay vector on the desktop too.
+        env.insert(
+            "DAY_VECTOR_SVG_ROOT".to_string(),
+            crate::resources::vector_svg_dir(project).into_os_string(),
+        );
+        // The XAML geometry — day-xaml draws these as real Path geometry, which is what keeps a
+        // Windows glyph vector at any size and lets a tint be a brush rather than a second asset
+        // (docs/vectors.md).
+        env.insert(
+            "DAY_VECTOR_XAML_ROOT".to_string(),
+            crate::resources::vector_xaml_dir(project).into_os_string(),
+        );
+        // Bundled fonts (§18.4): the desktop backends register every file in this directory with
+        // the platform font system at startup.
+        env.insert(
+            "DAY_FONT_ROOT".to_string(),
+            project.root.join("resource/fonts").into_os_string(),
+        );
+        env.extend(app_identity_env(project));
+    }
+
+    // App icon (§18.2): the backend applies it to the dock / taskbar at startup (NSApp icon,
+    // QApplication window icon, GTK icon theme, Win32 WM_SETICON). A bundled launch needs none of
+    // this — the compiled appiconset is the Dock icon.
+    if let Some(icon) = (!bundled)
+        .then(|| crate::resources::app_icon(project, target.toolkit))
+        .flatten()
+    {
+        env.insert("DAY_APP_ICON".to_string(), icon.clone().into_os_string());
+        if target.toolkit == "gtk" && cfg!(target_os = "linux") {
+            // GTK4 window icons are THEMED-name only: stage the icon into a hicolor layout keyed
+            // by the app id and point the backend's icon-theme search at it.
+            let theme = project.root.join("build/day/gtk/icons");
+            let apps = theme.join("hicolor/512x512/apps");
+            let _ = std::fs::create_dir_all(&apps);
+            let name = &project.manifest.app.id;
+            if std::fs::copy(&icon, apps.join(format!("{name}.png"))).is_ok() {
+                env.insert("DAY_ICON_THEME_DIR".to_string(), theme.into_os_string());
+                env.insert("DAY_ICON_NAME".to_string(), name.clone().into());
+            }
+        }
+    }
+    if target.toolkit == "gtk" {
+        env.insert("GSK_RENDERER".to_string(), OsString::from("cairo"));
+        // Native GResource blob (§18.3) — day-gtk registers it + loads via g_resources_*.
+        let g = crate::resources::gtk::gresource_path(project);
+        if g.exists() {
+            env.insert("DAY_GRESOURCE".to_string(), g.into_os_string());
+        }
+    }
+    if target.toolkit == "qt" {
+        // Native Qt resource blob (§18.3) — the day-qt shim registers it (QResource).
+        let q = crate::resources::qt::qresource_path(project);
+        if q.exists() {
+            env.insert("DAY_QRESOURCE".to_string(), q.into_os_string());
+        }
+    }
+    if let Some(locale) = &spec.locale {
+        env.insert("DAY_LOCALE".to_string(), locale.clone().into());
+    }
+    for (k, v) in &spec.envs {
+        env.insert(k.clone(), v.clone().into());
+    }
+
+    Ok(DesktopLaunchPlan {
+        program,
+        args: Vec::new(),
+        cwd: project.root.clone(),
+        env,
+        wrapper,
+    })
+}
+
 /// Launch a built artifact; returns a join handle streaming prefixed logs.
 pub fn launch(
     project: &Project,
@@ -615,133 +849,32 @@ pub fn launch(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     match target.kind {
         TargetKind::Desktop => {
-            // Headless CI (a linux host with no display server): give the toolkit what the CI
-            // shims used to wrap around the CLI — linux-gtk under xvfb sized to `[window]` (the
-            // root-capture screenshot fallback then frames exactly the app) plus the WebKit
-            // flags, linux-qt on the offscreen platform. This knowledge lived in TWO workflow
-            // files (day's ci.yml and build-day-app.yml) and drifted between them; the CLI
-            // knows the target and the window, so it decides.
-            let wrap = headless_wrap(
-                target.toolkit,
-                crate::targets::host_os(),
-                std::env::var_os("DISPLAY").is_some()
-                    || std::env::var_os("WAYLAND_DISPLAY").is_some(),
-                project.manifest.window.width,
-                project.manifest.window.height,
-            );
-            let mut cmd = match &wrap {
-                HeadlessWrap::Xvfb { width, height } => {
-                    // Probe rather than assume: without xvfb-run the bare run at least fails
-                    // with the toolkit's own display error, which is more actionable than
-                    // "No such file or directory" from the wrapper.
-                    if Command::new("xvfb-run").arg("--help").output().is_ok() {
-                        // …and under a session bus, when one can be had. A headless runner has no
-                        // D-Bus session, and GTK's file dialogs are portal-backed: with no bus
-                        // `g_bus_get` yields NULL and GTK carries on with it, which shows up as
-                        //   g_dbus_connection_send_message_with_reply_finish:
-                        //     assertion 'G_IS_DBUS_CONNECTION (connection)' failed
-                        // and then SIGSEGV on the NEXT dialog. `dbus-run-session` starts a private
-                        // bus for the app's lifetime and tears it down after, so the portal call
-                        // gets a real connection — and fails cleanly (no portal service answers)
-                        // instead of dereferencing nothing.
-                        let bus = Command::new("dbus-run-session")
-                            .arg("--version")
-                            .output()
-                            .is_ok_and(|o| o.status.success());
-                        let screen = format!("-screen 0 {width}x{height}x24");
-                        let mut c = if bus {
-                            status(
-                                "Headless",
-                                "wrapping in dbus-run-session + xvfb-run (no DISPLAY, no session bus)",
-                            );
-                            let mut c = Command::new("dbus-run-session");
-                            c.arg("--")
-                                .arg("xvfb-run")
-                                .args(["-a", "-s", &screen])
-                                .arg(&outcome.artifact);
-                            c
-                        } else {
-                            // No dbus-run-session: still better off under xvfb than not running at
-                            // all, and an app that never opens a file dialog is unaffected.
-                            status(
-                                "Headless",
-                                "wrapping in xvfb-run (no DISPLAY on this host; no                                  dbus-run-session — GTK file dialogs may be unstable)",
-                            );
-                            let mut c = Command::new("xvfb-run");
-                            c.args(["-a", "-s", &screen]).arg(&outcome.artifact);
-                            c
-                        };
-                        c.env("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1")
-                            .env("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-                        c
-                    } else {
-                        status("Warning", "no DISPLAY and no xvfb-run — launching bare");
-                        Command::new(&outcome.artifact)
-                    }
-                }
-                HeadlessWrap::QtOffscreen => {
+            let plan = desktop_launch_plan(project, target, outcome, spec)?;
+            let mut cmd = match &plan.wrapper {
+                Some(w) => {
                     status(
                         "Headless",
-                        "QT_QPA_PLATFORM=offscreen (no DISPLAY on this host)",
+                        &format!("wrapping in {} (no DISPLAY on this host)", w.join(" ")),
                     );
-                    let mut c = Command::new(&outcome.artifact);
-                    c.env("QT_QPA_PLATFORM", "offscreen");
+                    let mut c = Command::new(&w[0]);
+                    c.args(&w[1..]).arg(&plan.program).args(&plan.args);
                     c
                 }
-                HeadlessWrap::None => {
-                    // An Xcode-built `.app` bundle (platform/macos/, §17.4): exec its inner
-                    // binary directly. macOS resolves the adjacent Info.plist, so bundle
-                    // identity, the Dock icon (compiled appiconset), and `Contents/Resources`
-                    // are all REAL — none of the bare-binary environment below applies, and
-                    // execing (rather than `open`) keeps stdio attached for log streaming
-                    // and dayscript.
-                    if outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app") {
-                        // The executable is named by the pbxproj's PRODUCT_NAME, not the crate
-                        // — take the bundle's single Contents/MacOS entry rather than guess.
-                        let macos_dir = outcome.artifact.join("Contents/MacOS");
-                        let bin = std::fs::read_dir(&macos_dir)
-                            .ok()
-                            .and_then(|rd| rd.flatten().map(|e| e.path()).next())
-                            .ok_or_else(|| {
-                                format!("no executable under {}", macos_dir.display())
-                            })?;
-                        Command::new(bin)
-                    } else {
-                        Command::new(&outcome.artifact)
+                None => {
+                    if plan.env.contains_key("QT_QPA_PLATFORM") {
+                        status(
+                            "Headless",
+                            "QT_QPA_PLATFORM=offscreen (no DISPLAY on this host)",
+                        );
                     }
+                    let mut c = Command::new(&plan.program);
+                    c.args(&plan.args);
+                    c
                 }
             };
-            let bundled = outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app");
-            cmd.current_dir(&project.root);
-            if !bundled {
-                cmd.env("DAY_ASSET_ROOT", project.root.join("resource/assets"))
-                    .env("DAY_IMAGE_ROOT", project.root.join("resource/images"))
-                    // The vector raster cache (docs/vectors.md): how the file-loading desktop
-                    // backends resolve `vector(…)` names — written by resources::stage at build.
-                    // The FALLBACK rasters, not the whole cache: a dev launch has to fail the
-                    // same way a shipped app would, or a broken vector path stays hidden behind
-                    // a stand-in PNG right where it would be caught (docs/vectors.md).
-                    .env(
-                        "DAY_VECTOR_RASTER_ROOT",
-                        crate::resources::vector_fallback_dir(project, target.toolkit),
-                    )
-                    // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG
-                    // at display size on macOS 11+), so vectors stay vector on the desktop too.
-                    .env(
-                        "DAY_VECTOR_SVG_ROOT",
-                        crate::resources::vector_svg_dir(project),
-                    )
-                    // The XAML geometry — day-xaml draws these as real Path geometry, which is
-                    // what keeps a Windows glyph vector at any size and lets a tint be a brush
-                    // rather than a second asset (docs/vectors.md).
-                    .env(
-                        "DAY_VECTOR_XAML_ROOT",
-                        crate::resources::vector_xaml_dir(project),
-                    )
-                    // Bundled fonts (§18.4): the desktop backends register every file in this
-                    // directory with the platform font system at startup.
-                    .env("DAY_FONT_ROOT", project.root.join("resource/fonts"));
-                apply_app_identity(&mut cmd, project);
+            cmd.current_dir(&plan.cwd);
+            for (k, v) in &plan.env {
+                cmd.env(k, v);
             }
             if spec.attached {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -763,48 +896,6 @@ pub fn launch(
                     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
                     cmd.creation_flags(CREATE_NEW_PROCESS_GROUP);
                 }
-            }
-            // App icon (§18.2): the backend applies it to the dock / taskbar at startup
-            // (NSApp icon, QApplication window icon, GTK icon theme, Win32 WM_SETICON).
-            // A bundled launch needs none of this — the compiled appiconset is the Dock icon.
-            if let Some(icon) = (!bundled)
-                .then(|| crate::resources::app_icon(project, target.toolkit))
-                .flatten()
-            {
-                cmd.env("DAY_APP_ICON", &icon);
-                if target.toolkit == "gtk" && cfg!(target_os = "linux") {
-                    // GTK4 window icons are THEMED-name only: stage the icon into a hicolor
-                    // layout keyed by the app id and point the backend's icon-theme search at it.
-                    let theme = project.root.join("build/day/gtk/icons");
-                    let apps = theme.join("hicolor/512x512/apps");
-                    let _ = std::fs::create_dir_all(&apps);
-                    let name = &project.manifest.app.id;
-                    if std::fs::copy(&icon, apps.join(format!("{name}.png"))).is_ok() {
-                        cmd.env("DAY_ICON_THEME_DIR", &theme);
-                        cmd.env("DAY_ICON_NAME", name);
-                    }
-                }
-            }
-            if target.toolkit == "gtk" {
-                cmd.env("GSK_RENDERER", "cairo");
-                // Native GResource blob (§18.3) — day-gtk registers it + loads via g_resources_*.
-                let g = crate::resources::gtk::gresource_path(project);
-                if g.exists() {
-                    cmd.env("DAY_GRESOURCE", g);
-                }
-            }
-            if target.toolkit == "qt" {
-                // Native Qt resource blob (§18.3) — the day-qt shim registers it (QResource).
-                let q = crate::resources::qt::qresource_path(project);
-                if q.exists() {
-                    cmd.env("DAY_QRESOURCE", q);
-                }
-            }
-            if let Some(locale) = &spec.locale {
-                cmd.env("DAY_LOCALE", locale);
-            }
-            for (k, v) in &spec.envs {
-                cmd.env(k, v);
             }
             status("Launching", target.name);
             let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;

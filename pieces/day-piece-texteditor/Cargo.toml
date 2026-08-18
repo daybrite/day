@@ -1,0 +1,77 @@
+[package]
+name = "day-piece-texteditor"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+build = "build.rs"
+
+# A styled-text editor (docs/texteditor.md): `text_editor(Signal<StyledText>)` edits the same
+# `Vec<TextRun>` labels render and `.markdown()` produces, in each platform's own rich-text view.
+# All EIGHT toolkits have one — NSTextView, UITextView, GtkTextView, QTextEdit, EditText over a
+# SpannableStringBuilder, RichEditBox, the ArkTS RichEditor, and a contenteditable element — so
+# unlike day-piece-colorpicker this piece has no composed tier and must not have one: a hand-rolled
+# editor loses IME, bidi, undo, dictation and the accessibility tree.
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
+gtk = ["dep:day-gtk", "dep:gtk4"]
+qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QTextEdit)
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+mdc = ["dep:day-android"]           # + [package.metadata.day.android] carries DayTextEditor.java
+# XAML: build.rs compiles src/lib-xaml-shim.cpp — a RichEditBox driven through its TOM
+# ITextDocument. Windows-only, built in CI, NOT verified locally.
+xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
+arkui = ["dep:day-arkui"]
+# web-dom: a contenteditable element, which is the browser's own rich text editing.
+dom = ["dep:day-dom"]
+# No renderer — the feature exists so an app can enable `day-piece-texteditor/mock` uniformly.
+mock = []
+
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom", "mock"]
+
+[dependencies]
+day-spec = { workspace = true }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-reactive = { workspace = true }
+linkme = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+day-gtk = { workspace = true, optional = true }
+day-qt = { workspace = true, optional = true }
+day-uikit = { workspace = true, optional = true }
+day-android = { workspace = true, optional = true }
+day-xaml = { workspace = true, optional = true }
+day-xaml-sys = { workspace = true, optional = true }
+day-arkui = { workspace = true, optional = true }
+day-dom = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = ["NSAttributedString", "NSColor", "NSFont", "NSFontManager", "NSParagraphStyle", "NSScrollView", "NSText", "NSTextField", "NSTextView", "NSTextStorage", "NSTextContainer", "NSLayoutManager", "NSControl", "NSView", "NSResponder", "NSStringDrawing"] }
+objc2-ui-kit = { version = "0.3", optional = true, features = ["NSParagraphStyle", "NSText", "UIColor", "UIFont", "UIFontDescriptor", "UIResponder", "UIScrollView", "UITextView", "UITextInput", "UIView"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSAttributedString", "NSObject", "NSString", "NSValue", "NSDictionary", "NSArray", "NSGeometry", "NSNotification"] }
+objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
+
+[build-dependencies]
+day-toolchain = { workspace = true }
+cc = "1"
+
+[dev-dependencies]
+day-mock = { workspace = true }
+
+# The editor's Android half: an EditText subclass over a SpannableStringBuilder, with the
+# onSelectionChanged hook the framework only exposes to a subclass.
+[package.metadata.day.android]
+java = ["android/java"]
+gradle-dependencies = []
+gradle-repositories = []
+permissions = []
+
+# The HarmonyOS half: the ArkTS `RichEditor`, which the ArkUI C node API has no equivalent for.
+[package.metadata.day.ohos]
+ets = ["ohos/ets"]

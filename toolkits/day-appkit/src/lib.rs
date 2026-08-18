@@ -2596,6 +2596,16 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     } else {
         base
     };
+    // Relative size (`FontSpec::scale`). Applied LAST, over whatever face the traits above
+    // settled on, and through `convertFont_toSize` so a bundled family keeps its typeface —
+    // re-picking the system font here would undo the Custom/monospace/tabular work above.
+    let base = if spec.scale != 1.0 {
+        let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
+        let pts = spec.resolved_points(base.pointSize());
+        unsafe { NSFontManager::sharedFontManager(mtm).convertFont_toSize(&base, pts) }
+    } else {
+        base
+    };
     if spec.italic {
         let mtm = objc2::MainThreadMarker::new().expect("labels realize on the main thread");
         unsafe {
@@ -2632,18 +2642,33 @@ fn attributed_label(
         let fg = color
             .map(nscolor)
             .unwrap_or_else(objc2_app_kit::NSColor::labelColor);
-        s.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &*fg, whole);
+        s.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &fg, whole);
     }
     for r in runs {
         let Some(range) = utf16_range(text, &r.range) else {
             continue;
         };
         unsafe {
-            s.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, &*nsfont(r.font), range);
+            s.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, &nsfont(r.font), range);
             if let Some(c) = r.color {
                 s.addAttribute_value_range(
                     objc2_app_kit::NSForegroundColorAttributeName,
-                    &*nscolor(c),
+                    &nscolor(c),
+                    range,
+                );
+            }
+            if let Some(c) = r.background {
+                s.addAttribute_value_range(
+                    objc2_app_kit::NSBackgroundColorAttributeName,
+                    &nscolor(c),
+                    range,
+                );
+            }
+            if r.underline.is_on() {
+                let style = objc2_foundation::NSNumber::new_i64(ns_underline(r.underline));
+                s.addAttribute_value_range(
+                    objc2_app_kit::NSUnderlineStyleAttributeName,
+                    &style,
                     range,
                 );
             }
@@ -2651,7 +2676,7 @@ fn attributed_label(
                 let one = objc2_foundation::NSNumber::new_i64(1);
                 s.addAttribute_value_range(
                     objc2_app_kit::NSStrikethroughStyleAttributeName,
-                    &*one,
+                    &one,
                     range,
                 );
             }
@@ -2659,11 +2684,25 @@ fn attributed_label(
                 // The LINK attribute makes AppKit draw it as one and, on a selectable field,
                 // handle the click itself. Activation reaching Day is Cap::TextLinks (Phase 4).
                 let value = NSString::from_str(url);
-                s.addAttribute_value_range(objc2_app_kit::NSLinkAttributeName, &*value, range);
+                s.addAttribute_value_range(objc2_app_kit::NSLinkAttributeName, &value, range);
             }
         }
     }
-    s.into_super().into()
+    s.into_super()
+}
+
+/// [`Underline`](day_spec::Underline) as an `NSUnderlineStyle` bitmask: the line style in the low
+/// byte, the pattern in the second. `Dotted`/`Wavy` are patterns over a single line, which is
+/// exactly how AppKit spells them.
+fn ns_underline(u: day_spec::Underline) -> i64 {
+    use day_spec::Underline as U;
+    match u {
+        U::None => 0,
+        U::Single => 0x01,
+        U::Double => 0x09,
+        U::Dotted => 0x01 | 0x0100,
+        U::Wavy => 0x01 | 0x0400,
+    }
 }
 
 /// A byte range in `text` as an `NSRange` in UTF-16 units, or `None` if it is out of bounds.

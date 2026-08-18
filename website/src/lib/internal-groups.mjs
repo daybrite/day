@@ -43,6 +43,7 @@ export const groups = [
       ['progress', 'determinate bars and spinners'],
       ['picker', 'the built-in one-of-N picker: menu, segmented, and inline styles'],
       ['textarea', 'multi-line text: editing, selection, spell-check'],
+      ['texteditor', '`day-piece-texteditor` — editing a StyledText in each platform\'s rich-text view'],
       ['localization', 'Fluent mechanics, arguments, fallback'],
       ['accessibility', 'roles, per-backend attribute mapping, the audit'],
       ['lifecycle', 'app phases and their per-platform availability'],

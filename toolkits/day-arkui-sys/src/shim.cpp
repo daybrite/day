@@ -407,7 +407,8 @@ void day_ark_label_runs_begin(void* n) {
 }
 
 /// Append one run as a SPAN child. `flags` packs bold/italic/mono/strike/hasColour.
-void day_ark_label_runs_add(void* n, const char* text, int flags, uint32_t argb) {
+void day_ark_label_runs_add(void* n, const char* text, int flags, uint32_t argb, uint32_t bg_argb,
+                            int scale_permille, double base_fp) {
     if (!g_api || !n) return;
     ArkUI_NodeHandle span = g_api->createNode(ARKUI_NODE_SPAN);
     if (!span) return;
@@ -427,15 +428,36 @@ void day_ark_label_runs_add(void* n, const char* text, int flags, uint32_t argb)
         g_api->setAttribute(span, NODE_FONT_STYLE, &it);
     }
     if (flags & 4) set_str(span, NODE_FONT_FAMILY, "HarmonyOS Sans Mono, monospace");
-    if (flags & 8) {
+    // ArkUI has ONE decoration attribute per span, so a run that is both underlined and struck
+    // through can only have one line. Strikethrough wins: it is the one that changes what the
+    // text MEANS, and an underline that goes missing is cosmetic (docs/text-runs.md).
+    if (flags & (8 | 64)) {
+        int32_t type = (flags & 8) ? ARKUI_TEXT_DECORATION_TYPE_LINE_THROUGH
+                                   : ARKUI_TEXT_DECORATION_TYPE_UNDERLINE;
         // Decoration takes {type, color, style}; the color slot repeats the text color so the
         // line matches the glyphs.
-        ArkUI_NumberValue v[] = {{.i32 = ARKUI_TEXT_DECORATION_TYPE_LINE_THROUGH},
-                                 {.u32 = (flags & 16) ? argb : 0xFF000000u}};
+        ArkUI_NumberValue v[] = {{.i32 = type}, {.u32 = (flags & 16) ? argb : 0xFF000000u}};
         ArkUI_AttributeItem it{};
         it.value = v;
         it.size = 2;
         g_api->setAttribute(span, NODE_TEXT_DECORATION, &it);
+    }
+    if (flags & 32) {
+        // A span's own background (docs/text-runs.md): {color, then optional corner radii}.
+        ArkUI_NumberValue v[] = {{.u32 = bg_argb}};
+        ArkUI_AttributeItem it{};
+        it.value = v;
+        it.size = 1;
+        g_api->setAttribute(span, NODE_SPAN_TEXT_BACKGROUND_STYLE, &it);
+    }
+    if (scale_permille != 1000 && scale_permille > 0 && base_fp > 0.0) {
+        // `FontSpec::scale` is relative, and NODE_FONT_SIZE is absolute — so the multiply happens
+        // here against the size the label already resolved, which is the fp value Rust passes in.
+        ArkUI_NumberValue v[] = {{.f32 = (float)(base_fp * scale_permille / 1000.0)}};
+        ArkUI_AttributeItem it{};
+        it.value = v;
+        it.size = 1;
+        g_api->setAttribute(span, NODE_FONT_SIZE, &it);
     }
     if (flags & 16) {
         ArkUI_NumberValue v[] = {{.u32 = argb}};

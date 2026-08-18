@@ -1168,6 +1168,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-texteditor"
+version = "0.2.4"
+dependencies = [
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-arkui",
+ "day-core",
+ "day-dom",
+ "day-gtk",
+ "day-mock",
+ "day-pieces",
+ "day-qt",
+ "day-reactive",
+ "day-spec",
+ "day-toolchain",
+ "day-uikit",
+ "day-xaml",
+ "day-xaml-sys",
+ "gtk4",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-piece-webview"
 version = "0.2.4"
 dependencies = [

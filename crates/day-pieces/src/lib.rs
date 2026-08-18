@@ -32,7 +32,9 @@ mod forms;
 mod image;
 mod inputs;
 mod leaves;
-pub mod markdown;
+/// Inline markdown → styled runs (docs/markdown.md). The parser moved to day-spec, beside
+/// the `TextRun`s it produces and the other format codecs; this keeps the old path working.
+pub use day_spec::markdown;
 mod menus;
 mod nav;
 mod shapes;
@@ -98,6 +100,13 @@ pub mod prelude {
         DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, UnitPoint,
     };
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
+    // The styled-text document (docs/texteditor.md): what `.markdown()` parses into, what a
+    // label's runs are, and what `day-piece-texteditor` edits — plus the Markdown / HTML / RTF
+    // codecs over it.
+    pub use day_spec::{
+        ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle, StyledText, TextRun,
+        Underline,
+    };
     pub use day_spec::{MenuBarRole, MenuItem, MenuRole, Shortcut};
     pub use day_spec::{Symbol, ToolbarItem, ToolbarItemKind, ToolbarValue};
     pub use std::time::Duration;

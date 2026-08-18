@@ -45,6 +45,7 @@ pendings = "pendings"          # day-break's queued-report field
 optin = "optin"                # test names ending "_without_optin"
 noen = "noen"                  # a fixture directory named "locales-default-noen"
 ba = "ba"                      # byte-buffer locals (ba/bb) in rebuild.rs's text differ
+pard = "pard"                  # RTF's \pard — "paragraph default", the styled-text codec reads it
 
 # --- fragments of longer words the splitter hands over on their own -------------------------
 mis = "mis"                    # the hyphenated prefix: mis-pane, mis-ordering, mis-applied

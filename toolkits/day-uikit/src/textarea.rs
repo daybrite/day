@@ -117,13 +117,14 @@ fn key(v: &Retained<UIView>) -> usize {
     Retained::as_ptr(v) as usize
 }
 
-/// Set a `UITextInputTraits` `NSInteger` property (`spellCheckingType` / `autocorrectionType`) on a
+/// Set a `UITextInputTraits` `NSInteger` property (`spellCheckingType` / `autocorrectionType` /
+/// `smartQuotesType` / `smartDashesType`) on a
 /// `UITextView`. On `UITextView` these are resolved dynamically rather than as concrete methods, so
 /// objc2's debug-only send verification (`class_getInstanceMethod`) reports them missing and a
 /// checked `msg_send!` panics with "method not found" — even though the send succeeds at runtime.
 /// Dispatching through the raw runtime entry point skips that static check and resolves the setter
 /// exactly as UIKit itself does.
-fn set_text_input_trait(tv: &UITextView, sel: Sel, value: isize) {
+pub fn set_text_input_trait(tv: &UITextView, sel: Sel, value: isize) {
     let recv = (tv as *const UITextView).cast::<AnyObject>().cast_mut();
     // SAFETY: `recv` is a live main-thread `UITextView`; `sel` names a `UITextInputTraits` setter
     // that takes a single `NSInteger` and returns `void`, matching this `(id, SEL, NSInteger) -> ()`

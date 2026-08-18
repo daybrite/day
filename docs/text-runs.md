@@ -40,8 +40,10 @@ A `TextRun` is a **byte** range into the string plus what to do with it:
 ```rust
 pub struct TextRun {
     pub range: std::ops::Range<usize>,
-    pub font: FontSpec,
+    pub font: FontSpec,          // style + weight + italic + monospace + tabular + scale
     pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub underline: Underline,    // None | Single | Double | Dotted | Wavy
     pub strikethrough: bool,
     pub link: Option<String>,
 }
@@ -60,6 +62,15 @@ for the next edit.
 `FontSpec::monospace` asks for the platform's fixed-pitch face. It rides the ordinary font path,
 so it works on a whole label (`label("…").monospace()`) as well as on a run.
 
+`FontSpec::scale` is a **relative** size: it multiplies whatever the semantic style resolves to, so
+a run at `1.4` still tracks the reader's text-size setting. `Font::System(pt)` is the absolute form
+and does not — which is why an editor's size control moves `scale`, and why an imported document's
+`font-size: 14px` is the thing that lands in `Font::System`.
+
+A label's runs are the character half of [`StyledText`](texteditor.md), the document type
+`.markdown()` produces and [`day-piece-texteditor`](texteditor.md) edits. The same runs render in
+both places.
+
 ## Builder vocabulary
 
 | Method | Run |
@@ -69,6 +80,9 @@ so it works on a whole label (`label("…").monospace()`) as well as on a run.
 | `.emphasis(s)` | italic |
 | `.code(s)` | the fixed-pitch face |
 | `.colored(s, c)` | a color |
+| `.underline(s)` | underlined |
+| `.highlight(s, c)` | a background, with a readable foreground over it |
+| `.sized(s, k)` | `k` times the base size (relative, so it still scales) |
 | `.strikethrough(s)` | struck through |
 | `.link(s, url)` | drawn as a link (see below) |
 
@@ -89,6 +103,18 @@ so it works on a whole label (`label("…").monospace()`) as well as on a run.
 
 Ranges convert to UTF-16 for the Apple and Android backends, which index text that way; any emoji
 or CJK in the string makes the two disagree.
+
+### What each toolkit cannot draw
+
+| attribute | where it degrades |
+| --- | --- |
+| `Underline::Double` | Qt draws a single rule; Android draws a single rule |
+| `Underline::Dotted` | GTK draws a single rule (Pango has no dotted); Android draws a single rule |
+| `Underline::Wavy` | GTK draws the spell-check squiggle (`Underline::Error`); Android draws a single rule |
+| `background` | everywhere except where noted below; XAML needs a `TextHighlighter`, since a `Run` has no background |
+| `scale` | GTK takes an ABSOLUTE Pango size in 1/1024 pt — the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label EMPTY. Qt takes points too: its CSS subset ignores a percentage |
+
+Everything else draws on all eight.
 
 Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 

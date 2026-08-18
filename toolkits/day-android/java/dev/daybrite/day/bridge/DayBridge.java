@@ -528,7 +528,7 @@ public final class DayBridge {
      */
     public static void setLabelRuns(
             View v, final long node, String text, int[] starts, int[] ends, int[] flags, int[] colors,
-            String linksJoined) {
+            int[] backgrounds, int[] scales, String linksJoined) {
         TextView tv = (TextView) v;
         boolean anyLink = false;
         android.text.SpannableString s = new android.text.SpannableString(text);
@@ -550,6 +550,16 @@ public final class DayBridge {
             if ((f & 4) != 0) s.setSpan(new android.text.style.TypefaceSpan("monospace"), a, b, EXCL);
             if ((f & 8) != 0) s.setSpan(new android.text.style.StrikethroughSpan(), a, b, EXCL);
             if ((f & 16) != 0) s.setSpan(new android.text.style.ForegroundColorSpan(colors[i]), a, b, EXCL);
+            if ((f & 32) != 0) s.setSpan(new android.text.style.BackgroundColorSpan(backgrounds[i]), a, b, EXCL);
+            // Android has ONE underline span: a dotted or wavy request draws a plain line
+            // (docs/text-runs.md records which toolkits distinguish them).
+            if ((f & 64) != 0) s.setSpan(new android.text.style.UnderlineSpan(), a, b, EXCL);
+            // Relative size (FontSpec::scale) as a RelativeSizeSpan, which is exactly its shape —
+            // a multiplier over the inherited size, so the run still tracks the user's Font Size
+            // setting rather than freezing at a pixel value.
+            if (i < scales.length && scales[i] != 1000 && scales[i] > 0) {
+                s.setSpan(new android.text.style.RelativeSizeSpan(scales[i] / 1000f), a, b, EXCL);
+            }
             if (i < links.length && !links[i].isEmpty()) {
                 // A ClickableSpan rather than a URLSpan: the target goes back to Rust, so the
                 // app's `.on_link()` decides (route in-app, confirm, open) instead of Android

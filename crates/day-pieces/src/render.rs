@@ -135,6 +135,22 @@ macro_rules! renderer {
 /// One `dom_renderer!` per module.
 #[macro_export]
 macro_rules! dom_renderer {
+    // …+ release: teardown for a piece that keeps per-element state of its own. Same shape as
+    // `renderer!`'s, and it runs from the same release queue.
+    ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
+     make: $make:expr, update: $update:expr, measure: $measure:expr, release: $release:expr $(,)?) => {
+        $crate::__dom_renderer!(
+            $register,
+            $backend,
+            $kind,
+            $props,
+            $patch,
+            $make,
+            $update,
+            ::core::option::Option::Some($measure),
+            ::core::option::Option::Some($release)
+        );
+    };
     ($register:path, $backend:ty, kind: $kind:expr, props: $props:ty, patch: $patch:ty,
      make: $make:expr, update: $update:expr, measure: $measure:expr $(,)?) => {
         $crate::__dom_renderer!(

@@ -11,11 +11,28 @@ use std::collections::HashMap;
 
 pub use day_geometry::*;
 
+/// Inline markdown → styled runs (docs/markdown.md). Lives here rather than in day-pieces
+/// because it produces `TextRun`s, and every format codec beside it reads the same model.
+pub mod markdown;
 /// Bundled-resource random-access API + the per-backend opener seam (§18.3).
 pub mod resource;
+/// Styled text: the document model `label().runs(…)` renders and `day-piece-texteditor` edits,
+/// with the Markdown / HTML / RTF codecs over it (docs/texteditor.md).
+pub mod styled;
+/// Import and export for [`StyledText`]: Markdown, HTML and RTF (docs/texteditor.md).
+pub mod styled_codec;
+
 pub use resource::{
     AssetDir, AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName,
     resolve_asset_dir, resolve_image_file, resource, set_resource_opener,
+};
+pub use styled::{
+    ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle, StyledText, Underline,
+    coalesce_runs, paragraph_bounds, paragraphs_are_valid,
+};
+pub use styled_codec::{
+    DocStyle, html_to_styled, markdown_to_styled, rtf_to_styled, styled_to_html,
+    styled_to_markdown, styled_to_rtf,
 };
 
 /// Bundled custom fonts: name-table parsing, runtime font directory, family → file resolution
@@ -2184,6 +2201,19 @@ pub struct FontSpec {
     /// every toolkit has a system monospace face (`monospacedSystemFont`, Pango's `monospace`
     /// family, `QFontDatabase::FixedFont`, `Typeface.MONOSPACE`, CSS `monospace`).
     pub monospace: bool,
+    /// Multiply the resolved size. `1.0` is the style's own size, `1.6` a heading against a body
+    /// paragraph, `0.8` a caption inside one.
+    ///
+    /// RELATIVE rather than an absolute point size, and that is the whole point: an editor's
+    /// font-size control moves this, so text a person reads for an hour still tracks the
+    /// platform's accessibility text-scale. `Font::System(pt)` remains the absolute escape
+    /// hatch, and it is where an imported document's `\fs28` or `font-size: 14px` lands
+    /// (docs/texteditor.md) — faithful to the file, and no longer responsive to the reader,
+    /// which is the trade that form makes.
+    ///
+    /// Three toolkits take it directly (`GtkTextTag::scale`, Android's `RelativeSizeSpan`, CSS
+    /// `em`); the rest multiply it into the size they already compute.
+    pub scale: f64,
 }
 
 impl Default for FontSpec {
@@ -2194,6 +2224,7 @@ impl Default for FontSpec {
             italic: false,
             tabular: false,
             monospace: false,
+            scale: 1.0,
         }
     }
 }
@@ -2202,11 +2233,30 @@ impl From<Font> for FontSpec {
     fn from(style: Font) -> Self {
         FontSpec {
             style,
-            weight: None,
-            italic: false,
-            tabular: false,
-            monospace: false,
+            ..FontSpec::default()
         }
+    }
+}
+
+impl FontSpec {
+    /// The plain descriptor for a style — no weight override, no italic, scale 1.0.
+    pub fn new(style: Font) -> Self {
+        FontSpec::from(style)
+    }
+    /// This descriptor at a different relative size (see [`FontSpec::scale`]).
+    pub fn scaled(mut self, scale: f64) -> Self {
+        self.scale = scale;
+        self
+    }
+    /// The point size this descriptor resolves to, given the size the platform assigns its
+    /// semantic style. The one place `scale` is applied, so every backend's font resolver
+    /// multiplies the same way.
+    pub fn resolved_points(&self, style_points: f64) -> f64 {
+        let base = match self.style {
+            Font::System(pt) | Font::Custom(_, pt) => pt,
+            _ => style_points,
+        };
+        (base * self.scale).max(1.0)
     }
 }
 
@@ -2225,6 +2275,12 @@ pub struct TextRun {
     pub range: std::ops::Range<usize>,
     pub font: FontSpec,
     pub color: Option<Color>,
+    /// A highlight painted behind the glyphs. Every native text editor carries this attribute
+    /// (docs/texteditor.md), and search hits and review comments are the two things an app is
+    /// asked for the moment it has styled text at all.
+    pub background: Option<Color>,
+    /// A line under the text.
+    pub underline: Underline,
     /// A line through the text. Separate from `FontSpec` because it is a decoration, not a face:
     /// no platform expresses it by picking a different font.
     pub strikethrough: bool,
@@ -2233,15 +2289,53 @@ pub struct TextRun {
     pub link: Option<String>,
 }
 
+impl Default for TextRun {
+    fn default() -> Self {
+        TextRun {
+            range: 0..0,
+            font: FontSpec::default(),
+            color: None,
+            background: None,
+            underline: Underline::None,
+            strikethrough: false,
+            link: None,
+        }
+    }
+}
+
 impl TextRun {
     /// A run that only changes the font — the common case for emphasis.
     pub fn font(range: std::ops::Range<usize>, font: FontSpec) -> Self {
         TextRun {
             range,
             font,
-            color: None,
-            strikethrough: false,
-            link: None,
+            ..TextRun::default()
+        }
+    }
+
+    /// This run's attributes without its range — what a selection's style is compared against
+    /// and what an editor's toolbar toggles (docs/texteditor.md).
+    pub fn style(&self) -> RunStyle {
+        RunStyle {
+            font: self.font,
+            color: self.color,
+            background: self.background,
+            underline: self.underline,
+            strikethrough: self.strikethrough,
+            link: self.link.clone(),
+        }
+    }
+
+    /// A run of `style` over `range`.
+    pub fn styled(range: std::ops::Range<usize>, style: RunStyle) -> Self {
+        TextRun {
+            range,
+            font: style.font,
+            color: style.color,
+            background: style.background,
+            underline: style.underline,
+            strikethrough: style.strikethrough,
+            link: style.link,
         }
     }
 }
@@ -2252,10 +2346,19 @@ impl TextRun {
 /// string containing `&` or `<` corrupts the whole label otherwise, and it will be a translated
 /// string that finds the bug.
 ///
-/// `tag` decides the dialect: Pango wants `<span foreground="#rrggbb" font_family="monospace">`,
-/// Qt wants `<span style="color:#rrggbb">` with `<code>`. Both accept `<b>`, `<i>`, `<s>` and
-/// `<a href>`, which is why one function can serve them.
-pub fn runs_to_markup(text: &str, runs: &[TextRun], dialect: MarkupDialect) -> String {
+/// `dialect` decides the spelling: Pango wants `<span foreground="#rrggbb"
+/// font_family="monospace">`, Qt wants `<span style="color:#rrggbb">` with `<code>`. Both accept
+/// `<b>`, `<i>`, `<u>`, `<s>` and `<a href>`, which is why one function can serve them.
+///
+/// `base_points` is the size the label itself resolved to. Only a relative-size run
+/// ([`FontSpec::scale`]) needs it, and only in the Qt dialect: Pango markup takes a percentage
+/// directly, while Qt's CSS subset understands `pt` and `px` and ignores `%`.
+pub fn runs_to_markup(
+    text: &str,
+    runs: &[TextRun],
+    dialect: MarkupDialect,
+    base_points: f64,
+) -> String {
     let mut out = String::with_capacity(text.len() + runs.len() * 24);
     let mut at = 0usize;
     for r in runs {
@@ -2270,7 +2373,7 @@ pub fn runs_to_markup(text: &str, runs: &[TextRun], dialect: MarkupDialect) -> S
         {
             escape_markup(plain, &mut out);
         }
-        open_run(r, dialect, &mut out);
+        open_run(r, dialect, base_points, &mut out);
         escape_markup(styled, &mut out);
         close_run(r, dialect, &mut out);
         at = r.range.end;
@@ -2313,29 +2416,49 @@ fn hex(c: Color) -> String {
     )
 }
 
-fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
+/// Does this run need a `<span>` in `dialect`, or do the plain tags cover it?
+fn needs_span(r: &TextRun, dialect: MarkupDialect) -> bool {
+    let extras = r.color.is_some() || r.background.is_some() || r.font.scale != 1.0;
+    match dialect {
+        // Pango expresses the monospace family as a span attribute; Qt cannot (see below).
+        MarkupDialect::Pango => extras || r.font.monospace,
+        MarkupDialect::QtHtml => extras,
+    }
+}
+
+fn open_run(r: &TextRun, dialect: MarkupDialect, base_points: f64, out: &mut String) {
     if let Some(url) = r.link.as_deref() {
         out.push_str("<a href=\"");
         escape_markup(url, out);
         out.push_str("\">");
     }
-    // The span carries color and the monospace family; bold/italic/strike are their own tags in
-    // both dialects, which keeps the attribute string short and the escaping trivial.
+    // The span carries the attributes that have no tag — colors, relative size, and (on Pango)
+    // the monospace family. Bold/italic/strike/underline are tags in both dialects, which keeps
+    // the attribute string short and the escaping trivial.
     let color = r.color.map(hex);
+    let background = r.background.map(hex);
     let mono = r.font.monospace;
-    let span = match dialect {
-        MarkupDialect::Pango => color.is_some() || mono,
-        MarkupDialect::QtHtml => color.is_some(),
-    };
-    if span {
+    if needs_span(r, dialect) {
         match dialect {
             MarkupDialect::Pango => {
                 out.push_str("<span");
                 if let Some(c) = &color {
                     out.push_str(&format!(" foreground=\"{c}\""));
                 }
+                if let Some(c) = &background {
+                    out.push_str(&format!(" background=\"{c}\""));
+                }
                 if mono {
                     out.push_str(" font_family=\"monospace\"");
+                }
+                if r.font.scale != 1.0 {
+                    // ABSOLUTE, in Pango units (1/1024 pt), not the `font_scale`/`size="N%"`
+                    // pair: those are Pango 1.50 attributes, and a Pango that does not know an
+                    // attribute fails the whole markup parse — which renders the label EMPTY
+                    // rather than merely unscaled. A point size still tracks the desktop's text
+                    // scaling, since Pango resolves points through the Xft DPI.
+                    let pts = r.font.resolved_points(base_points);
+                    out.push_str(&format!(" size=\"{}\"", (pts * 1024.0).round() as i64));
                 }
                 out.push('>');
             }
@@ -2346,6 +2469,16 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
                 out.push_str("<span style=\"");
                 if let Some(c) = &color {
                     out.push_str(&format!("color:{c};"));
+                }
+                if let Some(c) = &background {
+                    out.push_str(&format!("background-color:{c};"));
+                }
+                if r.font.scale != 1.0 {
+                    // POINTS, not a percentage: Qt's rich-text CSS subset understands `pt` and
+                    // `px` and silently ignores `%`, which is why a scaled run rendered at the
+                    // base size here while every other backend scaled it.
+                    let pt = r.font.resolved_points(base_points);
+                    out.push_str(&format!("font-size:{pt}pt;"));
                 }
                 out.push_str("\">");
             }
@@ -2360,6 +2493,9 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
     if r.font.italic {
         out.push_str("<i>");
     }
+    if r.underline.is_on() {
+        out.push_str("<u>");
+    }
     if r.strikethrough {
         out.push_str("<s>");
     }
@@ -2368,6 +2504,9 @@ fn open_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
 fn close_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
     if r.strikethrough {
         out.push_str("</s>");
+    }
+    if r.underline.is_on() {
+        out.push_str("</u>");
     }
     if r.font.italic {
         out.push_str("</i>");
@@ -2378,11 +2517,7 @@ fn close_run(r: &TextRun, dialect: MarkupDialect, out: &mut String) {
     if dialect == MarkupDialect::QtHtml && r.font.monospace {
         out.push_str("</code>");
     }
-    let span = match dialect {
-        MarkupDialect::Pango => r.color.is_some() || r.font.monospace,
-        MarkupDialect::QtHtml => r.color.is_some(),
-    };
-    if span {
+    if needs_span(r, dialect) {
         out.push_str("</span>");
     }
     if r.link.is_some() {
@@ -4522,7 +4657,7 @@ mod markup_tests {
         // The case a translated string will find: markup metacharacters in the CONTENT.
         let text = "5 < 6 & \"quoted\" <b>not bold</b>";
         for d in [MarkupDialect::Pango, MarkupDialect::QtHtml] {
-            let m = runs_to_markup(text, &[], d);
+            let m = runs_to_markup(text, &[], d, 16.0);
             assert!(!m.contains("<b>"), "content tag survived into markup: {m}");
             assert!(m.contains("&lt;b&gt;"), "{m}");
             assert!(m.contains("&amp;"), "{m}");
@@ -4533,7 +4668,7 @@ mod markup_tests {
     #[test]
     fn a_styled_run_is_wrapped_and_its_text_escaped() {
         let text = "a <b> c";
-        let m = runs_to_markup(text, &[bold(2..5)], MarkupDialect::Pango);
+        let m = runs_to_markup(text, &[bold(2..5)], MarkupDialect::Pango, 16.0);
         assert_eq!(m, "a <b>&lt;b&gt;</b> c");
     }
 
@@ -4548,17 +4683,48 @@ mod markup_tests {
                 ..Default::default()
             },
             color: Some(Color::rgb(1.0, 0.0, 0.0)),
-            strikethrough: false,
-            link: None,
+            ..TextRun::default()
         };
-        let pango = runs_to_markup(text, std::slice::from_ref(&run), MarkupDialect::Pango);
+        let pango = runs_to_markup(text, std::slice::from_ref(&run), MarkupDialect::Pango, 16.0);
         assert!(pango.contains("foreground=\"#ff0000\""), "{pango}");
         assert!(pango.contains("font_family=\"monospace\""), "{pango}");
-        let qt = runs_to_markup(text, std::slice::from_ref(&run), MarkupDialect::QtHtml);
+        let qt = runs_to_markup(
+            text,
+            std::slice::from_ref(&run),
+            MarkupDialect::QtHtml,
+            16.0,
+        );
         assert!(qt.contains("color:#ff0000"), "{qt}");
         // Qt takes its fixed face from <code>: a `font-family:monospace` style attribute
         // renders proportional (observed on Qt 6.11).
         assert!(qt.contains("<code>") && qt.contains("</code>"), "{qt}");
+    }
+
+    #[test]
+    fn the_new_attributes_reach_both_dialects() {
+        let run = TextRun {
+            range: 0..2,
+            font: FontSpec::default().scaled(1.5),
+            background: Some(Color::rgb(0.0, 1.0, 0.0)),
+            underline: Underline::Single,
+            ..TextRun::default()
+        };
+        let pango = runs_to_markup("hi", std::slice::from_ref(&run), MarkupDialect::Pango, 16.0);
+        assert!(pango.contains("background=\"#00ff00\""), "{pango}");
+        // Pango takes an ABSOLUTE size in 1/1024 pt — 16 pt base × 1.5 = 24 pt — because the
+        // relative attributes are Pango 1.50's and an unknown attribute empties the whole label.
+        assert!(pango.contains("size=\"24576\""), "{pango}");
+        assert!(pango.contains("<u>hi</u>"), "{pango}");
+        let qt = runs_to_markup(
+            "hi",
+            std::slice::from_ref(&run),
+            MarkupDialect::QtHtml,
+            16.0,
+        );
+        assert!(qt.contains("background-color:#00ff00"), "{qt}");
+        // Qt takes POINTS: 16 pt base × 1.5 (observed — its CSS subset ignores a percentage).
+        assert!(qt.contains("font-size:24pt"), "{qt}");
+        assert!(qt.contains("<u>hi</u>"), "{qt}");
     }
 
     #[test]
@@ -4568,12 +4734,10 @@ mod markup_tests {
         let text = "docs";
         let run = TextRun {
             range: 0..4,
-            font: FontSpec::default(),
-            color: None,
-            strikethrough: false,
             link: Some("https://x.dev/?a=1&b=2".into()),
+            ..TextRun::default()
         };
-        let m = runs_to_markup(text, &[run], MarkupDialect::Pango);
+        let m = runs_to_markup(text, &[run], MarkupDialect::Pango, 16.0);
         assert!(m.contains("a=1&amp;b=2"), "{m}");
     }
 
@@ -4587,18 +4751,18 @@ mod markup_tests {
                 italic: true,
                 ..Default::default()
             },
-            color: None,
             strikethrough: true,
             link: Some("u".into()),
+            ..TextRun::default()
         };
-        let m = runs_to_markup("hi", &[run], MarkupDialect::Pango);
+        let m = runs_to_markup("hi", &[run], MarkupDialect::Pango, 16.0);
         assert_eq!(m, "<a href=\"u\"><b><i><s>hi</s></i></b></a>");
     }
 
     #[test]
     fn runs_out_of_bounds_are_skipped_not_panicked() {
         // `runs_are_valid` rejects these upstream; this is the belt-and-braces path.
-        let m = runs_to_markup("hi", &[bold(0..99)], MarkupDialect::Pango);
+        let m = runs_to_markup("hi", &[bold(0..99)], MarkupDialect::Pango, 16.0);
         assert_eq!(m, "hi");
     }
 

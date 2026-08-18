@@ -85,6 +85,7 @@ the architecture-level view and the rationale.
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | built-in controls — picker, text area | [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
+| styled text editing — `StyledText`, its Markdown/HTML/RTF codecs, and the editor piece over them | [docs/texteditor.md](docs/texteditor.md) | [B.5](#b5-richtext-tier-2--deep-native-control) |
 | HarmonyOS / OpenHarmony | [docs/harmonyos.md](docs/harmonyos.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | web — the `web-dom` backend (wasm32 + DOM) | [docs/web.md](docs/web.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | [docs/lite.md](docs/lite.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
@@ -2229,7 +2230,8 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 Two package kinds share the mechanism:
 
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
-  datetime, pull-refresh, webview, media, map, lottie, remote-image.
+  datetime, color picker, styled-text editor, pull-refresh, webview, media, map, lottie,
+  remote-image.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
@@ -2558,6 +2560,22 @@ per-target entries and the process exit code is the highest-severity per-target 
 {"event":"diagnostic","severity":"warning","code":"day::lint::missing_translation","message":"…","path":"locales/fr/app.ftl"}
 {"event":"result","command":"build","ok":true,"targets":[{"target":"ios-uikit","ok":true,"code":0,"artifacts":[{"path":"build/day/ios-uikit/Showcase.app"}]}]}
 ```
+
+A `build` result entry for a **desktop** target also carries a `launch` object — `program`, `args`,
+`cwd`, `env`, and a `wrapper` argv when the host needs one (`xvfb-run`) — describing exactly how
+`day launch` would start that binary:
+
+```json
+{"target":"linux-gtk","ok":true,"code":0,"artifacts":[{"path":"build/day/cargo/linux-gtk/debug/debug/showcase"}],
+ "launch":{"program":"build/day/cargo/linux-gtk/debug/debug/showcase","args":[],"cwd":".",
+           "env":{"DAY_IMAGE_ROOT":"resource/images","GSK_RENDERER":"cairo"},"wrapper":null}}
+```
+
+This is what lets a caller that starts the binary **itself** get the app Day would have started —
+the VS Code extension hands it to lldb for a real debug session ([day-vscode](https://github.com/daybrite/day-vscode)).
+`ops::desktop_launch_plan` is the single producer: `day launch` spawns the plan and this event
+reports it, so the two cannot drift. A `.app` bundle reports the binary **inside** it (a debugger
+needs a Mach-O), and device or browser runtimes carry no `launch` at all.
 
 Exit codes: `0` ok · `1` failure · `2` usage · `3` environment/toolchain (doctor-able) · `4` build
 failure · `5` script/assertion failure · `6` signing failure · `10` lint findings (with
@@ -3230,7 +3248,7 @@ day/                                # THIS repository
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
   pieces/                           # external-style UI pieces (day-piece-combobox, -searchfield,
                                     #   -picker, -rating, -activity, -webview, -media, -map,
-                                    #   -lottie, -remote-image, -textarea)
+                                    #   -lottie, -remote-image, -colorpicker, -texteditor)
   parts/                            # headless platform services (day-part-battery, -network,
                                     #   -sensors, -clipboard, -prefs, -haptics, -deviceinfo,
                                     #   -http, -permissions, -location)
@@ -4119,10 +4137,26 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 
 ### B.5 RichText (tier 2 — deep native control)
 
-> [!WARNING]
-> **Not built.** The nearest shipped relative is `pieces/day-piece-textarea` (multi-line plain
-> text). The rich-text design stays here as future work; nothing in the shipped extension
-> mechanism blocks it.
+> [!NOTE]
+> **Shipped** as `pieces/day-piece-texteditor` ([docs/texteditor.md](docs/texteditor.md)):
+> `text_editor(Signal<StyledText>)` edits the same document a label renders and `.markdown()`
+> produces, in each platform's own rich-text view. ALL EIGHT toolkits ship one — `NSTextView`,
+> `UITextView`, `GtkTextView` over a tag table, `QTextEdit`, an `EditText` over its live span
+> buffer, a `RichEditBox` driven through its TOM, the ArkTS `RichEditor`, and a `contenteditable`
+> element — so the piece has no composed tier and must not have one: a hand-rolled editor loses
+> IME, bidi, undo, dictation and the accessibility tree, invisibly.
+>
+> The design rule the arms are built on: **Day owns the attributes, the native view owns the
+> characters.** An edit arrives as plain text, is diffed against the text the piece last knew, and
+> the runs reflow over the delta — so the toolbar, the mixed-state read, the paragraph attributes
+> and the import/export are pure Rust on all nine targets. Each platform's own formatting UI is
+> turned off rather than read back, which [docs/texteditor.md](docs/texteditor.md) §3 states as
+> the piece's cost.
+>
+> `TextRun` grew `background` and `underline`, `FontSpec` grew `scale` (a relative size, so a run
+> still tracks the reader's text-size setting), and both reached all eight label paths. The
+> document type, its paragraph runs and the Markdown / HTML / RTF codecs live in **day-spec**
+> ([§8](#8-day-spec-the-contract)), not in the piece.
 
 ### B.6 PullRefresh (the reference CONTAINER piece — native/emulated hybrid)
 

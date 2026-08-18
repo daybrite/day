@@ -118,6 +118,28 @@ body.day-has-toolbar #day-root {
 }
 .day-label.placeholder { color: var(--day-fg-dim); }
 
+/* A styled-text editor's empty-state prompt (day-piece-texteditor, docs/texteditor.md). A
+   contenteditable div has no `placeholder` attribute, and it is never `:empty` — an empty
+   document still holds the block the caret sits in — so the piece marks the empty state itself
+   and the prompt is drawn on the first block. Not selectable, and invisible to the caret. */
+[data-day-placeholder][data-day-empty] > :first-child::before {
+  content: attr(data-day-placeholder);
+  color: var(--day-fg-dim);
+  pointer-events: none;
+  position: absolute;
+}
+
+/* A styled-text editor's blocks. The browser's default paragraph margins are meant for a
+   document page; in an editor they double-space every line, and a code sample worst of all.
+   Day's own model carries paragraph spacing (ParagraphStyle::space_before/space_after), which the
+   serializer writes as explicit margins — so the default has to be nothing. */
+[data-day-editor] > p, [data-day-editor] > li {
+  margin: 0;
+}
+[data-day-editor] > li {
+  list-style-position: inside;
+}
+
 /* The `.selectable()` modifier (day-dom set_selectable): opt an element's text back into
    selection, overriding the #day-root default. `text` re-enables even under an ancestor's `none`.
    Comes after .day-label so it wins on a selectable label; a text cursor signals the affordance. */

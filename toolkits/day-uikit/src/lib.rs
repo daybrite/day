@@ -23,6 +23,11 @@ pub use imp::*;
 mod picker;
 #[cfg(target_os = "ios")]
 mod textarea;
+/// Set a `UITextInputTraits` integer property on a `UITextView` (0 = on/default, 1 = off) —
+/// dispatched through the raw runtime, since objc2's checked send does not see these dynamically
+/// resolved setters. Public for standalone editor pieces (docs/extending.md).
+#[cfg(target_os = "ios")]
+pub use textarea::set_text_input_trait;
 
 #[cfg(target_os = "ios")]
 pub mod ext;
@@ -3015,6 +3020,15 @@ mod imp {
         MainThreadMarker::new().expect("day-uikit: not on the main thread")
     }
 
+    impl Uikit {
+        /// The main-thread marker every UIKit call needs, for a standalone piece's renderer
+        /// (docs/extending.md) — the same accessor day-appkit offers. Sound for the same reason
+        /// the free function above is: holding `&mut Uikit` means a Toolkit duty is running.
+        pub fn mtm(&self) -> MainThreadMarker {
+            mtm()
+        }
+    }
+
     /// Run `body` (which mutates one or more animatable view properties) inside a UIKit animation
     /// matching `anim`, or immediately when `anim` is `None`. Backend-executed animation (§8.4):
     /// UIKit diffs the changes made in the block and animates them on the render server (off the
@@ -3271,12 +3285,20 @@ mod imp {
         };
         // Monospace, by the same rule and for the same reason (docs/text-runs.md): a whole face
         // on UIKit too, kept inside UIFontMetrics so inline code still scales with Dynamic Type.
-        if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
+        let font = if spec.monospace && !matches!(spec.style, Font::Custom(..)) {
             unsafe {
                 let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
                 let raw = UIFont::monospacedSystemFontOfSize_weight(font.pointSize(), w);
                 UIFontMetrics::metricsForTextStyle(UIFontTextStyleBody).scaledFontForFont(&raw)
             }
+        } else {
+            font
+        };
+        // Relative size (`FontSpec::scale`), applied LAST over whatever face the traits settled
+        // on. `fontWithSize:` keeps the typeface, and because the size it scales is the one
+        // Dynamic Type already produced, a scaled run keeps tracking the reader's setting.
+        if spec.scale != 1.0 {
+            unsafe { font.fontWithSize(spec.resolved_points(font.pointSize())) }
         } else {
             font
         }
@@ -3305,7 +3327,7 @@ mod imp {
             // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
             // default a plain label would have used.
             let fg = color.map(uicolor).unwrap_or_else(UIColor::labelColor);
-            s.addAttribute_value_range(objc2_ui_kit::NSForegroundColorAttributeName, &*fg, whole);
+            s.addAttribute_value_range(objc2_ui_kit::NSForegroundColorAttributeName, &fg, whole);
         }
         for r in runs {
             let Some(range) = utf16_range(text, &r.range) else {
@@ -3314,13 +3336,28 @@ mod imp {
             unsafe {
                 s.addAttribute_value_range(
                     objc2_ui_kit::NSFontAttributeName,
-                    &*resolve_font(r.font),
+                    &resolve_font(r.font),
                     range,
                 );
                 if let Some(c) = r.color {
                     s.addAttribute_value_range(
                         objc2_ui_kit::NSForegroundColorAttributeName,
-                        &*uicolor(c),
+                        &uicolor(c),
+                        range,
+                    );
+                }
+                if let Some(c) = r.background {
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSBackgroundColorAttributeName,
+                        &uicolor(c),
+                        range,
+                    );
+                }
+                if r.underline.is_on() {
+                    let style = objc2_foundation::NSNumber::new_i64(ns_underline(r.underline));
+                    s.addAttribute_value_range(
+                        objc2_ui_kit::NSUnderlineStyleAttributeName,
+                        &style,
                         range,
                     );
                 }
@@ -3328,7 +3365,7 @@ mod imp {
                     let one = objc2_foundation::NSNumber::new_i64(1);
                     s.addAttribute_value_range(
                         objc2_ui_kit::NSStrikethroughStyleAttributeName,
-                        &*one,
+                        &one,
                         range,
                     );
                 }
@@ -3336,11 +3373,24 @@ mod imp {
                     // Drawn as a link. ACTIVATION needs a UITextView (a UILabel has no hit
                     // testing at all), which is Phase 4 — `Cap::TextLinks` stays Unsupported.
                     let value = NSString::from_str(url);
-                    s.addAttribute_value_range(objc2_ui_kit::NSLinkAttributeName, &*value, range);
+                    s.addAttribute_value_range(objc2_ui_kit::NSLinkAttributeName, &value, range);
                 }
             }
         }
-        s.into_super().into()
+        s.into_super()
+    }
+
+    /// [`Underline`](day_spec::Underline) as an `NSUnderlineStyle` bitmask — the line style in
+    /// the low byte, the pattern in the second, the same encoding AppKit uses.
+    fn ns_underline(u: day_spec::Underline) -> i64 {
+        use day_spec::Underline as U;
+        match u {
+            U::None => 0,
+            U::Single => 0x01,
+            U::Double => 0x09,
+            U::Dotted => 0x01 | 0x0100,
+            U::Wavy => 0x01 | 0x0400,
+        }
     }
 
     /// A byte range in `text` as an `NSRange` in UTF-16 units.
@@ -3857,7 +3907,7 @@ mod imp {
                     // (docs/text-runs.md). A link that first appears in a later patch cannot
                     // upgrade the backing: `patch` has no way to hand back a new handle.
                     if p.runs.iter().any(|r| r.link.is_some()) {
-                        let tv = link_text_view(&p, id, mtm);
+                        let tv = link_text_view(p, id, mtm);
                         return view_of(tv);
                     }
                     let label = unsafe { UILabel::new(mtm) };

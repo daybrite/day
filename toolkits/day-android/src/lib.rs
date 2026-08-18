@@ -808,6 +808,10 @@ mod imp {
         let mut ends = Vec::with_capacity(runs.len());
         let mut flags = Vec::with_capacity(runs.len());
         let mut colors = Vec::with_capacity(runs.len());
+        let mut backgrounds = Vec::with_capacity(runs.len());
+        // Relative size, in per-mille — an int array so it rides the same cheap `set_region`
+        // path as the rest rather than needing a float array of its own.
+        let mut scales = Vec::with_capacity(runs.len());
         let mut links: Vec<Option<String>> = Vec::with_capacity(runs.len());
         for r in runs {
             let Some(slice) = text.get(r.range.clone()) else {
@@ -835,15 +839,28 @@ mod imp {
             if r.color.is_some() {
                 f |= 16;
             }
+            if r.background.is_some() {
+                f |= 32;
+            }
+            // The underline STYLE rides bits 6-8: Android has one underline span, so a dotted or
+            // wavy request draws a plain line and the distinction is recorded for the day it can
+            // be honored (an app's own diagnostic mark).
+            if r.underline.is_on() {
+                f |= 64;
+            }
             flags.push(f);
             colors.push(r.color.map(argb).unwrap_or(0));
+            backgrounds.push(r.background.map(argb).unwrap_or(0));
+            scales.push((r.font.scale * 1000.0).round() as i32);
             links.push(r.link.clone());
         }
-        let (Ok(sa), Ok(se), Ok(sf), Ok(sc)) = (
+        let (Ok(sa), Ok(se), Ok(sf), Ok(sc), Ok(sb), Ok(sz)) = (
             env.new_int_array(starts.len()),
             env.new_int_array(ends.len()),
             env.new_int_array(flags.len()),
             env.new_int_array(colors.len()),
+            env.new_int_array(backgrounds.len()),
+            env.new_int_array(scales.len()),
         ) else {
             return;
         };
@@ -851,6 +868,8 @@ mod imp {
             || se.set_region(env, 0, &ends).is_err()
             || sf.set_region(env, 0, &flags).is_err()
             || sc.set_region(env, 0, &colors).is_err()
+            || sb.set_region(env, 0, &backgrounds).is_err()
+            || sz.set_region(env, 0, &scales).is_err()
         {
             return;
         }
@@ -867,7 +886,7 @@ mod imp {
         let _ = env.dcall_static(
             BRIDGE,
             "setLabelRuns",
-            "(Landroid/view/View;JLjava/lang/String;[I[I[I[ILjava/lang/String;)V",
+            "(Landroid/view/View;JLjava/lang/String;[I[I[I[I[I[ILjava/lang/String;)V",
             &[
                 JValue::Object(v.as_obj()),
                 JValue::Long(node),
@@ -876,6 +895,8 @@ mod imp {
                 JValue::Object(&se),
                 JValue::Object(&sf),
                 JValue::Object(&sc),
+                JValue::Object(&sb),
+                JValue::Object(&sz),
                 JValue::Object(&jl),
             ],
         );
@@ -1451,7 +1472,8 @@ mod imp {
 
     /// Size (in **sp** — scales with Settings ▸ Display ▸ Font size, the Android accessibility text
     /// scale) + the style's inherent weight for a logical [`Font`]. Mobile scale, aligned with iOS.
-    fn font_style(f: Font) -> (f32, day_spec::FontWeight) {
+    /// Public for standalone pieces (docs/extending.md), which resolve the same scale.
+    pub fn font_style(f: Font) -> (f32, day_spec::FontWeight) {
         use day_spec::FontWeight::*;
         match f {
             Font::LargeTitle => (34.0, Regular),

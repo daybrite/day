@@ -107,6 +107,9 @@ pub struct MockState {
     pub pending_windows: bool,
     /// Parked `Pending` opens: (node, title, kind).
     pub pending_opens: Vec<(NodeId, String, String)>,
+    /// Formatters for patch types the mock does not know — see [`MockProbe::describe_patch`].
+    #[allow(clippy::type_complexity)]
+    pub describers: Vec<Box<dyn Fn(&dyn Any) -> Option<String>>>,
 }
 
 impl MockState {
@@ -149,6 +152,24 @@ impl MockProbe {
     }
     pub fn measure_calls(&self) -> usize {
         self.state.borrow().measure_calls
+    }
+    /// Teach the op log to name a patch type the mock doesn't know.
+    ///
+    /// A standalone piece (docs/extending.md) defines its patch enum in its own crate, so the
+    /// toolkit seam sees `&dyn Any` and logs `update <kind> #n ?`. Install a describer and the
+    /// log carries the variant instead, which is what makes "this write patched attributes and
+    /// did NOT replace the document" an assertion a test can make:
+    ///
+    /// ```ignore
+    /// probe.describe_patch::<EditorPatch>(|p| format!("{p:?}"));
+    /// ```
+    ///
+    /// Describers are tried in the order installed; the first that matches the type wins.
+    pub fn describe_patch<T: 'static>(&self, f: impl Fn(&T) -> String + 'static) {
+        self.state
+            .borrow_mut()
+            .describers
+            .push(Box::new(move |any| any.downcast_ref::<T>().map(&f)));
     }
     /// Ops excluding measures (mutation ops only).
     pub fn mutations(&self) -> Vec<String> {
@@ -555,6 +576,9 @@ impl Toolkit for MockToolkit {
         anim: Option<&AnimSpec>,
     ) {
         let mut s = self.state.borrow_mut();
+        // Ask the installed describers first — the borrow has to end before `widgets` is taken
+        // mutably below.
+        let described = s.describers.iter().find_map(|d| d(patch));
         let detail;
         {
             let w = s.widgets.get_mut(&h.0).expect("update on unknown widget");
@@ -744,7 +768,7 @@ impl Toolkit for MockToolkit {
                     ListPatch::Selected(rows) => format!("list selected {rows:?}"),
                 }
             } else {
-                "?".into()
+                described.unwrap_or_else(|| "?".into())
             };
         }
         s.log(format!("update {kind} #{} {detail}", h.0));

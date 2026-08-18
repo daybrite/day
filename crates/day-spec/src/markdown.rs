@@ -10,7 +10,7 @@
 //! The grammar is the inline subset — what fits in one label. Block constructs (headings, lists,
 //! quotes, tables) are layout, and layout is `column`/`form`/`list`, not a text attribute.
 
-use day_spec::{Color, Font, FontSpec, FontWeight, TextRun};
+use crate::{Color, Font, FontSpec, FontWeight, TextRun, Underline};
 
 /// The inline styles the parser recognizes, as a bitmask carried down the nesting stack.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -150,8 +150,16 @@ impl Parser<'_> {
                 ..Default::default()
             },
             color: link.is_some().then_some(self.link_color),
+            // A link run is underlined too now that a run can say so: every platform's own
+            // link rendering draws one, and Day's did not because `TextRun` had no way to.
+            underline: if link.is_some() {
+                Underline::Single
+            } else {
+                Underline::None
+            },
             strikethrough: styles.strike,
             link: link.cloned(),
+            ..TextRun::default()
         });
     }
 
@@ -204,8 +212,14 @@ impl Parser<'_> {
                 ..Default::default()
             },
             color: link.is_some().then_some(self.link_color),
+            underline: if link.is_some() {
+                Underline::Single
+            } else {
+                Underline::None
+            },
             strikethrough: styles.strike,
             link: link.cloned(),
+            ..TextRun::default()
         };
         self.runs.insert(at, run);
     }
@@ -341,7 +355,7 @@ mod tests {
         assert!(r.iter().all(|x| x.font.weight == Some(FontWeight::Bold)));
         assert_eq!(r.iter().filter(|x| x.font.italic).count(), 1);
         assert_eq!(&t[r[1].range.clone()], "italic");
-        assert!(day_spec::runs_are_valid(&t, &r).is_ok());
+        assert!(crate::runs_are_valid(&t, &r).is_ok());
     }
 
     #[test]
@@ -350,7 +364,7 @@ mod tests {
         assert_eq!(t, "bold link");
         assert!(r.iter().all(|x| x.link.as_deref() == Some("u")));
         assert_eq!(r.iter().filter(|x| x.font.weight.is_some()).count(), 1);
-        assert!(day_spec::runs_are_valid(&t, &r).is_ok());
+        assert!(crate::runs_are_valid(&t, &r).is_ok());
     }
 
     #[test]
@@ -375,7 +389,7 @@ mod tests {
         assert_eq!(t, "héllo wörld 🌍 ok");
         assert_eq!(&t[r[0].range.clone()], "wörld");
         assert_eq!(&t[r[1].range.clone()], "ok");
-        assert!(day_spec::runs_are_valid(&t, &r).is_ok());
+        assert!(crate::runs_are_valid(&t, &r).is_ok());
     }
 
     #[test]
@@ -396,7 +410,7 @@ mod tests {
         ] {
             let (t, r) = render(md);
             assert!(
-                day_spec::runs_are_valid(&t, &r).is_ok(),
+                crate::runs_are_valid(&t, &r).is_ok(),
                 "invalid runs for {md:?}: {r:?}"
             );
         }

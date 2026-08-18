@@ -1208,10 +1208,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         o.seconds
                     ),
                 );
-                results.push(o);
+                results.push((target, o));
             }
             if cli.format == OutputFormat::Json {
-                print_result_json("build", &results);
+                print_result_json("build", project, &results);
             }
             Ok(0)
         }),
@@ -1599,14 +1599,59 @@ fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
     );
 }
 
-fn print_result_json(command: &str, results: &[ops::BuildOutcome]) {
+/// The `build` result event.
+///
+/// A desktop target also carries a `launch` object — the exact program, working directory, and
+/// environment `day launch` would spawn it with — so a caller that starts the binary ITSELF gets
+/// the same app Day would have started. That is what the VS Code extension hands to lldb when it
+/// delegates a debug session; without the environment the app comes up with no resources, no
+/// vectors, and no identity, and the difference is invisible until something is missing on screen.
+/// Device and browser runtimes have no local program to name, so they carry no `launch`.
+fn print_result_json(
+    command: &str,
+    project: &meta::Project,
+    results: &[(&'static crate::targets::Target, ops::BuildOutcome)],
+) {
     let targets: Vec<serde_json::Value> = results
         .iter()
-        .map(|o| {
-            serde_json::json!({
+        .map(|(target, o)| {
+            let mut entry = serde_json::json!({
                 "target": o.target, "ok": true, "code": 0,
                 "artifacts": [{"path": o.artifact}], "seconds": o.seconds,
-            })
+            });
+            if target.kind == crate::targets::TargetKind::Desktop {
+                // Best-effort: the build itself succeeded, and the only way the plan fails is a
+                // `.app` with nothing under Contents/MacOS — which the launch path diagnoses far
+                // better than a truncated result event could.
+                let spec = ops::LaunchSpec {
+                    locale: None,
+                    envs: Vec::new(),
+                    attached: true,
+                    ios_device: None,
+                    ios_simulator: None,
+                    android_device: None,
+                };
+                if let Ok(plan) = ops::desktop_launch_plan(project, target, o, &spec) {
+                    let env: serde_json::Map<String, serde_json::Value> = plan
+                        .env
+                        .iter()
+                        .map(|(k, v)| {
+                            (
+                                k.clone(),
+                                serde_json::Value::String(v.to_string_lossy().into_owned()),
+                            )
+                        })
+                        .collect();
+                    entry["launch"] = serde_json::json!({
+                        "program": plan.program,
+                        "args": plan.args,
+                        "cwd": plan.cwd,
+                        "env": env,
+                        "wrapper": plan.wrapper,
+                    });
+                }
+            }
+            entry
         })
         .collect();
     println!(

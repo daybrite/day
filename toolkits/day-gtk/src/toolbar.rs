@@ -156,9 +156,24 @@ thread_local! {
     /// on the release sweep when a secondary window closes, so a recycled window address can
     /// never inherit a dead install.
     static BARS: SideTable<WinToolbar> = SideTable::with_teardown(|bar: WinToolbar| {
-        for w in &bar.packed {
-            bar.header.remove(w);
+        let WinToolbar { header, packed, widgets, .. } = bar;
+        for w in &packed {
+            header.remove(w);
         }
+        // Drop day's last references one main-loop turn later, not here.
+        //
+        // A button dressed by `set_icon_name` holds a themed GIcon, and GTK resolves that to a
+        // paintable LAZILY — inside the frame clock's CSS validation
+        // (`gtk_image_css_changed` → `gtk_icon_helper_ensure_paintable` →
+        // `gtk_icon_theme_lookup_icon`), which runs after this returns. Finalizing the button
+        // inline leaves that pass walking an object the toolkit has already torn down;
+        // `object_ref: assertion '!object_already_finalized' failed` is GTK saying so, and the
+        // segfault a frame later is the same pass reading past it. An idle hop is the GTK
+        // spelling of Qt's `deleteLater`, which day-qt uses for the same reason (§8.1 permits a
+        // backend to defer a release further).
+        gtk4::glib::idle_add_local_once(move || {
+            ffi_guard::contain((), || drop((packed, widgets)));
+        });
     });
     /// Every Day window's header bar (window ptr → bar), registered as the window is built —
     /// the only way back from a content handle to the chrome, since AdwToolbarView does not

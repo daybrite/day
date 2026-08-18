@@ -2494,7 +2494,8 @@ void day_xaml_label_link_cb(DayLinkCb cb) { g_link_cb = cb; }
 /// run. Each run is an INLINE inside the one TextBlock, so the paragraph still wraps, selects
 /// and is read as a single block — which is the whole reason for runs.
 
-void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb, const char* link) {
+void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb, unsigned bg_argb,
+                             int scale_permille, const char* link) {
     auto tb = elem(h).try_as<WUXC::TextBlock>();
     if (!tb) return;
     WUXD::Run run;
@@ -2505,9 +2506,18 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
     // Windows default behind it.
     if (flags & 4) run.FontFamily(WUXM::FontFamily(L"Consolas, Courier New, monospace"));
     if (flags & 16) run.Foreground(brush_bits(argb));
-    if (flags & 8) {
-        // Strikethrough is a TextDecorations flag on the Run (Windows 10 1809+).
-        run.TextDecorations(WUI::Text::TextDecorations::Strikethrough);
+    // TextDecorations is a FLAGS enum, so underline and strikethrough combine in one write —
+    // setting the property twice would keep only the second (Windows 10 1809+).
+    {
+        auto deco = WUI::Text::TextDecorations::None;
+        if (flags & 8) deco |= WUI::Text::TextDecorations::Strikethrough;
+        if (flags & 64) deco |= WUI::Text::TextDecorations::Underline;
+        if (deco != WUI::Text::TextDecorations::None) run.TextDecorations(deco);
+    }
+    if (scale_permille != 1000 && scale_permille > 0) {
+        // `FontSpec::scale` is relative and FontSize is absolute, so the multiply happens against
+        // whatever size the TextBlock resolved for itself — which is what a run inherits.
+        run.FontSize(tb.FontSize() * scale_permille / 1000.0);
     }
     if (link && link[0]) {
         // A Hyperlink is an inline container: the run goes INSIDE it, so the link sits in the
@@ -2526,6 +2536,24 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
         return;
     }
     tb.Inlines().Append(run);
+    if (flags & 32) {
+        // A `Run` has NO Background property — XAML paints text highlights through the
+        // TextBlock's TextHighlighters, which take character ranges rather than inlines. The
+        // range is where this run's text just landed, which is the running length of everything
+        // appended before it.
+        int start = 0;
+        for (auto const& inl : tb.Inlines()) {
+            if (auto r = inl.try_as<WUXD::Run>()) {
+                if (r == run) break;
+                start += (int)r.Text().size();
+            }
+        }
+        WUXD::TextHighlighter hi;
+        hi.Background(brush_bits(bg_argb));
+        WUXD::TextRange range{start, (int)run.Text().size()};
+        hi.Ranges().Append(range);
+        tb.TextHighlighters().Append(hi);
+    }
 }
 // Make a label's text user-selectable (the `.selectable()` modifier, docs/text.md). try_as
 // guards a non-TextBlock handle — a no-op rather than a bad cast.

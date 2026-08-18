@@ -172,6 +172,8 @@ unsafe extern "C" {
         text: *const c_char,
         flags: c_int,
         argb: u32,
+        bg_argb: u32,
+        scale_permille: c_int,
         link: *const c_char,
     );
     pub fn day_xaml_label_set_font(

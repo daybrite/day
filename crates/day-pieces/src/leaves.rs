@@ -115,8 +115,45 @@ impl TextBuilder {
             range,
             font: day_spec::FontSpec::from(base),
             color: Some(color),
-            strikethrough: false,
-            link: None,
+            ..day_spec::TextRun::default()
+        })
+    }
+    /// Underlined.
+    pub fn underline(self, s: &str) -> Self {
+        let base = self.base;
+        self.run(s, move |range| day_spec::TextRun {
+            range,
+            font: day_spec::FontSpec::from(base),
+            underline: day_spec::Underline::Single,
+            ..day_spec::TextRun::default()
+        })
+    }
+    /// Highlighted — a color painted BEHIND the glyphs, for a search hit or a review mark.
+    ///
+    /// Sets the foreground too, through the same readable-on-a-fill rule `Button::tint` uses: a
+    /// highlight is usually a pale wash, and the label's own text color is chosen for the window's
+    /// background rather than for the swatch now sitting under it. On a dark theme that pairing
+    /// puts light text on pale amber, which is the one combination a highlight must not produce.
+    /// Use [`TextBuilder::run`] where an app wants to state both itself.
+    pub fn highlight(self, s: &str, color: day_spec::Color) -> Self {
+        let base = self.base;
+        self.run(s, move |range| day_spec::TextRun {
+            range,
+            font: day_spec::FontSpec::from(base),
+            background: Some(color),
+            color: Some(day_spec::props::ButtonStyleSpec::on_tint(color)),
+            ..day_spec::TextRun::default()
+        })
+    }
+    /// A relative size: `1.5` is half again the base style's, `0.8` smaller
+    /// ([`FontSpec::scale`](day_spec::FontSpec::scale)). Relative rather than a point size so the
+    /// phrase still tracks the reader's accessibility text-size setting.
+    pub fn sized(self, s: &str, scale: f64) -> Self {
+        let base = self.base;
+        self.run(s, move |range| day_spec::TextRun {
+            range,
+            font: day_spec::FontSpec::from(base).scaled(scale),
+            ..day_spec::TextRun::default()
         })
     }
     /// Struck through.
@@ -125,9 +162,8 @@ impl TextBuilder {
         self.run(s, move |range| day_spec::TextRun {
             range,
             font: day_spec::FontSpec::from(base),
-            color: None,
             strikethrough: true,
-            link: None,
+            ..day_spec::TextRun::default()
         })
     }
     /// A link run. RENDERING it is `Cap::TextRuns`; ACTIVATING it is `Cap::TextLinks`, which
@@ -138,9 +174,8 @@ impl TextBuilder {
         self.run(s, move |range| day_spec::TextRun {
             range,
             font: day_spec::FontSpec::from(base),
-            color: None,
-            strikethrough: false,
             link: Some(target),
+            ..day_spec::TextRun::default()
         })
     }
     /// The assembled text and its runs.
@@ -310,6 +345,7 @@ impl Piece for Label {
                     italic: self.italic,
                     tabular: self.tabular,
                     monospace: self.monospace,
+                    ..day_spec::FontSpec::default()
                 },
                 color: self.color.as_ref().map(|c| c.get_untracked()),
                 wraps: true,
