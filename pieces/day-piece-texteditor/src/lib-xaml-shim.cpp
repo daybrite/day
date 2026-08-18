@@ -116,6 +116,18 @@ std::string document_text(WUXC::RichEditBox const &box) {
     // RichEdit terminates its document with a paragraph mark Day's model does not have.
     std::string s = narrow(text);
     while (!s.empty() && (s.back() == '\r' || s.back() == '\n')) s.pop_back();
+    // RichEdit's paragraph mark is a CR, and a Shift+Enter line break a VT. Every other toolkit
+    // reports a line ending as LF, and Day's model is the ONE text an app splits, searches and
+    // diffs, so it has to read the same on all eight — a `\n` the app looks for is simply not
+    // there otherwise, on Windows alone.
+    //
+    // Rewritten in place, one code unit for one: these offsets ARE the ones the selection and
+    // every attribute range are expressed in, so collapsing anything here (a pair to a single
+    // LF) would shift every position after it by one per line — the class of bug the
+    // walkthrough's select-a-word assertion exists to catch.
+    for (char &c : s) {
+        if (c == '\r' || c == '\v') c = '\n';
+    }
     return s;
 }
 

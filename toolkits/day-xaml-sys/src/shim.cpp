@@ -122,6 +122,17 @@ static std::string u8(winrt::hstring const& h) {
     return s;
 }
 
+// A multi-line TextBox reports its line separator as a CR, which is XAML's own spelling and
+// nobody else's: every other toolkit hands Day an LF, and the bound signal is a plain Rust string
+// an app splits on '\n'. Rewritten one code unit for one, so an offset into it still lands on the
+// same character.
+static std::string lf(std::string s) {
+    for (char& c : s) {
+        if (c == '\r' || c == '\v') c = '\n';
+    }
+    return s;
+}
+
 // cppwinrt projected types delete `operator new`, so a bare `new UIElement(e)` is illegal.
 // A plain wrapper struct owns the WinRT reference on the heap; delete releases it.
 struct Node {
@@ -4520,7 +4531,7 @@ void* day_textarea_xaml_new(const char* placeholder, const char* initial, uint64
     if (initial && *initial) box.Text(hs(initial));
     box.TextChanged([id, cb](WF::IInspectable const& sender, WUXC::TextChangedEventArgs const&) {
         if (auto tb = sender.try_as<WUXC::TextBox>()) {
-            std::string t = u8(tb.Text());
+            std::string t = lf(u8(tb.Text()));
             cb(id, t.c_str());
         }
     });
@@ -4568,8 +4579,10 @@ void day_textarea_xaml_set_selectable(void* handle, int on) {
 
 void day_textarea_xaml_set_text(void* handle, const char* text) {
     if (auto box = textarea_box_of(handle)) {
-        auto nt = hs(text);
-        if (box.Text() != nt) box.Text(nt);
+        // Compared in Day's spelling: the box holds CRs, so comparing its raw text against an LF
+        // string never matched and every patch re-set the whole box — which is what takes the
+        // caret back to the start mid-typing.
+        if (lf(u8(box.Text())) != std::string(text ? text : "")) box.Text(hs(text));
     }
 }
 
