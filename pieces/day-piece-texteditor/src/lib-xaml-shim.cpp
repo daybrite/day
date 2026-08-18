@@ -28,7 +28,9 @@
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h> // IVector methods — else C3779
+#include <winrt/Windows.System.h>  // VirtualKey
 #include <winrt/Windows.UI.h>
+#include <winrt/Windows.UI.Core.h> // CoreWindow, CoreVirtualKeyStates
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
@@ -45,7 +47,9 @@
 
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
+namespace WS = winrt::Windows::System;
 namespace WU = winrt::Windows::UI;
+namespace WUC = winrt::Windows::UI::Core;
 namespace WUT = winrt::Windows::UI::Text;
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
@@ -158,16 +162,18 @@ void *day_texteditor_xaml_new(uint64_t id, int editable, int spellcheck, double 
     // RichEditBox's own Ctrl+B / Ctrl+I / Ctrl+U change the character format directly. Swallow
     // them: attributes are Day's, and a toolbar button goes through the bound signal.
     box.KeyDown([](WF::IInspectable const &, WUXI::KeyRoutedEventArgs const &args) {
-        const auto ctrl = WUX::Window::Current().CoreWindow().GetKeyState(
-            winrt::Windows::System::VirtualKey::Control);
-        const bool down =
-            (ctrl & winrt::Windows::UI::Core::CoreVirtualKeyStates::Down) ==
-            winrt::Windows::UI::Core::CoreVirtualKeyStates::Down;
+        const auto ctrl = WUX::Window::Current().CoreWindow().GetKeyState(WS::VirtualKey::Control);
+        // Both `GetKeyState` and the flag operators over `CoreVirtualKeyStates` are defined in
+        // <winrt/Windows.UI.Core.h>. Without it only the Xaml headers' forward declarations were
+        // here, which left the call's `auto` return type undefined and collapsed the state test
+        // into the operator== soup CI reported. The bit test is what the projection's own
+        // `operator&` performs, and unlike `(ctrl & Down) == Down` it does not depend on whether a
+        // given Windows Kit's operator hands back the enum or its underlying type.
+        const bool down = (static_cast<uint32_t>(ctrl) &
+                           static_cast<uint32_t>(WUC::CoreVirtualKeyStates::Down)) != 0;
         if (!down) return;
         const auto k = args.Key();
-        if (k == winrt::Windows::System::VirtualKey::B ||
-            k == winrt::Windows::System::VirtualKey::I ||
-            k == winrt::Windows::System::VirtualKey::U) {
+        if (k == WS::VirtualKey::B || k == WS::VirtualKey::I || k == WS::VirtualKey::U) {
             args.Handled(true);
         }
     });
@@ -210,8 +216,10 @@ void day_texteditor_xaml_begin_attrs(void *handle) {
     all.CharacterFormat(fmt);
     auto para = all.ParagraphFormat();
     para.Alignment(WUT::ParagraphAlignment::Left);
-    para.LeftIndent(0.0f);
-    para.FirstLineIndent(0.0f);
+    // `LeftIndent` and `FirstLineIndent` are READ-ONLY on ITextParagraphFormat — the TOM writes the
+    // three indents together, as SetIndents(start, left, right), where `start` is the first line's
+    // offset relative to `left`.
+    para.SetIndents(0.0f, 0.0f, 0.0f);
     all.ParagraphFormat(para);
 }
 
@@ -257,8 +265,10 @@ void day_texteditor_xaml_apply_paragraph(void *handle, int start, int end, int a
     default: para.Alignment(WUT::ParagraphAlignment::Undefined); break;
     }
     const float gap = marker != 0 ? 18.0f : 0.0f;
-    para.LeftIndent(static_cast<float>(indent) + gap);
-    para.FirstLineIndent(-gap);
+    // The hanging indent in that one call: the wrapped lines sit at `indent + gap` and the first
+    // line starts `gap` back from them, which is the pair the Qt arm sets as
+    // setLeftMargin(indent + gap) / setTextIndent(-gap). The right indent stays as it was.
+    para.SetIndents(-gap, static_cast<float>(indent) + gap, para.RightIndent());
     para.SpaceBefore(static_cast<float>(space_before));
     para.SpaceAfter(static_cast<float>(space_after));
     range.ParagraphFormat(para);
