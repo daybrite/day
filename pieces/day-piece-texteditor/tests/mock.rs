@@ -246,6 +246,37 @@ fn an_app_write_still_moves_the_caret() {
 }
 
 #[test]
+fn restyling_leaves_the_selection_on_the_same_characters() {
+    // A restyle must not move the selection. The piece's half of that is simply not to patch one:
+    // an arm that rebuilds its view to apply attributes (the web's does) restores the selection
+    // itself, and a `SetSelection` on top of that would fight it.
+    let f = boot_editor();
+    f.probe.emit(
+        f.node,
+        Event::custom("texteditor:sel", selection_payload(6, 11)),
+    );
+    flush_sync();
+    let mark = f.probe.log_len();
+    f.doc
+        .update(|d| d.apply(6..11, Font::Body, |s| s.set_bold(true)));
+    flush_sync();
+    assert_eq!(
+        f.sel.get_untracked(),
+        6..11,
+        "the selection still covers the same characters"
+    );
+    let log = f.probe.log_since(mark);
+    assert!(
+        log.iter().any(|l| l.contains("SetAttributes")),
+        "the restyle did patch: {log:?}"
+    );
+    assert!(
+        !log.iter().any(|l| l.contains("SetSelection")),
+        "and it moved no selection: {log:?}"
+    );
+}
+
+#[test]
 fn an_unchanged_typing_style_does_not_patch() {
     // Also per mouse-move: reading the caret's style back writes the typing signal, and an
     // unchanged value used to re-patch the native typing attributes every time.

@@ -185,7 +185,11 @@ The one piece of editor state an app cannot derive: with a collapsed caret there
 a style off, and "what happens if I type now" is the platform's own pending state.
 
 Bound two-way. Day writes it whenever the selection moves (so a toolbar shows the style of the text
-the caret sits in); an app writes it to make the *next* word bold. Three toolkits have the concept
+the caret sits in); an app writes it to make the *next* word bold. Both directions are guarded
+against echo: a selection the view REPORTED is never patched back into it, and an unchanged typing
+style is not re-sent. A `selectionchange` fires on every mouse-move of a drag, so without those
+guards the web arm re-anchored the selection hundreds of times a second and a mouse drag could not
+select anything at all. Three toolkits have the concept
 natively — Qt's `setCurrentCharFormat`, TOM's collapsed-selection `CharacterFormat`, ArkUI's
 `setTypingStyle` — and the Apple arms have `typingAttributes`. GTK and the web have nothing of the
 kind.
@@ -250,12 +254,29 @@ keeps the strikethrough.
 Contenteditable *is* the browser's rich text editing, and brings IME, undo, spell-check,
 drag-and-drop and the accessibility tree with it. What it does not bring is a document model: Enter
 inserts a `<div>` in one browser and a `<p>` in another, and a paste arrives as whatever markup it
-was copied from. So the shim reads the DOM through one flattening (`dayEditorText`: block
-boundaries and non-filler `<br>`s become `\n`) and Day writes it back in one canonical shape — the
-same `styled_to_html` an export produces. `document.execCommand` is not used anywhere: it is
-deprecated, differs per browser, and inserts markup Day would then have to normalize away. The
-caret is preserved across a rewrite by byte offset, and a rewrite during IME composition is skipped
-outright.
+was copied from. Day writes the DOM back in one canonical shape — the same `styled_to_html` an
+export produces — and reads it through the exact inverse of that shape.
+`document.execCommand` is not used anywhere: it is deprecated, differs per browser, and inserts
+markup Day would then have to normalize away.
+
+This is also the only arm that must **rebuild its view to restyle**, since markup is its only
+attribute channel — so it is the only one that has to put the selection back by offset afterwards,
+and the only one where the DOM ⇄ text mapping is code rather than a native index. Two rules keep
+that honest, both in `shim.js`:
+
+- **One traversal.** The flattening (`dayEditorText`), a DOM position's byte offset
+  (`dayEditorOffset`) and a byte offset's DOM position (`dayEditorLocate`) all go through
+  `dayEditorScan`. They are inverses, and one newline of disagreement shifts a restored selection
+  by one character per line above it — which is what the user sees their selection do after
+  pressing Bold.
+- **The mapping is the serializer's, read backwards.** Day writes one block per line, so the text
+  is the blocks' text joined with `\n`: an empty block is an empty line and still contributes its
+  separator. Collapsing consecutive empty blocks instead made the first keystroke report a text
+  with every blank line missing, which Day then read as a deletion and reflowed the paragraph runs
+  onto the wrong lines.
+
+A rewrite during IME composition is skipped outright, and the selection is never re-anchored while
+a pointer drag is in progress — `removeAllRanges` mid-drag collapses what the user is selecting.
 
 **xaml (unverified).** `RichEditBox` through its TOM `ITextDocument`. `GetRange(start, end)` takes
 UTF-16 positions, assigning an `ITextCharacterFormat` to a range applies it in one call, and a
