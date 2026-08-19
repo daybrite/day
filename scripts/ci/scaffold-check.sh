@@ -72,6 +72,17 @@ grep -q '^nav_welcome = ' resource/locales/ja-JP/app.ftl || {
     exit 1
 }
 
+# The scaffold's own Rust must be rustfmt-clean. A user's first `cargo fmt` should be a no-op,
+# and for the Day-Rise reference it is stronger than that: its drift check diffs the checkout
+# against fresh `day new` output, so a template that formats differently from rustfmt reports as
+# drift the moment anyone formats the generated tree.
+cargo fmt --all -- --check || {
+    echo "the scaffold's Rust is not rustfmt-clean — format the TEMPLATE:" >&2
+    echo "  cd day/crates/day-cli/templates/app && rustfmt --edition 2024 src/**/*.rs" >&2
+    echo "  (src/main.rs holds {{ident}} in identifier position: substitute, format, restore)" >&2
+    exit 1
+}
+
 # store-placeholder is the one finding a fresh scaffold is meant to have: the listing text stays a
 # TODO until a human writes it, and the lint exists to stop that text reaching a store. Every other
 # code has to be clear, and --strict turns any of them into a failure.

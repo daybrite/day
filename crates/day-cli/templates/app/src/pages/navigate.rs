@@ -58,7 +58,9 @@ pub(crate) fn new_item() {
     // (https://daybrite.dev/docs/list).
     scroll_to().set(model::ordered().iter().position(|i| i.id == id));
     if !wide() {
-        route(&crate::Section::Navigate).then(&Row { id }).navigate();
+        route(&crate::Section::Navigate)
+            .then(&Row { id })
+            .navigate();
     }
 }
 
@@ -74,7 +76,6 @@ pub(crate) fn done_selected() {
         model::toggle_done(id);
     }
 }
-
 
 // --- the page -------------------------------------------------------------------------------
 
@@ -163,7 +164,9 @@ fn item_list() -> AnyPiece {
         .on_select(move |id: u32| {
             selected().set(Some(id));
             if !wide() {
-                route(&crate::Section::Navigate).then(&Row { id }).navigate();
+                route(&crate::Section::Navigate)
+                    .then(&Row { id })
+                    .navigate();
             }
         })
         // Two-way selection. `on_select` writes the signal; this reads it back, so a row opened
@@ -224,9 +227,11 @@ fn row_view(slot: ItemSlot<Item, u32>) -> AnyPiece {
         .align(HAlign::Leading)
         .grow(),
         // Filled stars up to the rating, hollow after — readable at a glance without a number.
-        label(move || slot.field(|i| "\u{2605}".repeat(i.rating) + &"\u{2606}".repeat(5 - i.rating.min(5))))
-            .font(Font::Caption)
-            .color(Color::hex(0xF5A524)),
+        label(move || {
+            slot.field(|i| "\u{2605}".repeat(i.rating) + &"\u{2606}".repeat(5 - i.rating.min(5)))
+        })
+        .font(Font::Caption)
+        .color(Color::hex(0xF5A524)),
         label(move || slot.field(|i| i.count.to_string())).tabular(),
         when(
             move || slot.field(|i| i.done),
@@ -287,10 +292,14 @@ fn editor(id: u32) -> AnyPiece {
 
     // One effect per field, each writing its own change back. `watch` fires on CHANGE only, so
     // seeding the signals above does not immediately rewrite what was just read.
-    watch(move || name.get(), move |v, _| {
-        model::edit(id, |i| i.name = v.clone())
-    });
-    watch(move || count.get(), move |v, _| model::edit(id, |i| i.count = *v));
+    watch(
+        move || name.get(),
+        move |v, _| model::edit(id, |i| i.name = v.clone()),
+    );
+    watch(
+        move || count.get(),
+        move |v, _| model::edit(id, |i| i.count = *v),
+    );
     watch(
         move || date.get(),
         move |v, _| {
@@ -298,12 +307,22 @@ fn editor(id: u32) -> AnyPiece {
             model::edit(id, |i| i.date = s)
         },
     );
-    watch(move || kind.get(), move |v, _| model::edit(id, |i| i.kind = *v));
-    watch(move || done.get(), move |v, _| model::edit(id, |i| i.done = *v));
-    watch(move || notes.get(), move |v, _| {
-        model::edit(id, |i| i.notes = v.clone())
-    });
-    watch(move || rating.get(), move |v, _| model::edit(id, |i| i.rating = *v));
+    watch(
+        move || kind.get(),
+        move |v, _| model::edit(id, |i| i.kind = *v),
+    );
+    watch(
+        move || done.get(),
+        move |v, _| model::edit(id, |i| i.done = *v),
+    );
+    watch(
+        move || notes.get(),
+        move |v, _| model::edit(id, |i| i.notes = v.clone()),
+    );
+    watch(
+        move || rating.get(),
+        move |v, _| model::edit(id, |i| i.rating = *v),
+    );
     watch(
         move || color.get(),
         move |v, _| {

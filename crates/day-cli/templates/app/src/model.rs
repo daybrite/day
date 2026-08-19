@@ -75,7 +75,11 @@ pub(crate) fn load() {
         .and_then(|s| serde_json::from_str::<Vec<Item>>(&s).ok())
         .filter(|v| !v.is_empty());
     items().set(saved.unwrap_or_else(seed));
-    show_done().set(day::prefs::get(SHOW_DONE_KEY).map(|v| v != "0").unwrap_or(true));
+    show_done().set(
+        day::prefs::get(SHOW_DONE_KEY)
+            .map(|v| v != "0")
+            .unwrap_or(true),
+    );
     // Persist the filter on every change, so it is one `watch` rather than a write at each of
     // the three places that can flip it (the toolbar, the menu, and a restored launch). One
     // character, not a list — cheap enough to write as it happens.
@@ -222,8 +226,7 @@ fn seed() -> Vec<Item> {
                 done: n % 4 == 0,
                 notes: String::new(),
                 rating: (n as usize) % 6,
-                color: ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"]
-                    [(n as usize) % 5]
+                color: ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6"][(n as usize) % 5]
                     .into(),
             }
         })
