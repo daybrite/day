@@ -839,7 +839,10 @@ fn template_context(
     // file names from the PACKAGE name (mobile.rs), so a lib named differently would not be found.
     // Handlebars has no boolean context here — an empty string is falsy, any other string truthy.
     let ident_not_snake = repl.crate_ident.chars().any(|c| c.is_uppercase());
-    ctx.insert("ident_not_snake", if ident_not_snake { "1" } else { "" }.to_string());
+    ctx.insert(
+        "ident_not_snake",
+        if ident_not_snake { "1" } else { "" }.to_string(),
+    );
     ctx.insert("snake", repl.snake.clone());
     ctx.insert("pascal", repl.pascal.clone());
     ctx.insert("title", title);

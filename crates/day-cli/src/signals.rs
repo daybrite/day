@@ -37,10 +37,7 @@ static TEARDOWN: Mutex<()> = Mutex::new(());
 /// Track a spawned child so it is killed on interrupt (and by [`kill_all`]).
 pub fn register_child(pid: u32) {
     if let Ok(mut c) = CHILDREN.lock() {
-        c.push(Child {
-            pid,
-            is_app: false,
-        });
+        c.push(Child { pid, is_app: false });
     }
 }
 
