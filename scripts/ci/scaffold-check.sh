@@ -44,11 +44,13 @@ rm -rf "$WORK"
 mkdir -p "$WORK"
 cd "$WORK"
 
-# Every platform, so the scaffold materializes every host project (Xcode, gradle, ohos, …) and
-# any of them can be the pack target below. --local points the day deps at THIS checkout: the
-# pack stage builds the app, and it has to build the framework under test, not git main.
+# No --toolkit: `day new --no-input` already defaults to every target pair, which is what this
+# check wants — the scaffold materializes every host project (Xcode, gradle, ohos, …) and any of
+# them can be the pack target below. Naming them here instead pinned the list at the eight that
+# existed when it was written, so the three added since went unexercised and the default itself
+# was never the thing under test. --local points the day deps at THIS checkout: the pack stage
+# builds the app, and it has to build the framework under test, not git main.
 "$DAY" new app ci-sample --no-input --local "$ROOT" \
-    --toolkit macos-appkit,ios-uikit,android-mdc,linux-gtk,linux-qt,windows-xaml,harmony-arkui,web-dom \
     --locales zh-Hans-CN,es-ES,pt-BR,fr-FR,de-DE,ja-JP,ko-KR,it-IT,ru-RU,ar-SA \
     --locales id-ID,tr-TR,vi-VN,th-TH,pl-PL,nl-NL,zh-Hant-TW,uk-UA,cs-CZ,ms-MY
 cd ci-sample
@@ -161,7 +163,7 @@ if [ -n "$COMBO" ]; then
             (cd "$REBUILT" && "$DAY" stop --all) || true
             ;;
         *)
-            echo "skipping the smoke launch: $COMBO needs a device, emulator, or browser driver this check does not manage"
+            echo "skipping the demo walkthrough: $COMBO needs a device, emulator, or browser driver this check does not manage"
             ;;
     esac
     rm -rf "$TMP"/day-rebuild-*
