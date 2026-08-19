@@ -443,6 +443,24 @@ pub fn resolve_vector_xaml(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+/// Day's own drawing of `sym`, written to a cache file and answered as a path.
+///
+/// Backends that load icons FROM FILES (Qt's SVG icon engine, gdk-pixbuf) can then use the shared
+/// fallback through the loader they already have, instead of each growing a way to rasterize a
+/// path string. Written once per symbol per process; a failure to write answers `None` and the
+/// caller falls back to a label.
+pub fn stage_symbol_svg(sym: crate::Symbol) -> Option<PathBuf> {
+    let svg = sym.outline_svg()?;
+    let dir = std::env::temp_dir().join("day-symbols");
+    let file = dir.join(format!("{sym:?}.svg"));
+    if file.is_file() {
+        return Some(file);
+    }
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::write(&file, svg).ok()?;
+    Some(file)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

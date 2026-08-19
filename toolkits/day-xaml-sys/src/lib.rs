@@ -157,6 +157,7 @@ unsafe extern "C" {
         badge_tints_joined: *const c_char,
     );
     pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
+    pub fn day_xaml_nav_set_pane_mode(nav: *mut c_void, mode: c_int);
     pub fn day_xaml_nav_set_header(nav: *mut c_void, title: *const c_char);
     pub fn day_xaml_nav_set_pane_header(nav: *mut c_void, element: *mut c_void);
     pub fn day_xaml_nav_set_back_visible(nav: *mut c_void, visible: c_int);

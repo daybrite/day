@@ -28,6 +28,9 @@ struct WindowAmbient {
     /// participate in size classes yet must not be read as "this window is compact", or every
     /// host on it would resolve to a stack. Callers treat `None` as "ask the toolkit instead".
     size_class: Signal<Option<SizeClass>>,
+    /// The last class the BACKEND reported, kept beside the live one so a script that forces a
+    /// class has something true to go back to (`size_class: { width: auto }`).
+    reported_class: Signal<Option<SizeClass>>,
     safe_area: Signal<day_geometry::Insets>,
 }
 
@@ -49,6 +52,7 @@ fn ambient_of(root: RNode) -> WindowAmbient {
         }
         let ambient = day_reactive::Scope::root().enter(|| WindowAmbient {
             size_class: Signal::global(None),
+            reported_class: Signal::global(None),
             safe_area: Signal::global(initial_safe_area()),
         });
         m.push((root, ambient));
@@ -100,6 +104,7 @@ pub fn window_size_class_untracked(root: RNode) -> Option<SizeClass> {
 /// Backend-facing: report a window's size class. Call whenever the window's size changes; the
 /// signal only notifies when the BUCKET changes, so a resize within one class is free.
 pub fn set_window_size_class(root: RNode, class: SizeClass) {
+    ambient_of(root).reported_class.set(Some(class));
     let signal = ambient_of(root).size_class;
     if signal.get_untracked() == Some(class) {
         return;
@@ -111,6 +116,37 @@ pub fn set_window_size_class(root: RNode, class: SizeClass) {
 /// [`set_window_size_class`] against the primary window — what a single-window backend reports.
 pub fn set_size_class(class: SizeClass) {
     set_window_size_class(primary_root(), class);
+}
+
+/// Force a class the window is not actually at — dayscript's `size_class:` step and tests.
+///
+/// Deliberately does NOT touch the reported class: this is a claim ABOUT the window, not a report
+/// FROM it, so [`restore_reported_size_class`] can still put back what the backend last said.
+pub fn override_size_class(class: SizeClass) {
+    let root = primary_root();
+    let signal = ambient_of(root).size_class;
+    if signal.get_untracked() == Some(class) {
+        return;
+    }
+    signal.set(Some(class));
+    with_tree(|t| t.layout_if_needed());
+}
+
+/// Undo an [`override_size_class`]: back to the class the window itself last reported.
+///
+/// A no-op where the backend has reported nothing yet — there is no truth to restore, and the
+/// forced class is better than none.
+pub fn restore_reported_size_class() {
+    let root = primary_root();
+    let Some(class) = ambient_of(root).reported_class.get_untracked() else {
+        return;
+    };
+    let signal = ambient_of(root).size_class;
+    if signal.get_untracked() == Some(class) {
+        return;
+    }
+    signal.set(Some(class));
+    with_tree(|t| t.layout_if_needed());
 }
 
 /// The window's safe-area insets, in points. Zero on every backend that clamps Day's root to

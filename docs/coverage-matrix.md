@@ -29,8 +29,6 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.nav` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.nav_page` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.nav_menu` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day.tabs` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day.tabs_page` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.list` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.cover` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
@@ -50,7 +48,7 @@ nothing derived from `realize` can.
 | `day-piece-activity` | `day.piece.activity` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | `day-piece-colorpicker` | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `day-piece-combobox` | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | · | · |
-| `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-lottie` | `day.piece.lottie` | · | ✓ | · | · | · | ✓ | · | · |
 | `day-piece-map` | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
 | `day-piece-media` | `day.piece.media` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
@@ -79,9 +77,12 @@ An app branches on this rather than on the target name.
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | N | N | N | N | N | N | – |
 | `NavSplit` | N | N | N | N | N | N | – | N |
+| `NavTabs` | N | N | N | N | N | N | E | E |
+| `NavTabsAdaptive` | – | N | – | – | – | N | E | E |
 | `NavRepresent` | N | E | – | N | – | E | – | N |
 | `NavHeader` | – | N | – | – | N | N | N | – |
 | `Appearance` | N | N | N | – | N | – | – | N |
+| `AppMenu` | N | – | N | N | N | – | – | – |
 | `Dialogs` | N | N | N | N | N | N | – | N |
 | `FileDialogs` | N | N | N | N | N | N | N | – |
 | `Animation` | N | N | – | – | – | N | – | N |

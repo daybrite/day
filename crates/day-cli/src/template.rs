@@ -238,6 +238,10 @@ mod tests {
         );
         m.insert("targets_toml", "\"macos-appkit\"".to_string());
         m.insert("first_target", "macos-appkit".to_string());
+        m.insert(
+            "day_piece_deps",
+            "day-piece-datetime = { version = \"0.0.0\" }".to_string(),
+        );
         m
     }
 

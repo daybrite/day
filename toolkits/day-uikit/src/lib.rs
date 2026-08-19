@@ -317,6 +317,29 @@ mod imp {
     /// the split controller — not the secondary column's navigation controller inside it — that
     /// owns that view and must carry the containment. Used by `insert` to re-parent a host that
     /// lands inside a page (docs/navigation.md).
+    /// The controller `view` belongs to, resolved the way UIKit resolves it.
+    ///
+    /// The registered-page lookup above matches only a page's OWN content view, and a nested host
+    /// rarely lands there: it arrives inside whatever the page put between them — a `when` arm, a
+    /// column, a `.grow()` wrapper — all of them plain views. The responder chain is the general
+    /// answer, because `nextResponder` on a view yields its controller where it has one and its
+    /// superview where it does not, so walking it stops at the nearest enclosing controller.
+    ///
+    /// Getting this wrong is not a layout glitch. UIKit raises the moment a controller's root view is
+    /// added to a view owned by an unrelated controller:
+    ///
+    ///     A view can only be associated with at most one view controller at a time!
+    fn enclosing_view_controller(view: &UIView) -> Option<Retained<UIViewController>> {
+        let mut next = unsafe { view.nextResponder() };
+        while let Some(responder) = next {
+            if let Some(vc) = responder.downcast_ref::<UIViewController>() {
+                return Some(vc.retain());
+            }
+            next = unsafe { responder.nextResponder() };
+        }
+        None
+    }
+
     fn host_controller(h: &Handle) -> Option<Retained<UIViewController>> {
         let key = ptr_of(h);
         // `as_ref` stops at the declared superclass, so these go up the chain by deref coercion.
@@ -332,14 +355,7 @@ mod imp {
                 }
             })
         });
-        nav.or_else(|| {
-            TABS_STATE.with(|m| {
-                m.borrow().get(&key).map(|s| {
-                    let vc: &UIViewController = &s.tabbar;
-                    Retained::from(vc)
-                })
-            })
-        })
+        nav
     }
 
     // -----------------------------------------------------------------------
@@ -1761,58 +1777,138 @@ mod imp {
     }
 
     // -------------------------------------------------------------------
-    // Tabs (docs/tabs.md): UITabBarController child-contained in the root VC.
+    // Tabs (docs/navigation.md): UITabBarController child-contained in the root VC.
     // Each tab page is a UIViewController wrapping a DayNavPageView (safe-area
     // pinned content + FrameChanged), identical to a nav page.
     // -------------------------------------------------------------------
 
-    struct TabsState {
+    // -------------------------------------------------------------------
+    // Adaptive tabs (docs/navigation.md): a NAV host lowered `Tabs` becomes a
+    // `UITabBarController` in `.tabSidebar` mode — ONE controller that draws a tab bar when the
+    // window is compact and a sidebar when it is not, with UIKit's own animation and the
+    // iPadOS user-facing toggle. It is what SwiftUI's `.tabViewStyle(.sidebarAdaptable)`
+    // compiles down to.
+    //
+    // Two consequences shape everything below. UIKit draws the SIDEBAR itself, from the same
+    // tabs — so Day's `Pane::Sidebar` page has nothing to render and is left out of the
+    // controller entirely. And every tab keeps its own view controller at every width, so the
+    // host reports `Tabs` once and stays there: it never flips to push/pop as it widens, which
+    // is why day-core keeps its pages resident and drives them with `NavPatch::Select`.
+    // -------------------------------------------------------------------
+
+    struct NavTabsState {
         tabbar: Retained<UITabBarController>,
-        /// Our mirror of the tab VC order.
+        /// Detail pages in insertion order — index i IS the `Select(i)` index.
         vcs: Vec<Retained<UIViewController>>,
-        /// Tab to select once the VCs are installed.
-        initial: usize,
-        _delegate: Retained<DayTabDelegate>,
+        /// Row labels and glyphs from the host's NAV_MENU, which is where a selector's rows live.
+        titles: Vec<String>,
+        icons: Vec<Option<Retained<objc2_ui_kit::UIImage>>>,
+        /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
+        /// so the two are one event to everything above this backend.
+        menu_node: std::cell::Cell<i64>,
+        _delegate: Retained<DayNavTabsDelegate>,
     }
 
     thread_local! {
-        static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
-        /// TABS_PAGE content view ptr → its UIViewController.
-        static TABS_PAGE_VCS: RefCell<HashMap<usize, Retained<UIViewController>>> =
-            RefCell::new(HashMap::new());
+        static NAV_TABS: RefCell<HashMap<usize, NavTabsState>> = RefCell::new(HashMap::new());
+        /// A realized NAV_MENU's rows, by its own view ptr. Recorded at realize because that is
+        /// where the props are, and consumed at INSERT, which is the first moment the menu is in
+        /// a view hierarchy and its enclosing host can be found.
+        /// A tabs host's page content views → the host, so a nav menu inside a page that is not
+        /// in the controller's hierarchy can still find it.
+        static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+        static NAV_MENU_ROWS: RefCell<
+            HashMap<usize, (i64, Vec<String>, Vec<Option<Retained<objc2_ui_kit::UIImage>>>)>,
+        > = RefCell::new(HashMap::new());
     }
 
-    struct TabDelegateIvars {
-        node: NodeId,
+    /// Walk up from `v` for a `.tabSidebar` host — either the host's own view, or a PAGE known
+    /// to belong to one.
+    ///
+    /// The page lookup is what makes the sidebar page reachable. Its view is deliberately never
+    /// added to the controller (UIKit draws the sidebar itself), so it has no superview chain
+    /// running to the host — but the rows Day needs for the tab labels live inside it. Recording
+    /// the page → host edge at insert is what lets the menu find its way home anyway.
+    fn enclosing_tabs_host(v: &UIView) -> Option<usize> {
+        let mut cur = Some(v.retain());
+        while let Some(view) = cur {
+            let p = ptr_of(&view_of(view.clone()));
+            if NAV_TABS.with(|m| m.borrow().contains_key(&p)) {
+                return Some(p);
+            }
+            if let Some(host) = TABS_PAGE_HOST.with(|m| m.borrow().get(&p).copied()) {
+                return Some(host);
+            }
+            cur = unsafe { view.superview() };
+        }
+        None
+    }
+
+    struct NavTabsDelegateIvars {
+        host: std::cell::Cell<usize>,
     }
 
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
-        #[name = "DayTabDelegate"]
-        #[ivars = TabDelegateIvars]
-        struct DayTabDelegate;
+        #[name = "DayNavTabsDelegate"]
+        #[ivars = NavTabsDelegateIvars]
+        struct DayNavTabsDelegate;
 
-        unsafe impl NSObjectProtocol for DayTabDelegate {}
+        unsafe impl NSObjectProtocol for DayNavTabsDelegate {}
 
-        unsafe impl UITabBarControllerDelegate for DayTabDelegate {
+        unsafe impl UITabBarControllerDelegate for DayNavTabsDelegate {
             #[unsafe(method(tabBarController:didSelectViewController:))]
             fn did_select(&self, tabbar: &UITabBarController, _vc: &UIViewController) {
                 // UIKit calls this only for user taps, not programmatic selection — no echo
                 // guard needed; the panic containment is §8.5.
                 day_spec::ffi_guard::contain((), || {
-                    let idx = unsafe { tabbar.selectedIndex() };
-                    emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+                    let idx = unsafe { tabbar.selectedIndex() } as i64;
+                    let node = NAV_TABS.with(|m| {
+                        m.borrow()
+                            .get(&self.ivars().host.get())
+                            .map(|t| t.menu_node.get())
+                    });
+                    if let Some(n) = node.filter(|n| *n != 0) {
+                        emit(NodeId(n as u64), Event::SelectionChanged(idx));
+                    }
                 });
             }
         }
     );
 
-    impl DayTabDelegate {
-        fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(TabDelegateIvars { node });
+    impl DayNavTabsDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavTabsDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
             unsafe { msg_send![super(this), init] }
         }
+    }
+
+    /// Re-apply each tab's label and glyph from the host's rows, and install the controllers.
+    /// Called whenever either side changes — a page joining, or the rows arriving/being re-derived.
+    fn nav_tabs_sync(host: usize) {
+        NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let Some(t) = m.get(&host) else { return };
+            for (i, vc) in t.vcs.iter().enumerate() {
+                let title = t.titles.get(i).cloned().unwrap_or_default();
+                let image = t.icons.get(i).and_then(|o| o.clone());
+                unsafe {
+                    let item = objc2_ui_kit::UITabBarItem::initWithTitle_image_tag(
+                        objc2_ui_kit::UITabBarItem::alloc(MainThreadMarker::new_unchecked()),
+                        Some(&NSString::from_str(&title)),
+                        image.as_deref(),
+                        i as isize,
+                    );
+                    vc.setTabBarItem(Some(&item));
+                    vc.setTitle(Some(&NSString::from_str(&title)));
+                }
+            }
+            let arr = objc2_foundation::NSArray::from_retained_slice(&t.vcs);
+            unsafe { t.tabbar.setViewControllers_animated(Some(&arr), false) };
+        });
     }
 
     // -------------------------------------------------------------------
@@ -3493,6 +3589,11 @@ mod imp {
                 // A `UISplitViewController` hosts every `selector(Sidebar)`, so two columns are
                 // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
                 // iPhone in landscape (docs/size-classes.md).
+                // `.tabSidebar` (docs/navigation.md): ONE `UITabBarController` that draws a tab
+                // bar when compact and a sidebar when not — what SwiftUI's `.sidebarAdaptable`
+                // compiles down to, and the container adaptive navigation exists for.
+                | Cap::NavTabs
+                | Cap::NavTabsAdaptive
                 | Cap::NavSplit
                 | Cap::Appearance => Support::Native,
                 // Derived from the control's font: UIKit publishes baselines only as constraint
@@ -3579,6 +3680,46 @@ mod imp {
                     // window; nested inside a detail pane its column layout collapses into
                     // garbage (the embedded-split trap), which is exactly what a pane-sized
                     // gray void looked like.
+                    // An ADAPTIVE TABS host (docs/navigation.md): `.tabSidebar` is the container
+                    // that wears both chromes itself, so there is no split to build and no
+                    // presentation for Day to drive — the controller decides, and reports once.
+                    if p.presentation == day_spec::props::NavPresentation::Tabs {
+                        let tabbar = unsafe { UITabBarController::new(mtm) };
+                        unsafe {
+                            tabbar.setMode(objc2_ui_kit::UITabBarControllerMode::TabSidebar);
+                        }
+                        if let Some(root_vc) = &root_vc {
+                            unsafe {
+                                root_vc.addChildViewController(&tabbar);
+                                tabbar.didMoveToParentViewController(Some(root_vc));
+                            }
+                        }
+                        let host = view_of(unsafe { tabbar.view() }.expect("tabbar view"));
+                        let hp = ptr_of(&host);
+                        let delegate = DayNavTabsDelegate::new(mtm, hp);
+                        unsafe { tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+                        NAV_TABS.with(|m| {
+                            m.borrow_mut().insert(
+                                hp,
+                                NavTabsState {
+                                    tabbar,
+                                    vcs: Vec::new(),
+                                    titles: Vec::new(),
+                                    icons: Vec::new(),
+                                    menu_node: std::cell::Cell::new(0),
+                                    _delegate: delegate,
+                                },
+                            )
+                        });
+                        // Tell Day this host is a tabs host and stays one. Its pages are resident
+                        // at every width, so day-core must not flip to push/pop as the window
+                        // widens — UIKit swaps the chrome underneath without Day's help.
+                        emit(
+                            id,
+                            Event::NavPresentationChanged(day_spec::props::NavPresentation::Tabs),
+                        );
+                        return host;
+                    }
                     let (host, split) = if p.presentation == day_spec::props::NavPresentation::Stack
                     {
                         if let Some(root_vc) = root_vc {
@@ -3758,75 +3899,6 @@ mod imp {
                     NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
                     handle
                 }
-                Some(Builtin::Tabs) => {
-                    let Some(p) = day_spec::props_of::<TabsProps>(kind, "uikit", props) else {
-                        return placeholder_view(kind);
-                    };
-                    let tabbar = unsafe { UITabBarController::new(mtm) };
-                    let root_vc = WINDOW
-                        .with(|w| w.borrow().clone())
-                        .and_then(|w| w.rootViewController());
-                    if let Some(root_vc) = root_vc {
-                        unsafe {
-                            root_vc.addChildViewController(&tabbar);
-                            tabbar.didMoveToParentViewController(Some(&root_vc));
-                        }
-                    }
-                    let host = view_of(unsafe { tabbar.view() }.expect("tabbar view"));
-                    let delegate = DayTabDelegate::new(mtm, id);
-                    unsafe { tabbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
-                    TABS_STATE.with(|m| {
-                        m.borrow_mut().insert(
-                            ptr_of(&host),
-                            TabsState {
-                                tabbar,
-                                vcs: Vec::new(),
-                                initial: p.selected,
-                                _delegate: delegate,
-                            },
-                        )
-                    });
-                    host
-                }
-                Some(Builtin::TabsPage) => {
-                    let Some(p) = day_spec::props_of::<TabsPageProps>(kind, "uikit", props) else {
-                        return placeholder_view(kind);
-                    };
-                    let outer = DayNavPageView::new(mtm, id);
-                    let content = unsafe { UIView::new(mtm) };
-                    unsafe { outer.addSubview(&content) };
-                    let vc = unsafe { UIViewController::new(mtm) };
-                    unsafe {
-                        vc.setView(Some(&outer));
-                        // The VC title becomes its tab bar item's label.
-                        vc.setTitle(Some(&NSString::from_str(&p.title)));
-                    }
-                    // Optional tab icon (docs/tabs.md): a bundled template image on the tab item,
-                    // the iOS-idiomatic tab bar (icon over label). Template mode tints with the tab
-                    // bar's color (unselected gray, selected accent).
-                    if let Some(name) = p.icon.as_deref()
-                        && let Some(img) = load_bundled_uiimage(name)
-                    {
-                        // Tab-bar icons are ~25pt; the shared 96px asset must be downscaled (a
-                        // UITabBar shows an image at its full point size otherwise). Prepare a
-                        // thumbnail, then template so it tints with the bar (gray/selected accent).
-                        let sized =
-                            unsafe { img.imageByPreparingThumbnailOfSize(CGSize::new(26.0, 26.0)) }
-                                .unwrap_or(img);
-                        let templ = unsafe {
-                            sized.imageWithRenderingMode(
-                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                            )
-                        };
-                        if let Some(item) = unsafe { vc.tabBarItem() } {
-                            unsafe { item.setImage(Some(&templ)) };
-                        }
-                    }
-                    let handle = view_of(content);
-                    TABS_PAGE_VCS.with(|m| m.borrow_mut().insert(ptr_of(&handle), vc));
-                    NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&handle)));
-                    handle
-                }
                 Some(Builtin::NavMenu) => {
                     let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
@@ -3855,8 +3927,25 @@ mod imp {
                     }
                     let view = view_of(table);
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
+                    // Remember the rows for a `.tabSidebar` host: UIKit draws BOTH its tab bar
+                    // and its sidebar from the tabs, so a selector's row labels have to reach the
+                    // tabs rather than only this table (docs/navigation.md).
+                    NAV_MENU_ROWS.with(|m| {
+                        m.borrow_mut().insert(
+                            ptr_of(&view),
+                            (
+                                id.0 as i64,
+                                p.items.clone(),
+                                p.icons
+                                    .iter()
+                                    .map(|n| n.as_deref().and_then(load_bundled_uiimage))
+                                    .collect(),
+                            ),
+                        )
+                    });
                     view
                 }
+
                 Some(Builtin::List) => {
                     let Some(p) = day_spec::props_of::<ListProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
@@ -4168,25 +4257,6 @@ mod imp {
                         });
                     }
                 }
-                kinds::TABS => {
-                    // Selection sync; the tab set itself is rebuilt in insert/remove
-                    // (setViewControllers), so Items only re-selects.
-                    let i = match patch.downcast_ref::<TabsPatch>() {
-                        Some(TabsPatch::Selected(i)) => Some(*i),
-                        Some(TabsPatch::Items { selected, .. }) => Some(*selected),
-                        None => None,
-                    };
-                    if let Some(i) = i {
-                        let tabbar = TABS_STATE.with(|m| {
-                            m.borrow()
-                                .get(&ptr_of(h))
-                                .and_then(|s| (i < s.vcs.len()).then(|| s.tabbar.clone()))
-                        });
-                        if let Some(tabbar) = tabbar {
-                            unsafe { tabbar.setSelectedIndex(i) };
-                        }
-                    }
-                }
                 // Data-driven sidebar rows (docs/navigation.md): rebuild the UITableView rows.
                 kinds::NAV_MENU => {
                     if let Some(NavMenuPatch::Items {
@@ -4263,6 +4333,20 @@ mod imp {
                             // (docs/search.md).
                         });
                     }
+                    if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>() {
+                        // A `.tabSidebar` host has no `NavState` — it is not a navigation stack — so
+                        // this is handled before that lookup.
+                        let i = *i;
+                        let hp = ptr_of(h);
+                        let found = NAV_TABS
+                            .with(|m| m.borrow().get(&hp).map(|t| (t.tabbar.clone(), t.vcs.len())));
+                        if let Some((tabbar, n)) = found {
+                            if i < n {
+                                unsafe { tabbar.setSelectedIndex(i) };
+                            }
+                            return;
+                        }
+                    }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
                         // the delegate synchronously, which re-borrows NAV_STATE.
@@ -4320,6 +4404,9 @@ mod imp {
                                 // iOS is to adopt `UISplitViewController` and OBSERVE its own
                                 // collapse/expand rather than be told (docs/size-classes.md).
                                 NavPatch::Presentation(_) => Act::None,
+                                // Resident-page switch: `.tabSidebar` keeps a controller per tab
+                                // at every width, so switching is a selection rather than a push.
+                                NavPatch::Select(_) => Act::None,
                             }
                         });
                         // Defer past any in-flight modal transition: a stack change issued the
@@ -4609,12 +4696,6 @@ mod imp {
             NAV_MENUS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
-            TABS_STATE.with(|m| {
-                m.borrow_mut().remove(&ptr_of(&h));
-            });
-            TABS_PAGE_VCS.with(|m| {
-                m.borrow_mut().remove(&ptr_of(&h));
-            });
             GESTURES.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
@@ -4628,21 +4709,44 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
-            // Tabs host: the page's VC joins the tab bar controller. All tabs are resident, so
-            // rebuild the VC array on each insert and select the requested initial tab.
-            let tabs_install = TABS_STATE.with(|m| {
-                let mut m = m.borrow_mut();
-                let state = m.get_mut(&ptr_of(parent))?;
-                let vc = TABS_PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
-                let at = index.min(state.vcs.len());
-                state.vcs.insert(at, vc);
-                Some((state.tabbar.clone(), state.vcs.clone(), state.initial))
-            });
-            if let Some((tabbar, vcs, initial)) = tabs_install {
-                let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
-                unsafe { tabbar.setViewControllers(Some(&arr)) };
-                let sel = initial.min(vcs.len().saturating_sub(1));
-                unsafe { tabbar.setSelectedIndex(sel) };
+            // A NAV_MENU joining the tree: if it lands anywhere inside a `.tabSidebar` host, its
+            // rows ARE that host's tabs. This is the first moment the menu has a superview chain
+            // to find its host through.
+            if let Some((node, titles, icons)) =
+                NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&ptr_of(child)))
+            {
+                if let Some(hp) = enclosing_tabs_host(parent) {
+                    NAV_TABS.with(|m| {
+                        if let Some(t) = m.borrow_mut().get_mut(&hp) {
+                            t.menu_node.set(node);
+                            t.titles = titles;
+                            t.icons = icons;
+                        }
+                    });
+                    nav_tabs_sync(hp);
+                }
+            }
+            // Adaptive tabs host (`.tabSidebar`). Its DETAIL pages become tabs; its `Pane::Sidebar`
+            // page does not, because UIKit draws the sidebar itself from the same tabs — adding
+            // Day's rows as well would show the list twice, once in each chrome.
+            let is_tabs_host = NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(parent)));
+            if is_tabs_host {
+                TABS_PAGE_HOST.with(|m| m.borrow_mut().insert(ptr_of(child), ptr_of(parent)));
+                let pane = PAGE_PANE.with(|t| t.get(ptr_of(child)));
+                if pane == Some(day_spec::props::Pane::Sidebar) {
+                    // UIKit draws the sidebar from the tabs, so Day's rows page would show the
+                    // list twice — once in each chrome. It stays out of the controller.
+                    return;
+                }
+                if let Some(vc) = PAGE_VCS.with(|m| m.borrow().get(&ptr_of(child)).cloned()) {
+                    NAV_TABS.with(|m| {
+                        if let Some(t) = m.borrow_mut().get_mut(&ptr_of(parent)) {
+                            let at = index.min(t.vcs.len());
+                            t.vcs.insert(at, vc);
+                        }
+                    });
+                    nav_tabs_sync(ptr_of(parent));
+                }
                 return;
             }
             // The SIDEBAR page is the split host's primary column, not a member of the stack
@@ -4767,9 +4871,9 @@ mod imp {
                     // phone shell). A single one hid: only the SELECTED tab's view reaches a
                     // window at launch, and the check runs on the way in.
                     let host_vc = host_controller(child);
-                    let page_vc = TABS_PAGE_VCS
+                    let page_vc = PAGE_VCS
                         .with(|m| m.borrow().get(&ptr_of(parent)).cloned())
-                        .or_else(|| PAGE_VCS.with(|m| m.borrow().get(&ptr_of(parent)).cloned()));
+                        .or_else(|| enclosing_view_controller(parent));
                     match (host_vc, page_vc) {
                         (Some(host_vc), Some(page_vc)) => unsafe {
                             // Order is UIKit's: leave the old parent, join the new one, THEN the

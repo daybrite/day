@@ -850,6 +850,24 @@ enum NavPresent {
     /// libadwaita pins sidebar widths by design — but kept for apps that want the AppKit-style
     /// adjustable split, and for comparing the two.
     Paned(gtk4::Paned),
+    /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — resident pages in an
+    /// AdwViewStack under a `.linked` row of grouped toggle buttons, which is how GNOME draws a
+    /// segmented one-of-N switch.
+    ///
+    /// Docked at the FOOT, where AdwViewSwitcherBar sits, rather than above the content the way
+    /// the retiring `tabs()` piece put it: an app reaching for this presentation is asking for a
+    /// tab bar, and a tab bar is at the bottom on every platform Day targets.
+    ///
+    /// A desktop only ever gets here by PINNING `SelectorStyle::Tabs` — `Cap::NavTabsAdaptive` is
+    /// off here, so a narrowing window hides the sidebar and pushes instead of growing a bar.
+    Suite {
+        stack: adw::ViewStack,
+        switcher: gtk4::Box,
+        toggles: Rc<RefCell<Vec<gtk4::ToggleButton>>>,
+        /// The nav menu's node: a toggle reports against it, exactly as a sidebar row click
+        /// does, so a tab and a row are one event above this backend.
+        menu_node: Rc<std::cell::Cell<u64>>,
+    },
     Stack(adw::NavigationView),
 }
 
@@ -883,6 +901,7 @@ pub(crate) fn toggle_sidebar() -> bool {
                     }
                 }
                 NavPresent::Stack(_) => {}
+                NavPresent::Suite { .. } => {}
             }
         }
         false
@@ -1235,6 +1254,40 @@ fn recolor_pixbuf(pixbuf: &gtk4::gdk_pixbuf::Pixbuf, fr: u8, fg: u8, fb: u8) {
 /// Display size of a sidebar / toolbar template glyph, in points.
 const ICON_PX: i32 = 20;
 
+/// Day's own drawing of a [`Symbol`], tinted to the theme foreground.
+///
+/// The fallback for a symbol the ICON THEME does not have. `view-filter-symbolic` and friends
+/// ship with GNOME and with nothing else, so a GTK app run anywhere but a GNOME desktop drew
+/// toolbar items with no icon at all (docs/toolbars.md). The outline comes from day-spec, so the
+/// shape is the same one every other backend falls back to.
+pub(crate) fn symbol_outline_icon(sym: day_spec::Symbol) -> Option<gtk4::Image> {
+    let svg = sym.outline_svg()?;
+    let stream = gtk4::gio::MemoryInputStream::from_bytes(&gtk4::glib::Bytes::from(svg.as_bytes()));
+    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_stream_at_scale(
+        &stream,
+        ICON_PX * 2,
+        ICON_PX * 2,
+        true,
+        gtk4::gio::Cancellable::NONE,
+    )
+    .ok()?;
+    let pixbuf = if pixbuf.has_alpha() {
+        pixbuf
+    } else {
+        pixbuf.add_alpha(false, 0, 0, 0).ok()?
+    };
+    let (r, g, b) = if adw::StyleManager::default().is_dark() {
+        (0xffu8, 0xffu8, 0xffu8)
+    } else {
+        (0x1au8, 0x1au8, 0x1au8)
+    };
+    recolor_pixbuf(&pixbuf, r, g, b);
+    let texture = gtk4::gdk::Texture::for_pixbuf(&pixbuf);
+    let image = gtk4::Image::from_paintable(Some(&texture));
+    image.set_pixel_size(ICON_PX);
+    Some(image)
+}
+
 fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk4::Image> {
     // The staged glyph SVG first (docs/vectors.md): gdk-pixbuf loads SVG through librsvg, and
     // `from_file_at_size` RENDERS at the size asked for rather than downsampling the 256 px
@@ -1371,6 +1424,7 @@ fn nav_report(host_key: usize) {
             NavPresent::Split(sv) => (sv.width() as f64, sv.height() as f64),
             NavPresent::Paned(paned) => (paned.width() as f64, paned.height() as f64),
             NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
+            NavPresent::Suite { stack, .. } => (stack.width() as f64, stack.height() as f64),
         };
         if hw <= 0.0 || hh <= 0.0 {
             return Vec::new();
@@ -1393,6 +1447,8 @@ fn nav_report(host_key: usize) {
                 if pos > 0.0 { pos } else { NAV_SIDEBAR_W }
             }
             NavPresent::Stack(_) => 0.0,
+            // The rows are the switcher, not a pane: the content is the full width.
+            NavPresent::Suite { .. } => 0.0,
         };
         state
             .pages
@@ -1415,41 +1471,6 @@ fn nav_report(host_key: usize) {
     for (id, size) in reports {
         emit(id, Event::FrameChanged(size));
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tabs (docs/tabs.md): the Adwaita view-switching pattern — an AdwViewSwitcher above
-// an AdwViewStack (the libadwaita counterpart to a stock GtkNotebook), wrapped in a box.
-// Day's tabs are label-only, so the switcher is a `.linked` row of grouped toggle buttons —
-// the Adwaita segmented-control idiom — rather than an icon-oriented AdwViewSwitcher.
-// ---------------------------------------------------------------------------
-
-struct TabsState {
-    /// The AdwViewStack holding the page containers (the box also carries the switcher above it).
-    stack: adw::ViewStack,
-    /// The `.linked` box of grouped toggle buttons above the stack (the segmented switcher).
-    switcher: gtk4::Box,
-    /// One grouped toggle button per tab, in tab order (drives + reflects the selection).
-    toggles: Vec<gtk4::ToggleButton>,
-    /// The tabs host node id (a toggle emits SelectionChanged against it).
-    host_id: NodeId,
-    /// (page widget, node id) in tab order.
-    pages: Vec<(Handle, NodeId)>,
-    /// Tab to select once its page exists (the stack shows the first added page by default).
-    initial: usize,
-    /// Programmatic selection in flight: don't re-emit SelectionChanged.
-    suppress: Rc<std::cell::Cell<bool>>,
-}
-
-thread_local! {
-    static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
-    /// TABS_PAGE widget → its Day node id (recorded at realize, joined at insert).
-    static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
-    /// TABS_PAGE widget → its tab label.
-    static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
-    /// TABS_PAGE widget keys (set_frame skips them — the view stack owns their layout).
-    static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
-        RefCell::new(std::collections::HashSet::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -1476,6 +1497,13 @@ thread_local! {
     /// time and day lists only accept their OWN rows, so a thread-local carries what GTK's
     /// value-based content would only hand back asynchronously.
     static DRAG_FROM: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+    /// A realized NAV_MENU's rows, by widget key: `(node, titles, icon names)`.
+    ///
+    /// Recorded at realize, where the props are, and handed to a navigation suite at INSERT — the
+    /// first moment the menu has ancestors to walk. Where there is no suite above it (every
+    /// presentation but `Tabs`) the handover finds nothing and the rows stay a list.
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, (NodeId, Vec<String>, Vec<Option<String>>)>> =
+        RefCell::new(HashMap::new());
 }
 
 /// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).
@@ -1499,28 +1527,73 @@ fn schedule_list_resize(model: gtk4::StringList, source: Rc<RefCell<Option<ListS
     });
 }
 
-/// Report each tab page's content size (host minus the tab strip) so NavLayout re-lays it.
-fn tabs_sync(host_key: usize) {
-    let reports: Vec<(NodeId, Size)> = TABS_STATE.with(|m| {
-        let m = m.borrow();
-        let Some(state) = m.get(&host_key) else {
-            return Vec::new();
-        };
-        // The switcher sits above the stack in the box, so the stack's own allocation is
-        // already the content area — no tab-strip height to subtract (unlike GtkNotebook).
-        let w = state.stack.width() as f64;
-        let h = state.stack.height() as f64;
-        if w <= 0.0 || h <= 0.0 {
-            return Vec::new();
+/// Build the suite's switcher: one grouped toggle button per row, in row order.
+///
+/// Grouped rather than independent, which is what makes them behave as a segmented control —
+/// GTK unsets the others when one is set, so exactly one destination is ever active.
+#[allow(clippy::too_many_arguments)]
+fn fill_suite_switcher(
+    switcher: &gtk4::Box,
+    toggles: &Rc<RefCell<Vec<gtk4::ToggleButton>>>,
+    stack: &adw::ViewStack,
+    suppress: &Rc<std::cell::Cell<bool>>,
+    menu_node: NodeId,
+    titles: &[String],
+    icons: &[Option<String>],
+) {
+    while let Some(child) = switcher.first_child() {
+        switcher.remove(&child);
+    }
+    toggles.borrow_mut().clear();
+    let mut first: Option<gtk4::ToggleButton> = None;
+    for (i, title) in titles.iter().enumerate() {
+        let button = gtk4::ToggleButton::new();
+        // Icon AND label where the row has a glyph, which is what a tab bar shows; the icon
+        // names are the same bundled vectors the sidebar rows draw.
+        // Day's own bundled vectors, through the same loader the sidebar rows use — an icon
+        // NAME here is a resource, not a GTK icon-theme id, so `set_icon_name` would find
+        // nothing and draw the broken-image box.
+        let glyph = icons
+            .get(i)
+            .and_then(|o| o.as_deref())
+            .filter(|n| !n.is_empty())
+            .and_then(|name| tinted_template_icon(name, None));
+        match glyph {
+            Some(image) => {
+                let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+                row.append(&image);
+                row.append(&gtk4::Label::new(Some(title)));
+                button.set_child(Some(&row));
+            }
+            None => button.set_label(title),
         }
-        state
-            .pages
-            .iter()
-            .map(|(_, id)| (*id, Size::new(w, h)))
-            .collect()
-    });
-    for (id, size) in reports {
-        emit(id, Event::FrameChanged(size));
+        match &first {
+            Some(f) => button.set_group(Some(f)),
+            None => first = Some(button.clone()),
+        }
+        {
+            let (suppress, stack) = (suppress.clone(), stack.clone());
+            button.connect_toggled(move |b| {
+                ffi_guard::contain((), || {
+                    if !b.is_active() {
+                        return;
+                    }
+                    if let Some(page) = stack.child_by_name(&format!("p{}", i + 1)) {
+                        stack.set_visible_child(&page);
+                    }
+                    if !suppress.get() {
+                        emit(menu_node, Event::SelectionChanged(i as i64));
+                    }
+                });
+            });
+        }
+        switcher.append(&button);
+        toggles.borrow_mut().push(button);
+    }
+    if let Some(f) = toggles.borrow().first() {
+        suppress.set(true);
+        f.set_active(true);
+        suppress.set(false);
     }
 }
 
@@ -2022,6 +2095,13 @@ impl Toolkit for Gtk {
             | Cap::TextLinks
             | Cap::Snapshot
             | Cap::NavSplit
+            // The Adwaita view-switching idiom: an AdwViewStack of resident pages under a
+            // `.linked` row of grouped toggle buttons, which is GNOME's segmented one-of-N
+            // switch (docs/navigation.md).
+            //
+            // `Cap::NavTabsAdaptive` is deliberately not here: a GNOME app may PIN a tab bar,
+            // but a narrowing window collapses its sidebar and pushes rather than growing one.
+            | Cap::NavTabs
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::TextEditable
@@ -2032,6 +2112,7 @@ impl Toolkit for Gtk {
             | Cap::MultiWindow
             // The window's AdwHeaderBar — GNOME's toolbar (docs/toolbars.md).
             | Cap::Toolbar
+            | Cap::AppMenu
             | Cap::Appearance
             // gtk_widget_measure reports baselines itself (docs/baseline.md).
             | Cap::BaselineAlignment => Support::Native,
@@ -2057,11 +2138,42 @@ impl Toolkit for Gtk {
                 w
             }
             Some(Builtin::Nav) => {
-                let is_split = props
+                let presentation = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.presentation.is_split())
-                    .unwrap_or(true);
+                    .map(|p| p.presentation)
+                    .unwrap_or(day_spec::props::NavPresentation::Split);
+                let is_split = presentation.is_split();
                 let suppress = Rc::new(std::cell::Cell::new(false));
+                if presentation.rows_are_chrome() {
+                    let stack = adw::ViewStack::new();
+                    stack.set_vexpand(true);
+                    let switcher = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+                    switcher.add_css_class("linked");
+                    switcher.set_halign(gtk4::Align::Center);
+                    switcher.set_margin_top(6);
+                    switcher.set_margin_bottom(6);
+                    let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+                    container.append(&stack);
+                    container.append(&switcher);
+                    let host: Handle = container.upcast();
+                    NAV_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            widget_key(&host),
+                            NavState {
+                                present: NavPresent::Suite {
+                                    stack,
+                                    switcher,
+                                    toggles: Rc::new(RefCell::new(Vec::new())),
+                                    menu_node: Rc::new(std::cell::Cell::new(0)),
+                                },
+                                split: false,
+                                pages: Vec::new(),
+                                suppress,
+                            },
+                        )
+                    });
+                    return host;
+                }
                 let (host, present): (Handle, NavPresent) = if is_split && !paned_split() {
                     // AdwNavigationSplitView: the GNOME split. The sidebar is PINNED (libadwaita
                     // has no draggable sidebars by design), it carries Adwaita's own sidebar
@@ -2171,52 +2283,6 @@ impl Toolkit for Gtk {
                 COVER_IDS.with(|t| t.insert(widget_key(&cover.clone().upcast()), id));
                 cover.upcast()
             }
-            Some(Builtin::Tabs) => {
-                let Some(p) = props_of::<TabsProps>(kind, "gtk", props) else {
-                    return placeholder_label(kind);
-                };
-                // Adwaita segmented switcher: a `.linked` row of grouped toggle buttons above an
-                // AdwViewStack. Toggle buttons are wired per page in `insert`.
-                let stack = adw::ViewStack::new();
-                stack.set_vexpand(true);
-                let switcher = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-                switcher.add_css_class("linked");
-                switcher.set_halign(gtk4::Align::Center);
-                switcher.set_margin_top(6);
-                switcher.set_margin_bottom(6);
-                let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-                container.append(&switcher);
-                container.append(&stack);
-                let host: Handle = container.upcast();
-                let key = widget_key(&host);
-                let suppress = Rc::new(std::cell::Cell::new(false));
-                TABS_STATE.with(|m| {
-                    m.borrow_mut().insert(
-                        key,
-                        TabsState {
-                            stack,
-                            switcher,
-                            toggles: Vec::new(),
-                            host_id: id,
-                            pages: Vec::new(),
-                            initial: p.selected,
-                            suppress,
-                        },
-                    )
-                });
-                host
-            }
-            Some(Builtin::TabsPage) => {
-                let Some(p) = props_of::<TabsPageProps>(kind, "gtk", props) else {
-                    return placeholder_label(kind);
-                };
-                let page: Handle = gtk4::Fixed::new().upcast();
-                let key = widget_key(&page);
-                TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(key, id));
-                TABS_PAGE_TITLES.with(|m| m.borrow_mut().insert(key, p.title.clone()));
-                TABS_PAGES.with(|s| s.borrow_mut().insert(key));
-                page
-            }
             Some(Builtin::NavMenu) => {
                 let Some(p) = props_of::<NavMenuProps>(kind, "gtk", props) else {
                     return placeholder_label(kind);
@@ -2267,6 +2333,10 @@ impl Toolkit for Gtk {
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
                 sw.set_child(Some(&listbox));
                 let handle: Handle = sw.upcast();
+                NAV_MENU_ROWS.with(|m| {
+                    m.borrow_mut()
+                        .insert(widget_key(&handle), (id, p.items.clone(), p.icons.clone()))
+                });
                 NAV_MENUS.with(|m| {
                     m.borrow_mut().insert(
                         widget_key(&handle),
@@ -2302,7 +2372,17 @@ impl Toolkit for Gtk {
                     return placeholder_label(kind);
                 };
                 let label = gtk4::Label::new(Some(&p.text));
-                label.set_xalign(0.0);
+                // BOTH halves of alignment. `xalign` places the text block inside the label's
+                // allocation; `justify` aligns the WRAPPED LINES against each other. A centered
+                // paragraph needs the second — with xalign alone the block sits centered while
+                // its lines stay ragged-right, which is not what `TextAlign::Center` means.
+                let (xalign, justify) = match p.align {
+                    day_spec::props::TextAlign::Center => (0.5, gtk4::Justification::Center),
+                    day_spec::props::TextAlign::Trailing => (1.0, gtk4::Justification::Right),
+                    day_spec::props::TextAlign::Leading => (0.0, gtk4::Justification::Left),
+                };
+                label.set_xalign(xalign);
+                label.set_justify(justify);
                 label.set_yalign(0.0);
                 label.set_wrap(true);
                 label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
@@ -2798,43 +2878,6 @@ impl Toolkit for Gtk {
                     });
                 }
             }
-            kinds::TABS => {
-                if let Some(TabsPatch::Items {
-                    titles, selected, ..
-                }) = patch.downcast_ref::<TabsPatch>()
-                {
-                    TABS_STATE.with(|m| {
-                        let m = m.borrow();
-                        let Some(state) = m.get(&widget_key(h)) else {
-                            return;
-                        };
-                        // Pages were added/removed via insert/remove; sync toggle labels + select.
-                        for (toggle, title) in state.toggles.iter().zip(titles) {
-                            toggle.set_label(title);
-                        }
-                        if let Some(toggle) = state.toggles.get(*selected)
-                            && let Some((w, _)) = state.pages.get(*selected)
-                        {
-                            state.suppress.set(true);
-                            toggle.set_active(true);
-                            state.stack.set_visible_child(w);
-                            state.suppress.set(false);
-                        }
-                    });
-                } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                    TABS_STATE.with(|m| {
-                        if let Some(state) = m.borrow().get(&widget_key(h))
-                            && let Some(toggle) = state.toggles.get(*i)
-                            && let Some((w, _)) = state.pages.get(*i)
-                        {
-                            state.suppress.set(true);
-                            toggle.set_active(true);
-                            state.stack.set_visible_child(w);
-                            state.suppress.set(false);
-                        }
-                    });
-                }
-            }
             kinds::NAV => {
                 if let Some(p) = patch.downcast_ref::<NavPatch>() {
                     NAV_STATE.with(|m| {
@@ -2858,6 +2901,17 @@ impl Toolkit for Gtk {
                             && let Some((_, _, page)) = state.pages.last()
                         {
                             page.set_can_pop(!on);
+                        }
+                        // The resident-page switch (docs/navigation.md): the app moved the
+                        // selection, so the suite shows that destination and sets its toggle
+                        // WITHOUT reporting the move back as a click.
+                        if let (NavPatch::Select(i), NavPresent::Suite { toggles, .. }) =
+                            (p, &state.present)
+                            && let Some(button) = toggles.borrow().get(*i)
+                        {
+                            state.suppress.set(true);
+                            button.set_active(true);
+                            state.suppress.set(false);
                         }
                         // `NavPatch::Presentation` is deliberately not handled: this backend
                         // answers `Cap::NavRepresent = Unsupported`, so the pieces layer never
@@ -3078,18 +3132,6 @@ impl Toolkit for Gtk {
                 pop.unparent();
             }
         });
-        TABS_STATE.with(|m| {
-            m.borrow_mut().remove(&key);
-        });
-        TABS_PAGE_IDS.with(|m| {
-            m.borrow_mut().remove(&key);
-        });
-        TABS_PAGE_TITLES.with(|m| {
-            m.borrow_mut().remove(&key);
-        });
-        TABS_PAGES.with(|s| {
-            s.borrow_mut().remove(&key);
-        });
         NAV_STATE.with(|m| {
             m.borrow_mut().remove(&key);
         });
@@ -3116,70 +3158,41 @@ impl Toolkit for Gtk {
     }
 
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
-        let host_key = widget_key(parent);
-        // Tabs host: insert the page into the view stack + a toggle into the switcher; the stack
-        // owns the page's layout, so Day sizes the page content from tabs_sync's FrameChanged reports.
-        let tabs_handled = TABS_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&host_key) else {
-                return false;
-            };
-            let id = TABS_PAGE_IDS
-                .with(|ids| ids.borrow().get(&widget_key(child)).copied())
-                .unwrap_or(NodeId(0));
-            let title = TABS_PAGE_TITLES
-                .with(|t| t.borrow().get(&widget_key(child)).cloned())
-                .unwrap_or_default();
-            let at = index.min(state.pages.len());
-            // The page content lives in the view stack…
-            state
-                .stack
-                .add_titled(child, Some(&format!("tab{index}")), &title);
-            state.pages.insert(at, (child.clone(), id));
-            // …and a grouped toggle button (radio behavior) into the `.linked` switcher.
-            let toggle = gtk4::ToggleButton::with_label(&title);
-            if let Some(first) = state.toggles.first() {
-                toggle.set_group(Some(first));
-            }
-            {
-                let suppress = state.suppress.clone();
-                let key = host_key;
-                toggle.connect_toggled(move |t| {
-                    ffi_guard::contain((), || {
-                        if !t.is_active() || suppress.get() {
-                            return;
-                        }
-                        // Resolve this toggle's index, show its page, and report the selection.
-                        let hit = TABS_STATE.with(|m| {
-                            let m = m.borrow();
-                            let s = m.get(&key)?;
-                            let i = s.toggles.iter().position(|x| x == t)?;
-                            s.stack.set_visible_child(&s.pages[i].0);
-                            Some((s.host_id, i))
-                        });
-                        if let Some((host_id, i)) = hit {
-                            emit(host_id, Event::SelectionChanged(i as i64));
-                        }
-                    });
+        // A nav menu that has just gained ancestors: if one of them is a navigation suite, its
+        // rows ARE that suite's switcher. Runs before the insert proper so the toggles exist by
+        // the time the first page is shown.
+        if let Some((node, titles, icons)) =
+            NAV_MENU_ROWS.with(|m| m.borrow().get(&widget_key(child)).cloned())
+        {
+            let mut up = Some(parent.clone());
+            while let Some(w) = up {
+                let filled = NAV_STATE.with(|m| {
+                    let m = m.borrow();
+                    let Some(NavState {
+                        present:
+                            NavPresent::Suite {
+                                switcher,
+                                toggles,
+                                menu_node,
+                                stack,
+                            },
+                        suppress,
+                        ..
+                    }) = m.get(&widget_key(&w))
+                    else {
+                        return false;
+                    };
+                    menu_node.set(node.0);
+                    fill_suite_switcher(switcher, toggles, stack, suppress, node, &titles, &icons);
+                    true
                 });
+                if filled {
+                    break;
+                }
+                up = w.parent();
             }
-            state.switcher.append(&toggle);
-            state.toggles.insert(at, toggle.clone());
-            if index == state.initial {
-                // Suppress the echo: activating the initial toggle must not write back.
-                state.suppress.set(true);
-                toggle.set_active(true);
-                state.stack.set_visible_child(child);
-                state.suppress.set(false);
-            }
-            true
-        });
-        if tabs_handled {
-            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || tabs_sync(host_key)));
-            return;
         }
-        // Nav host: wrap the page's GtkFixed in an AdwNavigationPage. Split → set sidebar
-        // (index 0) / content; stack → push onto the navigation view.
+        let host_key = widget_key(parent);
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&host_key) else {
@@ -3238,6 +3251,19 @@ impl Toolkit for Gtk {
                     nv.push(&nav_page);
                     state.suppress.set(false);
                 }
+                NavPresent::Suite { stack, .. } => {
+                    // Every destination is resident and the switcher shows one at a time. The
+                    // page at index 0 is the SIDEBAR page, whose rows became the switcher: it
+                    // stays in the stack so its nav menu has a path up to this host, but it is
+                    // never shown — drawing the rows again as a list would be the same
+                    // navigation twice.
+                    stack.add_named(&nav_page, Some(&format!("p{index}")));
+                    if index == 0 {
+                        nav_page.set_visible(false);
+                    } else if stack.visible_child().is_none() {
+                        stack.set_visible_child(&nav_page);
+                    }
+                }
             }
             state.pages.push((widget_key(child), id, nav_page));
             true
@@ -3252,26 +3278,6 @@ impl Toolkit for Gtk {
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
-        // Data-driven tabs: drop the page from the stack + its toggle from the switcher.
-        let host_key = widget_key(parent);
-        let tabs_handled = TABS_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&host_key) else {
-                return false;
-            };
-            let ck = widget_key(child);
-            if let Some(pos) = state.pages.iter().position(|(w, _)| widget_key(w) == ck) {
-                state.pages.remove(pos);
-                let toggle = state.toggles.remove(pos);
-                state.switcher.remove(&toggle);
-                state.stack.remove(child);
-            }
-            true
-        });
-        if tabs_handled {
-            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || tabs_sync(host_key)));
-            return;
-        }
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&widget_key(parent)) else {
@@ -3286,6 +3292,9 @@ impl Toolkit for Gtk {
                     NavPresent::Paned(paned) => paned.set_end_child(None::<&gtk4::Widget>),
                     // The stack pop already removed it (day-driven pop or native gesture);
                     // dropping our ref is enough.
+                    NavPresent::Suite { stack, .. } => {
+                        stack.remove(&nav_page);
+                    }
                     NavPresent::Stack(_) => {
                         let _ = nav_page;
                     }
@@ -3497,10 +3506,8 @@ impl Toolkit for Gtk {
 
     fn set_frame(&mut self, h: &Handle, frame: Rect, _anim: Option<&AnimSpec>) {
         let key = widget_key(h);
-        // Tab pages / nav pages are laid out by their native container, not by Day; skip them.
-        if TABS_PAGES.with(|s| s.borrow().contains(&key))
-            || NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&key))
-        {
+        // Nav pages are laid out by their native container, not by Day; skip them.
+        if NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&key)) {
             return;
         }
         if let Some(parent) = h.parent()
@@ -3531,10 +3538,6 @@ impl Toolkit for Gtk {
         let is_nav = NAV_STATE.with(|m| m.borrow().contains_key(&key));
         if is_nav {
             gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || nav_report(key)));
-        }
-        let is_tabs = TABS_STATE.with(|m| m.borrow().contains_key(&key));
-        if is_tabs {
-            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || tabs_sync(key)));
         }
     }
 

@@ -170,6 +170,6 @@ underneath a log and each action still prints once, with the prefix naming the m
 dayscript can only see what Day owns. It cannot type through the native IME, verify the software
 keyboard, drive OS permission prompts or file dialogs, or assert native animations. Those blind
 spots exist; the project's practice is scripted coverage for everything Day-side plus a short
-manual smoke per platform for the native seams. Unit-level testing below the UI has a separate
+a manual pass per platform for the native seams. Unit-level testing below the UI has a separate
 tool: the [mock toolkit](/docs/rendering#the-mock-toolkit) runs your Pieces headlessly in
 `cargo test`.

@@ -93,6 +93,7 @@ pub mod prelude {
     pub use day_spec::props::NavPresentation;
     pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
+    pub use day_spec::props::TextAlign;
     pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, Edges, GestureKind};

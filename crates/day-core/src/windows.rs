@@ -206,6 +206,29 @@ pub fn open_window(
                 t.mark_layout_dirty();
                 t.layout_if_needed();
             });
+            if options.size_to_fit {
+                // Measured AFTER the first layout, because that is the only point where the
+                // content's real height is known — it depends on the user's text size, their
+                // language, and which rows the app decided to show.
+                //
+                // The content root has exactly one child — the piece the builder returned — and
+                // its laid-out frame IS the content's natural height.
+                let fitted = with_tree(|t| {
+                    t.first_child(root)
+                        .and_then(|c| t.node_frame(c))
+                        .map(|f| f.origin.y + f.size.height)
+                        .unwrap_or(0.0)
+                });
+                // Never grow past what the caller asked for: `size` is the ceiling, so a panel
+                // with more content than fits scrolls rather than running off the screen.
+                if fitted > 0.0 && fitted < options.size.height {
+                    with_tree(|t| {
+                        t.fit_window(root, Size::new(options.size.width, fitted));
+                        t.mark_layout_dirty();
+                        t.layout_if_needed();
+                    });
+                }
+            }
             WindowHandle { root }
         }
         WindowRootReply::Pending(root) => {
@@ -574,8 +597,14 @@ pub fn register_preferences(build: impl Fn() -> AnyPiece + 'static) {
     register_preferences_with(
         WindowOptions {
             title: "Settings".into(),
+            // The width a settings panel wants, and a CEILING for the height rather than the
+            // height itself: `size_to_fit` shrinks the window to whatever the rows actually
+            // measure. A fixed 640 either clips the last row or leaves a band of empty panel
+            // under it, and which one depends on the user's text size — so nobody can pick a
+            // number that is right for everyone.
             size: Size::new(520.0, 640.0),
             min_size: None,
+            size_to_fit: true,
             app_name: None,
         },
         build,
@@ -645,6 +674,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
             title: String::new(),
             size,
             min_size: None,
+            size_to_fit: false,
             app_name: None,
         },
         WindowKind::Normal,

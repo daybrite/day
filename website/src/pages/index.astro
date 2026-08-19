@@ -214,6 +214,29 @@ const compare = [
     </div>
   </section>
 
+  <!-- NO COMPROMISES -->
+  <section class="section native">
+    <div class="container">
+      <p class="eyebrow">Cross-platform app development with no compromises</p>
+      <h2 class="sec-title">All platforms, <span class="grad-text">zero compromises</span>.</h2>
+      <p class="lead">
+        A Day app is made of the platform's own controls. The <code>button</code> you write in Rust
+        becomes an <code>NSButton</code> on macOS, a <code>UIButton</code> on iOS, and a
+        <code>MaterialButton</code> on Android — the same objects an app written in Swift, Kotlin,
+        or ArkTS creates. Attach Accessibility Inspector or Xcode's view debugger to a running Day
+        app and those are the classes you find.
+        <a href={url('docs/benefits')}>Other cross-platform frameworks</a> put something in between:
+        a web-view shell ships a browser, and a custom renderer draws its own controls, which means
+        reimplementing text input, scrolling physics, and screen-reader support.
+      </p>
+      <ul class="how-list">
+        <li><b>The platform's widgets, instantiated:</b> NSButton and NSTableView on macOS, UIButton and UITableView on iOS, MaterialButton on Android, and the matching controls on GTK, Qt, XAML, and ArkUI.</li>
+        <li><b>Behavior you never wrote:</b> input methods, spellcheck, scrolling physics, text selection, focus order, and VoiceOver or TalkBack come from the OS — and improve with OS updates you don't ship.</li>
+        <li><b>Packaged the platform's way:</b> <code>day pack</code> produces a signed and notarized .dmg, an .ipa, an .aab, an .msix, a flatpak, or a .hap — whatever that platform's users install.</li>
+      </ul>
+    </div>
+  </section>
+
   <!-- THE CODE -->
   <section class="section codeshow">
     <div class="container codeshow-grid">

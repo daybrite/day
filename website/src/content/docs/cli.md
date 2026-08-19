@@ -63,7 +63,7 @@ pins them to your CLI's version from crates.io and will become the default.
 
 `day new app` scaffolds a working starter: a typed-route sidebar over four sample panels (a
 reactive counter, a controls tour, a canvas dial, and a drill-down stack), with locales, a
-dayscript smoke test (`day launch -p <target> --script dayscript/smoke.yaml`), and the thin native
+dayscript walkthrough (`day launch -p <target> --script dayscript/demo.yaml`), and the thin native
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders
 (`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
@@ -149,7 +149,7 @@ day launch -p ios-uikit    --ios-device "iPhone 13 mini" \
 day launch -p ios-uikit --ios-device "iPhone 13 mini" --detach
 
 # drive a device run with a dayscript, the same as a simulator run
-day launch -p ios-uikit --ios-device "iPhone 13 mini" --script dayscript/smoke.yaml
+day launch -p ios-uikit --ios-device "iPhone 13 mini" --script dayscript/demo.yaml
 
 # a phone and a desktop together, to compare the same screen side by side
 day launch -p ios-uikit --ios-device "iPhone 13 mini" -p macos-appkit

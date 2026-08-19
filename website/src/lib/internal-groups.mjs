@@ -28,7 +28,6 @@ export const groups = [
       ['toolbars', 'window toolbars: the item vocabulary, symbol icons, per-desktop realization'],
       ['windows', 'secondary windows, the Preferences window, the cover fallback'],
       ['window-image', "capturing the app's own window as a PNG"],
-      ['tabs', 'tabbed containers'],
       ['grid', 'the eager grid: rows, spans, flexible columns'],
       ['forms', 'form/section/labeled groupings'],
       ['baseline', 'baseline alignment across toolkits'],

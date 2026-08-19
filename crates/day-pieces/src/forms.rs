@@ -114,6 +114,7 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
                     monospace: false,
                     runs: Vec::new(),
                     markdown: false,
+                    align: day_spec::props::TextAlign::Leading,
                     on_link: None,
                     color: None,
                 };
@@ -173,6 +174,7 @@ pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
                 monospace: false,
                 runs: Vec::new(),
                 markdown: false,
+                align: day_spec::props::TextAlign::Leading,
                 on_link: None,
                 color: None,
             };

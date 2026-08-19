@@ -1,0 +1,96 @@
+# A dayscript walkthrough (https://daybrite.dev/docs/dayscript): drives the running app by
+# element id and route, on any target. It is both the app's test and its demo — every feature the
+# starter ships is exercised here, in the order a person would meet them.
+#
+#     day launch -p {{first_target}} --script dayscript/demo.yaml
+#
+# Steps that need a window toolbar or a menu bar carry `skip_on:` for the platforms that have
+# neither; the same commands are reachable there through the navigation bar and the row menus.
+flow:
+  # --- Welcome ------------------------------------------------------------------------------
+  # The nav host mounts immediately on every platform. Which CHROME it wears depends on the
+  # window: a tab bar when compact, a rail in the middle, a sidebar when there is room.
+  - wait_for: { id: nav }
+  - navigate: { route: welcome }
+  - assert_visible: { id: welcome-mark }
+  - assert_text: { id: welcome-title, text: "Welcome to Day" }
+  # Rendered from markdown in the locale catalog, so this proves resources, Fluent, and the
+  # markdown parser all resolved.
+  - assert_visible: { id: welcome-body }
+  - screenshot: welcome
+
+  # --- The list -----------------------------------------------------------------------------
+  - navigate: { route: navigate }
+  - assert_route: { route: navigate }
+  - wait_for: { id: item-list }
+  - screenshot: list
+
+  # Reorder and delete run the same guard → commit path a native drag or swipe would, so they
+  # are assertable on every target — including the desktops, where there is no swipe gesture to
+  # simulate (https://daybrite.dev/docs/list).
+  - reorder: { id: item-list, from: 1, to: 0 }
+  - delete_row: { id: item-list, row: 0 }
+
+  # --- Adaptive navigation ------------------------------------------------------------------
+  # The same host, re-presented. What matters is not only that the chrome changed but that the
+  # SELECTION survived it (https://daybrite.dev/docs/size-classes).
+  - size_class: { width: compact }
+  - wait_idle: {}
+  - assert_route: { route: navigate }
+  - screenshot: compact
+  - size_class: { width: medium }
+  - wait_idle: {}
+  - assert_route: { route: navigate }
+  - screenshot: medium
+  - size_class: { width: expanded }
+  - wait_idle: {}
+  - assert_route: { route: navigate }
+  - screenshot: expanded
+  # Hand the class back to the window. A forced class changes the LAYOUT, never the pixels, so a
+  # phone left on `expanded` lays out a split whose detail pane falls off the right edge — real
+  # behavior, wrong question. Everything below runs at the device's own width again.
+  - size_class: { width: auto }
+  - wait_idle: {}
+
+  # --- The editor ---------------------------------------------------------------------------
+  # Selecting a row opens it: on a desktop in the detail pane, on a phone pushed over the list.
+  - select: { id: item-list, index: 0 }
+  - wait_for: { id: field-name }
+  - input: { id: field-name, text: "Written by the demo" }
+  # Every standard two-way binding over one item, each a real native control.
+  - tap: { id: field-count-inc }
+  - tap: { id: field-count-inc }
+  - tap: { id: field-count-dec }
+  - toggle: { id: field-done, value: true }
+  - assert_visible: { id: field-date }
+  - assert_visible: { id: field-kind }
+  - assert_visible: { id: field-rating }
+  - assert_visible: { id: field-color }
+  - input: { id: field-notes, text: "Notes persist with the item." }
+  - screenshot: editor
+
+  # --- Done, and the filter -----------------------------------------------------------------
+  # Finished items sort to the top of the list, and the toolbar's filter hides them entirely.
+  # Both read one signal, so the button, the menu item and the list cannot disagree.
+  - toolbar: { item: tb-show-done, on: false, skip_on: [uikit, mdc, arkui] }
+  - wait_idle: {}
+  - screenshot: filtered
+  - toolbar: { item: tb-show-done, on: true, skip_on: [uikit, mdc, arkui] }
+  - wait_idle: {}
+
+  # The "+" command: a new row, selected and opened for editing straight away. On the phones the
+  # same command rides the navigation bar instead of a window toolbar.
+  - toolbar: { item: tb-add, skip_on: [uikit, mdc, arkui] }
+  - wait_idle: {}
+  - assert_visible: { id: field-name, skip_on: [uikit, mdc, arkui] }
+
+  # --- Settings -----------------------------------------------------------------------------
+  # A SECTION on the phones; on a desktop it is a real Settings window reached from the App
+  # menu, so the route does not exist there (https://daybrite.dev/docs/windows).
+  - navigate: { route: settings, skip_on: [appkit, gtk, qt, xaml] }
+  # The theme row draws itself only where the toolkit can apply a runtime appearance override
+  # (`Cap::Appearance`); android-mdc cannot, and day-piece-settings omits the row rather than
+  # offering a control that does nothing. The language row is always there.
+  - assert_visible: { id: theme-picker, skip_on: [appkit, gtk, qt, xaml, mdc] }
+  - assert_visible: { id: language-picker, skip_on: [appkit, gtk, qt, xaml] }
+  - screenshot: settings

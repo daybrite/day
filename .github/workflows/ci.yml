@@ -160,7 +160,7 @@ jobs:
   #
   # scripts/ci/scaffold-check.sh no longer runs here: it moved into the per-platform jobs below,
   # where each combo scaffolds, lints, packs, and rebuilds (`day rebuild --from-dir`) a fresh
-  # 21-locale project — and the desktop combos drive the rebuilt copy's smoke dayscript too.
+  # 21-locale project — and the desktop combos drive the rebuilt copy's demo dayscript too.
   #
   # The host-portable `cargo test` rides the NATIVE-arch leg of each job (one run per OS — the
   # same count the standalone `test (<os>)` jobs had, minus three runners' worth of checkout,
@@ -421,7 +421,7 @@ jobs:
   build-day-app:
     # Named for the workflow under test, because that is what a red check here means: the shared
     # pipeline broke, not this repository's own build. `(canary)` says the single target is
-    # deliberate — it is an early-warning smoke test, not the coverage build.
+    # deliberate — it is an early-warning signal, not the coverage build.
     name: build-day-app (canary)
     needs: [day-cli-linux]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -445,7 +445,7 @@ jobs:
       artifact-prefix: canary-
       app-id: dev.daybrite.canary
       # scripts / themes / locales stay at their defaults: the scaffold ships one dayscript
-      # (dayscript/smoke.yaml), which `auto` runs once in the app's own theme and locale. Driving
+      # (dayscript/demo.yaml), which `auto` runs once in the app's own theme and locale. Driving
       # the runner at all is the check; how many variants it drives is the inline job's business.
       #
       # Off for the canary: the inline linux job already runs the scaffold rebuild check for this
@@ -543,26 +543,26 @@ jobs:
       - name: Clippy (day-part-battery, day-part-speech — Windows impls)
         if: matrix.toolkit == 'xaml'
         run: cargo clippy --locked -p day-part-battery -p day-part-speech --all-targets
-      - name: Scaffold smoke-test (${{ matrix.combo }})
+      - name: Scaffold check (${{ matrix.combo }})
         run: |
           set -euo pipefail
           DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf smoke-piece smoke-part smoke-app remote-check
+          cd "$RUNNER_TEMP" && rm -rf scratch-piece scratch-part scratch-app remote-check
           TARGET=""
           LIB=""
           if [ -n "${{ matrix.rust_target }}" ]; then
             TARGET="--target ${{ matrix.rust_target }}"
             LIB="--lib"   # the mobile hosts build the app as a library
           fi
-          "$DAY" new piece smoke-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
-          "$DAY" new part  smoke-part  --local "$GITHUB_WORKSPACE"
-          "$DAY" new app   smoke-app   --toolkit ${{ matrix.combo }} --appid com.example.smokeapp --local "$GITHUB_WORKSPACE"
+          "$DAY" new piece scratch-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
+          "$DAY" new part  scratch-part  --local "$GITHUB_WORKSPACE"
+          "$DAY" new app   scratch-app   --toolkit ${{ matrix.combo }} --appid com.example.scratchapp --local "$GITHUB_WORKSPACE"
           # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
-          ( cd smoke-piece && cargo build --features ${{ matrix.toolkit }} $TARGET )
+          ( cd scratch-piece && cargo build --features ${{ matrix.toolkit }} $TARGET )
           # shellcheck disable=SC2086
-          ( cd smoke-part  && cargo build $TARGET )
+          ( cd scratch-part  && cargo build $TARGET )
           # shellcheck disable=SC2086
-          ( cd smoke-app   && cargo build $LIB --features ${{ matrix.toolkit }} $TARGET )
+          ( cd scratch-app   && cargo build $LIB --features ${{ matrix.toolkit }} $TARGET )
           # Structural check of the DEFAULT (no --local) output: it must reference the remote git dep.
           "$DAY" new app remote-check --toolkit ${{ matrix.combo }} --no-input >/dev/null
           grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
@@ -619,7 +619,7 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy, per
+      # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy, per
       # combo (scripts/ci/scaffold-check.sh). The qt/gtk legs stop after the lint: `day pack`
       # supports neither combo yet.
       - name: Scaffold check (new + lint + pack + rebuild + launch)
@@ -676,7 +676,7 @@ jobs:
       # run exits cleanly via `expect_exit`, the report run reads the persisted report and clears
       # it. macOS is the representative desktop leg (the signal handlers are exercised here; the
       # showcase page's on-device paths — Android UEH, iOS/OHOS signals — run in those legs' manual
-      # smoke). Runs AFTER the walkthrough so the empty-state `crash` screenshot stays deterministic.
+      # trial run). Runs AFTER the walkthrough so the empty-state `crash` screenshot stays deterministic.
       - name: Crash reporting round-trip (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
@@ -757,7 +757,7 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
       # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
-      # smoke launch: the packed .ipa is a device build a runner cannot install.
+      # trial launch: the packed .ipa is a device build a runner cannot install.
       - name: Scaffold check (new + lint + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ios-uikit
@@ -955,7 +955,7 @@ jobs:
             echo "DAY_LINUXDEPLOY_PLUGIN_${TOOLKIT^^}=$PLUGIN"
             echo "APPIMAGE_EXTRACT_AND_RUN=1"
           } >> "$GITHUB_ENV"
-      # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy
+      # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh). No xvfb wrapper, same as the walkthrough below: the CLI
       # supplies the headless plumbing itself (xvfb for gtk, the offscreen platform for qt).
       - name: Scaffold check (new + lint + pack + rebuild + launch)
@@ -1110,7 +1110,7 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
       # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
-      # smoke launch: the emulator boots later, only for the walkthrough.
+      # trial launch: the emulator boots later, only for the walkthrough.
       - name: Scaffold check (new + lint + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-mdc
@@ -1312,7 +1312,7 @@ jobs:
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
       # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
-      # smoke launch: the Oniro emulator boots later, only for the walkthrough.
+      # trial launch: the Oniro emulator boots later, only for the walkthrough.
       - name: Scaffold check (new + lint + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" harmony-arkui
@@ -1502,7 +1502,7 @@ jobs:
           if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
           "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "makensis: $($exe.FullName)"
-      # Scaffold → lint → pack → `day rebuild --from-dir` → smoke-launch the rebuilt copy
+      # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh).
       - name: Scaffold check (new + lint + pack + rebuild + launch)
         shell: bash

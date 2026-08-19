@@ -1612,14 +1612,30 @@ impl Layout for NavLayout {
         Size::new(p.width.unwrap_or(480.0), p.height.unwrap_or(640.0))
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
-        let split = self.presentation.get().is_split();
+        let pres = self.presentation.get();
+        let split = pres.is_split();
         let sidebar = self.sidebar.get();
         for &page in children {
             let reported = self.sizes.borrow().get(&page).copied();
+            // Only a FALLBACK: every backend reports each page's real frame through
+            // `Event::FrameChanged`, and that wins. This is what the page gets for the frame
+            // before the first report arrives.
             let sz = reported.unwrap_or_else(|| {
-                if !split {
+                let is_sidebar = Some(page) == sidebar;
+                if pres.rows_are_chrome() {
+                    // The rows are the chrome (a tab bar, a rail): the backend draws them itself
+                    // and sizes its own bar, so the sidebar page is measured but not shown. Keep
+                    // it at the pane width rather than zero — a zero-width menu measured here
+                    // would have to re-measure from scratch the moment the window widens back
+                    // into a split.
+                    if is_sidebar {
+                        Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
+                    } else {
+                        bounds.size
+                    }
+                } else if !split {
                     bounds.size
-                } else if Some(page) == sidebar {
+                } else if is_sidebar {
                     Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
                 } else {
                     Size::new(

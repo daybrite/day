@@ -25,11 +25,12 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/datetime-arkui.cpp
+dom = ["dep:day-dom"]
 
-# Backends this piece carries a native renderer for — ALL seven (the first external piece to close
-# the arkui gap). `day build` unions `<pkg>/<backend>` into an app build (Tier A.2).
+# Backends this piece carries a native renderer for — ALL EIGHT: the seven native toolkits plus
+# web-dom, whose `<input type="date">` is the browser's own picker. `day build` unions `<pkg>/<backend>` into an app build (Tier A.2).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom"]
 
 [dependencies]
 day-spec = { workspace = true }
@@ -38,6 +39,7 @@ day-pieces = { workspace = true }
 day-reactive = { workspace = true }
 linkme = { workspace = true }
 day-appkit = { workspace = true, optional = true }
+day-dom = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }

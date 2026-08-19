@@ -57,7 +57,7 @@ bind straight to native attributes.
 day new app my-app --toolkit macos-appkit,ios-uikit,android-mdc
 cd my-app
 day launch -p macos-appkit                 # build + run
-day launch -p macos-appkit --script dayscript/smoke.yaml   # build + run + assert
+day launch -p macos-appkit --script dayscript/demo.yaml    # build + run + assert
 ```
 
 `Day.toml` (`name`/`version` come from Cargo.toml's `[package]`):

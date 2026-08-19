@@ -456,6 +456,19 @@ mod imp {
             std::cell::RefCell::new(std::collections::HashMap::new());
         static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
+        /// A realized NAV_MENU's rows, by its own view ptr: `(node, joined titles, joined icons)`.
+        ///
+        /// Recorded at realize, which is where the props are, and handed to the navigation suite
+        /// at INSERT — the first moment the menu is in a hierarchy whose ancestors reach the
+        /// suite. Where there is no suite above it (every presentation but `Tabs`) the handover
+        /// finds nothing and the rows stay a list. Entries drop in `release`.
+        static NAV_MENU_ROWS: std::cell::RefCell<
+            std::collections::HashMap<usize, (i64, String, String)>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
+        /// Navigation-suite hosts by view ptr, so `NavPatch::Select` knows to drive the suite
+        /// rather than a DayNavHost.
+        static NAV_SUITES: std::cell::RefCell<std::collections::HashSet<usize>> =
+            std::cell::RefCell::new(std::collections::HashSet::new());
         /// Label view ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell
         /// a link's ClickableSpan which node to report against. Entries drop in `release`.
         static LABEL_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
@@ -1631,7 +1644,14 @@ mod imp {
                 // recents entries; side-by-side in split-screen/freeform/desktop windowing.
                 | Cap::MultiWindow
                 // View.getBaseline() — the platform's own answer (docs/baseline.md).
-                | Cap::BaselineAlignment => Support::Native,
+                | Cap::BaselineAlignment
+                // The navigation suite (DayTabs): a BottomNavigationView, a NavigationRailView or
+                // a permanent NavigationView drawer over resident pages — Material's own
+                // destination chrome, in the form the width calls for (docs/navigation.md).
+                | Cap::NavTabs
+                // And Android SHOULD grow one as it narrows: a bottom bar is the idiomatic
+                // compact answer here, the way it is on iOS and unlike any desktop.
+                | Cap::NavTabsAdaptive => Support::Native,
                 // EMULATED: SlidingPaneLayout decides at MEASURE time whether both panes fit, so
                 // the platform owns the presentation and Day observes it through
                 // `Event::NavPresentationChanged` rather than pushing one in
@@ -1837,6 +1857,31 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "android", props) else {
                         return realize_placeholder(kind);
                     };
+                    // Where the rows are the CHROME, the host is a navigation suite rather than a
+                    // pane layout: pages resident behind a bottom bar, a rail or a permanent
+                    // drawer, whichever the width calls for (DayTabs). One container across every
+                    // width is what lets the host report `Tabs` once and keep it, so day-core
+                    // holds the pages and drives them with `Select` instead of push/pop — the
+                    // same contract `.tabSidebar` gives on iOS.
+                    if p.presentation.rows_are_chrome() {
+                        let host = with_env(|env| {
+                            AHandle(make_view(
+                                env,
+                                "makeNavSuite",
+                                "(JI)Landroid/view/View;",
+                                &[JValue::Long(idj), JValue::Int(0)],
+                            ))
+                        });
+                        NAV_SUITES
+                            .with(|m| m.borrow_mut().insert(host.0.as_obj().as_raw() as usize));
+                        // Tell day-core what it got. The suite changes its chrome as it resizes
+                        // but never its presentation, so this is reported once and never revised.
+                        emit(
+                            id,
+                            Event::NavPresentationChanged(day_spec::props::NavPresentation::Tabs),
+                        );
+                        return host;
+                    }
                     // `Stack` in props is literal — a host that is a stack at EVERY size (a
                     // nested `stack()` under a split host, docs/size-classes.md) — so it gets a
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
@@ -1921,12 +1966,27 @@ mod imp {
                     host
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
-                    AHandle(make_view(
+                    let h = AHandle(make_view(
                         env,
                         "makeNavPage",
                         "(J)Landroid/view/View;",
                         &[JValue::Long(idj)],
-                    ))
+                    ));
+                    // A sidebar page inside a navigation suite is the page whose rows BECAME the
+                    // chrome, so the suite keeps it attached but never shows it (drawing the rows
+                    // again as a list would be the same navigation twice). Marked here because
+                    // `insert` sees only handles; harmless anywhere else, where nothing reads it.
+                    let sidebar = day_spec::props_of::<NavPageProps>(kind, "android", props)
+                        .is_some_and(|p| p.pane == day_spec::props::Pane::Sidebar);
+                    if sidebar {
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "markNavChromePage",
+                            "(Landroid/view/View;)V",
+                            &[JValue::Object(h.0.as_obj())],
+                        );
+                    }
+                    h
                 }),
                 // Fullscreen cover (docs/cover.md): a DayCover shell whose content pane is the
                 // Day mount point; CoverPatch::Present re-homes it over the activity content.
@@ -1938,40 +1998,6 @@ mod imp {
                         &[JValue::Long(idj)],
                     ))
                 }),
-                Some(Builtin::Tabs) => {
-                    let Some(p) = day_spec::props_of::<TabsProps>(kind, "android", props) else {
-                        return realize_placeholder(kind);
-                    };
-                    with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeTabs",
-                            "(JI)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Int(p.selected as i32)],
-                        ))
-                    })
-                }
-                Some(Builtin::TabsPage) => {
-                    let Some(p) = day_spec::props_of::<TabsPageProps>(kind, "android", props)
-                    else {
-                        return realize_placeholder(kind);
-                    };
-                    with_env(|env| {
-                        let title = jstr(env, &p.title);
-                        // The tab's bundled-image NAME (empty = none); Java looks it up in res/drawable.
-                        let icon = jstr(env, p.icon.as_deref().unwrap_or(""));
-                        AHandle(make_view(
-                            env,
-                            "makeTabPage",
-                            "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                            &[
-                                JValue::Long(idj),
-                                JValue::Object(&title),
-                                JValue::Object(&icon),
-                            ],
-                        ))
-                    })
-                }
                 Some(Builtin::NavMenu) => {
                     let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "android", props) else {
                         return realize_placeholder(kind);
@@ -2002,6 +2028,14 @@ mod imp {
                             "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
                             &[JValue::Long(idj), JValue::Object(&s), JValue::Object(&si)],
                         ));
+                        // Keep the rows for `insert`, which is where a navigation suite above
+                        // this menu can finally be found and handed them.
+                        NAV_MENU_ROWS.with(|m| {
+                            m.borrow_mut().insert(
+                                handle.0.as_obj().as_raw() as usize,
+                                (idj, joined.clone(), joined_icons.clone()),
+                            )
+                        });
                         // Per-row icon tints ride a best-effort follow-up (docs/vectors.md) —
                         // decoration stays OFF makeNavMenu's critical path, so a tint problem
                         // can never abort the tree build (the navhost lesson).
@@ -2339,15 +2373,6 @@ mod imp {
                         Some(NavMenuPatch::Selected(_)) | None => {}
                     }
                 }
-                kinds::TABS => {
-                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                        call_void(
-                            "setTabsSelected",
-                            "(Landroid/view/View;I)V",
-                            &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
-                        );
-                    }
-                }
                 kinds::NAV => {
                     // Inline search (docs/search.md): the app writing its query patches the live
                     // field, so a sync never rebuilds it or takes the insertion point. The Java
@@ -2411,6 +2436,16 @@ mod imp {
                             // Android is `SlidingPaneLayout`, which decides at measure time and
                             // is OBSERVED rather than told (docs/size-classes.md).
                             NavPatch::Presentation(_) => {}
+                            // The resident-page switch (docs/navigation.md): the app moved the
+                            // selection, so the suite shows that page and syncs its chrome
+                            // WITHOUT reporting the move back as a tap.
+                            NavPatch::Select(i) => {
+                                call_void(
+                                    "setNavSuiteSelected",
+                                    "(Landroid/view/View;I)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
+                                );
+                            }
                         }
                     }
                 }
@@ -2697,6 +2732,34 @@ mod imp {
                     JValue::Object(child.0.as_obj()),
                 ],
             );
+            // A nav menu now has ancestors: if one of them is a navigation suite, its rows are
+            // that suite's chrome. Best-effort and after the insert, like every other decoration
+            // on this backend — a failure here must not abort the tree build.
+            let rows = NAV_MENU_ROWS.with(|m| {
+                m.borrow()
+                    .get(&(child.0.as_obj().as_raw() as usize))
+                    .cloned()
+            });
+            if let Some((node, titles, icons)) = rows {
+                with_env(|env| {
+                    let t = jstr(env, &titles);
+                    let i = jstr(env, &icons);
+                    let _ = env.dcall_static(
+                        BRIDGE,
+                        "setNavSuiteRows",
+                        "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;J)V",
+                        &[
+                            JValue::Object(child.0.as_obj()),
+                            JValue::Object(&t),
+                            JValue::Object(&i),
+                            JValue::Long(node),
+                        ],
+                    );
+                    if env.exception_check() {
+                        env.exception_clear();
+                    }
+                });
+            }
         }
 
         fn remove(&mut self, _parent: &AHandle, child: &AHandle) {
@@ -2752,22 +2815,6 @@ mod imp {
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
                 kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
-                // A tabs host fills its container (like LIST). Its natural UNSPECIFIED probe is
-                // useless: the M3 BottomNavigationView reports its expansive preferred width (every
-                // item at full item width), which would lay the host out wider than the screen.
-                kinds::TABS => Size::new(
-                    p.width
-                        .unwrap_or_else(|| measure_call(h, "measureWidth") / d),
-                    p.height
-                        .unwrap_or_else(|| measure_call(h, "measureHeight") / d),
-                ),
-                kinds::PROGRESS => {
-                    // Determinate bar fills the proposed width (grow_w); the circular spinner
-                    // keeps its natural square size (grow_w is false, so the engine uses it).
-                    let nh = (measure_call(h, "measureHeight") / d).max(4.0);
-                    let nw = (measure_call(h, "measureWidth") / d).max(20.0);
-                    Size::new(p.width.unwrap_or(nw), nh)
-                }
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         return measure(self, h, p);

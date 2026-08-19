@@ -115,6 +115,11 @@ body.day-has-toolbar #day-root {
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: default;
+  /* A label's text is Day's, newlines included — a two-paragraph body has to read as two
+     paragraphs here as it does on every other backend. HTML collapses a run of whitespace to one
+     space, so without this the blank line between them vanished and the two ran together.
+     `pre-wrap` keeps the breaks AND still wraps long lines. */
+  white-space: pre-wrap;
 }
 .day-label.placeholder { color: var(--day-fg-dim); }
 
@@ -313,6 +318,89 @@ body.day-has-toolbar #day-root {
 }
 .day-nav-title { font-weight: 600; font-size: calc(1rem * var(--day-text-scale)); }
 
+/* Tabs and rail: the rows become the chrome (docs/navigation.md). Both hold the SAME
+   `.day-navmenu` the sidebar does, re-parented rather than rebuilt, so these rules only have to
+   re-flow it — the row markup, its icons, badges and listeners are untouched. */
+.day-nav.tabs { display: flex; flex-direction: column; }
+.day-nav.tabs .day-nav-detail { flex: 1; min-height: 0; }
+.day-nav.tabs .day-nav-tabbar {
+  flex: none;
+  background: var(--day-bar-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-top: 1px solid var(--day-divider);
+  /* Clear of the home indicator on a phone browser. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+/* The rows arrive wrapped in a NAV_PAGE whose subtree day-core has laid out absolutely, sized
+   for the PANE it would fill in a split. A chrome slot is the backend's own furniture — the tab
+   bar is sized BY its rows, not the other way round — so the whole subtree returns to normal
+   flow and CSS lays it out. `!important` because `set_frame` writes inline styles, which a plain
+   rule cannot outrank; this is the one place where the backend deliberately overrules the
+   engine's frames, and it does so because the engine has no way to know how tall a tab bar is. */
+.day-nav.tabs .day-nav-tabbar > .day-page,
+.day-nav.tabs .day-nav-tabbar .day-container,
+.day-nav.tabs .day-nav-tabbar .day-navmenu,
+.day-nav.rail .day-nav-rail > .day-page,
+.day-nav.rail .day-nav-rail .day-container,
+.day-nav.rail .day-nav-rail .day-navmenu {
+  position: static !important;
+  inset: auto !important;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible;
+}
+.day-nav.rail .day-nav-rail .day-navmenu { height: 100% !important; }
+.day-nav.tabs .day-navmenu {
+  display: flex;
+  overflow: visible;
+  padding: 4px;
+}
+.day-nav.tabs .day-navmenu-row {
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  padding: 4px 2px;
+  font-size: calc(0.75rem * var(--day-text-scale));
+  /* A tab is a touch target before it is a label. Without this an icon-free tab set collapses
+     to the height of its caption — around 28px, well under the ~44px minimum every mobile
+     platform's guidelines set. Scales with the text size so it stays right at large type. */
+  min-height: calc(2.75rem * var(--day-text-scale));
+}
+/* A tab reads as selected by its tint, not by a filled pill — a full-bleed accent block across a
+   fifth of the screen is a button, not a tab. */
+.day-nav.tabs .day-navmenu-row.selected {
+  background: none;
+  color: var(--day-accent);
+}
+
+.day-nav.rail { display: flex; }
+.day-nav.rail .day-nav-rail {
+  flex: none;
+  width: 80px;
+  background: var(--day-sidebar-bg);
+  border-right: 1px solid var(--day-divider);
+  overflow: hidden;
+}
+.day-nav.rail .day-navmenu { padding: 8px 4px; }
+.day-nav.rail .day-navmenu-row {
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  padding: 8px 2px;
+  font-size: calc(0.6875rem * var(--day-text-scale));
+  min-height: calc(2.75rem * var(--day-text-scale));
+}
+/* Same reasoning as the tab bar: the sidebar's selected row is a full accent fill, which reads
+   as a button rather than a selection once it spans a whole 80px column. */
+.day-nav.rail .day-navmenu-row.selected {
+  background: var(--day-control-bg);
+  color: var(--day-accent);
+}
+
 /* Pages fill whichever pane they land in; day-core frames their contents. */
 .day-page { position: absolute; inset: 0; overflow: hidden; }
 
@@ -365,27 +453,6 @@ body.day-has-toolbar #day-root {
 
 /* Tabs -------------------------------------------------------------------- */
 
-.day-tabs { display: flex; flex-direction: column; }
-.day-tabs-strip {
-  flex: none;
-  display: flex;
-  justify-content: center;
-  gap: 4px;
-  padding: 8px;
-  border-bottom: 1px solid var(--day-divider);
-}
-.day-tab {
-  font: inherit;
-  color: var(--day-fg);
-  background: none;
-  border: none;
-  border-radius: 7px;
-  padding: 5px 14px;
-  cursor: pointer;
-}
-.day-tab.selected { background: var(--day-control-bg); font-weight: 600; }
-.day-tabs-pages { position: relative; flex: 1; }
-.day-tabs-pages > .day-page { position: absolute; inset: 0; }
 
 /* Segmented + radio groups ------------------------------------------------ */
 

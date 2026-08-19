@@ -782,8 +782,22 @@ pub fn app(
     };
     match crate::meta::find_project(Some(&dir)) {
         Ok(project) => match crate::icon::generate_master(&project, seed, true) {
-            Ok(_) => {
+            Ok(master) => {
                 ops::status("Icon", &format!("generated (seed {seed})"));
+                // The same mark, staged as a VECTOR so the Welcome page can draw it through
+                // `res::vectors::app_mark` (docs/vectors.md). Copied rather than referenced:
+                // `resource/icons/` is the icon PIPELINE's input and is not a resource bucket,
+                // and an app that later redraws its welcome art should not thereby change every
+                // platform's launcher icon. Scaffold-time only — `day icon` never rewrites it.
+                let mark = project.root.join("resource/vectors/app_mark.svg");
+                let staged = mark
+                    .parent()
+                    .ok_or_else(|| "no parent".to_string())
+                    .and_then(|d| std::fs::create_dir_all(d).map_err(|e| format!("mkdir: {e}")))
+                    .and_then(|_| std::fs::copy(&master, &mark).map_err(|e| format!("copy: {e}")));
+                if let Err(e) = staged {
+                    ops::status("Warning", &format!("welcome art: {e}"));
+                }
                 let opts = crate::icon::IconOptions {
                     master: None,
                     check: false,
@@ -835,6 +849,22 @@ fn template_context(
     // The resource-constant codegen helper the app's build.rs calls (§18.5) — same source (git /
     // version / local path) as the `day` dep so it resolves identically.
     ctx.insert("day_build_dep", deps.dep("day-build", ""));
+    // The external pieces the starter's item editor and settings are built from. Each registers
+    // its renderers link-time into whichever backend the app selects, so a dependency line is the
+    // whole integration — there is nothing to call at startup ([§15](../../DESIGN.md)).
+    ctx.insert("day_piece_deps", {
+        let mut s = String::new();
+        for p in [
+            "day-piece-datetime",
+            "day-piece-settings",
+            "day-piece-rating",
+            "day-piece-colorpicker",
+        ] {
+            s.push_str(&deps.dep(p, ""));
+            s.push('\n');
+        }
+        s.trim_end().to_string()
+    });
     ctx.insert(
         "targets_toml",
         targets
@@ -2630,7 +2660,7 @@ mod day_version_tests {
 }
 
 #[cfg(test)]
-mod scaffold_smoke_tests {
+mod scaffold_tests {
     use super::*;
 
     /// The `day new app` render path minus the disk writes: the builtin template, filtered

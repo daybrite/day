@@ -104,10 +104,6 @@ mod imp {
         /// LIST host NodeId → its injected row-pull source (docs/list.md).
         static LIST_SOURCES: RefCell<HashMap<u64, day_spec::ListSource>> =
             RefCell::new(HashMap::new());
-        /// TABS_PAGE node ptrs: their layout is owned by the parent Swiper, so `set_frame` sizes
-        /// them but does not position them.
-        static TABS_PAGES: RefCell<std::collections::HashSet<usize>> =
-            RefCell::new(std::collections::HashSet::new());
         /// Node ids with a Tap gesture (docs/shapes.md): a NODE_ON_CLICK on these emits `Event::Tap`
         /// (not `Event::Pressed`) — how a canvas/shape `.on_tap` (e.g. day-piece-rating's stars)
         /// receives taps on ArkUI. See [`Toolkit::enable_gesture`] + [`day_arkui_on_event`].
@@ -161,6 +157,143 @@ mod imp {
     /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors —
     /// the row's own tint when given, else a secondary theme foreground. A raster name falls
     /// back to `day/<name>.png`, drawn as authored (fill color has no effect on rasters).
+    /// Height of the composed bottom bar, in vp — HarmonyOS's own tab-bar metric.
+    const NAV_BAR_H: f64 = 56.0;
+
+    /// The navigation suite (`NavPresentation::Tabs`): resident pages over a bottom bar.
+    ///
+    /// ArkUI's NATIVE node set has no tab container — `ARKUI_NODE_TABS` is an ArkTS-only
+    /// component, and the NDK exposes a swiper at most — so the bar is composed from the same
+    /// primitives every other Day piece is built from (docs/navigation.md). One implementation,
+    /// the platform's own metrics, and the rows keep their meaning: a bar item reports through
+    /// the SAME synthetic-click table a sidebar row uses, so a tap is one event either way.
+    struct NavSuite {
+        host: usize,
+        pages: AHandle,
+        bar: AHandle,
+        /// Destination pages in bar order — index i IS the `Select(i)` index.
+        items: Vec<(AHandle, NodeId)>,
+        /// The bar's own item nodes, so a rebuild can take the old ones out first.
+        bar_items: Vec<AHandle>,
+        selected: usize,
+        /// The pages area, so a page joining later can be sized without waiting for a resize.
+        page_size: Size,
+    }
+
+    thread_local! {
+        /// The one live suite. This backend already assumes a single nav host (`NAV_HOST`), and
+        /// a suite is a nav host wearing different chrome.
+        static NAV_SUITE: RefCell<Option<NavSuite>> = const { RefCell::new(None) };
+    }
+
+    /// Build the bar's items from the host's rows: an icon over a label per destination, each
+    /// registering a synthetic click that reports `SelectionChanged(i)` against the MENU node.
+    fn suite_fill_bar(menu: NodeId, items: &[String], icons: &[Option<String>], selected: usize) {
+        NAV_SUITE.with(|c| {
+            let mut c = c.borrow_mut();
+            let Some(suite) = c.as_mut() else {
+                return;
+            };
+            for old in std::mem::take(&mut suite.bar_items) {
+                unsafe { ffi::day_ark_remove_child(suite.bar.0, old.0) };
+            }
+            for (i, title) in items.iter().enumerate() {
+                let cell = new_node(K_COLUMN);
+                let synth = SYNTH.with(|c| {
+                    let v = c.get();
+                    c.set(v + 1);
+                    v
+                });
+                MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
+                // The selected destination takes the accent; the rest the secondary label color,
+                // which is how a HarmonyOS bottom bar reads.
+                let on = i == selected;
+                let tint = if on {
+                    theme_color(0xFF00_7DFF, 0xFF3E_9BFF)
+                } else {
+                    theme_color(0x9900_0000, 0x99FF_FFFF)
+                };
+                let mut child: c_int = 0;
+                if let Some(Some(name)) = icons.get(i) {
+                    let icon = new_node(K_IMAGE);
+                    let svg = format!("day/{name}.svg");
+                    let is_vector =
+                        unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
+                    unsafe {
+                        if is_vector {
+                            let src = format!("resource://RAWFILE/{svg}");
+                            ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
+                            ffi::day_ark_set_image_fill(icon.0, tint);
+                        } else {
+                            let src = format!("resource://RAWFILE/day/{name}.png");
+                            ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
+                        }
+                        ffi::day_ark_set_image_fit(icon.0, 0);
+                        ffi::day_ark_set_size(icon.0, 24.0, 24.0);
+                        ffi::day_ark_insert_child(cell.0, icon.0, child);
+                    }
+                    child += 1;
+                }
+                let label = new_node(K_TEXT);
+                unsafe {
+                    ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
+                    ffi::day_ark_set_font_size(label.0, 10.0);
+                    ffi::day_ark_set_font_color(label.0, tint);
+                    ffi::day_ark_insert_child(cell.0, label.0, child);
+                    ffi::day_ark_set_flex_grow(cell.0, 1.0);
+                    ffi::day_ark_register_event(cell.0, 0, synth);
+                    ffi::day_ark_insert_child(suite.bar.0, cell.0, i as c_int);
+                }
+                suite.bar_items.push(cell);
+            }
+        });
+    }
+
+    /// Lay the suite out inside `size` and tell every page how much room it has.
+    ///
+    /// The pages area and the bar are sized here rather than by day-core, which sees one host
+    /// node and gives it one frame — the same division of labor every other backend's native
+    /// nav container performs for itself.
+    fn suite_layout(size: Size) {
+        let reports: Vec<(NodeId, Size)> = NAV_SUITE.with(|c| {
+            let mut c = c.borrow_mut();
+            let Some(suite) = c.as_mut() else {
+                return Vec::new();
+            };
+            let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
+            suite.page_size = page;
+            unsafe {
+                ffi::day_ark_set_size(suite.pages.0, page.width, page.height);
+                ffi::day_ark_set_size(suite.bar.0, size.width, NAV_BAR_H);
+            }
+            suite
+                .items
+                .iter()
+                .map(|(h, id)| {
+                    unsafe { ffi::day_ark_set_size(h.0, page.width, page.height) };
+                    (*id, page)
+                })
+                .collect()
+        });
+        for (id, size) in reports {
+            emit(id, Event::FrameChanged(size));
+        }
+    }
+
+    /// Show destination `i` and hide the rest (the resident-page switch, docs/navigation.md).
+    fn suite_select(i: usize) {
+        NAV_SUITE.with(|c| {
+            let mut c = c.borrow_mut();
+            let Some(suite) = c.as_mut() else {
+                return;
+            };
+            suite.selected = i;
+            for (n, (h, _)) in suite.items.iter().enumerate() {
+                unsafe { ffi::day_ark_set_visibility(h.0, (n == i) as c_int) };
+            }
+        });
+    }
+
     fn build_nav_menu(
         menu: NodeId,
         items: &[String],
@@ -416,7 +549,6 @@ mod imp {
     const K_IMAGE: c_int = 9;
     const K_CANVAS: c_int = 10; // custom node + on-draw
     const K_PROGRESS: c_int = 11; // determinate bar
-    const K_SWIPER: c_int = 12;
     const K_LIST: c_int = 13;
     // 14 = ARKUI_NODE_LIST_ITEM, created inside the shim's list adapter (never via new_node here).
 
@@ -1237,6 +1369,35 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "arkui", props) else {
                         return new_node(K_STACK);
                     };
+                    // Rows as CHROME: a composed bottom bar over resident pages (see NavSuite).
+                    // A phone gets here through `Automatic`, because this backend has no split.
+                    if p.presentation.rows_are_chrome() {
+                        let host = new_node(K_COLUMN);
+                        let pages = new_node(K_STACK);
+                        let bar = new_node(K_ROW);
+                        unsafe {
+                            ffi::day_ark_insert_child(host.0, pages.0, 0);
+                            ffi::day_ark_insert_child(host.0, bar.0, 1);
+                            ffi::day_ark_set_bg_color(bar.0, theme_color(0xFFF1_F3F5, 0xFF1C_1C1E));
+                        }
+                        NAV_SUITE.with(|c| {
+                            *c.borrow_mut() = Some(NavSuite {
+                                host: host.0 as usize,
+                                pages,
+                                bar,
+                                items: Vec::new(),
+                                bar_items: Vec::new(),
+                                selected: 0,
+                                page_size: Size::ZERO,
+                            })
+                        });
+                        // Told once and never revised: the chrome is the same at every width.
+                        emit(
+                            id,
+                            Event::NavPresentationChanged(day_spec::props::NavPresentation::Tabs),
+                        );
+                        return host;
+                    }
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
                     // Trailing title-bar action (NavProps::bar_action, docs/navigation.md): the
@@ -1283,6 +1444,10 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "arkui", props) else {
                         return new_node(K_STACK);
                     };
+                    // Inside a suite the rows ARE the bar. The list is still built — it lives in
+                    // the sidebar page, which the suite keeps but never shows — so nothing else
+                    // has to know which presentation it is in.
+                    suite_fill_bar(id, &p.items, &p.icons, 0);
                     build_nav_menu(
                         id,
                         &p.items,
@@ -1291,25 +1456,6 @@ mod imp {
                         &p.badge_icons,
                         &p.badge_tints,
                     )
-                }
-                // Tabs: a native Swiper pager (swipe + dot indicator). Each TABS_PAGE is a Swiper
-                // child (the Swiper owns their horizontal layout, so their set_frame skips position).
-                Some(Builtin::Tabs) => {
-                    let Some(p) = day_spec::props_of::<TabsProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
-                    };
-                    let n = new_node(K_SWIPER);
-                    unsafe {
-                        ffi::day_ark_swiper_setup(n.0);
-                        ffi::day_ark_set_swiper_index(n.0, p.selected as c_int);
-                        ffi::day_ark_register_event(n.0, 6, id.0);
-                    }
-                    n
-                }
-                Some(Builtin::TabsPage) => {
-                    let n = new_node(K_STACK);
-                    TABS_PAGES.with(|s| s.borrow_mut().insert(n.0 as usize));
-                    n
                 }
                 // Canvas: a custom node whose on-draw callback replays the encoded display list.
                 Some(Builtin::Canvas) => {
@@ -1431,6 +1577,9 @@ mod imp {
                             // 520vp threshold and is OBSERVED through `onNavigationModeChange`
                             // rather than told (docs/size-classes.md).
                             NavPatch::Presentation(_) => {}
+                            // The resident-page switch (docs/navigation.md): show that
+                            // destination and move the bar's accent to it.
+                            NavPatch::Select(i) => suite_select(*i),
                         }
                     }
                 }
@@ -1462,6 +1611,9 @@ mod imp {
                             return;
                         };
                         MENU_ROWS.with(|m| m.borrow_mut().retain(|_, v| v.0 != menu));
+                        // Data-driven rows: a suite's bar is those rows, so it is rebuilt from
+                        // the same set rather than left showing the old destinations.
+                        suite_fill_bar(menu, items, icons, 0);
                         if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                             unsafe {
                                 ffi::day_ark_remove_child(h.0, old as *mut _);
@@ -1608,11 +1760,6 @@ mod imp {
                         unsafe { ffi::day_ark_set_progress(h.0, *v) };
                     }
                 }
-                kinds::TABS => {
-                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                        unsafe { ffi::day_ark_set_swiper_index(h.0, *i as c_int) };
-                    }
-                }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) => unsafe { ffi::day_ark_list_reload(h.0) },
                     Some(ListPatch::ScrollToEnd) => unsafe { ffi::day_ark_list_scroll_to_end(h.0) },
@@ -1680,8 +1827,13 @@ mod imp {
             TEXTAREA_LINES.with(|m| {
                 m.borrow_mut().remove(&key);
             });
-            TABS_PAGES.with(|s| {
-                s.borrow_mut().remove(&key);
+            NAV_SUITE.with(|c| {
+                let mut c = c.borrow_mut();
+                if c.as_ref().is_some_and(|s| s.host == key) {
+                    // The host is gone; its pages and bar go with it. A stale suite would route
+                    // the next host's children into freed nodes.
+                    *c = None;
+                }
             });
             if let Some(nid) = TAP_HANDLES.with(|m| m.borrow_mut().remove(&key)) {
                 TAP_NODES.with(|s| {
@@ -1712,6 +1864,37 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &AHandle, child: &AHandle, index: usize) {
+            // A suite's own pages. The one at index 0 is the SIDEBAR page, whose rows became the
+            // bar: it is kept so nothing downstream has to special-case a missing page, but never
+            // shown — drawing the rows again as a list would be the same navigation twice.
+            let into_suite = NAV_SUITE.with(|c| {
+                let mut c = c.borrow_mut();
+                let Some(suite) = c.as_mut().filter(|s| s.host == parent.0 as usize) else {
+                    return false;
+                };
+                let page = suite.page_size;
+                unsafe {
+                    ffi::day_ark_insert_child(suite.pages.0, child.0, index as c_int);
+                    ffi::day_ark_set_size(child.0, page.width, page.height);
+                }
+                if index == 0 {
+                    unsafe { ffi::day_ark_set_visibility(child.0, 0) };
+                } else {
+                    let id = NodeId(
+                        NAV_PAGE_IDS
+                            .with(|m| m.borrow().get(&(child.0 as usize)).copied())
+                            .unwrap_or(0),
+                    );
+                    let first = suite.items.is_empty();
+                    suite.items.push((child.clone(), id));
+                    // The first destination claims the screen: page 0 is the hidden sidebar.
+                    unsafe { ffi::day_ark_set_visibility(child.0, first as c_int) };
+                }
+                true
+            });
+            if into_suite {
+                return;
+            }
             // Track page attachment order under the nav host: the next NavPatch::Pushed
             // re-homes the most recently attached page into a NavDestination.
             if NAV_HOST
@@ -1837,10 +2020,11 @@ mod imp {
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
-            // A Swiper owns its pages' horizontal placement — size them, but don't position them
-            // (a NODE_POSITION would fight the pager transform).
-            if TABS_PAGES.with(|s| s.borrow().contains(&(h.0 as usize))) {
+            // The suite divides its own frame between the pages area and the bar, then tells each
+            // page how much room it has — day-core sees one host node and gives it one frame.
+            if NAV_SUITE.with(|c| c.borrow().as_ref().is_some_and(|s| s.host == h.0 as usize)) {
                 unsafe { ffi::day_ark_set_size(h.0, frame.size.width, frame.size.height) };
+                suite_layout(frame.size);
                 return;
             }
             // A cover's frame is native-owned: full window while presented, parked otherwise.
@@ -2008,6 +2192,12 @@ mod imp {
                 // Every pushed page is an ArkTS NavDestination with a native title bar
                 // (Index.ets) — content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
+                // The composed bottom bar (see NavSuite): ArkUI's native node set has no tab
+                // container, so this one is built from Day's own primitives — Emulated says so.
+                Cap::NavTabs => Support::Emulated,
+                // And HarmonyOS SHOULD grow one as it narrows: a bottom bar is the phone idiom
+                // here as it is on iOS and Android (docs/navigation.md).
+                Cap::NavTabsAdaptive => Support::Emulated,
                 // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift
                 // with the system preview; a denied drop springs back natively (docs/list.md).
                 Cap::ListReorder => Support::Native,

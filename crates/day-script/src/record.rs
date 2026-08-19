@@ -120,7 +120,7 @@ fn step_to_entry(step: &Step) -> serde_json::Value {
 /// This MIRRORS day-cli's `parse_flow` (crates/day-cli/src/script.rs) on purpose: it accepts the
 /// same `- <op>: {…}` entries, the `- screenshot: name` / `- pause: 1.5` scalar shorthands, and a
 /// bare `- nav_back:` (null params). The two are kept in step by a test that round-trips the CLI's
-/// own `smoke.yaml` template through here. (day-cli does NOT call this — the CLI deliberately does
+/// own `demo.yaml` template through here. (day-cli does NOT call this — the CLI deliberately does
 /// not depend on day-script's runtime graph — so the shared shape is guarded by test, not code.)
 pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
     let doc: serde_json::Value = serde_norway::from_str(yaml).map_err(|e| e.to_string())?;
@@ -1002,23 +1002,22 @@ mod tests {
     }
 
     #[test]
-    fn accepts_cli_smoke_template() {
+    fn accepts_cli_demo_template() {
         // The recorder's parser MUST accept the exact file day-cli's `parse_flow` reads — string
-        // `screenshot`, bare `nav_back:`, inline `{ id: … }` mappings and all. If this drifts, the
+        // `screenshot`, inline `{ id: … }` mappings, `skip_on:` lists and all. If this drifts, the
         // two parsers have diverged (see `steps_from_yaml`'s doc-comment).
-        let smoke = include_str!("../../day-cli/templates/app/dayscript/smoke.yaml");
-        let steps = steps_from_yaml(smoke).expect("smoke.yaml parses");
-        assert!(
-            steps.iter().any(|s| matches!(s, Step::NavBack)),
-            "smoke.yaml has a nav_back"
-        );
+        let demo = include_str!("../../day-cli/templates/app/dayscript/demo.yaml");
+        let steps = steps_from_yaml(demo).expect("demo.yaml parses");
         assert!(
             steps
                 .iter()
-                .any(|s| matches!(s, Step::Screenshot { name, .. } if name == "smoke")),
-            "smoke.yaml ends in a `screenshot: smoke` scalar"
+                .any(|s| matches!(s, Step::Screenshot { name, .. } if name == "welcome")),
+            "demo.yaml carries `screenshot: welcome` as a scalar"
         );
-        // And it re-emits to a form that parses back to the same steps.
+        assert!(
+            steps.iter().any(|s| matches!(s, Step::SizeClass { .. })),
+            "demo.yaml drives the adaptive navigation"
+        );
         let reparsed = steps_from_yaml(&steps_to_yaml(&steps)).expect("re-parse");
         assert_eq!(format!("{steps:?}"), format!("{reparsed:?}"));
     }

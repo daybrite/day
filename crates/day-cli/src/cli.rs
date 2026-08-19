@@ -506,7 +506,7 @@ enum Cmd {
 /// meta flags `--local` (CI) and `--no-input` have no dialog fallback by design.
 ///
 /// Scaffolds default to REMOTE (git) day dependencies so they are self-contained; the hidden
-/// `--local <path>` (or `DAY_LOCAL` env) redirects to a local day checkout for CI smoke-tests of a
+/// `--local <path>` (or `DAY_LOCAL` env) redirects to a local day checkout for CI checks of a
 /// freshly-scaffolded project against the day tree under test.
 /// `day store …` — the canonical listing under `store/`, and the fastlane trees it generates.
 #[derive(Subcommand)]

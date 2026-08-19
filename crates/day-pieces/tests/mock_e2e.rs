@@ -403,7 +403,7 @@ fn ids_land_as_a11y_identifiers() {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation & tabs (docs/navigation.md, docs/tabs.md) — selector + stack
+// Navigation (docs/navigation.md) — selector + stack
 // ---------------------------------------------------------------------------
 
 fn tabs_selector(sel: Signal<String>) -> AnyPiece {
@@ -415,44 +415,66 @@ fn tabs_selector(sel: Signal<String>) -> AnyPiece {
         .id("main-tabs")
 }
 
+/// A pinned-`Tabs` selector is a NAV host wearing a tab bar — there is no second host kind
+/// (docs/navigation.md). Where the rows are the CHROME every destination is built at mount,
+/// because a tab bar needs an item per destination: `UITabBarController` and Material's
+/// navigation bar both build their chrome from the full set, so an unbuilt page is a missing tab.
 #[test]
-fn selector_tabs_builds_all_pages_and_binds_selection() {
+fn selector_tabs_builds_every_destination_and_keeps_them() {
     let sel = Signal::new("one".to_string());
     let probe = boot(move || tabs_selector(sel));
-    let hosts = probe.find_by_kind("day.tabs");
-    assert_eq!(hosts.len(), 1);
-    assert_eq!(hosts[0].1.value, 0.0);
-    assert_eq!(probe.find_by_kind("day.tabs_page").len(), 3);
+    let hosts = probe.find_by_kind("day.nav");
+    assert_eq!(hosts.len(), 1, "one host, and it is a NAV host");
+    assert!(probe.find_by_kind("day.tabs").is_empty(), "no TABS kind");
+    assert_eq!(
+        hosts[0].1.presentation,
+        Some(day_spec::props::NavPresentation::Tabs)
+    );
+    let built = |t: &str| {
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == t)
+    };
     for t in ["one-content", "two-content", "three-content"] {
-        assert!(
-            probe
-                .find_by_kind("day.label")
-                .iter()
-                .any(|(_, w)| w.text == t),
-            "{t} built eagerly"
-        );
+        assert!(built(t), "{t} is built up front, so its tab exists");
     }
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        4,
+        "1 list + 3 tabs"
+    );
     assert_eq!(day_core::current_route().as_deref(), Some("one"));
+    assert_eq!(probe.find_by_kind("day.nav")[0].1.selected_page, Some(0));
 
-    // signal → native
+    // Switching SELECTS an existing page rather than building one: the pages are resident, so
+    // the count never moves and each keeps its own state.
     batch(|| sel.set("three".into()));
     flush_sync();
-    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 2.0);
+    assert_eq!(probe.find_by_kind("day.nav")[0].1.selected_page, Some(2));
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        4,
+        "nothing rebuilt"
+    );
 
-    // route (string shim) → native + signal
     assert!(navigate("two"));
     flush_sync();
     assert_eq!(sel.get_untracked(), "two");
-    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 1.0);
+    assert_eq!(probe.find_by_kind("day.nav")[0].1.selected_page, Some(1));
 
-    // native tap → signal
-    probe.emit(node_id(&probe, "day.tabs", 0), Event::SelectionChanged(0));
+    // A native tab tap. The tab bar IS the row list — the same `day.menu` a sidebar draws as
+    // rows — so a tap reports against it, and one handler serves every presentation.
+    let rows = probe.find_by_kind("day.nav_menu");
+    assert_eq!(rows.len(), 1, "one row list, presented as the tab bar");
+    probe.emit(NodeId(rows[0].1.node), Event::SelectionChanged(0));
     assert_eq!(sel.get_untracked(), "one");
     assert!(!navigate("nope"));
 }
 
 fn sidebar_selector(sel: Signal<String>) -> AnyPiece {
     selector(sel)
+        .style(SelectorStyle::Sidebar)
         .title("Home")
         .item("about", "About", || label("about-content"))
         .item("extra", "Extra", || label("extra-content"))
@@ -939,6 +961,7 @@ fn shown_page_retitles_native_bar_live() {
     let title = name;
     let probe = boot(move || {
         selector(section)
+            .style(SelectorStyle::Sidebar)
             .title("Root")
             .item("mail", move || title.get(), || label("mail-content"))
             .any()
@@ -964,6 +987,7 @@ fn nested_stack_in_selector_falls_through() {
     let path = Signal::new(Vec::<String>::new());
     let probe = boot(move || {
         selector(section)
+            .style(SelectorStyle::Sidebar)
             .title("Root")
             .item("plain", "Plain", || label("plain-content"))
             .item("drill", "Drill", move || {
@@ -1014,6 +1038,48 @@ fn nested_stack_in_selector_falls_through() {
     );
 }
 
+/// An absolute route reaches a stack inside a destination that was ALREADY built.
+///
+/// The registry's order is how routing reads nesting: `navigate_absolute` anchors on the surface
+/// showing the first segment and offers the rest only to surfaces registered after it. A selector
+/// that built its pages before registering itself would land at the END of that registry — behind
+/// the very stack it contains — and the detail segment would be offered to nobody. Where the rows
+/// are chrome every destination is built at mount, so this is the ordinary case there, not a
+/// corner: a phone tab bar whose list drills into an editor.
+#[test]
+fn absolute_route_descends_into_an_already_built_stack() {
+    let section = Signal::new("drill".to_string());
+    let probe = boot(move || {
+        selector(section)
+            .style(SelectorStyle::Tabs)
+            .item("plain", "Plain", || label("plain-content"))
+            .item("drill", "Drill", || {
+                let path = Signal::new(Vec::<String>::new());
+                stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+            })
+            .any()
+    });
+    // Built up front, because the rows are the chrome.
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill-root"),
+        "the destination is already built before the route is applied"
+    );
+
+    assert!(navigate("drill/two"));
+    flush_sync();
+    assert_eq!(day_core::current_route().as_deref(), Some("drill/two"));
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "drill:two"),
+        "the stack inside the built destination received the tail segment"
+    );
+}
+
 #[test]
 fn absolute_route_descends_into_lazily_mounted_stack() {
     // navigate("drill/one/two?hint=linked"): the selector anchors "drill", the stack — which
@@ -1025,6 +1091,7 @@ fn absolute_route_descends_into_lazily_mounted_stack() {
         let seen = seen_params.clone();
         move || {
             selector(section)
+                .style(SelectorStyle::Sidebar)
                 .title("Root")
                 .item("plain", "Plain", || label("plain-content"))
                 .item("drill", "Drill", {
@@ -1078,6 +1145,7 @@ fn absolute_route_resets_inner_surfaces_of_the_anchor() {
     let section = Signal::new(String::new());
     let probe = boot(move || {
         selector(section)
+            .style(SelectorStyle::Sidebar)
             .title("Root")
             .item("drill", "Drill", move || {
                 let path = Signal::new(Vec::<String>::new());
@@ -1102,6 +1170,7 @@ fn absolute_route_resets_inner_surfaces_of_the_anchor() {
 /// to a push stack and a stack in its detail runs the merged path (docs/navigation.md).
 fn merge_fixture(section: Signal<String>, path: Signal<Vec<String>>) -> AnyPiece {
     selector(section)
+        .style(SelectorStyle::Sidebar)
         .item("plain", "Plain", || label("plain-content"))
         .item("drill", "Drill", move || {
             stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
@@ -1236,6 +1305,7 @@ fn grandchild_stack_merges() {
     let inner = Signal::new(Vec::<String>::new());
     let probe = boot(move || {
         selector(section)
+            .style(SelectorStyle::Sidebar)
             .item("drill", "Drill", move || {
                 stack(outer, label("outer-root")).destination(move |_k| {
                     stack(inner, label("inner-root")).destination(|k2| label(format!("g:{k2}")))
@@ -2797,6 +2867,7 @@ fn typed_routes_drive_selector_and_stack() {
         let seen = seen.clone();
         move || {
             selector(section)
+                .style(SelectorStyle::Sidebar)
                 .title("Root")
                 .item(Area::Home, "Home", || label("home-content"))
                 .item(Area::Drill, "Drill", {
@@ -3535,7 +3606,10 @@ fn selector_restore_reopens_last_tab_and_persists() {
         Some("three"),
         "restored"
     );
-    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 2.0);
+    // The ROW highlight is what a tab bar shows; the page index is build order, which for a
+    // restored key is 0 because that page was the first one visited.
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 2.0);
+    assert_eq!(probe.find_by_kind("day.nav")[0].1.selected_page, Some(0));
 
     // A later selection is persisted.
     assert!(navigate("two"));
@@ -3566,7 +3640,7 @@ fn selector_restore_ignores_stale_key() {
         Some("one"),
         "app default kept"
     );
-    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 0.0);
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 0.0);
 }
 
 #[test]
@@ -3668,7 +3742,7 @@ fn restore_yields_to_launch_deeplink() {
         Some("two"),
         "deep link wins"
     );
-    assert_eq!(probe.find_by_kind("day.tabs")[0].1.value, 1.0);
+    assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 1.0);
 }
 
 // --- .local() and the sibling-collision footgun (docs/navigation.md) ------------------------
@@ -4387,4 +4461,403 @@ fn list_delete_refused_by_guard_and_unsupported_without_optin() {
     let host2 = probe2.find_by_kind("day.list")[0].0;
     assert_eq!(probe2.list_can_delete(host2, 0), None);
     assert!(!probe2.list_delete(host2, 0));
+}
+
+// ---------------------------------------------------------------------------
+// Adaptive navigation — SelectorStyle::Automatic (docs/navigation.md,
+// docs/size-classes.md). One host, four presentations, chosen by the window.
+// ---------------------------------------------------------------------------
+
+use day_spec::props::NavPresentation as NP;
+
+/// Three sections under whatever style the caller pins — or none, to exercise the default.
+fn adaptive_selector(sel: Signal<String>, style: Option<SelectorStyle>) -> AnyPiece {
+    let s = selector(sel)
+        .title("Home")
+        .item("one", "One", || label("one-content"))
+        .item("two", "Two", || label("two-content"))
+        .item("three", "Three", || label("three-content"));
+    // `.style()` before `.id()`: the id decorator wraps the piece, and the style belongs to the
+    // selector itself.
+    match style {
+        Some(st) => s.style(st).id("nav").any(),
+        None => s.id("nav").any(),
+    }
+}
+
+fn presentation_of(probe: &MockProbe) -> Option<NP> {
+    probe.find_by_kind("day.nav")[0].1.presentation
+}
+
+/// The bare `selector(x)` — no `.style()` — is adaptive. On the mock's default phone-shaped
+/// window that means a tab bar, where the old `Sidebar` default gave a list you press back
+/// out of.
+#[test]
+fn automatic_is_the_default_style() {
+    let sel = Signal::new("one".to_string());
+    let probe = boot(move || adaptive_selector(sel, None));
+    assert_eq!(presentation_of(&probe), Some(NP::Tabs));
+    assert_eq!(
+        sel.get_untracked(),
+        "one",
+        "a tab bar always has a selection"
+    );
+}
+
+/// The adaptive ladder, walked one breakpoint at a time on a live host.
+#[test]
+fn automatic_walks_tabs_rail_split_by_width() {
+    let sel = Signal::new("one".to_string());
+    // Launch expanded, so the first frame is the split end of the ladder.
+    let probe = boot_splittable(Size::new(1000.0, 700.0), move || {
+        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Split), "840dp+ splits");
+
+    for (w, want, why) in [
+        (700.0, NP::Rail, "600-839dp is the rail"),
+        (390.0, NP::Tabs, "under 600dp is a tab bar"),
+        (900.0, NP::Split, "and back up again"),
+        (1400.0, NP::Split, "Large still splits"),
+        (1800.0, NP::Split, "ExtraLarge still splits"),
+    ] {
+        day_core::set_size_class(day_spec::SizeClass::from_size(w, 800.0));
+        flush_sync();
+        assert_eq!(presentation_of(&probe), Some(want), "{w}dp: {why}");
+    }
+}
+
+/// `Automatic` never resolves to `Stack` where the toolkit can draw a bar. That is the whole
+/// difference from `Sidebar`, which collapses to a list the user presses back out of.
+#[test]
+fn automatic_never_stacks_when_tabs_are_available() {
+    let sel = Signal::new("one".to_string());
+    let probe = boot_splittable(Size::new(390.0, 844.0), move || {
+        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Tabs));
+    assert_ne!(presentation_of(&probe), Some(NP::Stack));
+}
+
+/// A toolkit that cannot draw a tab bar gets the SIDEBAR resolver — the behavior every backend
+/// had before adaptive navigation existed. Degrading to the old shape rather than to a hole is
+/// what lets this land one backend at a time.
+#[test]
+fn automatic_degrades_to_the_sidebar_resolver_without_nav_tabs() {
+    let sel = Signal::new(String::new());
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_nav_split(true);
+    probe.set_no_nav_tabs(true);
+    day_core::launch_with(
+        mock,
+        WindowOptions {
+            title: "test".into(),
+            size: Size::new(390.0, 844.0),
+            ..Default::default()
+        },
+        move || adaptive_selector(sel, Some(SelectorStyle::Automatic)),
+    );
+    assert_eq!(
+        presentation_of(&probe),
+        Some(NP::Stack),
+        "no tab bar, narrow window: the pre-adaptive answer"
+    );
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+    assert_eq!(presentation_of(&probe), Some(NP::Split));
+}
+
+/// The assertion that matters for a morph: the presentation changed AND the state survived.
+/// A naive check passes while silently dropping the selected section, so both halves are here.
+#[test]
+fn morphing_out_of_tabs_keeps_the_visible_page_and_drops_the_rest() {
+    let sel = Signal::new("one".to_string());
+    let probe = boot_splittable(Size::new(390.0, 844.0), move || {
+        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Tabs));
+
+    // Visit all three, so all three are resident.
+    for k in ["two", "three"] {
+        batch(|| sel.set(k.into()));
+        flush_sync();
+    }
+    let visible = probe
+        .find_by_kind("day.label")
+        .iter()
+        .find(|(_, w)| w.text == "three-content")
+        .map(|(_, w)| w.node)
+        .expect("the shown page exists");
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        4,
+        "1 list + 3 resident tabs"
+    );
+
+    // Widen past the split breakpoint.
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+
+    assert_eq!(presentation_of(&probe), Some(NP::Split));
+    assert_eq!(sel.get_untracked(), "three", "the selection survived");
+    assert_eq!(day_core::current_route().as_deref(), Some("three"));
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        2,
+        "a split draws one detail: the invisible pages went away"
+    );
+    // The one page the user was actually looking at was NOT rebuilt — same node, still there.
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.node == visible && w.text == "three-content"),
+        "the visible page survived the morph without being rebuilt"
+    );
+}
+
+/// Narrowing back into a tab bar completes the row set — and REUSES the page already on screen
+/// rather than rebuilding what the user is looking at.
+#[test]
+fn morphing_into_tabs_completes_the_rows_and_reuses_the_shown_page() {
+    let sel = Signal::new("two".to_string());
+    let probe = boot_splittable(Size::new(1000.0, 700.0), move || {
+        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Split));
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        2,
+        "a split draws one detail"
+    );
+    let shown = probe
+        .find_by_kind("day.label")
+        .iter()
+        .find(|(_, w)| w.text == "two-content")
+        .map(|(_, w)| w.node)
+        .expect("detail built");
+
+    day_core::set_size_class(day_spec::SizeClass::from_size(390.0, 844.0));
+    flush_sync();
+
+    assert_eq!(presentation_of(&probe), Some(NP::Tabs));
+    assert_eq!(sel.get_untracked(), "two");
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        4,
+        "1 list + a page per destination, so every tab has an item"
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.node == shown),
+        "the page the user was looking at was reused, not rebuilt"
+    );
+}
+
+/// A pinned presentation still wins over the window, and a pin the toolkit cannot draw falls
+/// back rather than being taken literally (docs/size-classes.md: a pin is a preference).
+#[test]
+fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
+    let sel = Signal::new("one".to_string());
+    let probe = boot_splittable(Size::new(390.0, 844.0), move || {
+        selector(sel)
+            .presentation(NP::Split)
+            .item("one", "One", || label("one-content"))
+            .item("two", "Two", || label("two-content"))
+            .any()
+    });
+    assert_eq!(
+        presentation_of(&probe),
+        Some(NP::Split),
+        "pinned split on a compact window"
+    );
+    day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 700.0));
+    flush_sync();
+    assert_eq!(presentation_of(&probe), Some(NP::Split), "and it stays put");
+
+    // A pinned tab bar on a toolkit with none falls back to what it CAN draw.
+    let sel2 = Signal::new("one".to_string());
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe2) = MockToolkit::new();
+    probe2.set_nav_split(true);
+    probe2.set_no_nav_tabs(true);
+    day_core::launch_with(
+        mock,
+        WindowOptions {
+            title: "test".into(),
+            size: Size::new(1000.0, 700.0),
+            ..Default::default()
+        },
+        move || {
+            selector(sel2)
+                .presentation(NP::Tabs)
+                .item("one", "One", || label("one-content"))
+                .any()
+        },
+    );
+    assert_eq!(presentation_of(&probe2), Some(NP::Split));
+}
+
+/// A DESKTOP toolkit draws a pinned tab bar but never grows one (docs/navigation.md).
+///
+/// The two capabilities are deliberately separate: `Cap::NavTabs` is "can this toolkit draw a tab
+/// bar", which every desktop can and must, because an app is free to pin `SelectorStyle::Tabs`.
+/// `Cap::NavTabsAdaptive` is "should a narrow window BECOME one", which no desktop should — a
+/// narrow Mail.app hides its sidebar and pushes rather than sprouting a bottom bar.
+#[test]
+fn a_desktop_idiom_collapses_to_a_stack_instead_of_growing_a_tab_bar() {
+    let sel = Signal::new(String::new());
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_nav_split(true);
+    probe.set_desktop_idiom(true);
+    day_core::launch_with(
+        mock,
+        WindowOptions {
+            title: "test".into(),
+            size: Size::new(1000.0, 700.0),
+            ..Default::default()
+        },
+        move || adaptive_selector(sel, Some(SelectorStyle::Automatic)),
+    );
+    assert_eq!(presentation_of(&probe), Some(NP::Split), "wide: a sidebar");
+
+    // The rail rung is NOT gated by the idiom — a narrow sidebar is an ordinary desktop shape,
+    // and on Windows it is what NavigationView does at this width on its own.
+    day_core::set_size_class(day_spec::SizeClass::from_size(700.0, 800.0));
+    flush_sync();
+    assert_eq!(
+        presentation_of(&probe),
+        Some(NP::Rail),
+        "medium: still a rail"
+    );
+
+    // The bottom rung is where the platforms part company.
+    day_core::set_size_class(day_spec::SizeClass::from_size(390.0, 844.0));
+    flush_sync();
+    assert_eq!(
+        presentation_of(&probe),
+        Some(NP::Stack),
+        "compact on a desktop: collapse, exactly as SelectorStyle::Sidebar always has"
+    );
+    assert_ne!(presentation_of(&probe), Some(NP::Tabs));
+}
+
+/// The same window sizes on a toolkit whose users DO expect a tab bar. Pairing the two tests is
+/// the point: one resolver, one set of breakpoints, and only the compact rung differs.
+#[test]
+fn a_mobile_idiom_grows_a_tab_bar_at_the_same_breakpoint() {
+    let sel = Signal::new(String::new());
+    let probe = boot_splittable(Size::new(390.0, 844.0), move || {
+        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Tabs));
+    day_core::set_size_class(day_spec::SizeClass::from_size(700.0, 800.0));
+    flush_sync();
+    assert_eq!(
+        presentation_of(&probe),
+        Some(NP::Rail),
+        "the middle rung agrees"
+    );
+}
+
+/// A desktop still renders a tab bar when the app PINS one — that is the whole reason the two
+/// capabilities are separate rather than one flag.
+#[test]
+fn a_pinned_tab_bar_still_draws_on_a_desktop_idiom() {
+    let sel = Signal::new("one".to_string());
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_nav_split(true);
+    probe.set_desktop_idiom(true);
+    day_core::launch_with(
+        mock,
+        WindowOptions {
+            title: "test".into(),
+            size: Size::new(1000.0, 700.0),
+            ..Default::default()
+        },
+        move || adaptive_selector(sel, Some(SelectorStyle::Tabs)),
+    );
+    assert_eq!(presentation_of(&probe), Some(NP::Tabs), "pinned wins");
+}
+
+/// Switching sections repeatedly must keep working. A split host tears the old detail down and
+/// builds the new one on every change, so any bookkeeping that leaks by one per switch shows up
+/// only after several — which is exactly the shape of bug a two-switch test misses.
+#[test]
+fn switching_sections_repeatedly_keeps_switching() {
+    let sel = Signal::new("one".to_string());
+    let probe = boot_splittable(Size::new(1000.0, 700.0), move || {
+        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Split));
+    let shown = |p: &MockProbe| {
+        p.find_by_kind("day.label")
+            .iter()
+            .filter(|(_, w)| w.text.ends_with("-content"))
+            .map(|(_, w)| w.text.clone())
+            .collect::<Vec<_>>()
+    };
+    for i in 0..8 {
+        let want = if i % 2 == 0 { "two" } else { "one" };
+        batch(|| sel.set(want.into()));
+        flush_sync();
+        assert_eq!(
+            shown(&probe),
+            vec![format!("{want}-content")],
+            "switch #{i}: exactly the selected section's page is built"
+        );
+        assert_eq!(
+            day_core::current_route().as_deref(),
+            Some(want),
+            "switch #{i}"
+        );
+    }
+}
+
+/// A preferences window sizes itself to its rows, not to the number the caller guessed
+/// (docs/windows.md). The caller's `size` stays the width and becomes the height CEILING.
+#[test]
+fn a_preferences_window_fits_its_content() {
+    let probe = boot(|| {
+        day_core::register_preferences(|| {
+            column((
+                label("Appearance").height(30.0),
+                label("Language").height(30.0),
+            ))
+            .spacing(10.0)
+            .padding(20.0)
+            .any()
+        });
+        label("main").any()
+    });
+    assert!(
+        day_core::open_preferences(),
+        "a preferences piece is registered"
+    );
+    flush_sync();
+
+    let w = probe
+        .windows()
+        .into_iter()
+        .find(|w| w.kind == "preferences")
+        .expect("the preferences window opened");
+    let fitted = w
+        .fit_size
+        .expect("it was fitted rather than left at the ceiling");
+    // 30 + 10 + 30 rows, 20 padding top and bottom.
+    assert_eq!(fitted.height, 110.0, "sized to the rows");
+    assert!(
+        fitted.height < 640.0,
+        "and well under the 640 ceiling register_preferences declares"
+    );
+    assert_eq!(fitted.width, 520.0, "the width is still the caller's");
 }

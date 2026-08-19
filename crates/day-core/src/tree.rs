@@ -643,6 +643,11 @@ pub trait TreeOps {
     fn remove_window_root(&mut self, root: RNode);
     /// A secondary window's content size changed (its `WindowResized` handler).
     fn set_root_size(&mut self, root: RNode, s: Size);
+
+    /// Ask the toolkit to size the window whose content root is `root` to `size`
+    /// (`WindowOptions::size_to_fit`). Also updates Day's own layout size for that root, so the
+    /// content is re-laid at the size the window actually became.
+    fn fit_window(&mut self, root: RNode, size: Size);
     /// Register an EXTRA layout root: a node that stays attached in the tree (native
     /// re-homing needs the parent link) but lays out independently at its own reported
     /// size — the cover-fallback surface (docs/windows.md). The primary root's PassThrough
@@ -779,8 +784,6 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 // `flag` marks indeterminate; `value` holds the determinate fraction.
                 probe.flag = p.value.is_none();
                 probe.value = p.value.unwrap_or(0.0);
-            } else if let Some(p) = props.downcast_ref::<TabsProps>() {
-                probe.value = p.selected as f64;
             } else if let Some(p) = props.downcast_ref::<PickerProps>() {
                 probe.selected = p.selected as i64;
                 probe.value = p.selected as f64;
@@ -1105,8 +1108,6 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     patch.downcast_ref::<NavMenuPatch>()
                 {
                     n.probe.selected = sel.map(|i| i as i64).unwrap_or(-1);
-                } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                    n.probe.value = *i as f64;
                 }
             }
         }
@@ -1394,6 +1395,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             w.size = s;
             self.mark_needs_measure_impl(root);
         }
+    }
+
+    fn fit_window(&mut self, root: RNode, size: Size) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.fit_window(&h, size);
+        }
+        self.set_root_size(root, size);
     }
 
     fn add_extra_layout_root(&mut self, node: RNode, size: Size) {

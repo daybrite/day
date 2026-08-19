@@ -338,7 +338,7 @@ but not direction):
 
 The showcase ships an Arabic locale (`--locale ar`) exercising all of this; CI captures every
 walkthrough screenshot in light/dark × en/fr/ar/zh-CN, and `dayscript/rtl-check.yaml` is a quick
-local smoke-test.
+local check.
 
 ## Pseudolocale
 

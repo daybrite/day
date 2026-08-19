@@ -62,19 +62,25 @@ one place rather than nine.
 
 ## What a nav host does with it
 
-A `selector` presents as `Split` (list beside detail) or `Stack` (one page at a time,
-back-navigable). Left alone it resolves that automatically:
+A `selector` presents as `Split` (list beside detail), `Stack` (one page at a time,
+back-navigable), `Tabs` (the rows as a tab bar) or `Rail` (the rows as a narrow strip). Left alone
+it resolves that automatically:
 
 ```rust
 selector(section)                       // automatic: follows the window
 selector(section).presentation(NavPresentation::Split)   // pinned
 ```
 
-Resolution answers three questions in order:
+Resolution answers four questions in order:
 
-1. Can this toolkit draw split panes at all (`Cap::NavSplit`)? If not, `Stack`, always.
-2. Did the app pin one? If so, that.
-3. Otherwise: `Split` when the window is wider than compact.
+1. Did the app pin one? If so, that — clamped to something the toolkit can draw.
+2. Can this toolkit draw split panes at all (`Cap::NavSplit`)? If not, it stays single-pane.
+3. Which STYLE is it? `Tabs` is a tab bar at every size; `Sidebar` is the `Split` ↔ `Stack`
+   ladder this document has always described.
+4. `Automatic` walks the full ladder: `Split` when expanded, `Rail` at medium, and when compact
+   either `Tabs` or `Stack` — `Cap::NavTabsAdaptive` decides which, because growing a tab bar
+   from a narrowed window is idiomatic on the phones and the web and is not on any desktop
+   ([docs/navigation.md](navigation.md)).
 
 Pin one when the content only works one way — a settings sidebar whose detail is meaningless on
 its own, a wizard that has to stay a stack. A pin is still a preference: a toolkit with no split
@@ -91,10 +97,13 @@ That works because a page's `Pane` is a fact about the model rather than about t
 drawing. A selector's list page is `Pane::Sidebar` whether the host is split or stacked; what the
 presentation decides is where the pane lands:
 
-| pane | `Split` | `Stack` |
-|---|---|---|
-| `Sidebar` | its own splitter pane | the root of the stack |
-| `Detail` | the detail pane | pushed above the root |
+| pane | `Split` | `Stack` | `Tabs` | `Rail` |
+|---|---|---|---|---|
+| `Sidebar` | its own splitter pane | the root of the stack | not drawn — the rows ARE the tab bar | not drawn — the rows are the rail |
+| `Detail` | the detail pane | pushed above the root | the tab's content area | the content beside the rail |
+
+`Tabs` and `Rail` differ only in where the rows are drawn, which is why they share a code path in
+the pieces layer and in every backend: both hide the sidebar PAGE and render its rows as chrome.
 
 Selection is carried across, with one asymmetry:
 
@@ -228,6 +237,7 @@ dayscript's `size_class:` step reports a class the way a backend would, without 
 - size_class: { width: compact }              # height defaults to `expanded`
 - assert_visible: { id: nav-list }
 - size_class: { width: expanded, height: medium }
+- size_class: { width: auto }                 # back to what the window reports
 ```
 
 Everything downstream runs its real path — the host re-presents, a piece reading
@@ -235,6 +245,12 @@ Everything downstream runs its real path — the host re-presents, a piece readi
 after this step shows the new layout at the old size. Where the geometry itself is under test,
 drive a real resize from the runner instead: Playwright's `setViewportSize` on web, the
 simulator's rotation on iOS.
+
+Release the override with `width: auto` once the sweep is over. A forced class that outlives the
+steps it was written for follows the script into everything after it: a phone left on `expanded`
+lays out a two-pane split at 390pt, and the detail pane — the thing the next step is about to look
+for — sits off the right edge of the screen. The layout is correct; the window is simply not that
+wide.
 
 The assertion worth writing is the two-part one: that the presentation changed **and** that the
 state survived. A morph that silently drops the selected section passes a naive screenshot check

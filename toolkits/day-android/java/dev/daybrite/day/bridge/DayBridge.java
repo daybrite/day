@@ -654,8 +654,20 @@ public final class DayBridge {
         }
     }
 
+    /**
+     * Each button's tint as Material styled it, so clearing an app tint can put the THEME's
+     * container color back.
+     *
+     * `setBackgroundTintList(null)` does not restore a default — it removes the tint outright, and
+     * a MaterialButton's background is a shape drawable that the tint is what colors. Left null
+     * it draws raw black, which is how every untinted button on this backend came out.
+     */
+    private static final java.util.Map<View, android.content.res.ColorStateList> buttonTints =
+            new java.util.WeakHashMap<>();
+
     public static View makeButton(final long id, String title) {
         MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
+        buttonTints.put(b, b.getBackgroundTintList());
         b.setText(title);
         b.setOnClickListener(new View.OnClickListener() {
             public void onClick(View x) { nativeOnEvent(id, K_PRESSED, 0, null); }
@@ -675,7 +687,8 @@ public final class DayBridge {
         if (!(v instanceof MaterialButton)) return;
         MaterialButton b = (MaterialButton) v;
         if (kind != 3) {
-            b.setBackgroundTintList(null);
+            // Back to what the theme dressed it in (see buttonTints), not to no tint at all.
+            b.setBackgroundTintList(buttonTints.get(b));
             return;
         }
         b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(argb));
@@ -924,8 +937,13 @@ public final class DayBridge {
         if (child instanceof DayCover && ((DayCover) child).presented) return;
         if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
         if (parent instanceof DayTabs) {
-            String[] meta = (String[]) child.getTag();
-            ((DayTabs) parent).addTab(child, meta[0], meta.length > 1 ? meta[1] : null);
+            // The suite's own pages. The chrome-source page is marked before insertion and shown
+            // as no tab; every other page is a destination, in row order.
+            if (navChromePages.remove(child)) {
+                ((DayTabs) parent).addChromePage(child);
+            } else {
+                ((DayTabs) parent).addPage(child);
+            }
             return;
         }
         View target = contentOf(parent);
@@ -1104,24 +1122,37 @@ public final class DayBridge {
         }
     }
 
-    // Tabs (docs/tabs.md): a DayTabs strip; each page is a DayFixed carrying its title as a tag.
-    public static View makeTabs(long id, int initial) { return new DayTabs(ctx, id, initial); }
-    public static View makeTabPage(final long id, String title, String icon) {
-        DayFixed page = new DayFixed(ctx);
-        // Carry both the label and the bundled icon NAME ("" = none) to addTab via the view tag.
-        page.setTag(new String[]{title, icon});
-        page.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
-            @Override public void onLayoutChange(View v, int l, int t, int r, int b,
-                    int ol, int ot, int or2, int ob) {
-                int w = r - l, h = b - t;
-                if (w != or2 - ol || h != ob - ot) {
-                    nativeOnEvent(id, K_FRAME_CHANGED, 0.0, w + "," + h); // kind 6 = FrameChanged
-                }
+    // --- navigation suite (docs/navigation.md) ---
+    // The NAV host in its `Tabs` presentation: the same container, reached from the nav path.
+
+    /** Pages whose rows ARE the chrome — marked before insertion, consumed by `addChild`. */
+    private static final java.util.Set<View> navChromePages =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    public static View makeNavSuite(long id, int initial) { return new DayTabs(ctx, id, initial); }
+
+    /** Mark `page` as the suite's chrome source before it is inserted (see `addChild`). */
+    public static void markNavChromePage(View page) { navChromePages.add(page); }
+
+    /**
+     * Hand a nav menu's rows to the suite that will draw them as chrome.
+     *
+     * Called with the MENU, not the suite: the menu knows its rows, and by the time it is inserted
+     * its ancestors reach the suite, so the walk up is what connects the two. A menu outside a
+     * suite — every non-tabs presentation — finds nothing and this is a no-op.
+     */
+    public static void setNavSuiteRows(View menu, String titles, String icons, long menuNode) {
+        for (android.view.ViewParent p = menu.getParent(); p != null; p = p.getParent()) {
+            if (p instanceof DayTabs) {
+                ((DayTabs) p).setRows(titles, icons, menuNode);
+                return;
             }
-        });
-        return page;
+        }
     }
-    public static void setTabsSelected(View tabs, int index) { ((DayTabs) tabs).select(index); }
+
+    public static void setNavSuiteSelected(View suite, int index) {
+        if (suite instanceof DayTabs) ((DayTabs) suite).select(index);
+    }
     /** nav_menu(): standard tappable list rows (ripple, 48dp) for the route table. `joinedIcons`
      *  is a parallel, index-aligned list of bundled image NAMES ("" = no icon), shown as a tinted
      *  leading drawable on each row — the Material navigation-drawer idiom. */
@@ -1733,12 +1764,46 @@ public final class DayBridge {
         }
     }
 
+    /**
+     * Hand a plain tap on `child` to the nearest ancestor that handles one.
+     *
+     * A long-press menu and a row tap have to coexist. `setOnLongClickListener` makes a view
+     * long-clickable, and `View.onTouchEvent` treats long-clickable as clickable — so the row's
+     * CONTENT (where the menu is attached) swallows the tap, and the RecyclerView cell's own
+     * click listener, which is what performs selection, never runs.
+     *
+     * Resolved at tap time rather than at attach time: Day builds a row's content and configures
+     * its menu BEFORE binding it into a cell, so the parent chain does not exist yet when the
+     * menu goes on.
+     */
+    private static void forwardClickToRow(View child) {
+        for (android.view.ViewParent p = child.getParent(); p instanceof View; p = p.getParent()) {
+            View pv = (View) p;
+            if (pv.hasOnClickListeners()) {
+                pv.performClick();
+                return;
+            }
+        }
+    }
+
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
     public static void setContextMenu(final View v, final String spec) {
         if (spec == null || spec.isEmpty()) {
             v.setOnLongClickListener(null);
             v.setLongClickable(false);
+            v.setOnClickListener(null);
+            v.setClickable(false);
             return;
+        }
+        // See forwardClickToRow: the menu makes this view eat touches, so the tap it eats has to
+        // be handed on. Only where the view has no click behavior of its own — a button with a
+        // context menu keeps its own action.
+        if (!v.hasOnClickListeners()) {
+            v.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View child) {
+                    forwardClickToRow(child);
+                }
+            });
         }
         v.setOnLongClickListener(new View.OnLongClickListener() {
             public boolean onLongClick(View anchor) {

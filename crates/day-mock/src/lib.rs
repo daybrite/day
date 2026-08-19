@@ -62,6 +62,14 @@ pub struct MockWidget {
     /// The most recent animation intent seen on ANY seam for this widget (`update`/`set_frame`/
     /// `set_opacity`/`set_transform`). Lets tests assert `with_animation` threaded the intent.
     pub last_anim: Option<AnimSpec>,
+    /// A NAV host's current presentation (docs/size-classes.md) — probe-visible so a test can
+    /// assert WHICH of the four a morph landed on. `flag` carries only split-ness, which cannot
+    /// tell `Tabs` from `Rail` from `Stack`; both are kept because the older tests read `flag`.
+    pub presentation: Option<day_spec::props::NavPresentation>,
+    /// The resident detail page index a `NavPatch::Select` last chose (docs/navigation.md).
+    /// `None` until the host is asked to select one, which only happens in a presentation whose
+    /// rows are chrome — a stacked host pushes and pops instead.
+    pub selected_page: Option<usize>,
 }
 
 /// A secondary window opened through the `open_window` duty (docs/windows.md) —
@@ -78,6 +86,10 @@ pub struct MockWindow {
     pub kind: String,
     pub open: bool,
     pub focused: bool,
+    /// The content size the window was FITTED to (`WindowOptions::size_to_fit`), or `None` if it
+    /// kept the size it was opened at. Probe-visible so a test can assert that a preferences
+    /// panel shrank to its rows rather than keeping the caller's ceiling.
+    pub fit_size: Option<Size>,
 }
 
 #[derive(Default)]
@@ -102,6 +114,15 @@ pub struct MockState {
     /// `Cap::NavSplit` answers `Native` — the harness for split and re-presenting nav hosts
     /// (docs/size-classes.md). Off by default, so the mock keeps modeling a phone.
     pub nav_split: bool,
+    /// `Cap::NavTabs` answers `Unsupported` — the harness for the DEGRADATION path, where an
+    /// `Automatic` selector falls back to the sidebar resolver (docs/navigation.md). Inverted
+    /// like `no_multi_window` because the capability is ON by default: a phone has a tab bar,
+    /// so a mock that models a phone must have one too, or the default resolution is a fiction.
+    pub no_nav_tabs: bool,
+    /// `Cap::NavTabsAdaptive` answers `Unsupported` — the harness for a DESKTOP idiom, where a
+    /// narrow window collapses to a stack instead of growing a tab bar. Also inverted: the mock
+    /// models a phone by default, and a phone adapts.
+    pub desktop_idiom: bool,
     /// `open_window` answers `Pending` (the async-completion test harness); the test
     /// finishes the open through [`MockProbe::complete_window`].
     pub pending_windows: bool,
@@ -340,6 +361,21 @@ impl MockProbe {
         self.state.borrow_mut().nav_split = v;
     }
 
+    /// Make `Cap::NavTabs` answer `Unsupported` — the harness for an `Automatic` selector on a
+    /// toolkit that cannot draw a tab bar, which must degrade to the sidebar resolver rather
+    /// than to a hole (docs/navigation.md). Read during the BUILD, so set it before launching.
+    pub fn set_no_nav_tabs(&self, v: bool) {
+        self.state.borrow_mut().no_nav_tabs = v;
+    }
+
+    /// Model a DESKTOP toolkit: `Cap::NavTabs` stays on (a pinned tab bar still draws) but
+    /// `Cap::NavTabsAdaptive` answers `Unsupported`, so an `Automatic` selector collapses a
+    /// narrow window to a stack rather than growing a tab bar (docs/navigation.md). Read during
+    /// the BUILD, so set it before launching.
+    pub fn set_desktop_idiom(&self, v: bool) {
+        self.state.borrow_mut().desktop_idiom = v;
+    }
+
     /// Make `open_window` answer `Pending` — the async-completion test harness. Finish an
     /// open with [`Self::complete_window`] + `day_core::finish_window_open`.
     pub fn set_pending_windows(&self, v: bool) {
@@ -373,6 +409,7 @@ impl MockProbe {
             kind,
             open: true,
             focused: false,
+            fit_size: None,
         });
         s.log(format!("window_ready #{h} {}", fmt_size(size)));
         Some(h as day_spec::RawHandle)
@@ -470,6 +507,25 @@ impl Toolkit for MockToolkit {
                     Support::Unsupported
                 }
             }
+            // ON by default (docs/navigation.md): the mock models a phone, and a phone has a tab
+            // bar. A test opts OUT to exercise the degradation path, where `Automatic` falls back
+            // to the sidebar resolver.
+            Cap::NavTabs => {
+                if self.state.borrow().no_nav_tabs {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
+            // Separate from `NavTabs`: a desktop draws a pinned tab bar but never adapts into one.
+            Cap::NavTabsAdaptive => {
+                let st = self.state.borrow();
+                if st.no_nav_tabs || st.desktop_idiom {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
             // Real (recorded) windows unless the test opted into the cover-fallback tier.
             Cap::MultiWindow => {
                 if self.state.borrow().no_multi_window {
@@ -530,6 +586,7 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<NavProps>() {
             w.text = p.title.clone();
             w.flag = p.presentation.is_split();
+            w.presentation = Some(p.presentation);
             detail = format!(" title={:?} presentation={:?}", p.title, p.presentation);
         } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
             w.text = p.title.clone();
@@ -541,13 +598,6 @@ impl Toolkit for MockToolkit {
             w.text = p.items.join("|");
             w.value = p.selected.map(|i| i as f64).unwrap_or(-1.0);
             detail = format!(" items={:?} selected={:?}", p.items, p.selected);
-        } else if let Some(p) = props.downcast_ref::<TabsProps>() {
-            w.text = p.titles.join("|");
-            w.value = p.selected as f64;
-            detail = format!(" titles={:?} selected={}", p.titles, p.selected);
-        } else if let Some(p) = props.downcast_ref::<TabsPageProps>() {
-            w.text = p.title.clone();
-            detail = format!(" title={:?}", p.title);
         } else if let Some(p) = props.downcast_ref::<PickerProps>() {
             w.text = p.options.join("|");
             w.value = p.selected as f64;
@@ -692,20 +742,6 @@ impl Toolkit for MockToolkit {
                         format!("menu items={items:?} selected={selected:?}")
                     }
                 }
-            } else if let Some(p) = patch.downcast_ref::<TabsPatch>() {
-                match p {
-                    TabsPatch::Selected(i) => {
-                        w.value = *i as f64;
-                        format!("tab selected={i}")
-                    }
-                    TabsPatch::Items {
-                        titles, selected, ..
-                    } => {
-                        w.text = titles.join("|");
-                        w.value = *selected as f64;
-                        format!("tab items={titles:?} selected={selected}")
-                    }
-                }
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
                 match p {
                     NavPatch::Pushed { title, .. } => {
@@ -724,10 +760,20 @@ impl Toolkit for MockToolkit {
                     }
                     // The host's presentation after a size-class change. `flag` tracks it the
                     // same way the initial `NavProps` did, so a walkthrough asserting the morph
-                    // reads one field either side of it.
+                    // reads one field either side of it; `presentation` carries which of the
+                    // four it actually is, which `flag` cannot say.
                     NavPatch::Presentation(p) => {
                         w.flag = p.is_split();
+                        w.presentation = Some(*p);
                         format!("nav presentation={p:?}")
+                    }
+                    // Resident-page switch (docs/navigation.md). A stacked host never receives
+                    // this — it gets `Pushed`/`Popped` instead — so recording it unconditionally
+                    // is also what lets a test prove the pieces layer sent the right one.
+                    NavPatch::Select(i) => {
+                        w.selected_page = Some(*i);
+                        w.value = *i as f64;
+                        format!("nav select={i}")
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {
@@ -1039,6 +1085,15 @@ impl Toolkit for MockToolkit {
         Ok(vec![0x89, b'P', b'N', b'G'])
     }
 
+    fn fit_window(&mut self, host: &MockHandle, size: Size) {
+        let mut st = self.state.borrow_mut();
+        if let Some(w) = st.windows.iter_mut().find(|w| w.handle == host.0) {
+            w.fit_size = Some(size);
+            w.size = size;
+        }
+        st.log(format!("fit_window {} {size:?}", host.0));
+    }
+
     fn open_window(
         &mut self,
         id: NodeId,
@@ -1079,6 +1134,7 @@ impl Toolkit for MockToolkit {
             kind: kind_s.into(),
             open: true,
             focused: false,
+            fit_size: None,
         });
         s.log(format!(
             "open_window #{h} {:?} {} kind={kind_s}",

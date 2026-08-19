@@ -110,7 +110,7 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
 
 ## Testing
 
-The crate's smoke test boots the piece on the mock toolkit (which realizes unknown kinds as plain
+The crate's test boots the piece on the mock toolkit (which realizes unknown kinds as plain
 widgets and ignores unknown patches, just like a backend built without the feature), fires all
 three triggers, and must never panic: `cargo test -p day-piece-media`.
 

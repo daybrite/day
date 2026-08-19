@@ -16,7 +16,7 @@ use day_spec::{Event, Size, kinds};
 use crate::*;
 
 // ---------------------------------------------------------------------------
-// Navigation & tabs (docs/navigation.md, docs/tabs.md) — selector + stack, each a
+// Navigation (docs/navigation.md) — selector + stack, each a
 // projection of an app-owned Signal.
 // ---------------------------------------------------------------------------
 
@@ -290,37 +290,6 @@ fn nav_page(
     page
 }
 
-/// Create a TABS_PAGE under `host`, wiring its FrameChanged reports into `sizes`.
-fn tabs_page(
-    host: RNode,
-    props: &day_spec::props::TabsPageProps,
-    sizes: &Rc<RefCell<std::collections::HashMap<RNode, Size>>>,
-) -> RNode {
-    let mut cx = BuildCx::new(host);
-    let page = cx.native(
-        kinds::TABS_PAGE,
-        props,
-        Rc::new(PassThrough),
-        Flex::default(),
-        Boundary::Yes,
-    );
-    let sizes = sizes.clone();
-    cx.on(page, move |ev| {
-        if let Event::FrameChanged(sz) = ev {
-            let changed = sizes.borrow().get(&page) != Some(sz);
-            if changed {
-                sizes.borrow_mut().insert(page, *sz);
-                with_tree(|t| {
-                    t.mark_needs_measure(page);
-                    t.mark_layout_dirty();
-                    t.layout_if_needed();
-                });
-            }
-        }
-    });
-    page
-}
-
 /// Register a string-route adapter over a route surface's own signal, so `navigate()` /
 /// deep links / dayscript keep working by key. This is a *convenience layer* — the surface
 /// itself is driven by the signal, not by this registry (docs/navigation.md).
@@ -334,7 +303,12 @@ fn register_route_surface(
     enter: impl Fn(&str) -> bool + 'static,
     segments: impl Fn() -> Vec<String> + 'static,
 ) {
+    // The nesting depth day-core descends by. `NAV_HOST_CX` is the stack of hosts this build is
+    // inside, so its length IS how deep this surface sits — and unlike registration order it does
+    // not depend on whether a host registers before or after building its pages.
+    let depth = NAV_HOST_CX.with(|s| s.borrow().len());
     let token = day_core::register_nav(day_core::NavController {
+        depth,
         push: Box::new(push),
         pop: Box::new(pop),
         current: Box::new(current),
@@ -394,15 +368,43 @@ fn warn_sibling_selectors(_kind: &str) {}
 // Selector — one-of-N, bound to a Signal<String> of the active key.
 // ===========================================================================
 
-/// How a [`selector`] presents its one-of-N choice.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// How a [`selector`] presents its one-of-N choice (docs/navigation.md).
+///
+/// The default is [`Self::Automatic`]: unless you say otherwise, a selector wears whatever the
+/// platform wears at the window's current width, and changes as the window does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SelectorStyle {
-    /// A native tab widget: NSTabView / UITabBarController / AdwViewStack / QTabWidget /
-    /// BottomNavigationView. All pages resident; each keeps its state.
+    /// **The default.** The platform's own answer at this size: a tab bar on a phone-shaped
+    /// window, a rail in the middle, a sidebar beside the detail when there is room — and it
+    /// re-presents live as the window crosses a breakpoint (docs/size-classes.md).
+    ///
+    /// This is `.tabViewStyle(.sidebarAdaptable)`'s job, and the native containers it maps to
+    /// are the ones the platforms built for it: `UITabBarController` in `.tabSidebar` mode, a
+    /// `NavigationView` driving its own `PaneDisplayMode`, a Material navigation bar / rail /
+    /// drawer. A toolkit that cannot draw a tab bar (`Cap::NavTabs`) degrades to [`Self::Sidebar`]
+    /// rather than to a hole.
+    #[default]
+    Automatic,
+    /// Pinned: a tab bar at EVERY size, however wide the window gets. Reach for it when the
+    /// content is genuinely peer sections that should never become a sidebar.
     Tabs,
-    /// A NavigationSplitView: a sidebar list + a detail. Desktop shows both panes (on GTK an
-    /// `AdwNavigationSplitView`); mobile collapses to a list that pushes the detail.
+    /// Pinned: a NavigationSplitView — a sidebar list + a detail. Wide windows show both panes
+    /// (on GTK an `AdwNavigationSplitView`); narrow ones collapse to a list that PUSHES the
+    /// detail, which is the one shape [`Self::Automatic`] never produces on its own.
     Sidebar,
+}
+
+/// A built detail page of a selector, and what it takes to tear it down. Exactly one of these
+/// exists per shown page in a split or stacked presentation; one per VISITED page in a
+/// presentation whose rows are chrome, where pages are resident (docs/navigation.md).
+struct ResidentPage {
+    /// The item key this page was built for — the identity a re-selection matches on.
+    key: String,
+    /// The page's own reactive scope; disposing it runs the content's cleanup.
+    scope: Scope,
+    /// The `NAV_PAGE` node, in the host's detail-child attach order. Its index in the owning
+    /// `Vec` is what `NavPatch::Select` addresses.
+    node: RNode,
 }
 
 /// Builds the page for a data-driven key (`&K` → piece) — a selector's `.destination` fallback
@@ -999,7 +1001,7 @@ impl BarActionSpec {
 pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
     Selector {
         selection,
-        style: SelectorStyle::Sidebar,
+        style: SelectorStyle::default(),
         pending_section: None,
         title: TextSource::Static(String::new()),
         header: None,
@@ -1149,6 +1151,21 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     pub fn immersive(mut self) -> Self {
         if let Some(ItemSource::Static(item)) = self.sources.last_mut() {
             item.immersive = true;
+        }
+        self
+    }
+    /// Recolor the LAST-added `.item_icon` destination's glyph (docs/vectors.md), instead of
+    /// letting it take the sidebar's neutral template tint.
+    ///
+    /// The static counterpart to [`NavItem::icon_tint`], and the same last-added-item shape as
+    /// [`immersive`](Self::immersive) — a tint belongs to one row, but `.item_icon(…)` returns
+    /// the selector rather than the item, so the row is named by position rather than by handle.
+    ///
+    /// Untinted glyphs follow the theme, which is usually what a navigation list wants; reach
+    /// for this where the color CARRIES something (a per-section identity, a status).
+    pub fn icon_tint(mut self, color: day_spec::Color) -> Self {
+        if let Some(ItemSource::Static(item)) = self.sources.last_mut() {
+            item.tint = Some(color);
         }
         self
     }
@@ -1322,10 +1339,11 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
 
 impl<K: Route, S: SignalRw<K>> Piece for Selector<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        match self.style {
-            SelectorStyle::Tabs => build_tabs(self, cx),
-            SelectorStyle::Sidebar => build_sidebar(self, cx),
-        }
+        // ONE builder for all three styles. The styles differ only in which presentations the
+        // resolver may produce, and a presentation differs only in chrome and page residency —
+        // so a tab bar is a `kinds::NAV` host wearing a different hat, not a second host kind
+        // with its own props, patches, and nine backend implementations (docs/navigation.md).
+        build_selector(self, cx)
     }
 }
 
@@ -1361,264 +1379,7 @@ fn persist_selection<K: Route, S: SignalRw<K>>(restore: Option<String>, selectio
     }
 }
 
-fn build_tabs<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
-    use day_spec::props::{TabsPageProps, TabsPatch, TabsProps};
-    // Tabs honor only the item list + selection. Report the modifiers this style drops
-    // (debug builds) so a `.searchable(..)` or `.bar_action(..)` that vanishes from the UI
-    // is a diagnosed mismatch, not a mystery — the Sidebar style honors all of these.
-    #[cfg(debug_assertions)]
-    {
-        let title_set = !matches!(&sel.title, TextSource::Static(s) if s.is_empty());
-        for (name, set) in [
-            (".title", title_set),
-            (".header", sel.header.is_some()),
-            (".bar_action", sel.bar_action.is_some()),
-            (".searchable", sel.search.is_some()),
-            (".presentation", sel.presentation.is_some()),
-            (".section (trailing)", sel.pending_section.is_some()),
-        ] {
-            if set {
-                eprintln!(
-                    "day: selector style Tabs ignores `{name}` — a tab bar renders only its \
-                     items; use the Sidebar style or drop the modifier (docs/navigation.md)"
-                );
-            }
-        }
-    }
-    let selection = sel.selection;
-    let routed = sel.routed;
-    let restore = sel.restore;
-    let items = Rc::new(SelItems::from_sources(sel.sources, sel.destination));
-    let rows0 = day_reactive::untrack(|| items.derive());
-    let (typed0, titles0, icons0) = (rows0.keys, rows0.titles, rows0.icons);
-    // Restore the last-selected tab (before the initial native index is read).
-    restore_selection(&restore, &selection, &typed0);
-    let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0.clone()));
-    let initial = selection.get_untracked_rw().key();
-    let initial_idx = typed0.iter().position(|k| k.key() == initial).unwrap_or(0);
-
-    let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
-    let host = cx.native(
-        kinds::TABS,
-        &TabsProps {
-            titles: titles0.clone(),
-            icons: icons0.clone(),
-            selected: initial_idx,
-        },
-        Rc::new(NavLayout::stack(sizes.clone())),
-        Flex {
-            grow_w: true,
-            grow_h: true,
-            ..Default::default()
-        },
-        Boundary::Yes,
-    );
-    // Resident pages (tabs keep every page alive): (key string, page node, scope). A dynamic
-    // block reconciles this list against the derived keys.
-    let pages: Rc<RefCell<Vec<(String, RNode, Scope)>>> = Rc::default();
-    let tab_scope = Scope::current();
-    let build_tab_page = {
-        let (items_c, pages_c, sizes_c, tab_scope) =
-            (items.clone(), pages.clone(), sizes.clone(), tab_scope);
-        move |key: &K, title: String, icon: Option<String>| {
-            let page = tabs_page(host, &TabsPageProps { title, icon }, &sizes_c);
-            let scope = tab_scope.enter(Scope::child);
-            let content = items_c.build_page(key);
-            scope.enter(|| {
-                // Barrier: tabs are resident, not a push stack, so a stack inside a tab keeps
-                // its own container (docs/navigation.md).
-                with_nav_host(None, || {
-                    let mut pcx = BuildCx::new(page);
-                    let _ = content.build(&mut pcx);
-                });
-            });
-            pages_c.borrow_mut().push((key.key(), page, scope));
-        }
-    };
-    for (k, t, i) in typed0
-        .iter()
-        .zip(titles0.iter())
-        .zip(icons0.iter())
-        .map(|((a, b), c)| (a, b, c))
-    {
-        build_tab_page(k, t.clone(), i.clone());
-    }
-
-    // Two-way: signal → native selection (skip the echo of a native tap).
-    let echo: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
-    {
-        let (typed_b, echo, s) = (typed.clone(), echo.clone(), selection.clone());
-        bind_seeded(
-            initial_idx,
-            move || {
-                let cur = s.get_rw().key();
-                typed_b
-                    .borrow()
-                    .iter()
-                    .position(|k| k.key() == cur)
-                    .unwrap_or(0)
-            },
-            move |idx: &usize| {
-                if echo.replace(None) == Some(*idx) {
-                    return;
-                }
-                with_tree(|t| t.patch(host, Box::new(TabsPatch::Selected(*idx)), false));
-            },
-        );
-    }
-    // native selection → signal
-    {
-        let (typed_n, echo, s) = (typed.clone(), echo.clone(), selection.clone());
-        cx.on(host, move |ev| match ev {
-            Event::SelectionChanged(i) if *i >= 0 => {
-                let idx = *i as usize;
-                if let Some(k) = typed_n.borrow().get(idx).cloned() {
-                    echo.set(Some(idx));
-                    // Announce the navigation from its source (docs/navigation.md §14.6): the route
-                    // this selection produces changes `NAV_STACK` only after the surface remounts a
-                    // frame later, so a route-recording observer would otherwise miss a sidebar move
-                    // between two pages. Fire synchronously with the intended key.
-                    day_core::note_navigation(&k.key(), None);
-                    s.set_rw(k);
-                }
-            }
-            Event::RouteRequested(route) => {
-                let _ = day_core::navigate(route);
-            }
-            _ => {}
-        });
-    }
-    // Reconcile the resident pages + native tab set when a dynamic block's signal changes
-    // (docs/navigation.md) — new keys get a page, gone keys are disposed — and when the
-    // locale changes (tracked title resolution): same keys, new titles, one Items re-patch.
-    // Installed unconditionally: a fully static selector's derive subscribes to nothing and
-    // this effect simply never re-fires.
-    {
-        let (items_e, typed_e, pages_e, sel_e, build_tab_page) = (
-            items.clone(),
-            typed.clone(),
-            pages.clone(),
-            selection.clone(),
-            build_tab_page.clone(),
-        );
-        bind(
-            move || {
-                let NavRows {
-                    keys: k,
-                    titles: t,
-                    icons: i,
-                    badges: b,
-                    badge_icons: bi,
-                    badge_tints: bt,
-                    sections: sc,
-                    tints: tn,
-                    menus: mn,
-                } = items_e.derive();
-                (
-                    k.iter().map(|x| x.key()).collect::<Vec<_>>(),
-                    k,
-                    t,
-                    i,
-                    b,
-                    sc,
-                    tn,
-                    mn,
-                    bi,
-                    bt,
-                )
-            },
-            // Tabs render neither badges, sections, nor row menus; the derive carries them
-            // for the selector's sake, so they are deliberately unused here.
-            move |(
-                key_strs,
-                keys,
-                ts,
-                ics,
-                _badges,
-                _sections,
-                _tints,
-                _menus,
-                _bicons,
-                _btints,
-            ): &DerivedRows<K>| {
-                // Drop pages whose key vanished (dispose scope + remove subtree).
-                pages_e.borrow_mut().retain(|(k, page, scope)| {
-                    if key_strs.contains(k) {
-                        true
-                    } else {
-                        scope.dispose();
-                        with_tree(|t| t.remove_subtree(*page));
-                        false
-                    }
-                });
-                // Append pages for new keys (in derived order — the host reorders via Items).
-                let have: std::collections::HashSet<String> =
-                    pages_e.borrow().iter().map(|(k, _, _)| k.clone()).collect();
-                for ((k, ks), (t, i)) in keys.iter().zip(key_strs).zip(ts.iter().zip(ics)) {
-                    if !have.contains(ks) {
-                        build_tab_page(k, t.clone(), i.clone());
-                    }
-                }
-                *typed_e.borrow_mut() = keys.clone();
-                let cur = sel_e.get_untracked_rw().key();
-                let selected = key_strs.iter().position(|k| k == &cur).unwrap_or(0);
-                with_tree(|t| {
-                    t.patch(
-                        host,
-                        Box::new(day_spec::props::TabsPatch::Items {
-                            titles: ts.clone(),
-                            icons: ics.clone(),
-                            selected,
-                        }),
-                        false,
-                    );
-                    t.mark_layout_dirty();
-                    t.layout_if_needed();
-                });
-            },
-        );
-    }
-
-    // string-route adapter (the typed key decodes at this boundary; app code stays typed)
-    let (tp_push, s_push) = (typed.clone(), selection.clone());
-    let s_cur = selection.clone();
-    let (tp_enter, s_enter) = (typed.clone(), selection.clone());
-    let s_seg = selection.clone();
-    let tpick =
-        |tp: &Rc<RefCell<Vec<K>>>, k: &str| tp.borrow().iter().find(|x| x.key() == k).cloned();
-    if routed {
-        note_routed_one_of_n("tabs");
-        register_route_surface(
-            move |k| {
-                if let Some(key) = tpick(&tp_push, k) {
-                    s_push.set_rw(key);
-                    true
-                } else {
-                    false
-                }
-            },
-            |_| false,
-            move || s_cur.get_untracked_rw().key(),
-            // Absolute-path segment: same as push — a tab key is a declared key.
-            move |k| {
-                if let Some(key) = tpick(&tp_enter, k) {
-                    s_enter.set_rw(key);
-                    true
-                } else {
-                    false
-                }
-            },
-            move || {
-                let k = s_seg.get_untracked_rw().key();
-                if k.is_empty() { Vec::new() } else { vec![k] }
-            },
-        );
-    }
-    persist_selection(restore, &selection);
-    host
-}
-
-fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
+fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{
         NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavPresentation, NavProps, Pane,
     };
@@ -1636,6 +1397,16 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     //   Unsupported — nobody; it is fixed at build time from `Cap::NavSplit` alone, because a
     //                 toolkit that cannot change presentation must not have it decided by
     //                 something that can — a window launched narrow would be stuck stacked.
+    // Can the toolkit draw the rows as its own chrome — a tab bar, and a rail where it has one?
+    // `Emulated` counts: Qt and web-dom compose theirs, and a composed tab bar is still a tab bar
+    // to the app. Only `Unsupported` sends `Automatic` down the sidebar path.
+    let can_tabs =
+        with_tree(|t| t.capability(day_spec::Cap::NavTabs)) != day_spec::Support::Unsupported;
+    // A separate question from `can_tabs`: every desktop CAN draw a tab bar (an app may pin one)
+    // but none of them should GROW one as its window narrows. That is a statement about the
+    // platform's idiom rather than its widget set, so it is the backend's to make.
+    let adaptive_tabs = with_tree(|t| t.capability(day_spec::Cap::NavTabsAdaptive))
+        != day_spec::Support::Unsupported;
     let represent = with_tree(|t| t.capability(day_spec::Cap::NavRepresent));
     let we_drive = represent == day_spec::Support::Native;
     let toolkit_drives = represent == day_spec::Support::Emulated;
@@ -1644,16 +1415,73 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // the wrong presentation followed by a correcting report.
     let size_decides = we_drive || toolkit_drives;
     let requested = sel.presentation;
-    // The resolver owns the "can this toolkit do it" question, so `NavProps` always carries a
+    // `Automatic` on a toolkit with no tab bar becomes `Sidebar` — the behavior every backend had
+    // before adaptive navigation existed. Degrading to the OLD shape rather than to a hole is what
+    // lets this land one backend at a time (docs/navigation.md).
+    let style = match sel.style {
+        SelectorStyle::Automatic if !can_tabs => SelectorStyle::Sidebar,
+        s => s,
+    };
+    // The resolver owns every "can this toolkit do it" question, so `NavProps` always carries a
     // presentation the backend can actually draw.
     let resolve = move |class: Option<day_spec::SizeClass>| -> NavPresentation {
-        match requested {
-            _ if !can_split => NavPresentation::Stack,
-            Some(p) => p,
-            None => match class {
+        // A pin is still a PREFERENCE (docs/size-classes.md): a toolkit with no split container
+        // stacks whatever it is asked for, and one with no tab bar cannot wear a pinned `Tabs`.
+        if let Some(p) = requested {
+            return match p {
+                NavPresentation::Split if !can_split => NavPresentation::Stack,
+                NavPresentation::Tabs | NavPresentation::Rail if !can_tabs => {
+                    if can_split {
+                        NavPresentation::Split
+                    } else {
+                        NavPresentation::Stack
+                    }
+                }
+                p => p,
+            };
+        }
+        match style {
+            // Pinned tabs: the same bar at every size, so the window never enters into it.
+            SelectorStyle::Tabs => NavPresentation::Tabs,
+            // Today's resolution, unchanged: split where there is room, stacked where there isn't.
+            SelectorStyle::Sidebar => match class {
+                _ if !can_split => NavPresentation::Stack,
                 Some(c) if size_decides && !c.prefers_split() => NavPresentation::Stack,
                 _ => NavPresentation::Split,
             },
+            // The adaptive ladder: a tab bar at the narrow end, a rail in the middle, a sidebar
+            // beside the detail when there is room.
+            //
+            // Only the BOTTOM rung is platform-specific. Where a tab bar is the idiomatic compact
+            // answer (the phones, the web) that is what a narrow window gets; on a desktop it
+            // collapses to a stack instead, which is what `Sidebar` has always done and what a
+            // Mac or GNOME app does when you drag it narrow. The rail and the split are the same
+            // everywhere.
+            SelectorStyle::Automatic => {
+                let compact = if adaptive_tabs {
+                    NavPresentation::Tabs
+                } else {
+                    NavPresentation::Stack
+                };
+                if !size_decides {
+                    // Nobody re-presents, so this is decided once and must not be decided by
+                    // something that changes underneath (docs/size-classes.md). Prefer the
+                    // roomier container the toolkit has.
+                    return if can_split {
+                        NavPresentation::Split
+                    } else {
+                        compact
+                    };
+                }
+                if !can_split {
+                    return compact;
+                }
+                match class.map(|c| c.width) {
+                    Some(day_spec::WidthClass::Compact) => compact,
+                    Some(day_spec::WidthClass::Medium) => NavPresentation::Rail,
+                    _ => NavPresentation::Split,
+                }
+            }
         }
     };
     let presentation = resolve(day_core::window_size_class_untracked(window));
@@ -1664,8 +1492,33 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // (a pinned request, a toolkit that cannot split, the `stack()` piece), which a backend
     // may take literally and realize as a plain navigation container: nesting an adaptive
     // split container inside a pane is exactly what breaks (docs/size-classes.md).
-    let lowered = if toolkit_drives && requested.is_none() && can_split {
+    // An Emulated toolkit's adaptive container collapses and expands ITSELF, so it is lowered the
+    // ROOMIEST presentation the app's style admits — "build the adaptive container" — even when
+    // the window is compact right now. `Stack` in props is thereby reserved for hosts that are
+    // stacks at EVERY size (a pinned request, a toolkit that cannot split, the `stack()` piece),
+    // which a backend may take literally: nesting an adaptive container inside a pane is exactly
+    // what breaks (docs/size-classes.md). `adaptive` carries whether it may morph at all.
+    let adaptive = requested.is_none();
+    let lowered = if toolkit_drives && adaptive && can_tabs && adaptive_tabs {
+        // The toolkit has an adaptive container that wears BOTH chromes itself — iOS 18's
+        // `UITabBarController` in `.tabSidebar` mode is the archetype: one controller that draws
+        // a tab bar when compact and a sidebar when not, with its own animation and its own
+        // user-facing toggle. Lowering `Tabs` says "build that", and the toolkit reports what it
+        // settled on. Its pages are resident at every size, which is why such a host stays in the
+        // chrome-rows model rather than flipping to push/pop as it widens.
+        NavPresentation::Tabs
+    } else if toolkit_drives && adaptive && can_split && style != SelectorStyle::Tabs {
         NavPresentation::Split
+    } else {
+        presentation
+    };
+    // A `.tabSidebar`-style host is a TABS host at every width — its pages are resident whether
+    // it is drawing a bar or a sidebar — so the resolved presentation has to agree with what the
+    // backend was told to build. Left disagreeing, day-core would model push/pop while the
+    // toolkit modeled resident tabs: the first page built would merge into a host that has no
+    // stack to merge into, and land zero-sized.
+    let presentation = if lowered == NavPresentation::Tabs && toolkit_drives && adaptive {
+        NavPresentation::Tabs
     } else {
         presentation
     };
@@ -1705,6 +1558,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         &NavProps {
             title: title_s.clone(),
             presentation: lowered,
+            adaptive,
             bar_action,
             search,
         },
@@ -1839,42 +1693,64 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         }
     };
 
-    // Detail: `selection` drives which item's page is shown (reset-to; depth ≤ 1).
-    let current: Rc<RefCell<Option<(String, Scope, RNode)>>> = Rc::default();
+    // Detail pages, and how long they live.
+    //
+    // A presentation whose rows are the CHROME (a tab bar, a rail) keeps every visited page
+    // RESIDENT: switching tabs is `NavPatch::Select`, nothing is torn down, and each tab keeps
+    // its scroll offset, its focused field, and its animations — which is what every native tab
+    // container does. A split or stacked presentation keeps only the shown page and switches by
+    // pop-then-push, which is what it did before adaptive navigation existed.
+    //
+    // Residency follows the PRESENTATION rather than the host, deliberately. Making every nav
+    // page resident would keep effects running for pages nobody is looking at and change the
+    // disposal contract the docs make ("leaving the piece's branch disposes"); making none
+    // resident would rebuild a tab's content on every tap. Splitting it this way means a morph
+    // only ever disposes pages that are NOT on screen, or lazily builds ones that were not built
+    // yet — the VISIBLE page is never rebuilt, which is the invariant a morph has to keep.
+    let resident: Rc<RefCell<Vec<ResidentPage>>> = Rc::default();
+    let current: Rc<RefCell<Option<String>>> = Rc::default();
     let nav_scope = Scope::current();
     // Shared: BOTH the selection bind and the row-derive effect drive the detail (see the
     // derive effect for why the selection bind alone is not enough).
     let show = std::rc::Rc::new({
-        let (items, current, sizes, typed_s, titles_s, sync_menu, owners, host_cx, selection) = (
+        let (items, resident, current, sizes, typed_s, titles_s) = (
             items.clone(),
+            resident.clone(),
             current.clone(),
             sizes.clone(),
             typed.clone(),
             titles.clone(),
+        );
+        let (sync_menu, owners, host_cx, selection, pres) = (
             sync_menu.clone(),
             owners.clone(),
             host_cx.clone(),
             selection.clone(),
+            presentation_cell.clone(),
         );
         move |key: &str| {
-            if current.borrow().as_ref().map(|(k, _, _)| k.as_str()) == Some(key) {
+            if current.borrow().as_deref() == Some(key) {
                 return;
             }
-            if let Some((_, scope, page)) = current.borrow_mut().take() {
-                // Dispose the detail scope FIRST: a merged inner stack's cleanup pops its pages
-                // (which sit on top natively) before we pop the detail itself, so the native pop
-                // order stays top-down (iOS pops the topmost VC; Android's INCLUSIVE pop unwinds
-                // everything above an entry).
-                scope.dispose();
-                with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
-                owners.borrow_mut().pop();
-                sizes.borrow_mut().remove(&page);
-                with_tree(|t| {
-                    t.remove_subtree(page);
-                    t.mark_layout_dirty();
-                    t.layout_if_needed();
-                });
+            let chrome = pres.get().rows_are_chrome();
+            if !chrome {
+                // Stacked or split: the outgoing page goes away. Dispose its scope FIRST — a
+                // merged inner stack's cleanup pops its pages (which sit on top natively) before
+                // we pop the detail itself, so the native pop order stays top-down (iOS pops the
+                // topmost VC; Android's INCLUSIVE pop unwinds everything above an entry).
+                if let Some(p) = resident.borrow_mut().pop() {
+                    p.scope.dispose();
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                    owners.borrow_mut().pop();
+                    sizes.borrow_mut().remove(&p.node);
+                    with_tree(|t| {
+                        t.remove_subtree(p.node);
+                        t.mark_layout_dirty();
+                        t.layout_if_needed();
+                    });
+                }
             }
+            *current.borrow_mut() = None;
             if key.is_empty() {
                 sync_menu(None);
                 return;
@@ -1884,6 +1760,18 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 sync_menu(None);
                 return;
             };
+            // Already built and still alive — the resident case. Nothing to build, nothing to
+            // push: tell the host which of its pages to show and we are done.
+            if let Some(i) = resident.borrow().iter().position(|p| p.key == key) {
+                with_tree(|t| {
+                    t.patch(host, Box::new(NavPatch::Select(i)), false);
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+                *current.borrow_mut() = Some(key.to_string());
+                sync_menu(Some(idx));
+                return;
+            }
             let typed_key = typed_s.borrow()[idx].clone();
             let title_now = titles_s.borrow()[idx].clone();
             // A static item retitles on locale change (its TextSource); a data-driven key uses
@@ -1897,34 +1785,53 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 },
                 &sizes,
             );
-            // The detail page's back action = deselect (return to the list). Pushed BEFORE the
-            // content builds, so a merged inner stack's page owners stack on top of it.
-            let owner: PopOwner = {
-                let s = selection.clone();
-                Rc::new(move |_already_popped| {
-                    if let Some(root) = K::from_key("") {
-                        s.set_rw(root);
-                    }
-                })
-            };
-            owners.borrow_mut().push(owner);
+            if !chrome {
+                // The detail page's back action = deselect (return to the list). Pushed BEFORE
+                // the content builds, so a merged inner stack's page owners stack on top of it.
+                // A chrome presentation has no back stack to own — a tab bar never pops.
+                let owner: PopOwner = {
+                    let s = selection.clone();
+                    Rc::new(move |_already_popped| {
+                        if let Some(root) = K::from_key("") {
+                            s.set_rw(root);
+                        }
+                    })
+                };
+                owners.borrow_mut().push(owner);
+            }
             let scope = nav_scope.enter(Scope::child);
             let content = items.build_page(&typed_key);
             scope.enter(|| {
-                with_nav_host(Some(host_cx.clone()), || {
+                // A resident page is a merge BARRIER: a `stack` inside a tab keeps its own native
+                // container rather than pushing onto the enclosing host, because the enclosing
+                // host is not a stack (docs/navigation.md).
+                let inner = if chrome { None } else { Some(host_cx.clone()) };
+                with_nav_host(inner, || {
                     let mut c = BuildCx::new(page);
                     let _ = content.build(&mut c);
                 });
             });
+            resident.borrow_mut().push(ResidentPage {
+                key: key.to_string(),
+                scope,
+                node: page,
+            });
+            let at = resident.borrow().len() - 1;
+            // Built BEFORE the borrow, deliberately. `immersive_of` scans the item sources, and a
+            // data-driven `.items(…)` block is APP code — running it inside `with_tree` re-enters
+            // the tree borrow the moment that closure reads anything ambient (`day::size_class()`
+            // is the obvious one) and aborts the process. `with_tree`'s contract is that tree
+            // methods never run user code; constructing the patch out here is what keeps it true.
+            let patch: Box<dyn std::any::Any> = if chrome {
+                Box::new(NavPatch::Select(at))
+            } else {
+                Box::new(NavPatch::Pushed {
+                    title: title_now,
+                    immersive: items.immersive_of(&typed_key.key()),
+                })
+            };
             with_tree(|t| {
-                t.patch(
-                    host,
-                    Box::new(NavPatch::Pushed {
-                        title: title_now,
-                        immersive: items.immersive_of(&typed_key.key()),
-                    }),
-                    false,
-                );
+                t.patch(host, patch, false);
                 t.mark_layout_dirty();
                 t.layout_if_needed();
             });
@@ -1935,13 +1842,16 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     rt.bind_to(host, |t| Box::new(NavPatch::Title(t)), false);
                 });
             }
-            *current.borrow_mut() = Some((key.to_string(), scope, page));
-            sync_menu(typed_s.borrow().iter().position(|k| k.key() == key));
+            *current.borrow_mut() = Some(key.to_string());
+            sync_menu(Some(idx));
         }
     });
 
-    // Split never shows an empty detail: default to the first item.
-    if split
+    // Neither a split nor a tab bar can draw "nothing selected": a split has no way to fill the
+    // detail pane, and a tab bar always has one tab active. Both default to the first item. Only
+    // a STACK has an empty state, and there it is the whole point — the collapsed list the user
+    // has not chosen from yet.
+    if (split || presentation.rows_are_chrome())
         && selection.get_untracked_rw().key().is_empty()
         && let Some(k) = typed.borrow().first().cloned()
     {
@@ -1950,6 +1860,26 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     {
         let (s, show) = (selection.clone(), show.clone());
         bind(move || s.get_rw().key(), move |key: &String| show(key));
+    }
+
+    // Build every destination, then re-select the current one.
+    //
+    // A tab bar needs an ITEM PER DESTINATION up front — `UITabBarController` and Material's
+    // navigation bar both build their chrome from the full set, so a page nobody has visited yet
+    // is a tab that simply is not there. Lazy building is right for a split or a stack, where
+    // only the shown page is drawn; where the rows ARE the chrome, the rows have to be complete.
+    let build_all = {
+        let (show, typed_a, sel_a) = (show.clone(), typed.clone(), selection.clone());
+        Rc::new(move || {
+            let keys: Vec<String> = typed_a.borrow().iter().map(|k| k.key()).collect();
+            for k in keys {
+                show(&k);
+            }
+            show(&sel_a.get_untracked_rw().key());
+        })
+    };
+    if presentation.rows_are_chrome() {
+        build_all();
     }
 
     // What a presentation change means for the MODEL, whoever caused it. Widening with nothing
@@ -1964,10 +1894,61 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             typed.clone(),
             split_cell.clone(),
         );
+        let build_all_r = build_all.clone();
+        let (resident_r, current_r, sizes_r, owners_r) = (
+            resident.clone(),
+            current.clone(),
+            sizes.clone(),
+            owners.clone(),
+        );
         Rc::new(move |next: NavPresentation| {
+            let was_chrome = pc.get().rows_are_chrome();
             pc.set(next);
             split_r.set(next.is_split());
-            if next.is_split()
+            // LEAVING a chrome presentation: the resident pages nobody can see any more go away,
+            // because a split or stacked host draws exactly one detail page. The SHOWN page is
+            // kept — rebuilding what the user is looking at is the one thing a morph must never
+            // do — and it is left as the sole entry, so it reads as the top of the new stack.
+            //
+            // Entering a chrome presentation needs no counterpart: the shown page is already
+            // resident, and the others build lazily when they are first selected.
+            if was_chrome && !next.rows_are_chrome() {
+                let shown = current_r.borrow().clone();
+                let gone: Vec<ResidentPage> = {
+                    let mut r = resident_r.borrow_mut();
+                    let (keep, drop): (Vec<_>, Vec<_>) =
+                        r.drain(..).partition(|p| Some(&p.key) == shown.as_ref());
+                    *r = keep;
+                    drop
+                };
+                for p in gone {
+                    p.scope.dispose();
+                    sizes_r.borrow_mut().remove(&p.node);
+                    with_tree(|t| t.remove_subtree(p.node));
+                }
+                // The kept page now owns the one back affordance the stack presentation offers.
+                owners_r.borrow_mut().clear();
+                if let Some(k) = shown {
+                    let s = sel_r.clone();
+                    let owner: PopOwner = Rc::new(move |_already_popped| {
+                        if let Some(root) = K::from_key("") {
+                            s.set_rw(root);
+                        }
+                    });
+                    owners_r.borrow_mut().push(owner);
+                    let _ = k;
+                }
+                with_tree(|t| {
+                    t.mark_layout_dirty();
+                    t.layout_if_needed();
+                });
+            }
+            if !was_chrome && next.rows_are_chrome() {
+                // Entering a chrome presentation: the rows become the chrome, so every
+                // destination needs its page for the bar to be complete.
+                build_all_r();
+            }
+            if (next.is_split() || next.rows_are_chrome())
                 && sel_r.get_untracked_rw().key().is_empty()
                 && let Some(k) = typed_r.borrow().first().cloned()
             {
@@ -2023,7 +2004,10 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             menu_holder.clone(),
             selection.clone(),
         );
-        let (show_e, split_e) = (show.clone(), split);
+        // The LIVE presentation, not the build-time one: this effect outlives a morph, and what
+        // "must never show an empty detail" means changes with it.
+        let (show_e, pres_e) = (show.clone(), presentation_cell.clone());
+        let (resident_e, current_e, sizes_e) = (resident.clone(), current.clone(), sizes.clone());
         bind(
             move || {
                 // TRACKED derive: subscribes to every dynamic block's signal.
@@ -2054,6 +2038,38 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             move |(key_strs, keys, ts, ics, bs, scs, tns, mns, bis, bts): &DerivedRows<K>| {
                 *typed_e.borrow_mut() = keys.clone();
                 *titles_e.borrow_mut() = ts.clone();
+                // A resident page whose row is gone has nothing left to select it, so it would
+                // sit alive and invisible for the life of the surface — and shift every
+                // `NavPatch::Select` index past it. Drop it here, where the new row set is known.
+                // Only reachable in a chrome presentation; elsewhere at most one page is resident
+                // and the selection reset below takes care of it.
+                {
+                    let stale: Vec<ResidentPage> = {
+                        let mut r = resident_e.borrow_mut();
+                        let (keep, drop): (Vec<_>, Vec<_>) =
+                            r.drain(..).partition(|p| key_strs.contains(&p.key));
+                        *r = keep;
+                        drop
+                    };
+                    if !stale.is_empty() {
+                        if current_e
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|c| stale.iter().any(|p| &p.key == c))
+                        {
+                            *current_e.borrow_mut() = None;
+                        }
+                        for p in stale {
+                            p.scope.dispose();
+                            sizes_e.borrow_mut().remove(&p.node);
+                            with_tree(|t| t.remove_subtree(p.node));
+                        }
+                        with_tree(|t| {
+                            t.mark_layout_dirty();
+                            t.layout_if_needed();
+                        });
+                    }
+                }
                 // If the selected key is gone, reset (Option key → None); else keep it selected.
                 let cur = sel_e.get_untracked_rw().key();
                 let still = cur.is_empty() || key_strs.iter().any(|k| k == &cur);
@@ -2064,7 +2080,8 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 // once, before any filtering, so re-apply it here: when the selected row is
                 // gone, move to the first row that survived rather than blanking the pane.
                 let mut cur2 = sel_e.get_untracked_rw().key();
-                if split_e
+                let pres_now = pres_e.get();
+                if (pres_now.is_split() || pres_now.rows_are_chrome())
                     && cur2.is_empty()
                     && let Some(k) = keys.first().cloned()
                 {
@@ -2125,8 +2142,10 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         });
     }
 
-    // string-route adapter over `selection` (typed keys decode at this boundary). The live
-    // `typed` set is consulted per call, so a data-driven key routes as soon as its item exists.
+    // Registered AFTER the pages are built, deliberately: `register_nav` drains any PENDING
+    // route as it registers, and a route arriving before this host has children attaches a
+    // page to a parent that is not in the tree yet (an intermittent startup panic on AppKit).
+    // Ordering here does not decide routing — `NavController::depth` does.
     let (tp_push, s_push) = (typed.clone(), selection.clone());
     let s_pop = selection.clone();
     let s_cur = selection.clone();
@@ -2180,6 +2199,7 @@ fn build_sidebar<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             },
         );
     }
+
     persist_selection(restore, &selection);
     host
 }
@@ -2386,6 +2406,10 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     // there is nothing for a size-class change to re-present.
                     title: title_s.clone(),
                     presentation: NavPresentation::Stack,
+                    // Never adaptive: the `stack()` piece is a push/pop surface at every size, so
+                    // an Emulated toolkit must build a PLAIN navigation container for it rather
+                    // than its adaptive one (docs/size-classes.md).
+                    adaptive: false,
                     bar_action,
                     // Stacks are not searchable yet — `.searchable()` is on `Selector` only
                     // (docs/search.md); a stack gains the same surface when the placement

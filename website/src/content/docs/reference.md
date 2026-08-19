@@ -48,12 +48,14 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [progress](/docs/internal/progress) | determinate bars and spinners |
 | [picker](/docs/internal/picker) | the built-in one-of-N picker: menu, segmented, and inline styles |
 | [textarea](/docs/internal/textarea) | multi-line text: editing, selection, spell-check |
+| [texteditor](/docs/internal/texteditor) | `day-piece-texteditor` — editing a StyledText in each platform's rich-text view |
 | [localization](/docs/internal/localization) | Fluent mechanics, arguments, fallback |
 | [accessibility](/docs/internal/accessibility) | roles, per-backend attribute mapping, the audit |
 | [lifecycle](/docs/internal/lifecycle) | app phases and their per-platform availability |
 | [async](/docs/internal/async) | tasks, resources, and the runtime rules |
 | [resources](/docs/internal/resources) | asset packaging and the zero-copy runtime path |
 | [vectors](/docs/internal/vectors) | resolution-independent SVG glyphs and the `vector` piece |
+| [color](/docs/internal/color) | the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it |
 | [icons](/docs/internal/icons) | `day icon`: every platform's app-icon set from one master |
 | [files](/docs/internal/files) | file I/O and platform paths |
 
@@ -74,6 +76,7 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | [activity](/docs/internal/activity) | `day-piece-activity` — activity spinners |
 | [pullrefresh](/docs/internal/pullrefresh) | `day-piece-pullrefresh` — pull-to-refresh for scrollables |
 | [datepicker](/docs/internal/datepicker) | `day-piece-datetime` — native date & time pickers |
+| [colorpicker](/docs/internal/colorpicker) | `day-piece-colorpicker` — a color well: the platform chooser, or one Day composes |
 | [badge](/docs/internal/badge) | app-icon numeric badge (proposed) |
 | [tweaks](/docs/internal/tweaks) | per-toolkit native configuration: accessors, packaged tweaks, recipes |
 

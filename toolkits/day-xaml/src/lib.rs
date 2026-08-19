@@ -64,9 +64,6 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 thread_local! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Tabs host ptr → (Pivot ptr, pages, initial). Pages reuse day.container.
-    static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
-    static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
-    static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
     /// Recycling-list host ptr → its ScrollViewer/content + cell pool (docs/list.md).
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     /// Label ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell a link
@@ -470,40 +467,6 @@ fn list_populate(host_key: usize) {
             list_paint_selection(st);
         }
     });
-}
-
-struct TabsState {
-    tabs: *mut c_void,
-    pages: Vec<(WinHandle, NodeId)>,
-    initial: usize,
-}
-
-extern "C" fn tabs_changed(id: u64, index: c_int) {
-    ffi_guard::contain((), || {
-        emit(NodeId(id), Event::SelectionChanged(index as i64))
-    });
-}
-
-fn tabs_sync(host: *mut c_void) {
-    let reports: Vec<(NodeId, Size)> = TABS_STATE.with(|m| {
-        let m = m.borrow();
-        let Some(state) = m.get(&(host as usize)) else {
-            return Vec::new();
-        };
-        let (mut w, mut h) = (0.0, 0.0);
-        unsafe { ffi::day_xaml_tabs_content_size(state.tabs, &mut w, &mut h) };
-        if w <= 0.0 || h <= 0.0 {
-            return Vec::new();
-        }
-        state
-            .pages
-            .iter()
-            .map(|(_, id)| (*id, Size::new(w, h)))
-            .collect()
-    });
-    for (id, size) in reports {
-        emit(id, Event::FrameChanged(size));
-    }
 }
 
 /// Emit an event into day-core's queue (public for external Day Piece renderers).
@@ -1124,10 +1087,17 @@ impl Toolkit for Xaml {
             // A second Win32 host + its own XAML island per window (docs/windows.md).
             Cap::MultiWindow => Support::Native,
             // A Fluent CommandBar under the menu bar (docs/toolbars.md).
-            Cap::Toolbar => Support::Native,
+            Cap::AppMenu | Cap::Toolbar => Support::Native,
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
+            // The SAME NavigationView with a different pane: `Top` is WinUI's tab bar and
+            // `LeftCompact` a real icon rail (docs/navigation.md).
+            //
+            // `Cap::NavTabsAdaptive` is deliberately not here: a Windows app may PIN a tab bar,
+            // but a narrowing window collapses its pane rather than growing one — the same rule
+            // every other desktop follows.
+            Cap::NavTabs => Support::Native,
             // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
             Cap::Dialogs | Cap::FileDialogs => Support::Native,
             // The system light/dark setting, read live and re-reported when the user changes it
@@ -1181,6 +1151,16 @@ impl Toolkit for Xaml {
                     // (split) or a push/pop stack with a back button (docs/navigation.md).
                     let is_stack = !p.presentation.is_split();
                     let mut content: *mut c_void = std::ptr::null_mut();
+                    // Where the rows are the CHROME the SAME NavigationView wears a different
+                    // pane: `Top` is WinUI's tab bar and `LeftCompact` a real icon rail, so a
+                    // rail lands on a rail here rather than rounding to a sidebar the way it must
+                    // on macOS (docs/navigation.md). Pages stay resident and `Select` switches
+                    // them, exactly as the tab presentation does everywhere else.
+                    let pane_mode = match nav_props.map(|p| p.presentation) {
+                        Some(day_spec::props::NavPresentation::Tabs) => 2,
+                        Some(day_spec::props::NavPresentation::Rail) => 3,
+                        _ => -1,
+                    };
                     let nav = ffi::day_xaml_nav_new(
                         id.0,
                         nav_selection,
@@ -1189,6 +1169,9 @@ impl Toolkit for Xaml {
                         &mut content,
                         is_stack as c_int,
                     );
+                    if pane_mode >= 0 {
+                        ffi::day_xaml_nav_set_pane_mode(nav, pane_mode);
+                    }
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
                             nav as usize,
@@ -1401,33 +1384,6 @@ impl Toolkit for Xaml {
                         None => WinHandle(ffi::day_xaml_progress_new(0, 0)),
                     }
                 }
-                Some(Builtin::Tabs) => {
-                    let Some(p) = props_of::<TabsProps>(kind, "xaml", props) else {
-                        return placeholder_handle(kind);
-                    };
-                    let w = ffi::day_xaml_tabs_new(id.0, tabs_changed);
-                    TABS_STATE.with(|m| {
-                        m.borrow_mut().insert(
-                            w as usize,
-                            TabsState {
-                                tabs: w,
-                                pages: Vec::new(),
-                                initial: p.selected,
-                            },
-                        )
-                    });
-                    WinHandle(w)
-                }
-                Some(Builtin::TabsPage) => {
-                    let Some(p) = props_of::<TabsPageProps>(kind, "xaml", props) else {
-                        return placeholder_handle(kind);
-                    };
-                    let page = WinHandle(ffi::day_xaml_container_new());
-                    TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
-                    TABS_PAGE_TITLES
-                        .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
-                    page
-                }
                 Some(Builtin::Image) => {
                     let Some(p) = props_of::<ImageProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
@@ -1563,15 +1519,6 @@ impl Toolkit for Xaml {
                         patch.downcast_ref::<ProgressPatch>()
                     {
                         ffi::day_xaml_progress_set(h.0, progress_ticks(*v));
-                    }
-                }
-                kinds::TABS => {
-                    if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                        TABS_STATE.with(|m| {
-                            if let Some(state) = m.borrow().get(&(h.0 as usize)) {
-                                ffi::day_xaml_tabs_set_current(state.tabs, *i as c_int);
-                            }
-                        });
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
@@ -1721,6 +1668,23 @@ impl Toolkit for Xaml {
                             // owns its own PaneDisplayMode, so re-presenting here means driving
                             // that rather than re-homing pages (docs/size-classes.md).
                             NavPatch::Presentation(_) => None,
+                            // The resident-page switch (docs/navigation.md): show that
+                            // destination and hide its siblings — the same visibility pass
+                            // `stack_sync` makes, driven by the app's selection rather than depth.
+                            // No header change: a tab bar names the destination itself.
+                            NavPatch::Select(i) => {
+                                let pages: Vec<*mut c_void> =
+                                    NAV_STATE.with(|m| match m.borrow().get(&(h.0 as usize)) {
+                                        Some(NavState::Split(st)) => {
+                                            st.detail_pages.iter().map(|(p, _, _)| *p).collect()
+                                        }
+                                        _ => Vec::new(),
+                                    });
+                                for (n, page) in pages.iter().enumerate() {
+                                    ffi::day_xaml_set_visible(*page, (n == *i) as c_int);
+                                }
+                                None
+                            }
                         };
                         if let Some(title) = title {
                             let nav = NAV_STATE.with(|m| {
@@ -1799,9 +1763,6 @@ impl Toolkit for Xaml {
         }
         let key = h.0 as usize;
         LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
-        TABS_STATE.with(|m| m.borrow_mut().remove(&key));
-        TABS_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
-        TABS_PAGE_TITLES.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
         NAV_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_HOST.with(|m| m.borrow_mut().remove(&key));
@@ -1842,37 +1803,6 @@ impl Toolkit for Xaml {
     }
 
     fn insert(&mut self, parent: &WinHandle, child: &WinHandle, index: usize) {
-        // Tabs host: add the page to the Pivot with its label; the Pivot owns page layout.
-        let tabs_handled = TABS_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
-                return false;
-            };
-            let id = TABS_PAGE_IDS
-                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
-                .unwrap_or(NodeId(0));
-            let title = TABS_PAGE_TITLES
-                .with(|t| t.borrow().get(&(child.0 as usize)).cloned())
-                .unwrap_or_default();
-            unsafe {
-                ffi::day_xaml_tabs_add_page(
-                    state.tabs,
-                    child.0,
-                    cstr(&title).as_ptr(),
-                    index as c_int,
-                )
-            };
-            let at = index.min(state.pages.len());
-            state.pages.insert(at, (*child, id));
-            if index == state.initial {
-                unsafe { ffi::day_xaml_tabs_set_current(state.tabs, index as c_int) };
-            }
-            true
-        });
-        if tabs_handled {
-            tabs_sync(parent.0);
-            return;
-        }
         // Nav host: for a selector, page index 0 = sidebar (PaneHeader), the rest = detail. For a
         // stack, every page stacks in the content region.
         enum NavInsert {
@@ -1962,20 +1892,6 @@ impl Toolkit for Xaml {
             }
             Some(false) => return,
             None => {}
-        }
-        // Data-driven tabs: drop the page's PivotItem (the page widget survives; Day disposes
-        // it via release). Without this arm the removal fell through to the generic
-        // remove_child against the Pivot handle — a no-op that left the stale tab up and
-        // `TabsState.pages` still syncing frames for the dead node (mirrors day-qt).
-        let tab_host = TABS_STATE.with(|m| {
-            m.borrow_mut().get_mut(&(parent.0 as usize)).map(|state| {
-                state.pages.retain(|(p, _)| p.0 != child.0);
-                state.tabs
-            })
-        });
-        if let Some(tabs) = tab_host {
-            unsafe { ffi::day_xaml_tabs_remove_page(tabs, child.0) };
-            return;
         }
         let target = SCROLL_STATE
             .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
@@ -2082,10 +1998,6 @@ impl Toolkit for Xaml {
     }
 
     fn set_frame(&mut self, h: &WinHandle, frame: Rect, _anim: Option<&AnimSpec>) {
-        // Tab pages are laid out by the Pivot, not by Day; skip them.
-        if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
-            return;
-        }
         // A split nav's sidebar page IS the NavigationView's PaneHeader: clip it to a fixed header
         // height (a Canvas has no desired size) so day's logo/title piece sits at the pane top; the
         // NavigationView owns everything below it. Width follows the frame day proposes.
@@ -2110,9 +2022,6 @@ impl Toolkit for Xaml {
                 frame.size.height.round() as c_int,
             )
         };
-        if TABS_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
-            tabs_sync(h.0);
-        }
         // (Nav hosts are NavigationViews — they reflow their own regions, which report FrameChanged.)
         // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
         // set_frames a populate itself makes (on row content) don't schedule another forever.

@@ -27,8 +27,9 @@ Targets live in `Day.toml`. To use plain cargo, pass the backend feature yoursel
 - `src/pages/canvas.rs` — a reactive display list drawn natively.
 - `src/pages/items.rs` — a drill-down stack with data-carrying typed routes.
 - `resource/locales/en/app.ftl` — every user-facing string ([localization](https://daybrite.dev/docs/localization)).
-- `dayscript/smoke.yaml` — a [dayscript](https://daybrite.dev/docs/dayscript) UI test:
-  `day launch -p {{first_target}} --script dayscript/smoke.yaml`.
+- `dayscript/demo.yaml` — a [dayscript](https://daybrite.dev/docs/dayscript) walkthrough that
+  drives every feature this app ships, and doubles as its UI test:
+  `day launch -p {{first_target}} --script dayscript/demo.yaml`.
 - `platform/` — the thin native host projects (Xcode / Gradle / hvigor) the mobile targets
   build through; `day build` keeps their identity in sync with `Day.toml`.
 - `Day.toml` — app metadata + the target list.

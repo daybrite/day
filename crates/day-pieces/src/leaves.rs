@@ -197,6 +197,8 @@ pub struct Label {
     pub(crate) runs: Vec<day_spec::TextRun>,
     /// Parse the text as inline markdown instead of taking it literally (docs/markdown.md).
     pub(crate) markdown: bool,
+    /// How wrapped lines sit within the label's own width (docs/text.md).
+    pub(crate) align: day_spec::props::TextAlign,
     /// What a tapped link run does. `None` opens the target in the platform's default handler,
     /// which is what a link in a paragraph of text is normally expected to do.
     pub(crate) on_link: Option<LinkHandler>,
@@ -216,6 +218,7 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
         color: None,
         runs: Vec::new(),
         markdown: false,
+        align: day_spec::props::TextAlign::Leading,
         on_link: None,
     }
 }
@@ -294,6 +297,13 @@ impl Label {
     /// Unrecognized markup stays literal, so a half-typed `**` reads as two asterisks rather than
     /// flickering. Block constructs (headings, lists, quotes) are NOT parsed: they are layout,
     /// which is `column`/`form`/`list`.
+    /// Center (or trail) this label's lines within its own width — for the short wrapped block
+    /// a welcome screen or an empty state uses. Only observable on a label that wraps, since a
+    /// single line already fills its box.
+    pub fn align(mut self, align: day_spec::props::TextAlign) -> Self {
+        self.align = align;
+        self
+    }
     pub fn markdown(mut self) -> Self {
         self.markdown = true;
         self
@@ -338,6 +348,7 @@ impl Piece for Label {
         let node = cx.leaf(
             kinds::LABEL,
             &LabelProps {
+                align: self.align,
                 text: initial,
                 font: day_spec::FontSpec {
                     style: self.font,

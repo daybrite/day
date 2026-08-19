@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Route registry (docs/navigation.md, docs/tabs.md): mounted `nav()` / `tabs()` hosts each
+//! Route registry (docs/navigation.md): every mounted `selector()` / `stack()` host
 //! register a controller here. Registrations form a STACK so hosts can nest — e.g. a `tabs()`
 //! inside a `nav()` route — and the stack order IS the nesting order (outermost first).
 //!
@@ -39,6 +39,14 @@ pub struct NavController {
     /// This surface's contribution to the full route: `[]` at root, `[key]` for a selector /
     /// tabs, the whole path for a stack.
     pub segments: Box<dyn Fn() -> Vec<String>>,
+    /// How deeply this surface is NESTED — 0 for one mounted at the window root, 1 for one built
+    /// inside another surface's page, and so on.
+    ///
+    /// An absolute path walks outermost-inward, and registration ORDER is not that order: a
+    /// selector builds its pages before registering itself, so a stack inside a page registers
+    /// FIRST. Ordering the descent by depth instead of by position is what lets `section/detail`
+    /// find the stack no matter which of the two registered first.
+    pub depth: usize,
 }
 
 /// Opaque handle from [`register_nav`]; a nested host calls [`unregister_nav`] on dispose.
@@ -384,6 +392,21 @@ pub fn navigate(route: &str) -> bool {
     ok
 }
 
+/// The surfaces INSIDE `list[anchor]`, outermost first.
+///
+/// Ordered by [`NavController::depth`] rather than by registration, because a host that builds its
+/// pages before registering itself lands in the registry AFTER what those pages contain — so an
+/// absolute `section/detail` would otherwise anchor on the section and find nothing beyond it.
+/// Depth only ORDERS here, never filters: a subtree rebuilt outside its original build scope (a
+/// `when` arm re-derived on a size-class change) registers with a depth of zero, and equal depths
+/// keep registration order, which is the right answer in that case.
+fn nested_after(list: &[Rc<NavController>], anchor: usize) -> Vec<Rc<NavController>> {
+    let mut order: Vec<usize> = (0..list.len()).collect();
+    order.sort_by_key(|i| list[*i].depth);
+    let at = order.iter().position(|i| *i == anchor).unwrap_or(0);
+    order[at + 1..].iter().map(|i| list[*i].clone()).collect()
+}
+
 /// Anchor + descend for a multi-segment path. See [`navigate`].
 ///
 /// Signal writes may propagate SYNCHRONOUSLY (an un-batched set cascades immediately), so the
@@ -402,12 +425,12 @@ fn navigate_absolute(segments: &[String]) -> bool {
     // a reset can dispose deeper surfaces (a popped page takes its sub-surfaces with it).
     if let Some(anchor) = controllers.iter().position(|c| (c.current)() == *first) {
         PENDING.with(|p| *p.borrow_mut() = segments[1..].to_vec());
-        for c in controllers[anchor + 1..].iter().rev() {
+        for c in nested_after(&controllers, anchor).iter().rev() {
             let _ = (c.push)("");
         }
         let live = snapshot();
         if let Some(anchor) = live.iter().position(|c| (c.current)() == *first) {
-            for c in live[anchor + 1..].iter() {
+            for c in nested_after(&live, anchor) {
                 while let Some(front) = PENDING.with(|p| p.borrow().first().cloned()) {
                     if !(c.enter)(&front) {
                         break;
@@ -525,8 +548,13 @@ pub fn current_route() -> Option<String> {
     if controllers.is_empty() {
         return None;
     }
+    // Outermost first, which is nesting order rather than registration order — a host that builds
+    // its pages before registering itself lands after what those pages contain
+    // (`NavController::depth`). Ties keep registration order, which is what siblings want.
+    let mut ordered = controllers;
+    ordered.sort_by_key(|c| c.depth);
     let mut parts: Vec<String> = Vec::new();
-    for c in controllers {
+    for c in ordered {
         parts.extend((c.segments)());
     }
     Some(encode_route(&parts, &[]))

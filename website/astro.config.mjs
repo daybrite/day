@@ -3,6 +3,7 @@
 
 // @ts-check
 import { defineConfig } from 'astro/config';
+import { unified } from '@astrojs/markdown-remark';
 import mdx from '@astrojs/mdx';
 import gallery from './integrations/gallery.mjs';
 import rewriteInternalLinks from './plugins/rewrite-internal-links.mjs';
@@ -38,6 +39,13 @@ export default defineConfig({
     // admonitions (plugins/admonitions.mjs). tierBadge runs after the rewrite so it sees the
     // final href, and admonitions runs last so a badge inside a call-out is already a badge when
     // it moves into the title.
-    rehypePlugins: [rewriteInternalLinks, accentTargetCode, tierBadge, admonitions],
+    //
+    // Astro 7.2 deprecated `markdown.rehypePlugins` (and its remark siblings) in favor of naming
+    // the processor explicitly: `unified()` IS the default remark/rehype pipeline, so this is the
+    // same processing, declared through the factory that now owns the plugin lists. `shikiConfig`
+    // stays at this level — it configures the highlighter, not the unified pipeline.
+    processor: unified({
+      rehypePlugins: [rewriteInternalLinks, accentTargetCode, tierBadge, admonitions],
+    }),
   },
 });

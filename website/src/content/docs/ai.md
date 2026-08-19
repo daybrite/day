@@ -36,8 +36,8 @@ cd skycheck
 day launch -p macos-appkit
 ```
 
-You get a running native app with a sidebar, a home page, localized strings, a dayscript smoke
-test (`dayscript/smoke.yaml`), and, most importantly here, an `AGENTS.md` that teaches
+You get a running native app with adaptive navigation, an editable list, localized strings, a
+dayscript walkthrough (`dayscript/demo.yaml`), and, most importantly here, an `AGENTS.md` that teaches
 any coding agent the project's conventions: where pages live, how routes register, that every
 control gets a stable `.id()`, and that new strings go into *every* locale.
 

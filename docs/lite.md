@@ -73,7 +73,7 @@ my-weather/
 ├── pages/…              # more modules, imported relatively from app.ts
 ├── icon.svg             # app icon (svg or png)
 ├── i18n/en.ftl          # Fluent catalogs, one per locale (§7.2)
-├── dayscript/smoke.yaml # scripted drive of this miniapp inside a host (§11)
+├── dayscript/demo.yaml  # scripted drive of this miniapp inside a host (§11)
 └── tests/app.test.ts    # optional headless tests (§11)
 ```
 
@@ -336,7 +336,7 @@ assertable, and screenshot-able through the ordinary engine. The convention is a
 ```sh
 cd <your superapp>
 day launch -p ios-uikit --env DAYLITE_RESET=1 \
-  --script miniapps/tictactoe/dayscript/smoke.yaml     # install → open → play → screenshot
+  --script miniapps/tictactoe/dayscript/demo.yaml      # install → open → play → screenshot
 day launch -p ios-uikit --locale fr --variant fr --env DAYLITE_RESET=1 \
   --script dayscript/fr.yaml                            # localized-run screenshots per locale
 ```

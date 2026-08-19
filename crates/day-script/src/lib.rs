@@ -299,6 +299,10 @@ pub enum Step {
     /// step shows the new LAYOUT at the old size. Drive a real resize from the runner instead
     /// (Playwright's `setViewportSize` on web, the simulator's rotation on iOS) when the
     /// geometry itself is what's under test.
+    /// `width: auto` RELEASES the override and restores the class the window itself reports, so
+    /// the steps after an adaptive sweep run at the device's real geometry again. A script that
+    /// forces `expanded` and never lets go leaves a phone laying out a split whose detail pane
+    /// falls off the screen — the layout is honest, the window just isn't that wide.
     SizeClass {
         width: String,
         #[serde(default)]
@@ -1193,11 +1197,16 @@ fn exec(step: Step) -> Reply {
                 Ok(Reply::ok())
             }
             Step::SizeClass { width, height } => {
+                if width == "auto" {
+                    day_core::restore_reported_size_class();
+                    day_reactive::flush_sync();
+                    return Ok(Reply::ok());
+                }
                 let width = parse_width_class(&width).ok_or_else(|| {
                     Reply::fail(
                         format!(
                             "size_class: unknown width {width:?} \
-                             (compact|medium|expanded|large|extra-large)"
+                             (auto|compact|medium|expanded|large|extra-large)"
                         ),
                         false,
                     )
@@ -1211,7 +1220,7 @@ fn exec(step: Step) -> Reply {
                         )
                     })?,
                 };
-                day_core::set_size_class(day_spec::SizeClass { width, height });
+                day_core::override_size_class(day_spec::SizeClass { width, height });
                 // Settle the re-present before the next step looks: the class write schedules a
                 // binding, and the backend's re-home runs inside it.
                 day_reactive::flush_sync();

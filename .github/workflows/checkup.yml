@@ -1,4 +1,4 @@
-# checkup — daily smoke test of the user path on every platform-toolkit combo × every day version.
+# checkup — daily end-to-end check of the user path on every platform-toolkit combo × every day version.
 #
 # Each job does what a new user on a stock machine would: `cargo install day-cli` (from crates.io,
 # with the runner's preinstalled Rust), install that combo's toolkit prerequisites, and run

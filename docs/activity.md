@@ -92,7 +92,7 @@ There is deliberately no determinate mode here; that is day's built-in `progress
 
 ## Testing
 
-The crate's smoke test boots the piece on the mock toolkit (which realizes unknown kinds as plain
+The crate's test boots the piece on the mock toolkit (which realizes unknown kinds as plain
 widgets and ignores unknown patches, the same as a backend built without the feature), flips the
 bound signal both ways, and must never panic: `cargo test -p day-piece-activity`.
 

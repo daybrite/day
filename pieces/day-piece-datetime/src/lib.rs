@@ -60,6 +60,38 @@ impl Default for DayDate {
     }
 }
 
+/// Seconds since the Unix epoch, from whatever clock this target has.
+///
+/// `SystemTime::now()` TRAPS on `wasm32-unknown-unknown` — the target has no clock, and the trap
+/// is not a panic that can be caught, it aborts the module. So a `DayDate::today()` anywhere on
+/// the startup path took the whole web app down with `RuntimeError: Unreachable code`. The web
+/// build reads the host's clock through the same JS shim day-dom imports everything else from.
+fn now_epoch_secs() -> i64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        // SAFETY: the shim exports this for every web-dom app; a build that links this piece and
+        // an older shim fails at instantiation with a LinkError naming the missing import, which
+        // is the loud failure rather than the silent one.
+        unsafe { day_datetime_now_secs() as i64 }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+    }
+}
+
+// The attribute makes this a wasm IMPORT from the instantiation's `env` object (shim.js supplies
+// it) rather than a link-time-resolved symbol — without it rust-lld reports it undefined.
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    /// Seconds since the Unix epoch (fractional), from the browser's clock.
+    fn day_datetime_now_secs() -> f64;
+}
+
 impl DayDate {
     /// A validated date (`month` 1–12, `day` within the month, leap-aware) — `None` otherwise.
     pub fn new(year: i32, month: u8, day: u8) -> Option<Self> {
@@ -73,11 +105,7 @@ impl DayDate {
     /// Today's date derived from the system clock in UTC (Day carries no time-zone database; an
     /// app that must roll the date at LOCAL midnight should compute it with its own zone source).
     pub fn today() -> Self {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        Self::from_epoch_days(secs.div_euclid(86_400))
+        Self::from_epoch_days(now_epoch_secs().div_euclid(86_400))
     }
 
     /// Days since 1970-01-01 (negative before). The numeric interchange form across native
@@ -193,11 +221,7 @@ impl DayTime {
     /// wall-clock time should apply its own offset. Pair the two for a timestamp
     /// (`Day-Showcase-2026-08-12-14-23-05.png`).
     pub fn now() -> Self {
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        Self::from_seconds_of_day(secs.rem_euclid(86_400))
+        Self::from_seconds_of_day(now_epoch_secs().rem_euclid(86_400))
     }
 
     /// Seconds since midnight — the numeric interchange form across native boundaries.
@@ -335,6 +359,10 @@ pub struct DatePicker {
 
 /// `date_picker(date)` — a field summoning the platform's chooser; `.inline()` embeds it.
 pub fn date_picker(date: Signal<DayDate>) -> DatePicker {
+    // web-dom's registry is populated at RUNTIME (no `linkme` on wasm), and a constructor always
+    // runs before the node it returns is realized — so this is where the arm registers itself.
+    #[cfg(all(feature = "dom", target_arch = "wasm32"))]
+    dom_impl::register();
     DatePicker {
         date,
         style: Style::Automatic,
@@ -432,6 +460,8 @@ pub struct TimePicker {
 
 /// `time_picker(time)` — a field summoning the platform's chooser; `.inline()` embeds it.
 pub fn time_picker(time: Signal<DayTime>) -> TimePicker {
+    #[cfg(all(feature = "dom", target_arch = "wasm32"))]
+    dom_impl::register();
     TimePicker {
         time,
         style: Style::Automatic,
@@ -510,7 +540,7 @@ impl Piece for TimePicker {
 // each to its feature + target.
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 
 // ---------------------------------------------------------------------------
 // Unit tests: the calendar math every backend leans on.

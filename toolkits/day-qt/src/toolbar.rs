@@ -101,8 +101,15 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
 fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     match icon {
         Some(Icon::Symbol(s)) => {
+            // `theme-name|outline.svg` — see `day_qt_toolbar_icon`. The staged outline is Day's
+            // own drawing, used only when the desktop has neither the themed icon nor a QStyle
+            // standard one.
             let (name, fallback) = icon_for(*s);
-            (name.to_string(), fallback as c_int)
+            let spec = match day_spec::resource::stage_symbol_svg(*s) {
+                Some(p) => format!("{name}|{}", p.display()),
+                None => name.to_string(),
+            };
+            (spec, fallback as c_int)
         }
         // The staged glyph SVG first, like every other name-based icon channel here — Qt's SVG
         // icon engine renders it at the toolbar's icon size (docs/vectors.md). The raster cache

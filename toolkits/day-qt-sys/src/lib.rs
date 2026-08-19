@@ -69,6 +69,7 @@ unsafe extern "C" {
 
     pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
+    pub fn day_qt_label_set_align(w: *mut c_void, align: c_int);
     pub fn day_qt_label_set_rich_text(w: *mut c_void, html: *const c_char);
     pub fn day_qt_label_on_link(w: *mut c_void, id: u64, cb: extern "C" fn(u64, *const c_char));
     pub fn day_qt_label_set_font(
@@ -129,6 +130,10 @@ unsafe extern "C" {
     pub fn day_qt_progress_set(w: *mut c_void, value: c_int);
 
     pub fn day_qt_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
+    /// The first QTabWidget above `w`, or null — how a nav menu finds the suite drawing its rows.
+    pub fn day_qt_enclosing_tabs(w: *mut c_void) -> *mut c_void;
+    /// Present but not shown: the suite's sidebar page, whose rows became the bar.
+    pub fn day_qt_tabs_set_page_visible(tabs: *mut c_void, page: *mut c_void, visible: c_int);
     pub fn day_qt_tabs_add_page(
         tabs: *mut c_void,
         page: *mut c_void,

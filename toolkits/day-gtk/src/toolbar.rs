@@ -104,6 +104,10 @@ fn dress_button(button: &impl IsA<gtk4::Button>, item: &ToolbarItem) {
             if let Some(name) = icon_name(*s) {
                 button.set_icon_name(name);
                 dressed = true;
+            } else if let Some(img) = crate::symbol_outline_icon(*s) {
+                // The theme does not carry this one — draw Day's own (see symbol_outline_icon).
+                button.set_child(Some(&img));
+                dressed = true;
             }
         }
         // A bundled image: tint it to the theme foreground like the sidebar icons, so a black

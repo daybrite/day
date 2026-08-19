@@ -21,9 +21,9 @@ mod tree;
 pub mod windows;
 
 pub use ambient::{
-    reset_ambient, safe_area, set_safe_area, set_size_class, set_window_safe_area,
-    set_window_size_class, size_class, window_safe_area, window_size_class,
-    window_size_class_untracked,
+    override_size_class, reset_ambient, restore_reported_size_class, safe_area, set_safe_area,
+    set_size_class, set_window_safe_area, set_window_size_class, size_class, window_safe_area,
+    window_size_class, window_size_class_untracked,
 };
 pub use anim::{current_anim, with_animation};
 pub use build::*;

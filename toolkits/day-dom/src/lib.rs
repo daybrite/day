@@ -102,11 +102,13 @@ unsafe extern "C" {
     );
     fn day_dom_present(req: u32, json: *const u8, len: usize);
     fn day_dom_dismiss(req: u32);
-    fn day_dom_nav_mode(el: u32, split: u32, title: *const u8, tl: usize);
-    /// Rebuild a live host's chrome for the other presentation, detaching its pages (which stay
+    /// `mode` is [`nav_mode`]: 0 split, 1 stack, 2 tabs, 3 rail.
+    fn day_dom_nav_mode(el: u32, mode: u32, title: *const u8, tl: usize);
+    /// Rebuild a live host's chrome for another presentation, detaching its pages (which stay
     /// alive in the shim's registry) for Day to re-home.
-    fn day_dom_nav_present(el: u32, split: u32);
-    fn day_dom_nav_add_page(nav: u32, page: u32, sidebar: u32);
+    fn day_dom_nav_present(el: u32, mode: u32);
+    /// `chrome` puts the page in the sidebar / tab-bar / rail slot rather than the detail area.
+    fn day_dom_nav_add_page(nav: u32, page: u32, chrome: u32);
     fn day_dom_nav_back_bar(nav: u32, visible: u32, t: *const u8, tl: usize);
     fn day_dom_navmenu(el: u32, json: *const u8, len: usize);
     // Window toolbar (docs/toolbars.md): the whole bar crosses as one JSON spec, the way the
@@ -116,8 +118,8 @@ unsafe extern "C" {
     fn day_dom_toolbar_patch(json: *const u8, len: usize);
     fn day_dom_toolbar_sidebar() -> u32;
     fn day_dom_navmenu_select(el: u32, idx: i32);
-    fn day_dom_tabs(el: u32, json: *const u8, len: usize);
-    fn day_dom_tabs_select(el: u32, idx: u32);
+    fn day_dom_options(el: u32, json: *const u8, len: usize);
+    fn day_dom_options_select(el: u32, idx: u32);
     fn day_dom_schedule_post();
     fn day_dom_schedule_delayed(token: u32, ms: u32);
     fn day_dom_request_frame();
@@ -408,79 +410,10 @@ fn image_url(name: &str) -> String {
 /// shapes are what read, not their styling. `None` for a symbol with no glyph yet — the item
 /// falls back to its label, which is what the whole set did before.
 fn symbol_svg(sym: day_spec::Symbol) -> Option<String> {
-    use day_spec::Symbol as S;
-    let d = match sym {
-        S::Add => "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",
-        S::Remove => "M5 11h14v2H5z",
-        S::Delete => "M9 3h6l1 2h4v2H4V5h4zM6 8h12l-1 13H7z",
-        S::Edit => {
-            "M3 17.3V21h3.7L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7z"
-        }
-        S::New => "M13 2H6v20h12V7h-5zm2 .5L19.5 7H15z",
-        S::Open => "M2 5h7l2 2h11v12H2z",
-        S::Save => "M3 3h13l5 5v13H3zm5 0h7v6H8zm-1 11h10v7H7z",
-        S::Print => "M7 3h10v4H7zM4 8h16v8h-3v6H7v-6H4z",
-        S::Refresh => "M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z",
-        S::Search => {
-            "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4m0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8"
-        }
-        S::Share => "M12 3l5 5h-3v7h-4V8H7zM5 17h14v4H5z",
-        S::Settings => {
-            "M12 2l2 3h3l1 3-2 4 2 4-1 3h-3l-2 3-2-3H7l-1-3 2-4-2-4 1-3h3zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8"
-        }
-        S::Info => "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-1 5h2v2h-2zm0 4h2v6h-2z",
-        S::Star => "M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z",
-        S::Bookmark => "M6 2h12v20l-6-4-6 4z",
-        S::Back => "M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z",
-        S::Forward => "M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z",
-        S::Up => "M5.4 15.4L4 14l8-8 8 8-1.4 1.4L12 8.8z",
-        S::Down => "M5.4 8.6L4 10l8 8 8-8-1.4-1.4L12 15.2z",
-        S::Home => "M12 3l9 8h-3v10h-5v-6h-2v6H6V11H3z",
-        S::Sidebar => "M3 4h18v16H3zm2 2v12h4V6zm6 0v12h8V6z",
-        S::Filter => "M3 5h18l-7 8v6l-4 2v-8z",
-        S::Sort => "M8 4v12H4l4 4 4-4H10V4zM14 6h7v2h-7zm0 4h5v2h-5zm0 4h3v2h-3z",
-        S::More => {
-            "M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4m6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4m6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4"
-        }
-        S::Play => "M8 5l11 7-11 7z",
-        S::Pause => "M7 5h3v14H7zm7 0h3v14h-3z",
-        S::Stop => "M6 6h12v12H6z",
-        S::Camera => {
-            "M9 3h6l1.5 2H20a2 2 0 0 1 2 2v12H2V7a2 2 0 0 1 2-2h3.5zm3 6a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9m0 1.6a2.9 2.9 0 1 1 0 5.8 2.9 2.9 0 0 1 0-5.8"
-        }
-        S::Code => "M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6zm5.2 0l4.6-4.6L14.6 7.4 16 6l6 6-6 6z",
-        S::Light => {
-            "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM3.5 4.9l1.4-1.4 2.1 2.1-1.4 1.4zm13.5 13.5l1.4-1.4 2.1 2.1-1.4 1.4zM4.9 20.5l-1.4-1.4 2.1-2.1 1.4 1.4zm13.5-13.5l-1.4-1.4 2.1-2.1 1.4 1.4z"
-        }
-        S::Dark => "M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9",
-        // "Automatic": the half-filled circle every platform uses — the left half solid, the
-        // right half an outline, which `evenodd` below turns into the ring it should be.
-        S::Auto => "M12 2a10 10 0 0 0 0 20zM12 4a8 8 0 0 1 0 16v-1.6a6.4 6.4 0 0 0 0-12.8z",
-        S::ZoomIn => {
-            "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M9 7h2v2h2v2h-2v2H9v-2H7V9h2z"
-        }
-        S::ZoomOut => "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M7 9h6v2H7z",
-        S::Undo => "M12 5V2L7 7l5 5V9a5 5 0 1 1 0 10H8v2h4a7 7 0 0 0 0-14z",
-        S::Redo => "M12 5V2l5 5-5 5V9a5 5 0 1 0 0 10h4v2h-4a7 7 0 0 1 0-14z",
-        S::Copy => "M8 2h10v14H8zM4 6h2v14h12v2H4z",
-        S::Cut => {
-            "M9 4l5.5 9.5-1.2 2L7.8 6zM15 4L9.5 13.5l1.2 2L16.2 6zM6 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m12 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6"
-        }
-        S::Paste => "M9 2h6v2h3v18H6V4h3zm0 2v2h6V4z",
-        S::Mail => "M2 5h20v14H2zm2 3.2V17h16V8.2l-8 5z",
-        S::Folder => "M2 5h7l2 2h11v12H2z",
-        S::Document => "M14 2H6v20h12V6zm.5.8L17.2 6H14.5z",
-        S::Check => "M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
-        S::Close => {
-            "M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"
-        }
-        S::Warning => "M12 2l10 19H2zm-1 7h2v6h-2zm0 8h2v2h-2z",
-        // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
-        // than failing to compile, and its item keeps its label.
-        _ => return None,
-    };
-    // A data: URL inside CSS `url("…")`. Single quotes in the markup and a percent-encoded `<`,
-    // `>` and `#` keep it valid in both the CSS value and the attribute the shim assigns it to.
+    // The shared outline table (day-spec), inlined as a data: URL. Single quotes in the markup
+    // and a percent-encoded `<`, `>` and `#` keep it valid in both the CSS value and the
+    // attribute the shim assigns it to.
+    let d = sym.outline_path()?;
     Some(format!(
         "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='{d}'/%3E%3C/svg%3E"
     ))
@@ -507,7 +440,6 @@ const EL_DIVIDER: u32 = 13;
 const EL_NAV: u32 = 14;
 const EL_PAGE: u32 = 15;
 const EL_NAVMENU: u32 = 16;
-const EL_TABS: u32 = 17;
 const EL_CELL: u32 = 18;
 const EL_SEGMENTED: u32 = 19;
 const EL_RADIOS: u32 = 20;
@@ -544,15 +476,30 @@ mod ev {
 pub struct DomHandle(pub u32);
 
 struct NavState {
-    split: bool,
-    /// Detail (stack) pages in push order. In a `Stack` presentation the sidebar page is the
-    /// stack's root and so appears here FIRST; in `Split` it lives in its own pane and does not.
-    /// A re-present moves it between the two (see `nav_present`).
+    presentation: NavPresentation,
+    /// Detail pages. In `Stack` they are a push stack and the sidebar page is the root, so it
+    /// appears here FIRST; everywhere else they are the host's detail children in attach order
+    /// and the sidebar page lives in the chrome slot instead. A re-present moves it between the
+    /// two (see `nav_present`).
     pages: Vec<u32>,
     /// The host's sidebar page, once it has one. Tracked by identity so a re-present can re-home
     /// it without depending on where it currently sits.
     sidebar: Option<u32>,
     titles: Vec<String>,
+    /// Which detail page is showing in a presentation whose rows are chrome — an index into
+    /// `pages`. Meaningless while stacked, where the top of the stack is always the last page.
+    selected: usize,
+}
+
+/// The shim's presentation encoding. The FFI edge speaks numbers, so this is the one place the
+/// mapping lives; the shim's `navChrome` switches on the same four.
+fn nav_mode(p: NavPresentation) -> u32 {
+    match p {
+        NavPresentation::Split => 0,
+        NavPresentation::Stack => 1,
+        NavPresentation::Tabs => 2,
+        NavPresentation::Rail => 3,
+    }
 }
 
 struct ListEntry {
@@ -808,22 +755,6 @@ fn apply_font(el: u32, f: &FontSpec) {
 // ---------------------------------------------------------------------------
 // JSON writer (tiny, escapes only what the shim needs — no serde dependency).
 // ---------------------------------------------------------------------------
-
-/// Build the tabs JSON (`{titles, selected}`) the shim's `day_dom_tabs` consumes (idempotent —
-/// it rebuilds the tab strip), shared by TABS realize and `TabsPatch::Items`.
-fn tabs_json(titles: &[String], selected: usize) -> String {
-    let mut json = String::from("{\"titles\":[");
-    for (i, t) in titles.iter().enumerate() {
-        if i > 0 {
-            json.push(',');
-        }
-        json_str(&mut json, t);
-    }
-    json.push_str("],\"selected\":");
-    json.push_str(&selected.to_string());
-    json.push('}');
-    json
-}
 
 /// Build the nav-menu JSON (`{items:[{title, icon?, tint?}], selected}`) the shim's
 /// `day_dom_navmenu` consumes. Shared by NAV_MENU realize and the data-driven
@@ -1171,6 +1102,14 @@ impl Toolkit for Dom {
             // elements move between containers intact, keeping their subtrees, scroll offsets,
             // and focus (docs/size-classes.md).
             Cap::NavRepresent => Support::Native,
+            // Composed rather than a native tab widget — the browser ships none — but a tab
+            // bar all the same: the same `NAV_MENU` element the sidebar uses, laid out
+            // horizontally in the chrome slot (docs/navigation.md).
+            Cap::NavTabs => Support::Emulated,
+            // A browser window ranges from a phone to a desktop, which is exactly the case
+            // adaptive navigation exists for — so unlike the desktop toolkits, web-dom does
+            // grow a tab bar as the viewport narrows (docs/navigation.md).
+            Cap::NavTabsAdaptive => Support::Emulated,
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
             // Exact metrics from a canvas TextMetrics, but derived rather than read off a
             // baseline the platform publishes (docs/baseline.md).
@@ -1222,6 +1161,13 @@ impl Toolkit for Dom {
                 }
                 if !p.wraps {
                     s(el, "white-space", "nowrap");
+                }
+                // `start`/`end` rather than `left`/`right`, so an RTL locale follows the writing
+                // direction without the app asking (docs/localization.md).
+                match p.align {
+                    day_spec::props::TextAlign::Leading => {}
+                    day_spec::props::TextAlign::Center => s(el, "text-align", "center"),
+                    day_spec::props::TextAlign::Trailing => s(el, "text-align", "end"),
                 }
                 el
             }
@@ -1385,18 +1331,25 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<NavProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
-                let split = p.presentation.is_split();
                 let el = unsafe { day_dom_create(EL_NAV) };
-                unsafe { day_dom_nav_mode(el, split as u32, p.title.as_ptr(), p.title.len()) };
+                unsafe {
+                    day_dom_nav_mode(
+                        el,
+                        nav_mode(p.presentation),
+                        p.title.as_ptr(),
+                        p.title.len(),
+                    )
+                };
                 unsafe { day_dom_listen(el, 1) }; // the back bar's button reports via CLICK
                 NAV_STATE.with(|m| {
                     m.borrow_mut().insert(
                         el,
                         NavState {
-                            split,
+                            presentation: p.presentation,
                             pages: Vec::new(),
                             sidebar: None,
                             titles: vec![p.title.clone()],
+                            selected: 0,
                         },
                     )
                 });
@@ -1438,21 +1391,6 @@ impl Toolkit for Dom {
                     p.selected,
                 );
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
-                el
-            }
-            Some(Builtin::Tabs) => {
-                let Some(p) = day_spec::props_of::<TabsProps>(kind, "web-dom", props) else {
-                    return realize_placeholder(kind, id);
-                };
-                let el = unsafe { day_dom_create(EL_TABS) };
-                let json = tabs_json(&p.titles, p.selected);
-                unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
-                el
-            }
-            Some(Builtin::TabsPage) => {
-                let el = unsafe { day_dom_create(EL_PAGE) };
-                CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
-                unsafe { day_dom_listen(el, 32) };
                 el
             }
             Some(Builtin::List) => {
@@ -1652,7 +1590,7 @@ impl Toolkit for Dom {
                     // Programmatic DOM value sets fire no events — echo-free by construction.
                     let seg = SEG_COUNT.with(|m| m.borrow().get(&el).copied());
                     match seg {
-                        Some(_) => unsafe { day_dom_tabs_select(el, *i as u32) },
+                        Some(_) => unsafe { day_dom_options_select(el, *i as u32) },
                         None => unsafe { day_dom_set_value(el, *i as f64) },
                     }
                 }
@@ -1722,18 +1660,6 @@ impl Toolkit for Dom {
                     unsafe { day_dom_navmenu_select(el, sel.map(|i| i as i32).unwrap_or(-1)) };
                 }
             }
-            kinds::TABS => {
-                if let Some(TabsPatch::Items {
-                    titles, selected, ..
-                }) = patch.downcast_ref::<TabsPatch>()
-                {
-                    // Pages were added/removed via insert/remove; rebuild the strip + select.
-                    let json = tabs_json(titles, *selected);
-                    unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
-                } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                    unsafe { day_dom_tabs_select(el, *i as u32) };
-                }
-            }
             kinds::LIST => {
                 if let Some(p) = patch.downcast_ref::<ListPatch>() {
                     list_patch(el, p);
@@ -1796,8 +1722,11 @@ impl Toolkit for Dom {
             if sidebar {
                 state.sidebar = Some(child.0);
             }
-            unsafe { day_dom_nav_add_page(parent.0, child.0, (state.split && sidebar) as u32) };
-            if !(state.split && sidebar) {
+            // The sidebar page belongs to the CHROME slot in every presentation except `Stack`,
+            // where it is the stack's root and so joins the detail pages instead.
+            let to_chrome = sidebar && state.presentation != NavPresentation::Stack;
+            unsafe { day_dom_nav_add_page(parent.0, child.0, to_chrome as u32) };
+            if !to_chrome {
                 state.pages.push(child.0);
             }
             true
@@ -1812,6 +1741,9 @@ impl Toolkit for Dom {
         NAV_STATE.with(|m| {
             if let Some(state) = m.borrow_mut().get_mut(&parent.0) {
                 state.pages.retain(|p| *p != child.0);
+                // Dropping a page shifts every index after it, and `selected` is an index. Clamp
+                // rather than leave it dangling past the end — a stale one would hide every page.
+                state.selected = state.selected.min(state.pages.len().saturating_sub(1));
             }
         });
         unsafe { day_dom_remove(child.0) };
@@ -2304,7 +2236,7 @@ fn realize_picker(p: &PickerProps) -> u32 {
     match p.style {
         PickerStyle::Menu => {
             let el = unsafe { day_dom_create(EL_SELECT) };
-            unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) }; // shim fills <option>s
+            unsafe { day_dom_options(el, json.as_ptr(), json.len()) }; // shim fills <option>s
             unsafe { day_dom_listen(el, 4) };
             PICKER_SIZE.with(|m| m.borrow_mut().insert(el, Size::new(longest + 38.0, 26.0)));
             el
@@ -2312,7 +2244,7 @@ fn realize_picker(p: &PickerProps) -> u32 {
         PickerStyle::Segmented | PickerStyle::Inline => {
             let segmented = p.style == PickerStyle::Segmented;
             let el = unsafe { day_dom_create(if segmented { EL_SEGMENTED } else { EL_RADIOS }) };
-            unsafe { day_dom_tabs(el, json.as_ptr(), json.len()) };
+            unsafe { day_dom_options(el, json.as_ptr(), json.len()) };
             SEG_COUNT.with(|m| m.borrow_mut().insert(el, p.options.len()));
             let size = if segmented {
                 let total: f64 = p.options.iter().map(|o| measure_str(o).width + 28.0).sum();
@@ -2356,7 +2288,7 @@ fn nav_patch(el: u32, p: &NavPatch) {
     // Re-present rebuilds chrome and re-homes pages — it needs the state map unborrowed while it
     // calls back into the shim, so it runs outside the borrow below.
     if let NavPatch::Presentation(next) = p {
-        nav_present(el, next.is_split());
+        nav_present(el, *next);
         return;
     }
     NAV_STATE.with(|m| {
@@ -2365,9 +2297,20 @@ fn nav_patch(el: u32, p: &NavPatch) {
         match p {
             // Handled above, before the borrow.
             NavPatch::Presentation(_) => {}
+            // Resident-page switch (docs/navigation.md): every page stays in the DOM and only
+            // one is displayed, so a tab switch costs a `display` flip and keeps the other
+            // tabs' scroll offsets and focused fields exactly as the user left them.
+            NavPatch::Select(i) => {
+                state.selected = *i;
+                for (n, page) in state.pages.iter().enumerate() {
+                    s(*page, "display", if n == *i { "block" } else { "none" });
+                }
+                sync_back_bar(el, state);
+            }
             NavPatch::Pushed { title, .. } => {
                 state.titles.push(title.clone());
                 let last = state.pages.len().saturating_sub(1);
+                state.selected = last;
                 for (i, page) in state.pages.iter().enumerate() {
                     s(*page, "display", if i == last { "block" } else { "none" });
                 }
@@ -2384,6 +2327,7 @@ fn nav_patch(el: u32, p: &NavPatch) {
                 if n >= 2 {
                     s(state.pages[n - 2], "display", "block");
                 }
+                state.selected = n.saturating_sub(2);
                 sync_back_bar_at(el, state, n.saturating_sub(1));
             }
             // The custom back bar routes back through Day; no native auto-pop to suppress.
@@ -2411,54 +2355,79 @@ fn sync_back_bar(el: u32, state: &NavState) {
 ///
 /// - `Split` — the sidebar page gets its own pane; `pages` holds detail pages alone.
 /// - `Stack` — the sidebar page is the stack's root, so it heads `pages`.
-fn nav_present(el: u32, split: bool) {
-    let Some((sidebar, mut pages, was_split)) = NAV_STATE.with(|m| {
+/// - `Tabs` / `Rail` — the sidebar page moves into the CHROME slot, where its `NAV_MENU` lays
+///   out as a bar or a strip. It is the same element with the same click handlers and the same
+///   selection sync; only its container and its CSS class change, which is why a morph costs no
+///   rebuilding on either side of the boundary.
+fn nav_present(el: u32, next: NavPresentation) {
+    let Some((sidebar, mut pages, was, selected)) = NAV_STATE.with(|m| {
         let st = m.borrow();
         let s = st.get(&el)?;
-        Some((s.sidebar, s.pages.clone(), s.split))
+        Some((s.sidebar, s.pages.clone(), s.presentation, s.selected))
     }) else {
         return;
     };
-    if was_split == split {
+    if was == next {
         return;
     }
-    // Move the sidebar page in or out of the stack's page list.
+    // Which page is on screen, by IDENTITY rather than index: moving the sidebar page in or out
+    // of the detail list below shifts every index past it, so an index captured now would point
+    // at the wrong page afterwards.
+    let shown_node = pages.get(selected).copied();
+    // The sidebar page is a stack ROOT only while stacked; everywhere else it is chrome or its
+    // own pane, and so leaves the detail list.
     if let Some(side) = sidebar {
         pages.retain(|p| *p != side);
-        if !split {
+        if next == NavPresentation::Stack {
             pages.insert(0, side);
         }
     }
-    unsafe { day_dom_nav_present(el, split as u32) };
+    unsafe { day_dom_nav_present(el, nav_mode(next)) };
     if let Some(side) = sidebar
-        && split
+        && next != NavPresentation::Stack
     {
         unsafe { day_dom_nav_add_page(el, side, 1) };
-        // A sidebar pane always shows its page; it may have been hidden as a stack root under a
-        // pushed detail.
+        // The chrome slot always shows its page; it may have been hidden as a stack root under
+        // a pushed detail.
         s(side, "display", "block");
     }
-    let last = pages.len().saturating_sub(1);
+    // The page the user is looking at STAYS the page the user is looking at. `selected` tracks
+    // exactly that in every presentation — push and pop maintain it too — so carrying it across
+    // is the whole of "re-present without rebuilding".
+    //
+    // Getting this from the page ORDER instead does not work when leaving a tab bar: the pieces
+    // layer keeps the selected page and disposes the rest, so a backend that showed the LAST
+    // page would hide the one survivor and the detail pane would come up empty.
+    //
+    // Its index in the REARRANGED list. Falling back to the last page covers the one case where
+    // it is not there any more: a stack showing only its root, whose root has just left the
+    // detail list to become a sidebar pane.
+    let shown = shown_node
+        .and_then(|n| pages.iter().position(|p| *p == n))
+        .unwrap_or_else(|| pages.len().saturating_sub(1));
     for (i, page) in pages.iter().enumerate() {
         unsafe { day_dom_nav_add_page(el, *page, 0) };
-        s(*page, "display", if i == last { "block" } else { "none" });
+        s(*page, "display", if i == shown { "block" } else { "none" });
     }
     // The back bar belongs to the stack presentation alone, and its visibility depends on the
     // page count we just settled — so commit the state first, then sync from it.
     NAV_STATE.with(|m| {
         let mut m = m.borrow_mut();
         if let Some(st) = m.get_mut(&el) {
-            st.split = split;
+            st.presentation = next;
             st.pages = pages;
+            st.selected = shown;
             sync_back_bar(el, st);
         }
     });
 }
 
 /// Stack presentation: the back bar shows while pushed pages are on top (`depth` counts the
-/// pages that will remain after the in-flight patch). Split mode never shows it.
+/// pages that will remain after the in-flight patch). Every other presentation has its own way
+/// out — a sidebar row, a tab — and never shows it.
 fn sync_back_bar_at(el: u32, state: &NavState, depth: usize) {
-    let visible = !state.split && depth >= 1 && state.titles.len() > 1;
+    let visible =
+        state.presentation == NavPresentation::Stack && depth >= 1 && state.titles.len() > 1;
     let title = state.titles.last().cloned().unwrap_or_default();
     unsafe { day_dom_nav_back_bar(el, visible as u32, title.as_ptr(), title.len()) };
 }

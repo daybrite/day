@@ -29,24 +29,88 @@ surfaces themselves run on their signals.
 
 ```rust
 let section = Signal::new("home".to_string());
-selector(section)
-    .style(SelectorStyle::Sidebar)      // .Sidebar | .Tabs
+selector(section)                       // adaptive by default; .style() pins a shape
     .title(tr("app-title"))
     .header(sidebar_header)             // optional piece above the list
     .item("home",     tr("home"),     home_page)
     .item("settings", tr("settings"), settings_page)
 ```
 
+### Styles
+
+| `SelectorStyle` | What it draws |
+|---|---|
+| `Automatic` **(default)** | The platform's own answer at this width — see the ladder below. |
+| `Tabs` | A tab bar at EVERY size, however wide the window gets. |
+| `Sidebar` | A NavigationSplitView: both panes where there is room, collapsing to a list that PUSHES the detail where there is not. |
+
+`Automatic` walks one ladder, and only its bottom rung is platform-specific:
+
+| window width | presentation |
+|---|---|
+| `Expanded` and wider (≥ 840pt) | `Split` — sidebar beside detail |
+| `Medium` (600–839pt) | `Rail` — a narrow strip beside the content |
+| `Compact` (< 600pt) | `Tabs` where a tab bar is the idiom, `Stack` where it is not |
+
+That last row is `Cap::NavTabsAdaptive`, and it is a statement about the platform rather than its
+widget set. **Every desktop can DRAW a tab bar** — an app is free to pin `SelectorStyle::Tabs` —
+**and none of them GROWS one** when its window is dragged narrow: a narrow Mail.app hides its
+sidebar and pushes. The phones and the web are the opposite, and are the surfaces whose window
+size genuinely ranges from a phone to a desktop. So `Automatic` and `Sidebar` behave identically
+on a desktop, and differ on iOS, Android, HarmonyOS and the web.
+
+`Rail` is NOT gated by that capability — a narrow sidebar is an ordinary desktop shape, and on
+Windows it is literally what `NavigationView` does at that width. A backend with no rail control
+ROUNDS it to a neighbor of its own choosing: macOS has nothing that is a vertical strip of
+icon-only destinations, so appkit draws an ordinary sidebar there.
+
+### Page residency
+
+A presentation whose rows are the CHROME (`Tabs`, `Rail`) keeps every visited page RESIDENT:
+switching is a `NavPatch::Select`, nothing is torn down, and each tab keeps its scroll offset and
+focused field — what every native tab container does. A `Split` or `Stack` presentation keeps only
+the shown page and switches by pop-then-push.
+
+Residency follows the PRESENTATION rather than the host, deliberately. Making every nav page
+resident would keep effects running for pages nobody is looking at; making none resident would
+rebuild a tab's content on every tap. Splitting it this way means a morph only ever disposes pages
+that are NOT on screen, or lazily builds ones that were not built yet — the VISIBLE page is never
+rebuilt, which is the invariant a morph has to keep. Pages build on FIRST VISIT, not eagerly.
+
 The active key is a `Signal<String>`, two-way exactly like `Picker`/`Toggle`: set it and the UI
 switches; the user picking natively writes it back (origin-tagged, no echo).
 
-| Style | Native container |
-|-------|------------------|
-| `Sidebar` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwOverlaySplitView` (libadwaita; `DAY_GTK_SPLIT=paned` selects a draggable `GtkPaned` instead); Qt `QSplitter`; on mobile it collapses to a list that pushes the detail (UINavigationController / Android M3 app bar+pages with shared-axis motion). |
-| `Tabs` | a native tab widget: `NSTabView` / `UITabBarController` / `AdwViewStack` + a `.linked` toggle switcher / `QTabWidget` / Android M3 `BottomNavigationView` / XAML `Pivot` ([docs/tabs.md](tabs.md)). |
+| Presentation | Native container |
+|---|---|
+| `Split` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwOverlaySplitView` (libadwaita; `DAY_GTK_SPLIT=paned` selects a draggable `GtkPaned` instead); Qt `QSplitter`; iOS `UISplitViewController`; Android `SlidingPaneLayout`. |
+| `Stack` | one page at a time, back-navigable: `UINavigationController`, `AdwNavigationView`, the Android back stack, or a desktop back-header above the pages. |
+| `Tabs` | the rows drawn as a tab bar: `UITabBarController` / Material `NavigationBarView` / `NavigationView.PaneDisplayMode = Top` / an `NSSegmentedControl` docked below the pages on macOS / a composed bar on Qt and web-dom. |
+| `Rail` | the rows as a narrow strip: Material `NavigationRailView`, `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
 
-`selector` is one primitive, a selection-bound switcher. The two styles differ only in chrome and
-page lifetime: tabs keep every page resident, the sidebar builds the selected detail.
+`selector` is ONE primitive, a selection-bound switcher, and a presentation is chrome plus page
+lifetime — not a different host. That is why a window crossing a breakpoint RE-PRESENTS
+(`NavPatch::Presentation`) rather than rebuilding: the pages it already has are re-homed, so
+nothing loses a scroll offset, a focused field, or an animation in flight.
+
+**What each backend draws.** The rows become the platform's own destination chrome, and where a
+platform has no such widget the presentation ROUNDS to the neighbor it does have (`Rail` lands on
+an ordinary sidebar on macOS and Qt). A backend that answers `Cap::NavTabs = Unsupported` sends
+`Automatic` through the sidebar ladder instead — what every backend did before adaptive navigation
+existed, so the degradation is the OLD behavior rather than a hole.
+
+| Backend | Tabs presentation | Adaptive |
+|---------|-------------------|----------|
+| macos-appkit | `NSSegmentedControl` docked below the pages | no — a Mac narrows to a stack |
+| ios-uikit | `UITabBarController` in `.tabSidebar` mode, a `UINavigationController` per tab | yes |
+| android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width | yes |
+| linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
+| linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
+| web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
+| harmony-arkui | a composed bottom bar over resident pages — ArkUI's native node set has no tab container, so it is built from Day's own primitives | yes |
+| windows-xaml | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
+
+Only the phones and the web GROW a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
+desktop may PIN one with `SelectorStyle::Tabs`, but narrowing hides its sidebar and pushes.
 
 > [!NOTE]
 > **Renamed.** `selector(sel).style(Tabs)` was `tabs()`, and `selector(sel).style(Sidebar)` was `nav()`.
@@ -428,7 +492,7 @@ breakpoints, what survives a re-presentation, and which backends morph today.
   need `GtkPaned` covers with `set_shrink_*_child`. Without it, framing the detail to the whole
   host on collapse left the split no room to park the sidebar off screen at its own width, so
   libadwaita collapsed the sidebar to zero and the reveal animation had nothing to slide back in. Tabs use an `AdwViewStack` with a
-  `.linked` toggle switcher ([docs/tabs.md](tabs.md)); dialogs use `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
+  `.linked` toggle switcher; dialogs use `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
 > [!NOTE]
 > **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
 > its pane to a sidebar `NSSplitViewItem`, so AppKit supplies the material — on macOS 26 a

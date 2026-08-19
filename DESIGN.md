@@ -55,7 +55,6 @@ the architecture-level view and the rationale.
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | [docs/duty-matrix.md](docs/duty-matrix.md) | [§8.1](#81-the-toolkit-trait) |
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | [docs/coverage-matrix.md](docs/coverage-matrix.md) | [§8.2](#82-the-open-renderer-registry) |
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | [docs/recorder-matrix.md](docs/recorder-matrix.md) | [§14.6](#146-recording) |
-| tabs | [docs/tabs.md](docs/tabs.md) | [§10.5](#105-navigation-and-presentation) |
 | menus — app menu, context menus, roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
 | deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
@@ -537,7 +536,7 @@ proven for ASCII only — it breaks CJK composition and autocorrect):
 - Echo suppression is additionally a backend duty (compare the native value before applying, with
   a per-control post-roundtrip `f64` tolerance rule for sliders), with `set_if_changed` as the
   second layer so divergent echoes survive as real events.
-- Manual Japanese-IME smokes are acceptance items in M2 (AppKit) and M5 (iOS Simulator); the mock
+- Manual Japanese-IME checks are acceptance items in M2 (AppKit) and M5 (iOS Simulator); the mock
   toolkit's reentrancy test (apply triggers a synchronous synthetic echo; assert no double-borrow,
   no lost divergent value) lands in M0–M1.
 
@@ -1101,7 +1100,7 @@ adjusts scroll insets behind frameworks' backs — so inset policy is v1, not po
   `ViewCompat` inset listener on Android).
 - `env::keyboard_insets(): Signal<Insets>` (from `keyboardLayoutGuide`/willShow-notifications and
   `WindowInsetsCompat.ime()`; zero on desktop). `scroll` applies it as bottom inset and reveals
-  the focused field via `scroll_to`. Scoped into M5; a manual keyboard smoke is an M5 acceptance
+  the focused field via `scroll_to`. Scoped into M5; a manual keyboard check is an M5 acceptance
   item (dayscript cannot see the native keyboard — [§14.2](#142-the-embedded-engine)).
 
 ### §7.8 RTL and BiDi
@@ -1706,6 +1705,19 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 > - **`selector(signal)`** — one signal of the active destination, presented per platform and
 >   `SelectorStyle` (desktop sidebar + detail split, mobile list-push, tabs, segmented);
 >   `Cap::NavSplit`/`Cap::NavHeader` let pages adapt to what the toolkit provides.
+> - **Adaptive navigation** *(2026-08)* — `SelectorStyle::Automatic` is now the DEFAULT, and
+>   `NavPresentation` gained `Tabs` and `Rail` beside `Split`/`Stack`. One host wears all four:
+>   `build_tabs` is gone and `selector(sel).style(Tabs)` lowers to `kinds::NAV`, so a tab bar is a
+>   presentation rather than a second host kind ([docs/navigation.md](docs/navigation.md) records the
+>   retirement). The ladder is `Split` ≥ 840pt, `Rail` at 600–839, and when compact either `Tabs`
+>   or `Stack` — `Cap::NavTabsAdaptive` decides, separately from `Cap::NavTabs` ("can draw one"),
+>   because every desktop can draw a tab bar and none should GROW one from a narrowed window.
+>   Pages are RESIDENT while the rows are chrome and single while they are not, switched by
+>   `NavPatch::Select`, so a morph only ever disposes pages that are off screen or lazily builds
+>   ones not built yet. `NavProps::adaptive` carries the app's intent to the `Emulated` backends,
+>   which four presentations can no longer encode in a lowered `Split`. Drawn today by
+>   macos-appkit and web-dom; the rest answer `Cap::NavTabs = Unsupported` and take the
+>   pre-adaptive sidebar ladder ([docs/navigation.md](docs/navigation.md) is normative).
 > - **Size-class presentation** *(2026-08)* — the split-vs-stack choice moved off `Cap::NavSplit`
 >   alone and onto the WINDOW: `SizeClass` (Android's breakpoints, one table for every backend)
 >   rides a per-window reactive signal that day-core derives from `Event::WindowResized`, and
@@ -2018,7 +2030,7 @@ release artifacts without the opt-in contain no engine). It:
   auto-scroll-into-view) — that gating was never built; scripts scroll explicitly where needed
   and target ids they know to be interactive ([Appendix C](#appendix-c--dayscript-reference-v1) notes this per step).
 - is honest about **what it cannot verify**: the native keyboard and IME, native hit-testing,
-  native animations, and out-of-process UI. Manual smokes in M2/M5/M6 acceptance carry that load.
+  native animations, and out-of-process UI. Manual checks in M2/M5/M6 acceptance carry that load.
 - serves the **transport** ([§14.5](#145-transport-and-rendezvous)), implements `screenshot` via `Toolkit::snapshot_window` (on a
   device or simulator the runner prefers the platform's own screen capture, so it asks the
   engine to SKIP its render — `in_process: false` — and re-asks only if that capture fails;
@@ -2898,12 +2910,14 @@ fieldnotes/
   src/
     lib.rs                   # routes! + root() (the app)
     main.rs                  # desktop entry: day::launch
-    pages/                   # starter pages: home, controls, canvas, items
+    model.rs                 # the domain object + its prefs-backed store
+    pages/                   # starter pages: welcome, navigate, settings
   resource/
     locales/en/app.ftl       # + one dir per locale
+    vectors/                 # tab + row glyphs, and app_mark.svg (a copy of the generated icon)
     images/app_logo.png      # processed images (§18.3); assets/ and fonts/ join as needed
   dayscript/
-    smoke.yaml               # starter script; real apps grow a walkthrough
+    demo.yaml                # starter walkthrough; real apps grow it further
   platform/                  # only for toolkits with a native host project:
     ios/                     #   DayApp.xcodeproj + Runner (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4);
@@ -2926,12 +2940,12 @@ is generated into the scaffolds, calling `day::launch_with(Options::from_env(), 
 ### §17.2 Why real platform projects (and not pane's hand-assembly)
 
 pane proved the hand-assembled path (`aapt2`+`d8`+`zip` APKs, hand-written `Info.plist` bundles) —
-excellent for framework CI smoke, structurally incapable of: native transitive dependencies (a
+excellent as a fast CI signal, structurally incapable of: native transitive dependencies (a
 Lottie AAR, an SPM package — [§15](#15-extensibility-pieces-parts-and-tweaks)'s whole point), store submission (entitlements, provisioning,
 Play/App Store toolchains), and IDE escape hatches. Day therefore adopts the Flutter/Skip position
 from day one: **checked-in, template-generated, thin platform projects that remain buildable by
 their native tools**, with the callback hook keeping Rust fresh. The framework repo keeps a
-pane-style hand-assembly harness *only* as internal CI smoke for backend development (it's cheap
+pane-style hand-assembly harness *only* as an internal CI signal for backend development (it's cheap
 and hermetic), never as the product path — this is the "no cheating" resolution of the two models.
 
 ### §17.3 `Day.toml`
@@ -3422,7 +3436,7 @@ third-party action in the workflow floats on a tag rather than a commit SHA.
 > follow-up jobs this section describes were replaced (2026-08) by a scaffold rebuild check inside
 > each packing platform job: `scripts/ci/scaffold-check.sh` scaffolds a fresh 21-locale app, packs
 > it, and verifies it with `day rebuild --from-dir --strict` on the same runner — the desktop
-> combos then smoke-launch the rebuilt copy. Stage 1's install-and-launch of the shipped showcase
+> combos then launch the rebuilt copy. Stage 1's install-and-launch of the shipped showcase
 > artifact retired with those jobs — except on Linux, where the packing job still installs the
 > `.flatpak` and RUNS the `.appimage` under xvfb (2026-08). The AppImage's claim is that it works
 > on a machine with nothing installed, and the only check for that is executing it: a GTK or Qt

@@ -757,24 +757,10 @@ extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
 }
 
 // ---------------------------------------------------------------------------
-// Tabs (docs/tabs.md): a QTabWidget host that owns its page widgets.
+// The navigation suite (docs/navigation.md): a QTabWidget host that owns its page widgets.
 // ---------------------------------------------------------------------------
 
-struct TabsState {
-    tabs: *mut std::os::raw::c_void,
-    /// (page, node id) in tab order.
-    pages: Vec<(QtHandle, NodeId)>,
-    /// Tab to select once its page exists (QTabWidget shows the first by default).
-    initial: usize,
-}
-
 thread_local! {
-    static TABS_STATE: RefCell<HashMap<usize, TabsState>> = RefCell::new(HashMap::new());
-    static TABS_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
-    static TABS_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
-    /// Each tab page's bundled icon NAME, resolved to a file path when the tab is inserted —
-    /// QTabWidget draws it beside the label (docs/tabs.md). A SideTable: swept in `release`.
-    static TABS_PAGE_ICONS: SideTable<String> = SideTable::new();
     /// Each label's own resolved point size, so a RELATIVE-size run can be written as the
     /// absolute `pt` Qt's rich-text CSS understands (a percentage is silently ignored there).
     ///
@@ -784,25 +770,69 @@ thread_local! {
     static LABEL_PT: SideTable<f64> = SideTable::new();
 }
 
-extern "C" fn tabs_changed(id: u64, index: c_int) {
-    ffi_guard::contain((), || {
-        emit(NodeId(id), Event::SelectionChanged(index as i64))
+/// The navigation suite (`NavPresentation::Tabs`): a QTabWidget whose bar IS the host's row list.
+struct NavSuite {
+    /// The host's own node — what the QTabWidget's signal carries, so a click can find its suite
+    /// even when a window holds more than one.
+    host: NodeId,
+    /// The nav menu's node. A tab click reports against it, exactly as a sidebar row click does,
+    /// so the two are one event to everything above this backend. Zero until the menu arrives.
+    menu_node: NodeId,
+    /// Destination pages in bar order — index i IS the `Select(i)` index. The sidebar page is
+    /// not in here; it is a hidden tab, because its rows became the bar.
+    pages: Vec<(QtHandle, NodeId)>,
+    /// The row labels and glyph names, once the menu has arrived.
+    titles: Vec<String>,
+    icons: Vec<Option<String>>,
+}
+
+/// Put the rows on the bar, for as many tabs as currently exist.
+///
+/// Called from BOTH sides, because either can arrive first: the pages are inserted as the tree is
+/// built, and the rows come with the nav menu nested somewhere inside the sidebar page. Whichever
+/// lands last completes the bar.
+fn suite_apply_rows(host: *mut std::os::raw::c_void) {
+    NAV_SUITES.with(|m| {
+        let m = m.borrow();
+        let Some(suite) = m.get(&(host as usize)) else {
+            return;
+        };
+        for (i, title) in suite.titles.iter().enumerate() {
+            // Tab 0 is the hidden sidebar page, so row i is tab i + 1.
+            if i >= suite.pages.len() {
+                break;
+            }
+            let at = (i + 1) as c_int;
+            unsafe { ffi::day_qt_tabs_set_title(host, at, cstr(title).as_ptr()) };
+            let icon = suite
+                .icons
+                .get(i)
+                .and_then(|o| o.as_deref())
+                .filter(|n| !n.is_empty())
+                .map(icon_file_path)
+                .unwrap_or_default();
+            if !icon.is_empty() {
+                unsafe { ffi::day_qt_tabs_set_icon(host, at, cstr(&icon).as_ptr()) };
+            }
+        }
     });
 }
 
-/// Report each tab page's content size so NavLayout re-lays it (enqueue-only, §8.3).
-fn tabs_sync(host: *mut std::os::raw::c_void) {
-    let reports: Vec<(NodeId, Size)> = TABS_STATE.with(|m| {
+/// Report each destination's content size so NavLayout re-lays it (enqueue-only, §8.3) — the
+/// suite's counterpart of the list's own sizing, and for the same reason: QTabWidget owns page
+/// geometry.
+fn nav_suite_sync(host: *mut std::os::raw::c_void) {
+    let reports: Vec<(NodeId, Size)> = NAV_SUITES.with(|m| {
         let m = m.borrow();
-        let Some(state) = m.get(&(host as usize)) else {
+        let Some(suite) = m.get(&(host as usize)) else {
             return Vec::new();
         };
         let (mut w, mut h) = (0.0, 0.0);
-        unsafe { ffi::day_qt_tabs_content_size(state.tabs, &mut w, &mut h) };
+        unsafe { ffi::day_qt_tabs_content_size(host, &mut w, &mut h) };
         if w <= 0.0 || h <= 0.0 {
             return Vec::new();
         }
-        state
+        suite
             .pages
             .iter()
             .map(|(_, id)| (*id, Size::new(w, h)))
@@ -812,6 +842,37 @@ fn tabs_sync(host: *mut std::os::raw::c_void) {
         emit(id, Event::FrameChanged(size));
     }
 }
+
+thread_local! {
+    static NAV_SUITES: RefCell<HashMap<usize, NavSuite>> = RefCell::new(HashMap::new());
+    /// Suite page widgets, so a released one drops out of its suite. Unlike the `tabs()` piece's
+    /// pages these ARE framed by Day: NavLayout computes exactly the content rect the tab widget
+    /// would give them, and letting Qt's stacked layout do it instead left them at zero size.
+    static NAV_SUITE_PAGES: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
+    /// A realized NAV_MENU's rows by widget: `(node, titles, icon names)`, kept until the menu is
+    /// inserted and a suite above it can be found and handed them.
+    static NAV_SUITE_ROWS: RefCell<HashMap<usize, (NodeId, Vec<String>, Vec<Option<String>>)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// A tab click. Reported against the MENU, not the host, so one handler serves every presentation.
+extern "C" fn nav_suite_changed(id: u64, index: c_int) {
+    ffi_guard::contain((), || {
+        let node = NAV_SUITES.with(|m| {
+            m.borrow()
+                .values()
+                .find(|s| s.host.0 == id && s.menu_node.0 != 0)
+                .map(|s| s.menu_node)
+        });
+        emit(
+            node.unwrap_or(NodeId(id)),
+            Event::SelectionChanged(index as i64),
+        );
+    });
+}
+
+/// Report each tab page's content size so NavLayout re-lays it (enqueue-only, §8.3).
 
 extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
     ffi_guard::contain((), || {
@@ -1158,7 +1219,14 @@ impl Toolkit for Qt {
             | Cap::ListReorder
             // Real DayWindows on the shared QApplication (docs/windows.md).
             | Cap::MultiWindow
+            // A QTabWidget, which is Qt's own one-of-N container and already the shape Day
+            // wants: it owns its pages and shows one at a time (docs/navigation.md).
+            //
+            // `Cap::NavTabsAdaptive` is deliberately not here: a Qt app may PIN a tab bar, but a
+            // narrowing window hides its sidebar and pushes rather than growing one.
+            | Cap::NavTabs
             // A real QToolBar under the menu bar (docs/toolbars.md).
+            | Cap::AppMenu
             | Cap::Toolbar => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
@@ -1198,6 +1266,30 @@ impl Toolkit for Qt {
                 }
                 Some(Builtin::Nav) => {
                     let nav_props = props.downcast_ref::<NavProps>();
+                    // Where the rows are the CHROME, the host is a QTabWidget — Qt's own
+                    // one-of-N container, and already the shape Day wants here: it owns its page
+                    // widgets and shows one at a time, so the pages stay resident and
+                    // `NavPatch::Select` drives the bar instead of push/pop.
+                    //
+                    // A desktop only reaches this by PINNING `SelectorStyle::Tabs`;
+                    // `Cap::NavTabsAdaptive` is off here, so a narrowing window hides the sidebar
+                    // and pushes rather than growing a bar.
+                    if nav_props.is_some_and(|p| p.presentation.rows_are_chrome()) {
+                        let w = ffi::day_qt_tabs_new(id.0, nav_suite_changed);
+                        NAV_SUITES.with(|m| {
+                            m.borrow_mut().insert(
+                                w as usize,
+                                NavSuite {
+                                    host: id,
+                                    menu_node: NodeId(0),
+                                    pages: Vec::new(),
+                                    titles: Vec::new(),
+                                    icons: Vec::new(),
+                                },
+                            )
+                        });
+                        return QtHandle(w);
+                    }
                     let is_split = nav_props.map(|p| p.presentation.is_split()).unwrap_or(true);
                     let host = ffi::day_qt_splitter_new();
                     let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
@@ -1252,41 +1344,17 @@ impl Toolkit for Qt {
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover.0 as usize, id));
                     cover
                 }
-                Some(Builtin::Tabs) => {
-                    let Some(p) = props_of::<TabsProps>(kind, "qt", props) else {
-                        return placeholder_handle(kind);
-                    };
-                    let w = ffi::day_qt_tabs_new(id.0, tabs_changed);
-                    TABS_STATE.with(|m| {
-                        m.borrow_mut().insert(
-                            w as usize,
-                            TabsState {
-                                tabs: w,
-                                pages: Vec::new(),
-                                initial: p.selected,
-                            },
-                        )
-                    });
-                    QtHandle(w)
-                }
-                Some(Builtin::TabsPage) => {
-                    let Some(p) = props_of::<TabsPageProps>(kind, "qt", props) else {
-                        return placeholder_handle(kind);
-                    };
-                    let page = QtHandle(ffi::day_qt_container_new());
-                    TABS_PAGE_IDS.with(|m| m.borrow_mut().insert(page.0 as usize, id));
-                    TABS_PAGE_TITLES
-                        .with(|m| m.borrow_mut().insert(page.0 as usize, p.title.clone()));
-                    if let Some(icon) = p.icon.as_deref() {
-                        TABS_PAGE_ICONS.with(|m| m.insert(page.0 as usize, icon.to_string()));
-                    }
-                    page
-                }
                 Some(Builtin::NavMenu) => {
                     let Some(p) = props_of::<NavMenuProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
                     let w = ffi::day_qt_navlist_new(id.0, nav_menu_changed);
+                    // Keep the rows for `insert`, where a navigation suite above this menu can
+                    // finally be found and handed them.
+                    NAV_SUITE_ROWS.with(|m| {
+                        m.borrow_mut()
+                            .insert(w as usize, (id, p.items.clone(), p.icons.clone()))
+                    });
                     let joined = p.items.join("\u{1f}");
                     // Parallel per-row icon file paths (empty entry = no icon). Resolve the
                     // bundled image NAME to a loadable file path on the Rust side; the shim
@@ -1335,6 +1403,14 @@ impl Toolkit for Qt {
                         return placeholder_handle(kind);
                     };
                     let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
+                    ffi::day_qt_label_set_align(
+                        w,
+                        match p.align {
+                            day_spec::props::TextAlign::Center => 1,
+                            day_spec::props::TextAlign::Trailing => 2,
+                            day_spec::props::TextAlign::Leading => 0,
+                        },
+                    );
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_qt_label_set_font(w, pt, weight, italic, tabular);
                     apply_custom_family(w, p.font);
@@ -1571,23 +1647,6 @@ impl Toolkit for Qt {
                         );
                     }
                 }
-                kinds::TABS => {
-                    if let Some(TabsPatch::Items {
-                        titles, selected, ..
-                    }) = patch.downcast_ref::<TabsPatch>()
-                    {
-                        for (i, title) in titles.iter().enumerate() {
-                            ffi::day_qt_tabs_set_title(h.0, i as c_int, cstr(title).as_ptr());
-                        }
-                        ffi::day_qt_tabs_set_current(h.0, *selected as c_int);
-                    } else if let Some(TabsPatch::Selected(i)) = patch.downcast_ref::<TabsPatch>() {
-                        TABS_STATE.with(|m| {
-                            if let Some(state) = m.borrow().get(&(h.0 as usize)) {
-                                ffi::day_qt_tabs_set_current(state.tabs, *i as c_int);
-                            }
-                        });
-                    }
-                }
                 // Emulated cover (docs/cover.md): present = re-home + raise + opaque default
                 // surface (palette Window color); dismiss = hide + report `CoverHidden` at
                 // once. No interactive dismissal exists on this backend.
@@ -1626,7 +1685,14 @@ impl Toolkit for Qt {
                 }
                 kinds::NAV => {
                     if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
-                        nav_present(h.0, next.is_split());
+                        // A rail lands on the sidebar this backend does have: nothing in Qt is a
+                        // vertical strip of icon-only destinations, and `NavPresentation::Rail` is
+                        // ROUNDABLE for exactly that case (docs/size-classes.md) — the same call
+                        // AppKit makes. What it shares with a split is the shape that matters
+                        // here: rows beside the content.
+                        let beside =
+                            next.is_split() || *next == day_spec::props::NavPresentation::Rail;
+                        nav_present(h.0, beside);
                         return;
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
@@ -1675,6 +1741,25 @@ impl Toolkit for Qt {
                                 NavPatch::GuardTop(_) => {}
                                 // Handled before this borrow (it re-parents widgets).
                                 NavPatch::Presentation(_) => {}
+                                // The resident-page switch (docs/navigation.md): the app moved the
+                                // selection, so the suite shows that destination. Tab 0 is the
+                                // hidden sidebar page, so destination i is tab i + 1.
+                                NavPatch::Select(i) => {
+                                    // The resident-page switch (docs/navigation.md). A suite
+                                    // drives its tab widget; a split — which is also what a
+                                    // ROUNDED `Rail` lands on here, Qt having no rail widget —
+                                    // shows destination `i` and hides its siblings. Same
+                                    // contract, different chrome.
+                                    if NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize)))
+                                    {
+                                        // Tab 0 is the hidden sidebar page.
+                                        ffi::day_qt_tabs_set_current(h.0, (*i + 1) as c_int);
+                                    } else {
+                                        for (n, (page, _)) in detail.iter().enumerate() {
+                                            ffi::day_qt_set_visible(page.0, c_int::from(n == *i));
+                                        }
+                                    }
+                                }
                             }
                         });
                         // Header visibility follows the depth AFTER the pop completes (the
@@ -1831,13 +1916,16 @@ impl Toolkit for Qt {
         NAV_MENU_ROWS.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        TABS_STATE.with(|m| {
+        // Same rule for the navigation suite's three tables: a freed QTabWidget whose address is
+        // reused would otherwise inherit the old suite's destination pages, and report sizes to
+        // node ids that no longer exist.
+        NAV_SUITES.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        TABS_PAGE_IDS.with(|m| {
+        NAV_SUITE_ROWS.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        TABS_PAGE_TITLES.with(|m| {
+        NAV_SUITE_PAGES.with(|m| {
             m.borrow_mut().remove(&key);
         });
         GESTURES.with(|g| {
@@ -1864,48 +1952,56 @@ impl Toolkit for Qt {
     }
 
     fn insert(&mut self, parent: &QtHandle, child: &QtHandle, index: usize) {
-        // Tabs host: add the page to the QTabWidget with its label. The tab widget owns the
-        // page's geometry; Day sizes the page content from tabs_sync's FrameChanged reports.
-        let tabs_handled = TABS_STATE.with(|m| {
+        // Navigation suite: every destination becomes a tab. The page at index 0 is the SIDEBAR
+        // page, whose rows became the bar — it stays a tab so its nav menu keeps a parent chain
+        // up to the suite, but a hidden one, because drawing the rows again as a list would be
+        // the same navigation twice.
+        let suite_handled = NAV_SUITES.with(|m| {
             let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
+            let Some(suite) = m.get_mut(&(parent.0 as usize)) else {
                 return false;
             };
-            let id = TABS_PAGE_IDS
-                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
-                .unwrap_or(NodeId(0));
-            let title = TABS_PAGE_TITLES
-                .with(|t| t.borrow().get(&(child.0 as usize)).cloned())
-                .unwrap_or_default();
             unsafe {
-                ffi::day_qt_tabs_add_page(
-                    state.tabs,
-                    child.0,
-                    cstr(&title).as_ptr(),
-                    index as c_int,
-                )
-            };
-            // The icon rides the same bundled-name channel the nav rows use, so a tab shows the
-            // same template vector here that it shows on a phone's tab bar.
-            let icon = TABS_PAGE_ICONS
-                .with(|m| m.get(child.0 as usize))
-                .map(|name| icon_file_path(&name))
-                .unwrap_or_default();
-            if !icon.is_empty() {
-                unsafe {
-                    ffi::day_qt_tabs_set_icon(state.tabs, index as c_int, cstr(&icon).as_ptr())
-                };
-            }
-            let at = index.min(state.pages.len());
-            state.pages.insert(at, (*child, id));
-            if index == state.initial {
-                unsafe { ffi::day_qt_tabs_set_current(state.tabs, index as c_int) };
+                ffi::day_qt_tabs_add_page(parent.0, child.0, cstr("").as_ptr(), index as c_int);
+                if index == 0 {
+                    ffi::day_qt_tabs_set_page_visible(parent.0, child.0, 0);
+                } else {
+                    let id = NAV_PAGE_IDS
+                        .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                        .unwrap_or(NodeId(0));
+                    suite.pages.push((child.clone(), id));
+                    // Hiding tab 0 does not move off it — QTabWidget keeps showing whatever the
+                    // current index points at, so the FIRST destination has to claim it or the
+                    // content area stays on the sidebar page nobody is meant to see.
+                    if suite.pages.len() == 1 {
+                        ffi::day_qt_tabs_set_current(parent.0, 1);
+                    }
+                }
+                NAV_SUITE_PAGES.with(|m| m.borrow_mut().insert(child.0 as usize));
             }
             true
         });
-        if tabs_handled {
-            tabs_sync(parent.0);
+        if suite_handled {
+            suite_apply_rows(parent.0);
+            nav_suite_sync(parent.0);
             return;
+        }
+        // A nav menu that has just gained a parent chain: if a suite is above it, its rows are
+        // that suite's bar. Labels and glyphs both, in row order.
+        if let Some((node, titles, icons)) =
+            NAV_SUITE_ROWS.with(|m| m.borrow().get(&(child.0 as usize)).cloned())
+        {
+            let suite = unsafe { ffi::day_qt_enclosing_tabs(parent.0) };
+            if !suite.is_null() {
+                NAV_SUITES.with(|m| {
+                    if let Some(s) = m.borrow_mut().get_mut(&(suite as usize)) {
+                        s.menu_node = node;
+                        s.titles = titles;
+                        s.icons = icons;
+                    }
+                });
+                suite_apply_rows(suite);
+            }
         }
         // Nav host: pages land by their PANE, not their position (docs/size-classes.md).
         let sidebar = is_sidebar_page(child.0);
@@ -1946,16 +2042,17 @@ impl Toolkit for Qt {
                 }
             }
         });
-        // Data-driven tabs: drop the page's tab (removeTab keeps the widget; Day disposes it).
-        let is_tab = TABS_STATE.with(|m| {
-            if let Some(state) = m.borrow_mut().get_mut(&(parent.0 as usize)) {
-                state.pages.retain(|(p, _)| p.0 != child.0);
+        // A suite destination leaving: drop its tab too (removeTab keeps the widget, which
+        // Day owns and disposes).
+        let in_suite = NAV_SUITES.with(|m| {
+            if let Some(suite) = m.borrow_mut().get_mut(&(parent.0 as usize)) {
+                suite.pages.retain(|(p, _)| p.0 != child.0);
                 true
             } else {
                 false
             }
         });
-        if is_tab {
+        if in_suite {
             unsafe { ffi::day_qt_tabs_remove_page(parent.0, child.0) };
         }
         unsafe { ffi::day_qt_remove_child(child.0) };
@@ -2047,10 +2144,6 @@ impl Toolkit for Qt {
     }
 
     fn set_frame(&mut self, h: &QtHandle, frame: Rect, _anim: Option<&AnimSpec>) {
-        // Tab pages are laid out by the QTabWidget, not by Day; skip them.
-        if TABS_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
-            return;
-        }
         unsafe {
             ffi::day_qt_set_geometry(
                 h.0,
@@ -2060,12 +2153,12 @@ impl Toolkit for Qt {
                 frame.size.height.round() as c_int,
             )
         };
-        // Nav / tabs host resized (window resize): re-report page sizes for relayout.
+        // Nav host resized (window resize): re-report page sizes for relayout.
         if NAV_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             nav_sync_panes(h.0);
         }
-        if TABS_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
-            tabs_sync(h.0);
+        if NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            nav_suite_sync(h.0);
         }
         // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
         // set_frame calls a populate itself makes (on row content) don't schedule another forever.

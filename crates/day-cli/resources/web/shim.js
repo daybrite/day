@@ -83,11 +83,6 @@ function create(kind) {
     case 14: el = div('day-nav'); break;
     case 15: el = div('day-page'); break;
     case 16: el = div('day-navmenu'); break;
-    case 17: { // tabs: strip + pages area
-      el = div('day-tabs');
-      const strip = div('day-tabs-strip'); const pages = div('day-tabs-pages');
-      el.append(strip, pages); el.__strip = strip; el.__content = pages; break;
-    }
     case 18: el = div('day-cell'); break;
     case 19: el = div('day-segmented'); break;
     case 20: el = div('day-radios'); break;
@@ -112,12 +107,16 @@ function div(cls) { const d = document.createElement('div'); d.className = cls; 
 
 // A nav host's chrome for one presentation: sidebar+detail panes, or a back bar over a single
 // detail region. Shared by the initial realize and by a re-present, so the two can never drift.
-function navChrome(nav, id, split) {
-  nav.classList.add(split ? 'split' : 'stack');
-  if (split) {
-    const side = div('day-nav-sidebar'); const detail = div('day-nav-detail');
-    nav.append(side, detail); nav.__side = side; nav.__detail = detail;
-  } else {
+// The four presentations (docs/size-classes.md), keyed by the `mode` lib.rs sends: 0 split,
+// 1 stack, 2 tabs, 3 rail. `__side` is the CHROME slot — a sidebar pane, a tab bar, or a rail —
+// and always holds the same NAV_MENU element, so switching between them re-parents one node
+// rather than rebuilding the rows and their listeners.
+const NAV_MODES = ['split', 'stack', 'tabs', 'rail'];
+
+function navChrome(nav, id, mode) {
+  const name = NAV_MODES[mode] || 'stack';
+  nav.classList.add(name);
+  if (name === 'stack') {
     const bar = div('day-nav-backbar');
     const btn = document.createElement('button'); btn.className = 'day-nav-back'; btn.textContent = '‹';
     const title = div('day-nav-title');
@@ -126,7 +125,13 @@ function navChrome(nav, id, split) {
     nav.append(bar, detail);
     nav.__bar = bar; nav.__title = title; nav.__detail = detail;
     btn.addEventListener('click', () => wasm.day_dom_event(id, 14, 0, 0, 0, 0));
+    return;
   }
+  const side = div(name === 'split' ? 'day-nav-sidebar' : name === 'tabs' ? 'day-nav-tabbar' : 'day-nav-rail');
+  const detail = div('day-nav-detail');
+  // A tab bar sits BELOW the content, the way every phone puts it; a sidebar and a rail lead it.
+  if (name === 'tabs') nav.append(detail, side); else nav.append(side, detail);
+  nav.__side = side; nav.__detail = detail;
 }
 
 const E = (id) => els[id];
@@ -138,12 +143,22 @@ const V = (id) => E(id).__input || E(id);
 // ---------------------------------------------------------------------------
 
 const env = {
+  // Seconds since the Unix epoch, for day-piece-datetime: wasm32-unknown-unknown has no clock of
+  // its own, and `SystemTime::now()` traps there rather than failing.
+  day_datetime_now_secs: () => Date.now() / 1000,
+
   day_dom_create: (kind) => create(kind),
 
   day_dom_insert(parent, child, index) {
     const p = E(parent); const target = p.__content || p;
+    const el = E(child);
     const ref = target.children[index] ?? null;
-    target.insertBefore(E(child), ref);
+    // Already where it belongs. `insertBefore` does not check: it REMOVES the node and puts it
+    // back, and removing a subtree that holds the focused element blurs it. Day re-inserts a
+    // child at its existing index whenever a sibling's props change, so a text field lost focus
+    // on every keystroke — the caret went to <body> and only the first character landed.
+    if (el === ref || (el.parentNode === target && el.nextSibling === ref)) return;
+    target.insertBefore(el, ref);
   },
   day_dom_remove: (child) => E(child)?.remove(),
   day_dom_release(id) { E(id)?.remove(); els[id] = null; },
@@ -154,9 +169,47 @@ const env = {
     s.left = x + 'px'; s.top = y + 'px';
     s.width = w + 'px'; s.height = h + 'px';
   },
+  // Options and selection for a picker, a segmented control or a radio group — one verb over
+  // three shapes, because each is "a list of choices with one active" and the element decides
+  // how that is drawn (docs/controls.md).
+  day_dom_options(id, json, len) {
+    const el = E(id); const spec = JSON.parse(str(json, len));
+    if (el.tagName === 'SELECT') {
+      el.textContent = '';
+      spec.options.forEach((o) => { const opt = document.createElement('option'); opt.textContent = o; el.append(opt); });
+      el.selectedIndex = spec.selected;
+      return;
+    }
+    el.textContent = '';
+    const radios = el.classList.contains('day-radios');
+    spec.options.forEach((o, i) => {
+      const b = document.createElement('button'); b.type = 'button';
+      b.className = radios ? 'day-radio' : 'day-seg';
+      if (radios) { const dot = div('day-radio-dot'); b.append(dot, document.createTextNode(o)); }
+      else b.textContent = o;
+      if (i === spec.selected) b.classList.add('selected');
+      b.addEventListener('click', () => {
+        selectAmong(el, i);
+        wasm.day_dom_event(id, 6, i, 0, 0, 0);
+      });
+      el.append(b);
+    });
+  },
+  day_dom_options_select(id, idx) {
+    const el = E(id);
+    if (el.tagName === 'SELECT') { el.selectedIndex = idx; return; }
+    selectAmong(el, idx);
+  },
   day_dom_set_text(id, ptr, len) {
     const el = E(id); const t = str(ptr, len);
-    if (el.tagName === 'TEXTAREA') el.value = t; else el.textContent = t;
+    if (el.tagName === 'TEXTAREA') {
+      // A text area's own edit echoes back through the binding, and assigning `value` moves the
+      // caret to the end — typing in the MIDDLE of existing notes would jump away after each
+      // character. The echo carries the text it already has, so an equal value is nothing to do.
+      if (el.value !== t) el.value = t;
+    } else {
+      el.textContent = t;
+    }
   },
   day_dom_set_style(id, p, pl, v, vl) { E(id).style.setProperty(str(p, pl), str(v, vl)); },
   // A styled run's link (docs/text-runs.md). `owner` is the LABEL's element, since that is the
@@ -335,21 +388,22 @@ const env = {
   day_dom_present: (req, json, len) => present(req, JSON.parse(str(json, len))),
   day_dom_dismiss(req) { dialogs.get(req)?.close('day-dismiss'); },
 
-  day_dom_nav_mode(id, split, t, tl) { navChrome(E(id), id, split); },
+  day_dom_nav_mode(id, mode, t, tl) { navChrome(E(id), id, mode); },
   // Re-present a LIVE host after a size-class change (docs/size-classes.md). The chrome is
   // rebuilt, but the pages are not: detaching an element leaves it in `els`, so each page keeps
   // its DOM subtree — and with it every scroll offset, text selection, and focused field —
   // until Day re-homes it with `day_dom_nav_add_page`.
-  day_dom_nav_present(id, split) {
+  day_dom_nav_present(id, mode) {
     const nav = E(id);
     nav.textContent = '';
-    nav.classList.remove('split', 'stack');
+    nav.classList.remove(...NAV_MODES);
     nav.__side = nav.__detail = nav.__bar = nav.__title = undefined;
-    navChrome(nav, id, split);
+    navChrome(nav, id, mode);
   },
-  day_dom_nav_add_page(nav, page, sidebar) {
+  day_dom_nav_add_page(nav, page, chrome) {
     const n = E(nav);
-    (sidebar ? n.__side : n.__detail).append(E(page));
+    // A stack has no chrome slot: its rows page is the stack root and lands in the detail area.
+    (chrome && n.__side ? n.__side : n.__detail).append(E(page));
   },
   day_dom_nav_back_bar(nav, visible, t, tl) {
     const n = E(nav); if (!n.__bar) return;
@@ -486,7 +540,10 @@ const env = {
           el.classList.add('day-toolbar-sidebar');
           el.setAttribute('aria-expanded', 'true');
           el.addEventListener('click', () => {
-            const shown = wasm.day_dom_toolbar_sidebar();
+            // `env`, not `wasm`: the sidebar toggle is a shim verb Rust IMPORTS, not a wasm
+            // export. Called through `wasm` it is simply undefined, and the handler threw before
+            // toggling anything — which is why the button did nothing at all.
+            const shown = env.day_dom_toolbar_sidebar();
             if (!shown) el.disabled = true;
             else el.setAttribute('aria-expanded',
               document.querySelector('.day-nav.split.day-sidebar-hidden') ? 'false' : 'true');
@@ -523,6 +580,17 @@ const env = {
     const nav = document.querySelector('.day-nav.split');
     if (!nav) return 0;
     nav.classList.toggle('day-sidebar-hidden');
+    // Day frames the panes itself — the CSS only decides how much room the detail HAS, not how
+    // wide its page was told to be. Report the detail's new size or the page keeps the width it
+    // was given and the hidden sidebar leaves a gap. A frame later, so the class has taken
+    // effect and the rect is the one the browser settled on.
+    requestAnimationFrame(() => {
+      const box = nav.__detail && nav.__detail.getBoundingClientRect();
+      if (!box) return;
+      for (const page of nav.__detail.children) {
+        if (page.__id) wasm.day_dom_event(page.__id, 13, box.width, box.height, 0, 0);
+      }
+    });
     return 1;
   },
 
@@ -530,55 +598,6 @@ const env = {
     [...E(id).children].forEach((row, i) => row.classList.toggle('selected', i === idx));
   },
 
-  // Options/selection for tabs, selects, segmented controls, and radio groups (one verb,
-  // dispatched on the element's class — mirrors realize_picker/TabsProps on the Rust side).
-  day_dom_tabs(id, json, len) {
-    const el = E(id); const spec = JSON.parse(str(json, len));
-    if (el.tagName === 'SELECT') {
-      el.textContent = '';
-      spec.options.forEach((o) => { const opt = document.createElement('option'); opt.textContent = o; el.append(opt); });
-      el.selectedIndex = spec.selected;
-      return;
-    }
-    if (el.classList.contains('day-segmented') || el.classList.contains('day-radios')) {
-      el.textContent = '';
-      const radios = el.classList.contains('day-radios');
-      spec.options.forEach((o, i) => {
-        const b = document.createElement('button'); b.type = 'button';
-        b.className = radios ? 'day-radio' : 'day-seg';
-        if (radios) { const dot = div('day-radio-dot'); b.append(dot, document.createTextNode(o)); }
-        else b.textContent = o;
-        if (i === spec.selected) b.classList.add('selected');
-        b.addEventListener('click', () => {
-          selectAmong(el, i);
-          wasm.day_dom_event(id, 6, i, 0, 0, 0);
-        });
-        el.append(b);
-      });
-      return;
-    }
-    // tabs strip
-    el.__strip.textContent = '';
-    spec.titles.forEach((t, i) => {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'day-tab'; b.textContent = t;
-      if (i === spec.selected) b.classList.add('selected');
-      b.addEventListener('click', () => {
-        env.day_dom_tabs_select(id, i);
-        wasm.day_dom_event(id, 6, i, 0, 0, 0);
-      });
-      el.__strip.append(b);
-    });
-    el.__selected = spec.selected;
-    queueMicrotask(() => env.day_dom_tabs_select(id, spec.selected));
-  },
-  day_dom_tabs_select(id, idx) {
-    const el = E(id);
-    if (el.classList.contains('day-segmented') || el.classList.contains('day-radios')) { selectAmong(el, idx); return; }
-    if (el.tagName === 'SELECT') { el.selectedIndex = idx; return; }
-    [...el.__strip.children].forEach((b, i) => b.classList.toggle('selected', i === idx));
-    [...el.__content.children].forEach((p, i) => { p.style.display = i === idx ? 'block' : 'none'; });
-    el.__selected = idx;
-  },
   day_dom_set_hash(ptr, len, replace) {
     const route = str(ptr, len);
     lastSetRoute = route;

@@ -1957,6 +1957,38 @@ extern "C" int day_xaml_toggle_sidebar() try {
     return 0;
 }
 
+// The pane's FORM: 0 Left (split), 1 LeftMinimal (stack), 2 Top (tabs), 3 LeftCompact (rail).
+//
+// One NavigationView wears all four — which is why a re-present here is a property write rather
+// than a rebuild. `Top` is WinUI's own answer to a tab bar (the destinations run along the top of
+// the window), and `LeftCompact` is a real icon rail, so `NavPresentation::Rail` lands on a rail
+// here rather than rounding to a sidebar the way it must on macOS (docs/navigation.md).
+void day_xaml_nav_set_pane_mode(void* navh, int mode) {
+    guard([&] {
+    auto nv = elem(navh).try_as<WUXC::NavigationView>();
+    if (!nv) return;
+    switch (mode) {
+        case 1:
+            nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftMinimal);
+            nv.IsPaneToggleButtonVisible(false);
+            nv.IsPaneOpen(false);
+            break;
+        case 2:
+            nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Top);
+            nv.IsPaneToggleButtonVisible(false);
+            break;
+        case 3:
+            nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::LeftCompact);
+            nv.IsPaneToggleButtonVisible(false);
+            break;
+        default:
+            nv.PaneDisplayMode(WUXC::NavigationViewPaneDisplayMode::Left);
+            nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
+            break;
+    }
+    });
+}
+
 void* day_xaml_nav_new(unsigned long long id,
                         void (*sel_cb)(unsigned long long, int),
                         void (*size_cb)(unsigned long long, int, int, int),
@@ -2735,7 +2767,7 @@ void day_xaml_progress_set(void* h, int value) {
         if (static_cast<int>(b.Value()) != value) b.Value(value);
 }
 
-// ---- tabs (docs/tabs.md): a Pivot owns its page content ----
+// ---- the navigation suite (docs/navigation.md): a Pivot owns its page content ----
 
 void* day_xaml_tabs_new(unsigned long long id, void (*cb)(unsigned long long, int)) {
     WUXC::Pivot p;

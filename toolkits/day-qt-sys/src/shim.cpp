@@ -29,6 +29,8 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QStyle>
+#include <QStyleFactory>
+#include <QTabBar>
 #include <QWidgetAction>
 #include <QVBoxLayout>
 #include <QLabel>
@@ -457,6 +459,21 @@ void day_qt_label_on_link(void *w, uint64_t id, void (*cb)(uint64_t, const char 
         QByteArray ba = url.toUtf8();
         cb(id, ba.constData());
     });
+}
+// A label's horizontal alignment (0 leading, 1 center, 2 trailing). Applies to plain and rich
+// text alike — QLabel aligns its laid-out document either way — and keeps the RTL flip, where
+// "leading" is the right edge.
+void day_qt_label_set_align(void *w, int align) {
+    QLabel *l = static_cast<QLabel *>(w);
+    Qt::Alignment h;
+    if (align == 1) {
+        h = Qt::AlignHCenter;
+    } else if (align == 2) {
+        h = g_rtl ? Qt::AlignLeft : Qt::AlignRight;
+    } else {
+        h = g_rtl ? Qt::AlignRight : Qt::AlignLeft;
+    }
+    l->setAlignment(h | Qt::AlignTop);
 }
 void day_qt_label_set_rich_text(void *w, const char *html) {
     QLabel *l = static_cast<QLabel *>(w);
@@ -1097,9 +1114,42 @@ void day_qt_navlist_set_selected(void *w, int idx) {
     l->blockSignals(false);
 }
 
-// --- tabs (docs/tabs.md): QTabWidget owns its page widgets ---
+// The first QTabWidget above `w`, or null.
+//
+// The navigation suite (`NavPresentation::Tabs`) is a QTabWidget, and its bar's labels come from
+// the host's nav menu — which arrives separately, nested however the page wrapped it. Walking Qt's
+// own parent chain is what connects the two without Day tracking a parallel tree.
+void *day_qt_enclosing_tabs(void *w) {
+    for (QWidget *p = static_cast<QWidget *>(w); p != nullptr; p = p->parentWidget()) {
+        if (auto *t = qobject_cast<QTabWidget *>(p)) {
+            return t;
+        }
+    }
+    return nullptr;
+}
+// A tab that is present but not shown: the suite's sidebar page, whose rows BECAME the bar.
+void day_qt_tabs_set_page_visible(void *tabs, void *page, int visible) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    int i = t->indexOf(static_cast<QWidget *>(page));
+    if (i >= 0) {
+        t->setTabVisible(i, visible != 0);
+    }
+}
+
+// --- the navigation suite (docs/navigation.md): a QTabWidget owns its page widgets ---
 void *day_qt_tabs_new(uint64_t id, void (*cb)(uint64_t, int)) {
     auto *t = new QTabWidget();
+#ifdef Q_OS_MACOS
+    // QMacStyle draws tab controls by rendering a live NSView, which needs a CGContext. Day's
+    // window snapshot paints into an offscreen device that has none, and the style dereferences
+    // it — a crash on capture, not a blank bar. Fusion draws the same bar in pure Qt and survives
+    // it. macOS is a development target for this backend; every platform Qt actually ships to
+    // keeps the native style.
+    if (QStyle *fusion = QStyleFactory::create(QStringLiteral("Fusion"))) {
+        fusion->setParent(t);
+        t->tabBar()->setStyle(fusion);
+    }
+#endif
     QObject::connect(t, &QTabWidget::currentChanged,
                      [id, cb](int index) { cb(id, index); });
     return t;
@@ -1111,7 +1161,7 @@ void day_qt_tabs_add_page(void *tabs, void *page, const char *title, int index) 
     t->insertTab(index, static_cast<QWidget *>(page), QString::fromUtf8(title));
     t->blockSignals(b);
 }
-// A tab's leading glyph (docs/tabs.md). QTabWidget draws an icon beside the label when one is
+// A tab's leading glyph (docs/navigation.md). QTabWidget draws an icon beside the label when one is
 // set, so a bundled template vector shows here exactly as it does on the phones' tab bars —
 // tinted to the palette text color like every other template glyph in this shim.
 void day_qt_tabs_set_icon(void *tabs, int index, const char *path) {
@@ -1950,7 +2000,18 @@ static std::map<std::string, QAction *> g_toolbar_actions;
 // both ship one), then the Qt style's own standard pixmap, which exists on every platform —
 // so a macOS or Windows Qt build still gets real icons for the common commands.
 static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
-    QString name = QString::fromUtf8(theme);
+    QString spec = QString::fromUtf8(theme);
+    // A symbol arrives as `theme-name|/path/to/outline.svg`: the platform's icon if the desktop
+    // has one, and Day's own drawing of the symbol when it does not. The freedesktop names are
+    // a GNOME/KDE fact, so off those desktops the theme lookup finds nothing and a toolbar item
+    // would otherwise be label-only (docs/toolbars.md).
+    QString outline;
+    int bar = spec.indexOf(QLatin1Char('|'));
+    if (bar >= 0) {
+        outline = spec.mid(bar + 1);
+        spec = spec.left(bar);
+    }
+    QString name = spec;
     // A BUNDLED image arrives here as a resolved file path (day-qt's `icon_args`), and it is a
     // template glyph: black on transparent. Loading it as-is drew a flat black star on the
     // toolbar, invisible in dark mode and wrong in light. Tint it to the palette text color,
@@ -1963,6 +2024,15 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
     if (!name.isEmpty()) {
         QIcon themed = QIcon::fromTheme(name);
         if (!themed.isNull()) return themed;
+    }
+    // Day's own drawing BEFORE QStyle's standard set. A themed icon above is the desktop's real
+    // answer and wins outright; QStyle's is a small dialog-oriented set whose semantics often
+    // miss — `SP_DialogApplyButton` stands in for a checkmark and draws nothing like one. The
+    // outline at least has the right shape, and it is the shape every other backend falls back to.
+    if (!outline.isEmpty() && QFileInfo(outline).isFile()) {
+        QColor fg = QApplication::palette().color(QPalette::WindowText);
+        QIcon own = day_qt_tinted_icon(outline, fg);
+        if (!own.isNull()) return own;
     }
     if (standard_pixmap >= 0 && QApplication::style())
         return QApplication::style()->standardIcon(

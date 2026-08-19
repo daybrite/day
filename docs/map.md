@@ -90,7 +90,7 @@ system frameworks the hand-rolled `MKMapView` needs, with no changes to any core
 
 ## Testing
 
-The crate's smoke test boots the piece on the mock toolkit (which realizes unknown kinds as plain
+The crate's test boots the piece on the mock toolkit (which realizes unknown kinds as plain
 widgets and ignores unknown patches, just like a backend built without the feature), moves the
 bound center (a `Center` patch), and must never panic: `cargo test -p day-piece-map`.
 

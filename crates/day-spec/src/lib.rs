@@ -128,11 +128,6 @@ builtin_kinds! {
     /// Native navigation item list (docs/navigation.md): NSOutlineView source list /
     /// GtkListBox navigation-sidebar / QListWidget / UITableView rows with chevrons.
     NavMenu = NAV_MENU => "day.nav_menu",
-    /// Native tabbed container (docs/tabs.md): NSTabView / GtkNotebook / QTabWidget /
-    /// UITabBarController / Android tab strip. Holds `TABS_PAGE` children, one visible.
-    Tabs = TABS => "day.tabs",
-    /// One tab's content container inside a `TABS` host; its frame is native-owned.
-    TabsPage = TABS_PAGE => "day.tabs_page",
     /// Native recycling list (docs/list.md): NSTableView / UITableView / RecyclerView /
     /// GtkListView / QListView. Owns scrolling + cell reuse; Day binds row content on demand.
     List = LIST => "day.list",
@@ -169,8 +164,6 @@ pub fn kind_has_baseline(kind: PieceKind) -> bool {
                 | Builtin::Nav
                 | Builtin::NavPage
                 | Builtin::NavMenu
-                | Builtin::Tabs
-                | Builtin::TabsPage
                 | Builtin::List
                 | Builtin::ListCell
                 | Builtin::Cover
@@ -1366,6 +1359,43 @@ pub enum Cap {
     /// [`props::NavPresentation`] against both, and re-resolves on every class change. A backend
     /// with no split container answers `Unsupported` and stays stacked at every size.
     NavSplit,
+    /// The toolkit CAN draw a navigation host's rows as its own chrome — a tab bar
+    /// ([`props::NavPresentation::Tabs`]) and, where it has one, a rail
+    /// ([`props::NavPresentation::Rail`]). Like [`Self::NavSplit`] this is a statement about the
+    /// toolkit, not about the window it is drawing right now.
+    ///
+    /// This is what `SelectorStyle::Automatic` resolves against (docs/navigation.md): a backend
+    /// answering `Unsupported` gets the sidebar resolver instead (`Split` ↔ `Stack`), which is
+    /// what every backend did before adaptive navigation existed. So an unimplemented backend
+    /// degrades to its previous behavior rather than to a hole.
+    ///
+    /// `Emulated` means the rows are composed from other widgets rather than drawn by a native
+    /// tab container (Qt, web-dom). `Native` means a real one (`UITabBarController`, a Material
+    /// `NavigationBarView`, `NavigationView`).
+    NavTabs,
+    /// A narrow window should BECOME a tab bar here — the separate question from [`Self::NavTabs`],
+    /// which only says the toolkit *can* draw one.
+    ///
+    /// The two differ on every desktop. macOS, GNOME, Qt and Windows can all draw a tab bar, and
+    /// must, because an app is free to pin `SelectorStyle::Tabs`; but none of them grows one when
+    /// its window is dragged narrow. A narrow Mail.app hides its sidebar and pushes — it does not
+    /// sprout a bottom tab bar, and an app that did would look like a port. The phones and the web
+    /// are the opposite: those are the surfaces whose window size genuinely ranges from a phone to
+    /// a desktop, and a tab bar is what their users expect at the narrow end.
+    ///
+    /// So this is a statement about the platform's IDIOM, not about its widget set:
+    ///
+    /// - `Native`/`Emulated` — `SelectorStyle::Automatic` may resolve to
+    ///   [`props::NavPresentation::Tabs`] on a compact window (ios-uikit, android-mdc,
+    ///   harmony-arkui, web-dom).
+    /// - `Unsupported` — it may not; a compact window collapses to
+    ///   [`props::NavPresentation::Stack`] instead, exactly as `SelectorStyle::Sidebar` has always
+    ///   done (macos-appkit, linux-gtk, linux-qt, windows-xaml).
+    ///
+    /// [`props::NavPresentation::Rail`] is NOT gated by this. A narrow sidebar is an ordinary
+    /// desktop shape — on Windows it is literally what `NavigationView` does at that width on its
+    /// own — so the rail rung stays available everywhere `Cap::NavSplit` is.
+    NavTabsAdaptive,
     /// How a navigation host's presentation follows the window (docs/size-classes.md). All three
     /// answers mean something different here, and the difference is WHO DECIDES:
     ///
@@ -1393,6 +1423,15 @@ pub enum Cap {
     /// restyle in place and `dark_mode` answers the override. Probe before showing a theme
     /// picker — on `Unsupported` backends the call is ignored.
     Appearance,
+    /// The toolkit renders an application MENU BAR (docs/menus.md) — so `app_menu` is visible to
+    /// the user, and `register_preferences` gets its automatic Settings… item.
+    ///
+    /// The question an app asks before deciding where a command LIVES. Settings is the usual
+    /// case: on a platform with a menu bar it belongs in the App menu and putting it in the
+    /// navigation as well is clutter; on one without, the menu is a no-op and a Settings row is
+    /// the only way in. Distinct from `Cap::Toolbar` — web-dom draws a window toolbar and has no
+    /// menu bar at all, so keying off the toolbar strands Settings there.
+    AppMenu,
     /// The toolkit can present native alert/confirm/sheet/prompt modals (docs/dialogs.md).
     Dialogs,
     /// The toolkit can present native open/save file pickers (docs/files.md).
@@ -2371,17 +2410,122 @@ pub fn runs_to_markup(
         if r.range.start > at
             && let Some(plain) = text.get(at..r.range.start)
         {
-            escape_markup(plain, &mut out);
+            escape_markup_in(plain, &mut out, dialect);
         }
         open_run(r, dialect, base_points, &mut out);
-        escape_markup(styled, &mut out);
+        escape_markup_in(styled, &mut out, dialect);
         close_run(r, dialect, &mut out);
         at = r.range.end;
     }
     if let Some(tail) = text.get(at..) {
-        escape_markup(tail, &mut out);
+        escape_markup_in(tail, &mut out, dialect);
     }
     out
+}
+
+impl Symbol {
+    /// A 24×24 outline path for this symbol — Day's own drawing of it.
+    ///
+    /// The platform's icon comes FIRST on every backend that has one (SF Symbols, the freedesktop
+    /// icon theme, Fluent's glyph font). This is the fallback for when that lookup finds nothing,
+    /// which is not an edge case: `view-filter-symbolic` exists on a GNOME desktop and nowhere
+    /// else, so a GTK or Qt app run off that desktop drew a toolbar item with no icon at all.
+    /// One table here means the same fallback shape everywhere instead of a gap per platform.
+    ///
+    /// `None` for a variant with no drawing yet — `Symbol` is `#[non_exhaustive]`, so a new one
+    /// degrades to a label rather than failing to compile.
+    pub fn outline_path(self) -> Option<&'static str> {
+        use Symbol as S;
+        // The wildcard is unreachable TODAY — every variant is drawn below — and it is here for
+        // the next one, which should degrade to a label rather than fail to compile.
+        #[allow(unreachable_patterns)]
+        Some(match self {
+            S::Add => "M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z",
+            S::Remove => "M5 11h14v2H5z",
+            S::Delete => "M9 3h6l1 2h4v2H4V5h4zM6 8h12l-1 13H7z",
+            S::Edit => {
+                "M3 17.3V21h3.7L17.8 9.9l-3.7-3.7zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7z"
+            }
+            S::New => "M13 2H6v20h12V7h-5zm2 .5L19.5 7H15z",
+            S::Open => "M2 5h7l2 2h11v12H2z",
+            S::Save => "M3 3h13l5 5v13H3zm5 0h7v6H8zm-1 11h10v7H7z",
+            S::Print => "M7 3h10v4H7zM4 8h16v8h-3v6H7v-6H4z",
+            S::Refresh => "M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z",
+            S::Search => {
+                "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4m0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8"
+            }
+            S::Share => "M12 3l5 5h-3v7h-4V8H7zM5 17h14v4H5z",
+            S::Settings => {
+                "M12 2l2 3h3l1 3-2 4 2 4-1 3h-3l-2 3-2-3H7l-1-3 2-4-2-4 1-3h3zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8"
+            }
+            S::Info => "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-1 5h2v2h-2zm0 4h2v6h-2z",
+            S::Star => {
+                "M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.3 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"
+            }
+            S::Bookmark => "M6 2h12v20l-6-4-6 4z",
+            S::Back => "M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z",
+            S::Forward => "M8.6 5.4L10 4l8 8-8 8-1.4-1.4L15.2 12z",
+            S::Up => "M5.4 15.4L4 14l8-8 8 8-1.4 1.4L12 8.8z",
+            S::Down => "M5.4 8.6L4 10l8 8 8-8-1.4-1.4L12 15.2z",
+            S::Home => "M12 3l9 8h-3v10h-5v-6h-2v6H6V11H3z",
+            S::Sidebar => "M3 4h18v16H3zm2 2v12h4V6zm6 0v12h8V6z",
+            S::Filter => "M3 5h18l-7 8v6l-4 2v-8z",
+            S::Sort => "M8 4v12H4l4 4 4-4H10V4zM14 6h7v2h-7zm0 4h5v2h-5zm0 4h3v2h-3z",
+            S::More => {
+                "M6 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4m6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4m6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4"
+            }
+            S::Play => "M8 5l11 7-11 7z",
+            S::Pause => "M7 5h3v14H7zm7 0h3v14h-3z",
+            S::Stop => "M6 6h12v12H6z",
+            S::Camera => {
+                "M9 3h6l1.5 2H20a2 2 0 0 1 2 2v12H2V7a2 2 0 0 1 2-2h3.5zm3 6a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9m0 1.6a2.9 2.9 0 1 1 0 5.8 2.9 2.9 0 0 1 0-5.8"
+            }
+            S::Code => {
+                "M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6zm5.2 0l4.6-4.6L14.6 7.4 16 6l6 6-6 6z"
+            }
+            S::Light => {
+                "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10M11 1h2v3h-2zm0 19h2v3h-2zM1 11h3v2H1zm19 0h3v2h-3zM3.5 4.9l1.4-1.4 2.1 2.1-1.4 1.4zm13.5 13.5l1.4-1.4 2.1 2.1-1.4 1.4zM4.9 20.5l-1.4-1.4 2.1-2.1 1.4 1.4zm13.5-13.5l-1.4-1.4 2.1-2.1 1.4 1.4z"
+            }
+            S::Dark => "M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9",
+            // "Automatic": the half-filled circle every platform uses — the left half solid, the
+            // right half an outline, which `evenodd` below turns into the ring it should be.
+            S::Auto => "M12 2a10 10 0 0 0 0 20zM12 4a8 8 0 0 1 0 16v-1.6a6.4 6.4 0 0 0 0-12.8z",
+            S::ZoomIn => {
+                "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M9 7h2v2h2v2h-2v2H9v-2H7V9h2z"
+            }
+            S::ZoomOut => {
+                "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M7 9h6v2H7z"
+            }
+            S::Undo => "M12 5V2L7 7l5 5V9a5 5 0 1 1 0 10H8v2h4a7 7 0 0 0 0-14z",
+            S::Redo => "M12 5V2l5 5-5 5V9a5 5 0 1 0 0 10h4v2h-4a7 7 0 0 1 0-14z",
+            S::Copy => "M8 2h10v14H8zM4 6h2v14h12v2H4z",
+            S::Cut => {
+                "M9 4l5.5 9.5-1.2 2L7.8 6zM15 4L9.5 13.5l1.2 2L16.2 6zM6 16a3 3 0 1 0 0 6 3 3 0 0 0 0-6m12 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6"
+            }
+            S::Paste => "M9 2h6v2h3v18H6V4h3zm0 2v2h6V4z",
+            S::Mail => "M2 5h20v14H2zm2 3.2V17h16V8.2l-8 5z",
+            S::Folder => "M2 5h7l2 2h11v12H2z",
+            S::Document => "M14 2H6v20h12V6zm.5.8L17.2 6H14.5z",
+            S::Check => "M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z",
+            S::Close => {
+                "M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"
+            }
+            S::Warning => "M12 2l10 19H2zm-1 7h2v6h-2zm0 8h2v2h-2z",
+            // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
+            // than failing to compile, and its item keeps its label.
+            _ => return None,
+        })
+    }
+
+    /// [`Self::outline_path`] wrapped as a standalone SVG document.
+    pub fn outline_svg(self) -> Option<String> {
+        self.outline_path().map(|d| {
+            format!(
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">\
+                 <path fill-rule=\"evenodd\" d=\"{d}\"/></svg>"
+            )
+        })
+    }
 }
 
 /// Which markup dialect [`runs_to_markup`] should emit.
@@ -2394,7 +2538,12 @@ pub enum MarkupDialect {
 }
 
 /// XML-escape a run of plain text into `out`. `&` first, or the escapes escape each other.
-fn escape_markup(s: &str, out: &mut String) {
+///
+/// Newlines are dialect-specific. Pango lays a literal `\n` out as a line break, but Qt's rich
+/// text is HTML, where any run of whitespace collapses to one space — which silently ran a
+/// two-paragraph body together into a single block. `<br>` is what says "break here" in HTML, so
+/// the same string wraps the same way on both.
+fn escape_markup_in(s: &str, out: &mut String, dialect: MarkupDialect) {
     for c in s.chars() {
         match c {
             '&' => out.push_str("&amp;"),
@@ -2402,9 +2551,15 @@ fn escape_markup(s: &str, out: &mut String) {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
+            '\n' if dialect == MarkupDialect::QtHtml => out.push_str("<br>"),
             _ => out.push(c),
         }
     }
+}
+
+/// [`escape_markup_in`] for the URL slot, where a newline cannot appear.
+fn escape_markup(s: &str, out: &mut String) {
+    escape_markup_in(s, out, MarkupDialect::Pango);
 }
 
 fn hex(c: Color) -> String {
@@ -2597,12 +2752,35 @@ pub mod props {
         pub font: FontSpec,
         pub color: Option<Color>,
         pub wraps: bool,
+        /// How the label's lines sit within its own width. Only observable on a label that
+        /// WRAPS or carries explicit newlines — a single line fills its box, so its alignment is
+        /// the container's business, not the label's.
+        ///
+        /// `Leading` is the default and is what running text wants; `Center` is for the short,
+        /// deliberately-centered block a welcome screen or an empty state uses. A backend that
+        /// cannot set it renders leading-aligned, which is legible and correct — just not
+        /// centered.
+        pub align: TextAlign,
         /// Styled spans within `text` (docs/text-runs.md). EMPTY is the overwhelmingly common
         /// case and means exactly what a label has always meant: one font, one color. A backend
         /// that cannot draw runs ignores this and renders `text` uniformly, which is legible and
         /// correct — just unstyled.
         pub runs: Vec<crate::TextRun>,
     }
+    /// How a wrapped label's lines sit within its width (`LabelProps::align`).
+    ///
+    /// Deliberately NOT a `Justified` variant: no toolkit in Day's set agrees on how to justify
+    /// the last line, and the ones that can do it at all need a paragraph style the others have
+    /// no equivalent for.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum TextAlign {
+        /// Left in a left-to-right locale, right in an RTL one (docs/localization.md).
+        #[default]
+        Leading,
+        Center,
+        Trailing,
+    }
+
     #[derive(Clone, Debug, PartialEq)]
     pub enum LabelPatch {
         Text(String),
@@ -2910,12 +3088,32 @@ pub mod props {
         /// One page at a time, back-navigable. The sidebar pane becomes the stack's root.
         #[default]
         Stack,
+        /// The rows drawn as a TAB BAR, one page's content beside it, no back stack — what a
+        /// phone-shaped window wants from a one-of-N surface (`UITabBarController`, a Material
+        /// `NavigationBarView`, `NavigationView.PaneDisplayMode = Top`). The `Pane::Sidebar` page
+        /// is not drawn at all: its rows ARE the chrome.
+        Tabs,
+        /// The rows drawn as a narrow icon strip beside the content — the `Medium`-width answer
+        /// between [`Self::Tabs`] and [`Self::Split`] (a Material `NavigationRailView`,
+        /// `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`).
+        ///
+        /// **A backend with no rail ROUNDS IT to a neighbor of its own choosing** rather than
+        /// failing — UIKit answers `Tabs` (which is what iPadOS does at that width), GTK the same.
+        /// Rounding is expected and correct; this variant is a request, not a contract.
+        Rail,
     }
 
     impl NavPresentation {
         /// `true` for [`NavPresentation::Split`] — the shape most backend code wants.
         pub fn is_split(self) -> bool {
             self == NavPresentation::Split
+        }
+
+        /// `true` when the rows are the CHROME rather than a drawn page — [`Self::Tabs`] and
+        /// [`Self::Rail`]. Both hide the `Pane::Sidebar` page and render its rows themselves, so
+        /// backend code that only cares about that distinction asks this instead of matching both.
+        pub fn rows_are_chrome(self) -> bool {
+            matches!(self, NavPresentation::Tabs | NavPresentation::Rail)
         }
     }
 
@@ -2925,6 +3123,17 @@ pub mod props {
         pub title: String,
         /// The presentation to draw now; re-presented in place by [`NavPatch::Presentation`].
         pub presentation: NavPresentation,
+        /// The app left the presentation AUTOMATIC (`SelectorStyle::Automatic`, or a `Sidebar`
+        /// selector with no `.presentation(…)` pin), so it is free to follow the window.
+        ///
+        /// Only a toolkit answering `Cap::NavRepresent = Emulated` needs this: its own adaptive
+        /// container owns the morph, and it must know whether the app asked for one at all before
+        /// building it. With two presentations that bit could be inferred from a lowered `Split`;
+        /// with four it cannot, so it is carried explicitly rather than encoded.
+        ///
+        /// `Native` re-presenters ignore it — they are told each presentation as it is resolved —
+        /// and so do toolkits that cannot re-present.
+        pub adaptive: bool,
         /// An optional trailing bar-button command for the mobile nav bar (see [`NavBarAction`]);
         /// `None` on desktop, where the toolbar carries commands instead.
         pub bar_action: Option<NavBarAction>,
@@ -3013,6 +3222,18 @@ pub mod props {
         ///
         /// Backends with no split container ignore it and stay stacked.
         Presentation(NavPresentation),
+        /// Show the resident [`Pane::Detail`] page at this index, counting the host's detail
+        /// children in attach order. The counterpart to [`Self::Pushed`]/[`Self::Popped`] for the
+        /// presentations where pages are RESIDENT rather than stacked
+        /// ([`NavPresentation::rows_are_chrome`]): a tab bar switches between pages that all stay
+        /// alive, so there is nothing to push and nothing to pop.
+        ///
+        /// Applied WITHOUT re-emitting [`crate::Event::SelectionChanged`], per the from-native
+        /// echo rule — this is the programmatic-sync direction.
+        ///
+        /// A backend drawing a stacked presentation never receives it; the pieces layer sends
+        /// push/pop there instead.
+        Select(usize),
     }
 
     /// Which pane of a navigation host a page belongs to (docs/navigation.md).
@@ -3120,42 +3341,6 @@ pub mod props {
             menus: Vec<Vec<crate::MenuItem>>,
             selected: Option<usize>,
         },
-    }
-
-    /// Native tabbed container (docs/tabs.md). `titles` are the tab labels in page order;
-    /// `selected` is the active tab index. Toolkits present a native tab widget and show the
-    /// selected page.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct TabsProps {
-        pub titles: Vec<String>,
-        /// Optional bundled-image name per tab (docs/tabs.md), same convention as
-        /// [`NavMenuProps::icons`]. Rendered where the backend's tab widget shows icons (the iOS
-        /// `UITabBar`, the Android tab strip); ignored by backends whose tabs are text-only.
-        pub icons: Vec<Option<String>>,
-        pub selected: usize,
-    }
-    #[derive(Clone, Debug, PartialEq)]
-    pub enum TabsPatch {
-        /// Programmatic selection sync — toolkits apply WITHOUT re-emitting SelectionChanged
-        /// (the TextField from_native echo rule).
-        Selected(usize),
-        /// The tab set changed (data-driven `selector().items(signal, …)`): the host reconciles
-        /// its native tab labels/icons to these; the day-pieces layer adds/removes the resident
-        /// pages to match (docs/navigation.md). `selected` is applied without re-emitting.
-        Items {
-            titles: Vec<String>,
-            icons: Vec<Option<String>>,
-            selected: usize,
-        },
-    }
-
-    /// One tab's content container. `title` is its tab label (read by the host on insert);
-    /// `icon` is its optional bundled-image name, set on the tab item where the backend shows
-    /// tab icons (iOS `UITabBarItem`), ignored otherwise.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct TabsPageProps {
-        pub title: String,
-        pub icon: Option<String>,
     }
 
     /// How a recycling list sizes its rows (docs/list.md).
@@ -3726,6 +3911,19 @@ pub trait Toolkit: Sized + 'static {
     /// Retitle the window whose CONTENT container is `host`. Default no-op.
     fn set_window_title(&mut self, _host: &Self::Handle, _title: &str) {}
 
+    /// Resize the window whose CONTENT container is `host` to fit `size` of content, and pin it
+    /// there — what `WindowOptions::size_to_fit` asks for (docs/windows.md).
+    ///
+    /// `size` is the CONTENT size Day measured, not the window's outer frame: the backend adds
+    /// its own chrome. A settings panel is the case this exists for, and every desktop platform
+    /// sizes one to its content rather than to a number the app guessed — a fixed height either
+    /// clips the last row or leaves a band of empty panel under it, and which one you get depends
+    /// on the user's text size.
+    ///
+    /// Default no-op, so a toolkit that cannot resize a live window simply keeps the size it was
+    /// opened at, which is what every backend did before this existed.
+    fn fit_window(&mut self, _host: &Self::Handle, _size: Size) {}
+
     /// Snapshot the window whose CONTENT container is `host` (the dayscript `screenshot`
     /// step's `window:` target). The default answers the primary snapshot, so backends that
     /// never open windows stay correct without changes.
@@ -3794,6 +3992,14 @@ pub struct WindowOptions {
     pub title: String,
     pub size: Size,
     pub min_size: Option<Size>,
+    /// Ask the backend to size this window to its CONTENT once it has been built and laid out,
+    /// rather than keeping [`Self::size`] (docs/windows.md). `size` still decides the width and
+    /// acts as the height CEILING, so a panel with more content than fits the screen scrolls
+    /// instead of growing past it.
+    ///
+    /// What a preferences panel wants on every desktop. Ignored by backends that cannot resize a
+    /// live window, and by the ones with no windows at all.
+    pub size_to_fit: bool,
     /// The app's display name for the standard application menu / About (macOS). `None` falls back
     /// to `title`; set it when `title` carries extra decoration you don't want in "About <name>"
     /// (e.g. the showcase's window title is "Day Showcase (AppKit)" but its app name is "Showcase").
@@ -3806,6 +4012,7 @@ impl Default for WindowOptions {
             title: "Day".into(),
             size: Size::new(480.0, 640.0),
             min_size: None,
+            size_to_fit: false,
             app_name: None,
         }
     }
@@ -4826,7 +5033,8 @@ mod builtin_kind_tests {
         assert_eq!(kinds::LABEL, Builtin::Label.key());
         assert_eq!(kinds::LIST_CELL, Builtin::ListCell.key());
         assert_eq!(kinds::COVER, Builtin::Cover.key());
-        assert_eq!(Builtin::ALL.len(), 21);
+        // 19 after `Tabs`/`TabsPage` retired — the tab bar is a NAV presentation, not a kind.
+        assert_eq!(Builtin::ALL.len(), 19);
     }
 
     /// An extension piece's kind is not a built-in.

@@ -1,9 +1,7 @@
-mod canvas;
-mod controls;
-mod home;
-mod items;
+mod navigate;
+mod settings;
+mod welcome;
 
-pub(crate) use canvas::canvas_page;
-pub(crate) use controls::controls_page;
-pub(crate) use home::home_page;
-pub(crate) use items::items_page;
+pub(crate) use navigate::{delete_selected, done_selected, navigate_page, new_item};
+pub(crate) use settings::{settings_body, settings_page};
+pub(crate) use welcome::welcome_page;

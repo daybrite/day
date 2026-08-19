@@ -34,14 +34,16 @@ use objc2_app_kit::{
     NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
     NSControlTextEditingDelegate, NSEventType, NSFont, NSGraphicsContext, NSLineBreakMode, NSMenu,
     NSMenuItem, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider,
-    NSSwitch, NSTabView, NSTabViewItem, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
-    NSTextMovementUserInfoKey, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSSwitch, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey,
+    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
     NSApplicationWillTerminateNotification,
 };
-use objc2_app_kit::{NSOutlineViewDataSource, NSOutlineViewDelegate, NSTabViewDelegate};
+use objc2_app_kit::{
+    NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextDelegate, NSTextView, NSTextViewDelegate,
+};
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
@@ -191,6 +193,19 @@ define_class!(
             })
         }
 
+        /// The bottom tab bar's segmented control (docs/navigation.md). It emits against the
+        /// NAV_MENU's node, exactly as the sidebar's outline view does — so as far as everything
+        /// above this backend is concerned, picking a tab and clicking a sidebar row are the
+        /// same event, and neither the pieces layer nor dayscript needs to know which chrome
+        /// the window happens to be wearing.
+        #[unsafe(method(tabPicked:))]
+        fn tab_picked(&self, sender: &NSControl) {
+            ffi_guard::contain((), || {
+                let idx = unsafe { sender.integerValue() };
+                emit(self.ivars().node, Event::SelectionChanged(idx as i64));
+            })
+        }
+
         /// The stack-nav back header's button (docs/navigation.md): a day-initiated pop — the
         /// nav host's handler writes it into the path signal, which reconciles the pop.
         #[unsafe(method(navBack:))]
@@ -304,6 +319,71 @@ impl DayTextField {
         let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
         unsafe { msg_send![super(this), init] }
     }
+}
+
+/// A label's link delegate (docs/text-runs.md).
+///
+/// A LABEL is an `NSTextField`, and a text field routes its editing through the window's shared
+/// FIELD EDITOR — an `NSTextView` whose delegate messages the field forwards to its own delegate.
+/// `textView:clickedOnLink:atIndex:` is one of those, so a delegate here is what turns a click on
+/// an `NSLinkAttributeName` run into an event Day can route.
+///
+/// The field also has to be SELECTABLE: a label that cannot be selected never engages the field
+/// editor, so the click has nothing to hit-test against. Answering `true` means "handled", which
+/// is what stops AppKit opening the URL itself — the app's `.on_link()` decides, and its default
+/// opens the same URL by the route Day controls.
+struct LinkIvars {
+    node: NodeId,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayTextLink"]
+    #[ivars = LinkIvars]
+    struct DayTextLink;
+
+    unsafe impl NSObjectProtocol for DayTextLink {}
+
+    unsafe impl NSTextViewDelegate for DayTextLink {
+        #[unsafe(method(textView:clickedOnLink:atIndex:))]
+        fn clicked_on_link(
+            &self,
+            _tv: &NSTextView,
+            link: &objc2::runtime::AnyObject,
+            _index: usize,
+        ) -> bool {
+            ffi_guard::contain(true, || {
+                // The attribute is whatever was set on the run — an NSString here, but AppKit
+                // hands back an NSURL when the attribute holds one, so ask for the description
+                // either way.
+                let url: Retained<NSString> = unsafe { msg_send![link, description] };
+                emit(self.ivars().node, Event::LinkActivated(url.to_string()));
+                true
+            })
+        }
+    }
+
+    unsafe impl NSTextDelegate for DayTextLink {}
+
+    // The field's own delegate protocol, so `setDelegate:` accepts it. The text-view half above
+    // is what actually fires — a text field forwards the field editor's delegate messages here.
+    unsafe impl NSTextFieldDelegate for DayTextLink {}
+    unsafe impl NSControlTextEditingDelegate for DayTextLink {}
+);
+
+impl DayTextLink {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(LinkIvars { node });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+thread_local! {
+    /// A link label's delegate, kept alive for the label's lifetime (a delegate is a WEAK
+    /// reference, so nothing else retains it). Swept in `release`.
+    static LINK_DELEGATES: RefCell<HashMap<usize, Retained<DayTextLink>>> =
+        RefCell::new(HashMap::new());
 }
 
 // ---------------------------------------------------------------------------
@@ -554,6 +634,18 @@ const NAV_HEADER_H: f64 = 34.0;
 const NAV_SIDEBAR_MIN_W: f64 = 160.0;
 const NAV_SIDEBAR_MAX_W: f64 = 400.0;
 
+/// Height of the `NavPresentation::Tabs` bottom bar.
+const NAV_TABBAR_H: f64 = 36.0;
+
+/// The bottom tab bar (`NavPresentation::Tabs`). AppKit has no app-level tab bar — `NSTabView`
+/// owns its own page content, which is the opposite of Day's model where pages are NAV_PAGE
+/// children the host merely shows — so this is an `NSSegmentedControl` docked below the pages,
+/// which is the control a Mac uses for a one-of-N switch of this size.
+struct TabBar {
+    bar: Retained<objc2_app_kit::NSSegmentedControl>,
+    _target: Retained<DayTarget>,
+}
+
 struct NavState {
     sidebar_wrap: Retained<NSView>,
     detail_wrap: Retained<NSView>,
@@ -573,8 +665,17 @@ struct NavState {
     /// pane and the head of `pages` (docs/size-classes.md).
     sidebar_page: Option<Retained<NSView>>,
     positioned: bool,
-    /// Sidebar+detail split (a selector Sidebar) vs. a pure push/pop stack (a `stack`).
-    split: bool,
+    /// Which of the four presentations is drawn right now (docs/size-classes.md). All of them are
+    /// the same `NSSplitViewController`: a stack is that split with its sidebar collapsed, a rail
+    /// is it with a narrow one, and a tab bar is a collapsed sidebar plus the bottom bar below.
+    presentation: NavPresentation,
+    /// The detail page on screen, as an index into `pages`. Maintained by every patch that
+    /// changes it — push, pop and select alike — so a re-present can carry it across.
+    selected: usize,
+    /// The bottom tab bar (`NavPresentation::Tabs` only): an `NSSegmentedControl` driven from
+    /// the same rows the sidebar's outline view shows, emitting `SelectionChanged` against the
+    /// same NAV_MENU node. Built on demand and kept, like the back header.
+    tabbar: Option<TabBar>,
     /// Back header (stack presentation only).
     header: Option<NavHeader>,
     /// The host's own title, kept so a re-present into a stack can seed a fresh back header
@@ -644,17 +745,128 @@ fn build_nav_header(
     }
 }
 
-/// The frame a stack page occupies inside the detail wrap: full bounds at the root, inset
-/// below the back header while a pushed page is showing.
-fn nav_page_frame(wrap: &NSView, header_visible: bool) -> NSRect {
+/// The frame a stack page occupies inside the detail wrap: full bounds at the root, inset below
+/// the back header while a pushed page is showing, and inset above the tab bar where there is
+/// one. The two never coexist — a tab bar has no back stack — but the arithmetic is written to
+/// take both so a future presentation that does is not a special case.
+fn nav_page_frame(wrap: &NSView, header_visible: bool, tabbar_visible: bool) -> NSRect {
     let b = wrap.bounds();
-    if header_visible {
-        NSRect::new(
-            NSPoint::new(0.0, NAV_HEADER_H),
-            NSSize::new(b.size.width, (b.size.height - NAV_HEADER_H).max(0.0)),
-        )
-    } else {
-        b
+    let top = if header_visible { NAV_HEADER_H } else { 0.0 };
+    let bottom = if tabbar_visible { NAV_TABBAR_H } else { 0.0 };
+    NSRect::new(
+        NSPoint::new(0.0, top),
+        NSSize::new(b.size.width, (b.size.height - top - bottom).max(0.0)),
+    )
+}
+
+/// The row titles and the NAV_MENU node of the menu inside `page`, if it has one.
+///
+/// The tab bar needs the same rows the sidebar shows, and they arrive at the NAV_MENU rather
+/// than at the host. Rather than plumb a second copy through the props, this walks down to the
+/// menu that is already there — the sidebar page is Day-built and shallow, so the search is a
+/// handful of views — and reads the titles it has stored for its own outline view.
+fn nav_menu_rows(page: &NSView) -> Option<(Vec<String>, NodeId)> {
+    fn walk(v: &NSView, out: &mut Option<(Vec<String>, NodeId)>) {
+        if out.is_some() {
+            return;
+        }
+        let found = NAV_MENUS.with(|m| {
+            m.borrow()
+                .get(&(v as *const NSView as usize))
+                .map(|(_, d)| {
+                    let ivars = d.ivars();
+                    (
+                        ivars.items.borrow().iter().map(|s| s.to_string()).collect(),
+                        ivars.node,
+                    )
+                })
+        });
+        if found.is_some() {
+            *out = found;
+            return;
+        }
+        for sub in unsafe { v.subviews() }.iter() {
+            walk(&sub, out);
+        }
+    }
+    let mut out = None;
+    walk(page, &mut out);
+    out
+}
+
+/// Build (or rebuild) the bottom tab bar's segments from the host's own rows.
+fn sync_tabbar(tb: &TabBar, titles: &[String], selected: usize) {
+    unsafe {
+        tb.bar.setSegmentCount(titles.len() as isize);
+        for (i, t) in titles.iter().enumerate() {
+            tb.bar
+                .setLabel_forSegment(&NSString::from_str(t), i as isize);
+        }
+        if !titles.is_empty() {
+            tb.bar
+                .setSelectedSegment(selected.min(titles.len() - 1) as isize);
+        }
+    }
+}
+
+/// Create the bottom tab bar and dock it along the foot of the detail wrap.
+fn build_tabbar(mtm: MainThreadMarker, menu_node: NodeId, detail_wrap: &NSView) -> TabBar {
+    let target = DayTarget::new(mtm, menu_node);
+    let bar = unsafe { objc2_app_kit::NSSegmentedControl::new(mtm) };
+    unsafe {
+        bar.setSegmentStyle(objc2_app_kit::NSSegmentStyle::Automatic);
+        bar.setTrackingMode(objc2_app_kit::NSSegmentSwitchTracking::SelectOne);
+        let tobj: &objc2::runtime::AnyObject = target.as_ref();
+        bar.setTarget(Some(tobj));
+        bar.setAction(Some(sel!(tabPicked:)));
+        let b = detail_wrap.bounds();
+        bar.setFrame(NSRect::new(
+            NSPoint::new(8.0, (b.size.height - NAV_TABBAR_H + 4.0).max(0.0)),
+            NSSize::new((b.size.width - 16.0).max(0.0), NAV_TABBAR_H - 8.0),
+        ));
+        // Flipped wrap: pinning to the bottom edge means tracking height, not just width.
+        bar.setAutoresizingMask(
+            objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                | objc2_app_kit::NSAutoresizingMaskOptions::ViewMinYMargin,
+        );
+        detail_wrap.addSubview(&bar);
+    }
+    TabBar {
+        bar,
+        _target: target,
+    }
+}
+
+/// Apply a presentation to the sidebar split item. All four are the same item at a different
+/// thickness or collapsed outright, which is why a morph never rebuilds the split.
+fn apply_sidebar_item(item: &objc2_app_kit::NSSplitViewItem, pres: NavPresentation) {
+    let shown = matches!(pres, NavPresentation::Split | NavPresentation::Rail);
+    unsafe {
+        item.setCanCollapse(shown);
+        item.setCollapsed(!shown);
+        match pres {
+            NavPresentation::Split => {
+                item.setAllowsFullHeightLayout(true);
+                item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
+                item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
+            }
+            // macOS has no rail: nothing in AppKit is a vertical strip of icon-only
+            // destinations, and a source list pinned to icon width just truncates every row to an
+            // ellipsis. `NavPresentation::Rail` is explicitly ROUNDABLE for exactly this case, so
+            // it lands on the neighbor a Mac does have — an ordinary sidebar. Windows rounds the
+            // other way (`PaneDisplayMode = LeftCompact` is a real rail there).
+            NavPresentation::Rail => {
+                item.setAllowsFullHeightLayout(true);
+                item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
+                item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
+            }
+            // Zero the thickness bounds BEFORE collapsing takes effect, or the pane keeps a
+            // minimum width and the detail never reaches the window edge.
+            NavPresentation::Stack | NavPresentation::Tabs => {
+                item.setMinimumThickness(0.0);
+                item.setMaximumThickness(0.0);
+            }
+        }
     }
 }
 
@@ -669,7 +881,7 @@ fn sync_nav_header(hdr: &NavHeader, wrap: &NSView, pages: &[Retained<NSView>]) {
             hdr.titles.last().map(String::as_str).unwrap_or(""),
         ));
     }
-    let frame = nav_page_frame(wrap, visible);
+    let frame = nav_page_frame(wrap, visible, false);
     for page in pages {
         unsafe { page.setFrame(frame) };
     }
@@ -689,8 +901,8 @@ fn sync_nav_header(hdr: &NavHeader, wrap: &NSView, pages: &[Retained<NSView>]) {
 ///
 /// `addSubview` re-parents a view rather than rebuilding it, so every page keeps its subtree,
 /// its scroll position, and its first responder across the move.
-fn nav_present(mtm: MainThreadMarker, host: &Handle, split: bool) {
-    let Some((sidebar_page, detail_wrap, sidebar_wrap, sidebar_item, was_split, root_title, id)) =
+fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
+    let Some((sidebar_page, detail_wrap, sidebar_wrap, sidebar_item, was, root_title, id, sel)) =
         NAV_STATE.with(|m| {
             let st = m.borrow();
             let s = st.get(&ptr_of(host))?;
@@ -699,85 +911,103 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, split: bool) {
                 s.detail_wrap.clone(),
                 s.sidebar_wrap.clone(),
                 s.sidebar_item.clone(),
-                s.split,
+                s.presentation,
                 s.root_title.clone(),
                 s.node,
+                s.selected,
             ))
         })
     else {
         return;
     };
-    if was_split == split {
+    if was == next {
         return;
     }
-    unsafe {
-        sidebar_item.setCanCollapse(split);
-        sidebar_item.setCollapsed(!split);
-        if split {
-            sidebar_item.setAllowsFullHeightLayout(true);
-            sidebar_item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
-            sidebar_item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
-        } else {
-            // Zero the thickness bounds BEFORE collapsing takes effect, or the pane keeps a
-            // minimum width and the detail never reaches the window edge.
-            sidebar_item.setMinimumThickness(0.0);
-            sidebar_item.setMaximumThickness(0.0);
+    apply_sidebar_item(&sidebar_item, next);
+    // Settle the split NOW rather than at the next natural layout pass. `setCollapsed` marks the
+    // split view as needing layout; without this the pane keeps its old width for one more frame,
+    // which the dayscript screenshot seam captures (it renders the window offscreen the instant
+    // the patch returns) and which a user crossing a breakpoint sees as a stutter.
+    NAV_STATE.with(|m| {
+        if let Some(s) = m.borrow().get(&ptr_of(host)) {
+            unsafe { s._split_vc.splitView().layoutSubtreeIfNeeded() };
         }
-    }
-    // A stack needs a back header; a split must not show one. Built on demand and kept
+    });
+    // A stack needs a back header; nothing else may show one. Built on demand and kept
     // afterwards — rebuilding it on every morph would leak a target per crossing.
+    let stacked = next == NavPresentation::Stack;
     let mut header = NAV_STATE.with(|m| m.borrow_mut().get_mut(&ptr_of(host))?.header.take());
-    if !split && header.is_none() {
+    if stacked && header.is_none() {
         header = Some(build_nav_header(mtm, id, &detail_wrap, &root_title));
     }
     if let Some(hdr) = header.as_ref() {
         hdr.bar.setHidden(true);
     }
-    // Move the sidebar page: its own pane when split, the head of the stack when not.
+    // Likewise the tab bar, and likewise kept: crossing a breakpoint twice must not leave two.
+    let mut tabbar = NAV_STATE.with(|m| m.borrow_mut().get_mut(&ptr_of(host))?.tabbar.take());
+    let tabs = next == NavPresentation::Tabs;
+    if tabs && tabbar.is_none() {
+        // Its segments and its action both come from the NAV_MENU the sidebar page already has.
+        if let Some((titles, menu_node)) = sidebar_page.as_deref().and_then(nav_menu_rows) {
+            let tb = build_tabbar(mtm, menu_node, &detail_wrap);
+            sync_tabbar(&tb, &titles, sel);
+            tabbar = Some(tb);
+        }
+    }
+    if let Some(tb) = tabbar.as_ref() {
+        tb.bar.setHidden(!tabs);
+    }
+    // Which page is on screen, by IDENTITY: moving the sidebar page in or out of the detail list
+    // shifts every index past it, so an index captured now would name the wrong page after.
     let mut pages = NAV_STATE.with(|m| {
         m.borrow()
             .get(&ptr_of(host))
             .map(|s| s.pages.clone())
             .unwrap_or_default()
     });
+    let shown_page = pages.get(sel).cloned();
+    // The sidebar page is a stack ROOT only while stacked; otherwise it lives in its own pane,
+    // which is the sidebar in `Split`/`Rail` and a collapsed one behind a tab bar in `Tabs`.
     if let Some(page) = sidebar_page {
         pages.retain(|p| ptr_of(p) != ptr_of(&page));
         unsafe {
-            if split {
-                page.setFrame(sidebar_wrap.bounds());
-                sidebar_wrap.addSubview(&page);
-            } else {
+            if stacked {
                 detail_wrap.addSubview(&page);
                 pages.insert(0, page.clone());
+            } else {
+                page.setFrame(sidebar_wrap.bounds());
+                sidebar_wrap.addSubview(&page);
             }
         }
-        // A sidebar pane always shows its page; as a stack root it may have been hidden under a
-        // pushed detail.
+        // A pane always shows its page; as a stack root it may have been hidden under a push.
         page.setHidden(false);
     }
-    // Only the top page shows in either presentation; a split's sidebar sits outside `pages`.
-    let last = pages.len().saturating_sub(1);
+    let shown = shown_page
+        .and_then(|p| pages.iter().position(|q| ptr_of(q) == ptr_of(&p)))
+        .unwrap_or_else(|| pages.len().saturating_sub(1));
     for (i, page) in pages.iter().enumerate() {
-        page.setHidden(i != last);
+        page.setHidden(i != shown);
     }
     NAV_STATE.with(|m| {
         let mut m = m.borrow_mut();
         if let Some(s) = m.get_mut(&ptr_of(host)) {
-            s.split = split;
+            s.presentation = next;
             s.pages = pages;
+            s.selected = shown;
             s.header = header;
+            s.tabbar = tabbar;
             if let Some(hdr) = s.header.as_ref() {
-                // Depth drives visibility, and the header is meaningless while split.
-                if split {
-                    hdr.bar.setHidden(true);
-                } else {
+                // Depth drives visibility, and the header is meaningless anywhere but a stack.
+                if stacked {
                     sync_nav_header(hdr, &s.detail_wrap, &s.pages);
+                } else {
+                    hdr.bar.setHidden(true);
                 }
             }
-            if split {
+            if !stacked {
                 // Leaving the stack: the pages were inset below the header, so give them the
-                // full pane back.
-                let frame = nav_page_frame(&s.detail_wrap, false);
+                // pane back — less the tab bar, where there now is one.
+                let frame = nav_page_frame(&s.detail_wrap, false, tabs);
                 for page in &s.pages {
                     unsafe { page.setFrame(frame) };
                 }
@@ -847,60 +1077,6 @@ impl DayNavPage {
 }
 
 // ---------------------------------------------------------------------------
-// Tabs (docs/tabs.md): NSTabView host + DayTabDelegate for selection.
-// ---------------------------------------------------------------------------
-
-struct TabDelegateIvars {
-    node: NodeId,
-    /// Programmatic selection in flight: don't re-emit SelectionChanged.
-    suppress: std::cell::Cell<bool>,
-}
-
-define_class!(
-    #[unsafe(super(NSObject))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "DayTabDelegate"]
-    #[ivars = TabDelegateIvars]
-    struct DayTabDelegate;
-
-    unsafe impl NSObjectProtocol for DayTabDelegate {}
-
-    unsafe impl NSTabViewDelegate for DayTabDelegate {
-        #[unsafe(method(tabView:didSelectTabViewItem:))]
-        fn did_select(&self, tabview: &NSTabView, item: &NSTabViewItem) {
-            ffi_guard::contain((), || {
-                if self.ivars().suppress.get() {
-                    return;
-                }
-                let idx = unsafe { tabview.indexOfTabViewItem(item) };
-                emit(self.ivars().node, Event::SelectionChanged(idx as i64));
-            })
-        }
-    }
-);
-
-impl DayTabDelegate {
-    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(TabDelegateIvars {
-            node,
-            suppress: std::cell::Cell::new(false),
-        });
-        unsafe { msg_send![super(this), init] }
-    }
-}
-
-struct TabState {
-    delegate: Retained<DayTabDelegate>,
-    /// Tab to select once its item has been inserted (NSTabView selects the first by default).
-    initial: usize,
-}
-
-thread_local! {
-    /// TABS host view ptr → its delegate + initial selection.
-    static TAB_STATE: RefCell<HashMap<usize, TabState>> = RefCell::new(HashMap::new());
-    /// TABS_PAGE view ptr → its tab label (read by the host on insert).
-    static TAB_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
-}
 
 // ---------------------------------------------------------------------------
 // DayNavMenuData — flat NSOutlineView source list for nav_menu() (docs/navigation.md)
@@ -2622,6 +2798,32 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
 /// Ranges arrive as BYTE offsets into a Rust `str`; `NSAttributedString` indexes UTF-16. The
 /// conversion is per-run rather than a blanket assumption: any text with an emoji or a CJK
 /// character makes the two disagree, and an off-by-N range there styles the wrong words.
+/// Stamp a paragraph alignment across a label's whole attributed string.
+///
+/// Separate from `setAlignment:` because the two live in different places: the cell has a
+/// paragraph style, the attributed string carries its own, and the string's wins.
+fn set_paragraph_alignment(tf: &NSTextField, align: objc2_app_kit::NSTextAlignment) {
+    use objc2_foundation::{NSMutableAttributedString, NSRange};
+    unsafe {
+        let cur = tf.attributedStringValue();
+        let m = NSMutableAttributedString::initWithAttributedString(
+            NSMutableAttributedString::alloc(),
+            &cur,
+        );
+        let style = objc2_app_kit::NSMutableParagraphStyle::new();
+        style.setAlignment(align);
+        // Wrapping is what makes alignment observable at all, and the default paragraph style a
+        // fresh NSMutableParagraphStyle carries would otherwise reset it to clipping.
+        style.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByWordWrapping);
+        m.addAttribute_value_range(
+            objc2_app_kit::NSParagraphStyleAttributeName,
+            &style,
+            NSRange::new(0, cur.length()),
+        );
+        tf.setAttributedStringValue(&m);
+    }
+}
+
 fn attributed_label(
     text: &str,
     base_font: &NSFont,
@@ -2740,6 +2942,16 @@ fn register_bundled_fonts() {
         if !ok {
             eprintln!("day: could not register bundled font {}", path.display());
         }
+    }
+}
+
+/// `TextAlign` → AppKit. `Natural` rather than `Left` for the leading case: it follows the
+/// writing direction, so an RTL locale aligns right without the app asking (docs/localization.md).
+fn nstextalign(a: day_spec::props::TextAlign) -> objc2_app_kit::NSTextAlignment {
+    match a {
+        day_spec::props::TextAlign::Leading => objc2_app_kit::NSTextAlignment::Natural,
+        day_spec::props::TextAlign::Center => objc2_app_kit::NSTextAlignment::Center,
+        day_spec::props::TextAlign::Trailing => objc2_app_kit::NSTextAlignment::Right,
     }
 }
 
@@ -2882,6 +3094,15 @@ impl Toolkit for AppKit {
         match cap {
             Cap::Snapshot
             | Cap::NativeSymbols
+            // The rows as chrome: `Rail` is the same source list pinned narrow, `Tabs` an
+            // NSSegmentedControl docked below the pages. AppKit has no app-level tab bar —
+            // NSTabView owns its own page content, the opposite of Day's model — so the bar
+            // is composed from the control a Mac uses for a one-of-N switch this size.
+            //
+            // `Cap::NavTabsAdaptive` is deliberately NOT here: a Mac app may PIN a tab bar, but
+            // a narrow Mac window hides its sidebar and pushes rather than growing one. It falls
+            // through to the `Unsupported` arm below.
+            | Cap::NavTabs
             | Cap::NavSplit
             // Both presentations are the same NSSplitViewController — a stack is that split with
             // its sidebar item collapsed — so re-presenting is a collapse plus one `addSubview`
@@ -2900,6 +3121,7 @@ impl Toolkit for AppKit {
             | Cap::MultiWindow
             // A real NSToolbar in the title bar (docs/toolbars.md).
             | Cap::Toolbar
+            | Cap::AppMenu
             // NSDockTile.badgeLabel is an arbitrary String, so all three payloads render — the
             // only backend where Text is real (docs/badge.md).
             | Cap::AppBadgeCount
@@ -2968,6 +3190,31 @@ impl Toolkit for AppKit {
                 if !p.runs.is_empty() {
                     let s = attributed_label(&p.text, &nsfont(p.font), p.color, &p.runs);
                     unsafe { tf.setAttributedStringValue(&s) };
+                }
+                // A link run needs a selectable field and a delegate (see DayTextLink): without
+                // the first the click never reaches the field editor, and without the second
+                // AppKit opens the URL behind Day's back.
+                if p.runs.iter().any(|r| r.link.is_some()) {
+                    let delegate = DayTextLink::new(mtm, id);
+                    unsafe {
+                        tf.setSelectable(true);
+                        tf.setAllowsEditingTextAttributes(true);
+                        tf.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                    }
+                    LINK_DELEGATES.with(|m| {
+                        m.borrow_mut()
+                            .insert(ptr_of(&view_of(tf.clone())), delegate)
+                    });
+                }
+                // Alignment goes on LAST and, for a runs label, has to reach inside the
+                // attributed string. `setAlignment:` writes the cell's paragraph style, which an
+                // attributed string then overrides wholesale with its own — so a markdown label
+                // set only through the cell comes out leading-aligned no matter what was asked.
+                if p.align != day_spec::props::TextAlign::Leading {
+                    unsafe { tf.setAlignment(nstextalign(p.align)) };
+                    if !p.runs.is_empty() {
+                        set_paragraph_alignment(&tf, nstextalign(p.align));
+                    }
                 }
                 view_of(tf)
             }
@@ -3076,10 +3323,11 @@ impl Toolkit for AppKit {
             }
             Some(Builtin::Canvas) => view_of(DayCanvas::new(mtm)),
             Some(Builtin::Nav) => {
-                let is_split = props
+                let presentation = props
                     .downcast_ref::<NavProps>()
-                    .map(|p| p.presentation.is_split())
-                    .unwrap_or(true);
+                    .map(|p| p.presentation)
+                    .unwrap_or(NavPresentation::Split);
+                let is_split = presentation.is_split();
                 // The host is an NSSplitViewController, not a bare NSSplitView. Handing the
                 // sidebar pane to `NSSplitViewItem::sidebarWithViewController:` is what buys
                 // the system treatment: AppKit installs its own backing material and vibrancy
@@ -3182,10 +3430,10 @@ impl Toolkit for AppKit {
                     .unwrap_or_default();
                 // Stack presentation: a back header (hidden at root) — desktop has no system
                 // back affordance, so a pushed page needs its own way out (docs/navigation.md).
-                let header = if is_split {
-                    None
-                } else {
+                let header = if presentation == NavPresentation::Stack {
                     Some(build_nav_header(mtm, id, &detail_wrap, &root_title))
+                } else {
+                    None
                 };
                 let view = view_of(split);
                 NAV_STATE.with(|m| {
@@ -3199,7 +3447,9 @@ impl Toolkit for AppKit {
                             pages: Vec::new(),
                             sidebar_page: None,
                             positioned: false,
-                            split: is_split,
+                            presentation,
+                            selected: 0,
+                            tabbar: None,
                             header,
                             root_title,
                             node: id,
@@ -3223,36 +3473,6 @@ impl Toolkit for AppKit {
                 let page = DayNavPage::new(mtm, id);
                 unsafe { page.setHidden(true) };
                 view_of(page)
-            }
-            Some(Builtin::Tabs) => {
-                let Some(p) = props_of::<TabsProps>(kind, "appkit", props) else {
-                    return placeholder_view(mtm, kind);
-                };
-                let tabview = unsafe { NSTabView::new(mtm) };
-                let delegate = DayTabDelegate::new(mtm, id);
-                unsafe { tabview.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
-                let view = view_of(tabview);
-                TAB_STATE.with(|m| {
-                    m.borrow_mut().insert(
-                        ptr_of(&view),
-                        TabState {
-                            delegate,
-                            initial: p.selected,
-                        },
-                    )
-                });
-                view
-            }
-            Some(Builtin::TabsPage) => {
-                let Some(p) = props_of::<TabsPageProps>(kind, "appkit", props) else {
-                    return placeholder_view(mtm, kind);
-                };
-                // A tab page is a native-owned content view (like a nav page: reports its
-                // allocated size via FrameChanged), tagged so set_frame skips it.
-                let page = view_of(DayNavPage::new(mtm, id));
-                NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&page)));
-                TAB_TITLES.with(|m| m.borrow_mut().insert(ptr_of(&page), p.title.clone()));
-                page
             }
             Some(Builtin::NavMenu) => {
                 let Some(p) = props_of::<NavMenuProps>(kind, "appkit", props) else {
@@ -3614,41 +3834,6 @@ impl Toolkit for AppKit {
                     }
                 }
             }
-            kinds::TABS => {
-                if let Some(tabview) = h.downcast_ref::<NSTabView>() {
-                    match patch.downcast_ref::<TabsPatch>() {
-                        Some(TabsPatch::Selected(i)) => TAB_STATE.with(|m| {
-                            if let Some(state) = m.borrow().get(&ptr_of(h)) {
-                                state.delegate.ivars().suppress.set(true);
-                                unsafe { tabview.selectTabViewItemAtIndex(*i as isize) };
-                                state.delegate.ivars().suppress.set(false);
-                            }
-                        }),
-                        // Data-driven tabs: the pages were added/removed via insert/remove; sync
-                        // each remaining tab item's label to the new titles, then select.
-                        Some(TabsPatch::Items {
-                            titles, selected, ..
-                        }) => TAB_STATE.with(|m| {
-                            if let Some(state) = m.borrow().get(&ptr_of(h)) {
-                                let items = unsafe { tabview.tabViewItems() };
-                                // Enumerate the titles (the value we apply); `i` only indexes the
-                                // separate `items` array, so this isn't a needless range loop.
-                                for (i, title) in titles.iter().enumerate().take(items.count()) {
-                                    unsafe {
-                                        items.objectAtIndex(i).setLabel(&NSString::from_str(title));
-                                    }
-                                }
-                                state.delegate.ivars().suppress.set(true);
-                                if *selected < items.count() {
-                                    unsafe { tabview.selectTabViewItemAtIndex(*selected as isize) };
-                                }
-                                state.delegate.ivars().suppress.set(false);
-                            }
-                        }),
-                        None => {}
-                    }
-                }
-            }
             kinds::NAV_MENU => {
                 if let Some(NavMenuPatch::Items {
                     items,
@@ -3714,7 +3899,7 @@ impl Toolkit for AppKit {
             }
             kinds::NAV => {
                 if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
-                    nav_present(self.mtm(), h, next.is_split());
+                    nav_present(self.mtm(), h, *next);
                     return;
                 }
                 if let Some(p) = patch.downcast_ref::<NavPatch>() {
@@ -3727,6 +3912,7 @@ impl Toolkit for AppKit {
                             NavPatch::Pushed { title, .. } => {
                                 // Only the new top detail page stays visible.
                                 let last = state.pages.len().saturating_sub(1);
+                                state.selected = last;
                                 for (i, page) in state.pages.iter().enumerate() {
                                     page.setHidden(i != last);
                                 }
@@ -3745,6 +3931,7 @@ impl Toolkit for AppKit {
                                 if n >= 2 {
                                     state.pages[n - 2].setHidden(false);
                                 }
+                                state.selected = n.saturating_sub(2);
                                 if let Some(hdr) = state.header.as_mut() {
                                     if hdr.titles.len() > 1 {
                                         hdr.titles.pop();
@@ -3776,6 +3963,18 @@ impl Toolkit for AppKit {
                             NavPatch::GuardTop(_) => {}
                             // Handled outside this borrow (it re-homes views and builds chrome).
                             NavPatch::Presentation(_) => {}
+                            // Resident-page switch (docs/navigation.md): every page stays in the
+                            // view hierarchy and only one is unhidden, so switching tabs keeps
+                            // each page's scroll position and first responder exactly as left.
+                            NavPatch::Select(i) => {
+                                state.selected = *i;
+                                for (n, page) in state.pages.iter().enumerate() {
+                                    page.setHidden(n != *i);
+                                }
+                                if let Some(tb) = state.tabbar.as_ref() {
+                                    unsafe { tb.bar.setSelectedSegment(*i as isize) };
+                                }
+                            }
                         }
                     });
                 }
@@ -4027,10 +4226,7 @@ impl Toolkit for AppKit {
                 day_spec::sidetable::sweep(Retained::as_ptr(&outline) as usize);
             }
         });
-        TAB_STATE.with(|m| {
-            m.borrow_mut().remove(&ptr_of(&h));
-        });
-        TAB_TITLES.with(|m| {
+        LINK_DELEGATES.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
         // One call reclaims this handle's entry from EVERY SideTable on this thread — canvas
@@ -4042,41 +4238,12 @@ impl Toolkit for AppKit {
         unsafe { h.removeFromSuperview() };
     }
 
-    fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
-        // Tabs host: wrap the page in an NSTabViewItem with its label, then insert. NSTabView
-        // owns the item view's frame; the page reports its content size via FrameChanged.
-        let handled_tab = TAB_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&ptr_of(parent)) else {
-                return false;
-            };
-            let Some(tabview) = parent.downcast_ref::<NSTabView>() else {
-                return false;
-            };
-            let title = TAB_TITLES
-                .with(|t| t.borrow().get(&ptr_of(child)).cloned())
-                .unwrap_or_default();
-            let item = unsafe { NSTabViewItem::new() };
-            unsafe {
-                item.setLabel(&NSString::from_str(&title));
-                item.setView(Some(child));
-                tabview.insertTabViewItem_atIndex(&item, index as isize);
-            }
-            // Select the requested initial tab once its item exists (suppress the echo).
-            if index == state.initial {
-                state.delegate.ivars().suppress.set(true);
-                unsafe { tabview.selectTabViewItemAtIndex(index as isize) };
-                state.delegate.ivars().suppress.set(false);
-            }
-            true
-        });
-        if handled_tab {
-            return;
-        }
+    fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
         // Nav host: pages land by their PANE, not their position (docs/size-classes.md). Pages
         // fill their pane via autoresizing — the pane, not Day, owns their frames.
         let is_sidebar_page =
             PAGE_PANE.with(|t| t.get(ptr_of(child)) == Some(day_spec::props::Pane::Sidebar));
+        let mut needs_tabbar = false;
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&ptr_of(parent)) else {
@@ -4084,18 +4251,26 @@ impl Toolkit for AppKit {
             };
             if is_sidebar_page {
                 state.sidebar_page = Some(child.clone());
+                // A host that STARTS as a tab bar gets its bar here rather than at realize: the
+                // segments and the action both come from the NAV_MENU, which lives inside this
+                // rows page and so does not exist until the page is inserted.
+                needs_tabbar = state.presentation == NavPresentation::Tabs;
             }
             // Split (selector Sidebar): the sidebar pane's page goes in the sidebar; the rest are
             // detail pages. Stack: every page — including the sidebar's, which is the stack's
             // root — lives in the detail pane so push/pop visibility covers them all.
-            let (wrap, frame) = if state.split && is_sidebar_page {
+            // The rows page goes to the sidebar pane in every presentation but `Stack`, where
+            // it is the stack root and joins the detail pages instead.
+            let to_pane = is_sidebar_page && state.presentation != NavPresentation::Stack;
+            let (wrap, frame) = if to_pane {
                 (&state.sidebar_wrap, state.sidebar_wrap.bounds())
             } else {
                 state.pages.push(child.clone());
                 let visible = state.header.as_ref().is_some_and(|h| !h.bar.isHidden());
+                let tabs = state.presentation == NavPresentation::Tabs;
                 (
                     &state.detail_wrap,
-                    nav_page_frame(&state.detail_wrap, visible),
+                    nav_page_frame(&state.detail_wrap, visible, tabs),
                 )
             };
             unsafe {
@@ -4108,6 +4283,23 @@ impl Toolkit for AppKit {
             }
             true
         });
+        if needs_tabbar {
+            let (wrap, sel) = NAV_STATE.with(|m| {
+                let st = m.borrow();
+                st.get(&ptr_of(parent))
+                    .map(|s| (s.detail_wrap.clone(), s.selected))
+                    .expect("nav state present: needs_tabbar was set from it")
+            });
+            if let Some((titles, menu_node)) = nav_menu_rows(child) {
+                let tb = build_tabbar(self.mtm(), menu_node, &wrap);
+                sync_tabbar(&tb, &titles, sel);
+                NAV_STATE.with(|m| {
+                    if let Some(s) = m.borrow_mut().get_mut(&ptr_of(parent)) {
+                        s.tabbar = Some(tb);
+                    }
+                });
+            }
+        }
         if !handled {
             // Absolute positioning: z-order is build order; index is irrelevant for
             // non-overlapping frames (stack_z will need ordered insertion later).
@@ -4125,18 +4317,6 @@ impl Toolkit for AppKit {
                 }
             }
         });
-        // Data-driven tabs: a removed page's NSTabViewItem must go too (removeFromSuperview
-        // leaves an orphan empty tab otherwise).
-        if let Some(tabview) = parent.downcast_ref::<NSTabView>() {
-            let items = unsafe { tabview.tabViewItems() };
-            for i in 0..items.count() {
-                let it = items.objectAtIndex(i);
-                if unsafe { it.view(self.mtm()) }.map(|v| ptr_of(&v)) == Some(ptr_of(child)) {
-                    unsafe { tabview.removeTabViewItem(&it) };
-                    break;
-                }
-            }
-        }
         unsafe { child.removeFromSuperview() };
     }
 
@@ -4321,7 +4501,9 @@ impl Toolkit for AppKit {
             let first = NAV_STATE.with(|m| {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
-                    .map(|s| !std::mem::replace(&mut s.positioned, true) && s.split)
+                    .map(|s| {
+                        !std::mem::replace(&mut s.positioned, true) && s.presentation.is_split()
+                    })
                     .unwrap_or(false)
             });
             unsafe {
@@ -4625,7 +4807,12 @@ impl Toolkit for AppKit {
     fn toggle_sidebar(&mut self) -> bool {
         NAV_STATE.with(|m| {
             for st in m.borrow().values() {
-                if st.split {
+                // A pane to toggle exists in `Split` and `Rail`; a stack has none and a tab
+                // bar keeps its rows in the chrome, where hiding them would strand the user.
+                if matches!(
+                    st.presentation,
+                    NavPresentation::Split | NavPresentation::Rail
+                ) {
                     let item = &st.sidebar_item;
                     // Set DIRECTLY, not through the `animator` proxy. The proxy defers the
                     // change to an animation the dayscript screenshot step does not wait on, so
@@ -4701,6 +4888,30 @@ impl Toolkit for AppKit {
             .find(|w| ptr_of(&w.content) == ptr_of(host))
         {
             w.window.makeKeyAndOrderFront(None);
+        }
+    }
+
+    fn fit_window(&mut self, host: &Handle, size: Size) {
+        let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| ptr_of(&w.content) == ptr_of(host))
+        else {
+            return;
+        };
+        unsafe {
+            // `setContentSize:` rather than `setFrame:`: Day measured the CONTENT, and AppKit
+            // adds the title bar itself. Sizing the frame instead would eat the bar's height out
+            // of the panel and clip the last row by exactly that much.
+            w.window
+                .setContentSize(NSSize::new(size.width, size.height));
+            // A settings panel that fits its content has no reason to be resizable, and macOS
+            // panels are not — dropping the mask also stops the user dragging it back to a size
+            // the content does not fill.
+            let mask = w.window.styleMask();
+            w.window
+                .setStyleMask(mask & !objc2_app_kit::NSWindowStyleMask::Resizable);
+            w.window.center();
         }
     }
 

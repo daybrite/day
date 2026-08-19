@@ -17,42 +17,40 @@
 
 /// The scaffold keys carried here, in the order they are written.
 pub const KEYS: &[&str] = &[
-    "home_greeting",
-    "home_welcome",
-    "nav_home",
-    "nav_controls",
-    "nav_canvas",
-    "nav_items",
+    "nav_welcome",
+    "nav_navigate",
+    "nav_settings",
+    "welcome_title",
 ];
 
 /// `(locale tag, [translation per KEYS])`. A tag absent here simply gets the English copy.
 #[rustfmt::skip]
-pub const STARTER: &[(&str, [&str; 6])] = &[
-    ("ar-SA", ["مرحبًا!", "مرحبًا بك في {app}", "الرئيسية", "عناصر التحكم", "لوحة الرسم", "العناصر"]),
-    ("cs-CZ", ["Ahoj!", "Vítejte v {app}", "Domů", "Ovládací prvky", "Plátno", "Položky"]),
-    ("de-DE", ["Hallo!", "Willkommen bei {app}", "Start", "Steuerelemente", "Leinwand", "Elemente"]),
-    ("es-ES", ["¡Hola!", "Te damos la bienvenida a {app}", "Inicio", "Controles", "Lienzo", "Elementos"]),
-    ("fr-FR", ["Bonjour !", "Bienvenue dans {app}", "Accueil", "Contrôles", "Canevas", "Éléments"]),
-    ("id-ID", ["Halo!", "Selamat datang di {app}", "Beranda", "Kontrol", "Kanvas", "Item"]),
-    ("it-IT", ["Ciao!", "Benvenuto in {app}", "Home", "Controlli", "Tela", "Elementi"]),
-    ("ja-JP", ["こんにちは！", "{app} へようこそ", "ホーム", "コントロール", "キャンバス", "アイテム"]),
-    ("ko-KR", ["안녕하세요!", "{app}에 오신 것을 환영합니다", "홈", "컨트롤", "캔버스", "항목"]),
-    ("ms-MY", ["Helo!", "Selamat datang ke {app}", "Laman Utama", "Kawalan", "Kanvas", "Item"]),
-    ("nl-NL", ["Hallo!", "Welkom bij {app}", "Start", "Bedieningselementen", "Canvas", "Items"]),
-    ("pl-PL", ["Cześć!", "Witamy w {app}", "Główna", "Kontrolki", "Płótno", "Elementy"]),
-    ("pt-BR", ["Olá!", "Boas-vindas ao {app}", "Início", "Controles", "Tela", "Itens"]),
-    ("ru-RU", ["Привет!", "Добро пожаловать в {app}", "Главная", "Элементы управления", "Холст", "Элементы"]),
-    ("th-TH", ["สวัสดี!", "ยินดีต้อนรับสู่ {app}", "หน้าแรก", "ตัวควบคุม", "ผืนผ้าใบ", "รายการ"]),
-    ("tr-TR", ["Merhaba!", "{app} uygulamasına hoş geldiniz", "Ana Sayfa", "Denetimler", "Tuval", "Öğeler"]),
-    ("uk-UA", ["Привіт!", "Ласкаво просимо до {app}", "Головна", "Елементи керування", "Полотно", "Елементи"]),
-    ("vi-VN", ["Xin chào!", "Chào mừng đến với {app}", "Trang chủ", "Điều khiển", "Canvas", "Mục"]),
-    ("zh-Hans-CN", ["你好！", "欢迎使用 {app}", "主页", "控件", "画布", "项目"]),
-    ("zh-Hant-TW", ["你好！", "歡迎使用 {app}", "首頁", "控制項", "畫布", "項目"]),
+pub const STARTER: &[(&str, [&str; 4])] = &[
+    ("ar-SA", ["مرحبًا", "تصفح", "الإعدادات", "مرحبًا بك في Day"]),
+    ("cs-CZ", ["Vítejte", "Procházet", "Nastavení", "Vítejte v Day"]),
+    ("de-DE", ["Willkommen", "Navigieren", "Einstellungen", "Willkommen bei Day"]),
+    ("es-ES", ["Bienvenida", "Navegar", "Ajustes", "Te damos la bienvenida a Day"]),
+    ("fr-FR", ["Bienvenue", "Naviguer", "Réglages", "Bienvenue dans Day"]),
+    ("id-ID", ["Selamat Datang", "Navigasi", "Pengaturan", "Selamat datang di Day"]),
+    ("it-IT", ["Benvenuto", "Naviga", "Impostazioni", "Benvenuto in Day"]),
+    ("ja-JP", ["ようこそ", "ナビゲート", "設定", "Day へようこそ"]),
+    ("ko-KR", ["환영합니다", "탐색", "설정", "Day에 오신 것을 환영합니다"]),
+    ("ms-MY", ["Selamat Datang", "Navigasi", "Tetapan", "Selamat datang ke Day"]),
+    ("nl-NL", ["Welkom", "Navigeren", "Instellingen", "Welkom bij Day"]),
+    ("pl-PL", ["Powitanie", "Nawigacja", "Ustawienia", "Witamy w Day"]),
+    ("pt-BR", ["Bem-vindo", "Navegar", "Configurações", "Boas-vindas ao Day"]),
+    ("ru-RU", ["Добро пожаловать", "Навигация", "Настройки", "Добро пожаловать в Day"]),
+    ("th-TH", ["ยินดีต้อนรับ", "นำทาง", "การตั้งค่า", "ยินดีต้อนรับสู่ Day"]),
+    ("tr-TR", ["Hoş Geldiniz", "Gezin", "Ayarlar", "Day uygulamasına hoş geldiniz"]),
+    ("uk-UA", ["Ласкаво просимо", "Навігація", "Налаштування", "Ласкаво просимо до Day"]),
+    ("vi-VN", ["Chào mừng", "Điều hướng", "Cài đặt", "Chào mừng đến với Day"]),
+    ("zh-Hans-CN", ["欢迎", "导航", "设置", "欢迎使用 Day"]),
+    ("zh-Hant-TW", ["歡迎", "導覽", "設定", "歡迎使用 Day"]),
 ];
 
 /// The starter translations for `tag`, matched on the exact tag then its language subtag, so
 /// `de` and `de-AT` both reach the `de-DE` row.
-pub fn starter_for(tag: &str) -> Option<&'static [&'static str; 6]> {
+pub fn starter_for(tag: &str) -> Option<&'static [&'static str; 4]> {
     if let Some((_, v)) = STARTER.iter().find(|(t, _)| *t == tag) {
         return Some(v);
     }
@@ -69,22 +67,11 @@ mod tests {
 
     #[test]
     fn every_row_covers_every_key() {
-        assert_eq!(KEYS.len(), 6);
+        assert_eq!(KEYS.len(), 4);
         for (tag, vals) in STARTER {
             for (k, v) in KEYS.iter().zip(vals) {
                 assert!(!v.trim().is_empty(), "{tag}: {k} is empty");
             }
-        }
-    }
-
-    #[test]
-    fn the_welcome_line_keeps_its_placeholder() {
-        let i = KEYS.iter().position(|k| *k == "home_welcome").unwrap();
-        for (tag, vals) in STARTER {
-            assert!(
-                vals[i].contains("{app}"),
-                "{tag}: home_welcome lost {{app}}"
-            );
         }
     }
 
