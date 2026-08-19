@@ -60,7 +60,17 @@ n=$(find resource/locales -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
     echo "expected 21 locale catalogs, found $n" >&2
     exit 1
 }
-grep -q '^home_greeting = ' resource/locales/ja-JP/app.ftl
+# A STARTER key, and translated rather than copied: `day localize add` writes the table in
+# starter_l10n.rs for the handful of scaffold strings the CLI knows the meaning of, and everything
+# else lands as an English copy under a translate-me header. Naming the key explicitly is what
+# keeps this honest — the previous one (`home_greeting`) belonged to a template two rewrites ago,
+# and a bare `grep -q` under `set -e` fails with NO output at all, which is how it read as a
+# mysterious exit 1 rather than "that key is gone".
+grep -q '^nav_welcome = ' resource/locales/ja-JP/app.ftl || {
+    echo "resource/locales/ja-JP/app.ftl has no nav_welcome — is it still a scaffold key?" >&2
+    echo "  keys the CLI translates: crates/day-cli/src/starter_l10n.rs KEYS" >&2
+    exit 1
+}
 
 # store-placeholder is the one finding a fresh scaffold is meant to have: the listing text stays a
 # TODO until a human writes it, and the lint exists to stop that text reaching a store. Every other
@@ -129,13 +139,13 @@ if [ -n "$COMBO" ]; then
                 exit 1
             }
             REBUILT="$(dirname "$TOML")"
-            (cd "$REBUILT" && "$DAY" launch -p "$COMBO" --script dayscript/smoke.yaml)
-            SHOT="$(find "$REBUILT/build/day/screenshots/$COMBO" -name smoke.png 2>/dev/null | head -1 || true)"
+            (cd "$REBUILT" && "$DAY" launch -p "$COMBO" --script dayscript/demo.yaml)
+            SHOT="$(find "$REBUILT/build/day/screenshots/$COMBO" -name welcome.png 2>/dev/null | head -1 || true)"
             [ -n "$SHOT" ] || {
-                echo "the smoke dayscript left no build/day/screenshots/$COMBO/*/smoke.png under $REBUILT" >&2
+                echo "the demo dayscript left no build/day/screenshots/$COMBO/*/welcome.png under $REBUILT" >&2
                 exit 1
             }
-            echo "smoke screenshot: $SHOT"
+            echo "demo screenshot: $SHOT"
             # Scripted launches can leave the app running; drop the session before cleanup.
             (cd "$REBUILT" && "$DAY" stop --all) || true
             ;;

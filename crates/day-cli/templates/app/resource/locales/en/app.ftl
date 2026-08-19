@@ -34,7 +34,6 @@ cmd_sidebar = Toggle Sidebar
 # The item list and its editor.
 item_untitled = Untitled
 item_none = Select an item
-item_kind_label = { $kind }
 item_kind_note = Note
 item_kind_task = Task
 item_kind_idea = Idea

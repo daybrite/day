@@ -469,10 +469,9 @@ mod tests {
                 .map(String::as_str),
             Some("Scan.")
         );
-        // Everything else survived untouched.
-        assert!(
-            once.contains("<string>DayPieces_DayPieces.bundle/fonts/Pacifico-Regular.ttf</string>")
-        );
+        // Everything else survived untouched. Two keys of different SHAPES: a plain string and
+        // one inside a nested array-of-dicts, since the rewrite walks them differently.
+        assert!(once.contains("<key>CFBundleShortVersionString</key>"));
         assert!(once.contains("<key>CFBundleURLName</key>"));
 
         let twice = apply_string_keys(

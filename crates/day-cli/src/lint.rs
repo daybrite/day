@@ -118,6 +118,40 @@ fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
     roots
 }
 
+/// Every quoted string in the app's Rust sources that could BE a key.
+///
+/// A key is not always reached through `tr("…")` or `res::str::…`: naming a set of them in a const
+/// array and resolving with `tr(*k)` is how an app enumerates options, and the scaffold's own
+/// `KINDS` does exactly that. Those keys are used, and the two scans above cannot see it.
+///
+/// Consulted ONLY by the unused-key check. It must not feed `unknown-key`, which asks the opposite
+/// question — every literal in the program is not a claim that a message exists.
+fn scan_key_like_literals(dir: &Path, out: &mut std::collections::BTreeSet<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            scan_key_like_literals(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs")
+            && let Ok(src) = std::fs::read_to_string(&p)
+        {
+            for lit in src.split('"').skip(1).step_by(2) {
+                // Fluent key shape: lowercase, digits, `_` and `-`, and never empty.
+                if !lit.is_empty()
+                    && lit.len() <= 64
+                    && lit.chars().all(|c| {
+                        c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
+                    })
+                {
+                    out.insert(lit.to_string());
+                }
+            }
+        }
+    }
+}
+
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -555,6 +589,12 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         scan_res_str(r, &mut used_keys);
     }
     let used: BTreeSet<String> = used_keys.into_iter().collect();
+    // See `scan_key_like_literals`: a key named in a plain string literal and resolved later is
+    // still referenced, and only the unused-key check may consider it.
+    let mut literals: BTreeSet<String> = BTreeSet::new();
+    for r in &roots {
+        scan_key_like_literals(r, &mut literals);
+    }
 
     // Default = "en" if present, else first.
     let default_name = if locales.contains_key("en") {
@@ -579,7 +619,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
             if k == "language_name" {
                 continue;
             }
-            if !used.contains(k) {
+            if !used.contains(k) && !literals.contains(k) {
                 findings.push(Finding {
                     code: "day::lint::unused-key",
                     message: format!("resource/locales/{default_name}: {k} is never referenced"),

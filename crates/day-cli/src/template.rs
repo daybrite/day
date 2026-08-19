@@ -230,6 +230,8 @@ mod tests {
         m.insert("pascal", "HelloWorld".to_string());
         m.insert("title", "Hello World".to_string());
         m.insert("id", "dev.example.hello_world".to_string());
+        // The app id's organization segment — what website/site.toml builds its Pages host from.
+        m.insert("org", "example".to_string());
         m.insert("scheme", "helloworld".to_string());
         m.insert("day_dep", "day = { version = \"0.0.0\" }".to_string());
         m.insert(
