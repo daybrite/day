@@ -899,7 +899,7 @@ pub fn launch(
             }
             status("Launching", target.name);
             let mut child = cmd.spawn().map_err(|e| format!("spawn: {e}"))?;
-            crate::signals::register_child(child.id());
+            crate::signals::register_app_child(child.id());
             let name = target.name;
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();

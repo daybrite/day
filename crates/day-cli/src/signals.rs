@@ -21,7 +21,15 @@ use std::sync::Mutex;
 #[cfg(unix)]
 use std::sync::OnceLock;
 
-static CHILDREN: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+/// A tracked child, and whether it is the APP itself. A desktop launch spawns the app as a child
+/// of this process; everything else tracked here is a helper `day` owns outright — a log pump, the
+/// web driver. Only the app is something a run can be asked to leave behind.
+struct Child {
+    pid: u32,
+    is_app: bool,
+}
+
+static CHILDREN: Mutex<Vec<Child>> = Mutex::new(Vec::new());
 static REMOTE_STOPS: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
 /// Held for the whole of [`kill_all`]; see there.
 static TEARDOWN: Mutex<()> = Mutex::new(());
@@ -29,7 +37,18 @@ static TEARDOWN: Mutex<()> = Mutex::new(());
 /// Track a spawned child so it is killed on interrupt (and by [`kill_all`]).
 pub fn register_child(pid: u32) {
     if let Ok(mut c) = CHILDREN.lock() {
-        c.push(pid);
+        c.push(Child {
+            pid,
+            is_app: false,
+        });
+    }
+}
+
+/// Track the APP itself, spawned as a child by a desktop launch. Killed like any other child on
+/// interrupt and on the normal-exit path — unless [`forget_app_children`] spares it first.
+pub fn register_app_child(pid: u32) {
+    if let Ok(mut c) = CHILDREN.lock() {
+        c.push(Child { pid, is_app: true });
     }
 }
 
@@ -37,7 +56,7 @@ pub fn register_child(pid: u32) {
 /// post-mortem uses it to pick THIS run's report out of a directory where every build of the app
 /// files under the same process name (`crate::diagnose`).
 pub fn last_child() -> Option<u32> {
-    CHILDREN.lock().ok().and_then(|c| c.last().copied())
+    CHILDREN.lock().ok().and_then(|c| c.last().map(|c| c.pid))
 }
 
 /// Track an app that is NOT a child of this process — one running on a device, emulator or
@@ -63,6 +82,20 @@ pub fn forget_remote_stops() {
     }
 }
 
+/// Drop the APP from the kill list without stopping it — for a run that DELIBERATELY leaves it up
+/// (`--keep-alive`, whose whole promise is that the app outlives `day`). [`forget_remote_stops`] is
+/// the device half of that promise; this is the desktop half, where the app is a CHILD of this
+/// process and the normal-exit `kill_all` would otherwise terminate the very thing the flag exists
+/// to keep — reporting "left running" over a window that had just closed.
+///
+/// Helpers stay registered and are still reaped: an orphaned log pump holds the inherited stdout
+/// that CI then waits on forever.
+pub fn forget_app_children() {
+    if let Ok(mut c) = CHILDREN.lock() {
+        c.retain(|c| !c.is_app);
+    }
+}
+
 /// Stop everything this `day` invocation started: tracked children, then the apps running on
 /// devices. Used on the normal-exit path too, so log watchers for a target that has finished
 /// don't linger while other targets run.
@@ -78,8 +111,8 @@ pub fn kill_all() {
         .lock()
         .map(|mut c| std::mem::take(&mut *c))
         .unwrap_or_default();
-    for pid in pids {
-        kill_one(pid);
+    for child in pids {
+        kill_one(child.pid);
     }
     // After the children, so the log pump is already gone and the stop itself does not get
     // streamed back as app output.

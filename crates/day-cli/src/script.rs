@@ -695,6 +695,9 @@ pub fn run_scripts(
         // very app this flag exists to keep. Retract them: `--keep-alive` is the explicit wish,
         // and it outranks the interrupt contract.
         crate::signals::forget_remote_stops();
+        // And the desktop half: there the app is a child of this process, so the exit path's
+        // `kill_all` would take it down moments after this line promised it was staying up.
+        crate::signals::forget_app_children();
         if attached {
             eprintln!(
                 "  {WARN}▸{WARN:#} {} left running (--keep-alive): streaming logs — stop the task \

@@ -1156,9 +1156,11 @@ impl Toolkit for Xaml {
                     // rail lands on a rail here rather than rounding to a sidebar the way it must
                     // on macOS (docs/navigation.md). Pages stay resident and `Select` switches
                     // them, exactly as the tab presentation does everywhere else.
-                    let pane_mode = match nav_props.map(|p| p.presentation) {
-                        Some(day_spec::props::NavPresentation::Tabs) => 2,
-                        Some(day_spec::props::NavPresentation::Rail) => 3,
+                    let pane_mode = match p.presentation {
+                        day_spec::props::NavPresentation::Tabs => 2,
+                        day_spec::props::NavPresentation::Rail => 3,
+                        // Split and Stack keep the NavigationView's own pane display mode, which
+                        // is what `is_stack` above already configured.
                         _ => -1,
                     };
                     let nav = ffi::day_xaml_nav_new(

@@ -832,6 +832,14 @@ fn template_context(
     let mut ctx = std::collections::BTreeMap::new();
     ctx.insert("name", repl.crate_name.clone());
     ctx.insert("ident", repl.crate_ident.clone());
+    // Whether that ident trips rustc's `non_snake_case` lint, which fires on the CRATE NAME and
+    // so cannot be silenced anywhere but the crate root. An app named `Day-Rise` or `MyApp` would
+    // otherwise warn on every single build of a freshly scaffolded project. Renaming the lib
+    // target instead is not open to us: `day build` derives the iOS staticlib and Android cdylib
+    // file names from the PACKAGE name (mobile.rs), so a lib named differently would not be found.
+    // Handlebars has no boolean context here — an empty string is falsy, any other string truthy.
+    let ident_not_snake = repl.crate_ident.chars().any(|c| c.is_uppercase());
+    ctx.insert("ident_not_snake", if ident_not_snake { "1" } else { "" }.to_string());
     ctx.insert("snake", repl.snake.clone());
     ctx.insert("pascal", repl.pascal.clone());
     ctx.insert("title", title);
