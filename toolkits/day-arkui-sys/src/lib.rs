@@ -37,9 +37,17 @@ unsafe extern "C" {
     pub fn day_ark_nav_pop();
     pub fn day_ark_nav_set_title(title: *const c_char);
     pub fn day_ark_nav_set_guard(on: i32);
-    /// Set the trailing title-bar action (NavProps::bar_action, docs/navigation.md): its bundled
-    /// image name, accessible label, and dispatch id. No-op if the ArkTS host predates the seam.
-    pub fn day_ark_nav_set_menu(icon: *const c_char, label: *const c_char, action: u64);
+    /// Set the trailing title-bar actions (NavProps::bar_actions, docs/navigation.md): bundled
+    /// image names, accessible labels, dispatch ids, and per-action "1"/"0" root-only flags, each
+    /// field `\n`-joined across the actions. One action joins to exactly the plain strings the
+    /// single-action seam used to send, so an ArkTS host that predates multi-action still renders
+    /// it. No-op if the ArkTS host predates the seam entirely.
+    pub fn day_ark_nav_set_menu(
+        icons: *const c_char,
+        labels: *const c_char,
+        actions: *const c_char,
+        root_only: *const c_char,
+    );
     /// Open a URL via the ArkTS opener (the `link` piece's seam). No-op if unregistered.
     pub fn day_ark_open_url(url: *const c_char);
     pub fn day_ark_nav_remove(key: u64, page: *mut c_void);

@@ -1908,24 +1908,38 @@ mod imp {
                     // decoration; keeping it off `makeNavHost` (whose failure aborts the whole
                     // native tree build — `make_view` unwraps) means nothing here can blank the app.
                     // On tap the item re-enters as `MenuAction(id)`.
-                    if let Some(a) = &p.bar_action {
-                        let (icon, label, action) = (
-                            a.icon.clone().unwrap_or_default(),
-                            a.label.clone(),
-                            a.action as i64,
-                        );
+                    if !p.bar_actions.is_empty() {
+                        // `\n`-joined parallel fields, the wire shape the other best-effort nav
+                        // calls use — one JNI call however many actions the app declared.
+                        let join = |f: &dyn Fn(&day_spec::props::NavBarAction) -> String| {
+                            p.bar_actions.iter().map(f).collect::<Vec<_>>().join("\n")
+                        };
+                        let icons = join(&|a| a.icon.clone().unwrap_or_default());
+                        let labels = join(&|a| a.label.clone());
+                        let actions = join(&|a| a.action.to_string());
+                        let root_only = join(&|a| {
+                            match a.scope {
+                                day_spec::props::NavBarScope::RootPage => "1",
+                                day_spec::props::NavBarScope::EveryPage => "0",
+                            }
+                            .to_string()
+                        });
                         with_env(|env| {
-                            let ic = jstr(env, &icon);
-                            let lb = jstr(env, &label);
+                            let ic = jstr(env, &icons);
+                            let lb = jstr(env, &labels);
+                            let ac = jstr(env, &actions);
+                            let ro = jstr(env, &root_only);
                             let _ = env.dcall_static(
                                 BRIDGE,
                                 "setNavMenu",
-                                "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;J)V",
+                                "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;\
+                                 Ljava/lang/String;Ljava/lang/String;)V",
                                 &[
                                     JValue::Object(host.0.as_obj()),
                                     JValue::Object(&ic),
                                     JValue::Object(&lb),
-                                    JValue::Long(action),
+                                    JValue::Object(&ac),
+                                    JValue::Object(&ro),
                                 ],
                             );
                             // A throw (or an old bridge lacking the method) leaves a pending

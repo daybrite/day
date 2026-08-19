@@ -372,6 +372,18 @@ fn note_routed_one_of_n(kind: &str) {
     });
 }
 
+/// A merged stack has no host of its own to hang bar actions on, and the enclosing host's were
+/// settled when IT was built. Without this the buttons simply never appear, which reads as a
+/// backend bug rather than as a shape the app can change.
+#[cfg(debug_assertions)]
+fn warn_merged_bar_actions(n: usize) {
+    eprintln!(
+        "day: this stack's {n} bar action(s) are not drawn — it MERGED into the enclosing \
+         navigation host, which owns the bar (docs/navigation.md). Declare them on that host \
+         instead, or keep this stack standalone."
+    );
+}
+
 #[cfg(debug_assertions)]
 fn warn_sibling_selectors(kind: &str) {
     eprintln!(
@@ -791,7 +803,7 @@ pub struct Selector<S: SignalRw<K>, K: Route = String> {
     pending_section: Option<TextSource>,
     /// An optional trailing nav-bar action ([`Selector::bar_action`]) — the mobile stand-in for a
     /// desktop toolbar button. `None` unless set.
-    bar_action: Option<BarActionSpec>,
+    bar_actions: Vec<BarActionSpec>,
     /// Search over this surface ([`Selector::searchable`]). `None` unless set.
     search: Option<SearchSpec>,
     /// The presentation pinned by [`Selector::presentation`]; `None` = automatic, resolved from
@@ -1003,6 +1015,7 @@ struct BarActionSpec {
     icon: Option<String>,
     label: TextSource,
     action: Rc<dyn Fn()>,
+    scope: day_spec::props::NavBarScope,
 }
 
 impl BarActionSpec {
@@ -1015,6 +1028,7 @@ impl BarActionSpec {
             action: day_core::register_scoped_menu_action(self.action),
             label: self.label.initial(),
             icon: self.icon,
+            scope: self.scope,
         }
     }
 }
@@ -1030,7 +1044,7 @@ pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
         destination: None,
         routed: true,
         restore: None,
-        bar_action: None,
+        bar_actions: Vec::new(),
         search: None,
         presentation: None,
     }
@@ -1274,16 +1288,47 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     /// there (docs/toolbars.md). The action is app-wide: it rides the current top page's bar, so
     /// the same handler serves every section (read [`current_route`] inside it to act on whatever
     /// is showing).
+    ///
+    /// Call it more than once for more than one button; they draw left to right in declaration
+    /// order, trailing-aligned. Use [`list_action`](Self::list_action) for a command that acts on
+    /// the LIST rather than on whatever page is open.
     pub fn bar_action<M>(
         mut self,
         icon: impl Into<day_spec::ImageName>,
         label: impl IntoText<M>,
         action: impl Fn() + 'static,
     ) -> Self {
-        self.bar_action = Some(BarActionSpec {
+        self.bar_actions.push(BarActionSpec {
             icon: Some(icon.into().as_str().to_owned()),
             label: label.into_text(),
             action: Rc::new(action),
+            scope: day_spec::props::NavBarScope::EveryPage,
+        });
+        self
+    }
+
+    /// Like [`bar_action`](Self::bar_action), but the button rides the LIST only — it is gone from
+    /// the detail pages the list pushes (docs/navigation.md).
+    ///
+    /// Which one to reach for is decided by what the command acts on, not by how it looks. "Add an
+    /// item" and "sort" act on the list, and on a detail page the thing they act on is not even on
+    /// screen — a narrow phone has pushed it away — so a button for them there is at best inert
+    /// and at worst acts on something the user cannot see. "Show this page's source" is the other
+    /// kind: it follows the user down.
+    ///
+    /// Where the presentation keeps the list in its own pane, its bar is the list's bar and the
+    /// button simply stays there while details come and go.
+    pub fn list_action<M>(
+        mut self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.bar_actions.push(BarActionSpec {
+            icon: Some(icon.into().as_str().to_owned()),
+            label: label.into_text(),
+            action: Rc::new(action),
+            scope: day_spec::props::NavBarScope::RootPage,
         });
         self
     }
@@ -1564,7 +1609,11 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
     let title_s = sel.title.initial();
     // Register the optional nav-bar action once (getting its dispatch id) and lower it into the
     // host props — the mobile backends draw it as an upper-right bar button (docs/navigation.md).
-    let bar_action = sel.bar_action.map(BarActionSpec::lower);
+    let bar_actions: Vec<_> = sel
+        .bar_actions
+        .into_iter()
+        .map(BarActionSpec::lower)
+        .collect();
     // Search over this surface (docs/search.md). Lowered to the host's props with its CURRENT
     // values; the live bindings below keep the field in step through targeted patches, so the
     // app writing the query never rebuilds (and refocuses) the field mid-word.
@@ -1591,7 +1640,7 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
             title: title_s.clone(),
             presentation: lowered,
             adaptive,
-            bar_action,
+            bar_actions,
             search,
         },
         Rc::new(NavLayout {
@@ -2320,7 +2369,7 @@ pub struct Stack<S: SignalRw<Vec<K>>, K: Route = String> {
     restore: Option<String>,
     /// An optional trailing nav-bar action ([`Stack::bar_action`]) — the mobile stand-in for a
     /// desktop toolbar button. `None` unless set.
-    bar_action: Option<BarActionSpec>,
+    bar_actions: Vec<BarActionSpec>,
 }
 
 pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
@@ -2333,7 +2382,7 @@ pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<
         }),
         on_back: None,
         restore: None,
-        bar_action: None,
+        bar_actions: Vec::new(),
     }
 }
 
@@ -2345,16 +2394,40 @@ impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
     /// Add a trailing action button to the navigation bar, for the toolkits with no window toolbar
     /// (the phones and HarmonyOS): an upper-right bar button drawn with the bundled `icon` that
     /// runs `action` (docs/navigation.md). Mirrors [`Selector::bar_action`]; ignored on desktop.
+    ///
+    /// Call it more than once for more than one button; they draw left to right in declaration
+    /// order. Use [`list_action`](Self::list_action) for a command that acts on the stack's ROOT
+    /// rather than on whatever page is on top of it.
     pub fn bar_action<M>(
         mut self,
         icon: impl Into<day_spec::ImageName>,
         label: impl IntoText<M>,
         action: impl Fn() + 'static,
     ) -> Self {
-        self.bar_action = Some(BarActionSpec {
+        self.bar_actions.push(BarActionSpec {
             icon: Some(icon.into().as_str().to_owned()),
             label: label.into_text(),
             action: Rc::new(action),
+            scope: day_spec::props::NavBarScope::EveryPage,
+        });
+        self
+    }
+
+    /// Like [`bar_action`](Self::bar_action), but the button rides the stack's ROOT page only — it
+    /// is gone from everything pushed on top of it. Mirrors [`Selector::list_action`], and the
+    /// same rule decides between them: a command that acts on the root's content (adding to the
+    /// list it shows, filtering it) has nothing to act on once a detail covers it.
+    pub fn list_action<M>(
+        mut self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.bar_actions.push(BarActionSpec {
+            icon: Some(icon.into().as_str().to_owned()),
+            label: label.into_text(),
+            action: Rc::new(action),
+            scope: day_spec::props::NavBarScope::RootPage,
         });
         self
     }
@@ -2396,12 +2469,12 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             destination: dest,
             on_back,
             restore,
-            bar_action,
+            bar_actions,
         } = self;
         let title_s = title.initial();
         // Lower the optional nav-bar action for the standalone host below (a merged stack rides
         // the enclosing host's bar instead). Registered once; the mobile backends draw it.
-        let bar_action = bar_action.map(BarActionSpec::lower);
+        let bar_actions: Vec<_> = bar_actions.into_iter().map(BarActionSpec::lower).collect();
 
         // Restore the saved path before the reconcile binding runs, so its pages build on first
         // pass. A launch deep link wins (skip). The path is decoded from the SAME percent-encoded
@@ -2445,6 +2518,10 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             let hc = host_cx.clone();
             ret_node = with_nav_host(Some(hc), || root.build(cx));
             merged = true;
+            #[cfg(debug_assertions)]
+            if !bar_actions.is_empty() {
+                warn_merged_bar_actions(bar_actions.len());
+            }
         } else {
             // STANDALONE: create the native host + root page (an app-root stack, or a nested stack
             // under a split/desktop host).
@@ -2460,7 +2537,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     // an Emulated toolkit must build a PLAIN navigation container for it rather
                     // than its adaptive one (docs/size-classes.md).
                     adaptive: false,
-                    bar_action,
+                    bar_actions,
                     // Stacks are not searchable yet — `.searchable()` is on `Selector` only
                     // (docs/search.md); a stack gains the same surface when the placement
                     // resolver lands, since it is the same lowering.

@@ -980,12 +980,31 @@ public final class DayBridge {
     // Trailing nav-bar action (docs/navigation.md, NavProps::bar_action): applied AFTER the host is
     // built, and wrapped so a failure here can never propagate into the native tree build (where it
     // would abort the whole surface and blank the app). `action == 0` or a non-nav view is a no-op.
-    public static void setNavMenu(View navHost, String icon, String label, long action) {
-        if (action == 0 || !(navHost instanceof DayNavHost)) {
+    // One call for ALL of the host's actions, `\n`-joined per field — the same wire shape
+    // `setNavMenuTints`/`setNavMenuBadges` use. Parallel arrays rather than one call per action so
+    // a partial failure cannot leave half a bar installed: this either adds them all or logs and
+    // adds none. `rootOnly` is "1"/"0" per action (NavBarScope::RootPage).
+    public static void setNavMenu(View navHost, String icons, String labels, String actions,
+            String rootOnly) {
+        if (!(navHost instanceof DayNavHost) || actions == null || actions.isEmpty()) {
             return;
         }
         try {
-            ((DayNavHost) navHost).setBarAction(icon, label, action);
+            String[] ic = icons == null ? new String[0] : icons.split("\n", -1);
+            String[] lb = labels == null ? new String[0] : labels.split("\n", -1);
+            String[] ac = actions.split("\n", -1);
+            String[] ro = rootOnly == null ? new String[0] : rootOnly.split("\n", -1);
+            for (int i = 0; i < ac.length; i++) {
+                long id = Long.parseLong(ac[i]);
+                if (id == 0) {
+                    continue;
+                }
+                ((DayNavHost) navHost).addBarAction(
+                        i < ic.length ? ic[i] : "",
+                        i < lb.length ? lb[i] : "",
+                        id,
+                        i < ro.length && "1".equals(ro[i]));
+            }
         } catch (Throwable t) {
             android.util.Log.e("Day", "nav bar action setup failed; continuing without it", t);
         }

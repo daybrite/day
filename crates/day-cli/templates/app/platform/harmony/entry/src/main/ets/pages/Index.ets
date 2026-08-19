@@ -31,12 +31,15 @@ struct Index {
   // Back guard (docs/navigation.md): true while the top pushed page has a Stack::on_back
   // guard armed — its NavDestination consumes the native back and defers to Rust's guard.
   @State navGuardedTop: boolean = false;
-  // Trailing title-bar action (docs/navigation.md, NavProps::bar_action): the mobile stand-in for
-  // a desktop toolbar button. Set once by registerNav's 5th callback and rendered as a `.menus()`
-  // item on every pushed NavDestination; action 0 = none.
-  @State navMenuAction: number = 0;
-  @State navMenuIcon: string = '';
-  @State navMenuLabel: string = '';
+  // Trailing title-bar actions (docs/navigation.md, NavProps::bar_actions): the mobile stand-in
+  // for desktop toolbar buttons. Set once by registerNav's 5th callback and split by scope —
+  // `navPageMenus` ride every pushed NavDestination, `navRootMenus` belong to the LIST and are the
+  // only reason the root Navigation shows a title bar at all.
+  @State navPageMenus: NavigationMenuItem[] = [];
+  @State navRootMenus: NavigationMenuItem[] = [];
+  // The ROOT page's title. Only shown when a list-scoped action brings the root title bar out;
+  // until this existed a Title patch at depth 0 had nowhere to land and was dropped.
+  @State navRootTitle: string = '';
   private navKeys: number[] = [];
 
   // Scripted sessions (dayscript, docs/agent.md) push/pop WITHOUT transition animation: a
@@ -76,17 +79,41 @@ struct Index {
         const top: number | undefined = this.navKeys[this.navKeys.length - 1];
         if (top !== undefined) {
           this.navTitles.set(top, title);
+        } else {
+          this.navRootTitle = title;
         }
       },
       (on: boolean): void => {
         this.navGuardedTop = on;
       },
-      // Trailing title-bar action (NavProps::bar_action): store its icon name, label, and dispatch
-      // id — the dayPage builder renders it as a `.menus()` item on every NavDestination.
-      (icon: string, label: string, action: number): void => {
-        this.navMenuIcon = icon;
-        this.navMenuLabel = label;
-        this.navMenuAction = action;
+      // Trailing title-bar actions (NavProps::bar_actions): four `\n`-joined parallel fields, one
+      // entry per action. Built into ArkUI menu items once, here, rather than in the builder —
+      // a @Builder re-runs on every state change and would rebuild the closures with it.
+      (icons: string, labels: string, actions: string, rootOnly: string): void => {
+        const ic: string[] = icons.length === 0 ? [] : icons.split('\n');
+        const lb: string[] = labels.length === 0 ? [] : labels.split('\n');
+        const ac: string[] = actions.length === 0 ? [] : actions.split('\n');
+        const ro: string[] = rootOnly.length === 0 ? [] : rootOnly.split('\n');
+        const page: NavigationMenuItem[] = [];
+        const root: NavigationMenuItem[] = [];
+        for (let i = 0; i < ac.length; i++) {
+          const id: number = Number(ac[i]);
+          if (id === 0) {
+            continue;
+          }
+          const item: NavigationMenuItem = {
+            value: i < lb.length ? lb[i] : '',
+            icon: $rawfile('day/' + (i < ic.length ? ic[i] : '') + '.png'),
+            action: () => { nativeEntry.navMenuAction(id); }
+          };
+          if (i < ro.length && ro[i] === '1') {
+            root.push(item);
+          } else {
+            page.push(item);
+          }
+        }
+        this.navPageMenus = page;
+        this.navRootMenus = root;
       }
     );
     // Standalone pieces whose component exists only in ArkTS (docs/extending.md) — the native
@@ -242,16 +269,11 @@ struct Index {
       })
     }
     .title(this.navTitles.get(Number(param)) ?? '')
-    // Trailing title-bar action (docs/navigation.md, NavProps::bar_action): a `.menus()` item
-    // drawn upper-right, the mobile counterpart to a desktop toolbar button. Its bundled icon is
-    // the staged rawfile (§18.3, `resources/rawfile/day/<name>.png`); a tap re-enters native.
-    .menus(this.navMenuAction !== 0 ? [
-      {
-        value: this.navMenuLabel,
-        icon: $rawfile('day/' + this.navMenuIcon + '.png'),
-        action: () => { nativeEntry.navMenuAction(this.navMenuAction); }
-      }
-    ] : [])
+    // Trailing title-bar actions (docs/navigation.md, NavProps::bar_actions): `.menus()` items
+    // drawn upper-right, the mobile counterpart to desktop toolbar buttons. Their bundled icons
+    // are staged rawfiles (§18.3, `resources/rawfile/day/<name>.png`); a tap re-enters native.
+    // Only the every-page ones: a list-scoped action acts on the list this page covers.
+    .menus(this.navPageMenus)
     .onBackPressed(() => {
       // A guarded top page consumes the native back and routes it to Rust's guard, which
       // pops the path (→ Day-initiated pop) only on Proceed (docs/navigation.md). An unguarded
@@ -292,7 +314,12 @@ struct Index {
         }
       })
     }
-    .hideTitleBar(true)
+    // The root normally draws NO native title bar — Day paints the root page itself, chrome and
+    // all. A LIST-scoped action has nowhere else to go, though, so declaring one (and only that)
+    // brings the bar out for it.
+    .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
+    .hideTitleBar(this.navRootMenus.length === 0)
+    .menus(this.navRootMenus)
     .mode(NavigationMode.Stack)
     .navDestination(this.dayPage)
     // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so

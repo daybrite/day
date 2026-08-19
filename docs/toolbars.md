@@ -151,11 +151,14 @@ commands belong in a bar at all. A phone has no toolbar, so `toolbar(…)` insta
 and the app puts those commands in the content instead; see Day Sheets, whose search is a toolbar
 item on the desktops and a timeline field on a phone.
 
-For a single app-wide command that belongs on the chrome rather than in the page — Settings,
-Compose, "Show Source" — the navigation bar's trailing action is the mobile counterpart:
+For commands that belong on the chrome rather than in the page — Settings, Compose, "Show Source",
+"Add" — the navigation bar's trailing actions are the mobile counterpart:
 `selector(…).bar_action(icon, label, action)` ([docs/navigation.md](navigation.md)) draws an upper-right bar button
 on iOS/Android/HarmonyOS and is ignored on the desktop split, where the same command rides the
-toolbar. One registered closure can back both — a toolbar button here and a `bar_action` there.
+toolbar. Call it repeatedly for several buttons, and use `list_action` for the ones that act on
+the LIST rather than on whatever page is open — a toolbar's commands usually map to those, since a
+desktop toolbar sits over the list and detail together. One registered closure can back both — a
+toolbar button here and a bar action there.
 
 ## Per-backend native realization
 

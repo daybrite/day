@@ -373,12 +373,6 @@ public class DayNavHost extends LinearLayout {
         syncChrome();
     }
 
-    /** Add the trailing action item to the toolbar's menu: an always-visible icon button
-     *  (docs/navigation.md). The MaterialToolbar keeps its menu across pushes/pops, so it rides
-     *  every page's bar. Over the edge-to-edge blue app bar the glyph is tinted white; on the
-     *  default light surface bar the bundled dark glyph reads as-is. Called by
-     *  {@link DayBridge#setNavMenu} AFTER construction, inside a try/catch — never from the
-     *  constructor — so a failure here can't blank the host. */
     /**
      * Install the inline search field directly under the app bar, above the navigation list
      * (docs/search.md).
@@ -456,23 +450,108 @@ public class DayNavHost extends LinearLayout {
         searchSyncing = false;
     }
 
-    void setBarAction(String iconName, String label, final long actionId) {
-        MenuItem it = toolbar.getMenu().add(Menu.NONE, 0, 0, label == null ? "" : label);
-        it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-        android.graphics.drawable.Drawable icon = DayBridge.drawableByName(getContext(), iconName);
-        if (icon != null) {
-            if (DayActivity.edgeToEdge) {
-                icon = icon.mutate();
-                icon.setTint(0xFFFFFFFF);
-            }
-            it.setIcon(icon);
+    /** One installed nav-bar action: the menu item, its UNTINTED glyph (re-tinted whenever the bar
+     *  changes color, so the master must survive), and whether it belongs to the list alone. */
+    private static final class BarAction {
+        final MenuItem item;
+        final android.graphics.drawable.Drawable glyph;
+        final boolean rootOnly;
+        BarAction(MenuItem item, android.graphics.drawable.Drawable glyph, boolean rootOnly) {
+            this.item = item;
+            this.glyph = glyph;
+            this.rootOnly = rootOnly;
         }
+    }
+
+    private final java.util.ArrayList<BarAction> barActions = new java.util.ArrayList<>();
+
+    /** Add one trailing action to the toolbar's menu (docs/navigation.md). Called once per action,
+     *  in declaration order, by {@link DayBridge#setNavMenu} AFTER construction and inside a
+     *  try/catch — never from the constructor — so a failure here can't blank the host.
+     *  The MaterialToolbar keeps its menu across pushes and pops, so an item rides every page
+     *  until {@link #syncBarActions} hides it. */
+    void addBarAction(String iconName, String label, final long actionId, boolean rootOnly) {
+        int order = barActions.size();
+        MenuItem it = toolbar.getMenu().add(Menu.NONE, Menu.NONE, order, label == null ? "" : label);
+        it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        android.graphics.drawable.Drawable glyph =
+                DayBridge.drawableByName(getContext(), iconName);
+        barActions.add(new BarAction(it, glyph, rootOnly));
         it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
             @Override public boolean onMenuItemClick(MenuItem item) {
                 DayBridge.nativeOnEvent(actionId, DayBridge.K_MENU_ACTION, 0.0, "");
                 return true;
             }
         });
+        syncBarActions();
+    }
+
+    /** Re-tint every action to the bar's CURRENT color and hide the list-only ones off the list.
+     *  Driven from {@link #syncChrome}, which already runs on every push, pop and re-present —
+     *  the three moments that change what is behind these glyphs or which page they are on. */
+    private void syncBarActions() {
+        if (barActions.isEmpty()) {
+            return;
+        }
+        int tint = barGlyphColor();
+        boolean atRoot = !stacked() || titles.isEmpty();
+        for (BarAction ba : barActions) {
+            ba.item.setVisible(!ba.rootOnly || atRoot);
+            if (ba.glyph != null) {
+                // mutate() per apply: a bundled drawable can be shared with other views through
+                // the resource cache, and tinting the shared instance would recolor them too.
+                android.graphics.drawable.Drawable d = ba.glyph.mutate();
+                d.setTint(tint);
+                ba.item.setIcon(d);
+            }
+        }
+    }
+
+    /** The color the bar's own glyphs take, derived from what is actually BEHIND them.
+     *
+     *  Not a constant, and not "white when edge-to-edge": the app bar is `colorPrimary` under
+     *  edge-to-edge, a dark scrim over an immersive page, and the theme's surface otherwise — and
+     *  that surface follows the system light/dark setting. The bundled glyphs are authored dark,
+     *  so leaving them untinted (which is what everything except the edge-to-edge case used to do)
+     *  puts a black icon on a near-black bar in dark mode. */
+    private int barGlyphColor() {
+        int bg = barBackgroundColor();
+        // Relative luminance, Rec. 709. Below the midpoint the bar is dark and needs light glyphs.
+        double lum = (0.2126 * android.graphics.Color.red(bg)
+                + 0.7152 * android.graphics.Color.green(bg)
+                + 0.0722 * android.graphics.Color.blue(bg)) / 255.0;
+        return lum < 0.5 ? 0xFFFFFFFF : 0xFF1C1B1F;
+    }
+
+    /** What the app bar is actually painted with right now — the same three cases
+     *  {@link #syncChrome} paints, read back rather than re-derived. */
+    private int barBackgroundColor() {
+        if (DayActivity.edgeToEdge) {
+            boolean topImmersive = !immersives.isEmpty() && immersives.get(immersives.size() - 1);
+            // The immersive chrome is a black scrim gradient; the ordinary bar is colorPrimary.
+            return topImmersive
+                    ? 0xFF000000
+                    : themeColor(androidx.appcompat.R.attr.colorPrimary, 0xFF0B57D0);
+        }
+        android.graphics.drawable.Drawable d = appBar.getBackground();
+        if (d instanceof android.graphics.drawable.ColorDrawable) {
+            return ((android.graphics.drawable.ColorDrawable) d).getColor();
+        }
+        return themeColor(com.google.android.material.R.attr.colorSurface, 0xFFFFFFFF);
+    }
+
+    private int themeColor(int attr, int fallback) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (getContext().getTheme().resolveAttribute(attr, tv, true)) {
+            if (tv.type >= android.util.TypedValue.TYPE_FIRST_COLOR_INT
+                    && tv.type <= android.util.TypedValue.TYPE_LAST_COLOR_INT) {
+                return tv.data;
+            }
+            if (tv.resourceId != 0) {
+                return getContext().getColor(tv.resourceId);
+            }
+        }
+        return fallback;
     }
 
     /** The list pane's width, dp (docs/size-classes.md). */
@@ -525,6 +604,9 @@ public class DayNavHost extends LinearLayout {
                 appBar.setBackgroundColor(color);
             }
         }
+        // AFTER the background above: the glyph color is derived from it, and the list-only items
+        // depend on the depth this method just re-read.
+        syncBarActions();
     }
 
     /** Register the Rust-owned page view. The root page becomes a fragment immediately; a

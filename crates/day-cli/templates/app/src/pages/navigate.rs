@@ -108,9 +108,18 @@ fn pushed_stack() -> AnyPiece {
     let path = Signal::new(Vec::<Row>::new());
     stack(path, item_list())
         .destination(|r: &Row| editor(r.id))
-        // The phones have no window toolbar, so the same "new" command rides the navigation bar
-        // instead (https://daybrite.dev/docs/navigation).
-        .bar_action(res::vectors::tab_navigate, res::str::cmd_add(), new_item)
+        // The phones have no window toolbar, so the same commands ride the navigation bar instead
+        // (https://daybrite.dev/docs/navigation) — the same three the desktop toolbar carries, in
+        // the same order, so the app is one app on either.
+        //
+        // `list_action`, not `bar_action`: all three act on the LIST. Pushed over the editor they
+        // would be acting on something the user can no longer see — a phone has covered the list
+        // with the item they tapped — so they belong to the list's own bar and stop there.
+        .list_action(res::vectors::filter, res::str::cmd_show_done(), || {
+            crate::model::show_done().update(|v| *v = !*v)
+        })
+        .list_action(res::vectors::check, res::str::cmd_done(), done_selected)
+        .list_action(res::vectors::add, res::str::cmd_add(), new_item)
         // No `.id()` here. Where this stack MERGES into an enclosing one — which is what happens
         // on a phone, so the whole chain is a single native navigation controller — it returns
         // its ROOT's node rather than a host of its own. An id here would therefore retag the

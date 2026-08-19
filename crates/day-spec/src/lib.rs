@@ -3070,6 +3070,26 @@ pub mod props {
         pub action: u64,
         pub label: String,
         pub icon: Option<String>,
+        /// Which of the host's pages carry this button.
+        pub scope: NavBarScope,
+    }
+
+    /// Which pages a [`NavBarAction`] rides (docs/navigation.md).
+    ///
+    /// A nav bar is shared: the same bar draws the list and then every detail pushed on top of
+    /// it. Whether a command belongs on all of them depends on what it acts ON, which only the
+    /// app knows — "show this page's source" follows the user down, "add an item" does not,
+    /// because on a detail page there is no list in front of them to add to.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum NavBarScope {
+        /// Every page, root and pushed alike — a command that acts on WHATEVER IS SHOWING.
+        #[default]
+        EveryPage,
+        /// The root page only — a command that acts on the LIST rather than on a detail opened
+        /// from it. Where a split presentation keeps the list in its own pane, that pane's bar is
+        /// the root page's bar, so the button stays put while details come and go. This is where
+        /// inline search already lives (docs/search.md), for the same reason.
+        RootPage,
     }
 
     /// How a navigation host lays its panes out (docs/navigation.md).
@@ -3134,9 +3154,10 @@ pub mod props {
         /// `Native` re-presenters ignore it — they are told each presentation as it is resolved —
         /// and so do toolkits that cannot re-present.
         pub adaptive: bool,
-        /// An optional trailing bar-button command for the mobile nav bar (see [`NavBarAction`]);
-        /// `None` on desktop, where the toolbar carries commands instead.
-        pub bar_action: Option<NavBarAction>,
+        /// Trailing bar-button commands for the mobile nav bar (see [`NavBarAction`]), in the
+        /// order the app declared them; empty on desktop, where the toolbar carries commands
+        /// instead. A backend that can only draw one shows the first.
+        pub bar_actions: Vec<NavBarAction>,
         /// Search over this navigation surface (`Selector::searchable`, docs/search.md).
         /// `None` = the surface is not searchable and no field is rendered anywhere.
         pub search: Option<SearchProps>,

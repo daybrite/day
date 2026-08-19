@@ -82,7 +82,17 @@ pub fn dispatch_menu_action(id: u64) {
     let f = ACTIONS.with(|m| m.borrow().get(&id).cloned());
     if let Some(f) = f {
         day_reactive::batch(|| f());
+        return;
     }
+    // An id with no closure means something native is still wired to an action whose scope has
+    // been disposed — a menu or a nav-bar button that draws normally and does nothing when
+    // pressed. Silent before, and undiagnosable from the outside: the press produces no event,
+    // no log line, no visible change.
+    crate::diag(format_args!(
+        "day: menu action {id} has no handler — the build that registered it was disposed and \
+         whatever is still wired to it (an app menu, a context menu, a nav-bar action) was not \
+         updated. The native side needs the NEW id."
+    ));
 }
 
 /// Set the application menu (menu bar / app-bar overflow / iPad main menu). Retains the

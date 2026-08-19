@@ -1718,6 +1718,17 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   which four presentations can no longer encode in a lowered `Split`. Drawn today by
 >   macos-appkit and web-dom; the rest answer `Cap::NavTabs = Unsupported` and take the
 >   pre-adaptive sidebar ladder ([docs/navigation.md](docs/navigation.md) is normative).
+> - **Nav bar actions, plural and scoped** *(2026-08)* — `NavProps::bar_action: Option<_>` became
+>   `bar_actions: Vec<NavBarAction>`, and each action carries a `NavBarScope`. `bar_action` appends
+>   an `EveryPage` action (the old behavior, unchanged for existing callers); `list_action` appends
+>   a `RootPage` one, for commands that act on the LIST rather than on whatever page is open — on a
+>   phone the detail covers the list, so an "add to the list" button pushed over the detail acts on
+>   something the user cannot see. iOS draws them through `setRightBarButtonItems` (reversed, since
+>   that API fills from the trailing edge inward), Android as `MaterialToolbar` menu actions tinted
+>   from the bar's OWN background luminance rather than a fixed white, HarmonyOS as `.menus()`
+>   items with a root-scoped action bringing out the otherwise-hidden root title bar. A MERGED
+>   `stack()` has no bar of its own and warns rather than dropping them silently.
+>   [docs/navigation.md](docs/navigation.md) is normative.
 > - **Size-class presentation** *(2026-08)* — the split-vs-stack choice moved off `Cap::NavSplit`
 >   alone and onto the WINDOW: `SizeClass` (Android's breakpoints, one table for every backend)
 >   rides a per-window reactive signal that day-core derives from `Event::WindowResized`, and

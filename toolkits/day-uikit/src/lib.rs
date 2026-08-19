@@ -494,11 +494,13 @@ mod imp {
         }
     }
 
-    /// A nav host's resolved trailing bar action (NavProps::bar_action): the downscaled template
-    /// image, its accessible label, and the retained target every page's bar button shares.
+    /// A nav host's resolved trailing bar action (NavProps::bar_actions): the downscaled template
+    /// image, its accessible label, the pages it rides, and the retained target every page's bar
+    /// button shares.
     struct NavBarButton {
         image: Option<Retained<objc2_ui_kit::UIImage>>,
         label: String,
+        scope: day_spec::props::NavBarScope,
         target: Retained<DayBarButtonTarget>,
     }
 
@@ -994,9 +996,9 @@ mod imp {
         /// reads `native < vcs.len()` and a phantom NavBack tears down the just-pushed page.
         /// Only an actual DECREASE in the observed native count is a pop.
         last_native: std::cell::Cell<usize>,
-        /// The trailing bar action (NavProps::bar_action), applied to each page's `navigationItem`
+        /// The trailing bar actions (NavProps::bar_actions), applied to each page's `navigationItem`
         /// as it joins the stack — `None` when the host declares none (e.g. desktop).
-        bar_action: Option<NavBarButton>,
+        bar_actions: Vec<NavBarButton>,
         _delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
@@ -3651,24 +3653,30 @@ mod imp {
                     // Resolve the optional trailing bar action once (docs/navigation.md): downscale
                     // the shared 96px asset to a bar-sized template glyph (tints with the bar), and
                     // retain one target the per-page items reuse. Applied in `insert` as pages join.
-                    let bar_action = p.bar_action.as_ref().map(|a| {
-                        let image = a.icon.as_deref().and_then(load_bundled_uiimage).map(|img| {
-                            let sized = unsafe {
-                                img.imageByPreparingThumbnailOfSize(CGSize::new(24.0, 24.0))
+                    let bar_actions: Vec<NavBarButton> = p
+                        .bar_actions
+                        .iter()
+                        .map(|a| {
+                            let image =
+                                a.icon.as_deref().and_then(load_bundled_uiimage).map(|img| {
+                                    let sized = unsafe {
+                                        img.imageByPreparingThumbnailOfSize(CGSize::new(24.0, 24.0))
+                                    }
+                                    .unwrap_or(img);
+                                    unsafe {
+                                        sized.imageWithRenderingMode(
+                                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                        )
+                                    }
+                                });
+                            NavBarButton {
+                                image,
+                                label: a.label.clone(),
+                                scope: a.scope,
+                                target: DayBarButtonTarget::new(mtm, id, a.action),
                             }
-                            .unwrap_or(img);
-                            unsafe {
-                                sized.imageWithRenderingMode(
-                                    objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                                )
-                            }
-                        });
-                        NavBarButton {
-                            image,
-                            label: a.label.clone(),
-                            target: DayBarButtonTarget::new(mtm, id, a.action),
-                        }
-                    });
+                        })
+                        .collect();
                     let nav = DayNavController::new(mtm, 0); // host ptr set just below
                     // Child-VC containment under the window's root VC (v1: app root).
                     let root_vc = WINDOW
@@ -3852,7 +3860,7 @@ mod imp {
                                 vcs: Vec::new(),
                                 native_pops: std::cell::Cell::new(0),
                                 last_native: std::cell::Cell::new(0),
-                                bar_action,
+                                bar_actions,
                                 _delegate: delegate,
                                 search,
                             },
@@ -4763,14 +4771,38 @@ mod imp {
                 let state = m.get_mut(&ptr_of(parent))?;
                 let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
                 state.vcs.push(vc.clone());
-                // The host's trailing bar action rides every page's navigation bar
-                // (docs/navigation.md): a fresh UIBarButtonItem wired to the shared target, set on
-                // this page's navigationItem as it joins the stack (root and each pushed page).
-                if let Some(ba) = state.bar_action.as_ref() {
+                // The host's trailing bar actions ride this page's navigation bar
+                // (docs/navigation.md): fresh UIBarButtonItems wired to the shared targets, set on
+                // this page's navigationItem as it joins the stack. `RootPage` actions are on the
+                // list only — the same rule inline search follows just below, and `is_sidebar` is
+                // how both recognize the list.
+                // The host's ROOT page, for `NavBarScope::RootPage`. Two shapes qualify and both
+                // have to: a split selector's list lives in the SIDEBAR pane, while a plain
+                // `stack()` has no sidebar at all and its root is simply the first page to
+                // arrive — `vcs` was just pushed, so length 1 is that page. Testing only for the
+                // sidebar left every stack's list-scoped action filtered out everywhere, which
+                // renders as a nav bar that is present but empty.
+                let is_root = is_sidebar || state.vcs.len() == 1;
+                let mine: Vec<_> = state
+                    .bar_actions
+                    .iter()
+                    .filter(|ba| is_root || ba.scope == day_spec::props::NavBarScope::EveryPage)
+                    .collect();
+                if !mine.is_empty() {
                     let mtm =
                         MainThreadMarker::new().expect("uikit insert runs on the main thread");
-                    let item = ba.make_item(mtm);
-                    unsafe { vc.navigationItem().setRightBarButtonItem(Some(&item)) };
+                    // REVERSED: `setRightBarButtonItems` fills from the trailing edge inward, so
+                    // element 0 lands rightmost. Reversing puts the app's first-declared action
+                    // leftmost, which is the order it wrote them in and the order every other
+                    // backend draws them.
+                    let items = objc2_foundation::NSArray::from_retained_slice(
+                        &mine
+                            .iter()
+                            .rev()
+                            .map(|ba| ba.make_item(mtm))
+                            .collect::<Vec<_>>(),
+                    );
+                    unsafe { vc.navigationItem().setRightBarButtonItems(Some(&items)) };
                 }
                 // Inline search rides the ROOT page only (docs/search.md): it filters the
                 // TOP-LEVEL list, so it belongs to that list's navigation item and not to every
@@ -5569,12 +5601,17 @@ mod imp {
             else {
                 return;
             };
-            // `openURL:` is deprecated in favor of the options/completion form, which only adds an
-            // options-key type and a result block a fire-and-forget link ignores. This still hands
-            // the URL to the system (Safari for http(s), Mail for mailto:, …).
-            #[allow(deprecated)]
+            // `openURL:options:completionHandler:`, NOT the one-argument `openURL:`. The old form
+            // is deprecated, and on a current iOS it returns NO and opens nothing — a link that
+            // silently does nothing, with no exception and no log line to explain it. The options
+            // dictionary is empty (the defaults are what a plain link wants) and the completion
+            // block is nil, which this fire-and-forget call is allowed to pass.
             unsafe {
-                let _: bool = UIApplication::sharedApplication(mtm()).openURL(&nsurl);
+                UIApplication::sharedApplication(mtm()).openURL_options_completionHandler(
+                    &nsurl,
+                    &objc2_foundation::NSDictionary::new(),
+                    None,
+                );
             }
         }
 

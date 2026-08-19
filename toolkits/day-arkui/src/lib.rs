@@ -1403,11 +1403,27 @@ mod imp {
                     // Trailing title-bar action (NavProps::bar_action, docs/navigation.md): the
                     // ArkTS side stores it and draws it as a `.menus()` item on each NavDestination.
                     // A tap re-enters as `day_arkui_nav_menu_action` → MenuAction dispatch.
-                    if let Some(a) = &p.bar_action {
-                        let icon = cstr(a.icon.as_deref().unwrap_or(""));
-                        let label = cstr(&a.label);
+                    if !p.bar_actions.is_empty() {
+                        let join = |f: &dyn Fn(&day_spec::props::NavBarAction) -> String| {
+                            p.bar_actions.iter().map(f).collect::<Vec<_>>().join("\n")
+                        };
+                        let icons = cstr(&join(&|a| a.icon.clone().unwrap_or_default()));
+                        let labels = cstr(&join(&|a| a.label.clone()));
+                        let actions = cstr(&join(&|a| a.action.to_string()));
+                        let root_only = cstr(&join(&|a| {
+                            match a.scope {
+                                day_spec::props::NavBarScope::RootPage => "1",
+                                day_spec::props::NavBarScope::EveryPage => "0",
+                            }
+                            .to_string()
+                        }));
                         unsafe {
-                            ffi::day_ark_nav_set_menu(icon.as_ptr(), label.as_ptr(), a.action)
+                            ffi::day_ark_nav_set_menu(
+                                icons.as_ptr(),
+                                labels.as_ptr(),
+                                actions.as_ptr(),
+                                root_only.as_ptr(),
+                            )
                         };
                     }
                     // A REBUILT host invalidates every pointer the old one tracked — a Pushed

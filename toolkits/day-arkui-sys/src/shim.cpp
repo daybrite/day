@@ -895,7 +895,8 @@ void day_ark_nav_set_guard(int on) {
 // Set the trailing title-bar action (NavProps::bar_action, docs/navigation.md): the ArkTS side
 // stores it and renders it as a `.menus()` item on every NavDestination. No-op if the ArkTS host
 // predates the seam (g_nav_menu null) — the app simply gets no bar action. JS thread only.
-void day_ark_nav_set_menu(const char* icon, const char* label, uint64_t action) {
+void day_ark_nav_set_menu(const char* icons, const char* labels, const char* actions,
+                          const char* rootOnly) {
     if (!g_env || !g_nav_menu) return;
     napi_handle_scope scope;
     napi_open_handle_scope(g_env, &scope);
@@ -904,12 +905,15 @@ void day_ark_nav_set_menu(const char* icon, const char* label, uint64_t action) 
     if (cb) {
         napi_value undef;
         napi_get_undefined(g_env, &undef);
-        napi_value args[3];
-        napi_create_string_utf8(g_env, icon ? icon : "", NAPI_AUTO_LENGTH, &args[0]);
-        napi_create_string_utf8(g_env, label ? label : "", NAPI_AUTO_LENGTH, &args[1]);
-        napi_create_double(g_env, (double)action, &args[2]);
+        napi_value args[4];
+        napi_create_string_utf8(g_env, icons ? icons : "", NAPI_AUTO_LENGTH, &args[0]);
+        napi_create_string_utf8(g_env, labels ? labels : "", NAPI_AUTO_LENGTH, &args[1]);
+        // The dispatch ids travel as a STRING too, not a double: they are `\n`-joined with the
+        // rest, and a u64 id is not exactly representable as a double once it grows.
+        napi_create_string_utf8(g_env, actions ? actions : "", NAPI_AUTO_LENGTH, &args[2]);
+        napi_create_string_utf8(g_env, rootOnly ? rootOnly : "", NAPI_AUTO_LENGTH, &args[3]);
         napi_value ret;
-        napi_call_function(g_env, undef, cb, 3, args, &ret);
+        napi_call_function(g_env, undef, cb, 4, args, &ret);
     }
     napi_close_handle_scope(g_env, scope);
 }
