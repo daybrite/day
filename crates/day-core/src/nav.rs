@@ -47,6 +47,15 @@ pub struct NavController {
     /// FIRST. Ordering the descent by depth instead of by position is what lets `section/detail`
     /// find the stack no matter which of the two registered first.
     pub depth: usize,
+    /// Whether this surface is on screen — false for one sitting inside a RESIDENT page its host
+    /// is not currently showing.
+    ///
+    /// A tab bar or a rail keeps every page it has built alive (docs/navigation.md), so the nav
+    /// surfaces inside the tabs the user is NOT looking at stay registered. Without this they
+    /// contribute their segments to [`current_route`] just like the visible ones, and the route
+    /// reads as the concatenation of every tab's state. Registration cannot answer the question
+    /// once and for all — which page is showing changes after the build — so it is a predicate.
+    pub active: Box<dyn Fn() -> bool>,
 }
 
 /// Opaque handle from [`register_nav`]; a nested host calls [`unregister_nav`] on dispose.
@@ -555,6 +564,11 @@ pub fn current_route() -> Option<String> {
     ordered.sort_by_key(|c| c.depth);
     let mut parts: Vec<String> = Vec::new();
     for c in ordered {
+        // Only what is on screen. A resident page the host is not showing keeps its surfaces
+        // registered, and joining those in would append every unselected tab's state to the route.
+        if !(c.active)() {
+            continue;
+        }
         parts.extend((c.segments)());
     }
     Some(encode_route(&parts, &[]))

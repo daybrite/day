@@ -539,6 +539,11 @@ pub trait TreeOps {
     fn focus_node(&mut self, node: RNode, focused: bool);
     /// Mirror a `FocusChanged` event into the node's dayscript probe (pump-only).
     fn set_probe_focused(&mut self, node: RNode, focused: bool);
+    /// Record which ROW of a selector is current, on the `kinds::NAV` host that `.id()` tags
+    /// (docs/navigation.md). The host's own `NavPatch::Select` carries a resident-page index —
+    /// visit order, which only coincides with row order when every page is built up front — so
+    /// the selector reports the row index here instead. `None` = nothing selected (`-1`).
+    fn set_probe_selected(&mut self, node: RNode, selected: Option<usize>);
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
     /// Install `root`'s window toolbar (docs/toolbars.md). `root` is a window root — the primary
@@ -772,6 +777,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 probe.text = p.text.clone();
             } else if let Some(p) = props.downcast_ref::<NavMenuProps>() {
                 probe.selected = p.selected.map(|i| i as i64).unwrap_or(-1);
+                probe.value = probe.selected as f64;
             } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
                 probe.text = p.title.clone();
             } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
@@ -954,6 +960,15 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
     }
 
+    fn set_probe_selected(&mut self, node: RNode, selected: Option<usize>) {
+        if let Some(n) = self.nodes.get_mut(node) {
+            // Both fields, as a picker does: `assert_value` reads `value` for a number and
+            // `assert_selected` reads `selected`, and a selector answers either.
+            n.probe.selected = selected.map(|i| i as i64).unwrap_or(-1);
+            n.probe.value = n.probe.selected as f64;
+        }
+    }
+
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>) {
         self.toolkit.set_app_menu(&items);
     }
@@ -1108,6 +1123,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     patch.downcast_ref::<NavMenuPatch>()
                 {
                     n.probe.selected = sel.map(|i| i as i64).unwrap_or(-1);
+                    n.probe.value = n.probe.selected as f64;
                 }
             }
         }

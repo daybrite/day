@@ -241,6 +241,22 @@ thread_local! {
     /// Build-time stack of enclosing nav hosts. `None` is a barrier (a resident container such as
     /// tabs) that a nested stack must not merge through.
     static NAV_HOST_CX: RefCell<Vec<Option<NavHostCx>>> = const { RefCell::new(Vec::new()) };
+    /// Build-time stack of "is the page I am being built into the one its host shows?" — one entry
+    /// per enclosing RESIDENT page. Only a chrome host (a tab bar, a rail) pushes one: everywhere
+    /// else the outgoing page is torn down, so a surface that still exists is by definition the
+    /// one on screen. A surface captures the whole stack at registration and is on screen only
+    /// when every gate above it answers true.
+    static NAV_PAGE_ACTIVE: RefCell<Vec<Rc<dyn Fn() -> bool>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Build `f` with `gate` deciding whether what it builds counts as on screen (`NAV_PAGE_ACTIVE`).
+fn with_page_active<R>(gate: Rc<dyn Fn() -> bool>, f: impl FnOnce() -> R) -> R {
+    NAV_PAGE_ACTIVE.with(|s| s.borrow_mut().push(gate));
+    let r = f();
+    NAV_PAGE_ACTIVE.with(|s| {
+        s.borrow_mut().pop();
+    });
+    r
 }
 
 /// Run `f` with `cx` as the innermost nav-host context (a barrier when `None`), restoring after.
@@ -307,6 +323,10 @@ fn register_route_surface(
     // inside, so its length IS how deep this surface sits — and unlike registration order it does
     // not depend on whether a host registers before or after building its pages.
     let depth = NAV_HOST_CX.with(|s| s.borrow().len());
+    // The resident pages this surface is built inside, captured now because the stack unwinds as
+    // soon as the build returns. Empty for a surface at the window root, which is then always on
+    // screen — `all` over nothing is true.
+    let gates: Vec<Rc<dyn Fn() -> bool>> = NAV_PAGE_ACTIVE.with(|s| s.borrow().clone());
     let token = day_core::register_nav(day_core::NavController {
         depth,
         push: Box::new(push),
@@ -314,6 +334,7 @@ fn register_route_surface(
         current: Box::new(current),
         enter: Box::new(enter),
         segments: Box::new(segments),
+        active: Box::new(move || gates.iter().all(|g| g())),
     });
     Scope::current().on_cleanup(move || day_core::unregister_nav(token));
 }
@@ -1499,13 +1520,24 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
     // which a backend may take literally: nesting an adaptive container inside a pane is exactly
     // what breaks (docs/size-classes.md). `adaptive` carries whether it may morph at all.
     let adaptive = requested.is_none();
-    let lowered = if toolkit_drives && adaptive && can_tabs && adaptive_tabs {
+    let lowered = if toolkit_drives
+        && adaptive
+        && can_tabs
+        && adaptive_tabs
+        && style != SelectorStyle::Sidebar
+    {
         // The toolkit has an adaptive container that wears BOTH chromes itself — iOS 18's
         // `UITabBarController` in `.tabSidebar` mode is the archetype: one controller that draws
         // a tab bar when compact and a sidebar when not, with its own animation and its own
         // user-facing toggle. Lowering `Tabs` says "build that", and the toolkit reports what it
         // settled on. Its pages are resident at every size, which is why such a host stays in the
         // chrome-rows model rather than flipping to push/pop as it widens.
+        //
+        // Only for a style that ADMITS a tab bar. `Sidebar` is a app's explicit "this is a list
+        // beside a detail", and its compact answer has always been the stack — one navigation
+        // controller the list pushes onto, which is what a phone app with more sections than fit
+        // a tab bar looks like. Handing that app a tab container instead puts a bar under every
+        // page and (below iOS 18, where there is no sidebar mode to switch to) leaves it there.
         NavPresentation::Tabs
     } else if toolkit_drives && adaptive && can_split && style != SelectorStyle::Tabs {
         NavPresentation::Split
@@ -1690,6 +1722,10 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
             if let Some(m) = mh.get() {
                 with_tree(|t| t.patch(m, Box::new(NavMenuPatch::Selected(idx)), false));
             }
+            // And onto the host, which is the node `.id()` names — a script asserting on a
+            // selector addresses the selector, not the row list nested inside it. Every path that
+            // changes the selection lands here, so this is the one place that has to record it.
+            with_tree(|t| t.set_probe_selected(host, idx));
         }
     };
 
@@ -1806,10 +1842,24 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
                 // container rather than pushing onto the enclosing host, because the enclosing
                 // host is not a stack (docs/navigation.md).
                 let inner = if chrome { None } else { Some(host_cx.clone()) };
-                with_nav_host(inner, || {
-                    let mut c = BuildCx::new(page);
-                    let _ = content.build(&mut c);
-                });
+                let build = || {
+                    with_nav_host(inner, || {
+                        let mut c = BuildCx::new(page);
+                        let _ = content.build(&mut c);
+                    });
+                };
+                if chrome {
+                    // Resident, so anything this page builds outlives the switch away from it and
+                    // has to say whether it is the page on screen. Reads `current` LIVE: the build
+                    // itself runs before this page becomes current, and it changes on every switch.
+                    let (cur, mine) = (current.clone(), key.to_string());
+                    with_page_active(
+                        Rc::new(move || cur.borrow().as_deref() == Some(mine.as_str())),
+                        build,
+                    );
+                } else {
+                    build();
+                }
             });
             resident.borrow_mut().push(ResidentPage {
                 key: key.to_string(),
