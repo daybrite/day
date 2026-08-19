@@ -22,12 +22,12 @@ day-part-prefs = { workspace = true }
 rquickjs = { version = "0.12", features = ["bindgen", "loader"] }
 
 # TypeScript type-stripping at module load (docs/lite.md §1).
-oxc_allocator = "0.143"
-oxc_parser = "0.143"
-oxc_semantic = "0.143"
-oxc_transformer = "0.143"
-oxc_codegen = "0.143"
-oxc_span = "0.143"
+oxc_allocator = "0.144"
+oxc_parser = "0.144"
+oxc_semantic = "0.144"
+oxc_transformer = "0.144"
+oxc_codegen = "0.144"
+oxc_span = "0.144"
 
 # Built-in persistence (docs/lite.md §7): bundled so every mobile target has the same sqlite.
 rusqlite = { version = "0.40", features = ["bundled"] }
