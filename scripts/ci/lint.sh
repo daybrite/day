@@ -171,6 +171,10 @@ leg "docs symlinks" scripts/ci/docs-symlinks.sh
 # Doc cross-references must be real links (bare `docs/foo.md` text is unclickable on the site
 # and 404s on GitHub), and every relative link target must exist.
 leg "doc links" scripts/ci/doc-links.py
+# The web backend and its host shim call each other across two name spaces; a mismatch is either
+# a LinkError at instantiate or a silently swallowed TypeError in a DOM handler (a button that
+# does nothing). Both are static facts, so they are checked here rather than in a browser.
+leg "web shim ABI" scripts/ci/web-shim-abi.py
 
 # 6) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md) — the same drift
 # checks CI runs. Two ways to fail: changing the Toolkit trait or a backend without regenerating,

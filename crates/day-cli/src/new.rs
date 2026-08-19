@@ -717,14 +717,15 @@ pub fn app(
         requested
     } else if p.enabled() {
         let opts: Vec<String> = targets::TARGETS.iter().map(target_menu_label).collect();
-        let default_idx = targets::TARGETS
-            .iter()
-            .position(|t| t.name == targets::host_default())
-            .unwrap_or(0);
+        // Every target pre-selected. An app is cheaper to narrow than to widen: dropping one is
+        // deleting a line from `[app] targets`, while adding one back means `day app add-toolkit`
+        // and a host project that was never generated. Day's whole claim is that the same source
+        // runs everywhere, so the scaffold says so from the first build.
+        let all: Vec<usize> = (0..targets::TARGETS.len()).collect();
         let picked = p.choose_multi(
             "Which platforms/toolkits should the app support?",
             &opts,
-            &[default_idx],
+            &all,
         );
         if picked.is_empty() {
             return Err(CliError::usage("an app needs at least one target."));
@@ -734,7 +735,12 @@ pub fn app(
             .map(|i| targets::TARGETS[*i].name.to_string())
             .collect()
     } else {
-        vec![targets::host_default().to_string()]
+        // Same answer with `--no-input`: all of them, so a scripted scaffold and an interactive
+        // one produce the same project.
+        targets::TARGETS
+            .iter()
+            .map(|t| t.name.to_string())
+            .collect()
     };
 
     let title = match title.map(str::trim).filter(|t| !t.is_empty()) {
@@ -830,6 +836,18 @@ fn template_context(
     ctx.insert("pascal", repl.pascal.clone());
     ctx.insert("title", title);
     ctx.insert("id", repl.id.clone());
+    // The ORGANIZATION segment of the app id — `dev.acme.thing` ⇒ `acme` — which is the GitHub
+    // owner for the overwhelming majority of projects, and so the Pages host the generated
+    // website should claim. The default id is `dev.example.<name>`, so an app scaffolded without
+    // `--appid` still gets the `example.github.io` placeholder it had before.
+    let org = repl
+        .id
+        .split('.')
+        .nth(1)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("example")
+        .to_string();
+    ctx.insert("org", org);
     // A deep-link URI scheme derived from the name (schemes allow only ALPHA/DIGIT/+/-/.).
     let scheme: String = repl
         .crate_name

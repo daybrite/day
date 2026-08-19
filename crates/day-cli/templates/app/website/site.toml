@@ -17,7 +17,7 @@
 # Required — the site's canonical URL. For GitHub Pages this is
 # https://<owner>.github.io/<repository>; a custom domain works too. A path component becomes
 # the site's base path automatically.
-host = "https://example.github.io/{{name}}"
+host = "https://{{org}}.github.io/{{name}}"
 
 # Everything below is optional — these are the defaults, spelled out to edit.
 #

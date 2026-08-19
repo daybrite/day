@@ -33,12 +33,6 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>UIAppFonts</key>
-	<array>
-		<string>DayPieces_DayPieces.bundle/fonts/Bungee-Regular.ttf</string>
-		<string>DayPieces_DayPieces.bundle/fonts/Pacifico-Regular.ttf</string>
-		<string>DayPieces_DayPieces.bundle/fonts/SpecialElite-Regular.ttf</string>
-	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIApplicationSceneManifest</key>
