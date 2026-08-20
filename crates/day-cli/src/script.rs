@@ -959,8 +959,22 @@ pub(crate) fn device_alive(target: &Target) -> bool {
 /// `day` invocations in different ranges; the bind probe then takes the first port that is
 /// actually free — the arithmetic alone handed out ports something else already held. Falls
 /// back to the base when the whole range is busy (the old behavior: let the launch report it).
+///
+/// The range is deliberately BELOW 32768, and that is the whole point of the constant. Linux's
+/// default ephemeral range is 32768–60999 (`net.ipv4.ip_local_port_range`), which Android inherits
+/// — so a port picked from inside it can already be the local end of some unrelated outbound
+/// connection, and `bind` fails with EADDRINUSE. The probe below cannot see that: it tests the
+/// HOST, while the engine binds inside the emulator, where a long-lived connection (adbd's, the
+/// emulator's own services) holds the number for the whole session. That is exactly how it
+/// presented — `day-script: bind 127.0.0.1:34951 failed after 15s: Address already in use`, on
+/// every launch of the job, while neighboring ports in other jobs were fine.
+///
+/// Below 32768 the kernel never hands the number out on its own, so only a real listener can
+/// collide, on either side.
+const ENGINE_PORT_BASE: u16 = 20000;
+
 pub fn pick_port(index: usize) -> u16 {
-    let base = 34100 + (std::process::id() % 900) as u16 + index as u16;
+    let base = ENGINE_PORT_BASE + (std::process::id() % 9000) as u16 + index as u16;
     for port in base..base.saturating_add(100) {
         if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
             return port;
@@ -996,6 +1010,23 @@ mod port_tests {
         let _also_free = std::net::TcpListener::bind(("127.0.0.1", next))
             .expect("the second pick must be free too");
         drop(held);
+    }
+
+    /// Every port this can hand out must sit below Linux's ephemeral floor (32768). Inside that
+    /// range the kernel gives the number to outbound connections on its own, and the engine's
+    /// `bind` inside an emulator then fails with EADDRINUSE for the whole session — which the
+    /// host-side probe cannot predict, because it is a different machine. The `+ 100` is the walk
+    /// `pick_port` may do past busy ports, and `index` is one per target in a multi-target launch.
+    #[test]
+    fn every_pick_stays_below_the_ephemeral_range() {
+        const EPHEMERAL_FLOOR: u16 = 32768;
+        // The widest pid and index this can see, not just today's process.
+        let worst = super::ENGINE_PORT_BASE + 8999 + 64 + 100;
+        assert!(
+            worst < EPHEMERAL_FLOOR,
+            "pick_port can reach {worst}, which is inside the ephemeral range ({EPHEMERAL_FLOOR}+)"
+        );
+        assert!(pick_port(0) < EPHEMERAL_FLOOR);
     }
 }
 
