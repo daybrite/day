@@ -110,6 +110,12 @@ struct SplitNav {
     /// A push/pop stack (NavProps.presentation == Stack): no menu/sidebar, every page stacks in the
     /// content region, and the NavigationView back button appears once a page is pushed.
     is_stack: bool,
+    /// The row of `detail_pages` the app has selected — the one resident page that must be
+    /// visible. Kept here because the pages arrive AFTER the selection is known: a destination set
+    /// realizes its menu first (carrying `NavMenuProps.selected`) and its pages one at a time
+    /// after, each landing on top of the last. Without re-applying the selection on every insert,
+    /// what showed was whichever page happened to be added last.
+    selected: usize,
 }
 
 enum NavState {
@@ -203,6 +209,36 @@ fn stack_sync(host: *mut c_void) {
             }
         }
     });
+}
+
+/// Show the selected resident page and hide its siblings — the non-stack counterpart to
+/// [`stack_sync`], and the same visibility pass `NavPatch::Select` performs. Run on every insert
+/// and remove as well, because a set of resident pages is built one page at a time and each new
+/// one covers the rest until something says which is current.
+fn select_sync(host: *mut c_void) {
+    // The pages are copied out and the borrow dropped BEFORE any FFI: `set_visible` lets XAML lay
+    // out, which raises SizeChanged, which day turns into a FrameChanged patch that comes straight
+    // back through this map and takes it mutably. Holding the borrow across the call is a
+    // RefCell double-borrow panic — and one that only shows on a layout that actually reflows,
+    // which is why it surfaced first in the RTL pass.
+    let pages: Vec<(*mut c_void, bool)> = NAV_STATE.with(|m| {
+        match m.borrow().get(&(host as usize)) {
+            Some(NavState::Split(s)) if !s.detail_pages.is_empty() => {
+                // A removed page can leave the recorded row past the end. The app sends its own
+                // selection right after, but between the two every page must not be hidden.
+                let shown = s.selected.min(s.detail_pages.len() - 1);
+                s.detail_pages
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (page, _, _))| (*page, i == shown))
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
+    });
+    for (page, visible) in pages {
+        unsafe { ffi::day_xaml_set_visible(page, visible as c_int) };
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1149,7 +1185,13 @@ impl Toolkit for Xaml {
                     };
                     // Both presentations are a native NavigationView: a sidebar+header selector
                     // (split) or a push/pop stack with a back button (docs/navigation.md).
-                    let is_stack = !p.presentation.is_split();
+                    // Only a real push/pop stack stacks. `Tabs` and `Rail` are this same
+                    // NavigationView wearing a different pane (`rows_are_chrome`), and their pages
+                    // are RESIDENT: `Select` switches which one shows. Folding them in with Stack
+                    // — which `!is_split()` does — sent every insert through `stack_sync`, whose
+                    // answer is "show the last page added", so a tab set opened on its final tab.
+                    let is_stack =
+                        matches!(p.presentation, day_spec::props::NavPresentation::Stack);
                     let mut content: *mut c_void = std::ptr::null_mut();
                     // Where the rows are the CHROME the SAME NavigationView wears a different
                     // pane: `Top` is WinUI's tab bar and `LeftCompact` a real icon rail, so a
@@ -1184,6 +1226,7 @@ impl Toolkit for Xaml {
                                 sidebar_page: None,
                                 detail_pages: Vec::new(),
                                 is_stack,
+                                selected: 0,
                             }),
                         )
                     });
@@ -1249,8 +1292,12 @@ impl Toolkit for Xaml {
                                 m.borrow_mut().get_mut(&(pending as usize))
                             {
                                 s.menu_node = id.0;
+                                s.selected = p.selected.unwrap_or(0);
                             }
                         });
+                        // Pages realized before their menu (order is the tree's, not ours) are
+                        // still showing whichever came last.
+                        select_sync(pending);
                         PENDING_SPLIT_NAV.with(|c| c.set(std::ptr::null_mut()));
                         let placeholder = ffi::day_xaml_container_new();
                         NAV_MENU_HOST
@@ -1675,16 +1722,16 @@ impl Toolkit for Xaml {
                             // `stack_sync` makes, driven by the app's selection rather than depth.
                             // No header change: a tab bar names the destination itself.
                             NavPatch::Select(i) => {
-                                let pages: Vec<*mut c_void> =
-                                    NAV_STATE.with(|m| match m.borrow().get(&(h.0 as usize)) {
-                                        Some(NavState::Split(st)) => {
-                                            st.detail_pages.iter().map(|(p, _, _)| *p).collect()
-                                        }
-                                        _ => Vec::new(),
-                                    });
-                                for (n, page) in pages.iter().enumerate() {
-                                    ffi::day_xaml_set_visible(*page, (n == *i) as c_int);
-                                }
+                                // Recorded, not just applied: pages inserted later (a data-driven
+                                // tab set growing) have to land on the same answer.
+                                NAV_STATE.with(|m| {
+                                    if let Some(NavState::Split(st)) =
+                                        m.borrow_mut().get_mut(&(h.0 as usize))
+                                    {
+                                        st.selected = *i;
+                                    }
+                                });
+                                select_sync(h.0);
                                 None
                             }
                         };
@@ -1863,6 +1910,8 @@ impl Toolkit for Xaml {
                 }
                 if stack {
                     stack_sync(parent.0);
+                } else {
+                    select_sync(parent.0);
                 }
                 return;
             }
@@ -1892,7 +1941,12 @@ impl Toolkit for Xaml {
                 stack_sync(parent.0);
                 return;
             }
-            Some(false) => return,
+            Some(false) => {
+                // A resident page went away (a data-driven tab set shrinking): the survivors have
+                // shifted, so re-apply the selection rather than leave a hidden page on screen.
+                select_sync(parent.0);
+                return;
+            }
             None => {}
         }
         let target = SCROLL_STATE

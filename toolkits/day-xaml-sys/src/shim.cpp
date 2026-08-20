@@ -1989,6 +1989,18 @@ void day_xaml_nav_set_pane_mode(void* navh, int mode) {
     });
 }
 
+// Set while day is populating a NavigationView or writing the selection the app already holds.
+// Scoped rather than a flag anyone can leave set: every mutation is synchronous on the UI thread,
+// and WinUI raises SelectionChanged inside the assignment, so the guard is up exactly when the
+// event that must not be reported arrives.
+static int g_nav_mutating = 0;
+struct NavMutation {
+    NavMutation() { ++g_nav_mutating; }
+    ~NavMutation() { --g_nav_mutating; }
+    NavMutation(const NavMutation&) = delete;
+    NavMutation& operator=(const NavMutation&) = delete;
+};
+
 void* day_xaml_nav_new(unsigned long long id,
                         void (*sel_cb)(unsigned long long, int),
                         void (*size_cb)(unsigned long long, int, int, int),
@@ -2027,9 +2039,15 @@ void* day_xaml_nav_new(unsigned long long id,
         });
 
     // User picked a menu item → report its index; day maps it back to the route via NAV_MENU.
+    // Only the USER's picks are events. WinUI raises SelectionChanged for day's own population
+    // too — clearing and refilling MenuItems moves the selection, and each appended item can take
+    // it — and reporting those is day telling itself what it just said: the app's selection then
+    // follows whichever item the population happened to leave selected, which is the last one
+    // added. A destination set therefore opened on its final destination.
     nv.SelectionChanged(
         [id, sel_cb](WUXC::NavigationView const& sender,
                      WUXC::NavigationViewSelectionChangedEventArgs const& args) {
+            if (g_nav_mutating) return;
             if (args.IsSettingsSelected()) return;
             auto item = args.SelectedItem();
             if (!item) return;
@@ -2078,6 +2096,7 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
                             const char* geoms_joined, const char* tints_joined,
                             const char* badge_icons_joined, const char* badge_geoms_joined,
                             const char* badge_tints_joined) {
+    NavMutation mutating;
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
@@ -2182,6 +2201,7 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
 // Programmatic highlight sync (idx < 0 = clear). SelectionChanged still fires, but day's route
 // set is idempotent (show() no-ops on the same key), so no feedback loop.
 void day_xaml_nav_set_selected(void* navh, int idx) {
+    NavMutation mutating;
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
