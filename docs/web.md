@@ -48,7 +48,9 @@ index.html                        app.wasm (Rust cdylib)
   installed CLI needs no source checkout) and `include_str!` may not reach outside its own
   package. **Editing shim.js means rebuilding the CLI** before the change reaches a served page.
 - **`day::web_main!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
-  instantiated. Emits nothing off wasm32, like the other entry macros (§17.4).
+  instantiated. Emits nothing off wasm32, like the other entry macros (§17.4). Apps reach it
+  through `day::day_main!("App Name", root)`, which expands to this macro and to every other
+  platform's entry — one line in `lib.rs` covering all of them.
 
 Two places where the browser, not day-core, owns geometry:
 

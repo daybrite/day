@@ -186,9 +186,6 @@ fn menus() -> Vec<MenuEntry> {
     ]
 }
 
-// Mobile / embedded entry points — each macro expands to nothing off its own platform.
-day::ios_main!("{{title}}", root);
-day::macos_main!("{{title}}", root);
-day::android_main!(root);
-day::arkui_main!(root);
-day::web_main!("{{title}}", root);
+// The mobile / embedded entry point. Expands to the export each platform's shell binds against —
+// and to nothing at all on a plain cargo desktop build, where src/main.rs is the entry instead.
+day::day_main!("{{title}}", root);

@@ -39,7 +39,10 @@ ArkTS host (Index.ets)           libentry.so (Rust cdylib)
   get an explicit position + size in **vp** (≈ Day points), and events (click / text / toggle /
   slider) come back through `day_arkui_on_event`.
 - **`day::arkui_main!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
-  it mounts the app's root piece and runs the loop (`day::arkui::start` → `launch_with`).
+  it mounts the app's root piece and runs the loop (`day::arkui::start` → `launch_with`). Apps
+  reach it through `day::day_main!("App Name", root)`, which expands to this macro and to every
+  other platform's entry; the title argument is ignored here, since the label comes from
+  `AppScope/resources/base/element/string.json`.
 
 ## Local development environment
 

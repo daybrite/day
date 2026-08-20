@@ -428,9 +428,41 @@ pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static)
 // Both emit nothing off their target OS, so apps invoke them unconditionally.
 // ---------------------------------------------------------------------------
 
+/// One entry point for every platform that needs one — the single line an app's `lib.rs` carries
+/// instead of one macro per platform.
+///
+/// ```ignore
+/// day::day_main!("My App", root);    // or: day::day_main!(root);
+/// ```
+///
+/// It expands to every platform macro below. Each of those is gated on its own target
+/// (`ios` / `macos` / `android` / the `ohos` env / `wasm32`), and those gates are mutually
+/// exclusive, so exactly one survives a given build — and none at all on a plain cargo desktop
+/// build, where `src/main.rs` is the entry instead.
+///
+/// The title reaches the platforms that have nowhere else to get one. Android and HarmonyOS take
+/// their label from the app manifest (`android:label`, `app_name` in `string.json`) rather than
+/// from Rust, so they accept the argument and ignore it; passing it here keeps one call site for
+/// every target instead of making the caller remember which two are different.
+#[macro_export]
+macro_rules! day_main {
+    ($root:expr) => {
+        $crate::day_main!("", $root);
+    };
+    ($title:expr, $root:expr) => {
+        $crate::ios_main!($title, $root);
+        $crate::macos_main!($title, $root);
+        $crate::android_main!($root);
+        $crate::arkui_main!($root);
+        $crate::web_main!($title, $root);
+    };
+}
+
 /// Expands to the `day_main` C export the iOS Runner's `main.swift` calls
 /// (`@_silgen_name("day_main")`). The optional title is currently unused on
 /// iOS (the window fills the screen bounds); accepted for future window-scene use.
+///
+/// Apps normally reach this through [`day_main!`] rather than calling it directly.
 ///
 /// ```ignore
 /// day::ios_main!(root);              // or: day::ios_main!("My App", root);

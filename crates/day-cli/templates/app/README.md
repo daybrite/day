@@ -4,9 +4,8 @@ A [Day](https://daybrite.dev) app: one Rust codebase, native widgets on every pl
 
 ## Run it
 
-Day compiles **one backend per binary**, so choose a target when you build or launch — a bare
-`cargo build` enables no backend feature and will not link. The Day CLI supplies the right
-feature for each target:
+Day compiles **exactly one backend per binary**, so choose a target when you build or launch. The
+Day CLI supplies the right feature for each target:
 
 ```sh
 day doctor                  # check the toolchains for your targets
@@ -14,9 +13,14 @@ day launch -p {{first_target}}   # build + run
 day build  -p {{first_target}}   # build only
 ```
 
-Targets live in `Day.toml`. To use plain cargo, pass the backend feature yourself, e.g.
-`cargo build --features appkit` (macOS) / `--features gtk` / `--features uikit` /
-`--features mdc` (Android).
+Targets live in `Day.toml`. A bare `cargo build` uses this crate's default `mock` backend, which is
+what lets rust-analyzer and `cargo check` work with no flags. To pick a real one from plain cargo,
+turn the default off as well — otherwise `mock` and your choice are both on, which is two backends
+and a compile error:
+
+```sh
+cargo build --no-default-features --features appkit    # or gtk / qt / uikit / mdc / xaml / dom
+```
 
 ## What's inside
 

@@ -561,8 +561,14 @@ jobs:
           ( cd scratch-piece && cargo build --features ${{ matrix.toolkit }} $TARGET )
           # shellcheck disable=SC2086
           ( cd scratch-part  && cargo build $TARGET )
+          # `--no-default-features` is what `day build` passes for the app crate, and what an app
+          # requires: the scaffold defaults to `mock` so a bare `cargo build` and rust-analyzer
+          # compile with no backend flag, and day accepts exactly ONE backend — so adding `appkit`
+          # on top of the default is two, and the `enable exactly one backend feature`
+          # compile_error fires. Pieces and parts carry no default backend, so their builds above
+          # take the plain additive form.
           # shellcheck disable=SC2086
-          ( cd scratch-app   && cargo build $LIB --features ${{ matrix.toolkit }} $TARGET )
+          ( cd scratch-app   && cargo build $LIB --no-default-features --features ${{ matrix.toolkit }} $TARGET )
           # Structural check of the DEFAULT (no --local) output: it must reference the remote git dep.
           "$DAY" new app remote-check --toolkit ${{ matrix.combo }} --no-input >/dev/null
           grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
