@@ -649,6 +649,20 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     // Application must exist before controls so default styles resolve; its ctor also inits
     // the WindowsXamlManager for this thread.
     auto app = winrt::make<DayApp>();
+    // DAYDBG (temporary): surface XAML-level exceptions that would otherwise fail-fast silently.
+    app.UnhandledException([](WF::IInspectable const&,
+                              WUX::UnhandledExceptionEventArgs const& e) {
+        std::fprintf(stderr, "DAYDBG xaml unhandled: hr=0x%08X msg=%ls\n",
+                     (unsigned)e.Exception(), e.Message().c_str());
+        std::fflush(stderr);
+    });
+    SetUnhandledExceptionFilter([](EXCEPTION_POINTERS* p) -> LONG {
+        std::fprintf(stderr, "DAYDBG seh: code=0x%08X addr=%p\n",
+                     (unsigned)p->ExceptionRecord->ExceptionCode,
+                     p->ExceptionRecord->ExceptionAddress);
+        std::fflush(stderr);
+        return EXCEPTION_CONTINUE_SEARCH;
+    });
     // Effective light/dark: a DAY_THEME force wins, else the app's system-resolved theme (the
     // RequestedTheme getter reports the system value when nothing was forced). Drives the Win32
     // chrome (transient client brush + dark title bar) and, via g_forced_theme, the code-behind

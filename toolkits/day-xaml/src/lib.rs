@@ -110,6 +110,13 @@ struct SplitNav {
     /// A push/pop stack (NavProps.presentation == Stack): no menu/sidebar, every page stacks in the
     /// content region, and the NavigationView back button appears once a page is pushed.
     is_stack: bool,
+    /// Whether the destinations are RESIDENT — `Tabs` and `Rail`, where the rows are the chrome
+    /// and every page stays realized so `Select` can switch between them. A `Split` nav is not:
+    /// day swaps its detail page on navigation, so `detail_pages` holds only the current one and
+    /// `selected` (a MENU row index) does not index it. Running the selection pass there would
+    /// mean showing row 0's page whatever page is actually up — the two index spaces only
+    /// coincide when the pages are resident.
+    resident: bool,
     /// The row of `detail_pages` the app has selected — the one resident page that must be
     /// visible. Kept here because the pages arrive AFTER the selection is known: a destination set
     /// realizes its menu first (carrying `NavMenuProps.selected`) and its pages one at a time
@@ -1226,6 +1233,7 @@ impl Toolkit for Xaml {
                                 sidebar_page: None,
                                 detail_pages: Vec::new(),
                                 is_stack,
+                                resident: p.presentation.rows_are_chrome(),
                                 selected: 0,
                             }),
                         )
@@ -1863,6 +1871,7 @@ impl Toolkit for Xaml {
                 node: NodeId,
                 content_host: *mut c_void,
                 stack: bool,
+                resident: bool,
             },
         }
         let nav = NAV_STATE.with(|m| {
@@ -1888,6 +1897,7 @@ impl Toolkit for Xaml {
                     node,
                     content_host: s.content_host,
                     stack: s.is_stack,
+                    resident: s.resident,
                 }
             }
         });
@@ -1898,6 +1908,7 @@ impl Toolkit for Xaml {
                 node,
                 content_host,
                 stack,
+                resident,
             } => {
                 // The NavigationView content region is already sized, and adding a child won't
                 // refire its SizeChanged — so seed the new page with the current content bounds
@@ -1910,7 +1921,7 @@ impl Toolkit for Xaml {
                 }
                 if stack {
                     stack_sync(parent.0);
-                } else {
+                } else if resident {
                     select_sync(parent.0);
                 }
                 return;
@@ -1933,20 +1944,23 @@ impl Toolkit for Xaml {
             s.detail_pages.retain(|&(p, _, _)| p != child.0);
             SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(child.0 as usize)));
             unsafe { ffi::day_xaml_remove_child(s.content_host, child.0) };
-            Some(s.is_stack)
+            Some((s.is_stack, s.resident))
         });
         match removed {
-            Some(true) => {
+            Some((true, _)) => {
                 // A stack page popped: re-show the new top + refresh the back button.
                 stack_sync(parent.0);
                 return;
             }
-            Some(false) => {
+            Some((false, true)) => {
                 // A resident page went away (a data-driven tab set shrinking): the survivors have
                 // shifted, so re-apply the selection rather than leave a hidden page on screen.
                 select_sync(parent.0);
                 return;
             }
+            // A split nav's page was swapped out. Its successor is shown as it arrives, exactly
+            // as before this pass existed — there is no resident set here to choose among.
+            Some((false, false)) => return,
             None => {}
         }
         let target = SCROLL_STATE

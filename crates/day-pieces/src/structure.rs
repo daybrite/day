@@ -41,6 +41,10 @@ pub fn when<P: Piece>(
             let state = state.clone();
             let build_arm = build_arm.clone();
             move |on: bool| {
+                // Same lifetime hazard as `each`'s sync, and the same answer — see the note there.
+                if !with_tree(|t| t.node_exists(anchor)) {
+                    return;
+                }
                 if on {
                     let scope = Scope::child();
                     scope.enter(|| {
@@ -148,6 +152,17 @@ where
             let key_of = key_of.clone();
             let build_row = build_row.clone();
             move |new_items: &Vec<T>| {
+                // The reaction driving this closure can outlive the subtree it builds into: a
+                // page swapped out of a nav, a `when` arm closed above us, and the anchor is gone
+                // while the reaction is still subscribed. Building into a removed parent panics in
+                // `Tree::attach` ("attach to missing parent"), and that panic is contained at the
+                // native event boundary — which ABANDONS THE REST OF THE DRAIN, so every reaction
+                // queued behind it (including the live subtree's own) is skipped and the UI stops
+                // updating until something rebuilds it. An anchor that is no longer in the tree has
+                // nothing to sync, so leave quietly and let the disposal that removed it finish.
+                if !with_tree(|t| t.node_exists(anchor)) {
+                    return;
+                }
                 let new_keys: Vec<K> = new_items.iter().map(|t| key_of(t)).collect();
                 if cfg!(debug_assertions) {
                     let mut seen = HashSet::new();
