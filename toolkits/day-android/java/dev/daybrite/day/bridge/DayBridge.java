@@ -281,6 +281,18 @@ public final class DayBridge {
                 DayFixed cell = new DayFixed(ctx);
                 cell.setLayoutParams(new RecyclerView.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
+                if (selectable) {
+                    // Touch feedback, which a bare ViewGroup with a click listener does not have:
+                    // a row that responds to a tap has to SAY so under the finger, and on Android
+                    // that is the bounded ripple every Material list item draws.
+                    //
+                    // As the FOREGROUND, not the background — day fills this cell with its own
+                    // views, and a background ripple would be painted underneath them and never
+                    // seen. `android:foreground="?attr/selectableItemBackground"` is what a
+                    // Material list item uses, for the same reason. The View pipes hotspot
+                    // changes to the foreground too, so the ripple still starts at the finger.
+                    setTouchFeedback(cell, true);
+                }
                 return new DayCellHolder(cell);
             }
             public void onBindViewHolder(DayCellHolder h, int position) {
@@ -1806,12 +1818,38 @@ public final class DayBridge {
     }
 
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
+    /** Give `v` the bounded ripple every Material row draws under a finger, as its FOREGROUND —
+     *  day fills these views with its own children, and a background ripple would be painted
+     *  underneath them and never seen (`android:foreground="?attr/selectableItemBackground"` is
+     *  what a Material list item uses, for the same reason).
+     *
+     *  It goes on whichever view actually RECEIVES the touch, which is not always the same one:
+     *  a plain row is handled by the RecyclerView cell, but a row carrying a context menu is
+     *  handled by the menu's own view, because being long-clickable makes it eat the touch and
+     *  hand the tap on (see setContextMenu / forwardClickToRow). Feedback has to follow the
+     *  finger, so it belongs on the eater, not on the view that ends up running the click. */
+    static void setTouchFeedback(View v, boolean on) {
+        if (!on) {
+            v.setForeground(null);
+            return;
+        }
+        if (v.getForeground() != null) {
+            return; // already carries one (or its own decoration) — don't fight it
+        }
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (v.getContext().getTheme().resolveAttribute(
+                android.R.attr.selectableItemBackground, tv, true) && tv.resourceId != 0) {
+            v.setForeground(v.getContext().getDrawable(tv.resourceId));
+        }
+    }
+
     public static void setContextMenu(final View v, final String spec) {
         if (spec == null || spec.isEmpty()) {
             v.setOnLongClickListener(null);
             v.setLongClickable(false);
             v.setOnClickListener(null);
             v.setClickable(false);
+            setTouchFeedback(v, false);
             return;
         }
         // See forwardClickToRow: the menu makes this view eat touches, so the tap it eats has to
@@ -1823,6 +1861,8 @@ public final class DayBridge {
                     forwardClickToRow(child);
                 }
             });
+            // This view is now the row's touch target, so the row's press feedback is its job.
+            setTouchFeedback(v, true);
         }
         v.setOnLongClickListener(new View.OnLongClickListener() {
             public boolean onLongClick(View anchor) {
