@@ -27,7 +27,7 @@ dom = ["dep:day-dom"]
 mock = ["dep:day-mock"]
 
 [dependencies]
-day-macros = { path = "../day-macros", version = "=0.2.4" }
+day-macros = { path = "../day-macros", version = "=0.2.5" }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
