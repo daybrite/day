@@ -191,6 +191,8 @@ unsafe extern "C" {
     pub fn day_xaml_label_set_selectable(w: *mut c_void, on: c_int);
     /// TextBlock.Foreground = SolidColorBrush(argb); alpha 0 restores the inherited default.
     pub fn day_xaml_label_set_color(w: *mut c_void, argb: u32);
+    /// Wrapped lines' alignment within the label's width: 0 leading, 1 center, 2 trailing.
+    pub fn day_xaml_label_set_align(w: *mut c_void, mode: c_int);
 
     pub fn day_xaml_button_new(
         title: *const c_char,

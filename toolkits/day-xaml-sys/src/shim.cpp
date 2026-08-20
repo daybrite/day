@@ -826,6 +826,14 @@ void* day_xaml_window_root(void* win) {
 void day_xaml_window_on_resize(void* win, void (*cb)(int, int)) {
     (void)win; // single window (v1)
     g_resize_cb = cb;
+    // Report the size that is ALREADY current, rather than waiting for the next WM_SIZE. day
+    // builds the app's root before it subscribes here, and building it installs the menu bar and
+    // the toolbar — each of which reserves its strip and reports the client size that REMAINS
+    // through this very callback, while it is still null. Those reports were dropped, nothing
+    // recomputed until the user resized the window, and until then day laid out against the FULL
+    // client height: its content box hung below the window bottom, so a vertically centred page
+    // rendered low with its top cut off.
+    if (g_app) day_xaml_relayout_chrome(g_app);
 }
 void day_xaml_window_show(void* win) {
     auto app = reinterpret_cast<AppWindow*>(win);
@@ -2487,6 +2495,13 @@ void day_xaml_container_set_card(void* h, double radius) {
     }
 }
 
+// Every rounded CLIP this shim installed, by the handle that owns it. `day_xaml_set_geometry` is
+// where day states a container's real size, and the clip has to follow it from there: the
+// `SizeChanged` hook below is not enough on its own, because a Canvas given an explicit Width and
+// Height by day does not always raise it — and a clip left at its birth size of 0x0 hides the
+// whole subtree, which is how a rounded `vector(…)` mark rendered as nothing at all.
+static std::map<void*, WUComp::CompositionRoundedRectangleGeometry> g_clip_geometry;
+
 // Rounded corners for a container's background (login card, chat bubbles, avatar/badge discs).
 // RadiusX/RadiusY live on the Rectangle SHAPE, not on RectangleGeometry.
 void day_xaml_container_set_corner(void* h, double radius) {
@@ -2518,6 +2533,8 @@ void day_xaml_container_set_corner(void* h, double radius) {
         geo.CornerRadius({ rf, rf });
         geo.Size({ static_cast<float>(c.ActualWidth()), static_cast<float>(c.ActualHeight()) });
         visual.Clip(compositor.CreateGeometricClip(geo));
+        // `insert_or_assign`, not `operator[]`: a projected WinRT type has no default ctor.
+        g_clip_geometry.insert_or_assign(h, geo);
         // day sizes the container after realize, so the clip has to track it the way the
         // background rect does — a clip left at 0×0 would hide the whole subtree.
         c.SizeChanged([geo](WF::IInspectable const&, WUX::SizeChangedEventArgs const& e) mutable {
@@ -2634,6 +2651,20 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
 }
 // Make a label's text user-selectable (the `.selectable()` modifier, docs/text.md). try_as
 // guards a non-TextBlock handle — a no-op rather than a bad cast.
+// How a WRAPPED label's lines sit within its width (`LabelProps::align`): 0 leading, 1 center,
+// 2 trailing — the same encoding the Qt shim takes. A single-line label fills its own box, so this
+// shows only once the text wraps, which is exactly where a centred paragraph differs from a
+// leading one. Day mirrors the whole layout under an RTL locale, so leading maps to Left here just
+// as it does there; the text's own bidi is the TextBlock's business.
+void day_xaml_label_set_align(void* h, int mode) {
+    guard([&] {
+        if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
+            tb.TextAlignment(mode == 1   ? WUX::TextAlignment::Center
+                             : mode == 2 ? WUX::TextAlignment::Right
+                                         : WUX::TextAlignment::Left);
+        }
+    });
+}
 void day_xaml_label_set_selectable(void* h, int on) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.IsTextSelectionEnabled(on != 0);
 }
@@ -3205,7 +3236,10 @@ void day_xaml_remove_child(void* parent, void* child) {
         }
     });
 }
-void day_xaml_delete(void* h) { delete reinterpret_cast<Node*>(h); }
+void day_xaml_delete(void* h) {
+    g_clip_geometry.erase(h);
+    delete reinterpret_cast<Node*>(h);
+}
 
 // External-piece handle seam (docs/picker.md): box any WinRT UI element into a day handle, and
 // borrow it back — so an external piece can carry its OWN native XAML shim (like the Qt shims)
@@ -3228,6 +3262,11 @@ void day_xaml_set_geometry(void* h, int x, int y, int width, int height) {
         if (auto fe = e.try_as<FrameworkElement>()) {
             fe.Width(static_cast<double>(width));
             fe.Height(static_cast<double>(height));
+        }
+        // A rounded clip tracks the size day just stated (see `g_clip_geometry`).
+        auto it = g_clip_geometry.find(h);
+        if (it != g_clip_geometry.end()) {
+            it->second.Size({ static_cast<float>(width), static_cast<float>(height) });
         }
     });
 }

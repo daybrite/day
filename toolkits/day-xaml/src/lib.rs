@@ -1331,6 +1331,16 @@ impl Toolkit for Xaml {
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_xaml_label_set_font(h, pt, weight, italic, tabular);
                     apply_custom_family(h, p.font);
+                    // Realize-only, as on Qt: `LabelPatch` carries no `Align`, so a label whose
+                    // alignment changes is rebuilt rather than patched.
+                    ffi::day_xaml_label_set_align(
+                        h,
+                        match p.align {
+                            day_spec::props::TextAlign::Center => 1,
+                            day_spec::props::TextAlign::Trailing => 2,
+                            day_spec::props::TextAlign::Leading => 0,
+                        },
+                    );
                     if let Some(c) = p.color {
                         ffi::day_xaml_label_set_color(h, argb(c));
                     }
