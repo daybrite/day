@@ -874,7 +874,9 @@ fn template_context(
             scheme
         },
     );
-    ctx.insert("day_dep", deps.dep("day", ""));
+    // `model`: the per-property observable store the starter's editor binds through
+    // (src/model.rs, docs/model.md).
+    ctx.insert("day_dep", deps.dep("day", ", features = [\"model\"]"));
     // The resource-constant codegen helper the app's build.rs calls (§18.5) — same source (git /
     // version / local path) as the `day` dep so it resolves identically.
     ctx.insert("day_build_dep", deps.dep("day-build", ""));

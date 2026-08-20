@@ -30,7 +30,7 @@
 //! any picker on any backend.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
-use day_reactive::{Signal, bind_seeded};
+use day_reactive::{Binding, Signal, bind_seeded};
 use day_spec::Event;
 
 pub const DATE_KIND: &str = "day.piece.datepicker";
@@ -350,15 +350,16 @@ pub fn support() -> day_spec::Support {
 }
 
 /// A native date picker bound two-way to a [`DayDate`] signal. Build with [`date_picker`].
-pub struct DatePicker {
-    date: Signal<DayDate>,
+pub struct DatePicker<S: Binding<DayDate>> {
+    date: S,
     style: Style,
     min: Option<DayDate>,
     max: Option<DayDate>,
 }
 
 /// `date_picker(date)` — a field summoning the platform's chooser; `.inline()` embeds it.
-pub fn date_picker(date: Signal<DayDate>) -> DatePicker {
+/// `date` is a `Signal<DayDate>` or any other two-way binding (a day-model `Field`, mapped).
+pub fn date_picker<S: Binding<DayDate>>(date: S) -> DatePicker<S> {
     // web-dom's registry is populated at RUNTIME (no `linkme` on wasm), and a constructor always
     // runs before the node it returns is realized — so this is where the arm registers itself.
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
@@ -371,7 +372,7 @@ pub fn date_picker(date: Signal<DayDate>) -> DatePicker {
     }
 }
 
-impl DatePicker {
+impl<S: Binding<DayDate>> DatePicker<S> {
     pub fn compact(mut self) -> Self {
         self.style = Style::Compact;
         self
@@ -397,7 +398,7 @@ impl DatePicker {
     }
 }
 
-impl Piece for DatePicker {
+impl<S: Binding<DayDate>> Piece for DatePicker<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let DatePicker {
             date,
@@ -406,9 +407,9 @@ impl Piece for DatePicker {
             max,
         } = self;
         // Seed with the signal's value clamped into range; reflect a build-time clamp back.
-        let initial = date.get_untracked().clamped(min, max);
-        if initial != date.get_untracked() {
-            date.set(initial);
+        let initial = date.peek().clamped(min, max);
+        if initial != date.peek() {
+            date.write(initial);
         }
         let node = cx.leaf(
             DATE_KIND,
@@ -422,9 +423,10 @@ impl Piece for DatePicker {
         );
         // App writes → native (renderers no-op on an unchanged value, so a pick echoing through
         // the signal never loops).
+        let dt = date.clone();
         bind_seeded(
             initial,
-            move || date.get(),
+            move || dt.read(),
             move |d: &DayDate| {
                 with_tree(|t| t.patch(node, Box::new(DatePatch::SetDate(*d)), false));
             },
@@ -444,7 +446,7 @@ impl Piece for DatePicker {
                 _ => None,
             };
             if let Some(d) = picked {
-                date.set(d.clamped(min, max));
+                date.write(d.clamped(min, max));
             }
         });
         node

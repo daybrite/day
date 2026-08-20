@@ -20,7 +20,7 @@
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
 use day_pieces::{IntoText, TextSource};
-use day_reactive::{Signal, bind_seeded};
+use day_reactive::{Binding, bind_seeded};
 use day_spec::Event;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -42,20 +42,21 @@ pub enum SearchPatch {
 }
 
 /// A native search field bound two-way to `query`. Set a prompt with `.placeholder(_)`.
-pub struct SearchField {
-    query: Signal<String>,
+pub struct SearchField<S: Binding<String>> {
+    query: S,
     placeholder: Option<TextSource>,
 }
 
-/// `search_field(query)` — a native search input whose text mirrors `query` in both directions.
-pub fn search_field(query: Signal<String>) -> SearchField {
+/// `search_field(query)` — a native search input whose text mirrors `query` in both directions;
+/// `query` is a `Signal<String>` or any other two-way binding (a day-model `Field`).
+pub fn search_field<S: Binding<String>>(query: S) -> SearchField<S> {
     SearchField {
         query,
         placeholder: None,
     }
 }
 
-impl SearchField {
+impl<S: Binding<String>> SearchField<S> {
     /// The empty-state prompt shown when the field has no text (a constant, `Signal<String>`, or
     /// closure — evaluated once for the initial value; the placeholder is not reactive after build).
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
@@ -64,10 +65,10 @@ impl SearchField {
     }
 }
 
-impl Piece for SearchField {
+impl<S: Binding<String>> Piece for SearchField<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let SearchField { query, placeholder } = self;
-        let initial = query.get_untracked();
+        let initial = query.peek();
         let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
         let node = cx.leaf(
             KIND,
@@ -85,9 +86,10 @@ impl Piece for SearchField {
         // arrived FROM the native widget so bind_seeded does not patch that same value straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
+        let q = query.clone();
         bind_seeded(
             initial,
-            move || query.get(),
+            move || q.read(),
             move |t: &String| {
                 let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
                 if !from_native {
@@ -100,7 +102,7 @@ impl Piece for SearchField {
         cx.on(node, move |ev| {
             if let Event::TextChanged(t) = ev {
                 *guard.borrow_mut() = Some(t.clone());
-                query.set(t.clone());
+                query.write(t.clone());
             }
         });
         node

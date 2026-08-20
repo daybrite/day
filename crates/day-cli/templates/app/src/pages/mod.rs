@@ -1,3 +1,4 @@
+mod detail;
 mod navigate;
 mod settings;
 mod welcome;

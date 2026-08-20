@@ -3,8 +3,10 @@
 
 //! Compile-time macros for Day.
 //!
-//! Just [`build_path!`] today: SVG path data in, a `PathBuilder` method chain out.
+//! [`build_path!`]: SVG path data in, a `PathBuilder` method chain out. [`Observable`]
+//! (`#[derive]`): a struct in, typed per-field accessors for day-model out.
 
+mod obs;
 mod svg;
 
 use proc_macro::TokenStream;
@@ -173,4 +175,15 @@ fn compile_error(message: &str) -> TokenStream {
             // Unreachable in practice: the message is a formatted Rust string literal.
             TokenStream::new()
         })
+}
+
+/// Per-property observation for a struct — see day-model's crate docs and `docs/model.md`.
+///
+/// Generates typed field accessors on every `Source` of the struct (`store.name()`,
+/// `store.elem(id).name()`, nested `item.address().city()`), `Identified` from the field marked
+/// `#[obs(key)]` (always explicit), and `OBSERVED_FIELDS`. `#[obs(skip)]` leaves a field out:
+/// no accessor, no path, no trigger.
+#[proc_macro_derive(Observable, attributes(obs))]
+pub fn observable(input: TokenStream) -> TokenStream {
+    obs::observable(input)
 }

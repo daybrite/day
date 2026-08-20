@@ -604,19 +604,19 @@ impl Piece for Button {
     }
 }
 
-pub struct Toggle<S: SignalRw<bool>> {
+pub struct Toggle<S: Binding<bool>> {
     value: S,
     enabled: Reactive<bool>,
 }
 
-pub fn toggle<S: SignalRw<bool>>(value: S) -> Toggle<S> {
+pub fn toggle<S: Binding<bool>>(value: S) -> Toggle<S> {
     Toggle {
         value,
         enabled: true.into_reactive(),
     }
 }
 
-impl<S: SignalRw<bool>> Toggle<S> {
+impl<S: Binding<bool>> Toggle<S> {
     /// Whether the toggle is interactive (default `true`; `false` = disabled/grayed). Reactive —
     /// e.g. `.enabled(capability(Cap::TextSpellCheck) == Support::Native)` to gray it out where a
     /// backend can't honor the thing it controls.
@@ -626,9 +626,9 @@ impl<S: SignalRw<bool>> Toggle<S> {
     }
 }
 
-impl<S: SignalRw<bool>> Piece for Toggle<S> {
+impl<S: Binding<bool>> Piece for Toggle<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let initial = self.value.get_untracked_rw();
+        let initial = self.value.peek();
         let node = cx.leaf(
             kinds::TOGGLE,
             &ToggleProps {
@@ -640,7 +640,7 @@ impl<S: SignalRw<bool>> Piece for Toggle<S> {
         let v = self.value.clone();
         bind_seeded(
             initial,
-            move || v.get_rw(),
+            move || v.read(),
             move |on: &bool| {
                 with_tree(|t| t.patch(node, Box::new(TogglePatch::On(*on)), false));
             },
@@ -658,21 +658,21 @@ impl<S: SignalRw<bool>> Piece for Toggle<S> {
         let v = self.value;
         cx.on(node, move |ev| {
             if let Event::ToggleChanged(on) = ev {
-                v.set_rw(*on);
+                v.write(*on);
             }
         });
         node
     }
 }
 
-pub struct Slider<S: SignalRw<f64>> {
+pub struct Slider<S: Binding<f64>> {
     value: S,
     min: f64,
     max: f64,
     step: Option<f64>,
 }
 
-pub fn slider<S: SignalRw<f64>>(value: S) -> Slider<S> {
+pub fn slider<S: Binding<f64>>(value: S) -> Slider<S> {
     Slider {
         value,
         min: 0.0,
@@ -681,7 +681,7 @@ pub fn slider<S: SignalRw<f64>>(value: S) -> Slider<S> {
     }
 }
 
-impl<S: SignalRw<f64>> Slider<S> {
+impl<S: Binding<f64>> Slider<S> {
     pub fn range(mut self, r: std::ops::RangeInclusive<f64>) -> Self {
         self.min = *r.start();
         self.max = *r.end();
@@ -693,9 +693,9 @@ impl<S: SignalRw<f64>> Slider<S> {
     }
 }
 
-impl<S: SignalRw<f64>> Piece for Slider<S> {
+impl<S: Binding<f64>> Piece for Slider<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let initial = self.value.get_untracked_rw();
+        let initial = self.value.peek();
         let node = cx.leaf(
             kinds::SLIDER,
             &SliderProps {
@@ -713,7 +713,7 @@ impl<S: SignalRw<f64>> Piece for Slider<S> {
         let v = self.value.clone();
         bind_seeded(
             initial,
-            move || v.get_rw(),
+            move || v.read(),
             move |val: &f64| {
                 with_tree(|t| t.patch(node, Box::new(SliderPatch::Value(*val)), false));
             },
@@ -731,20 +731,20 @@ impl<S: SignalRw<f64>> Piece for Slider<S> {
                     Some(s) if s > 0.0 => (min + ((val - min) / s).round() * s).clamp(min, max),
                     _ => *val,
                 };
-                v.set_rw(snapped);
+                v.write(snapped);
             }
         });
         node
     }
 }
 
-pub struct TextField<S: SignalRw<String>> {
+pub struct TextField<S: Binding<String>> {
     value: S,
     placeholder: Option<TextSource>,
     on_submit: Option<Rc<dyn Fn()>>,
 }
 
-pub fn text_field<S: SignalRw<String>>(value: S) -> TextField<S> {
+pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
     TextField {
         value,
         placeholder: None,
@@ -752,7 +752,7 @@ pub fn text_field<S: SignalRw<String>>(value: S) -> TextField<S> {
     }
 }
 
-impl<S: SignalRw<String>> TextField<S> {
+impl<S: Binding<String>> TextField<S> {
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
         self
@@ -766,9 +766,9 @@ impl<S: SignalRw<String>> TextField<S> {
     }
 }
 
-impl<S: SignalRw<String>> Piece for TextField<S> {
+impl<S: Binding<String>> Piece for TextField<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let initial = self.value.get_untracked_rw();
+        let initial = self.value.peek();
         let ph = self
             .placeholder
             .as_ref()
@@ -793,7 +793,7 @@ impl<S: SignalRw<String>> Piece for TextField<S> {
         let g = guard.clone();
         bind_seeded(
             initial,
-            move || v.get_rw(),
+            move || v.read(),
             move |t: &String| {
                 let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
                 with_tree(|tr| {
@@ -813,7 +813,7 @@ impl<S: SignalRw<String>> Piece for TextField<S> {
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
                 *guard.borrow_mut() = Some(t.clone());
-                v.set_rw(t.clone());
+                v.write(t.clone());
             }
             Event::Submitted => {
                 if let Some(f) = &submit {

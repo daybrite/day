@@ -3,7 +3,7 @@
 
 //! Input adapters that let a constructor accept a plain value, a `Signal`, or a closure
 //! interchangeably: `IntoText`/`TextSource` (text), `IntoFraction`/`FractionSource` (0–1 numbers),
-//! `SignalRw` (two-way bindings), and `IntoFocusBinding` (focus state).
+//! `Binding` (two-way bindings), and `IntoFocusBinding` (focus state).
 
 use std::rc::Rc;
 
@@ -203,21 +203,7 @@ where
 // Two-way binding surface (§5.3)
 // ---------------------------------------------------------------------------
 
-pub trait SignalRw<T: 'static>: Clone + 'static {
-    /// Tracked read.
-    fn get_rw(&self) -> T;
-    fn get_untracked_rw(&self) -> T;
-    fn set_rw(&self, v: T);
-}
-
-impl<T: Clone + 'static> SignalRw<T> for Signal<T> {
-    fn get_rw(&self) -> T {
-        self.get()
-    }
-    fn get_untracked_rw(&self) -> T {
-        self.get_untracked()
-    }
-    fn set_rw(&self, v: T) {
-        self.set(v);
-    }
-}
+// The trait moved down to day-reactive and took its shipped name — `Binding`, read/write/peek —
+// in the same pass (2026-08-22), so day-model can implement it for `Field` with every dependency
+// pointing downward; re-exported here so piece code needs no extra import.
+pub use day_reactive::Binding;

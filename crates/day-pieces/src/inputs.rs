@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Signal, bind, bind_seeded};
+use day_reactive::{bind, bind_seeded};
 use day_spec::{Event, kinds};
 
 use crate::*;
@@ -18,17 +18,18 @@ use crate::*;
 // ---------------------------------------------------------------------------
 
 /// A native picker bound two-way to `selected`. Style via `.menu()`/`.segmented()`/`.inline()`.
-pub struct Picker {
+pub struct Picker<Sel: Binding<usize>> {
     options: Vec<String>,
-    selected: Signal<usize>,
+    selected: Sel,
     style: day_spec::props::PickerStyle,
 }
 
-/// `picker(["A", "B", "C"], choice).segmented()` — options are fixed, `selected` is the bound index.
-pub fn picker<S: Into<String>>(
+/// `picker(["A", "B", "C"], choice).segmented()` — options are fixed, `selected` is the bound
+/// index: a `Signal<usize>`, or any other two-way binding (a day-model `Field`, a `Mapped` view).
+pub fn picker<S: Into<String>, Sel: Binding<usize>>(
     options: impl IntoIterator<Item = S>,
-    selected: Signal<usize>,
-) -> Picker {
+    selected: Sel,
+) -> Picker<Sel> {
     Picker {
         options: options.into_iter().map(Into::into).collect(),
         selected,
@@ -36,7 +37,7 @@ pub fn picker<S: Into<String>>(
     }
 }
 
-impl Picker {
+impl<Sel: Binding<usize>> Picker<Sel> {
     pub fn menu(mut self) -> Self {
         self.style = day_spec::props::PickerStyle::Menu;
         self
@@ -55,7 +56,7 @@ impl Picker {
     }
 }
 
-impl Piece for Picker {
+impl<Sel: Binding<usize>> Piece for Picker<Sel> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Picker {
             options,
@@ -64,7 +65,7 @@ impl Piece for Picker {
         } = self;
         let initial = day_spec::props::PickerProps {
             options,
-            selected: selected.get_untracked(),
+            selected: selected.peek(),
             style,
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
@@ -73,9 +74,10 @@ impl Piece for Picker {
         // control keeps the width of the build-time value and ellipsizes anything longer.
         // Segmented and inline render every option at once; selection moves a mark only.
         let affects_size = matches!(initial.style, day_spec::props::PickerStyle::Menu);
+        let sel = selected.clone();
         bind_seeded(
             initial.selected,
-            move || selected.get(),
+            move || sel.read(),
             move |v: &usize| {
                 with_tree(|t| {
                     t.patch(
@@ -90,7 +92,7 @@ impl Piece for Picker {
             if let Event::SelectionChanged(i) = ev
                 && *i >= 0
             {
-                selected.set_rw(*i as usize);
+                selected.write(*i as usize);
             }
         });
         node
@@ -106,8 +108,8 @@ impl Piece for Picker {
 /// native editor attributes with `.editable(_)` / `.selectable(_)` / `.spellcheck(_)` (each accepts
 /// a constant or a reactive `bool`, and updates live). A backend that can't honor an attribute
 /// answers the matching `Cap::Text{Editable,Selectable,SpellCheck}` with `Support::Unsupported`.
-pub struct TextArea {
-    text: Signal<String>,
+pub struct TextArea<S: Binding<String>> {
+    text: S,
     placeholder: Option<TextSource>,
     min_lines: u32,
     max_lines: u32,
@@ -117,8 +119,9 @@ pub struct TextArea {
     on_submit: Option<Rc<dyn Fn()>>,
 }
 
-/// `text_area(text)` — a native multi-line editor whose contents mirror `text` in both directions.
-pub fn text_area(text: Signal<String>) -> TextArea {
+/// `text_area(text)` — a native multi-line editor whose contents mirror `text` in both
+/// directions; `text` is a `Signal<String>` or any other two-way binding (a day-model `Field`).
+pub fn text_area<S: Binding<String>>(text: S) -> TextArea<S> {
     TextArea {
         text,
         placeholder: None,
@@ -131,7 +134,7 @@ pub fn text_area(text: Signal<String>) -> TextArea {
     }
 }
 
-impl TextArea {
+impl<S: Binding<String>> TextArea<S> {
     /// The empty-state prompt shown when the editor is empty (a constant, `Signal<String>`, or
     /// closure — evaluated once for the initial value; not reactive after build).
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
@@ -183,7 +186,7 @@ impl TextArea {
     }
 }
 
-impl Piece for TextArea {
+impl<S: Binding<String>> Piece for TextArea<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let TextArea {
             text,
@@ -195,7 +198,7 @@ impl Piece for TextArea {
             spellcheck,
             on_submit,
         } = self;
-        let initial = text.get_untracked();
+        let initial = text.peek();
         let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
         let node = cx.leaf(
             kinds::TEXT_AREA,
@@ -270,9 +273,10 @@ impl Piece for TextArea {
         // that arrived FROM the native widget so bind_seeded does not patch it straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
+        let tx = text.clone();
         bind_seeded(
             initial,
-            move || text.get(),
+            move || tx.read(),
             move |t: &String| {
                 let from_native = g.borrow_mut().take().as_deref() == Some(t.as_str());
                 if !from_native {
@@ -289,7 +293,7 @@ impl Piece for TextArea {
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
                 *guard.borrow_mut() = Some(t.clone());
-                text.set(t.clone());
+                text.write(t.clone());
             }
             Event::Submitted => {
                 if let Some(f) = &on_submit {

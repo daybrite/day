@@ -783,7 +783,7 @@ impl<K: Route> SelItems<K> {
 ///     .item("home", tr("home"), home_page)         // or .item(Section::Home, …)
 ///     .item("settings", tr("settings"), settings_page)
 /// ```
-pub struct Selector<S: SignalRw<K>, K: Route = String> {
+pub struct Selector<S: Binding<K>, K: Route = String> {
     selection: S,
     style: SelectorStyle,
     title: TextSource,
@@ -1033,7 +1033,7 @@ impl BarActionSpec {
     }
 }
 
-pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
+pub fn selector<K: Route, S: Binding<K>>(selection: S) -> Selector<S, K> {
     Selector {
         selection,
         style: SelectorStyle::default(),
@@ -1050,7 +1050,7 @@ pub fn selector<K: Route, S: SignalRw<K>>(selection: S) -> Selector<S, K> {
     }
 }
 
-impl<K: Route, S: SignalRw<K>> Selector<S, K> {
+impl<K: Route, S: Binding<K>> Selector<S, K> {
     pub fn style(mut self, style: SelectorStyle) -> Self {
         self.style = style;
         self
@@ -1403,7 +1403,7 @@ impl<K: Route, S: SignalRw<K>> Selector<S, K> {
     }
 }
 
-impl<K: Route, S: SignalRw<K>> Piece for Selector<S, K> {
+impl<K: Route, S: Binding<K>> Piece for Selector<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         // ONE builder for all three styles. The styles differ only in which presentations the
         // resolver may produce, and a presentation differs only in chrome and page residency —
@@ -1418,7 +1418,7 @@ impl<K: Route, S: SignalRw<K>> Piece for Selector<S, K> {
 /// (skip). Only a saved key that parses AND is a current item is honored — plus the empty
 /// "deselected" key, for a sidebar's collapsed state — so a stale key left by an older build is
 /// ignored. A no-op when `restore` is unset or no [`NavStore`](day_core::NavStore) is installed.
-fn restore_selection<K: Route, S: SignalRw<K>>(
+fn restore_selection<K: Route, S: Binding<K>>(
     restore: &Option<String>,
     selection: &S,
     items: &[K],
@@ -1429,23 +1429,23 @@ fn restore_selection<K: Route, S: SignalRw<K>>(
         && let Some(k) = K::from_key(&saved)
         && (saved.is_empty() || items.iter().any(|x| x.key() == saved))
     {
-        selection.set_rw(k);
+        selection.write(k);
     }
 }
 
 /// Persist a selector's selection under its `.restore` key on every change (docs/navigation.md).
 /// The binding lives in the current scope, so it stops with the surface. Consumes `restore`.
-fn persist_selection<K: Route, S: SignalRw<K>>(restore: Option<String>, selection: &S) {
+fn persist_selection<K: Route, S: Binding<K>>(restore: Option<String>, selection: &S) {
     if let Some(key) = restore {
         let s = selection.clone();
         bind(
-            move || s.get_rw().key(),
+            move || s.read().key(),
             move |k: &String| day_core::nav_store_save(&key, k),
         );
     }
 }
 
-fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
+fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{
         NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavPresentation, NavProps, Pane,
     };
@@ -1744,7 +1744,7 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
                     // otherwise miss the move AND have no label for it. Index the LIVE titles.
                     let label = ts.borrow().get(*i as usize).cloned();
                     day_core::note_navigation(&k.key(), label.as_deref());
-                    s.set_rw(k.clone());
+                    s.write(k.clone());
                 }
             });
             node
@@ -1878,7 +1878,7 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
                     let s = selection.clone();
                     Rc::new(move |_already_popped| {
                         if let Some(root) = K::from_key("") {
-                            s.set_rw(root);
+                            s.write(root);
                         }
                     })
                 };
@@ -1951,14 +1951,14 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
     // a STACK has an empty state, and there it is the whole point — the collapsed list the user
     // has not chosen from yet.
     if (split || presentation.rows_are_chrome())
-        && selection.get_untracked_rw().key().is_empty()
+        && selection.peek().key().is_empty()
         && let Some(k) = typed.borrow().first().cloned()
     {
-        selection.set_rw(k);
+        selection.write(k);
     }
     {
         let (s, show) = (selection.clone(), show.clone());
-        bind(move || s.get_rw().key(), move |key: &String| show(key));
+        bind(move || s.read().key(), move |key: &String| show(key));
     }
 
     // Build every destination, then re-select the current one.
@@ -1974,7 +1974,7 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
             for k in keys {
                 show(&k);
             }
-            show(&sel_a.get_untracked_rw().key());
+            show(&sel_a.peek().key());
         })
     };
     if presentation.rows_are_chrome() {
@@ -2031,7 +2031,7 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
                     let s = sel_r.clone();
                     let owner: PopOwner = Rc::new(move |_already_popped| {
                         if let Some(root) = K::from_key("") {
-                            s.set_rw(root);
+                            s.write(root);
                         }
                     });
                     owners_r.borrow_mut().push(owner);
@@ -2048,10 +2048,10 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
                 build_all_r();
             }
             if (next.is_split() || next.rows_are_chrome())
-                && sel_r.get_untracked_rw().key().is_empty()
+                && sel_r.peek().key().is_empty()
                 && let Some(k) = typed_r.borrow().first().cloned()
             {
-                sel_r.set_rw(k);
+                sel_r.write(k);
             }
         })
     };
@@ -2170,21 +2170,21 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
                     }
                 }
                 // If the selected key is gone, reset (Option key → None); else keep it selected.
-                let cur = sel_e.get_untracked_rw().key();
+                let cur = sel_e.peek().key();
                 let still = cur.is_empty() || key_strs.iter().any(|k| k == &cur);
                 if !still && let Some(root) = K::from_key("") {
-                    sel_e.set_rw(root);
+                    sel_e.write(root);
                 }
                 // A split view must never show an empty detail. The build-time fallback ran
                 // once, before any filtering, so re-apply it here: when the selected row is
                 // gone, move to the first row that survived rather than blanking the pane.
-                let mut cur2 = sel_e.get_untracked_rw().key();
+                let mut cur2 = sel_e.peek().key();
                 let pres_now = pres_e.get();
                 if (pres_now.is_split() || pres_now.rows_are_chrome())
                     && cur2.is_empty()
                     && let Some(k) = keys.first().cloned()
                 {
-                    sel_e.set_rw(k.clone());
+                    sel_e.write(k.clone());
                     cur2 = k.key();
                 }
                 let selected = key_strs.iter().position(|k| k == &cur2);
@@ -2260,40 +2260,40 @@ fn build_selector<K: Route, S: SignalRw<K>>(sel: Selector<S, K>, cx: &mut BuildC
             move |k| {
                 if k.is_empty() {
                     if let Some(root) = K::from_key("") {
-                        s_push.set_rw(root);
+                        s_push.write(root);
                         true
                     } else {
                         false // no empty state (bare-enum key) — let the parent handle ""
                     }
                 } else if let Some(key) = pick_push(&tp_push, k) {
-                    s_push.set_rw(key);
+                    s_push.write(key);
                     true
                 } else {
                     false
                 }
             },
             move |_| {
-                if s_pop.get_untracked_rw().key().is_empty() {
+                if s_pop.peek().key().is_empty() {
                     false
                 } else if let Some(root) = K::from_key("") {
-                    s_pop.set_rw(root);
+                    s_pop.write(root);
                     true
                 } else {
                     false
                 }
             },
-            move || s_cur.get_untracked_rw().key(),
+            move || s_cur.peek().key(),
             // Absolute-path segment: a declared item key selects it (no "" — segments are non-empty).
             move |k| {
                 if let Some(key) = pick_enter(&tp_enter, k) {
-                    s_enter.set_rw(key);
+                    s_enter.write(key);
                     true
                 } else {
                     false
                 }
             },
             move || {
-                let k = s_seg.get_untracked_rw().key();
+                let k = s_seg.peek().key();
                 if k.is_empty() { Vec::new() } else { vec![k] }
             },
         );
@@ -2358,7 +2358,7 @@ impl BackRequest {
 /// stack(path.clone(), home_view).destination(|d: &Drill| detail_view(d))
 /// // push:  path.update(|p| p.push(Drill::Item { id: 42 }));
 /// ```
-pub struct Stack<S: SignalRw<Vec<K>>, K: Route = String> {
+pub struct Stack<S: Binding<Vec<K>>, K: Route = String> {
     path: S,
     title: TextSource,
     root: AnyPiece,
@@ -2372,7 +2372,7 @@ pub struct Stack<S: SignalRw<Vec<K>>, K: Route = String> {
     bar_actions: Vec<BarActionSpec>,
 }
 
-pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
+pub fn stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
     Stack {
         path,
         title: TextSource::Static(String::new()),
@@ -2386,7 +2386,7 @@ pub fn stack<K: Route, S: SignalRw<Vec<K>>>(path: S, root: impl Piece) -> Stack<
     }
 }
 
-impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
+impl<K: Route, S: Binding<Vec<K>>> Stack<S, K> {
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
         self.title = t.into_text();
         self
@@ -2459,7 +2459,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Stack<S, K> {
     }
 }
 
-impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
+impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{NavPageProps, NavPatch, NavPresentation, NavProps, Pane};
         let Stack {
@@ -2489,7 +2489,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             let (segments, _) = day_core::parse_route(&saved);
             let parsed: Option<Vec<K>> = segments.iter().map(|s| K::from_key(s)).collect();
             if let Some(v) = parsed {
-                path.set_rw(v);
+                path.write(v);
             }
         }
 
@@ -2582,15 +2582,15 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         let raw_pop: Rc<dyn Fn()> = {
             let p = path.clone();
             Rc::new(move || {
-                let mut v = p.get_untracked_rw();
+                let mut v = p.peek();
                 if v.pop().is_some() {
-                    p.set_rw(v);
+                    p.write(v);
                 }
             })
         };
         let depth = {
             let p = path.clone();
-            move || p.get_untracked_rw().len()
+            move || p.peek().len()
         };
         // One back-like event (native gesture that Day owns, or `nav_back()`): consult the guard
         // if one is armed and we're above the root, else pop. `Proceed` pops now; `Handled`
@@ -2726,7 +2726,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         };
         {
             let p = path.clone();
-            bind(move || p.get_rw(), move |want: &Vec<K>| reconcile(want));
+            bind(move || p.read(), move |want: &Vec<K>| reconcile(want));
         }
 
         // Persist the path across launches when `.restore` is set: save the keys in the same
@@ -2737,7 +2737,7 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
             let p = path.clone();
             bind(
                 move || {
-                    let keys: Vec<String> = p.get_rw().iter().map(|k| k.key()).collect();
+                    let keys: Vec<String> = p.read().iter().map(|k| k.key()).collect();
                     day_core::encode_route(&keys, &[])
                 },
                 move |s: &String| day_core::nav_store_save(&key, s),
@@ -2810,12 +2810,12 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
         register_route_surface(
             move |k| {
                 if k.is_empty() {
-                    let mut v = p_push.get_untracked_rw();
+                    let mut v = p_push.peek();
                     if v.is_empty() {
                         return false; // already at root — let the parent handle ""
                     }
                     v.clear();
-                    p_push.set_rw(v);
+                    p_push.write(v);
                     true
                 } else {
                     false
@@ -2834,23 +2834,17 @@ impl<K: Route, S: SignalRw<Vec<K>>> Piece for Stack<S, K> {
                     true
                 }
             },
-            move || {
-                p_cur
-                    .get_untracked_rw()
-                    .last()
-                    .map(|k| k.key())
-                    .unwrap_or_default()
-            },
+            move || p_cur.peek().last().map(|k| k.key()).unwrap_or_default(),
             move |k| {
                 let Some(parsed) = K::from_key(k) else {
                     return false; // not one of this stack's routes — leave it queued
                 };
-                let mut v = p_enter.get_untracked_rw();
+                let mut v = p_enter.peek();
                 v.push(parsed);
-                p_enter.set_rw(v);
+                p_enter.write(v);
                 true
             },
-            move || p_seg.get_untracked_rw().iter().map(|k| k.key()).collect(),
+            move || p_seg.peek().iter().map(|k| k.key()).collect(),
         );
         ret_node
     }
@@ -2883,7 +2877,7 @@ pub struct Cover<S, R: Route> {
 /// A fullscreen cover over `open`: `Some(r)` presents `build(&r)`, `None` dismisses
 /// (docs/cover.md). Registers a string-route adapter, so `navigate("<key>")` opens it and
 /// `nav_back()` closes it, and `current_route()` reports the presented key.
-pub fn cover<R: Route, S: SignalRw<Option<R>>>(
+pub fn cover<R: Route, S: Binding<Option<R>>>(
     open: S,
     build: impl Fn(&R) -> AnyPiece + 'static,
 ) -> Cover<S, R> {
@@ -2896,7 +2890,7 @@ pub fn cover<R: Route, S: SignalRw<Option<R>>>(
     }
 }
 
-impl<S: SignalRw<Option<R>>, R: Route> Cover<S, R> {
+impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
     /// The surface color painted edge-to-edge behind the content (under the status bar and
     /// home indicator) while `r` is presented. Without it the platform's default surface
     /// color shows in the unsafe areas.
@@ -2929,7 +2923,7 @@ impl<S: SignalRw<Option<R>>, R: Route> Cover<S, R> {
     }
 }
 
-impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
+impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{CoverPatch, CoverProps};
         let Cover {
@@ -3028,7 +3022,7 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
         };
         {
             let o = open.clone();
-            bind(move || o.get_rw(), move |want: &Option<R>| reconcile(want));
+            bind(move || o.read(), move |want: &Option<R>| reconcile(want));
         }
 
         // While presented, keep the backend's dismiss-disabled flag in sync with the
@@ -3074,8 +3068,8 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
                 // Native dismissal request (Android system back). Honored unless an
                 // `interactive_dismiss_disabled` subtree is mounted.
                 Event::NavBack { .. } => {
-                    if !day_core::shield::dismiss_disabled() && o.get_untracked_rw().is_some() {
-                        o.set_rw(None);
+                    if !day_core::shield::dismiss_disabled() && o.peek().is_some() {
+                        o.write(None);
                     }
                 }
                 // The hide transition finished — now the content can go.
@@ -3103,7 +3097,7 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
         let o_seg = open;
         let push = move |k: &str, sig: &S| match R::from_key(k) {
             Some(r) => {
-                sig.set_rw(Some(r));
+                sig.write(Some(r));
                 true
             }
             None => false,
@@ -3112,26 +3106,16 @@ impl<S: SignalRw<Option<R>>, R: Route> Piece for Cover<S, R> {
         register_route_surface(
             move |k| push(k, &o_push),
             move |_| {
-                if o_pop.get_untracked_rw().is_some() {
-                    o_pop.set_rw(None);
+                if o_pop.peek().is_some() {
+                    o_pop.write(None);
                     true
                 } else {
                     false
                 }
             },
-            move || {
-                o_cur
-                    .get_untracked_rw()
-                    .map(|r| r.key())
-                    .unwrap_or_default()
-            },
+            move || o_cur.peek().map(|r| r.key()).unwrap_or_default(),
             move |k| push2(k, &o_enter),
-            move || {
-                o_seg
-                    .get_untracked_rw()
-                    .map(|r| vec![r.key()])
-                    .unwrap_or_default()
-            },
+            move || o_seg.peek().map(|r| vec![r.key()]).unwrap_or_default(),
         );
 
         node

@@ -43,7 +43,7 @@
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
 use day_pieces::prelude::*;
 use day_pieces::{IntoText, TextSource};
-use day_reactive::{bind_seeded, watch};
+use day_reactive::{Binding, bind_seeded, watch};
 use day_spec::{Event, Support};
 
 pub const KIND: &str = "day.piece.colorpicker";
@@ -139,8 +139,8 @@ fn default_presets() -> Vec<Color> {
 }
 
 /// A color well bound two-way to a [`Color`] signal. Build with [`color_picker`].
-pub struct ColorPicker {
-    color: Signal<Color>,
+pub struct ColorPicker<C: Binding<Color>> {
+    color: C,
     alpha: bool,
     idiom: PickerIdiom,
     title: Option<TextSource>,
@@ -148,8 +148,9 @@ pub struct ColorPicker {
     key: String,
 }
 
-/// `color_picker(color)` — a swatch showing `color` that opens a color chooser.
-pub fn color_picker(color: Signal<Color>) -> ColorPicker {
+/// `color_picker(color)` — a swatch showing `color` that opens a color chooser. `color` is a
+/// `Signal<Color>` or any other two-way binding (a day-model `Field`, mapped).
+pub fn color_picker<C: Binding<Color>>(color: C) -> ColorPicker<C> {
     // web-dom's registry is populated at RUNTIME (no `linkme` on wasm), and a constructor always
     // runs before the node it returns is realized — so this is where the arm registers itself.
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
@@ -164,7 +165,7 @@ pub fn color_picker(color: Signal<Color>) -> ColorPicker {
     }
 }
 
-impl ColorPicker {
+impl<C: Binding<Color>> ColorPicker<C> {
     /// Offer an opacity channel, and let the bound signal carry a non-opaque alpha. Honored by
     /// the composed panel everywhere, and by every native chooser but one: a browser's
     /// `<input type="color">` gained an `alpha` attribute only recently, so the web arm sets it
@@ -216,7 +217,7 @@ impl ColorPicker {
     }
 }
 
-impl Piece for ColorPicker {
+impl<C: Binding<Color>> Piece for ColorPicker<C> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let ColorPicker {
             color,
@@ -248,8 +249,13 @@ impl Piece for ColorPicker {
 }
 
 /// The native idiom: one leaf of [`KIND`], bound two-way.
-fn build_native(cx: &mut BuildCx, color: Signal<Color>, alpha: bool, title: String) -> RNode {
-    let initial = color.get_untracked();
+fn build_native<C: Binding<Color>>(
+    cx: &mut BuildCx,
+    color: C,
+    alpha: bool,
+    title: String,
+) -> RNode {
+    let initial = color.peek();
     let node = cx.leaf(
         KIND,
         &ColorProps {
@@ -261,9 +267,10 @@ fn build_native(cx: &mut BuildCx, color: Signal<Color>, alpha: bool, title: Stri
     );
     // App writes → the native well. Every arm no-ops on an unchanged value, so a pick echoing
     // back through the signal never loops.
+    let c2 = color.clone();
     bind_seeded(
         initial,
-        move || color.get(),
+        move || c2.read(),
         move |c: &Color| {
             with_tree(|t| t.patch(node, Box::new(ColorPatch::SetColor(*c)), false));
         },
@@ -279,7 +286,7 @@ fn build_native(cx: &mut BuildCx, color: Signal<Color>, alpha: bool, title: Stri
         };
         if let Some(c) = picked {
             // An opaque-only picker must not be able to clear the alpha the app set.
-            color.set(if alpha { c } else { c.with_alpha(1.0) });
+            color.write(if alpha { c } else { c.with_alpha(1.0) });
         }
     });
     node
@@ -331,8 +338,8 @@ const WELL_H: f64 = 26.0;
 /// The trade is keyboard activation: a drawn well takes a press, not a Return key. It carries a
 /// `Button` role and a label so a screen reader still announces it correctly
 /// (docs/colorpicker.md records the gap).
-fn composed_well(
-    color: Signal<Color>,
+fn composed_well<C: Binding<Color>>(
+    color: C,
     alpha: bool,
     title: String,
     presets: Vec<Color>,
@@ -344,8 +351,9 @@ fn composed_well(
     // is the `zstack` this returns, and an id on that tags a layout wrapper the toolkit never
     // realizes — a dayscript `tap:` against it would resolve to nothing while every step still
     // reported ✓. The route key doubles as the id, so one name identifies the well both ways.
+    let cw = color.clone();
     let well = canvas(move |d, size| {
-        let c = color.get();
+        let c = cw.read();
         let r = Rect::new(0.0, 0.0, size.width, size.height);
         if c.a < 1.0 {
             checkerboard(d, size);
@@ -374,7 +382,7 @@ fn composed_well(
     zstack((
         well,
         cover(open, move |_| {
-            panel(color, alpha, title.clone(), presets.clone(), open)
+            panel(color.clone(), alpha, title.clone(), presets.clone(), open)
         })
         // The panel's ground. `cover` paints this edge-to-edge (under the status bar and home
         // indicator); the emulated tier forces it opaque, so a dim scrim would read as flat gray
@@ -393,8 +401,8 @@ fn composed_well(
 }
 
 /// The presented panel: the card, centered on the cover's surface.
-fn panel(
-    color: Signal<Color>,
+fn panel<C: Binding<Color>>(
+    color: C,
     alpha: bool,
     title: String,
     presets: Vec<Color>,
@@ -403,7 +411,7 @@ fn panel(
     // HSV is the panel's source of truth, not the bound color. Deriving hue from RGB on every
     // change would lose it the moment brightness reached zero (black has no hue), so the sliders
     // would jump back to red as the user dragged into the corner. Seeded once per presentation.
-    let entry = color.get_untracked();
+    let entry = color.peek();
     let (h0, s0, v0) = entry.to_hsv();
     let hue = Signal::new(h0);
     let sat = Signal::new(s0);
@@ -422,7 +430,10 @@ fn panel(
                 if alpha { opacity.get() } else { 1.0 },
             )
         },
-        move |c: &Color, _| color.set(*c),
+        {
+            let color = color.clone();
+            move |c: &Color, _| color.write(*c)
+        },
     );
 
     let current = move || {
@@ -436,7 +447,7 @@ fn panel(
 
     let close = move || open.set(None);
     let cancel = move || {
-        color.set(entry);
+        color.write(entry);
         open.set(None);
     };
 

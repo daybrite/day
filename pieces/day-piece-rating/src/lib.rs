@@ -11,7 +11,6 @@
 
 use day_core::RNode;
 use day_pieces::prelude::*;
-use day_reactive::Signal;
 
 /// The default filled-star tint: a warm gold/amber.
 const GOLD: Color = Color::rgb(1.0, 0.72, 0.0);
@@ -35,8 +34,8 @@ const BADGE_BLUE: Color = Color::hex(0x0A_84_FF);
 /// let stars = Signal::new(3usize);
 /// rating(stars).max(5).star_size(28.0).color(Color::hex(0xFFB800))
 /// ```
-pub struct Rating {
-    value: Signal<usize>,
+pub struct Rating<S: Binding<usize>> {
+    value: S,
     max: u32,
     star_size: f64,
     editable: bool,
@@ -45,7 +44,8 @@ pub struct Rating {
 }
 
 /// Build a [`Rating`] bound two-way to `value` (5 gold, editable, 28-pt stars by default).
-pub fn rating(value: Signal<usize>) -> Rating {
+/// `value` is a `Signal<usize>` or any other two-way binding (a day-model `Field`).
+pub fn rating<S: Binding<usize>>(value: S) -> Rating<S> {
     Rating {
         value,
         max: 5,
@@ -56,7 +56,7 @@ pub fn rating(value: Signal<usize>) -> Rating {
     }
 }
 
-impl Rating {
+impl<S: Binding<usize>> Rating<S> {
     /// How many stars to show (clamped to at least 1; default 5).
     pub fn max(mut self, max: u32) -> Self {
         self.max = max.max(1);
@@ -90,7 +90,7 @@ impl Rating {
     }
 }
 
-impl Piece for Rating {
+impl<S: Binding<usize>> Piece for Rating<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Rating {
             value,
@@ -105,7 +105,7 @@ impl Piece for Rating {
                 // The per-star id goes ON THE CANVAS LEAF (inside `star`), not on the frame wrapper,
                 // so a dayscript `tap prefix:N` reaches the same node the tap handler lives on.
                 let id = id_prefix.as_ref().map(|p| format!("{p}:{}", i + 1));
-                star(i, value, star_size, color, editable, id)
+                star(i, value.clone(), star_size, color, editable, id)
             })
             .collect();
         let stars = row(PieceVec(stars)).spacing((star_size * 0.15).max(2.0));
@@ -118,18 +118,19 @@ impl Piece for Rating {
 
 /// One star: a fixed-size [`canvas`] that fills a 5-point polygon when `index < value`, else strokes
 /// it (an empty outline). Editable stars carry an `on_tap` that sets the signal to `index + 1`.
-fn star(
+fn star<S: Binding<usize>>(
     index: usize,
-    value: Signal<usize>,
+    value: S,
     size: f64,
     color: Color,
     editable: bool,
     id: Option<String>,
 ) -> AnyPiece {
+    let v = value.clone();
     let draw = canvas(move |d, sz| {
         let pts = star_points(sz);
         // Stars 1..=value are filled; `index` is 0-based, so filled when `index < value`.
-        if index < value.get() {
+        if index < v.read() {
             d.fill(Shape::Polygon(pts), color);
         } else {
             let width = (sz.width.min(sz.height) * 0.08).max(1.5);
@@ -146,7 +147,7 @@ fn star(
         None => draw,
     };
     let leaf = if editable {
-        leaf.on_tap(move || value.set(index + 1))
+        leaf.on_tap(move || value.write(index + 1))
     } else {
         leaf
     };

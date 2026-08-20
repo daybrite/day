@@ -61,6 +61,13 @@ pub mod reactive {
 /// reaches for first, and because it is the one part that lives in the reactive layer. It stays
 /// its own crate (`day-part-prefs`), so existing `day_part_prefs::…` paths keep working; this is
 /// the same API under a shorter name. Opt out with `default-features = false`.
+/// The per-property observable store (docs/model.md): `Store`/`Keyed`/`Elem`/`Field`, the
+/// change log, and the `#[derive(Observable)]` accessors' machinery.
+#[cfg(feature = "model")]
+pub mod model {
+    pub use day_model::*;
+}
+
 #[cfg(feature = "prefs")]
 pub mod prefs {
     pub use day_part_prefs::*;
@@ -243,6 +250,15 @@ pub mod prelude {
     pub use day_spec::{FillRule, LineCap, LineJoin, Path, PathSeg, StrokeStyle};
     // SVG path data to a `PathBuilder` chain, at compile time (docs/canvas.md).
     pub use day_macros::build_path;
+    // The observable store (docs/model.md). The crate itself is re-exported by NAME because the
+    // derive's generated code says `day_model::…` — this is what makes `use day::prelude::*`
+    // enough. day-model's own `Path` stays out: the prelude's `Path` is the canvas one.
+    #[cfg(feature = "model")]
+    pub use ::day_model;
+    #[cfg(feature = "model")]
+    pub use ::day_model::{Elem, Field, Keyed, Source, Store};
+    #[cfg(feature = "model")]
+    pub use day_macros::Observable;
     pub use day_spec::Point;
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.

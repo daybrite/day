@@ -57,7 +57,7 @@ pub type DynCallback = Rc<dyn Fn(&[DynValue]) -> DynValue>;
 
 /// A signal bridged across the language boundary. The payload type is fixed at creation
 /// from the initial value (day-lite maps JS bool/number/string onto the typed variants) so
-/// control pieces get the `SignalRw` type they require without adapters.
+/// control pieces get the `Binding` type they require without adapters.
 #[derive(Clone)]
 pub enum DynSignal {
     Bool(Signal<bool>),

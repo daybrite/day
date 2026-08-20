@@ -75,6 +75,7 @@ the architecture-level view and the rationale.
 | accessibility & the a11y audit | [docs/accessibility.md](docs/accessibility.md) | [§13](#13-accessibility) |
 | app lifecycle | [docs/lifecycle.md](docs/lifecycle.md) | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | [docs/async.md](docs/async.md) | [§4.5](#45-async) |
+| observable model — per-property `Store`/`Keyed`/`Elem`/`Field`, `#[derive(Observable)]`, the change log | [docs/model.md](docs/model.md) | [Addendum](#addendum-2026-08-22--day-model-per-property-observation) |
 | tweaks — per-toolkit configuration of built-ins | [docs/tweaks.md](docs/tweaks.md) | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
@@ -134,6 +135,7 @@ section would restate something a `docs/*.md` file owns, point to it instead of 
 - [§23 Risks](#23-risks)
 - [§24 Adversarial review findings and resolutions](#24-adversarial-review-findings-and-resolutions)
 - [Addendum (2026-07-09): Tweaks](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces)
+- [Addendum (2026-08-22): day-model — per-property observation](#addendum-2026-08-22--day-model-per-property-observation)
 
 **Appendices**
 
@@ -315,7 +317,8 @@ scripts), and `day-cli` (the `day` binary).
 
 | crate | contents | depends on |
 |---|---|---|
-| `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `on_main` scheduler hook | — |
+| `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
+| `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
@@ -664,7 +667,7 @@ typed per piece (`Button::style` takes a `ButtonStyle`, `Picker::style` a `Picke
 > `.animation()`. Per-subsystem detail lives in the docs/ files named in the subsystem index.
 
 ```rust
-// text & controls — two-way controls take `impl SignalRw<T>` (Signal<T>, or a projection):
+// text & controls — two-way controls take `impl Binding<T>` (Signal<T>, or a projection):
 label(text)                        // text: impl IntoText — value, Signal<String>, closure, or
                                    //   LocalizedText; styled via .font(Font::Headline) / .color(c)
     .monospace().runs(runs)        //   .runs()/.runs_from(TextBuilder): styled runs in ONE label,
@@ -779,30 +782,40 @@ fn basics_section() -> impl Piece {
 > tracked `get()`/`with()`, `field()` projections, `key()`; keyed diff with per-key scopes,
 > slot writes for surviving keys, debug key-uniqueness assertion), and `each` and `list` share
 > it as designed. The `slot.rw(get, set)` two-way projection and the `.on_edit` write-back hook
-> were **not implemented** — rows that need two-way controls keep signals in app state (or in
-> the items) instead; nothing has needed the projection yet.
+> were **not implemented**, and day-model superseded them (2026-08, [docs/model.md](docs/model.md)): a row
+> binds two-way through the store's own field accessors, as the sample below now shows. A plain
+> `Signal<Vec<T>>` collection still drives the same `each` with one-way `item.field()`
+> projections. Making `ItemSlot` itself a day-model `Source` — so `item.done()` would bind
+> without naming the store — is a candidate follow-up, not shipped.
 
 **Resolved (DP-16: unified).** `each` and the native-recycling `list` ([§10](#10-native-list-integration)) share **one item
 contract**: the builder receives an **`ItemSlot<T>`**, never the item by value. The same row
 function serves both, so moving a collection from `each` to `list` is a one-word change.
 
 ```rust
-let todos: Signal<Vec<Todo>> = Signal::new(vec![]);        // plain data; Todo: Clone
+#[derive(Observable, Clone, Default, PartialEq)]
+struct Todo { #[obs(key)] id: u64, title: String, done: bool }
+
+let todos: Store<Keyed<Todo>> = Store::new(Keyed::default());   // per-property (docs/model.md)
 
 column((
-    each(move || todos.get(), |t| t.id, move |item: ItemSlot<Todo>| {
+    each(move || todos.keys(), |k| *k, move |item: ItemSlot<u64, u64>| {
+        let todo = todos.elem(item.key());
         row((
-            toggle(item.rw(|t| t.done, |t, v| t.done = v)),   // two-way via SignalRw (§5.3)
-            label(move || item.field(|t| t.title.clone())),   // per-field memoized projection
+            toggle(todo.done()),                       // two-way: a day-model Field IS a Binding (§5.3)
+            label(move || todo.title().read()),        // wakes only for THIS row's `title`
             spacer(),
             button(icon("close"))
-                .action(move || todos.update(|v| v.retain(|t| t.id != item.key())))
+                .action(move || todos.restructure("remove", Op::Delete, item.key(), |v| {
+                    v.remove(item.key());
+                }))
                 .a11y(|a| a.label(tr("todo-remove")))
-                .id_keyed("todo-remove", item.key()),         // stable per-item id (§5.5)
+                .id_keyed("todo-remove", item.key()),  // stable per-item id (§5.5)
         )).spacing(6.0)
-    })
-    .on_edit(move |key, todo: &Todo| sync_to_model(key, todo)),   // optional write-back hook
+    }),
 ))
+// `keys()` is the SHAPE read: a field edit re-runs no items closure and rebuilds no rows —
+// only the one control bound to the edited field patches.
 ```
 
 Semantics (identical for `list`):
@@ -819,17 +832,19 @@ Semantics (identical for `list`):
 - Value changes therefore **propagate automatically**: mutate the source
   (`todos.update(…)`) and every affected row updates fine-grained — the silent-staleness hole of
   a captured-by-value item cannot exist.
-- Two-way controls use `slot.rw(get, set)`: a write applies to the slot's value immediately (the
-  collection row is a controlled component, [§4.4](#44-events-and-controlled-inputs)) and fires the collection's `.on_edit(key, &T)`
-  hook so the app writes it back to its source of truth; if the source later re-runs with a
-  different value for that key, **the source wins**.
+- Two-way controls bind through a day-model field accessor
+  (`toggle(todos.elem(slot.key()).done())`, [docs/model.md](docs/model.md)): the write lands in the store,
+  the change log carries it, and every reader — this row's control included — follows from the
+  store's own notification. The designed `slot.rw(get, set)` + `.on_edit(key, &T)` write-back
+  protocol was never needed and did not ship.
 - Debug builds **assert key uniqueness** per diff, panicking with the duplicate key and `each`'s
   creation site (floem's `dyn_stack` corrupts silently on duplicates).
 - Reactive *structure* inside a row still uses `when`/`piece_dyn` — deriving structure from
   `slot.get()` in plain Rust freezes at first bind (the [§10.1](#101-api--the-shared-itemslot-contract-unified-with-each--dp-16-resolved) trap; same rule here, same lint).
-- `Store<K, T>` ([§4.3](#43-scopes-and-disposal)) remains the model-layer keyed state container; `each_store(store, build)`
-  is a thin adapter (keys from the store, slots fed from its per-key state). Items whose `T`
-  carries `Signal` handles remain legal, but plain data + slots is the blessed default.
+- The keyed model-layer container that shipped is day-model's `Store<Keyed<T>>`
+  ([docs/model.md](docs/model.md)) — the design-era `Store<K, T>`/`each_store` adapter pair never did
+  ([§4.3](#43-scopes-and-disposal)). Items whose `T` carries `Signal` handles remain legal, and plain data + slots
+  stays the blessed default for view-local collections.
 
 ### §5.5 Node identity, ids, and the element index
 
@@ -1622,7 +1637,8 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > `Toolkit::attach_list(host, ListSource)` rather than the sketched `ListHost` object — the
 > host pulls `len`/`bind_row` through the `ListSource`, and the mock/walkthrough tests assert
 > recycled cells rebind with a slot write, not a rebuild. Qt's emulated recycling shipped as
-> designed (DP-19). The `rw`/`.on_edit` two-way projections did not ship ([§5.4](#54-keyed-collections-each)).
+> designed (DP-19). The `rw`/`.on_edit` two-way projections did not ship ([§5.4](#54-keyed-collections-each));
+> day-model field accessors are the shipped two-way path ([docs/model.md](docs/model.md)).
 > **Drag-to-reorder shipped** (2026-08): `ListProps::reorderable` + the `ListSource::reorder`
 > sync seam (`can_move` guard verdict / `move_row` commit), the piece API
 > (`.reorderable/.on_reorder/.reorder_guard`), `Cap::ListReorder`, and the dayscript `reorder`
@@ -1648,11 +1664,13 @@ can never be swapped later — recycling would be a rebuild). The builder receiv
 collection from `scroll(column(each(…)))` to `list` is a one-word change):
 
 ```rust
-list(move || messages.get(), |m| m.id, move |row: ItemSlot<Message>| {
+// `messages` is a day-model store (docs/model.md); `rows()` is the app's ordered projection.
+list(rows, |m: &Message| m.id, move |row: ItemSlot<Message, u64>| {
+    let msg = messages.elem(row.key());
     column((
-        label(move || row.field(|m| m.sender.clone())),   // per-field memoized projection
+        label(move || row.field(|m| m.sender.clone())),   // one-way, from the recycled slot
         label(move || row.field(|m| m.preview.clone())),
-        toggle(row.rw(|m| m.starred, |m, v| m.starred = v)),  // SignalRw projection (§5.3, §5.4)
+        toggle(msg.starred()),                            // two-way, through the store (§5.3)
     ))
 })
 .row_height(RowHeight::Uniform(56.0))     // or ::Automatic (self-sizing, slower)
@@ -1661,8 +1679,8 @@ list(move || messages.get(), |m| m.id, move |row: ItemSlot<Message>| {
 ```
 
 All `ItemSlot` semantics are as specified in [§5.4](#54-keyed-collections-each) (Copy handle, tracked `get()`,
-equality-gated `field()` projections, `rw` + `.on_edit` write-back, key-uniqueness assert, the
-structure-from-`get()` trap and its lint). `list` adds `.row_kind`, mapping to the host's native
+equality-gated `field()` projections, two-way binding through a day-model field accessor,
+key-uniqueness assert, the structure-from-`get()` trap and its lint). `list` adds `.row_kind`, mapping to the host's native
 reuse identifiers (one pool per kind; default single kind).
 
 ### §10.2 Realization: the RowHost protocol
@@ -4062,6 +4080,45 @@ Mechanism (implemented; [docs/tweaks.md](docs/tweaks.md) is normative):
 - Boundaries: main-thread only; never destroy/reparent; managed properties (title, value,
   enabled, frame, a11y) may be re-applied by Day and are NOT tweak-stable; unmanaged properties
   are. Packaged tweaks must document per-toolkit coverage and no-op silently elsewhere.
+
+---
+
+## Addendum (2026-08-22) — day-model: per-property observation
+
+Adopted as phase 1 of the observation-and-persistence plan (owner-ratified in dialog, 2026-08-19
+– 2026-08-22): a store whose writes wake only the readers of the field that changed, closing the
+compute waste a coarse `Signal<Vec<T>>` pays on every keystroke. [docs/model.md](docs/model.md) is normative.
+
+What shipped, and where:
+
+- **`crates/day-model`** — `Store`/`Keyed`/`Elem`/`Field` over interned paths and lazily created
+  `Trigger`s. Reads track the most specific path touched; writes notify that path and its
+  ancestors. Triggers are refcounted by observing scope; interner slots by their triggers and
+  children; both reclaim, and a stale `Copy` handle re-interns through its own chain on next use.
+  The change log announces `(components, label, op)` per write, with prior/new values captured
+  when a consumer asks — the persistence layer's input later, a headless test seam today.
+- **`#[derive(Observable)]`** joined `build_path!` in day-macros (same no-syn construction):
+  typed accessors on every `Source` of the struct, `Identified` from the always-explicit
+  `#[obs(key)]`, `#[obs(skip)]` opt-out.
+- **The two-way binding trait moved down** from day-pieces to day-reactive and took its shipped
+  name in the same pass: `Binding`, with `read`/`write`/`peek` replacing the historical
+  `get_rw`/`set_rw`/`get_untracked_rw` surface (no deprecated aliases — one sweep). A re-export
+  stays in day-pieces; day-model implements it for `Field`, and every dependency points downward.
+- **Six constructors widened** from `Signal<T>` to `impl Binding<T>`: `picker`, `text_area`,
+  and the four external pieces (`date_picker`, `rating`, `color_picker`, `search_field`) —
+  additive, so existing `Signal` call sites compile unchanged.
+- **The facade** grew an off-by-default `model` feature; the prelude re-exports the API and the
+  `day_model` crate name the derive's generated code resolves against.
+- **The scaffold's editor** ([§17](#17-the-conventional-day-project-and-daytoml)) now binds each form control to a field accessor
+  directly — the three-names-per-property plumbing (a `Signal`, a `watch` write-back, the
+  control) collapsed to one — and the model file persists through one coarse `watch`.
+
+Decisions recorded with their rationale in [docs/model.md](docs/model.md): deleted-row reads return `Default`
+beside a tracked `exists()`; `Store::new` leaks and the handle stays `Copy` (the
+`Signal::global` precedent — a scoped owner arrives with the persistence container);
+announcement of background transactions stays an explicit `pump()` until that container exists.
+`Signal<T>` is unchanged throughout, and an app can hold both. Part II of the plan
+(day-persistence) is designed but not adopted; nothing here presumes it.
 
 ---
 

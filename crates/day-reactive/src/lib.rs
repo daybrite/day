@@ -1291,6 +1291,36 @@ impl Default for Trigger {
 }
 
 // ---------------------------------------------------------------------------
+// Two-way binding surface (§5.3)
+// ---------------------------------------------------------------------------
+
+/// A readable-writable value a control can bind to two-way: a `Signal`, or any projection that
+/// knows how to read and write its own slot (day-model's `Field` is the other implementor).
+///
+/// The trait lives here rather than in day-pieces so a store crate can implement it without
+/// depending on the piece vocabulary; day-pieces re-exports it, so piece code sees no move.
+pub trait Binding<T: 'static>: Clone + 'static {
+    /// Tracked read: the current value, subscribing the running computation to changes.
+    fn read(&self) -> T;
+    /// Untracked read: the current value, subscribing nothing (the reactive world's "peek").
+    fn peek(&self) -> T;
+    /// Write the value, waking whatever tracks it.
+    fn write(&self, v: T);
+}
+
+impl<T: Clone + 'static> Binding<T> for Signal<T> {
+    fn read(&self) -> T {
+        self.get()
+    }
+    fn peek(&self) -> T {
+        self.get_untracked()
+    }
+    fn write(&self, v: T) {
+        self.set(v);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Async data loading: Load + Resource (§4.5, docs/async.md)
 // ---------------------------------------------------------------------------
 

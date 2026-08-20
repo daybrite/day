@@ -1,0 +1,22 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "day-model"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Per-property observable store: paths, triggers, the change log, and Field bindings."
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+day-reactive = { workspace = true }
+
+[dev-dependencies]
+day-macros = { path = "../day-macros", version = "=0.2.5" }
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-spec = { workspace = true }
+day-mock = { workspace = true }

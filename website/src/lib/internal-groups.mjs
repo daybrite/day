@@ -47,6 +47,7 @@ export const groups = [
       ['accessibility', 'roles, per-backend attribute mapping, the audit'],
       ['lifecycle', 'app phases and their per-platform availability'],
       ['async', 'tasks, resources, and the runtime rules'],
+      ['model', 'the per-property observable store and the Observable derive'],
       ['resources', 'asset packaging and the zero-copy runtime path'],
       ['vectors', 'resolution-independent SVG glyphs and the `vector` piece'],
       ['color', 'the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it'],

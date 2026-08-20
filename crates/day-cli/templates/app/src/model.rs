@@ -1,27 +1,27 @@
 //! The app's domain object and its store.
 //!
-//! Everything the UI shows is a projection of ONE signal — `items()` — so no page owns state and
-//! no page has to tell another that something changed. Editing a field writes the signal; the
-//! list, the row badge, and the editor all follow because they read it
-//! (https://daybrite.dev/docs/state).
+//! Everything the UI shows is a projection of ONE store — `items()` — so no page owns state and
+//! no page has to tell another that something changed. The store is observable PER PROPERTY
+//! (https://daybrite.dev/docs/model): `#[derive(Observable)]` turns every field of [`Item`] into
+//! a typed accessor, and `items().elem(id).name()` is a two-way binding a `text_field` takes
+//! directly — the editor needs no draft signals and no write-back plumbing. Editing a name wakes
+//! exactly the readers of that name; the list re-runs only when the collection's SHAPE changes.
 //!
 //! Persistence is deliberately boring: the whole list is one JSON blob under one `day::prefs`
-//! key. That is enough for a starter, survives an Android process death (prefs is disk-backed),
-//! and is the piece you are most likely to replace first — swap `load`/`flush` for your database
-//! and nothing above this file changes.
-//!
-//! Writes are DEFERRED. The signal is the live copy and every edit updates it immediately; the
-//! blob is re-serialized only when the app is leaving (background, resign, terminate). Saving on
-//! each mutation means serializing the whole list on every keystroke, which is work proportional
-//! to the list for a change of one character.
+//! key, written by one coarse subscription in [`load`]. That is enough for a starter, survives
+//! an Android process death (prefs is disk-backed), and is the piece you are most likely to
+//! replace first — swap `load`/`save` for your database and nothing above this file changes.
 
+use day::model::Op;
 use day::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// One row. `id` is stable across reorders and edits, which is what the list keys on and what a
-/// route segment carries — never the index, which changes the moment a row moves.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+/// One row. `id` is stable across reorders and edits: the list keys on it, a route segment
+/// carries it, and `#[obs(key)]` makes it the key an `elem(id)` handle addresses — never the
+/// index, which changes the moment a row moves.
+#[derive(Observable, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Item {
+    #[obs(key)]
     pub id: u32,
     pub name: String,
     pub count: i64,
@@ -46,22 +46,19 @@ const SHOW_DONE_KEY: &str = "app.show_done";
 const SEED_COUNT: u32 = 100;
 
 thread_local! {
-    // `Signal::global`, NOT `Signal::new`. A lazily-initialized global is created inside whatever
-    // scope first touches it — a pushed page, a `when` arm, a tab — and dies with that scope, so
-    // every later read panics. `global` allocates it in the root scope instead, which is what an
-    // app-wide store needs (https://daybrite.dev/docs/state).
-    static ITEMS: Signal<Vec<Item>> = Signal::global(Vec::new());
+    // A `Store` handle is `Copy` and process-lifetime, like `Signal::global`: created inside
+    // whatever scope first touches it, it does NOT die with that scope, which is what an
+    // app-wide store needs (https://daybrite.dev/docs/model).
+    static ITEMS: Store<Keyed<Item>> = Store::new(Keyed::default());
     /// Whether finished items are listed at all. A VIEW preference rather than data, but it is
     /// persisted all the same — a filter the user has to re-apply on every launch is a filter
     /// they stop using.
     static SHOW_DONE: Signal<bool> = Signal::global(true);
-    /// Whether the list has changed since it was last written.
-    static DIRTY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// The one signal every page reads. Tracked, so a list rebinds and an editor field updates
-/// whenever anything writes it.
-pub(crate) fn items() -> Signal<Vec<Item>> {
+/// The one store every page reads. Reads track what they touch: a field binding follows its own
+/// field, `ordered()` follows the whole collection, and neither wakes for the other's changes.
+pub(crate) fn items() -> Store<Keyed<Item>> {
     ITEMS.with(|s| *s)
 }
 
@@ -74,55 +71,41 @@ pub(crate) fn load() {
     let saved = day::prefs::get(STORE_KEY)
         .and_then(|s| serde_json::from_str::<Vec<Item>>(&s).ok())
         .filter(|v| !v.is_empty());
-    items().set(saved.unwrap_or_else(seed));
+    items().update("load", |k| *k = Keyed::new(saved.unwrap_or_else(seed)));
     show_done().set(
         day::prefs::get(SHOW_DONE_KEY)
             .map(|v| v != "0")
             .unwrap_or(true),
     );
     // Persist the filter on every change, so it is one `watch` rather than a write at each of
-    // the three places that can flip it (the toolbar, the menu, and a restored launch). One
-    // character, not a list — cheap enough to write as it happens.
+    // the three places that can flip it (the toolbar, the menu, and a restored launch).
     watch(
         move || show_done().get(),
         |v, _| {
             day::prefs::set(SHOW_DONE_KEY, if *v { "1" } else { "0" });
         },
     );
-    // The list itself is written when the app is on its way out. `WillResignActive` covers the
-    // desktops, which never background; the two mobile phases cover a process the OS may kill
-    // without a further word. Registering all four is deliberate — a phase a backend does not
-    // deliver simply never fires (https://daybrite.dev/docs/lifecycle).
-    for phase in [
-        Lifecycle::WillResignActive,
-        Lifecycle::DidEnterBackground,
-        Lifecycle::WillTerminate,
-        Lifecycle::DidReceiveMemoryWarning,
-    ] {
-        on_lifecycle(phase, flush);
-    }
+    // Persist the list the same way: ONE coarse subscription instead of a save call at every
+    // write site. The tracked whole-store read wakes for any field write, insert, delete or
+    // reorder — precision is something a reader opts OUT of by reading coarsely — and the
+    // version number is the cheap value `watch` diffs.
+    let store = items();
+    watch(
+        move || {
+            store.with(|_| {});
+            store.version()
+        },
+        move |_, _| save(),
+    );
 }
 
-/// Write the list out if anything has changed since the last write.
-///
-/// Public because a real app has more moments worth saving at than a starter does — a sync
-/// button, a document close, an autosave timer — and they all want this one call.
-pub(crate) fn flush() {
-    if !DIRTY.with(|d| d.replace(false)) {
-        return;
-    }
-    if let Ok(json) = serde_json::to_string(&items().get_untracked()) {
+/// Write the list back. Registered once in [`load`], so persistence is not something a write
+/// site can forget.
+fn save() {
+    let json = items().with_untracked(|k| serde_json::to_string(k.items()));
+    if let Ok(json) = json {
         day::prefs::set(STORE_KEY, &json);
     }
-}
-
-/// Apply a change to the list and mark it for the next [`flush`].
-///
-/// Every mutation below funnels through here, so nothing can change the list without the app
-/// knowing it has to be written.
-pub(crate) fn update(f: impl FnOnce(&mut Vec<Item>)) {
-    items().update(f);
-    DIRTY.with(|d| d.set(true));
 }
 
 /// Rows as the list shows them: finished ones first, optionally hidden altogether, each group
@@ -133,42 +116,41 @@ pub(crate) fn update(f: impl FnOnce(&mut Vec<Item>)) {
 /// own copy would hand `on_reorder` an index the model could not resolve.
 pub(crate) fn ordered() -> Vec<Item> {
     let show = show_done().get();
-    let mut v: Vec<Item> = items()
-        .get()
-        .into_iter()
-        .filter(|i| show || !i.done)
-        .collect();
+    let mut v: Vec<Item> = items().with(|k| {
+        k.map(|k| {
+            k.items()
+                .iter()
+                .filter(|i| show || !i.done)
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+    });
     // A STABLE sort, so the user's own order survives inside each group.
     v.sort_by_key(|i| !i.done);
     v
 }
 
 pub(crate) fn find(id: u32) -> Option<Item> {
-    items().get().into_iter().find(|i| i.id == id)
-}
-
-/// Edit one item in place by id.
-pub(crate) fn edit(id: u32, f: impl FnOnce(&mut Item)) {
-    update(|v| {
-        if let Some(it) = v.iter_mut().find(|i| i.id == id) {
-            f(it);
-        }
-    });
+    items().with(|k| k.and_then(|k| k.get(id as u64).cloned()))
 }
 
 pub(crate) fn remove(id: u32) {
-    update(|v| v.retain(|i| i.id != id));
+    items().restructure("remove", Op::Delete, id as u64, |k| {
+        k.remove(id as u64);
+    });
 }
 
 pub(crate) fn toggle_done(id: u32) {
-    edit(id, |i| i.done = !i.done);
+    // A field write through the same accessor the editor binds — one path for every writer.
+    items().elem(id as u64).done().update(|d| *d = !*d);
 }
 
 /// Append a fresh row and answer its id, so the caller can drill straight into its editor.
 pub(crate) fn add() -> u32 {
-    let id = items().get().iter().map(|i| i.id).max().unwrap_or(0) + 1;
-    update(|v| {
-        v.push(Item {
+    let id = items().with_untracked(|k| k.items().iter().map(|i| i.id).max().unwrap_or(0)) + 1;
+    items().restructure("add", Op::Insert, id as u64, |k| {
+        k.push(Item {
             id,
             name: String::new(),
             count: 1,
@@ -184,7 +166,7 @@ pub(crate) fn add() -> u32 {
 }
 
 /// Move row `from` to row `to` in the UNDERLYING list. The list hands us DISPLAY indices, which
-/// differ from storage order whenever a favorite has floated to the top — so both ends are
+/// differ from storage order whenever a finished item has floated to the top — so both ends are
 /// resolved back to ids before anything moves.
 pub(crate) fn move_row(from: usize, to: usize) {
     let display = ordered();
@@ -192,15 +174,14 @@ pub(crate) fn move_row(from: usize, to: usize) {
         return;
     };
     let (a, b) = (a.id, b.id);
-    update(|v| {
+    items().restructure("move", Op::Move, a as u64, |k| {
         let (Some(i), Some(j)) = (
-            v.iter().position(|x| x.id == a),
-            v.iter().position(|x| x.id == b),
+            k.items().iter().position(|x| x.id == a),
+            k.items().iter().position(|x| x.id == b),
         ) else {
             return;
         };
-        let it = v.remove(i);
-        v.insert(j, it);
+        k.move_item(i, j);
     });
 }
 

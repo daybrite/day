@@ -505,6 +505,7 @@ dependencies = [
  "day-gtk",
  "day-macros",
  "day-mock",
+ "day-model",
  "day-part-prefs",
  "day-pieces",
  "day-qt",
@@ -727,6 +728,18 @@ version = "0.2.5"
 name = "day-mock"
 version = "0.2.5"
 dependencies = [
+ "day-spec",
+]
+
+[[package]]
+name = "day-model"
+version = "0.2.5"
+dependencies = [
+ "day-core",
+ "day-macros",
+ "day-mock",
+ "day-pieces",
+ "day-reactive",
  "day-spec",
 ]
 
