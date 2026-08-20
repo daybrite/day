@@ -1613,15 +1613,12 @@ fn ns_badges(badges: &[Option<String>]) -> Vec<Option<Retained<NSString>>> {
 /// reliable way to realize rows without a draw pass (§10; see the Reload patch for why).
 fn post_realize_visible_rows(key: usize) {
     <AppKit as Platform>::post(Box::new(move || {
-        LIST_STATE.with(|m| {
-            if let Some((table, _)) = m.borrow().get(&key) {
-                let range = unsafe { table.rowsInRect(table.visibleRect()) };
-                for row in range.location..range.location + range.length {
-                    let _ =
-                        unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
-                }
+        if let Some((table, _)) = list_entry(key) {
+            let range = unsafe { table.rowsInRect(table.visibleRect()) };
+            for row in range.location..range.location + range.length {
+                let _ = unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
             }
-        });
+        }
         // The builds above queued their styling effects; drain them now — outside the pump, no
         // event may arrive for a while (idle app), and a snapshot would capture bare rows.
         day_core::pump_events();
@@ -2010,6 +2007,16 @@ type ListEntry = (Retained<NSTableView>, Retained<DayListData>);
 
 thread_local! {
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+}
+
+/// Clone a list's (table, data) out of `LIST_STATE` under a SHORT borrow. Every caller then
+/// talks to AppKit with the map free: table calls that look innocuous (`endUpdates`, a scroll's
+/// tiling, `viewAtColumn:row:makeIfNecessary:`, even `layoutSubtreeIfNeeded`) can synchronously
+/// re-enter `viewForRow` → `bind_row` → a flush that tears nodes down — and `release` must be
+/// able to take its own borrow at that depth. Holding the map across any of them was the
+/// "RefCell already borrowed" contained panic every list walkthrough used to log, 24 a run.
+fn list_entry(key: usize) -> Option<ListEntry> {
+    LIST_STATE.with(|m| m.borrow().get(&key).cloned())
 }
 
 /// A realized NAV_MENU's native outline view paired with its data-source object.
@@ -4059,27 +4066,25 @@ impl Toolkit for AppKit {
             }
             kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                 Some(ListPatch::Reload) => {
-                    LIST_STATE.with(|m| {
-                        if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
-                            // A reload whose rows are the SAME set in a new order (a shuffle,
-                            // a programmatic sort) animates as native row moves instead of a
-                            // blink — `moveRowAtIndex` batch, the same animation a drag commit
-                            // gets. Anything else (insert/remove/content change) reloads flat.
-                            // reloadData queries numberOfRows synchronously (snapshot only, no
-                            // tree) and defers viewForRow, so both paths are safe in with_tree.
-                            if let Some(moves) = data.permutation_moves(table) {
-                                unsafe {
-                                    table.beginUpdates();
-                                    for (from, to) in moves {
-                                        table.moveRowAtIndex_toIndex(from as isize, to as isize);
-                                    }
-                                    table.endUpdates();
+                    if let Some((table, data)) = list_entry(ptr_of(h)) {
+                        // A reload whose rows are the SAME set in a new order (a shuffle,
+                        // a programmatic sort) animates as native row moves instead of a
+                        // blink — `moveRowAtIndex` batch, the same animation a drag commit
+                        // gets. Anything else (insert/remove/content change) reloads flat.
+                        // reloadData queries numberOfRows synchronously (snapshot only, no
+                        // tree) and defers viewForRow, so both paths are safe in with_tree.
+                        if let Some(moves) = data.permutation_moves(&table) {
+                            unsafe {
+                                table.beginUpdates();
+                                for (from, to) in moves {
+                                    table.moveRowAtIndex_toIndex(from as isize, to as isize);
                                 }
-                            } else {
-                                unsafe { table.reloadData() };
+                                table.endUpdates();
                             }
+                        } else {
+                            unsafe { table.reloadData() };
                         }
-                    });
+                    }
                     // Realize the visible rows on the next main-loop turn, outside this borrow.
                     // An occluded window (locked screen, covered, headless CI) gets no normal
                     // draw pass — NSTableView would first realize these rows inside a snapshot's
@@ -4092,16 +4097,12 @@ impl Toolkit for AppKit {
                     // synchronously, which must happen outside this `with_tree` borrow.
                     let (key, row) = (ptr_of(h), *row);
                     <AppKit as Platform>::post(Box::new(move || {
-                        LIST_STATE.with(|m| {
-                            if let Some((table, _)) = m.borrow().get(&key) {
-                                let rows = unsafe { table.numberOfRows() };
-                                if rows > 0 {
-                                    unsafe {
-                                        table.scrollRowToVisible((row as isize).min(rows - 1))
-                                    };
-                                }
+                        if let Some((table, _)) = list_entry(key) {
+                            let rows = unsafe { table.numberOfRows() };
+                            if rows > 0 {
+                                unsafe { table.scrollRowToVisible((row as isize).min(rows - 1)) };
                             }
-                        });
+                        }
                     }));
                     post_realize_visible_rows(ptr_of(h));
                 }
@@ -4112,14 +4113,12 @@ impl Toolkit for AppKit {
                     // cache blank cells for every newly exposed row (see Reload above).
                     let key = ptr_of(h);
                     <AppKit as Platform>::post(Box::new(move || {
-                        LIST_STATE.with(|m| {
-                            if let Some((table, _)) = m.borrow().get(&key) {
-                                let rows = unsafe { table.numberOfRows() };
-                                if rows > 0 {
-                                    unsafe { table.scrollRowToVisible(rows - 1) };
-                                }
+                        if let Some((table, _)) = list_entry(key) {
+                            let rows = unsafe { table.numberOfRows() };
+                            if rows > 0 {
+                                unsafe { table.scrollRowToVisible(rows - 1) };
                             }
-                        });
+                        }
                     }));
                     // ...and realize whatever the scroll exposed, still outside the borrow.
                     post_realize_visible_rows(ptr_of(h));
@@ -4127,23 +4126,21 @@ impl Toolkit for AppKit {
                 Some(ListPatch::Selected(rows)) => {
                     // Programmatic selection sync (empty = clear) — suppressed, so the
                     // delegate does not echo it back as a selection event.
-                    LIST_STATE.with(|m| {
-                        if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
-                            data.ivars().suppress.set(true);
-                            unsafe {
-                                if rows.is_empty() {
-                                    table.deselectAll(None);
-                                } else {
-                                    let set = objc2_foundation::NSMutableIndexSet::new();
-                                    for r in rows {
-                                        set.addIndex(*r);
-                                    }
-                                    table.selectRowIndexes_byExtendingSelection(&set, false);
+                    if let Some((table, data)) = list_entry(ptr_of(h)) {
+                        data.ivars().suppress.set(true);
+                        unsafe {
+                            if rows.is_empty() {
+                                table.deselectAll(None);
+                            } else {
+                                let set = objc2_foundation::NSMutableIndexSet::new();
+                                for r in rows {
+                                    set.addIndex(*r);
                                 }
+                                table.selectRowIndexes_byExtendingSelection(&set, false);
                             }
-                            data.ivars().suppress.set(false);
                         }
-                    });
+                        data.ivars().suppress.set(false);
+                    }
                 }
                 // NSTableView has no per-row invalidation seam here: a row keeps its height
                 // until the next Reload. `None` = a patch for another kind's enum.
@@ -4569,23 +4566,19 @@ impl Toolkit for AppKit {
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {
         let key = ptr_of(host);
-        LIST_STATE.with(|m| {
-            if let Some((table, data)) = m.borrow().get(&key) {
-                data.ivars().source.replace(Some(source));
-                // Initial fill: numberOfRows reads the snapshot only; viewForRow is deferred.
-                unsafe { table.reloadData() };
-            }
-        });
+        if let Some((table, data)) = list_entry(key) {
+            data.ivars().source.replace(Some(source));
+            // Initial fill: numberOfRows reads the snapshot only; viewForRow is deferred.
+            unsafe { table.reloadData() };
+        }
         // Force the table to realize its visible row views on the NEXT main-loop turn — OUTSIDE
         // any `with_tree` borrow — so `viewForRow`/`bind_row` build the cells then. Otherwise a
         // headless CI window never lays the table out until a snapshot's `cacheDisplayInRect`
         // forces it *inside* the snapshot borrow, where `bind_row` must skip (blank rows).
         <AppKit as Platform>::post(Box::new(move || {
-            LIST_STATE.with(|m| {
-                if let Some((table, _)) = m.borrow().get(&key) {
-                    unsafe { table.layoutSubtreeIfNeeded() };
-                }
-            });
+            if let Some((table, _)) = list_entry(key) {
+                unsafe { table.layoutSubtreeIfNeeded() };
+            }
         }));
     }
 
