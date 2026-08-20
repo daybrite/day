@@ -85,6 +85,27 @@ cargo fmt --all -- --check || {
     exit 1
 }
 
+# …and clippy-clean, on the same reasoning: a user's first `cargo clippy` should be quiet, and
+# every app scaffolded from this template runs nearly this command in its own CI — the shared
+# `build-day-app` preflight is `cargo clippy --workspace --all-targets -- -D warnings`. Without
+# this gate the template's lints are found by the GENERATED repositories rather than here, which
+# is how `tr(*k)` (an explicit deref clippy does for you) reached Day-Rise's preflight.
+#
+# `--features mock` where that preflight passes none, because it runs on Linux and this runs
+# wherever the combo does: the scaffold declares no default feature, so with none the `day`
+# facade compiles without a backend — fine on Linux, where `macos_main!` expands to nothing, and
+# a `cannot find function launch` error on macOS, where it does not. `mock` gives it a backend on
+# every host. The app's own code is backend-independent, so the lints are the same either way.
+#
+# It compiles the framework, which the pack stage below then reuses from the same target dir, so
+# the real added cost is the lint pass rather than a second build.
+cargo clippy --workspace --all-targets --features mock -- -D warnings || {
+    echo "the scaffold's Rust is not clippy-clean — fix the TEMPLATE:" >&2
+    echo "  day/crates/day-cli/templates/app/src/…" >&2
+    echo "  (every app `day new` emits runs this exact command in its own preflight)" >&2
+    exit 1
+}
+
 # store-placeholder is the one finding a fresh scaffold is meant to have: the listing text stays a
 # TODO until a human writes it, and the lint exists to stop that text reaching a store. Every other
 # code has to be clear, and --strict turns any of them into a failure.

@@ -358,7 +358,7 @@ fn editor(id: u32) -> AnyPiece {
         section((
             labeled(
                 res::str::field_kind(),
-                picker(KINDS.iter().map(|k| tr(*k).format()), kind)
+                picker(KINDS.iter().map(|k| tr(k).format()), kind)
                     .segmented()
                     .id("field-kind"),
             ),
