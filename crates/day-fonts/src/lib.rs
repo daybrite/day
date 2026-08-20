@@ -101,9 +101,16 @@ pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
         let (decoded, score) = match platform {
             // Windows (3) and Unicode (0): UTF-16BE. American English first among Windows.
             3 | 0 => {
+                // `as_chunks::<2>` rather than `chunks_exact(2)`: it yields `&[u8; 2]`, which
+                // `from_be_bytes` takes directly — no rebuilding the pair by index, and no bounds
+                // check on a length the type already carries. `.1` is the odd trailing byte of a
+                // malformed record, which a UTF-16 decode has nothing to do with, so it is dropped
+                // exactly as `chunks_exact` dropped it.
                 let units: Vec<u16> = bytes
-                    .chunks_exact(2)
-                    .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| u16::from_be_bytes(*c))
                     .collect();
                 let s = String::from_utf16_lossy(&units);
                 let score = if platform == 3 && language == 0x0409 {
