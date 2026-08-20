@@ -250,6 +250,19 @@ fn write_patch(project: &Project, checkout: &Path) -> Result<usize, String> {
         "Patched",
         &format!("{} ({written} crate(s))", path.display()),
     );
+    // The config file itself is gitignored, but its EFFECT on Cargo.lock is not: the next cargo
+    // command rewrites the lock to record these paths, dropping the `source` line from every day
+    // crate. Committed, that lock describes a machine nobody else has — it cannot be resolved, and
+    // `cargo update -p day` cannot even find a `day` package in it. Said here because the rewrite
+    // happens silently, on the next build, long after this command has scrolled away.
+    if project.root.join("Cargo.lock").exists() {
+        status(
+            "Note",
+            "cargo will rewrite Cargo.lock to point at this checkout — do not commit it while \
+             patched (`git checkout -- Cargo.lock` before committing, or delete .cargo/config.toml \
+             and regenerate the lock)",
+        );
+    }
     Ok(written)
 }
 
