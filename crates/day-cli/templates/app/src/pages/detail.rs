@@ -128,6 +128,12 @@ fn stepper(value: impl Binding<i64> + Copy) -> AnyPiece {
 
 /// Stored ISO string → the date piece's own type. Malformed values fall back to today: the field
 /// is user data.
+//
+// `&String`, not `&str`, and clippy's ptr_arg is wrong about it here: this is handed to
+// `Mapped::map(to: fn(&V) -> U, from: fn(&U) -> V)` as a FUNCTION POINTER, so its type has to be
+// exactly `fn(&String) -> _` to match the field's `V = String`. Deref coercion applies to calls,
+// not to fn-pointer types, so taking `&str` does not compile at the call site below.
+#[allow(clippy::ptr_arg)]
 fn date_of(s: &String) -> day_piece_datetime::DayDate {
     day_piece_datetime::DayDate::parse_iso(s).unwrap_or_else(day_piece_datetime::DayDate::today)
 }
@@ -138,6 +144,8 @@ fn iso_of(d: &day_piece_datetime::DayDate) -> String {
 
 /// `#RRGGBB` → color. Malformed values fall back rather than failing, same reason. Also used by
 /// the list rows' kind glyph, which tints with the same color this editor's well sets.
+// `&String` for the same reason as `date_of` above: a `Mapped::map` fn pointer over `V = String`.
+#[allow(clippy::ptr_arg)]
 pub(crate) fn color_of(s: &String) -> Color {
     let h = s.trim_start_matches('#');
     u32::from_str_radix(h, 16)
