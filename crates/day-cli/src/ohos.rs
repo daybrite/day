@@ -485,6 +485,17 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
 
     let before =
         std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
+    // Nothing to manage and no region yet: leave the file alone rather than stamping an empty one
+    // in. Materializing it would rewrite a file the scaffold ships and the app has not touched,
+    // which fails the pristine check every packing job runs — the artifact has to be rebuildable
+    // from its commit, and a build that edits tracked files means it is not. An app that already
+    // HAS a region still falls through, so removing the last permission still empties it.
+    if entries.is_empty() && !before.contains("// day:permissions-begin") {
+        return write_ohos_reason_strings(
+            project,
+            &crate::permissions::ohos_reason_strings(&plan, &project.manifest),
+        );
+    }
     let with_region = crate::json5::ensure_region(&before, "requestPermissions", "permissions")?;
     let after = crate::json5::replace_region(&with_region, "permissions", &body)
         .ok_or_else(|| format!("{}: could not place the managed region", module.display()))?;

@@ -91,11 +91,16 @@ cargo fmt --all -- --check || {
 # this gate the template's lints are found by the GENERATED repositories rather than here, which
 # is how `tr(*k)` (an explicit deref clippy does for you) reached Day-Rise's preflight.
 #
-# `--features mock` where that preflight passes none, because it runs on Linux and this runs
-# wherever the combo does: the scaffold declares no default feature, so with none the `day`
-# facade compiles without a backend — fine on Linux, where `macos_main!` expands to nothing, and
-# a `cannot find function launch` error on macOS, where it does not. `mock` gives it a backend on
-# every host. The app's own code is backend-independent, so the lints are the same either way.
+# `--features mock` where that preflight passes none. The scaffold now declares `default =
+# ["mock"]`, so this is the same backend the default would have selected and the flag is
+# redundant — kept explicit because it is what makes this command work on every host regardless
+# of that default. With NO backend the `day` facade has no `launch`, which is fine on Linux, where
+# the entry macro expands to nothing, and a `cannot find function launch` error on macOS, where it
+# does not. The app's own code is backend-independent, so the lints are the same either way.
+#
+# Exactly one backend, note — `mock` and a real one together trip day's `enable exactly one
+# backend feature`, which is why the scratch-app BUILD in ci.yml pairs its `--features` with
+# `--no-default-features`.
 #
 # It compiles the framework, which the pack stage below then reuses from the same target dir, so
 # the real added cost is the lint pass rather than a second build.

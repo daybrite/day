@@ -1723,17 +1723,7 @@ mod imp {
 
     /// Queue the cover's presentation behind any in-flight modal transition (§dialogs FIFO).
     fn cover_present(vc: Retained<DayCoverVC>) {
-        modal_enqueue(ModalOp::Run(Box::new(move || {
-            if vc.presentingViewController().is_some() {
-                return; // already up (a re-present while closing was cancelled)
-            }
-            let Some(top) = topmost_vc() else { return };
-            modal_begin_transition();
-            let completion = block2::RcBlock::new(modal_end_transition);
-            unsafe {
-                top.presentViewController_animated_completion(&vc, true, Some(&completion));
-            }
-        })));
+        modal_enqueue(ModalOp::Cover(vc, 0));
     }
 
     /// Queue the cover's dismissal; the completion reports `CoverHidden` so the piece can
@@ -5696,6 +5686,15 @@ mod imp {
         Present(u64, Retained<UIViewController>),
         /// Dismiss request + how many 50ms defer-retries it has already made.
         Dismiss(u64, u32),
+        /// Present a cover (docs/cover.md) + how many 50ms defer-retries it has already made.
+        ///
+        /// Its OWN op rather than a `Run` closure, so it gets the same treatment a dialog does:
+        /// `Run` executes unconditionally, and a cover presented across an animating transition is
+        /// refused by UIKit with no completion — the same refusal `Present` below waits out. As a
+        /// closure it also had nowhere to put a retry and no way to report the drop, so the panel
+        /// just never appeared, with no watchdog (that is armed only after the closure's early
+        /// returns) and nothing in the log.
+        Cover(Retained<DayCoverVC>, u32),
         /// A deferred UI mutation (nav push/pop) that must not overlap a modal transition.
         Run(Box<dyn FnOnce()>),
     }
@@ -5874,6 +5873,43 @@ mod imp {
                 unsafe {
                     presenting.dismissViewControllerAnimated_completion(true, Some(&completion))
                 };
+            }
+            ModalOp::Cover(vc, tries) => {
+                if vc.presentingViewController().is_some() {
+                    modal_pump(); // already up (a re-present while closing was cancelled)
+                    return;
+                }
+                // The same wait `Present` above does, and for the same reason: presenting across
+                // an animating transition is refused with no completion, and a cover that loses
+                // its presentation this way is invisible — no dialog future to resolve, no
+                // watchdog, nothing in the log. 40 × 50ms is the two seconds a nav push and a
+                // dismissal together take, well past any single transition.
+                let animating = topmost_vc().is_some_and(|t| t.transitionCoordinator().is_some());
+                if animating || topmost_vc().is_none() {
+                    if tries < 40 {
+                        modal_defer_retry(ModalOp::Cover(vc, tries + 1));
+                        return;
+                    }
+                    // Out of retries: say so. Silence here is what made this cost a CI run to
+                    // find — the panel simply never appeared and every later step read as a
+                    // missing element.
+                    eprintln!(
+                        "day: a cover could not be presented after {tries} retries \
+                         (transition still animating, or no window to present on) — \
+                         the app continues without it"
+                    );
+                    modal_pump();
+                    return;
+                }
+                let Some(top) = topmost_vc() else {
+                    modal_pump();
+                    return;
+                };
+                modal_begin_transition();
+                let completion = block2::RcBlock::new(modal_end_transition);
+                unsafe {
+                    top.presentViewController_animated_completion(&vc, true, Some(&completion));
+                }
             }
             ModalOp::Run(f) => {
                 f();
