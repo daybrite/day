@@ -45,13 +45,18 @@ export const registerNav: (
   pop: () => void,
   setTitle: (title: string) => void,
   setGuard: (on: boolean) => void,
-  setMenu: (icon: string, label: string, action: number) => void
+  // One call carries ALL of the host's trailing actions (NavProps::bar_actions): four
+  // `\n`-joined parallel fields, one entry per action. The dispatch ids travel as text with the
+  // rest rather than as numbers, since a u64 id is not exactly representable as a double.
+  // `rootOnly` is "1"/"0" per action — "1" rides the root page alone (NavBarScope::RootPage).
+  setMenu: (icons: string, labels: string, actions: string, rootOnly: string) => void
 ) => void;
 export const navPopped: (key: number) => void;
 // A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
 export const navBackRequested: () => void;
 export const navPageArea: (key: number, w: number, h: number) => void;
-// The trailing title-bar action was tapped (NavProps::bar_action): dispatch it (docs/navigation.md).
+// A trailing title-bar action was tapped (one of NavProps::bar_actions): dispatch it by its
+// own id (docs/navigation.md).
 export const navMenuAction: (action: number) => void;
 
 // Secondary day windows (docs/windows.md). The registered `open` launches a multiton
