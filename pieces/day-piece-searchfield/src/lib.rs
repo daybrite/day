@@ -67,6 +67,7 @@ impl<S: Binding<String>> SearchField<S> {
 
 impl<S: Binding<String>> Piece for SearchField<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
+        anchor_backend();
         let SearchField { query, placeholder } = self;
         let initial = query.peek();
         let ph = placeholder.map(|p| p.initial()).unwrap_or_default();
@@ -116,3 +117,31 @@ impl<S: Binding<String>> Piece for SearchField<S> {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
+
+/// Give this crate's backend module a CALLER, so the linker keeps it.
+///
+/// `search_field` is generic over the binding, so it monomorphizes into the *calling* crate and
+/// leaves nothing in the app referring to `*_impl` — whose object is then never pulled out of this
+/// rlib, taking the `renderer!` registration with it. The field still builds and still lays out;
+/// it just draws day's placeholder leaf, which is exactly the silent failure DESIGN.md §8.2 calls
+/// the dead-strip gamble. web-dom already avoids this by having the constructor call
+/// `dom_impl::register()` (see `glue_modules!`); this is the same trick for the backends that
+/// register at link time instead of at runtime.
+///
+/// Non-generic on purpose: a generic anchor would monomorphize into the caller too and anchor
+/// nothing.
+#[inline(never)]
+fn anchor_backend() {
+    #[cfg(all(feature = "appkit", target_os = "macos"))]
+    appkit_impl::anchor();
+    #[cfg(feature = "gtk")]
+    gtk_impl::anchor();
+    #[cfg(feature = "qt")]
+    qt_impl::anchor();
+    #[cfg(all(feature = "uikit", target_os = "ios"))]
+    uikit_impl::anchor();
+    #[cfg(all(feature = "mdc", target_os = "android"))]
+    android_impl::anchor();
+    #[cfg(all(feature = "xaml", windows))]
+    xaml_impl::anchor();
+}

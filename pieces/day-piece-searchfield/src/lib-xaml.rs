@@ -76,3 +76,8 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
 day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure);
+
+/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
+/// above never reaches the binary.
+pub(crate) fn anchor() {}
