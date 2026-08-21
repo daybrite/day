@@ -4,7 +4,7 @@
 //! How deep can a path go?
 
 use day_macros::Observable;
-use day_model::{Keyed, Source, Store};
+use day_model::{Keyed, Store};
 use day_pieces::Binding;
 
 #[derive(Observable, Clone, Default, PartialEq, Debug)]

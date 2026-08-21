@@ -28,14 +28,16 @@ pub(crate) fn editor_pane() -> AnyPiece {
             },
         ),
         each(
-            move || {
-                selected()
-                    .get()
-                    .filter(|id| model::find(*id).is_some())
-                    .into_iter()
-                    .collect::<Vec<u32>>()
-            },
-            |id: &u32| *id,
+            items(
+                move || {
+                    selected()
+                        .get()
+                        .filter(|id| model::find(*id).is_some())
+                        .into_iter()
+                        .collect::<Vec<u32>>()
+                },
+                |id: &u32| *id,
+            ),
             |slot: ItemSlot<u32, u32>| editor(slot.key()),
         ),
     ))

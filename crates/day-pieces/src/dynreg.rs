@@ -586,20 +586,38 @@ fn builtin_ctors() -> HashMap<&'static str, CtorFn> {
         let (Some(DynValue::Fn(cond)), Some(DynValue::Fn(build))) = (a.first(), a.get(1)) else {
             return Err(DynError::Type {
                 what: "when",
-                want: "(condFn, buildFn)",
+                want: "(condFn, buildFn[, elseFn])",
             });
         };
+        // A third argument is the else arm. Present-but-wrong-shape is an error rather than a
+        // silent drop: a script that passed something uncallable meant to branch, and would
+        // otherwise see the false case render nothing with no explanation.
+        let build_else = match a.get(2) {
+            None => None,
+            Some(DynValue::Fn(f)) => Some(f.clone()),
+            Some(_) => {
+                return Err(DynError::Type {
+                    what: "when",
+                    want: "(condFn, buildFn[, elseFn])",
+                });
+            }
+        };
         let (cond, build) = (cond.clone(), build.clone());
-        Ok(DynPiece::new(Inner::Any(
-            when(
-                move || matches!(cond(&[]), DynValue::Bool(true)),
-                move || match build(&[]) {
-                    DynValue::Piece(p) => p.into_any(),
-                    _ => spacer().any(),
-                },
-            )
-            .any(),
-        )))
+        let piece = when(
+            move || matches!(cond(&[]), DynValue::Bool(true)),
+            move || match build(&[]) {
+                DynValue::Piece(p) => p.into_any(),
+                _ => spacer().any(),
+            },
+        );
+        let piece = match build_else {
+            Some(build_else) => piece.otherwise(move || match build_else(&[]) {
+                DynValue::Piece(p) => p.into_any(),
+                _ => spacer().any(),
+            }),
+            None => piece,
+        };
+        Ok(DynPiece::new(Inner::Any(piece.any())))
     });
     m.insert("each", |a| {
         let (Some(DynValue::Fn(items)), Some(DynValue::Fn(build_row))) = (a.first(), a.get(1))
@@ -609,14 +627,16 @@ fn builtin_ctors() -> HashMap<&'static str, CtorFn> {
                 want: "(itemsFn, rowFn)",
             });
         };
-        let (items, build_row) = (items.clone(), build_row.clone());
+        let (items_fn, build_row) = (items.clone(), build_row.clone());
         Ok(DynPiece::new(Inner::Any(
             each(
-                move || match items(&[]) {
-                    DynValue::List(v) => v,
-                    _ => Vec::new(),
-                },
-                |item: &DynValue| item.key_string(),
+                crate::items(
+                    move || match items_fn(&[]) {
+                        DynValue::List(v) => v,
+                        _ => Vec::new(),
+                    },
+                    |item: &DynValue| item.key_string(),
+                ),
                 move |slot| match build_row(&[slot.get()]) {
                     DynValue::Piece(p) => p.into_any(),
                     _ => spacer().any(),
@@ -848,7 +868,7 @@ pub fn catalog() -> Vec<SpecEntry> {
         c("text_field", "text_field(strSignal)"),
         c("progress", "progress(fraction | fn)"),
         c("image", "image(name)"),
-        c("when", "when(condFn, buildFn)"),
+        c("when", "when(condFn, buildFn[, elseFn])"),
         c("each", "each(itemsFn, rowFn) — rows keyed by item value"),
         t("font", "label.font(name)"),
         t("action", "button.action(fn)"),

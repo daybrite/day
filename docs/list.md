@@ -21,10 +21,15 @@ Contrast with [`each`](../crates/day-pieces): `each` builds every row eagerly un
 anchor (great for a dozen items, hopeless for ten thousand). `list` builds only the rows the
 native widget currently shows.
 
-## API: shared `ItemSlot` with `each` (DP-16)
+## API: row sources, shared with `each`
+
+`list(source, row)` and `each(source, row)` take a **`RowSource`** — where the rows come from —
+and one row builder. Two sources ship:
+
+**Plain data** — an items closure and a key function, wrapped in `items(…)`:
 
 ```rust
-list(move || messages.get(), |m| m.id, move |row: ItemSlot<Message, u64>| {
+list(items(move || messages.get(), |m| m.id), move |row: ItemSlot<Message, u64>| {
     column((
         label(move || row.field(|m| m.sender.clone())),
         label(move || row.field(|m| m.preview.clone())),
@@ -35,13 +40,36 @@ list(move || messages.get(), |m| m.id, move |row: ItemSlot<Message, u64>| {
 .id("inbox")
 ```
 
-The row builder receives the same `ItemSlot<T, K>` as `each` (Copy handle, tracked `get()`,
-memoised `field()` projections). Because cells are recycled, the builder must read through the
-slot rather than move the item in, so a surviving cell can be fed a new `&T` with one write.
+The row builder receives an `ItemSlot<T, K>` (Copy handle, tracked `get()`, memoised `field()`
+projections). Because cells are recycled, the builder must read through the slot rather than
+move the item in, so a surviving cell can be fed a new `&T` with one write.
 
-Builder options: `.row_height(RowHeight)`, `.on_select(Fn(K))`, `.multi_select(bool)`,
-`.on_selection(Fn(Vec<K>))`, `.selected_rows(Fn() -> Vec<usize>)`, and (reserved) `.row_kind(Fn(&T) -> RowKind)`
-mapping to native reuse pools.
+**A day-model store** (feature `model`; [docs/model.md](model.md)) — passed directly for collection order,
+or through `store.rows(projection)` for a display order/filter expressed as a tracked KEY
+projection:
+
+```rust
+list(store.rows(model::ordered_keys), |slot: ModelSlot<Item>| {
+    row((
+        label(move || slot.name().read()),   // wakes only for THIS row's name
+        toggle(slot.done()),                 // two-way; follows the cell across recycles
+    ))
+})
+.on_select(|it: Elem<Item>| open(it.key()))
+```
+
+`ModelSlot` is itself a day-model `Source`, so the derive's field accessors hang off it and
+resolve the CURRENT row on every operation — a control bound once at build keeps working as the
+cell recycles. The costs land where they should: a field edit patches the one control showing
+it (no reload, no rebind, nothing cloned — an unchanged row set skips the native reload
+entirely); a change the projection reads re-runs only the projection; and a cell scrolled
+across the whole collection leaves no observation claims behind
+(`day-pieces/tests/model_rows.rs` measures all three).
+
+Builder options: `.row_height(RowHeight)`, `.on_select(Fn(Ref))` (the key for a plain source,
+the row's `Elem` for a store source), `.multi_select(bool)`, `.on_selection(Fn(Vec<Ref>))`,
+`.selected_rows(Fn() -> Vec<usize>)`, and (reserved, unshipped) `.row_kind` mapping to native
+reuse pools.
 
 ### Imperative scroll-to-end (chat timelines)
 
@@ -50,7 +78,7 @@ native list's own scroller (not a Day-side scroll view):
 
 ```rust
 let follow = day_reactive::Trigger::new();
-list(move || messages.get(), |m| m.id, row_builder)
+list(items(move || messages.get(), |m| m.id), row_builder)
     .scroll_to_end(follow)   // each `follow.notify()` scrolls so the last row is fully visible
     .stick_to_bottom(true)   // convenience: auto-scroll to end after every data reload
 // … after appending a message:
@@ -169,7 +197,7 @@ other backends apply it instantly. Inserts, removals, and content changes always
 ## Drag-to-reorder
 
 ```rust
-list(items, key, row)
+list(source, row)
     .reorderable(true)
     .on_reorder(|from, to| { /* rotate the backing Vec + persist */ })
     .reorder_guard(|from, to| Reorder::Allow)   // optional: Deny / Retarget(i)
@@ -214,7 +242,7 @@ Per-backend affordances:
 ## Swipe-to-delete
 
 ```rust
-list(items, key, row)
+list(source, row)
     .deletable(true)
     .delete_label(res::str::delete().format())   // optional: the word on the affordance
     .on_delete(|index| { /* remove from the backing Vec + persist */ })

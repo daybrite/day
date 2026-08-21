@@ -47,6 +47,15 @@
 //! before use, re-interning through its own handle chain when stale — so a `Copy` handle held
 //! across a reclamation heals itself, and everyone converges on the current identity.
 //!
+//! A claim made from inside a reactive computation belongs to that computation's CURRENT RUN,
+//! not to a scope: it is released when the computation re-tracks or dies
+//! ([`day_reactive::on_run_retrack`]), exactly mirroring day-reactive's own per-run source
+//! bookkeeping. This is what keeps a long-lived recycled list cell from accumulating claims for
+//! every row it ever showed — rotate a binding across a million rows and the claim count stays
+//! at one row's worth. Outside any computation — a build seeding an initial value, an event
+//! handler — a tracked read subscribes nothing and therefore CLAIMS nothing: no trigger is
+//! created at all, because nothing could ever wake through it.
+//!
 //! ## Threads
 //!
 //! `Store` is `Send + Sync` (when `T` is); the trigger tables are thread-local to the main
@@ -254,9 +263,9 @@ struct Entry {
     trigger: Trigger,
     /// The trigger's own scope, a child of root, so it can be disposed on its own.
     scope: Scope,
-    /// One entry per OBSERVING scope, deduped; when the last watcher's scope dies, the trigger
-    /// goes with it.
-    watchers: Vec<Scope>,
+    /// One claim per observing computation, deduped; when the last one releases (on its
+    /// re-track or death), the trigger goes with it.
+    watchers: Vec<day_reactive::RunId>,
 }
 
 /// Give this path an id, so something can hang off it. Called once per source handle, never on
@@ -329,10 +338,17 @@ pub fn interned_nodes() -> usize {
     NODES.with(|n| n.borrow().slots.iter().filter(|s| s.alive).count() - 1)
 }
 
-/// Subscribe the current reactive computation to exactly this path, and register the observing
-/// scope so the trigger can be reclaimed when that scope dies.
+/// Subscribe the current reactive computation to exactly this path, and register the claim so
+/// the trigger can be reclaimed on the computation's next re-track (or death).
+///
+/// OBSERVATION BELONGS TO COMPUTATIONS: outside any active run — a build seeding an initial
+/// value, an event handler, `untrack` — a tracked read subscribes nothing in day-reactive, so
+/// creating a trigger for it would be dead weight that some scope had to carry. It does
+/// nothing, on purpose; the read itself proceeds unobserved.
 fn track(p: Path) {
-    let watcher = Scope::current();
+    let Some(watcher) = day_reactive::active_run() else {
+        return;
+    };
     let (trigger, created, fresh) = TRIGGERS.with(|t| {
         let mut map = t.borrow_mut();
         let mut created = false;
@@ -364,22 +380,22 @@ fn track(p: Path) {
         });
     }
     if fresh {
-        // When the observing scope is disposed — a page popped, a row recycled, a `when` arm
-        // torn down — release this path's claim.
-        watcher.on_cleanup(move || release(p, watcher));
+        // The claim dies with the run: released when the computation re-tracks (having stopped
+        // reading this path, or about to read it afresh) or is disposed.
+        day_reactive::on_run_retrack(move || release(p, watcher));
     }
     trigger.track();
 }
 
 /// Drop one watcher's claim; the last one out disposes the trigger and lets the interner free
 /// the ancestors nothing else holds.
-fn release(p: Path, watcher: Scope) {
+fn release(p: Path, watcher: day_reactive::RunId) {
     let removed = TRIGGERS.with(|t| {
         let mut map = t.borrow_mut();
         let Some(entry) = map.get_mut(&p) else {
             return false;
         };
-        entry.watchers.retain(|s| *s != watcher);
+        entry.watchers.retain(|w| *w != watcher);
         if entry.watchers.is_empty() {
             let scope = entry.scope;
             map.remove(&p);
@@ -584,6 +600,16 @@ fn announce(parts: &[u64], label: &'static str) {
 /// `with_value_untracked` is the one every projection reads through — a field must subscribe to
 /// its OWN path, not to its parent's, or the granularity is gone.
 pub trait Source<T: 'static>: Copy + 'static {
+    /// Whether this source's LOCATION can change over the handle's lifetime — a recycled list
+    /// slot whose current row rotates. Fields projected from a dynamic source resolve their
+    /// path through the source on every operation instead of trusting the one cached at
+    /// projection time, and their tracked reads also run [`Source::track_extra`].
+    const DYNAMIC: bool = false;
+
+    /// Extra tracking a projected field's tracked reads perform. A dynamic source tracks its
+    /// own rebind signal here, so a control bound at build follows the slot to its next row.
+    fn track_extra(self) {}
+
     /// The path this source occupies. Implementations revalidate against the interner, so the
     /// result is always current.
     fn path(self) -> Path;
@@ -604,6 +630,7 @@ pub trait Source<T: 'static>: Copy + 'static {
 
     /// Tracked read of the whole value — the COARSE subscription.
     fn with<R>(self, f: impl FnOnce(Option<&T>) -> R) -> R {
+        self.track_extra();
         track(self.path());
         self.with_value_untracked(f)
     }
@@ -1060,9 +1087,11 @@ pub fn project<S: Source<T>, T: 'static, V: 'static>(
 }
 
 impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
-    /// The cached path when its parent is still live, a rebuilt one otherwise.
+    /// The cached path when its parent is still live, a rebuilt one otherwise. A DYNAMIC
+    /// source (a recycled slot) never trusts the cache: its location is wherever the source
+    /// says it is right now.
     fn live_path(self) -> Path {
-        if is_current(self.path.parent) {
+        if !S::DYNAMIC && is_current(self.path.parent) {
             self.path
         } else {
             Path::under(self.src.node(), self.part)
@@ -1071,6 +1100,7 @@ impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
 
     /// Tracked read of THIS field only.
     pub fn with<R>(self, f: impl FnOnce(Option<&V>) -> R) -> R {
+        self.src.track_extra();
         track(self.live_path());
         self.src.with_value_untracked(|t| f(t.map(self.get)))
     }
@@ -1135,6 +1165,12 @@ impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
 
 /// A field is itself a source, so `item.address().city()` works.
 impl<S: Source<T>, T: 'static, V: 'static> Source<V> for Field<S, T, V> {
+    // Nesting inherits the source's dynamism: a field of a slot's struct field still rides the
+    // slot's current row.
+    const DYNAMIC: bool = S::DYNAMIC;
+    fn track_extra(self) {
+        self.src.track_extra();
+    }
     fn path(self) -> Path {
         self.live_path()
     }
@@ -1210,6 +1246,7 @@ impl<F: Source<V>, V: Clone + Default + 'static, U: Clone + 'static> Binding<U>
     for Mapped<F, V, U>
 {
     fn read(&self) -> U {
+        self.inner.track_extra();
         track(self.inner.path());
         self.peek()
     }

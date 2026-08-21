@@ -74,6 +74,10 @@ struct Node {
     /// Reaction closure (effect/bind/watch body).
     reaction: Option<Rc<dyn Fn()>>,
     sources: Vec<NodeKey>,
+    /// Callbacks an external dependency registry (day-model's trigger claims) hangs on THIS
+    /// computation's current run — drained when the run's sources clear (re-track or disposal),
+    /// mirroring the per-run lifetime of `sources` itself. Run OUTSIDE the runtime borrow.
+    run_cleanups: Vec<Box<dyn FnOnce()>>,
     observers: Vec<NodeKey>,
     #[allow(dead_code)] // ownership is tracked scope→nodes; kept for diagnostics
     scope: ScopeKey,
@@ -176,6 +180,7 @@ fn create_node(rt: &mut Runtime, kind: NodeKind, scope: ScopeKey) -> NodeKey {
         memo_eq: None,
         reaction: None,
         sources: Vec::new(),
+        run_cleanups: Vec::new(),
         observers: Vec::new(),
         scope,
         priority: 1,
@@ -206,7 +211,11 @@ fn track_read(rt: &mut Runtime, source: NodeKey) {
     }
 }
 
-fn clear_sources(rt: &mut Runtime, key: NodeKey) {
+/// Unsubscribe `key` from its sources and hand back its run cleanups. The caller MUST run the
+/// returned closures after releasing the runtime borrow: they call into consumers (day-model
+/// claim release disposes trigger scopes) that re-enter the runtime.
+#[must_use]
+fn clear_sources(rt: &mut Runtime, key: NodeKey) -> Vec<Box<dyn FnOnce()>> {
     let sources = std::mem::take(&mut rt.nodes[key].sources);
     for s in sources {
         if let Some(n) = rt.nodes.get_mut(s)
@@ -215,6 +224,7 @@ fn clear_sources(rt: &mut Runtime, key: NodeKey) {
             n.observers.swap_remove(pos);
         }
     }
+    std::mem::take(&mut rt.nodes[key].run_cleanups)
 }
 
 /// Mark downstream after a source changed. Direct observers get `Dirty`; transitive
@@ -288,7 +298,10 @@ fn refresh_memo(key: NodeKey) {
     // Recompute.
     let compute = with_rt(|rt| rt.nodes[key].memo_compute.clone());
     let Some(compute) = compute else { return };
-    with_rt(|rt| clear_sources(rt, key));
+    let cleanups = with_rt(|rt| clear_sources(rt, key));
+    for f in cleanups {
+        f();
+    }
     with_rt(|rt| rt.observers.push(Some(key)));
     let new_value = {
         // Popped on unwind too — see `run_reaction`.
@@ -361,13 +374,18 @@ fn run_reaction(key: NodeKey) {
     }
     let reaction = with_rt(|rt| rt.nodes.get(key).and_then(|n| n.reaction.clone()));
     let Some(reaction) = reaction else { return };
-    with_rt(|rt| {
-        clear_sources(rt, key);
+    let cleanups = with_rt(|rt| {
+        let cleanups = clear_sources(rt, key);
         if let Some(n) = rt.nodes.get_mut(key) {
             n.state = NodeState::Clean;
         }
-        rt.observers.push(Some(key));
+        cleanups
     });
+    // Released claims must drop BEFORE the fresh run tracks — and outside the borrow.
+    for f in cleanups {
+        f();
+    }
+    with_rt(|rt| rt.observers.push(Some(key)));
     {
         // Popped on unwind too (same rule as `untrack`): a stranded frame would attribute
         // every later read to this dead run, even through a user's own `catch_unwind`.
@@ -579,6 +597,36 @@ pub fn untrack<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// The identity of one reactive computation (a reaction or a memo) across its lifetime.
+/// Opaque; `Copy + Eq + Hash`, so an external dependency registry can key per-computation
+/// bookkeeping on it. Slotmap-generational underneath — a recycled slot is a new `RunId`.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct RunId(NodeKey);
+
+/// The computation currently tracking reads — `None` at top level and under [`untrack`].
+pub fn active_run() -> Option<RunId> {
+    with_rt(|rt| rt.observers.last().copied().flatten()).map(RunId)
+}
+
+/// Hang `f` on the ACTIVE computation's current run: it fires when that computation next
+/// re-tracks (a re-run clears its sources first) or is disposed — the seam that lets an
+/// external dependency registry (day-model's trigger claims) mirror this graph's own per-run
+/// source bookkeeping. Returns `false`, registering nothing, when no computation is tracking.
+pub fn on_run_retrack(f: impl FnOnce() + 'static) -> bool {
+    with_rt(|rt| {
+        let Some(Some(key)) = rt.observers.last().copied() else {
+            return false;
+        };
+        match rt.nodes.get_mut(key) {
+            Some(n) => {
+                n.run_cleanups.push(Box::new(f));
+                true
+            }
+            None => false,
+        }
+    })
+}
+
 /// Install "post a drain on the main loop". Backends call this once at startup.
 pub fn install_scheduler(post: impl Fn() + 'static) {
     with_rt(|rt| rt.scheduler = Some(Rc::new(post)));
@@ -775,6 +823,7 @@ impl Scope {
             Some(v) => v,
             None => return,
         };
+        let mut run_cleanups: Vec<Box<dyn FnOnce()>> = Vec::new();
         with_rt(|rt| {
             if let Some(p) = rt.scopes.get_mut(parent)
                 && let Some(pos) = p.children.iter().position(|&c| c == self.key)
@@ -782,7 +831,7 @@ impl Scope {
                 p.children.swap_remove(pos);
             }
             for key in nodes {
-                clear_sources(rt, key);
+                run_cleanups.extend(clear_sources(rt, key));
                 // Detach us from downstream observers too.
                 if let Some(node) = rt.nodes.get_mut(key) {
                     let observers = std::mem::take(&mut node.observers);
@@ -798,6 +847,11 @@ impl Scope {
                 // Pending entries for removed nodes are skipped at pop (generational key check).
             }
         });
+        // A dying computation's per-run claims drop like a re-track would drop them — outside
+        // the borrow, before the scope's own cleanups (which may release scope-level claims).
+        for f in run_cleanups {
+            f();
+        }
         for c in cleanups {
             c();
         }

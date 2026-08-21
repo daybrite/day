@@ -30,7 +30,7 @@
 //! any picker on any backend.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
-use day_reactive::{Binding, Signal, bind_seeded};
+use day_reactive::{Binding, bind_seeded};
 use day_spec::Event;
 
 pub const DATE_KIND: &str = "day.piece.datepicker";
@@ -454,14 +454,14 @@ impl<S: Binding<DayDate>> Piece for DatePicker<S> {
 }
 
 /// A native time picker bound two-way to a [`DayTime`] signal. Build with [`time_picker`].
-pub struct TimePicker {
-    time: Signal<DayTime>,
+pub struct TimePicker<S: Binding<DayTime>> {
+    time: S,
     style: Style,
     seconds: bool,
 }
 
 /// `time_picker(time)` — a field summoning the platform's chooser; `.inline()` embeds it.
-pub fn time_picker(time: Signal<DayTime>) -> TimePicker {
+pub fn time_picker<S: Binding<DayTime>>(time: S) -> TimePicker<S> {
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
     dom_impl::register();
     TimePicker {
@@ -471,7 +471,7 @@ pub fn time_picker(time: Signal<DayTime>) -> TimePicker {
     }
 }
 
-impl TimePicker {
+impl<S: Binding<DayTime>> TimePicker<S> {
     pub fn compact(mut self) -> Self {
         self.style = Style::Compact;
         self
@@ -492,14 +492,14 @@ impl TimePicker {
     }
 }
 
-impl Piece for TimePicker {
+impl<S: Binding<DayTime>> Piece for TimePicker<S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let TimePicker {
             time,
             style,
             seconds,
         } = self;
-        let initial = time.get_untracked();
+        let initial = time.peek();
         let node = cx.leaf(
             TIME_KIND,
             &TimeProps {
@@ -509,9 +509,10 @@ impl Piece for TimePicker {
             },
             Flex::default(),
         );
+        let tm = time.clone();
         bind_seeded(
             initial,
-            move || time.get(),
+            move || tm.read(),
             move |t: &DayTime| {
                 with_tree(|tr| tr.patch(node, Box::new(TimePatch::SetTime(*t)), false));
             },
@@ -529,7 +530,7 @@ impl Piece for TimePicker {
                 _ => None,
             };
             if let Some(t) = picked {
-                time.set(t);
+                time.write(t);
             }
         });
         node

@@ -27,7 +27,7 @@ dom = ["dep:day-dom"]
 mock = ["dep:day-mock"]
 # The per-property observable store (docs/model.md): day::model plus the Observable derive in
 # the prelude. Off by default — an app that binds plain Signals pays nothing for it.
-model = ["dep:day-model"]
+model = ["dep:day-model", "day-pieces/model"]
 
 [dependencies]
 day-macros = { path = "../day-macros", version = "=0.2.5" }

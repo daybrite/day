@@ -10,7 +10,7 @@ use std::rc::Rc;
 use day_core::AnyPiece;
 use day_macros::Observable;
 use day_mock::MockToolkit;
-use day_model::{Keyed, Op, Source, Store};
+use day_model::{Keyed, Op, Store};
 use day_pieces::prelude::*;
 use day_reactive::flush_sync;
 use day_spec::{Size, WindowOptions};

@@ -124,13 +124,15 @@ per-platform map.
 
 ## Conditionals and collections
 
-`when` shows a subtree while a condition holds; it is itself reactive.
+`when` shows a subtree while a condition holds; it is itself reactive. Chain `.otherwise` for the
+else arm.
 
 ```rust
 when(
     move || !name.with(|s| s.is_empty()),
     move || label(move || format!("Hi, {}", name.get())),
 )
+.otherwise(|| label("Tell me your name"))
 ```
 
 Keyed collections (`each`) build one child per item and reconcile by key when the list changes,

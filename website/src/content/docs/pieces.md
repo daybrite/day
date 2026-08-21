@@ -163,14 +163,25 @@ it:
 // when `cond`'s signals change; the old arm's scope is disposed.
 when(move || logged_in.get(), move || profile_panel())
 
+// With an else arm. Exactly one arm is mounted at a time, and the two need
+// not return the same Piece type.
+when(move || logged_in.get(), move || profile_panel())
+    .otherwise(move || sign_in_form())
+
 // A keyed collection. Rows are created, moved, and disposed by key diffing —
 // surviving rows keep their nodes and native widgets.
 each(
-    move || todos.get(),          // data
-    |t| t.id,                     // stable key
+    items(
+        move || todos.get(),      // data
+        |t: &Todo| t.id,          // stable key
+    ),
     |slot| todo_row(slot),        // per-row builder; slot tracks the item
 )
 ```
+
+`each` takes a *row source* and a row builder. `items(data, key_of)` is the row source for plain
+data; a [model](/docs/internal/model) collection supplies one directly, and `list` accepts the
+same sources.
 
 This is the one place Day does anything diff-like, and it diffs *keys*, not widget trees: `each`
 compares the old and new key sequences to decide which rows to keep, which to build, and which to

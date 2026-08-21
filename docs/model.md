@@ -94,6 +94,36 @@ path touched**: `field.with(f)` wakes only for that field, `source.with(f)` is t
 subscription that wakes for anything under it. Precision is something a reader opts into by what
 it reads — writes never need to know.
 
+**Observation belongs to computations.** A tracked read inside a binding, memo or watch claims
+its path for exactly that computation's current run, released when it re-tracks or dies — the
+same per-run bookkeeping day-reactive keeps for its own sources. Outside any computation — a
+build seeding an initial value, an event handler — a tracked read subscribes nothing and
+therefore claims nothing: no trigger is created at all, because nothing could ever wake through
+it.
+
+## Driving a list
+
+A store IS a row source ([docs/list.md](list.md)): `list(store, row)` shows the collection in its own
+order, and `list(store.rows(projection), row)` orders it through a **key projection** — a
+tracked read of key ids that reads only the fields the ORDER depends on. The row builder
+receives a `ModelSlot`, itself a `Source`, so the derive's accessors hang off it and follow the
+row across cell recycling:
+
+```rust
+list(items.rows(model::ordered_keys), |slot: ModelSlot<Item>| {
+    row((
+        label(move || slot.name().read()),   // wakes only for THIS row's name
+        toggle(slot.done()),                 // two-way; follows the recycle
+    ))
+})
+.on_select(|it: Elem<Item>| … )
+```
+
+The costs land where they should: a field edit patches the one control showing it (no reload,
+no rebind, nothing cloned); a change the projection reads re-runs only the projection and
+reloads natively; and a cell scrolled across the whole collection leaves no claims behind —
+`day-pieces/tests/model_rows.rs` measures all three.
+
 ## Deleted rows
 
 Reading a field of a deleted row returns the field's `Default` — never a panic — and

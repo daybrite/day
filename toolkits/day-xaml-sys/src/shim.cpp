@@ -831,7 +831,7 @@ void day_xaml_window_on_resize(void* win, void (*cb)(int, int)) {
     // the toolbar — each of which reserves its strip and reports the client size that REMAINS
     // through this very callback, while it is still null. Those reports were dropped, nothing
     // recomputed until the user resized the window, and until then day laid out against the FULL
-    // client height: its content box hung below the window bottom, so a vertically centred page
+    // client height: its content box hung below the window bottom, so a vertically centered page
     // rendered low with its top cut off.
     if (g_app) day_xaml_relayout_chrome(g_app);
 }
@@ -2653,7 +2653,7 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
 // guards a non-TextBlock handle — a no-op rather than a bad cast.
 // How a WRAPPED label's lines sit within its width (`LabelProps::align`): 0 leading, 1 center,
 // 2 trailing — the same encoding the Qt shim takes. A single-line label fills its own box, so this
-// shows only once the text wraps, which is exactly where a centred paragraph differs from a
+// shows only once the text wraps, which is exactly where a centered paragraph differs from a
 // leading one. Day mirrors the whole layout under an RTL locale, so leading maps to Left here just
 // as it does there; the text's own bidi is the TextBlock's business.
 void day_xaml_label_set_align(void* h, int mode) {

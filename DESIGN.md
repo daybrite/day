@@ -398,10 +398,14 @@ Two structural rules carried over from pane, both still enforced:
 ### §4.1 The model: build once, bind forever
 
 > [!NOTE]
-> **Status: shipped as written**, with two deltas: the `piece_dyn` escape hatch was never
+> **Status: shipped as written**, with three deltas: the `piece_dyn` escape hatch was never
 > needed and does not exist — reactive structure is `when`/`each` (plus the navigation
-> containers); and the advisory `day lint` heuristic for signal-reads-outside-bindings was not
-> built (the shipped lint rule set is smaller, [§16.5](#165-subcommands)).
+> containers); the advisory `day lint` heuristic for signal-reads-outside-bindings was not
+> built (the shipped lint rule set is smaller, [§16.5](#165-subcommands)); and the debug-build
+> runtime warning for a tracked read during `Piece::build`, described below, was not built
+> either — day-core keeps no build-phase flag and day-reactive emits no such diagnostic, so a
+> signal read in a component body that can never re-run is today caught by review, not by the
+> runtime.
 
 This is Day's central architectural decision and its largest departure from pane.
 
@@ -512,10 +516,11 @@ collection so far.
   turn boundary; the [§8.1](#81-the-toolkit-trait) contract lets backends defer further (Qt `deleteLater`) and requires
   them to tolerate release at any main-loop-safe point.
 - *Disposed-handle access*: **writes are silent no-ops** with a once-per-callsite debug warning
-  (`Setter` inherits this — async deliveries racing disposal are expected); **reads panic in debug**
-  with the handle's `#[track_caller]` creation location; `try_get`/`try_with` are the blessed
-  forms in any closure that can outlive its scope. Event handlers on nodes disposed in the current
-  drain are unregistered before their scope's signals drop. Release-build read behavior is DP-18.
+  (`Setter` inherits this — async deliveries racing disposal are expected); **reads panic in every
+  build** — DP-18 answer (A), shipped — naming the handle's `#[track_caller]` creation location;
+  `try_get`/`try_with` are the blessed forms in any closure that can outlive its scope. Event
+  handlers on nodes disposed in the current drain are unregistered before their scope's signals
+  drop.
 
 `Scope::provide::<T>(value)` / `Scope::use_context::<T>()` give dependency injection down the
 *build* tree (theme, locale handle, navigation), resolved at build time — again, no re-render
@@ -705,6 +710,7 @@ labeled(caption, control)
 
 // structure
 when(cond_fn, build_fn)            // reactive conditional subtree
+    .otherwise(build_fn)           //   optional else arm; without it, false builds nothing
 each(items_fn, key_fn, build_fn)   // reactive keyed collection (§5.4)
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
 
@@ -782,11 +788,12 @@ fn basics_section() -> impl Piece {
 > tracked `get()`/`with()`, `field()` projections, `key()`; keyed diff with per-key scopes,
 > slot writes for surviving keys, debug key-uniqueness assertion), and `each` and `list` share
 > it as designed. The `slot.rw(get, set)` two-way projection and the `.on_edit` write-back hook
-> were **not implemented**, and day-model superseded them (2026-08, [docs/model.md](docs/model.md)): a row
-> binds two-way through the store's own field accessors, as the sample below now shows. A plain
-> `Signal<Vec<T>>` collection still drives the same `each` with one-way `item.field()`
-> projections. Making `ItemSlot` itself a day-model `Source` — so `item.done()` would bind
-> without naming the store — is a candidate follow-up, not shipped.
+> were **not implemented**, and day-model superseded them (2026-08, [docs/model.md](docs/model.md)):
+> `each`/`list` take a **`RowSource`** — plain data wrapped as `items(closure, key_of)`, or a
+> day-model store passed directly (`store.rows(projection)` for display order) — and a store
+> source's rows receive a **`ModelSlot`**, itself a day-model `Source`, so `slot.done()` binds
+> two-way and follows the row across recycling. The sample below is the shipped shape; plain
+> collections keep `ItemSlot` with one-way `item.field()` projections.
 
 **Resolved (DP-16: unified).** `each` and the native-recycling `list` ([§10](#10-native-list-integration)) share **one item
 contract**: the builder receives an **`ItemSlot<T>`**, never the item by value. The same row
@@ -799,11 +806,10 @@ struct Todo { #[obs(key)] id: u64, title: String, done: bool }
 let todos: Store<Keyed<Todo>> = Store::new(Keyed::default());   // per-property (docs/model.md)
 
 column((
-    each(move || todos.keys(), |k| *k, move |item: ItemSlot<u64, u64>| {
-        let todo = todos.elem(item.key());
+    each(todos, move |item: ModelSlot<Todo>| {
         row((
-            toggle(todo.done()),                       // two-way: a day-model Field IS a Binding (§5.3)
-            label(move || todo.title().read()),        // wakes only for THIS row's `title`
+            toggle(item.done()),                       // two-way: a day-model Field IS a Binding (§5.3)
+            label(move || item.title().read()),        // wakes only for THIS row's `title`
             spacer(),
             button(icon("close"))
                 .action(move || todos.restructure("remove", Op::Delete, item.key(), |v| {
@@ -814,8 +820,9 @@ column((
         )).spacing(6.0)
     }),
 ))
-// `keys()` is the SHAPE read: a field edit re-runs no items closure and rebuilds no rows —
-// only the one control bound to the edited field patches.
+// The store's SHAPE is the tracked row set: a field edit re-runs no items closure and rebuilds
+// no rows — only the one control bound to the edited field patches. Plain data reads
+// `each(items(closure, key_of), row)` instead.
 ```
 
 Semantics (identical for `list`):
@@ -1664,24 +1671,23 @@ can never be swapped later — recycling would be a rebuild). The builder receiv
 collection from `scroll(column(each(…)))` to `list` is a one-word change):
 
 ```rust
-// `messages` is a day-model store (docs/model.md); `rows()` is the app's ordered projection.
-list(rows, |m: &Message| m.id, move |row: ItemSlot<Message, u64>| {
-    let msg = messages.elem(row.key());
+// `messages` is a day-model store (docs/model.md); `ordered_keys` its display projection.
+list(messages.rows(ordered_keys), move |row: ModelSlot<Message>| {
     column((
-        label(move || row.field(|m| m.sender.clone())),   // one-way, from the recycled slot
-        label(move || row.field(|m| m.preview.clone())),
-        toggle(msg.starred()),                            // two-way, through the store (§5.3)
+        label(move || row.sender().read()),    // wakes only for THIS row's `sender`
+        label(move || row.preview().read()),
+        toggle(row.starred()),                 // two-way; follows the row across recycles (§5.3)
     ))
 })
-.row_height(RowHeight::Uniform(56.0))     // or ::Automatic (self-sizing, slower)
-.row_kind(|m| if m.pinned { RowKind::named("pinned") } else { RowKind::default() })
-.on_select(move |id| open(id))
+.row_height(RowHeight::Uniform(56.0))          // or ::Automatic (self-sizing, slower)
+.on_select(move |it: Elem<Message>| open(it.key()))
 ```
 
-All `ItemSlot` semantics are as specified in [§5.4](#54-keyed-collections-each) (Copy handle, tracked `get()`,
-equality-gated `field()` projections, two-way binding through a day-model field accessor,
-key-uniqueness assert, the structure-from-`get()` trap and its lint). `list` adds `.row_kind`, mapping to the host's native
-reuse identifiers (one pool per kind; default single kind).
+Slot semantics are as specified in [§5.4](#54-keyed-collections-each): plain-data rows get `ItemSlot` (Copy handle,
+tracked `get()`, equality-gated `field()` projections, the structure-from-`get()` trap and its
+lint); store rows get `ModelSlot` (a day-model `Source` whose accessors bind two-way and follow
+the recycle). Key uniqueness is asserted per diff in debug builds. A designed `.row_kind`
+(native reuse-identifier pools) has not shipped; every list runs one pool.
 
 ### §10.2 Realization: the RowHost protocol
 
@@ -4119,6 +4125,32 @@ beside a tracked `exists()`; `Store::new` leaks and the handle stays `Copy` (the
 announcement of background transactions stays an explicit `pump()` until that container exists.
 `Signal<T>` is unchanged throughout, and an app can hold both. Part II of the plan
 (day-persistence) is designed but not adopted; nothing here presumes it.
+
+**Consolidation (2026-08-20).** Three follow-ons landed as one pass:
+
+- **Claims mirror the reactive graph.** A day-model claim made inside a computation now belongs
+  to that computation's RUN — released on its re-track or death via day-reactive's new
+  `active_run`/`on_run_retrack` seam, exactly like `sources` bookkeeping — and a tracked read
+  OUTSIDE any computation creates nothing at all (nothing could wake through it). This is what
+  lets a recycled list cell rotate across a million rows and leave the observation tables where
+  they began; it also closed two latent holes (re-run claims mis-attributed to the flusher's
+  scope; build-time initial-value reads pinning triggers to long-lived scopes).
+- **`each`/`list` take a `RowSource`** ([§5.4](#54-keyed-collections-each), [§10.1](#101-api--the-shared-itemslot-contract-unified-with-each--dp-16-resolved), [docs/list.md](docs/list.md)): plain data wrapped as
+  `items(closure, key_of)`, or — feature `model` on day-pieces — a day-model store directly
+  (`store.rows(projection)` for display order). Store rows receive a **`ModelSlot`**, itself a
+  day-model `Source` (`DYNAMIC`, re-resolving its row per operation), so derive accessors bind
+  two-way and follow the recycle; selection callbacks hand the row's `Elem`. An unchanged row
+  set skips the native reload, so a field edit costs the one control it patched.
+  `day-pieces/tests/model_rows.rs` measures the claims (one label patch per edit, zero reloads,
+  zero residue across a full-collection scroll).
+- **day-appkit's list borrows narrowed** (`list_entry` clone-out): six sites held the
+  `LIST_STATE` map across table calls that can synchronously re-enter `viewForRow` → a flush →
+  `release`, the contained "RefCell already borrowed" panic every list walkthrough logged, 24 a
+  run. Now zero.
+
+Adopters: the scaffold's list is store-driven end to end; Day-Time's alarm card converted (the
+independent generalization check — including a hand-written `Binding` for one bit of a mask);
+Day-Showcase gained a Model page with walkthrough coverage.
 
 ---
 

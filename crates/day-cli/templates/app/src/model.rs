@@ -57,7 +57,8 @@ thread_local! {
 }
 
 /// The one store every page reads. Reads track what they touch: a field binding follows its own
-/// field, `ordered()` follows the whole collection, and neither wakes for the other's changes.
+/// field, `ordered_keys()` follows the collection's shape, and neither wakes for the other's
+/// changes.
 pub(crate) fn items() -> Store<Keyed<Item>> {
     ITEMS.with(|s| *s)
 }
@@ -108,27 +109,28 @@ fn save() {
     }
 }
 
-/// Rows as the list shows them: finished ones first, optionally hidden altogether, each group
-/// keeping the user's own order.
+/// Row KEYS as the list shows them: finished ones first, optionally hidden altogether, each
+/// group keeping the user's own order.
 ///
 /// Sorting and filtering HERE rather than in the page is what keeps the list, the editor's
-/// neighbors, and the reorder indices agreeing on what "row 3" means — a page that filtered its
-/// own copy would hand `on_reorder` an index the model could not resolve.
-pub(crate) fn ordered() -> Vec<Item> {
+/// neighbors, and the reorder indices agreeing on what "row 3" means. And it is a projection of
+/// KEYS, not items: nothing is cloned, and its tracked reads are exactly the collection's shape,
+/// the filter flag, and each row's `done` — the only facts the ORDER depends on. Renaming an
+/// item cannot re-run it, so the list never reloads for a keystroke in the editor.
+pub(crate) fn ordered_keys() -> Vec<u64> {
     let show = show_done().get();
-    let mut v: Vec<Item> = items().with(|k| {
-        k.map(|k| {
-            k.items()
-                .iter()
-                .filter(|i| show || !i.done)
-                .cloned()
-                .collect()
+    let store = items();
+    let mut keys: Vec<(u64, bool)> = store
+        .keys()
+        .into_iter()
+        .filter_map(|k| {
+            let done = store.elem(k).done().with(|d| d.copied().unwrap_or(false));
+            (show || !done).then_some((k, done))
         })
-        .unwrap_or_default()
-    });
+        .collect();
     // A STABLE sort, so the user's own order survives inside each group.
-    v.sort_by_key(|i| !i.done);
-    v
+    keys.sort_by_key(|(_, done)| !done);
+    keys.into_iter().map(|(k, _)| k).collect()
 }
 
 pub(crate) fn find(id: u32) -> Option<Item> {
@@ -167,17 +169,16 @@ pub(crate) fn add() -> u32 {
 
 /// Move row `from` to row `to` in the UNDERLYING list. The list hands us DISPLAY indices, which
 /// differ from storage order whenever a finished item has floated to the top — so both ends are
-/// resolved back to ids before anything moves.
+/// resolved back to keys before anything moves.
 pub(crate) fn move_row(from: usize, to: usize) {
-    let display = ordered();
-    let (Some(a), Some(b)) = (display.get(from), display.get(to)) else {
+    let display = ordered_keys();
+    let (Some(&a), Some(&b)) = (display.get(from), display.get(to)) else {
         return;
     };
-    let (a, b) = (a.id, b.id);
-    items().restructure("move", Op::Move, a as u64, |k| {
+    items().restructure("move", Op::Move, a, |k| {
         let (Some(i), Some(j)) = (
-            k.items().iter().position(|x| x.id == a),
-            k.items().iter().position(|x| x.id == b),
+            k.items().iter().position(|x| x.id as u64 == a),
+            k.items().iter().position(|x| x.id as u64 == b),
         ) else {
             return;
         };

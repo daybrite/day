@@ -1,5 +1,5 @@
 use super::detail::{color_of, editor, editor_pane};
-use crate::model::{self, Item, KINDS};
+use crate::model::{self, Item, ItemFields, KINDS};
 use crate::{res, wide};
 use day::prelude::*;
 
@@ -61,7 +61,7 @@ pub(crate) fn new_item() {
     // A hundred rows in, a new one lands off screen. Ask the list to bring it into view by its
     // DISPLAY index, which is not the order it was appended in — finished items float to the top
     // (https://daybrite.dev/docs/list).
-    scroll_to().set(model::ordered().iter().position(|i| i.id == id));
+    scroll_to().set(model::ordered_keys().iter().position(|k| *k == id as u64));
     if !wide() {
         route(&crate::Section::Navigate)
             .then(&Row { id })
@@ -133,7 +133,13 @@ fn pushed_stack() -> AnyPiece {
         .any()
 }
 
-/// The list itself — one widget, both layouts.
+/// The list itself — one widget, both layouts, driven straight by the STORE.
+///
+/// `items().rows(ordered_keys)` hands the list a projection of row KEYS; the rows themselves
+/// bind their fields through the slot. The division of labor is the whole performance story
+/// (https://daybrite.dev/docs/list): editing a name patches one label in one row — no reload,
+/// no rebind, nothing cloned — while a change the ORDER depends on (a done toggle, the filter,
+/// an insert) re-runs only the key projection and reloads natively.
 ///
 /// Reorder and delete are turned on unconditionally and the backends decide what that means:
 /// every toolkit has a drag gesture, and the phones add swipe-to-delete while the desktops
@@ -141,9 +147,10 @@ fn pushed_stack() -> AnyPiece {
 /// below carries Delete too — a list that must be editable everywhere pairs the gesture with an
 /// explicit control, rather than assuming the gesture exists.
 fn item_list() -> AnyPiece {
-    list(model::ordered, |i: &Item| i.id, row_view)
+    list(model::items().rows(model::ordered_keys), row_view)
         .row_height(RowHeight::Uniform(58.0))
-        .on_select(move |id: u32| {
+        .on_select(move |it: Elem<Item>| {
+            let id = it.key() as u32;
             selected().set(Some(id));
             if !wide() {
                 route(&crate::Section::Navigate)
@@ -157,7 +164,7 @@ fn item_list() -> AnyPiece {
         .selected_rows(move || {
             selected()
                 .get()
-                .and_then(|id| model::ordered().iter().position(|i| i.id == id))
+                .and_then(|id| model::ordered_keys().iter().position(|k| *k == id as u64))
                 .into_iter()
                 .collect()
         })
@@ -167,8 +174,8 @@ fn item_list() -> AnyPiece {
         .deletable(true)
         .delete_label(res::str::cmd_delete().format())
         .on_delete(|index| {
-            if let Some(it) = model::ordered().get(index) {
-                model::remove(it.id);
+            if let Some(&k) = model::ordered_keys().get(index) {
+                model::remove(k as u32);
             }
         })
         .id("item-list")
@@ -178,11 +185,12 @@ fn item_list() -> AnyPiece {
 /// One row: the kind's glyph in the item's own color, its name and kind, its rating, and a
 /// check when it is finished.
 ///
-/// Every read of `slot` is inside a reactive closure. A recycling list rebinds one physical row
-/// to many items as it scrolls, and only reactive bindings follow that rebind — an eager
-/// `let name = slot.get()` would freeze the row at whichever item it first showed
+/// The slot is the row's live connection to the store. Every read is a per-FIELD tracked read
+/// inside a reactive closure, so an edit to one field patches exactly the widgets showing it —
+/// and when the recycling list rebinds this physical row to a different item, the same closures
+/// follow, because the slot resolves its row on every read
 /// (https://daybrite.dev/docs/list).
-fn row_view(slot: ItemSlot<Item, u32>) -> AnyPiece {
+fn row_view(slot: ModelSlot<Item>) -> AnyPiece {
     row((
         // The kind says WHAT it is, the tint says which one it is — two facts in one glyph, and
         // the same color the editor's well sets.
@@ -191,8 +199,10 @@ fn row_view(slot: ItemSlot<Item, u32>) -> AnyPiece {
         // tint are fixed when it is built, and a recycled row rebinds to a different item. Keying
         // on the pair rebuilds the glyph exactly when one of them changes, and never otherwise.
         each(
-            move || vec![slot.field(|i| (i.kind, i.color.clone()))],
-            |kc: &(usize, String)| kc.clone(),
+            items(
+                move || vec![(slot.kind().read(), slot.color().read())],
+                |kc: &(usize, String)| kc.clone(),
+            ),
             |k: ItemSlot<(usize, String), (usize, String)>| {
                 let (kind, color) = k.key();
                 vector(kind_icon(kind))
@@ -201,8 +211,8 @@ fn row_view(slot: ItemSlot<Item, u32>) -> AnyPiece {
             },
         ),
         column((
-            label(move || slot.field(|i| i.name.clone())),
-            label(move || slot.field(|i| tr(KINDS[i.kind.min(KINDS.len() - 1)]).format()))
+            label(move || slot.name().read()),
+            label(move || tr(KINDS[slot.kind().read().min(KINDS.len() - 1)]).format())
                 .font(Font::Caption),
         ))
         .spacing(1.0)
@@ -210,13 +220,14 @@ fn row_view(slot: ItemSlot<Item, u32>) -> AnyPiece {
         .grow(),
         // Filled stars up to the rating, hollow after — readable at a glance without a number.
         label(move || {
-            slot.field(|i| "\u{2605}".repeat(i.rating) + &"\u{2606}".repeat(5 - i.rating.min(5)))
+            let r = slot.rating().read();
+            "\u{2605}".repeat(r) + &"\u{2606}".repeat(5 - r.min(5))
         })
         .font(Font::Caption)
         .color(Color::hex(0xF5A524)),
-        label(move || slot.field(|i| i.count.to_string())).tabular(),
+        label(move || slot.count().read().to_string()).tabular(),
         when(
-            move || slot.field(|i| i.done),
+            move || slot.done().read(),
             move || {
                 vector(res::vectors::check)
                     .tint(Color::hex(0x10B981))
@@ -232,12 +243,14 @@ fn row_view(slot: ItemSlot<Item, u32>) -> AnyPiece {
         trailing: 12.0,
     })
     // Secondary-click / long-press. The same two commands the menu bar carries, so however the
-    // user reaches for them they run one closure. The id is read when the command RUNS, not when
-    // the row is built — a recycled row points at a different item by then.
+    // user reaches for them they run one closure. The key is read when the command RUNS, not
+    // when the row is built — a recycled row points at a different item by then, and the slot
+    // follows it.
     .context_menu(vec![
-        menu_item(res::str::cmd_done().format()).action(move || model::toggle_done(slot.key())),
+        menu_item(res::str::cmd_done().format())
+            .action(move || model::toggle_done(slot.key() as u32)),
         menu_separator(),
-        menu_item(res::str::cmd_delete().format()).action(move || model::remove(slot.key())),
+        menu_item(res::str::cmd_delete().format()).action(move || model::remove(slot.key() as u32)),
     ])
     .any()
 }

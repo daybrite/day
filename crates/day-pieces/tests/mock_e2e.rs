@@ -310,12 +310,75 @@ fn when_builds_and_disposes() {
 }
 
 #[test]
+fn when_otherwise_swaps_arms() {
+    let ok = Signal::new(true);
+    let probe = boot(move || {
+        column((
+            label("always"),
+            when(move || ok.get(), || label("saved")).otherwise(|| label("failed")),
+        ))
+        .any()
+    });
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2, "one arm, never both");
+    assert_eq!(labels[1].1.text, "saved");
+
+    probe.clear_log();
+    batch(|| ok.set(false));
+    flush_sync();
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2, "one arm, never both");
+    assert_eq!(labels[1].1.text, "failed");
+    assert!(
+        probe.log().iter().any(|l| l.starts_with("release")),
+        "the outgoing arm's native widget must be released: {:?}",
+        probe.log()
+    );
+
+    // Flipping back rebuilds the then-arm: an arm is a constructor run once per activation.
+    batch(|| ok.set(true));
+    flush_sync();
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2, "one arm, never both");
+    assert_eq!(labels[1].1.text, "saved");
+}
+
+#[test]
+fn when_otherwise_disposes_the_outgoing_arm() {
+    let ok = Signal::new(true);
+    let text = Signal::new(String::from("first"));
+    let probe = boot(move || {
+        column((
+            when(move || ok.get(), move || label(move || text.get())).otherwise(|| label("failed")),
+        ))
+        .any()
+    });
+    assert_eq!(probe.find_by_kind("day.label")[0].1.text, "first");
+
+    batch(|| ok.set(false));
+    flush_sync();
+    probe.clear_log();
+    // The then-arm's binding was created in the arm's child scope (§4.3). Once that scope is
+    // disposed, writing the signal it read must not reach the toolkit at all — a surviving
+    // binding would patch a released handle.
+    batch(|| text.set(String::from("second")));
+    flush_sync();
+    assert!(
+        !probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("update day.label")),
+        "disposed arm's binding still ran: {:?}",
+        probe.log()
+    );
+}
+
+#[test]
 fn each_keyed_diff_touches_only_changes() {
     let items: Signal<Vec<(u64, String)>> = Signal::new(vec![(1, "one".into()), (2, "two".into())]);
     let probe = boot(move || {
         column((each(
-            move || items.get(),
-            |t| t.0,
+            day_pieces::items(move || items.get(), |t: &(u64, String)| t.0),
             move |slot: ItemSlot<(u64, String), u64>| label(move || slot.field(|t| t.1.clone())),
         ),))
         .any()
@@ -1483,8 +1546,7 @@ fn five_item_list() -> AnyPiece {
             .collect::<Vec<_>>(),
     );
     list(
-        move || items.get(),
-        |s: &String| s.clone(),
+        day_pieces::items(move || items.get(), |s: &String| s.clone()),
         |row: ItemSlot<String, String>| label(move || row.get()),
     )
     .row_height(RowHeight::Uniform(20.0))
@@ -1549,7 +1611,7 @@ fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
 #[test]
 fn list_teardown_releases_row_content_but_never_the_adopted_cells() {
     let shown = Signal::new(true);
-    let probe = boot(move || when(move || shown.get(), five_item_list));
+    let probe = boot(move || when(move || shown.get(), five_item_list).any());
     let host = probe.find_by_kind("day.list")[0].0;
 
     let (cell_a, cell_b) = (MockHandle(9001), MockHandle(9002));
@@ -1597,8 +1659,7 @@ fn list_reports_selection_by_key() {
     let probe = boot(move || {
         let items = Signal::new(vec!["a".to_string(), "b".into(), "c".into()]);
         list(
-            move || items.get(),
-            |s: &String| s.clone(),
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .on_select(move |k| sink.borrow_mut().push(k))
@@ -1625,8 +1686,7 @@ fn reorderable_list(
 ) -> AnyPiece {
     let items = Signal::new(order.borrow().clone());
     let mut l = list(
-        move || items.get(),
-        |s: &String| s.clone(),
+        day_pieces::items(move || items.get(), |s: &String| s.clone()),
         |row: ItemSlot<String, String>| label(move || row.get()),
     )
     .row_height(RowHeight::Uniform(20.0))
@@ -1801,8 +1861,7 @@ fn list_scroll_to_end_follows_the_trigger() {
     let scroll = Trigger::new();
     let probe = boot(move || {
         list(
-            move || items.get(),
-            |s: &String| s.clone(),
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .row_height(RowHeight::Uniform(20.0))
@@ -1839,8 +1898,7 @@ fn list_scroll_to_end_is_a_noop_when_empty() {
     let scroll = Trigger::new();
     let probe = boot(move || {
         list(
-            move || items.get(),
-            |s: &String| s.clone(),
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .scroll_to_end(scroll)
@@ -1865,8 +1923,7 @@ fn list_stick_to_bottom_scrolls_on_data_change() {
     let items = Signal::new(vec!["a".to_string(), "b".into()]);
     let probe = boot(move || {
         list(
-            move || items.get(),
-            |s: &String| s.clone(),
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .row_height(RowHeight::Uniform(20.0))
@@ -3311,11 +3368,13 @@ fn cover_cycle_root() -> AnyPiece {
         column((
             label(move || format!("taps {}", taps.get())),
             each(
-                move || {
-                    let generation = rev.get() as i64;
-                    vec![format!("row-a:{generation}"), format!("row-b:{generation}")]
-                },
-                |item: &String| item.clone(),
+                items(
+                    move || {
+                        let generation = rev.get() as i64;
+                        vec![format!("row-a:{generation}"), format!("row-b:{generation}")]
+                    },
+                    |item: &String| item.clone(),
+                ),
                 move |slot| {
                     let name = slot.get();
                     button(name.clone())
@@ -4389,8 +4448,7 @@ fn deletable_list(
 ) -> AnyPiece {
     let items = Signal::new(seed());
     let mut l = list(
-        move || items.get(),
-        |s: &String| s.clone(),
+        day_pieces::items(move || items.get(), |s: &String| s.clone()),
         |row: ItemSlot<String, String>| label(move || row.get()),
     )
     .row_height(RowHeight::Uniform(20.0))
@@ -4451,8 +4509,7 @@ fn list_delete_refused_by_guard_and_unsupported_without_optin() {
     let probe2 = boot(|| {
         let items = Signal::new(seed());
         list(
-            move || items.get(),
-            |s: &String| s.clone(),
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .row_height(RowHeight::Uniform(20.0))

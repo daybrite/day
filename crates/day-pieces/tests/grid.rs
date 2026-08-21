@@ -184,8 +184,7 @@ fn grid_each_rows_reflow() {
     let items = Signal::new(vec!["aa".to_string(), "bb".to_string()]);
     let probe = boot(move || {
         grid((each(
-            move || items.get(),
-            |s| s.clone(),
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
             |slot| grid_row((label(move || slot.get()), label("x"))).any(),
         ),))
         .column_spacing(10.0)

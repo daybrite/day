@@ -11,6 +11,7 @@ license.workspace = true
 [dependencies]
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
+day-model = { workspace = true, optional = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
 # The core localization engine + built-in UI-string catalog (dialog buttons, menu-role labels).
@@ -24,6 +25,16 @@ linkme = { workspace = true }
 # loosely-typed args, the surface day-lite's JS layer drives. Off by default — compiled
 # apps pay nothing for it.
 dyn-registry = []
+# Model-driven collections (docs/model.md, docs/list.md): a day-model store as a `RowSource`
+# for `list`/`each`, rows binding fields through `ModelSlot`. Off by default — apps that bind
+# plain data pay nothing for it.
+model = ["dep:day-model"]
 
 [dev-dependencies]
 day-mock = { workspace = true }
+day-macros = { path = "../day-macros", version = "=0.2.5" }
+
+# The model-rows suite proves the granularity and reclamation claims docs/list.md makes.
+[[test]]
+name = "model_rows"
+required-features = ["model"]
