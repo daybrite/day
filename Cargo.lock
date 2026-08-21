@@ -512,6 +512,7 @@ dependencies = [
  "day-macros",
  "day-mock",
  "day-model",
+ "day-part-clipboard",
  "day-part-prefs",
  "day-persistence",
  "day-pieces",
@@ -906,6 +907,7 @@ dependencies = [
  "day-pieces",
  "day-reactive",
  "day-spec",
+ "day-sqlite-worker",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1326,6 +1328,13 @@ dependencies = [
  "day-fonts",
  "day-geometry",
  "memmap2",
+]
+
+[[package]]
+name = "day-sqlite-worker"
+version = "0.2.6"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

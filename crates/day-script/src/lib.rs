@@ -75,6 +75,37 @@ pub enum Step {
         id: String,
         #[serde(default)]
         repeat: Option<u32>,
+        /// Tap at THIS point in the element's own coordinate space instead of its center —
+        /// what canvas hit-testing needs (`- tap: { id: canvas, at: [40, 60] }`).
+        #[serde(default)]
+        at: Option<[f64; 2]>,
+        /// Modifier keys "held" for the tap (`modifiers: [shift]` / `[primary]` / `[alt]`):
+        /// the executor stands them in through `day::modifiers()` while dispatching, so
+        /// modifier-dependent taps (shift-click multi-select) are drivable synthetically.
+        #[serde(default)]
+        modifiers: Vec<String>,
+    },
+    /// A non-text key press at the window level, as a platform key route would deliver it
+    /// while no text widget has focus (`- key: { key: ArrowRight, modifiers: [shift] }`,
+    /// docs/menus.md). Names follow the web `KeyboardEvent.key` vocabulary.
+    Key {
+        key: String,
+        #[serde(default)]
+        modifiers: Vec<String>,
+    },
+    /// A synthetic pointer drag over one element, in its own coordinate space: `Began` at
+    /// `from`, a few `Changed` samples along the segment, `Ended` at `to` — the same
+    /// `Event::Drag` stream a native recognizer delivers, so `.on_drag` state machines
+    /// (canvas move/resize) run their whole preview→commit path. Injected, like every
+    /// dayscript step: green here says the app logic holds, not that the platform recognizer
+    /// fires — verify THAT with real input (docs/agent.md).
+    Drag {
+        id: String,
+        from: [f64; 2],
+        to: [f64; 2],
+        /// Intermediate `Changed` samples between the endpoints (default 4).
+        #[serde(default)]
+        steps: Option<u32>,
     },
     /// Deliver `Event::Submitted` to the element — the scripted stand-in for the platform's
     /// submit gesture (Enter in a `text_area` with `.on_submit`, a field's return key).
@@ -637,6 +668,20 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
 /// exact label, or — when the step used `key:` — by the role's core-catalog key (the
 /// injected Preferences item carries an empty label; its role is its identity). `path`
 /// filters by ancestor submenu labels (suffix match). Returns `(id, enabled, trail)`.
+/// `[shift, primary, alt]` (with `cmd`/`ctrl` accepted for `primary`) → the day mask.
+fn parse_modifiers(names: &[String]) -> day_spec::Modifiers {
+    let mut m = day_spec::Modifiers::default();
+    for n in names {
+        match n.to_ascii_lowercase().as_str() {
+            "shift" => m.shift = true,
+            "primary" | "cmd" | "ctrl" | "meta" => m.primary = true,
+            "alt" | "option" => m.alt = true,
+            _ => {}
+        }
+    }
+    m
+}
+
 fn find_menu_actions(
     items: &[day_spec::MenuItem],
     target_label: &str,
@@ -767,18 +812,91 @@ fn exec(step: Step) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
-            Step::Tap { id, repeat } => {
-                // Deliver a button `Pressed` AND a gesture `Tap` at the node's local center, so one
-                // step exercises buttons (which ignore `Tap`) and shape/`.on_tap` pieces (which
-                // ignore `Pressed`) alike — the native recognizers deliver the same `Tap`.
+            Step::Tap {
+                id,
+                repeat,
+                at,
+                modifiers,
+            } => {
+                // Deliver a button `Pressed` AND a gesture `Tap` (at `at`, or the node's local
+                // center), so one step exercises buttons (which ignore `Tap`) and
+                // shape/`.on_tap` pieces (which ignore `Pressed`) alike — the native
+                // recognizers deliver the same `Tap`.
                 let node = find(&id)?;
-                let center = with_tree(|t| t.node_frame(node))
-                    .map(|f| day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0))
-                    .unwrap_or(day_spec::Point::ZERO);
+                let point = match at {
+                    Some([x, y]) => day_spec::Point::new(x, y),
+                    None => with_tree(|t| t.node_frame(node))
+                        .map(|f| day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0))
+                        .unwrap_or(day_spec::Point::ZERO),
+                };
+                // Declared modifiers stand in for held keys while the tap dispatches
+                // (`day::modifiers()` answers them), then clear — a synthetic tap cannot
+                // hold a real shift key.
+                if !modifiers.is_empty() {
+                    day_core::set_modifier_override(Some(parse_modifiers(&modifiers)));
+                }
                 for _ in 0..repeat.unwrap_or(1).max(1) {
                     day_core::enqueue_event(rnode_to_id(node), Event::Pressed);
-                    day_core::enqueue_event(rnode_to_id(node), Event::Tap(center));
+                    day_core::enqueue_event(rnode_to_id(node), Event::Tap(point));
                 }
+                day_reactive::flush_sync();
+                day_core::set_modifier_override(None);
+                Ok(Reply::ok())
+            }
+            Step::Key { key, modifiers } => {
+                let m = parse_modifiers(&modifiers);
+                let mut mask = 0u8;
+                if m.shift {
+                    mask |= day_spec::KeyEvent::SHIFT;
+                }
+                if m.primary {
+                    mask |= day_spec::KeyEvent::PRIMARY;
+                }
+                if m.alt {
+                    mask |= day_spec::KeyEvent::ALT;
+                }
+                day_core::enqueue_event(
+                    day_spec::WINDOW_NODE,
+                    Event::Key(day_spec::KeyEvent {
+                        key,
+                        modifiers: mask,
+                    }),
+                );
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Drag {
+                id,
+                from,
+                to,
+                steps,
+            } => {
+                let node = find(&id)?;
+                let (fx, fy) = (from[0], from[1]);
+                let (tx, ty) = (to[0], to[1]);
+                let n = steps.unwrap_or(4).max(1);
+                let emit_drag = |phase, x: f64, y: f64| {
+                    day_core::enqueue_event(
+                        rnode_to_id(node),
+                        Event::Drag {
+                            phase,
+                            location: day_spec::Point::new(x, y),
+                            translation: day_spec::Point::new(x - fx, y - fy),
+                        },
+                    );
+                };
+                emit_drag(day_spec::DragPhase::Began, fx, fy);
+                day_reactive::flush_sync();
+                for i in 1..=n {
+                    let f = i as f64 / n as f64;
+                    emit_drag(
+                        day_spec::DragPhase::Changed,
+                        fx + (tx - fx) * f,
+                        fy + (ty - fy) * f,
+                    );
+                    day_reactive::flush_sync();
+                }
+                emit_drag(day_spec::DragPhase::Ended, tx, ty);
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }

@@ -202,7 +202,7 @@ fn incremental_maintenance_agrees_with_a_full_fetch() {
     let keys: Vec<u64> = t.0.keys().copied().collect();
     q.seed(&keys, &t);
 
-    let mut rng: u64 = 0x2026_08_18;
+    let mut rng: u64 = 0x2026_0818;
     for step in 0..600u64 {
         rng = rng
             .wrapping_mul(6364136223846793005)

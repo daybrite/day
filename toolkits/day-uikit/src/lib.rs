@@ -916,12 +916,18 @@ mod imp {
                             label.clone()
                         };
                         let sel = ui_role_selector(*role);
+                        let id = *id;
                         out.push(ui_action(mtm, &title, *enabled, move || {
                             if let Some(sel) = sel {
                                 let app = UIApplication::sharedApplication(mtm);
                                 unsafe {
                                     app.sendAction_to_from_forEvent(sel, None, None, None);
                                 }
+                            } else if id != 0 {
+                                // No UIKit selector for this role (Undo/Redo): the item
+                                // carries the day dispatcher id instead — the same route a
+                                // labeled action takes, landing on the installed undo bridge.
+                                emit(WINDOW_NODE, Event::MenuAction(id));
                             }
                         }));
                     } else {
@@ -1723,6 +1729,12 @@ mod imp {
                 })
                 .clone()
         })
+    }
+
+    thread_local! {
+        /// The app's edit-bridge state (`set_edit_state`) — what canPerformAction consults.
+        static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
+            const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
     }
 
     define_class!(
@@ -3678,6 +3690,7 @@ mod imp {
                 // UITextView natively honors editable / selectable / spell-check.
                 | Cap::Dialogs
                 | Cap::FileDialogs
+                | Cap::EditBridge
                 | Cap::Animation
                 | Cap::Cover
                 // Every page rides a UINavigationController, whose UINavigationBar names the
@@ -5340,6 +5353,10 @@ mod imp {
             lifecycle_supported(phase)
         }
 
+        fn set_edit_state(&mut self, state: &day_spec::EditState) {
+            EDIT_STATE.with(|s| s.set(*state));
+        }
+
         fn set_undo_state(&mut self, state: &day_spec::UndoState) {
             let front = undo_front(self.mtm());
             *front.ivars().state.borrow_mut() = state.clone();
@@ -6191,12 +6208,71 @@ mod imp {
     // -----------------------------------------------------------------------
 
     define_class!(
-        #[unsafe(super(NSObject))]
+        // UIResponder, not NSObject: nil-target actions (`sendAction(cut:, nil)` from the
+        // menu, the system's edit commands) reach the app delegate ONLY when it is a
+        // responder — the standard iOS template shape, and the same end-of-chain catch the
+        // macOS window delegate provides.
+        #[unsafe(super(objc2_ui_kit::UIResponder))]
         #[thread_kind = MainThreadOnly]
         #[name = "DayAppDelegate"]
         struct AppDelegate;
 
         unsafe impl NSObjectProtocol for AppDelegate {}
+
+        /// The end of the responder chain for the standard edit selectors: a focused text
+        /// field answered them long before the chain got here, so what arrives is the app's.
+        impl AppDelegate {
+            #[unsafe(method(cut:))]
+            fn edit_cut(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Cut));
+                });
+            }
+
+            #[unsafe(method(copy:))]
+            fn edit_copy(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Copy));
+                });
+            }
+
+            #[unsafe(method(paste:))]
+            fn edit_paste(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Paste));
+                });
+            }
+
+            #[unsafe(method(selectAll:))]
+            fn edit_select_all(&self, _sender: Option<&AnyObject>) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::SelectAll));
+                });
+            }
+
+            /// UIKit's enablement question for the standard commands — the bridge state
+            /// answers for the edit trio; everything else falls to UIResponder's default.
+            #[unsafe(method(canPerformAction:withSender:))]
+            fn can_perform(&self, action: objc2::runtime::Sel, sender: *mut AnyObject) -> bool {
+                day_spec::ffi_guard::contain(false, || {
+                    let state = EDIT_STATE.with(|s| s.get());
+                    if action == sel!(selectAll:) {
+                        state.can_select_all
+                    } else if action == sel!(cut:) {
+                        state.can_cut
+                    } else if action == sel!(copy:) {
+                        state.can_copy
+                    } else if action == sel!(paste:) {
+                        state.can_paste
+                            && unsafe { objc2_ui_kit::UIPasteboard::generalPasteboard().hasStrings() }
+                    } else {
+                        unsafe {
+                            msg_send![super(self), canPerformAction: action, withSender: sender]
+                        }
+                    }
+                })
+            }
+        }
 
         unsafe impl UIApplicationDelegate for AppDelegate {
             // The no-scene-manifest compat path reads `delegate.window` (pane's hard-won lesson).

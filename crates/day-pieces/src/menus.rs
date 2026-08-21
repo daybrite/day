@@ -177,6 +177,29 @@ fn lower_menu_with(
                             enabled = enabled && id != 0;
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("n")));
                         }
+                        // The undo pair and the clipboard trio lower to standing dispatchers
+                        // too, for toolkits whose role items come back as plain menu actions
+                        // (Android's app-bar menu, the iOS menu, web context menus). Toolkits
+                        // with a native responder route ignore the id and keep their selector
+                        // — see each backend's menu build.
+                        Some(day_spec::MenuRole::Undo) => {
+                            id = day_core::undo_action_id(false);
+                        }
+                        Some(day_spec::MenuRole::Redo) => {
+                            id = day_core::undo_action_id(true);
+                        }
+                        Some(day_spec::MenuRole::Cut) => {
+                            id = day_core::edit_action_id(day_spec::EditOp::Cut);
+                        }
+                        Some(day_spec::MenuRole::Copy) => {
+                            id = day_core::edit_action_id(day_spec::EditOp::Copy);
+                        }
+                        Some(day_spec::MenuRole::Paste) => {
+                            id = day_core::edit_action_id(day_spec::EditOp::Paste);
+                        }
+                        Some(day_spec::MenuRole::SelectAll) => {
+                            id = day_core::edit_action_id(day_spec::EditOp::SelectAll);
+                        }
                         Some(day_spec::MenuRole::Preferences) => {
                             id = day_core::windows::preferences_action_id();
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new(",")));

@@ -42,7 +42,9 @@ index.html                        app.wasm (Rust cdylib)
   (`<div>`, `<button>`, `<input>`, `<select>`, `<progress>`, `<img>`, `<canvas>`, `<dialog>`…);
   layout stays day-core-owned `position:absolute` frames, with two exceptions below.
 - **`crates/day-cli/resources/web/`** — `shim.js` (the DOM half: element table, event dispatch,
-  canvas replay, dialogs, text measurement), `day.css` (control styling, light + dark via CSS
+  canvas replay, dialogs, text measurement, the day-sql channel), `day-sql-worker.js` (SQLite
+  over OPFS for day-persistence — [docs/persistence.md](persistence.md)), `day.css` (control
+  styling, light + dark via CSS
   custom properties), `index.html` (fetches and instantiates the wasm). The trio lives in the CLI
   rather than beside the toolkit because `day build` embeds it with `include_str!` (so an
   installed CLI needs no source checkout) and `include_str!` may not reach outside its own
@@ -117,7 +119,10 @@ visibility), routes in the URL (below), day-part-prefs backed by `localStorage`
 ([docs/prefs.md](prefs.md), so app state bound through `day::prefs::bind` survives a reload), and
 day-part-http backed by the browser's `fetch()` ([docs/http.md](http.md)): `fetch_async` and
 `fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
-entry points return `Unsupported` (one thread, no blocking waits).
+entry points return `Unsupported` (one thread, no blocking waits). day-persistence file
+databases work in full through the day-sql worker ([docs/persistence.md](persistence.md)),
+and the open/save file pickers are the browser's own file input and download
+([docs/files.md](files.md)).
 
 ## Routes in the URL
 
@@ -198,7 +203,14 @@ Known gaps, in rough order of interest:
 
 The dist directory is self-contained static files: no server component, no build tooling on
 the host. The only reason `day launch` runs a server at all is that browsers refuse to
-instantiate wasm from `file:` URLs; any static host works, including GitHub Pages. The shim
+instantiate wasm from `file:` URLs; any static host works, including GitHub Pages. One
+capability rides on response headers rather than files: the day-sql worker's
+SharedArrayBuffer channel ([docs/persistence.md](persistence.md)) exists only on
+cross-origin-isolated pages, so `day launch` sends `Cross-Origin-Opener-Policy: same-origin`
+and `Cross-Origin-Embedder-Policy: require-corp`, and a static host must send the same two
+headers for file databases to persist. A host that cannot set headers (GitHub Pages) still
+serves the app — day-persistence reports `durable: false` there and file opens refuse
+loudly, while everything else works unchanged. The shim
 prefers `instantiateStreaming` (which requires the `application/wasm` MIME type) and falls
 back to a buffered instantiate on hosts that serve wasm as something else, so a plain
 directory listing on a dumb server still boots. Every asset reference in the dist is

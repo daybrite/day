@@ -1599,14 +1599,14 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> FieldSession<S, T, 
     pub fn cancel(self) {
         let mut parts = Vec::new();
         Source::<V>::components(self.field, &mut parts);
-        if let Some(prior) = PREVIEWS.with(|p| p.borrow_mut().remove(&parts)) {
-            if let Ok(prior) = prior.downcast::<V>() {
-                self.field.write_preview((*prior).clone());
-                // The restore write re-opened a session pointing at itself; drop it.
-                let mut parts = Vec::new();
-                Source::<V>::components(self.field, &mut parts);
-                PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
-            }
+        if let Some(prior) = PREVIEWS.with(|p| p.borrow_mut().remove(&parts))
+            && let Ok(prior) = prior.downcast::<V>()
+        {
+            self.field.write_preview((*prior).clone());
+            // The restore write re-opened a session pointing at itself; drop it.
+            let mut parts = Vec::new();
+            Source::<V>::components(self.field, &mut parts);
+            PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
         }
     }
 }
@@ -1622,9 +1622,12 @@ pub trait ApplyField {
     fn apply_field(&mut self, label: &str, value: &dyn Any) -> bool;
 }
 
+type SetFieldFn = Rc<dyn Fn(u64, &'static str, &Rc<dyn Any>) -> bool>;
+type InsertRowFn = Rc<dyn Fn(u64, &Rc<dyn Any>) -> bool>;
+
 struct StoreOps {
-    set_field: Rc<dyn Fn(u64, &'static str, &Rc<dyn Any>) -> bool>,
-    insert_row: Rc<dyn Fn(u64, &Rc<dyn Any>) -> bool>,
+    set_field: SetFieldFn,
+    insert_row: InsertRowFn,
     remove_row: Rc<dyn Fn(u64) -> bool>,
 }
 

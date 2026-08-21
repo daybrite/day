@@ -1465,10 +1465,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             // the CI loops this replaced continued per variant (OHOS relies
                             // on it under TCG), and the final exit code still reports failure.
                             Err(crate::script::ScriptError::EngineLost {
-                                steps_failed, ..
+                                steps_failed,
+                                ref detail,
                             }) => {
                                 eprintln!(
-                                    "error: engine connection lost — abandoning this variant"
+                                    "error: engine connection lost ({detail}) — abandoning this variant"
                                 );
                                 let crashed =
                                     crate::diagnose::after_app_death(project, target, launched_at);

@@ -72,13 +72,50 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
+// web-dom: the browser clipboard through the day-dom shim (docs/menus.md). Inside a live
+// `copy`/`cut`/`paste` DOM event (the shim forwards those while the event is still on the
+// stack) the calls read and write the event's own `clipboardData` — the only path browsers
+// guarantee synchronously. Outside one, writes best-effort through `navigator.clipboard` and
+// reads fall back to the page-local mirror of the last in-page copy, so same-page flows work
+// even where the async read API is denied. Like the other shim-bridged parts, using this
+// crate on wasm outside a day-dom host page fails at instantiation.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod imp {
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        fn day_dom_clipboard_set(text: *const u8, len: usize) -> i32;
+        /// Answers the staged text's byte length, or -1 with nothing readable.
+        fn day_dom_clipboard_get() -> f64;
+        /// Copy the staged text (`day_dom_clipboard_get`'s length) into `dst`.
+        fn day_dom_clipboard_take(dst: *mut u8);
+        fn day_dom_clipboard_has() -> i32;
+    }
+
+    pub fn set_text(text: &str) -> bool {
+        unsafe { day_dom_clipboard_set(text.as_ptr(), text.len()) == 1 }
+    }
+    pub fn get_text() -> Option<String> {
+        let len = unsafe { day_dom_clipboard_get() };
+        if len < 0.0 {
+            return None;
+        }
+        let mut buf = vec![0u8; len as usize];
+        unsafe { day_dom_clipboard_take(buf.as_mut_ptr()) };
+        String::from_utf8(buf).ok()
+    }
+    pub fn has_text() -> bool {
+        unsafe { day_dom_clipboard_has() == 1 }
+    }
+}
+
 // Any other platform: no clipboard API.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "windows",
     target_os = "linux",
-    target_os = "android"
+    target_os = "android",
+    all(target_family = "wasm", target_os = "unknown")
 )))]
 mod imp {
     pub fn set_text(_text: &str) -> bool {

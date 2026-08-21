@@ -7,7 +7,7 @@
 
 use day_macros::Model;
 use day_model::Op;
-use day_persistence::{GeoRect, ModelContainer, Sqlite, Value, schema};
+use day_persistence::{GeoRect, ModelContainer, Sqlite, schema};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

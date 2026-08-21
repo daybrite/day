@@ -101,6 +101,12 @@ unsafe extern "C" {
         h: f64,
     );
     fn day_dom_present(req: u32, json: *const u8, len: usize);
+    /// The modifier keys held right now, as the shim last observed them (bit0 shift,
+    /// bit1 primary = meta|ctrl, bit2 alt).
+    fn day_dom_modifiers() -> u32;
+    /// Present a save flow: `json` names it, `bytes` are the staged content the shim turns
+    /// into a download (docs/files.md).
+    fn day_dom_present_save(req: u32, json: *const u8, len: usize, bytes: *const u8, blen: usize);
     fn day_dom_dismiss(req: u32);
     /// `mode` is [`nav_mode`]: 0 split, 1 stack, 2 tabs, 3 rail.
     fn day_dom_nav_mode(el: u32, mode: u32, title: *const u8, tl: usize);
@@ -1062,7 +1068,8 @@ pub mod listen {
     pub const RESIZE: u32 = 32;
     /// `scroll` → [`Event::ScrollChanged`].
     pub const SCROLL: u32 = 64;
-    /// `pointerdown` → [`Event::Tap`].
+    /// A press released within the slop → [`Event::Tap`] (at the press point, on release —
+    /// the shim's recognizer, matching the native toolkits).
     pub const POINTER: u32 = 128;
     /// The pointer-capture trio → [`Event::Drag`].
     pub const DRAG: u32 = 256;
@@ -1111,6 +1118,13 @@ impl Toolkit for Dom {
             // grow a tab bar as the viewport narrows (docs/navigation.md).
             Cap::NavTabsAdaptive => Support::Emulated,
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
+            // The browser's file input and download ARE its file dialogs; bytes ride the
+            // `web_files` store instead of a filesystem (docs/files.md).
+            Cap::FileDialogs => Support::Native,
+            // The browser's own clipboard events (⌘X/C/V) are the native edit route; the
+            // shim's document listeners forward them when no editable element claims them
+            // (docs/menus.md).
+            Cap::EditBridge => Support::Native,
             // Exact metrics from a canvas TextMetrics, but derived rather than read off a
             // baseline the platform publishes (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
@@ -2075,12 +2089,42 @@ impl Toolkit for Dom {
         true
     }
 
+    fn modifiers(&mut self) -> day_spec::Modifiers {
+        let mask = unsafe { day_dom_modifiers() };
+        day_spec::Modifiers {
+            shift: mask & 1 != 0,
+            primary: mask & 2 != 0,
+            alt: mask & 4 != 0,
+        }
+    }
+
     fn present(&mut self, req: u64, spec: &PresentSpec) {
+        // A save flow carries its staged bytes out with the request — the shim wraps them in a
+        // Blob and clicks a download link, the browser's native "save" (docs/files.md).
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        if let PresentSpec::SaveFile {
+            title,
+            suggested_name,
+            src_path,
+            ..
+        } = spec
+        {
+            let bytes = day_spec::present::web_files::read(src_path).unwrap_or_default();
+            let mut j = String::from("{\"kind\":\"save\",\"title\":");
+            json_str(&mut j, title);
+            j.push_str(",\"name\":");
+            json_str(&mut j, suggested_name);
+            j.push('}');
+            unsafe {
+                day_dom_present_save(req as u32, j.as_ptr(), j.len(), bytes.as_ptr(), bytes.len())
+            };
+            return;
+        }
         let json = present_json(spec);
         match json {
             Some(j) => unsafe { day_dom_present(req as u32, j.as_ptr(), j.len()) },
             None => {
-                // Unsupported spec (file pickers, MVP): answer dismissed so the await resolves.
+                // Unsupported spec: answer dismissed so the await resolves.
                 let node = day_spec::WINDOW_NODE;
                 emit(
                     node,
@@ -2777,7 +2821,21 @@ fn present_json(spec: &PresentSpec) -> Option<String> {
             j.push_str(",\"cancel\":");
             json_str(&mut j, cancel);
         }
-        PresentSpec::OpenFile { .. } | PresentSpec::SaveFile { .. } => return None,
+        // The open picker: the shim clicks a hidden `<input type=file>` and answers with the
+        // chosen file's name and bytes through `day_dom_present_files`.
+        PresentSpec::OpenFile { title, filters } => {
+            j.push_str("\"kind\":\"open\",\"title\":");
+            json_str(&mut j, title);
+            let accept: Vec<String> = filters
+                .iter()
+                .flat_map(|f| f.extensions.iter())
+                .map(|e| format!(".{e}"))
+                .collect();
+            j.push_str(",\"accept\":");
+            json_str(&mut j, &accept.join(","));
+        }
+        // Save rides its own FFI arm (bytes attached); reaching here means a non-web build.
+        PresentSpec::SaveFile { .. } => return None,
     }
     j.push('}');
     Some(j)
@@ -2963,6 +3021,99 @@ pub extern "C" fn day_dom_present_result(req: u32, which: i32, ptr: *mut u8, len
                 result,
             },
         );
+    });
+}
+
+/// A file picker's answer: `name` is the chosen file's display name; `bytes` its content for
+/// an open flow (len 0 for a save flow, whose bytes already left as a download). The bytes
+/// land in the `web_files` store under `/day-web/<name>`, and that virtual path answers the
+/// awaiting flow as `PresentResult::Files` — the pieces layer reads it back like a local path
+/// (docs/files.md).
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_present_files(
+    req: u32,
+    name_ptr: *mut u8,
+    name_len: usize,
+    bytes_ptr: *mut u8,
+    bytes_len: usize,
+) {
+    let name = take_string(name_ptr, name_len);
+    let bytes = if bytes_len > 0 {
+        // SAFETY: the shim wrote exactly `bytes_len` bytes into a `day_dom_alloc` allocation.
+        Some(unsafe { Vec::from_raw_parts(bytes_ptr, bytes_len, bytes_len) })
+    } else {
+        None
+    };
+    day_spec::ffi_guard::contain((), move || {
+        // The last path component only — a hostile/odd name must not escape the store's prefix.
+        let leaf = name
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("file")
+            .to_string();
+        let path = format!("/day-web/{leaf}");
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        if let Some(b) = bytes {
+            day_spec::present::web_files::write(&path, b);
+        }
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        drop(bytes);
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::PresentResult {
+                req: u64::from(req),
+                result: PresentResult::Files(vec![path]),
+            },
+        );
+    });
+}
+
+/// A document-level clipboard event (the browser's own ⌘X/⌘C/⌘V route, or the Edit menu of
+/// the browser itself) that no editable element claimed — the shim's `copy`/`cut`/`paste`
+/// listeners forward it here while the event is still live, so day-part-clipboard's
+/// synchronous calls inside the app's handler read and write the event's `clipboardData`
+/// (docs/menus.md).
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_edit(op: u32) {
+    day_spec::ffi_guard::contain((), || {
+        let op = match op {
+            0 => day_spec::EditOp::Cut,
+            1 => day_spec::EditOp::Copy,
+            2 => day_spec::EditOp::Paste,
+            _ => day_spec::EditOp::SelectAll,
+        };
+        emit(day_spec::WINDOW_NODE, Event::Edit(op));
+    });
+}
+
+/// A non-text key (the arrows) pressed while no editable element has focus — the shim's
+/// keydown route, delivered as [`Event::Key`] with the day modifier mask (docs/menus.md).
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_key(code: u32, modifiers: u32) {
+    day_spec::ffi_guard::contain((), || {
+        let key = match code {
+            0 => "ArrowLeft",
+            1 => "ArrowRight",
+            2 => "ArrowUp",
+            _ => "ArrowDown",
+        };
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::Key(day_spec::KeyEvent {
+                key: key.to_string(),
+                modifiers: modifiers as u8,
+            }),
+        );
+    });
+}
+
+/// The platform-standard undo shortcut (⌘Z / Ctrl+Z, shift or Ctrl+Y for redo) pressed with
+/// no editable element focused — the shim's keydown route (the browser has no document-level
+/// undo of its own to integrate with, so the standard keys ARE the platform affordance).
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_undo(redo: u32) {
+    day_spec::ffi_guard::contain((), || {
+        emit(day_spec::WINDOW_NODE, Event::Undo { redo: redo != 0 });
     });
 }
 

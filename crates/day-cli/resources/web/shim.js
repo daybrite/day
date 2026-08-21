@@ -11,6 +11,8 @@ const els = [null, null];   // element registry; id 1 = the day root (set in sta
 let lastSetRoute = null;    // the route we last wrote to the hash (echo suppression)
 const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
+let appStarted = false;     // day_dom_main has run; script lines before that queue in the inbox
+const scriptInbox = [];
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
 let toolbarItems = {};      // toolbar item id → its element, for targeted patches
 
@@ -386,6 +388,64 @@ const env = {
     replay(E(id), f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen), w, h),
 
   day_dom_present: (req, json, len) => present(req, JSON.parse(str(json, len))),
+  day_dom_modifiers: () => modifierMask,
+  // The browser clipboard for day-part-clipboard (docs/menus.md). Inside a live copy/cut/
+  // paste DOM event (dispatched below while the event is on the stack) the calls use the
+  // event's own clipboardData — the only synchronous path; outside one, writes best-effort
+  // via navigator.clipboard and reads fall back to the page-local mirror of the last copy.
+  day_dom_clipboard_set: (p, n) => {
+    const text = str(p, n);
+    clipboardMirror = text;
+    if (activeClipboardEvent && activeClipboardEvent.type !== 'paste' && activeClipboardEvent.clipboardData) {
+      activeClipboardEvent.clipboardData.setData('text/plain', text);
+    } else {
+      navigator.clipboard?.writeText(text).catch(() => {});
+    }
+    return 1;
+  },
+  day_dom_clipboard_get: () => {
+    let text = null;
+    if (activeClipboardEvent && activeClipboardEvent.type === 'paste' && activeClipboardEvent.clipboardData) {
+      text = activeClipboardEvent.clipboardData.getData('text/plain') || null;
+    }
+    text = text ?? clipboardMirror;
+    if (text == null) return -1;
+    clipboardStaged = utf8enc.encode(text);
+    return clipboardStaged.length;
+  },
+  day_dom_clipboard_take: (p) => {
+    if (clipboardStaged) new Uint8Array(wasm.memory.buffer, p, clipboardStaged.length).set(clipboardStaged);
+    clipboardStaged = null;
+  },
+  day_dom_clipboard_has: () => {
+    if (activeClipboardEvent && activeClipboardEvent.type === 'paste' && activeClipboardEvent.clipboardData) {
+      return activeClipboardEvent.clipboardData.types.includes('text/plain') ? 1 : 0;
+    }
+    return clipboardMirror != null ? 1 : 0;
+  },
+  // Host services shared with the day-sql worker instance (day-sqlite-worker crate).
+  day_dom_now_ms: () => Date.now(),
+  day_dom_entropy: (p, n) => crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, p, n)),
+  // The day-sql channel (see above). The reply is staged; a second call copies it out.
+  day_dom_sql_ready: () => (sqlReady ? 1 : 0),
+  day_dom_sql_call: (p, n) => sqlCall(new Uint8Array(wasm.memory.buffer, p, n).slice()),
+  day_dom_sql_reply: (p) => { new Uint8Array(wasm.memory.buffer, p, sqlReplyBuf.length).set(sqlReplyBuf); sqlReplyBuf = null; },
+  // day_sql_fs_*: the OPFS primitives the WORKER instance implements. The app instance links
+  // them (same module) but never calls them — every arm here just refuses.
+  day_sql_fs_open: () => -1,
+  day_sql_fs_read: () => -1,
+  day_sql_fs_write: () => -1,
+  day_sql_fs_truncate: () => -1,
+  day_sql_fs_size: () => -1,
+  day_sql_fs_flush: () => -1,
+  day_sql_fs_close: () => 0,
+  day_sql_fs_delete: () => -1,
+  day_sql_fs_exists: () => 0,
+  day_sql_fs_list: () => 0,
+  day_sql_log: () => 0,
+  // Save flow: bytes must be copied out before this call returns (Rust frees them after).
+  day_dom_present_save: (req, json, len, bytes, blen) =>
+    presentSave(req, JSON.parse(str(json, len)), new Uint8Array(wasm.memory.buffer, bytes, blen).slice()),
   day_dom_dismiss(req) { dialogs.get(req)?.close('day-dismiss'); },
 
   day_dom_nav_mode(id, mode, t, tl) { navChrome(E(id), id, mode); },
@@ -1235,27 +1295,55 @@ function listen(id, mask) {
   if (mask & 512) dayEditorListen(id, el);
   if (mask & 32) resizeObserver.observe(host);
   if (mask & 64) host.addEventListener('scroll', () => wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0));
-  if (mask & 128) host.addEventListener('pointerdown', (e) => {
-    const r = host.getBoundingClientRect();
-    wasm.day_dom_event(id, 8, e.clientX - r.left, e.clientY - r.top, 0, 0);
-  });
+  if (mask & 128) {
+    // A tap is a press RELEASED without meaningful movement — decided at pointerup, the way
+    // every native recognizer does it, and reported at the PRESS point. Firing on pointerdown
+    // broke coexisting drag gestures: the tap handler ran before the drag's Began and could
+    // re-target selection out from under it (Day-Sketch's resize handles were unreachable
+    // outside a shape's geometry, on web only).
+    let tap = null;
+    host.addEventListener('pointerdown', (e) => {
+      const r = host.getBoundingClientRect();
+      tap = [e.clientX - r.left, e.clientY - r.top, e.clientX, e.clientY];
+    });
+    host.addEventListener('pointermove', (e) => {
+      if (tap && Math.hypot(e.clientX - tap[2], e.clientY - tap[3]) > 4) tap = null;
+    });
+    host.addEventListener('pointerup', () => {
+      if (!tap) return;
+      wasm.day_dom_event(id, 8, tap[0], tap[1], 0, 0);
+      tap = null;
+    });
+    host.addEventListener('pointercancel', () => { tap = null; });
+  }
   if (mask & 256) {
-    let start = null;
+    // The drag engages only past the same small slop, with Began at the ORIGINAL press point
+    // — so a clean click never produces a zero-length drag, and a real drag never produces a
+    // tap.
+    let start = null, dragging = false;
     host.addEventListener('pointerdown', (e) => {
       host.setPointerCapture(e.pointerId);
       const r = host.getBoundingClientRect();
       start = [e.clientX, e.clientY, r.left, r.top];
-      wasm.day_dom_event(id, 9, e.clientX - r.left, e.clientY - r.top, 0, 0);
+      dragging = false;
     });
     host.addEventListener('pointermove', (e) => {
       if (!start) return;
+      if (!dragging) {
+        if (Math.hypot(e.clientX - start[0], e.clientY - start[1]) < 4) return;
+        dragging = true;
+        wasm.day_dom_event(id, 9, start[0] - start[2], start[1] - start[3], 0, 0);
+      }
       wasm.day_dom_event(id, 10, e.clientX - start[2], e.clientY - start[3], e.clientX - start[0], e.clientY - start[1]);
     });
-    host.addEventListener('pointerup', (e) => {
+    const finish = (e) => {
       if (!start) return;
-      wasm.day_dom_event(id, 11, e.clientX - start[2], e.clientY - start[3], e.clientX - start[0], e.clientY - start[1]);
+      if (dragging) wasm.day_dom_event(id, 11, e.clientX - start[2], e.clientY - start[3], e.clientX - start[0], e.clientY - start[1]);
       start = null;
-    });
+      dragging = false;
+    };
+    host.addEventListener('pointerup', finish);
+    host.addEventListener('pointercancel', finish);
   }
 }
 
@@ -1418,12 +1506,129 @@ function replay(canvas, ops, strs, w, h) {
 }
 
 // ---------------------------------------------------------------------------
+// The day-sql channel (docs/persistence.md): synchronous SQLite over the day-sql worker.
+// The worker holds databases on OPFS sync access handles; this side writes a request into a
+// SharedArrayBuffer and spins the few microseconds until the reply state flips — so wasm's
+// day_dom_sql_call is fully synchronous. Needs cross-origin isolation (the day server sends
+// COOP/COEP); without it sqlReady stays false and file databases refuse loudly in Rust.
+// ---------------------------------------------------------------------------
+
+const SQL_STATE = 0, SQL_LEN = 1, SQL_TOTAL = 2;
+const SQL_IDLE = 0, SQL_REQ = 1, SQL_REQ_ACK = 2, SQL_REPLY = 3, SQL_REPLY_ACK = 4;
+const SQL_DATA_OFF = 16, SQL_SAB_SIZE = (1 << 22) + SQL_DATA_OFF;
+let sqlI = null, sqlB = null, sqlCap = 0, sqlReady = false, sqlReplyBuf = null;
+// Clipboard plumbing (docs/menus.md): the live DOM clipboard event while wasm handles it,
+// the staged outbound bytes, and the page-local mirror of the last in-page copy.
+let activeClipboardEvent = null, clipboardStaged = null, clipboardMirror = null;
+// The modifier keys as last observed (bit0 shift, bit1 primary = meta|ctrl, bit2 alt) —
+// wasm pulls this ambiently for interactions modifiers change (shift-click multi-select).
+let modifierMask = 0;
+const trackModifiers = (e) => {
+  modifierMask = (e.shiftKey ? 1 : 0) | ((e.metaKey || e.ctrlKey) ? 2 : 0) | (e.altKey ? 4 : 0);
+};
+
+async function startSqlWorker(module) {
+  if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') return;
+  try {
+    const sab = new SharedArrayBuffer(SQL_SAB_SIZE);
+    const worker = new Worker('day-sql-worker.js');
+    const ready = new Promise((resolve) => {
+      worker.onmessage = (e) => {
+        if (e.data === 'ready') { sqlReady = true; }
+        else { sqlReady = false; console.error('day-sql worker:', e.data); }
+        resolve();
+      };
+      setTimeout(resolve, 20000);
+    });
+    worker.postMessage({ sab, module });
+    await ready;
+    if (sqlReady) {
+      sqlI = new Int32Array(sab);
+      sqlB = new Uint8Array(sab, SQL_DATA_OFF);
+      sqlCap = sqlB.length;
+      // On the way out (reload, navigation), tell the worker to close its OPFS handles so
+      // the NEXT page load can acquire them immediately (state 9 = quit).
+      addEventListener('pagehide', () => {
+        Atomics.store(sqlI, SQL_STATE, 9);
+        Atomics.notify(sqlI, SQL_STATE);
+      });
+    }
+  } catch (e) {
+    console.error('day-sql worker failed to start', e);
+    sqlReady = false;
+  }
+}
+
+// Spin until the state word equals v. Bounded: a wedged worker downgrades the channel
+// instead of hanging the page.
+function sqlSpin(v) {
+  const deadline = performance.now() + 20000;
+  while (Atomics.load(sqlI, SQL_STATE) !== v) {
+    if (performance.now() > deadline) { sqlReady = false; return false; }
+  }
+  return true;
+}
+
+function sqlCall(req) {
+  if (!sqlReady) return -1;
+  sqlI[SQL_TOTAL] = req.length;
+  let off = 0;
+  for (;;) {
+    const n = Math.min(sqlCap, req.length - off);
+    sqlB.set(req.subarray(off, off + n));
+    sqlI[SQL_LEN] = n;
+    off += n;
+    Atomics.store(sqlI, SQL_STATE, SQL_REQ);
+    Atomics.notify(sqlI, SQL_STATE);
+    if (off >= req.length) break;
+    if (!sqlSpin(SQL_REQ_ACK)) return -1;
+  }
+  if (!sqlSpin(SQL_REPLY)) return -1;
+  const total = sqlI[SQL_TOTAL];
+  sqlReplyBuf = new Uint8Array(total);
+  let got = 0;
+  for (;;) {
+    const n = sqlI[SQL_LEN];
+    sqlReplyBuf.set(sqlB.subarray(0, n), got);
+    got += n;
+    if (got >= total) break;
+    Atomics.store(sqlI, SQL_STATE, SQL_REPLY_ACK);
+    Atomics.notify(sqlI, SQL_STATE);
+    if (!sqlSpin(SQL_REPLY)) return -1;
+  }
+  Atomics.store(sqlI, SQL_STATE, SQL_IDLE);
+  Atomics.notify(sqlI, SQL_STATE);
+  return total;
+}
+
+// ---------------------------------------------------------------------------
 // Dialogs (docs/dialogs.md): <dialog>-backed alert/confirm/sheet/prompt.
 // ---------------------------------------------------------------------------
 
 const dialogs = new Map();
 
 function present(req, spec) {
+  // The open picker IS the browser's file input — hidden, clicked, answered on change/cancel.
+  if (spec.kind === 'open') {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (spec.accept) input.accept = spec.accept;
+    input.style.display = 'none';
+    document.body.append(input);
+    input.addEventListener('change', async () => {
+      const f = input.files[0];
+      input.remove();
+      if (!f) { wasm.day_dom_present_result(req, -1, 0, 0); return; }
+      const buf = new Uint8Array(await f.arrayBuffer());
+      const [np, nl] = intoWasm(f.name);
+      const bp = wasm.day_dom_alloc(buf.length);
+      mem().set(buf, bp);
+      wasm.day_dom_present_files(req, np, nl, bp, buf.length);
+    });
+    input.addEventListener('cancel', () => { input.remove(); wasm.day_dom_present_result(req, -1, 0, 0); });
+    input.click();
+    return;
+  }
   const dlg = document.createElement('dialog');
   dlg.className = 'day-dialog' + (spec.sheet ? ' sheet' : '');
   const title = div('day-dialog-title'); title.textContent = spec.title; dlg.append(title);
@@ -1457,6 +1662,22 @@ function present(req, spec) {
   document.body.append(dlg);
   dialogs.set(req, dlg);
   dlg.showModal();
+}
+
+// The save flow: wrap the staged bytes in a Blob, click a download link — the browser's own
+// "save file" surface. The answer is deferred a tick: this runs synchronously INSIDE the wasm
+// present call, and answering re-enters wasm while the presenting frame is still live.
+function presentSave(req, spec, bytes) {
+  const name = spec.name || 'download';
+  const url = URL.createObjectURL(new Blob([bytes]));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  setTimeout(() => {
+    const [np, nl] = intoWasm(name);
+    wasm.day_dom_present_files(req, np, nl, 0, 0);
+  }, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1512,14 +1733,18 @@ async function boot(wasmUrl) {
     }
   }
 
-  let instance;
+  // ONE compile serves both instantiations: the compiled module is structured-cloneable, so
+  // the day-sql worker gets it over postMessage instead of compiling the bytes again. The
+  // worker is kicked first and awaited just before day_dom_main: by the time app code can
+  // open a database, the channel is either up or definitively absent. No async seam in Rust.
+  let module;
   try {
-    ({ instance } = await WebAssembly.instantiateStreaming(fetch(wasmUrl), { env }));
+    module = await WebAssembly.compileStreaming(fetch(wasmUrl));
   } catch {
-    const bytes = await (await fetch(wasmUrl)).arrayBuffer();
-    ({ instance } = await WebAssembly.instantiate(bytes, { env }));
+    module = await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer());
   }
-  wasm = instance.exports;
+  const sqlBoot = startSqlWorker(module);
+  wasm = (await WebAssembly.instantiate(module, { env })).exports;
 
   new ResizeObserver(() => wasm.day_dom_resized(r.clientWidth, r.clientHeight)).observe(r);
   document.addEventListener('visibilitychange', () =>
@@ -1534,6 +1759,44 @@ async function boot(wasmUrl) {
     wasm.day_dom_hash_changed(p, l);
   });
 
+  // Modifier tracking rides the events that carry the flags.
+  for (const ev of ['keydown', 'keyup', 'pointerdown', 'pointermove', 'pointerup']) {
+    document.addEventListener(ev, trackModifiers, true);
+  }
+
+  // The platform-standard keys the browser has no document-level route for: undo (⌘Z /
+  // Ctrl+Z, shifted or Ctrl+Y for redo), select-all (⌘A), and the arrows — all skipped while
+  // an editable element has them (its own text behavior applies).
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && t.closest && t.closest('input, textarea, [contenteditable]')) return;
+    const arrows = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3 };
+    if (e.key in arrows && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      wasm.day_dom_key(arrows[e.key], (e.shiftKey ? 1 : 0));
+      return;
+    }
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z') { e.preventDefault(); wasm.day_dom_undo(e.shiftKey ? 1 : 0); }
+    else if (k === 'y') { e.preventDefault(); wasm.day_dom_undo(1); }
+    else if (k === 'a') { e.preventDefault(); wasm.day_dom_edit(3); }
+  });
+
+  // The browser's own edit-command route (⌘X/C/V, its Edit menu): when no editable element
+  // claims the event, it is the app's — forwarded synchronously so the handler's clipboard
+  // calls hit this very event's clipboardData (docs/menus.md).
+  const editOps = { cut: 0, copy: 1, paste: 2 };
+  for (const kind of Object.keys(editOps)) {
+    document.addEventListener(kind, (e) => {
+      const t = e.target;
+      if (t && t.closest && t.closest('input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+      activeClipboardEvent = e;
+      try { wasm.day_dom_edit(editOps[kind]); } finally { activeClipboardEvent = null; }
+    });
+  }
+
   // dayscript (docs/web.md): when the serving `day launch` session armed scripting
   // (?dayscript= token), open a same-origin WebSocket the dev server bridges to the runner's
   // TCP protocol, and pipe request lines into the engine.
@@ -1543,10 +1806,19 @@ async function boot(wasmUrl) {
       for (const line of scriptOutbox.splice(0)) scriptWs.send(line);
     });
     scriptWs.addEventListener('message', (ev) => {
+      // Lines can arrive while boot still awaits the day-sql worker below — before
+      // day_dom_main, when the engine cannot take them. Queue until the app starts.
+      if (!appStarted) { scriptInbox.push(String(ev.data)); return; }
       const [p, l] = intoWasm(String(ev.data));
       wasm.day_dom_script_line(p, l);
     });
   }
 
+  await sqlBoot;
   wasm.day_dom_main();
+  appStarted = true;
+  for (const line of scriptInbox.splice(0)) {
+    const [p, l] = intoWasm(line);
+    wasm.day_dom_script_line(p, l);
+  }
 }

@@ -26,6 +26,10 @@ use crate::targets::Target;
 const HOST_INDEX: &str = include_str!("../resources/web/index.html");
 const HOST_SHIM: &str = include_str!("../resources/web/shim.js");
 const HOST_CSS: &str = include_str!("../resources/web/day.css");
+// The day-sql worker page (docs/persistence.md): SQLite over OPFS sync access handles,
+// serving the main thread over the SharedArrayBuffer channel. Embedded like the shim, and
+// only useful because the server sends COOP/COEP (SharedArrayBuffer needs isolation).
+const HOST_SQL_WORKER: &str = include_str!("../resources/web/day-sql-worker.js");
 // The DAY_WEB_DRIVER page-driver (`day web driver`, docs/web.md): the Playwright browser
 // day-cli spawns for scripted web runs. Embedded like the shim, so the driver protocol
 // (screenshot + quit on the control port) always matches the CLI that speaks it — CI installs
@@ -73,6 +77,11 @@ pub fn build_web(
         // Debug symbols are most of a release wasm's bytes and no browser tool reads them
         // from a stripped build; keep the shipped module small.
         cmd.args(["--", "-Cstrip=symbols"]);
+    } else {
+        // Debug keeps the NAME section (browser backtraces read it) but drops DWARF, which
+        // no browser reads and which multiplies the module several times over — the page AND
+        // the day-sql worker each decode this module, so its size is boot time twice.
+        cmd.args(["--", "-Cstrip=debuginfo"]);
     }
     status("Building", &format!("{} ({profile})", target.name));
     let out = cmd.status().map_err(|e| format!("cargo: {e}"))?;
@@ -95,6 +104,8 @@ pub fn build_web(
     // import and merge into the wasm imports before instantiation.
     let bridges = crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web"))?;
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
+    std::fs::write(dist.join("day-sql-worker.js"), HOST_SQL_WORKER)
+        .map_err(|e| format!("sql worker: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
     // Vector glyphs (docs/vectors.md): the SVG is what day-dom asks for and what the browser
@@ -393,7 +404,7 @@ fn serve_one(mut stream: TcpStream, dist: &Path) {
             let mime = mime_of(&p);
             let _ = stream.write_all(
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nConnection: close\r\n\r\n",
                     body.len()
                 )
                 .as_bytes(),

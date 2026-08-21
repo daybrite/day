@@ -232,3 +232,44 @@ fn size_and_vacuum_report_something_sane() {
     assert!(container.size_bytes().expect("size") > 0);
     let _ = std::fs::remove_file(&path);
 }
+
+/// `trace_sql` rides the engine's own trace: migrations, the autosave fold's statements, and
+/// query `SELECT`s all land in the sink, with bound parameters expanded by SQLite itself.
+#[test]
+fn trace_sql_logs_every_statement_the_engine_runs() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[derive(Model, Clone, Default, PartialEq)]
+    #[model(table = "traced_notes")]
+    struct TracedNote {
+        #[model(id)]
+        id: u32,
+        body: String,
+    }
+
+    let seen: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let sink = seen.clone();
+    let driver = Sqlite::memory().trace_sql(move |sql| sink.borrow_mut().push(sql.to_string()));
+    let container = ModelContainer::open(driver, schema![TracedNote]).expect("open");
+    let store = container.store::<TracedNote>();
+    store.update("seed", |k| {
+        k.push(TracedNote {
+            id: 1,
+            body: "rain later".into(),
+        });
+    });
+    container.save().expect("flush");
+
+    let log = seen.borrow();
+    assert!(
+        log.iter()
+            .any(|s| s.contains("CREATE TABLE") && s.contains("traced_notes")),
+        "migration logged: {log:?}"
+    );
+    assert!(
+        log.iter()
+            .any(|s| s.contains("INSERT INTO traced_notes") && s.contains("'rain later'")),
+        "flush logged with parameters expanded: {log:?}"
+    );
+}

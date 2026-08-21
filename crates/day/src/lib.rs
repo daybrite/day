@@ -37,6 +37,7 @@ pub use day_spec::AppBadge;
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,
 /// thumbnails, export staging.
 pub use day_spec::present::app_temp_dir;
+pub use day_spec::{KeyEvent, Modifiers};
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
 pub use day_core::{
@@ -95,6 +96,65 @@ pub fn install_undo(stack: &day_model::UndoStack) {
             }
         },
     );
+}
+
+/// Wire the app's shape/object Cut/Copy/Paste to the platform's own edit commands
+/// (docs/menus.md): the SAME menu items, shortcuts, and responder precedence text editing
+/// uses — a focused text field keeps its clipboard behavior, everything else reaches these
+/// handlers. `can_copy` is a tracked read (drive it from your selection); `copy`/`cut`
+/// return the serialized payload (its format is the app's: Day-Sketch uses SVG), which day
+/// places on the system clipboard; `paste` receives whatever text the clipboard holds.
+/// Menu items come from `menu_role(MenuRole::Cut/Copy/Paste)`.
+pub fn install_edit_commands(
+    can_copy: impl Fn() -> bool + 'static,
+    copy: impl Fn() -> Option<String> + 'static,
+    cut: impl Fn() -> Option<String> + 'static,
+    paste: impl Fn(&str) + 'static,
+    select_all: impl Fn() + 'static,
+) {
+    day_core::install_edit_bridge(
+        move || {
+            let can = can_copy();
+            day_spec::EditState {
+                can_cut: can,
+                can_copy: can,
+                can_paste: true,
+                can_select_all: true,
+            }
+        },
+        move |op| match op {
+            day_spec::EditOp::Copy => {
+                if let Some(payload) = copy() {
+                    let _ = day_part_clipboard::set_text(&payload);
+                }
+            }
+            day_spec::EditOp::Cut => {
+                if let Some(payload) = cut() {
+                    let _ = day_part_clipboard::set_text(&payload);
+                }
+            }
+            day_spec::EditOp::Paste => {
+                if let Some(text) = day_part_clipboard::get_text() {
+                    paste(&text);
+                }
+            }
+            day_spec::EditOp::SelectAll => select_all(),
+        },
+    );
+}
+
+/// The keyboard modifiers held right now — for interactions whose meaning they change
+/// (shift-click adds to a selection instead of replacing it). Touch platforms answer
+/// all-false; a dayscript step's declared modifiers take precedence while it dispatches.
+pub fn modifiers() -> day_spec::Modifiers {
+    day_core::modifiers()
+}
+
+/// The window-level key handler (docs/menus.md): non-text keys delivered while no text
+/// widget has focus — arrow-key nudging and its kin. Key names follow the web
+/// `KeyboardEvent.key` vocabulary ("ArrowLeft", …); check `ev.shift()` for the large step.
+pub fn on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) {
+    day_core::install_key_handler(f);
 }
 
 #[cfg(feature = "prefs")]

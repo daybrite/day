@@ -16,10 +16,13 @@ license.workspace = true
 # OS's libsqlite3 instead (leave `bundled` off); `cipher` swaps the bundled engine for SQLCipher
 # with vendored crypto. Trait-only consumers (codec impls in pieces) use default-features=false.
 default = ["driver-rusqlite", "bundled"]
-driver-rusqlite = ["dep:rusqlite"]
-bundled = ["rusqlite/bundled"]
+# Native: rusqlite over the chosen engine. Web: day-sqlite-worker — the same vendored SQLite
+# running against OPFS in the day-sql worker, reached synchronously over the SharedArrayBuffer
+# channel (docs/persistence.md, docs/web.md).
+driver-rusqlite = ["dep:rusqlite", "dep:day-sqlite-worker"]
+bundled = ["rusqlite?/bundled"]
 system = []
-cipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+cipher = ["rusqlite?/bundled-sqlcipher-vendored-openssl"]
 # `list(query, row)`: Query as a day-pieces row source, emitting animatable row deltas.
 pieces = ["dep:day-pieces", "dep:day-spec"]
 
@@ -28,7 +31,7 @@ day-model = { workspace = true }
 day-reactive = { workspace = true }
 day-pieces = { workspace = true, features = ["model"], optional = true }
 day-spec = { workspace = true, optional = true }
-rusqlite = { version = "0.40", optional = true }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -43,3 +46,11 @@ day-core = { workspace = true }
 day-pieces = { workspace = true, features = ["model"] }
 day-mock = { workspace = true }
 day-spec = { workspace = true }
+# One engine per world: rusqlite everywhere a filesystem exists, day-sqlite-worker on the
+# web (its C build carries no wasm-bindgen, so the module still instantiates in Day's
+# raw-wasm pipeline).
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+rusqlite = { version = "0.40", optional = true }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+day-sqlite-worker = { workspace = true, optional = true }

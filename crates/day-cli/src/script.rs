@@ -322,11 +322,19 @@ pub(crate) fn device_screenshot_public(target: &Target, path: &Path) -> Result<(
 
 pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
     if kind == TargetKind::Android {
-        // The dayscript runner drives ONE device; with several attached, `adb forward` (no `-s`)
-        // errors ("more than one device"), so pin the first enumerated device.
+        // The dayscript runner drives ONE device; with several attached, `adb forward` (no
+        // `-s`) errors ("more than one device"). ANDROID_SERIAL is the device-selection
+        // contract everywhere else in the CLI (`--android-device` sets it), so honor it here
+        // too — pinning the FIRST enumerated device instead sent the forward to a bystander
+        // phone while the app ran on the emulator.
+        let serial = std::env::var("ANDROID_SERIAL").ok().or_else(|| {
+            crate::mobile::android_devices()
+                .first()
+                .map(|d| d.serial.clone())
+        });
         let mut cmd = Command::new("adb");
-        if let Some(dev) = crate::mobile::android_devices().first() {
-            cmd.args(["-s", &dev.serial]);
+        if let Some(serial) = serial {
+            cmd.args(["-s", &serial]);
         }
         let _ = cmd
             .args(["forward", &format!("tcp:{port}"), &format!("tcp:{port}")])

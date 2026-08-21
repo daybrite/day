@@ -91,14 +91,54 @@ app_menu(vec![
 
 | Role | AppKit | GTK | Qt | UIKit | Android | XAML |
 |---|---|---|---|---|---|---|
-| Cut/Copy/Paste/SelectAll | `cut:`/`copy:`… selectors (first responder) | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain (`cut:`…) | system text toolbar¹ | accelerator² |
-| Undo/Redo | `undo:`/`redo:` | stock actions | focused editor | — | — | — |
+| Cut/Copy/Paste | `cut:`/`copy:`/`paste:` selectors — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² |
+| SelectAll | `selectAll:` selector — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² |
+| Undo/Redo | `undo:`/`redo:` (responder chain — the acting `NSUndoManager`, a focused text field's before the document's) | stock actions (`text.undo`) | focused editor | installed undo bridge³ | installed undo bridge³ | — |
 | Quit / Close / Minimize / Fullscreen | standard App-menu items | window actions | window / `qApp` | — | — | Quit closes the window |
 | About / Preferences | moved into the App menu | — | `menuRole` → app menu (mac) | — | — | — |
 
 You can override a role's label (`menu_role(r)` starts empty and the backend fills the standard label;
 supply your own via `MenuEntry::role` on a `menu_item` if you want a custom title). Roles with no native
 equivalent on a platform render as an inert labeled item; no behavior is imposed.
+
+³ On a toolkit with no native undo responder, `MenuRole::Undo`/`Redo` items lower onto a
+standing dispatcher (`day_core::undo_action_id`) that invokes the undo history installed via
+`day::install_undo` ([docs/model.md](model.md)) — the same stack the platform's own route reaches on
+macOS/iOS, so one `menu_role` pair behaves consistently everywhere the menu renders.
+
+⁴ The edit bridge (`Cap::EditBridge`). An app that can cut/copy/paste its own objects installs
+handlers once:
+
+```rust
+day::install_edit_commands(
+    || !selection().get().is_empty(),   // can_copy — a tracked read
+    copy_selection,                     // -> Option<String>: the serialized payload
+    cut_selection,                      // -> Option<String>, and removes the objects
+    |text| paste_payload(text),         // whatever text the clipboard held
+    select_all,                         // Edit ▸ Select All (⌘A/Ctrl+A)
+);
+```
+
+Two companions round out the platform's input idioms. `day::modifiers()` answers the keyboard
+modifiers held right now (`shift`, `primary` — ⌘ on Apple platforms, Ctrl elsewhere — and
+`alt`), for interactions whose meaning they change: shift-click adding to a selection instead
+of replacing it. Touch platforms answer all-false, and a dayscript `tap:` step's declared
+`modifiers:` take precedence while it dispatches. `day::on_key(f)` installs the window-level
+handler for non-text keys — the arrows, delivered (web `KeyboardEvent.key` names) only while
+no text widget has focus, with the held modifiers on the event (`ev.shift()` scales a nudge
+from 1px to 10). On macOS an event monitor routes them; on web the shim's keydown listener;
+text views keep every key of their own either way.
+
+The payload format is the app's own — Day-Sketch uses a standalone SVG document, so shapes
+paste into anything that reads SVG and SVG from other editors pastes back. day places the
+payload on the system clipboard (day-part-clipboard) and reads it back for paste; on web-dom
+the browser's `copy`/`cut`/`paste` events themselves are the route, with the event's
+`clipboardData` as transport. Precedence is the platform's own: on macOS/iOS the responder
+chain lets a focused text field keep its clipboard behavior, and the app's handlers see only
+what falls through — the same items, the same shortcuts, the same menu validation
+(`can_copy` greys Cut/Copy; Paste additionally requires clipboard text). On toolkits whose
+role items come back as plain menu actions (Android's app bar, web context menus), the
+`menu_role(Cut/Copy/Paste)` items dispatch to the same handlers via standing ids.
 
 ¹ Android editable views raise the system selection toolbar for Cut/Copy/Paste; a role in a Day menu is
 shown for parity and dispatches nothing.

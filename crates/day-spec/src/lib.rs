@@ -602,6 +602,11 @@ pub enum Event {
     Undo {
         redo: bool,
     },
+    /// The platform's own standard edit command fired through its native route (Edit ▸
+    /// Cut/Copy/Paste, ⌘X/⌘C/⌘V, the browser's `copy`/`paste` DOM events) with no text
+    /// widget claiming it first — the app's edit bridge answers (docs/menus.md). Transport
+    /// is the system clipboard (day-part-clipboard), not the event.
+    Edit(EditOp),
     /// A multi-select list's selection changed: the FULL set of selected row indices,
     /// ascending (empty = nothing selected). Emitted instead of `SelectionChanged` where
     /// `ListProps::multi_select` is honored (docs/list.md).
@@ -908,6 +913,38 @@ pub enum MenuRole {
     NewWindow,
 }
 
+/// The keyboard modifiers held at an interaction, queryable ambiently
+/// ([`Toolkit::modifiers`]): `primary` is the platform's command key (⌘ on Apple platforms,
+/// Ctrl elsewhere — the same convention [`Shortcut::primary`] uses). Touch-only backends
+/// answer all-false.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Modifiers {
+    pub shift: bool,
+    pub primary: bool,
+    pub alt: bool,
+}
+
+/// A standard edit command a platform route delivered ([`Event::Edit`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditOp {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
+/// What the app's edit bridge can currently do — mirrored into the toolkit
+/// ([`Toolkit::set_edit_state`]) so native menu validation enables the stock items.
+/// `can_paste` is the APP's half ("a paste handler is installed"); the toolkit combines it
+/// with its own clipboard-has-text check where one exists.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EditState {
+    pub can_cut: bool,
+    pub can_copy: bool,
+    pub can_paste: bool,
+    pub can_select_all: bool,
+}
+
 /// The undo stack's face, as a native front mirrors it ([`Toolkit::set_undo_state`]): what is
 /// possible and what the menu titles should say. Labels arrive ALREADY LOCALIZED — a toolkit
 /// cannot invent translated text, the same rule as every other label in this file.
@@ -1161,8 +1198,30 @@ pub enum ToolbarPatch {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyEvent {
+    /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto
+    /// ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", …). Backends emit `Event::Key`
+    /// only while no text widget has focus — a field's own editing keys never surface here.
     pub key: String,
+    /// A [`KeyEvent::SHIFT`]/[`KeyEvent::PRIMARY`]/[`KeyEvent::ALT`] mask.
     pub modifiers: u8,
+}
+
+impl KeyEvent {
+    pub const SHIFT: u8 = 1;
+    /// The platform's command key: ⌘ on Apple platforms, Ctrl elsewhere (the
+    /// [`Shortcut::primary`] convention).
+    pub const PRIMARY: u8 = 2;
+    pub const ALT: u8 = 4;
+
+    pub fn shift(&self) -> bool {
+        self.modifiers & Self::SHIFT != 0
+    }
+    pub fn primary(&self) -> bool {
+        self.modifiers & Self::PRIMARY != 0
+    }
+    pub fn alt(&self) -> bool {
+        self.modifiers & Self::ALT != 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1347,6 +1406,13 @@ pub enum Cap {
     /// Day's menu items and accelerators drive the stack directly and nothing platform-owned
     /// needs mirroring (docs/model.md).
     UndoBridge,
+    /// The toolkit routes the platform's standard Cut/Copy/Paste to the app's edit bridge
+    /// ([`Toolkit::set_edit_state`] + `Event::Edit`): the SAME menu items, shortcuts, and
+    /// responder precedence the platform's text editing uses — a focused text widget keeps
+    /// its own clipboard behavior, everything else reaches the app (docs/menus.md).
+    /// `Native` where a system route exists (the responder chain, the browser's clipboard
+    /// events), `Emulated` where Day's own menu items dispatch it, `Unsupported` elsewhere.
+    EditBridge,
     /// The toolkit realizes `ListProps::reorderable` as drag-to-reorder rows — `Native` when the
     /// platform's own mechanism drives it (NSTableView drag/drop, UITableView drag delegates,
     /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
@@ -3584,6 +3650,36 @@ pub mod present {
         })
     }
 
+    /// The web build's file bytes (wasm32-unknown-unknown only): a browser has no filesystem,
+    /// so the open/save flows carry bytes through this per-page store instead of `std::fs` —
+    /// day-dom writes a picked file's bytes here and answers with its virtual path; the pieces
+    /// layer stages save bytes here for the shim to download. Paths are plain strings under
+    /// `/day-web/`; lifetimes are one picker round-trip (the flows remove what they stage).
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    pub mod web_files {
+        std::thread_local! {
+            static FILES: std::cell::RefCell<std::collections::HashMap<String, Vec<u8>>> =
+                std::cell::RefCell::new(std::collections::HashMap::new());
+        }
+
+        /// Store `bytes` under `path` (replacing any prior content).
+        pub fn write(path: &str, bytes: Vec<u8>) {
+            FILES.with(|f| f.borrow_mut().insert(path.to_string(), bytes));
+        }
+
+        /// The bytes at `path`, if present.
+        pub fn read(path: &str) -> Option<Vec<u8>> {
+            FILES.with(|f| f.borrow().get(path).cloned())
+        }
+
+        /// Drop `path`'s bytes.
+        pub fn remove(path: &str) {
+            FILES.with(|f| {
+                f.borrow_mut().remove(path);
+            });
+        }
+    }
+
     impl PresentResult {
         /// Flat wire tag for the C ABI (Qt shim / Android JNI): 0 dismissed, 1 button, 2 text,
         /// 3 files (`text` is the chosen locators joined by the unit separator).
@@ -3813,6 +3909,20 @@ pub trait Toolkit: Sized + 'static {
     // without a native undo system answers `Cap::UndoBridge` `Unsupported`, and the app's own
     // affordances (menu items, buttons, accelerators) drive the stack instead.
     fn set_undo_state(&mut self, _state: &UndoState) {}
+
+    // edit bridge (docs/menus.md): mirror what the app's standard-edit handlers can do, so
+    // the platform's own menu validation enables Cut/Copy/Paste exactly as it does for text
+    // widgets; invocations come back up as `Event::Edit`. Default no-op — a backend without
+    // a native edit-command route answers `Cap::EditBridge` accordingly.
+    fn set_edit_state(&mut self, _state: &EditState) {}
+
+    // ambient modifiers (docs/menus.md): the keyboard modifiers held RIGHT NOW, for
+    // interactions whose meaning they change (shift-click multi-select). Pull-based — the
+    // platforms expose exactly this query (NSEvent.modifierFlags, the shim's tracked mask).
+    // Touch-only backends keep the all-false default.
+    fn modifiers(&mut self) -> Modifiers {
+        Modifiers::default()
+    }
 
     // menus (§ menus): render `items` with the backend's native menu affordance, firing
     // `Event::MenuAction(id)` (enqueue-only) for each id'd item; `role` items use the native standard

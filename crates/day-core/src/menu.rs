@@ -160,11 +160,17 @@ pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
     }
 
     let new_ids = collect_action_ids(&items);
-    // The prefs/new-window dispatch ids are registered by `day::register_*` (not by menu
-    // lowering) and outlive any menu install — never sweep them.
+    // The prefs/new-window/undo dispatch ids are registered outside menu lowering (by
+    // `day::register_*` and `undo_action_id`) and outlive any menu install — never sweep them.
     let durable = [
         crate::windows::preferences_action_id(),
         crate::windows::new_window_action_id(),
+        crate::undo_action_id(false),
+        crate::undo_action_id(true),
+        crate::edit_action_id(day_spec::EditOp::Cut),
+        crate::edit_action_id(day_spec::EditOp::Copy),
+        crate::edit_action_id(day_spec::EditOp::Paste),
+        crate::edit_action_id(day_spec::EditOp::SelectAll),
     ];
     let stale: Vec<u64> = APP_MENU_IDS.with(|ids| {
         ids.borrow()

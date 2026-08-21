@@ -49,6 +49,8 @@ day-persistence = { workspace = true, optional = true }
 # Persistent settings, promoted into the facade (docs/prefs.md): 5 of 6 sibling apps depend on it
 # and it is the only part that lives in the reactive layer. Optional so it can be declined.
 day-part-prefs = { workspace = true, optional = true }
+# install_edit_commands' clipboard transport (docs/menus.md) — dependency-free platform FFI.
+day-part-clipboard = { workspace = true }
 day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }

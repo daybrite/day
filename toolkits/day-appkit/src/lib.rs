@@ -27,15 +27,16 @@ use objc2_app_kit::NSDraggingInfo as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
-    NSGestureRecognizerState, NSPanGestureRecognizer,
+    NSGestureRecognizerState, NSPanGestureRecognizer, NSPasteboard, NSPasteboardTypeString,
 };
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
     NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
-    NSControlTextEditingDelegate, NSEventType, NSFont, NSGraphicsContext, NSLineBreakMode, NSMenu,
-    NSMenuItem, NSProgressIndicator, NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider,
-    NSSwitch, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey,
-    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSControlTextEditingDelegate, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSFont,
+    NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
+    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSText, NSTextField,
+    NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey, NSView, NSWindow,
+    NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
@@ -2499,6 +2500,9 @@ define_class!(
 );
 
 thread_local! {
+    /// The app's edit-bridge state (`set_edit_state`) — what validateMenuItem consults.
+    static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
+        const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
     static UNDO_FRONT: std::cell::RefCell<Option<Retained<DayUndoManager>>> =
         const { std::cell::RefCell::new(None) };
 }
@@ -2535,6 +2539,93 @@ define_class!(
     struct DayWinDelegate;
 
     unsafe impl NSObjectProtocol for DayWinDelegate {}
+
+    /// The responder chain's LAST stop for the standard edit selectors: a focused text view
+    /// answered `cut:`/`copy:`/`paste:` long before the window asked its delegate, so what
+    /// arrives here is the app's to handle — the same precedence the undo manager route uses.
+    impl DayWinDelegate {
+        /// Edit ▸ Undo. The stock item's nil-target `undo:` finds no implementor among Day's
+        /// plain views, so the delegate is where the chain lands — resolving through the
+        /// acting manager keeps a focused field's typing undo ahead of the document stack.
+        #[unsafe(method(undo:))]
+        fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ffi_guard::contain((), || {
+                if let Some(m) = self.acting_undo_manager() {
+                    unsafe { m.undo() };
+                }
+            });
+        }
+
+        /// Edit ▸ Redo.
+        #[unsafe(method(redo:))]
+        fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ffi_guard::contain((), || {
+                if let Some(m) = self.acting_undo_manager() {
+                    unsafe { m.redo() };
+                }
+            });
+        }
+
+        #[unsafe(method(cut:))]
+        fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Cut)));
+        }
+
+        #[unsafe(method(copy:))]
+        fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Copy)));
+        }
+
+        #[unsafe(method(paste:))]
+        fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::Paste)));
+        }
+
+        #[unsafe(method(selectAll:))]
+        fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
+            ffi_guard::contain((), || {
+                emit(WINDOW_NODE, Event::Edit(day_spec::EditOp::SelectAll));
+            });
+        }
+
+        /// AppKit's menu validation, the same machinery that greys Edit items for text views:
+        /// the bridge state answers for cut/copy, and paste additionally requires the
+        /// pasteboard to actually hold text.
+        #[unsafe(method(validateMenuItem:))]
+        fn validate_menu_item(&self, item: &NSMenuItem) -> bool {
+            ffi_guard::contain(false, || {
+                let state = EDIT_STATE.with(|s| s.get());
+                match unsafe { item.action() } {
+                    // The undo pair enables from the acting manager and takes ITS titles
+                    // ("Undo Move Shape"), exactly as AppKit's own windows do.
+                    Some(a) if a == sel!(undo:) => match self.acting_undo_manager() {
+                        Some(m) => {
+                            item.setTitle(&unsafe { m.undoMenuItemTitle() }.as_ref());
+                            unsafe { m.canUndo() }
+                        }
+                        None => false,
+                    },
+                    Some(a) if a == sel!(redo:) => match self.acting_undo_manager() {
+                        Some(m) => {
+                            item.setTitle(&unsafe { m.redoMenuItemTitle() }.as_ref());
+                            unsafe { m.canRedo() }
+                        }
+                        None => false,
+                    },
+                    Some(a) if a == sel!(selectAll:) => state.can_select_all,
+                    Some(a) if a == sel!(cut:) => state.can_cut,
+                    Some(a) if a == sel!(copy:) => state.can_copy,
+                    Some(a) if a == sel!(paste:) => {
+                        state.can_paste && {
+                            let pb = unsafe { NSPasteboard::generalPasteboard() };
+                            unsafe { pb.stringForType(NSPasteboardTypeString) }.is_some()
+                        }
+                    }
+                    _ => true,
+                }
+            })
+        }
+    }
 
     unsafe impl NSWindowDelegate for DayWinDelegate {
         #[unsafe(method(windowDidResize:))]
@@ -2619,6 +2710,79 @@ define_class!(
         }
     }
 );
+
+/// Arrow keys reach the app as [`Event::Key`] while no text view has focus (docs/menus.md):
+/// a local NSEvent monitor, because plain content views implement no `keyDown:` and the key
+/// would otherwise die at the window with a beep. Text views keep every key — the monitor
+/// passes events through whenever the first responder is one.
+fn install_arrow_key_monitor(mtm: MainThreadMarker) {
+    let block = block2::RcBlock::new(move |ev: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+        let event = unsafe { ev.as_ref() };
+        let consumed = ffi_guard::contain(false, || {
+            let app = NSApplication::sharedApplication(mtm);
+            if let Some(win) = app.keyWindow()
+                && let Some(fr) = win.firstResponder()
+                && fr.downcast::<NSText>().is_ok()
+            {
+                return false; // the field editor owns its keys
+            }
+            let key = match unsafe { event.keyCode() } {
+                123 => "ArrowLeft",
+                124 => "ArrowRight",
+                125 => "ArrowDown",
+                126 => "ArrowUp",
+                _ => return false,
+            };
+            let f = event.modifierFlags();
+            let mut modifiers = 0u8;
+            if f.contains(NSEventModifierFlags::Shift) {
+                modifiers |= day_spec::KeyEvent::SHIFT;
+            }
+            if f.contains(NSEventModifierFlags::Command) {
+                modifiers |= day_spec::KeyEvent::PRIMARY;
+            }
+            if f.contains(NSEventModifierFlags::Option) {
+                modifiers |= day_spec::KeyEvent::ALT;
+            }
+            emit(
+                WINDOW_NODE,
+                Event::Key(day_spec::KeyEvent {
+                    key: key.to_string(),
+                    modifiers,
+                }),
+            );
+            true
+        });
+        if consumed {
+            std::ptr::null_mut()
+        } else {
+            ev.as_ptr()
+        }
+    });
+    // The token and the block live as long as the app does.
+    let token = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
+    };
+    std::mem::forget(token);
+    std::mem::forget(block);
+}
+
+impl DayWinDelegate {
+    /// The manager AppKit's own undo mechanics act on: ask the FIRST RESPONDER, whose
+    /// `undoManager` walks the chain itself — a field editor answers with its typing
+    /// history, everything else falls through to `windowWillReturnUndoManager` and lands on
+    /// the app's front. Falls back to the front when no window is key yet.
+    fn acting_undo_manager(&self) -> Option<Retained<objc2_foundation::NSUndoManager>> {
+        let responder = NSApplication::sharedApplication(self.mtm())
+            .keyWindow()
+            .and_then(|w| w.firstResponder());
+        responder
+            .and_then(|r| unsafe { r.undoManager() })
+            .or_else(|| {
+                UNDO_FRONT.with(|u| u.borrow().as_ref().map(|m| Retained::into_super(m.clone())))
+            })
+    }
+}
 
 impl DayWinDelegate {
     fn new(mtm: MainThreadMarker, node: Option<NodeId>) -> Retained<Self> {
@@ -3229,6 +3393,7 @@ impl Toolkit for AppKit {
             // NSUndoManager fronted by DayUndoManager: the stock Edit menu retitles and
             // enables itself, ⌘Z/⇧⌘Z land through the responder chain (docs/model.md).
             | Cap::UndoBridge
+            | Cap::EditBridge
             | Cap::AppBadgeDot
             | Cap::Appearance
             // firstBaselineOffsetFromTop — the platform's own answer (docs/baseline.md).
@@ -4692,6 +4857,19 @@ impl Toolkit for AppKit {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
     }
 
+    fn set_edit_state(&mut self, state: &day_spec::EditState) {
+        EDIT_STATE.with(|s| s.set(*state));
+    }
+
+    fn modifiers(&mut self) -> day_spec::Modifiers {
+        let f = NSEvent::modifierFlags_class();
+        day_spec::Modifiers {
+            shift: f.contains(NSEventModifierFlags::Shift),
+            primary: f.contains(NSEventModifierFlags::Command),
+            alt: f.contains(NSEventModifierFlags::Option),
+        }
+    }
+
     fn set_undo_state(&mut self, state: &day_spec::UndoState) {
         let front = undo_front(self.mtm);
         *front.ivars().state.borrow_mut() = state.clone();
@@ -5270,6 +5448,7 @@ impl Platform for AppKit {
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
         let mtm = self.mtm;
+        install_arrow_key_monitor(mtm);
         // The App menu / About use the app's display name. `app_name` overrides the (possibly
         // decorated) window title; setting the process name also makes the standard About panel and
         // the bold App-menu title show it (an unbundled binary otherwise shows the exe name).
@@ -5989,8 +6168,23 @@ pub(crate) fn build_ns_menu(
                 if shortcut.is_some() {
                     sc = shortcut.clone();
                 }
-                // Custom action (nonzero id) overrides any role selector and targets our trampoline.
-                let custom = *id != 0;
+                // Custom action (nonzero id) overrides any role selector and targets our
+                // trampoline — except the responder-routed set (undo pair, clipboard trio),
+                // whose nonzero ids are only the OTHER platforms' fallback dispatchers: here
+                // the nil-target selectors must stay, so the responder chain resolves the
+                // acting object (a focused text field before the app's bridge).
+                let responder_role = matches!(
+                    role,
+                    Some(
+                        day_spec::MenuRole::Undo
+                            | day_spec::MenuRole::Redo
+                            | day_spec::MenuRole::Cut
+                            | day_spec::MenuRole::Copy
+                            | day_spec::MenuRole::Paste
+                            | day_spec::MenuRole::SelectAll
+                    )
+                );
+                let custom = *id != 0 && !responder_role;
                 let key = sc
                     .as_ref()
                     .map(|s| ns_key_equivalent(&s.key))

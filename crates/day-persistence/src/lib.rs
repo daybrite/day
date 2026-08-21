@@ -41,6 +41,12 @@ pub use queries::{
 mod rusqlite_driver;
 #[cfg(feature = "driver-rusqlite")]
 pub use rusqlite_driver::Sqlite;
+#[cfg(all(
+    feature = "driver-rusqlite",
+    target_family = "wasm",
+    target_os = "unknown"
+))]
+pub use rusqlite_driver::WebStorage;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -644,6 +650,7 @@ pub struct Schema {
 }
 
 type Installer = Box<dyn FnOnce(&ModelContainer) -> Result<(), DbError>>;
+type ReloadFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>;
 
 impl Schema {
     pub fn new() -> Self {
@@ -788,7 +795,7 @@ struct TableHooks {
     /// Every (key, row) currently in the store, for full resyncs.
     all_rows: Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>,
     /// Replace the store's contents from raw rows — `rescan`'s write-back path.
-    reload: Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>,
+    reload: ReloadFn,
     /// Bring this store under an undo history — captured here because the model TYPE is known
     /// only at attach time.
     watch_undo: Rc<dyn Fn(&day_model::UndoStack)>,

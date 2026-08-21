@@ -734,6 +734,8 @@ pub trait TreeOps {
     fn list_reload(&mut self, node: RNode);
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
     fn set_undo_state(&mut self, state: &day_spec::UndoState);
+    fn set_edit_state(&mut self, state: &day_spec::EditState);
+    fn modifiers(&mut self) -> day_spec::Modifiers;
     /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
     fn list_scroll_to_end(&mut self, node: RNode);
     /// Imperatively scroll the native list so row `row` is visible (clamped; no-op if empty).
@@ -1606,6 +1608,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn set_undo_state(&mut self, state: &day_spec::UndoState) {
         self.toolkit.set_undo_state(state);
+    }
+
+    fn set_edit_state(&mut self, state: &day_spec::EditState) {
+        self.toolkit.set_edit_state(state);
+    }
+
+    fn modifiers(&mut self) -> day_spec::Modifiers {
+        self.toolkit.modifiers()
     }
 
     fn list_scroll_to_end(&mut self, node: RNode) {

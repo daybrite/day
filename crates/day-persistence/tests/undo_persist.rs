@@ -159,7 +159,7 @@ fn agreement_holds_with_undos_interleaved() {
         .sort(Trip::start_day().asc())
         .live();
 
-    let mut rng: u64 = 0x2026_08_21;
+    let mut rng: u64 = 0x2026_0821;
     for step in 0..600u64 {
         rng = rng
             .wrapping_mul(6364136223846793005)

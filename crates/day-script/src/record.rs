@@ -193,8 +193,10 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
         // Both tap shapes map to the same step: a native button's `Pressed`, and the `Tap` a
         // composed `.on_tap` piece gets. `on_event` collapses a node that delivers both.
         Event::Pressed | Event::Tap(_) => id.map(|id| Step::Tap {
+            at: None,
             id: id.to_string(),
             repeat: Some(1),
+            modifiers: Vec::new(),
         }),
         Event::TextChanged(text) => id.map(|id| Step::Input {
             id: id.to_string(),
@@ -972,6 +974,8 @@ mod tests {
             Step::Tap {
                 id: "inc".into(),
                 repeat: Some(1),
+                at: None,
+                modifiers: Vec::new(),
             },
             Step::Input {
                 id: "name-field".into(),
@@ -1119,6 +1123,8 @@ mod tests {
             Step::Tap {
                 id: "focus-next-button".into(),
                 repeat: Some(1),
+                at: None,
+                modifiers: Vec::new(),
             },
         ];
         let labels = vec![Some("Focus".to_string()), Some("Focus next".to_string())];
@@ -1170,6 +1176,8 @@ mod tests {
         let tap = |id: &str| Step::Tap {
             id: id.into(),
             repeat: Some(1),
+            at: None,
+            modifiers: Vec::new(),
         };
         let press = Event::Pressed;
         let gesture = Event::Tap(Point::new(3.0, 4.0));

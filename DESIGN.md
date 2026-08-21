@@ -322,6 +322,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive |
 | `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
+| `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), and the statement protocol the main thread speaks over the SharedArrayBuffer channel; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
@@ -1252,6 +1253,22 @@ pub trait Toolkit: Sized + 'static {
     // the app's own affordances call the stack and this duty stays a no-op.
     fn set_undo_state(&mut self, state: &UndoState) {}
 
+    // edit bridge (2026-08, docs/menus.md): mirror what the app's Cut/Copy/Paste handlers
+    // can do (Cap::EditBridge — the responder chain's cut:/copy:/paste: on appkit/uikit, the
+    // browser's clipboard events on web-dom, standing menu-item dispatch elsewhere); the
+    // invocation returns as Event::Edit(EditOp). Transport is the system clipboard
+    // (day-part-clipboard), so validation greys Paste until it holds text.
+    fn set_edit_state(&mut self, state: &EditState) {}
+
+    // ambient modifiers + non-text keys (2026-08, docs/menus.md): `modifiers()` answers the
+    // keys held right now (shift-click multi-select; pull-based — NSEvent.modifierFlags, the
+    // web shim's tracked mask; touch backends keep the all-false default), and platform key
+    // routes deliver `Event::Key(KeyEvent)` (the dormant variant, now live: arrows while no
+    // text widget has focus — an NSEvent local monitor on appkit, the shim's keydown on
+    // web-dom) to the app's `day::on_key` handler. `EditOp::SelectAll` joined the edit
+    // bridge with the same responder-first routing as the clipboard trio.
+    fn modifiers(&mut self) -> Modifiers { Modifiers::default() }
+
     // menus (docs/menus.md)
     fn set_app_menu(&mut self, items: &[MenuItem]) {}
     fn set_context_menu(&mut self, h, node: NodeId, items: &[MenuItem]) {}
@@ -1405,7 +1422,8 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > [docs/navigation.md](docs/navigation.md) are normative. The built-in facts that rode `Event::Custom` tags became
 > typed variants (2026-08): `ListReorder`/`ListDelete` (the list piece's deferred commit echoes,
 > [docs/list.md](docs/list.md)), `Event::Undo { redo }` with `BridgeKind::UndoInvoked = 28` (the undo bridge's
-> up direction, 2026-08 — emitted only by native fronts) and `CoverHidden` ([docs/cover.md](docs/cover.md); `BridgeKind::CoverHidden = 26` on the
+> up direction, 2026-08 — emitted only by native fronts), `Event::Edit(EditOp)` (the edit
+> bridge's up direction, 2026-08 — the platform's Cut/Copy/Paste route, [docs/menus.md](docs/menus.md)) and `CoverHidden` ([docs/cover.md](docs/cover.md); `BridgeKind::CoverHidden = 26` on the
 > trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
 > `Custom` purely piece-defined. `LinkActivated(String)` joined them for styled text runs (2026-08,
 [docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
@@ -4181,7 +4199,9 @@ What shipped, and where:
   at flush time; the change log never carries contents. `record_sql` returns one flush's SQL —
   the headless assert ("twenty keystrokes, one `UPDATE`" is a test, not a slogan).
 - **Drivers** — the object-safe `SqliteConnection` seam under a `SqliteDriver` trait. Built-ins:
-  `Sqlite` (rusqlite; `bundled` default / `system` / `cipher` as engine features;
+  `Sqlite` (rusqlite on native targets; on web-dom the same type proxies statements to the
+  day-sql worker's OPFS-backed engine, `crates/day-sqlite-worker` — [docs/persistence.md](docs/persistence.md) §The
+  web; `bundled` default / `system` / `cipher` as engine features;
   `at`/`memory`/`app_data` — the last resolving day-part-fs' data-root rules under a `day-db/`
   leaf) and `Recorder` (fixture-answering, statement-logging, always compiled). `capabilities()`
   reports what is real per build.
@@ -4468,7 +4488,8 @@ well-written scripts; `pause` exists for demos and settle-time.
 |---|---|---|
 | `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
 | `wait_idle` | — | flush the reactive drain |
-| `tap` | `id`, `repeat?` | delivers `Pressed` AND a gesture `Tap` at the node's center |
+| `tap` | `id`, `repeat?`, `at?`, `modifiers?` | delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching |
+| `key` | `key`, `modifiers?` | a window-level non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …), as a platform key route would deliver it |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |

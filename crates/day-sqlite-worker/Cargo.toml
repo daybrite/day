@@ -1,0 +1,29 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "day-sqlite-worker"
+publish = false
+version.workspace = true
+# Edition 2021, deliberately: src/bindings.rs is rust-bindgen output (pre-2024 `extern "C"`
+# blocks) vendored from sqlite-wasm-rs, and staying on 2021 means a future regeneration drops
+# in without editing generated code.
+edition = "2021"
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# The SQLite engine day-persistence uses on web-dom (docs/persistence.md): the vendored
+# amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the synchronous
+# OPFS access-handle imports the day-sql worker page provides, and the statement protocol the
+# main thread speaks to it over the SharedArrayBuffer channel. One wasm, two instantiations:
+# the app instance uses only `Connection` on `:memory:` databases; the worker instance runs
+# `day_sql_exec` against real OPFS files. Compiles and tests on native hosts too — the OPFS
+# imports swap for an in-memory fake — so the whole engine path is unit-testable without a
+# browser.
+
+[dependencies]
+
+[build-dependencies]
+cc = "1"

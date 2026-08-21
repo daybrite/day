@@ -80,6 +80,7 @@ target.
 | qt     | `QFileDialog` (`ExistingFile`) via the C++ shim | `QFileDialog` (`AnyFile`/`AcceptSave`) |
 | android | `ACTION_OPEN_DOCUMENT` + `ContentResolver` (copy → cache) | `ACTION_CREATE_DOCUMENT` + `ContentResolver` |
 | arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` + `@ohos.file.fs` (copy → cache) | `DocumentViewPicker.save` + `@ohos.file.fs` |
+| dom (web) | `<input type=file>` (the browser's picker) | a Blob download |
 | mock   | records the spec; resolved programmatically | same |
 | xaml  | not yet implemented (like its alert dialogs) | — |
 
@@ -87,6 +88,11 @@ On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the nat
 the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
 JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
 callback, wired in the ArkTS host's `Index.ets` (`Day-Showcase/platform/harmony/entry/src/main/ets/pages/`).
+
+A browser has no filesystem, so on web-dom the bytes ride a per-page store instead of paths:
+an opened file's content lands under a virtual `/day-web/<name>` path that `FileUrl::read`
+resolves, and a save's staged bytes leave as a download named by `suggested_name` — same
+builders, same `FileUrl` surface, no app-visible difference.
 
 All backends present the picker non-blocking (sheet / `open()` / delegate / Activity result),
 so the main loop keeps running and dayscript stays live while a picker is up.

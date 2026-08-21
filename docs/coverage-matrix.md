@@ -69,6 +69,7 @@ An app branches on this rather than on the target name.
 |---|---|---|---|---|---|---|---|---|
 | `ListRecycling` | – | – | – | – | E | – | – | E |
 | `UndoBridge` | N | N | – | – | – | – | – | – |
+| `EditBridge` | N | N | – | – | – | – | – | N |
 | `ListReorder` | N | N | N | N | N | N | N | E |
 | `ListDelete` | – | N | – | – | – | N | N | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |
@@ -85,7 +86,7 @@ An app branches on this rather than on the target name.
 | `Appearance` | N | N | N | – | N | – | – | N |
 | `AppMenu` | N | – | N | N | N | – | – | – |
 | `Dialogs` | N | N | N | N | N | N | – | N |
-| `FileDialogs` | N | N | N | N | N | N | N | – |
+| `FileDialogs` | N | N | N | N | N | N | N | N |
 | `Animation` | N | N | – | – | – | N | – | N |
 | `Cover` | E | N | E | E | E | N | E | E |
 | `TextEditable` | N | N | N | N | N | N | – | N |

@@ -312,7 +312,7 @@ impl FileUrl {
     /// Read the file's bytes. Local paths only; opaque URIs return an `Unsupported` error.
     pub fn read(&self) -> std::io::Result<Vec<u8>> {
         match self.local_path() {
-            Some(p) => std::fs::read(p),
+            Some(p) => fs_read(&p),
             None => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "content:// URIs are not directly readable",
@@ -322,7 +322,9 @@ impl FileUrl {
     /// Read the file as UTF-8 text.
     pub fn read_to_string(&self) -> std::io::Result<String> {
         match self.local_path() {
-            Some(p) => std::fs::read_to_string(p),
+            Some(p) => fs_read(&p).and_then(|b| {
+                String::from_utf8(b).map_err(|_| std::io::ErrorKind::InvalidData.into())
+            }),
             None => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "content:// URIs are not directly readable",
@@ -445,10 +447,10 @@ impl SaveFile {
         let mut src = day_core::app_temp_dir();
         src.push(format!(
             "day-save-{}-{}",
-            std::process::id(),
+            stage_tag(),
             sanitize_name(&self.suggested_name)
         ));
-        if std::fs::write(&src, &self.data).is_err() {
+        if !fs_write(&src, &self.data) {
             return None;
         }
         let spec = PresentSpec::SaveFile {
@@ -460,7 +462,7 @@ impl SaveFile {
         let dest = match day_core::present(spec).await {
             PresentResult::Files(mut v) if !v.is_empty() => FileUrl(v.remove(0)),
             _ => {
-                let _ = std::fs::remove_file(&src);
+                fs_remove(&src);
                 return None;
             }
         };
@@ -470,9 +472,9 @@ impl SaveFile {
         if let Some(p) = dest.local_path()
             && p != src
         {
-            let _ = std::fs::copy(&src, &p);
+            fs_copy(&src, &p);
         }
-        let _ = std::fs::remove_file(&src);
+        fs_remove(&src);
         Some(dest)
     }
 }
@@ -484,6 +486,55 @@ impl IntoFuture for SaveFile {
         Box::pin(self.present())
     }
 }
+
+// The file flows' filesystem, behind four verbs: a browser has no `std::fs`, so the wasm arms
+// go through day-spec's `web_files` byte store instead — day-dom's picker fills it and the
+// shim's download drains it, while every other platform reads and writes real files.
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+mod files {
+    use std::path::Path;
+    pub(super) fn fs_read(p: &Path) -> std::io::Result<Vec<u8>> {
+        std::fs::read(p)
+    }
+    pub(super) fn fs_write(p: &Path, bytes: &[u8]) -> bool {
+        std::fs::write(p, bytes).is_ok()
+    }
+    pub(super) fn fs_copy(src: &Path, dest: &Path) {
+        let _ = std::fs::copy(src, dest);
+    }
+    pub(super) fn fs_remove(p: &Path) {
+        let _ = std::fs::remove_file(p);
+    }
+    pub(super) fn stage_tag() -> u32 {
+        std::process::id()
+    }
+}
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod files {
+    use day_spec::present::web_files;
+    use std::path::Path;
+    pub(super) fn fs_read(p: &Path) -> std::io::Result<Vec<u8>> {
+        web_files::read(&p.to_string_lossy())
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no such web file"))
+    }
+    pub(super) fn fs_write(p: &Path, bytes: &[u8]) -> bool {
+        web_files::write(&p.to_string_lossy(), bytes.to_vec());
+        true
+    }
+    pub(super) fn fs_copy(src: &Path, dest: &Path) {
+        if let Some(b) = web_files::read(&src.to_string_lossy()) {
+            web_files::write(&dest.to_string_lossy(), b);
+        }
+    }
+    pub(super) fn fs_remove(p: &Path) {
+        web_files::remove(&p.to_string_lossy());
+    }
+    /// `std::process::id()` aborts on wasm; one page is one "process".
+    pub(super) fn stage_tag() -> u32 {
+        0
+    }
+}
+use files::{fs_copy, fs_read, fs_remove, fs_write, stage_tag};
 
 /// Keep a suggested file name safe as a temp-file component (path-separator / control-char free).
 fn sanitize_name(name: &str) -> String {

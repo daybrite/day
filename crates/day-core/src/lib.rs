@@ -256,8 +256,13 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
     }
 }
 
+/// The app's undo/redo entry point as the platform front calls it — `true` means redo.
+/// `Rc` because the invocation clones it out of the cell before running, so the borrow is
+/// released before app code (which may install a new bridge) gets control.
+type UndoInvoke = std::rc::Rc<dyn Fn(bool)>;
+
 thread_local! {
-    static UNDO_INVOKE: std::cell::RefCell<Option<std::rc::Rc<dyn Fn(bool)>>> =
+    static UNDO_INVOKE: std::cell::RefCell<Option<UndoInvoke>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -289,11 +294,138 @@ pub fn install_undo_bridge(
     );
 }
 
+/// The standing dispatch id behind a `MenuRole::Cut`/`Copy`/`Paste` item on a toolkit whose
+/// role items come back as plain menu actions (docs/menus.md): the closure invokes the
+/// installed edit bridge. Durable across menu installs, like the undo pair.
+pub fn edit_action_id(op: day_spec::EditOp) -> u64 {
+    use day_spec::EditOp as E;
+    let (c, y, p, a) = EDIT_ACTION_IDS.with(|s| s.get());
+    let have = match op {
+        E::Cut => c,
+        E::Copy => y,
+        E::Paste => p,
+        E::SelectAll => a,
+    };
+    if have != 0 {
+        return have;
+    }
+    let id = menu::register_menu_action(std::rc::Rc::new(move || dispatch_edit_invoke(op)));
+    EDIT_ACTION_IDS.with(|s| {
+        let (c0, y0, p0, a0) = s.get();
+        s.set(match op {
+            E::Cut => (id, y0, p0, a0),
+            E::Copy => (c0, id, p0, a0),
+            E::Paste => (c0, y0, id, a0),
+            E::SelectAll => (c0, y0, p0, id),
+        });
+    });
+    id
+}
+
 fn dispatch_undo_invoke(redo: bool) {
     let f = UNDO_INVOKE.with(|u| u.borrow().clone());
     if let Some(f) = f {
         day_reactive::batch(|| f(redo));
     }
+}
+
+type EditInvoke = std::rc::Rc<dyn Fn(day_spec::EditOp)>;
+type KeyInvoke = std::rc::Rc<dyn Fn(&day_spec::KeyEvent)>;
+
+thread_local! {
+    static KEY_INVOKE: std::cell::RefCell<Option<KeyInvoke>> =
+        const { std::cell::RefCell::new(None) };
+    /// The dayscript executor's stand-in for held modifiers (a synthetic tap cannot hold a
+    /// real shift key); `None` = ask the toolkit.
+    static MODIFIER_OVERRIDE: std::cell::Cell<Option<day_spec::Modifiers>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// The window-level key handler (docs/menus.md): non-text keys a platform route delivers
+/// while no text widget has focus — arrow-key nudging and its kin ([`day_spec::KeyEvent`],
+/// web `KeyboardEvent.key` names). One handler per app; installing again replaces it.
+pub fn install_key_handler(f: impl Fn(&day_spec::KeyEvent) + 'static) {
+    KEY_INVOKE.with(|k| *k.borrow_mut() = Some(std::rc::Rc::new(f)));
+}
+
+fn dispatch_key_invoke(ev: &day_spec::KeyEvent) {
+    let f = KEY_INVOKE.with(|k| k.borrow().clone());
+    if let Some(f) = f {
+        day_reactive::batch(|| f(ev));
+    }
+}
+
+/// The keyboard modifiers held right now — for interactions whose meaning they change
+/// (shift-click adds to a selection). Touch backends answer all-false; a dayscript step's
+/// declared modifiers take precedence while it dispatches.
+pub fn modifiers() -> day_spec::Modifiers {
+    if let Some(m) = MODIFIER_OVERRIDE.with(|o| o.get()) {
+        return m;
+    }
+    with_tree(|t| t.modifiers())
+}
+
+/// Scoped modifier stand-in for the dayscript executor: `Some` while a step with declared
+/// modifiers dispatches, back to `None` after.
+pub fn set_modifier_override(m: Option<day_spec::Modifiers>) {
+    MODIFIER_OVERRIDE.with(|o| o.set(m));
+}
+
+thread_local! {
+    static EDIT_INVOKE: std::cell::RefCell<Option<EditInvoke>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Wire the app's standard-edit handlers to the platform (docs/menus.md): `state` is a
+/// TRACKED read whose value mirrors into the toolkit (`Cap::EditBridge` — native menu
+/// validation enables the stock Cut/Copy/Paste exactly as it does for text widgets), and
+/// every invocation a platform route delivers comes back through `on_invoke`. On a toolkit
+/// with no native route, the `menu_role(Cut/Copy/Paste)` items dispatch here instead (the
+/// same standing-id fallback the undo pair uses). Call once, after launch; installing again
+/// replaces the wiring. Most apps want [`day::install_edit_commands`], which adds the
+/// clipboard transport.
+pub fn install_edit_bridge(
+    state: impl Fn() -> day_spec::EditState + 'static,
+    on_invoke: impl Fn(day_spec::EditOp) + 'static,
+) {
+    EDIT_INVOKE.with(|u| *u.borrow_mut() = Some(std::rc::Rc::new(on_invoke)));
+    day_reactive::bind(state, |state: &day_spec::EditState| {
+        let state = *state;
+        with_tree(|t| t.set_edit_state(&state));
+    });
+}
+
+fn dispatch_edit_invoke(op: day_spec::EditOp) {
+    let f = EDIT_INVOKE.with(|u| u.borrow().clone());
+    if let Some(f) = f {
+        day_reactive::batch(|| f(op));
+    }
+}
+
+thread_local! {
+    static UNDO_ACTION_IDS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    static EDIT_ACTION_IDS: std::cell::Cell<(u64, u64, u64, u64)> =
+        const { std::cell::Cell::new((0, 0, 0, 0)) };
+}
+
+/// The standing dispatch id behind a `MenuRole::Undo`/`Redo` item on a toolkit with no native
+/// undo responder (docs/menus.md): activating the item comes back as a plain menu action, and
+/// this id's closure invokes the installed undo bridge. Registered once and durable across
+/// menu installs, like the preferences id. Toolkits WITH a native undo system (appkit) keep
+/// their responder-chain selector instead, so a focused text field's own undo stays ahead of
+/// the app stack there.
+pub fn undo_action_id(redo: bool) -> u64 {
+    let (u, r) = UNDO_ACTION_IDS.with(|c| c.get());
+    let have = if redo { r } else { u };
+    if have != 0 {
+        return have;
+    }
+    let id = menu::register_menu_action(std::rc::Rc::new(move || dispatch_undo_invoke(redo)));
+    UNDO_ACTION_IDS.with(|c| {
+        let (u0, r0) = c.get();
+        c.set(if redo { (u0, id) } else { (id, r0) });
+    });
+    id
 }
 
 /// A runtime route request from the backend (`Event::RouteRequested` — web-dom's URL hash
@@ -417,6 +549,12 @@ pub fn launch_with<P: Platform>(
                         // A native undo front's invocation (⌘Z through the stock Edit menu, a
                         // three-finger swipe): route to whatever stack the app installed.
                         day_spec::Event::Undo { redo } => dispatch_undo_invoke(*redo),
+                        // A platform edit-command route (Edit ▸ Cut/Copy/Paste, the
+                        // browser's clipboard events) with no text widget claiming it.
+                        day_spec::Event::Edit(op) => dispatch_edit_invoke(*op),
+                        // A platform key route's delivery (arrows while no text widget has
+                        // focus): the app's window-level key handler.
+                        day_spec::Event::Key(ev) => dispatch_key_invoke(ev),
                         _ => {}
                     }),
                 );

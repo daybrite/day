@@ -30,8 +30,10 @@ day::prelude::*` brings `Model` (the derive and the trait), `ModelContainer`, `S
 `Recorder`, `Secret`, the `schema!` macro, and the `day_persistence` crate name the derive's
 generated code resolves against. The full API is `day::persistence::*`.
 
-On wasm there is no filesystem and rusqlite is not built — gate the dependency to native
-targets and keep the web build on plain stores (the Showcase's Model page shows the pattern).
+The same API works on web-dom: `:memory:` databases run in-process, and a file database
+lives in the browser's origin-private file system, held by the day-sql worker and reached
+synchronously — see [The web](#the-web) below. rusqlite itself is native-only; the wasm build
+compiles the `day-sqlite-worker` engine instead, with FTS5 and R*Tree included.
 
 ## Declaring a model
 
@@ -75,9 +77,10 @@ created `STRICT` when the engine accepts the keyword (always, for the bundled bu
 otherwise. `#[obs(skip)]` removes a field from both halves — a field the change log cannot name
 could never mark its row dirty, so persisting it would silently lose edits.
 
-A struct that must also compile for a web target keeps every `#[model(…)]` attribute and swaps
-only the derive: `Observable` accepts `#[model(…)]`, reads `#[model(id)]` as the key, and
-ignores the schema half.
+`derive(Model)` compiles on every target, the web included. A build that deliberately keeps
+its web tier on plain stores can swap the derive instead — `Observable` accepts `#[model(…)]`,
+reads `#[model(id)]` as the key, and ignores the schema half (the Showcase's Query page keeps
+its ten-thousand-row demo in memory this way):
 
 ```rust
 #[cfg_attr(not(target_arch = "wasm32"), derive(Model))]
@@ -340,3 +343,50 @@ spatial indexes, and watching other connections' writes are later phases — the
 for them shapes what exists today (visible schema, `ColumnValue` everywhere, capabilities), but
 none of it is API yet. Row identity is the `#[model(id)]` key stored as `INTEGER`; display
 order is a projection concern and is not persisted.
+
+## Watching the SQL
+
+`Sqlite::trace_sql(f)` installs the engine's own statement trace (`sqlite3_trace_v2` with
+`SQLITE_TRACE_STMT`): `f` sees every statement the connection executes — migrations, autosave
+flushes, live-query `SELECT`s, undo replays, maintenance — with bound parameters expanded by
+SQLite itself. The usual shape is a debug-only logger:
+
+```rust
+let driver = Sqlite::app_data("trips.db")?;
+let driver = if cfg!(debug_assertions) {
+    driver.trace_sql(|sql| eprintln!("[sql] {sql}"))
+} else {
+    driver
+};
+```
+
+The trace installs after any `PRAGMA key`, so a cipher key never reaches the sink. On web-dom
+a file database's engine runs in the day-sql worker, out of closure reach: its statements log
+to the browser console as `[day-sql]` lines instead of calling `f` (`:memory:` databases call
+`f` on every target).
+
+## The web
+
+OPFS — the browser's origin-private file system — exposes its only synchronous random-access
+API inside dedicated workers, so on web-dom the engine runs in one: the **day-sql worker**, a
+second instantiation of the app's own wasm module that day-cli's host page spawns at boot.
+Every `SqliteConnection` call crosses a SharedArrayBuffer as one request; the main thread
+blocks the few microseconds until the reply state flips, and the worker flushes to storage
+before answering — a commit that returned has landed, and `capabilities().durable` is true.
+`:memory:` databases skip the channel and run in-process. Apps see none of this: `Sqlite::at`,
+autosave, undo, queries, and `backup_to` behave as they do everywhere else.
+
+What the page must provide:
+
+- **Cross-origin isolation.** SharedArrayBuffer exists only under COOP/COEP response headers.
+  `day launch` sends them; a static deployment must too ([docs/web.md](web.md)). Without
+  isolation there is no worker: memory databases still work, file opens fail with
+  `Unsupported`, and `durable` reads false — the app can present that honestly.
+- **One tab.** OPFS access handles are exclusive, so the first tab of the app owns its
+  databases; a second tab runs memory-only until the first closes.
+
+`Sqlite::web_storage()` is the document-pool surface for file-per-document apps:
+`exists`/`list` for numbering a fresh document, `import_db` for landing an Open… pick,
+`export_db` for handing bytes to a download (flush first, so the image includes the current
+turn). Database names are the "paths" the rest of the app already uses — `Sqlite::at("a.db")`
+on the web opens the pool entry named `a.db`.
