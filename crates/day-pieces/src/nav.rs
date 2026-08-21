@@ -2877,13 +2877,15 @@ pub struct Cover<S, R: Route> {
 /// A fullscreen cover over `open`: `Some(r)` presents `build(&r)`, `None` dismisses
 /// (docs/cover.md). Registers a string-route adapter, so `navigate("<key>")` opens it and
 /// `nav_back()` closes it, and `current_route()` reports the presented key.
-pub fn cover<R: Route, S: Binding<Option<R>>>(
+pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
     open: S,
-    build: impl Fn(&R) -> AnyPiece + 'static,
+    build: impl Fn(&R) -> P + 'static,
 ) -> Cover<S, R> {
     Cover {
         open,
-        build: Rc::new(build),
+        // The stored builder is erased because a `Cover` holds one closure for every route it
+        // presents; the PARAMETER stays generic so callers never write `.any()` for us.
+        build: Rc::new(move |r| AnyPiece::new(build(r))),
         background: None,
         routed: true,
         _marker: std::marker::PhantomData,
