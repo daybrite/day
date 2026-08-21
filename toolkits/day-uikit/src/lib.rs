@@ -307,6 +307,35 @@ mod imp {
     fn ptr_of(v: &UIView) -> usize {
         (v as *const UIView).cast::<()>() as usize
     }
+    /// Apply row-level deltas as animated table updates. Indexes are sequential (each
+    /// delta describes the set as the previous ones left it), so each gets its own batch —
+    /// UITableView's combined-batch index rules would re-interpret them.
+    fn apply_row_deltas(table: &objc2_ui_kit::UITableView, deltas: &[day_spec::props::RowDelta]) {
+        let path =
+            |row: usize| objc2_foundation::NSIndexPath::indexPathForRow_inSection(row as isize, 0);
+        for d in deltas {
+            unsafe {
+                table.beginUpdates();
+                match d {
+                    day_spec::props::RowDelta::Insert(i) => table
+                        .insertRowsAtIndexPaths_withRowAnimation(
+                            &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
+                            objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                        ),
+                    day_spec::props::RowDelta::Remove(i) => table
+                        .deleteRowsAtIndexPaths_withRowAnimation(
+                            &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
+                            objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                        ),
+                    day_spec::props::RowDelta::Move(from, to) => {
+                        table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to))
+                    }
+                }
+                table.endUpdates();
+            }
+        }
+    }
+
     fn view_of<T: AsRef<UIView>>(x: Retained<T>) -> Handle {
         Retained::from(x.as_ref())
     }
@@ -1624,6 +1653,78 @@ mod imp {
         }
     }
 
+    /// The native FRONT of the app's one undo stack (docs/model.md): answers the questions
+    /// UIKit's undo affordances ask (three-finger gestures, shake, hardware ⌘Z, the iPad menu
+    /// bar) from mirrored state, and forwards invocations as `Event::Undo`. The stack lives
+    /// in day-model; two histories can never fork.
+    pub(super) struct UndoIvars {
+        pub(super) state: RefCell<day_spec::UndoState>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_foundation::NSUndoManager))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUndoManager"]
+        #[ivars = UndoIvars]
+        pub(super) struct DayUndoManager;
+
+        impl DayUndoManager {
+            #[unsafe(method(canUndo))]
+            fn can_undo(&self) -> bool {
+                self.ivars().state.borrow().can_undo
+            }
+
+            #[unsafe(method(canRedo))]
+            fn can_redo(&self) -> bool {
+                self.ivars().state.borrow().can_redo
+            }
+
+            #[unsafe(method(undo))]
+            fn do_undo(&self) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: false })
+                })
+            }
+
+            #[unsafe(method(redo))]
+            fn do_redo(&self) {
+                day_spec::ffi_guard::contain((), || {
+                    emit(day_spec::WINDOW_NODE, Event::Undo { redo: true })
+                })
+            }
+
+            #[unsafe(method_id(undoMenuItemTitle))]
+            fn undo_menu_item_title(&self) -> Retained<NSString> {
+                let label = self.ivars().state.borrow().undo_label.clone();
+                unsafe { self.undoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+            }
+
+            #[unsafe(method_id(redoMenuItemTitle))]
+            fn redo_menu_item_title(&self) -> Retained<NSString> {
+                let label = self.ivars().state.borrow().redo_label.clone();
+                unsafe { self.redoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+            }
+        }
+    );
+
+    thread_local! {
+        pub(super) static UNDO_FRONT: RefCell<Option<Retained<DayUndoManager>>> =
+            const { RefCell::new(None) };
+    }
+
+    pub(super) fn undo_front(mtm: MainThreadMarker) -> Retained<DayUndoManager> {
+        UNDO_FRONT.with(|u| {
+            u.borrow_mut()
+                .get_or_insert_with(|| {
+                    let this = DayUndoManager::alloc(mtm).set_ivars(UndoIvars {
+                        state: RefCell::new(day_spec::UndoState::default()),
+                    });
+                    unsafe { msg_send![super(this), init] }
+                })
+                .clone()
+        })
+    }
+
     define_class!(
         #[unsafe(super(UIViewController))]
         #[thread_kind = MainThreadOnly]
@@ -1636,6 +1737,17 @@ mod imp {
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
+            }
+
+            /// The responder chain's answer while no text field holds focus: the app's one
+            /// stack, through its front — a focused field's own manager keeps precedence,
+            /// which is exactly the typing rule (docs/model.md).
+            #[unsafe(method_id(undoManager))]
+            fn undo_manager(&self) -> Option<Retained<objc2_foundation::NSUndoManager>> {
+                day_spec::ffi_guard::contain(None, || {
+                    UNDO_FRONT
+                        .with(|u| u.borrow().as_ref().map(|m| Retained::into_super(m.clone())))
+                })
             }
         }
     );
@@ -3558,6 +3670,10 @@ mod imp {
                 // (docs/text-runs.md).
                 Cap::TextRuns
                 | Cap::TextLinks
+                // NSUndoManager fronted through the root VC's responder chain: three-finger
+                // gestures, shake-to-undo, hardware ⌘Z and the iPad menu bar all land
+                // (docs/model.md).
+                | Cap::UndoBridge
                 | Cap::Snapshot
                 // UITextView natively honors editable / selectable / spell-check.
                 | Cap::Dialogs
@@ -4582,6 +4698,19 @@ mod imp {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                    Some(ListPatch::Splice(deltas)) => {
+                        let (key, deltas) = (ptr_of(h), deltas.clone());
+                        // Deferred like reload realization: row updates realize cells
+                        // synchronously, which must happen outside this tree borrow.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            LIST_STATE.with(|m| {
+                                if let Some((table, _)) = m.borrow().get(&key) {
+                                    apply_row_deltas(table, &deltas);
+                                }
+                            });
+                        }));
+                    }
+
                     Some(ListPatch::Reload) => {
                         LIST_STATE.with(|m| {
                             if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
@@ -5209,6 +5338,11 @@ mod imp {
 
         fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool {
             lifecycle_supported(phase)
+        }
+
+        fn set_undo_state(&mut self, state: &day_spec::UndoState) {
+            let front = undo_front(self.mtm());
+            *front.ivars().state.borrow_mut() = state.clone();
         }
 
         fn attach_list(&mut self, host: &Handle, source: ListSource) {

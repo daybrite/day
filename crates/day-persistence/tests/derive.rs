@@ -182,7 +182,7 @@ fn the_derive_drives_the_container_end_to_end() {
     assert_eq!(
         sql,
         [
-            "INSERT OR REPLACE INTO trips (id, name, start_day, done, rating, note_text, duration_s, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO trips (id, name, start_day, done, rating, note_text, duration_s, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, start_day = excluded.start_day, done = excluded.done, rating = excluded.rating, note_text = excluded.note_text, duration_s = excluded.duration_s, tags = excluded.tags"
         ]
     );
 

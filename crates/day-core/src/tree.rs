@@ -732,6 +732,8 @@ pub trait TreeOps {
     fn list_cell_keys(&self, node: RNode) -> Vec<usize>;
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
+    fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
+    fn set_undo_state(&mut self, state: &day_spec::UndoState);
     /// Imperatively scroll the native list so its last row is fully visible (no-op if empty).
     fn list_scroll_to_end(&mut self, node: RNode);
     /// Imperatively scroll the native list so row `row` is visible (clamped; no-op if empty).
@@ -1589,6 +1591,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 None,
             );
         }
+    }
+
+    fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::Splice(deltas) as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn set_undo_state(&mut self, state: &day_spec::UndoState) {
+        self.toolkit.set_undo_state(state);
     }
 
     fn list_scroll_to_end(&mut self, node: RNode) {

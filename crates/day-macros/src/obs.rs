@@ -83,6 +83,8 @@ struct StructDef {
     name: String,
     table: Option<String>,
     composites: Vec<Vec<String>>,
+    fts: Vec<String>,
+    spatial: Option<(String, String)>,
     fields: Vec<FieldDef>,
 }
 
@@ -166,6 +168,31 @@ fn emit_observable(def: &StructDef) -> String {
         "impl<S: day_model::Source<{name}>> {trait_name} for S {{}}\n"
     ));
 
+    // The typed write-back seam an undo stack replays through: one match arm per observed
+    // field, downcasting to the field's own type.
+    out.push_str(&format!(
+        "impl day_model::ApplyField for {name} {{\n\
+         \x20   fn apply_field(&mut self, label: &str, value: &dyn ::core::any::Any) -> bool {{\n\
+         \x20       match label {{\n{}\
+         \x20           _ => false,\n\
+         \x20       }}\n\
+         \x20   }}\n\
+         }}\n",
+        observed
+            .iter()
+            .map(|f| format!(
+                "            \"{}\" => match value.downcast_ref::<{}>() {{\n\
+                 \x20               Some(v) => {{\n\
+                 \x20                   self.{} = v.clone();\n\
+                 \x20                   true\n\
+                 \x20               }}\n\
+                 \x20               None => false,\n\
+                 \x20           }},\n",
+                f.name, f.ty, f.name
+            ))
+            .collect::<String>()
+    ));
+
     // A names list, so a test can assert what is observable without reflection.
     out.push_str(&format!(
         "impl {name} {{\n    pub const OBSERVED_FIELDS: &'static [&'static str] = &[{}];\n}}\n",
@@ -200,6 +227,25 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
         ));
     }
 
+    // fts()/spatial() name COLUMNS; a typo would silently index nothing, so check now.
+    let column_names: Vec<&str> = persisted.iter().map(|f| f.column_name()).collect();
+    for c in &def.fts {
+        if !column_names.contains(&c.as_str()) {
+            return Err(format!(
+                "Model: fts(…) names `{c}`, which is not a persisted column of `{name}`"
+            ));
+        }
+    }
+    if let Some((lat, lon)) = &def.spatial {
+        for c in [lat, lon] {
+            if !column_names.contains(&c.as_str()) {
+                return Err(format!(
+                    "Model: spatial(…) names `{c}`, which is not a persisted column of `{name}`"
+                ));
+            }
+        }
+    }
+
     let composites = def
         .composites
         .iter()
@@ -232,12 +278,71 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
         }
     }
 
-    Ok(format!(
-        "impl day_persistence::Model for {name} {{\n\
+    // Typed column refs: `Trip::name()` in a predicate, beside `trip.name()` the binding.
+    // Inherent fns WITHOUT a receiver never collide with the Fields trait's methods (which
+    // take self) — method-call syntax finds the trait, path syntax finds these.
+    let mut cols = String::new();
+    for f in &persisted {
+        let encode = match codec(f) {
+            Some(codec) => format!(
+                "<{codec} as day_persistence::ValueCodec<{}>>::to_sqlite_value",
+                f.ty
+            ),
+            None => format!("day_persistence::encode_column::<{}>", f.ty),
+        };
+        cols.push_str(&format!(
+            "    pub fn {}() -> day_persistence::Col<{}> {{\n\
+             \x20       day_persistence::Col::new(\"{}\", {encode})\n\
+             \x20   }}\n",
+            f.name,
+            f.ty,
+            f.column_name(),
+        ));
+    }
+    if !def.fts.is_empty() {
+        cols.push_str(&format!(
+            "    pub fn fts() -> day_persistence::FtsRef {{\n\
+             \x20       day_persistence::FtsRef {{ columns: <{name} as day_persistence::Model>::FTS_COLUMNS }}\n\
+             \x20   }}\n"
+        ));
+    }
+    if let Some((lat, lon)) = &def.spatial {
+        cols.push_str(&format!(
+            "    pub fn geo() -> day_persistence::GeoRef {{\n\
+             \x20       day_persistence::GeoRef {{ lat: \"{lat}\", lon: \"{lon}\" }}\n\
+             \x20   }}\n"
+        ));
+    }
+    let col_impl = format!("#[allow(dead_code)]\nimpl {name} {{\n{cols}}}\n");
+
+    let fts_const = if def.fts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "    const FTS_COLUMNS: &'static [&'static str] = &[{}];\n",
+            def.fts
+                .iter()
+                .map(|c| format!("\"{c}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    let spatial_const = match &def.spatial {
+        None => String::new(),
+        Some((lat, lon)) => format!(
+            "    const SPATIAL: Option<day_persistence::SpatialCols> = \
+             Some(day_persistence::SpatialCols {{ lat: \"{lat}\", lon: \"{lon}\" }});\n"
+        ),
+    };
+
+    Ok(col_impl
+        + &format!(
+            "impl day_persistence::Model for {name} {{\n\
          \x20   const TABLE: &'static str = \"{table}\";\n\
          \x20   const KEY: &'static str = \"{key_col}\";\n\
          \x20   const COLUMNS: &'static [day_persistence::ColumnDef] = &[\n{columns}    ];\n\
          \x20   const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[{composites}];\n\
+         {fts_const}{spatial_const}\
          \x20   fn to_row(&self) -> Vec<day_persistence::Value> {{\n\
          \x20       vec![\n{to_row}        ]\n\
          \x20   }}\n\
@@ -249,8 +354,8 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
          \x20       day_persistence::Model::to_row(&<Self as ::core::default::Default>::default())\n\
          \x20   }}\n\
          }}\n",
-        key_col = key.column_name(),
-    ))
+            key_col = key.column_name(),
+        ))
 }
 
 fn sql_type_expr(f: &FieldDef) -> String {
@@ -333,6 +438,8 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
 
     let mut table = None;
     let mut composites = Vec::new();
+    let mut fts = Vec::new();
+    let mut spatial = None;
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
@@ -340,7 +447,13 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
             TokenTree::Punct(p) if p.as_char() == '#' => {
                 if let Some(TokenTree::Group(g)) = tokens.get(i + 1) {
                     if let Some(items) = attr_items(g, "model") {
-                        parse_struct_options(items, &mut table, &mut composites)?;
+                        parse_struct_options(
+                            items,
+                            &mut table,
+                            &mut composites,
+                            &mut fts,
+                            &mut spatial,
+                        )?;
                     }
                     i += 2;
                     continue;
@@ -369,6 +482,8 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
         name,
         table,
         composites,
+        fts,
+        spatial,
         fields: parse_fields(body)?,
     })
 }
@@ -398,9 +513,61 @@ fn parse_struct_options(
     items: Vec<Vec<TokenTree>>,
     table: &mut Option<String>,
     composites: &mut Vec<Vec<String>>,
+    fts: &mut Vec<String>,
+    spatial: &mut Option<(String, String)>,
 ) -> Result<(), String> {
     for item in items {
         match item.as_slice() {
+            [TokenTree::Ident(id), TokenTree::Group(g)]
+                if id.to_string() == "fts" && g.delimiter() == Delimiter::Parenthesis =>
+            {
+                for tt in g.stream() {
+                    match &tt {
+                        TokenTree::Literal(lit) => fts.push(string_literal(lit)?),
+                        TokenTree::Punct(p) if p.as_char() == ',' => {}
+                        other => {
+                            return Err(format!("fts(…) expects string literals, found `{other}`"));
+                        }
+                    }
+                }
+            }
+            [TokenTree::Ident(id), TokenTree::Group(g)]
+                if id.to_string() == "spatial" && g.delimiter() == Delimiter::Parenthesis =>
+            {
+                let mut lat = None;
+                let mut lon = None;
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                let mut j = 0;
+                while j + 2 < inner.len() + 1 {
+                    match (&inner.get(j), &inner.get(j + 1), &inner.get(j + 2)) {
+                        (
+                            Some(TokenTree::Ident(k)),
+                            Some(TokenTree::Punct(eq)),
+                            Some(TokenTree::Literal(lit)),
+                        ) if eq.as_char() == '=' => {
+                            match k.to_string().as_str() {
+                                "lat" => lat = Some(string_literal(lit)?),
+                                "lon" => lon = Some(string_literal(lit)?),
+                                other => {
+                                    return Err(format!(
+                                        "spatial(…) takes lat = \"…\" and lon = \"…\", found `{other}`"
+                                    ));
+                                }
+                            }
+                            j += 3;
+                            if matches!(inner.get(j), Some(TokenTree::Punct(p)) if p.as_char() == ',')
+                            {
+                                j += 1;
+                            }
+                        }
+                        _ => return Err("spatial(…) takes lat = \"…\" and lon = \"…\"".into()),
+                    }
+                }
+                match (lat, lon) {
+                    (Some(lat), Some(lon)) => *spatial = Some((lat, lon)),
+                    _ => return Err("spatial(…) needs BOTH lat = \"…\" and lon = \"…\"".into()),
+                }
+            }
             [
                 TokenTree::Ident(id),
                 TokenTree::Punct(eq),
@@ -427,7 +594,7 @@ fn parse_struct_options(
             }
             other => {
                 return Err(format!(
-                    "unknown #[model] option on the struct: `{}` (supported: table = \"…\", index(\"a\", \"b\"))",
+                    "unknown #[model] option on the struct: `{}` (supported: table = \"…\", index(\"a\", \"b\"), fts(\"a\", \"b\"), spatial(lat = \"…\", lon = \"…\"))",
                     tokens_text(other)
                 ));
             }

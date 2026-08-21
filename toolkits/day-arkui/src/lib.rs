@@ -1777,7 +1777,9 @@ mod imp {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) => unsafe { ffi::day_ark_list_reload(h.0) },
+                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => unsafe {
+                        ffi::day_ark_list_reload(h.0)
+                    },
                     Some(ListPatch::ScrollToEnd) => unsafe { ffi::day_ark_list_scroll_to_end(h.0) },
                     Some(ListPatch::ScrollToRow(row)) => unsafe {
                         ffi::day_ark_list_scroll_to_row(h.0, *row as u32)

@@ -171,6 +171,20 @@ loaded; `store.store_id()` names a store the way a change's first path component
 `observed_paths()` and `interned_nodes()` expose the cost of observation itself, so a test can
 assert that triggers and interner slots are reclaimed when the scopes observing them die.
 
+## Sessions and undo
+
+Two consumers of the change log live here rather than in persistence, because neither needs a
+database. **Sessions** are the write-side of `ValueChanged`/`ValueCommitted`:
+`field.write_preview(v)` updates the value and wakes this field's readers but records nothing;
+`field.write_commit(v)` seals the gesture as one record whose prior is the pre-session value;
+`field.session()` adds `cancel()` (Escape restores, zero records). Bound controls drive the
+pair automatically. **`UndoStack::new(levels)`** + `stack.watch(store)` turns the same log into
+history: units are turns, inversion comes from the captured prior values (a `Delete` carries
+its row), replay is tagged `author: "undo"` so consumers can tell it from the user, and
+`can_undo`/`undo_label` are signals. `#[derive(Observable)]` emits the `ApplyField` impl replay
+writes back through. `day::install_undo(&stack)` fronts the stack natively where the platform
+has an undo system ([docs/persistence.md](persistence.md) has the platform table).
+
 ## Costs, and where they go
 
 - A trigger exists only where something looked; unobserved paths cost nothing to write.

@@ -31,6 +31,12 @@ use std::rc::Rc;
 
 use day_model::{Identified, Keyed, Op, Store};
 
+mod queries;
+pub use queries::{
+    Col, Delta, Fetch, FtsRef, GeoRect, GeoRef, LiveSet, Outcome, Pred, RowView, RowsView, Sort,
+    compare_values, encode_column, rank,
+};
+
 #[cfg(feature = "driver-rusqlite")]
 mod rusqlite_driver;
 #[cfg(feature = "driver-rusqlite")]
@@ -270,6 +276,20 @@ pub trait SqliteDriver {
     fn capabilities(&self) -> Capabilities;
 }
 
+impl SqliteConnection for Box<dyn SqliteConnection> {
+    fn execute(&mut self, sql: &str, params: &[Value]) -> Result<u64, DbError> {
+        (**self).execute(sql, params)
+    }
+    fn query(
+        &mut self,
+        sql: &str,
+        params: &[Value],
+        row: &mut dyn FnMut(&dyn Row),
+    ) -> Result<(), DbError> {
+        (**self).query(sql, params, row)
+    }
+}
+
 /// One open connection. Everything above speaks plain SQL and [`Value`]s through it.
 pub trait SqliteConnection: 'static {
     fn execute(&mut self, sql: &str, params: &[Value]) -> Result<u64, DbError>;
@@ -365,6 +385,10 @@ impl SqliteDriver for Recorder {
         Capabilities {
             durable: false,
             wal: false,
+            // The fake answers everything: an FTS/spatial model must open against fixtures
+            // (its reads just come back empty unless a fixture answers them).
+            full_text_search: true,
+            rtree: true,
             ..Default::default()
         }
     }
@@ -546,15 +570,27 @@ pub struct ColumnDef {
     pub indexed: bool,
 }
 
+/// The column pair a `#[model(spatial(lat = …, lon = …))]` declaration names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpatialCols {
+    pub lat: &'static str,
+    pub lon: &'static str,
+}
+
 /// A persistable model: an [`Identified`] observable struct with a schema half. Implemented by
 /// `#[derive(Model)]`; the container consumes it.
-pub trait Model: Identified + Clone + 'static {
+pub trait Model: Identified + day_model::ApplyField + Clone + 'static {
     const TABLE: &'static str;
     /// The key column's name (the `#[model(id)]` field). Also the first entry of `COLUMNS`.
     const KEY: &'static str;
     const COLUMNS: &'static [ColumnDef];
     /// Composite indexes from struct-level `#[model(index("a", "b"))]`.
     const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[];
+    /// Full-text-indexed columns from struct-level `#[model(fts("a", "b"))]` — an
+    /// external-content FTS5 shadow table plus sync triggers, generated at open.
+    const FTS_COLUMNS: &'static [&'static str] = &[];
+    /// The R*Tree pair from struct-level `#[model(spatial(lat = "…", lon = "…"))]`.
+    const SPATIAL: Option<SpatialCols> = None;
     /// One [`Value`] per column, in `COLUMNS` order.
     fn to_row(&self) -> Vec<Value>;
     fn from_row(row: &dyn Row) -> Result<Self, DbError>;
@@ -584,6 +620,15 @@ pub fn model_fingerprint<M: Model>() -> u64 {
             eat(c.as_bytes());
         }
         eat(b"|");
+    }
+    for c in M::FTS_COLUMNS {
+        eat(b"fts:");
+        eat(c.as_bytes());
+    }
+    if let Some(s) = M::SPATIAL {
+        eat(b"geo:");
+        eat(s.lat.as_bytes());
+        eat(s.lon.as_bytes());
     }
     h
 }
@@ -742,6 +787,11 @@ struct TableHooks {
     row_for: Rc<dyn Fn(u64) -> Option<Vec<Value>>>,
     /// Every (key, row) currently in the store, for full resyncs.
     all_rows: Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>,
+    /// Replace the store's contents from raw rows — `rescan`'s write-back path.
+    reload: Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>,
+    /// Bring this store under an undo history — captured here because the model TYPE is known
+    /// only at attach time.
+    watch_undo: Rc<dyn Fn(&day_model::UndoStack)>,
 }
 
 struct ContainerInner {
@@ -752,6 +802,12 @@ struct ContainerInner {
     /// model TypeId → the `Store<Keyed<M>>` handle, boxed.
     stores: RefCell<HashMap<TypeId, Box<dyn Any>>>,
     dirty: RefCell<DirtyState>,
+    /// Live query result sets, dispatched to from the change sink. Weak: the app's `Query`
+    /// handles own the state; dead entries are pruned on dispatch.
+    queries: RefCell<Vec<std::rc::Weak<QueryState>>>,
+    /// True while `rescan` reloads stores from the file — the sink ignores those writes (they
+    /// are the database's own contents coming back, not edits to persist).
+    quiet: Cell<bool>,
     sink: Cell<Option<day_model::ChangeSinkId>>,
     autosave: Cell<bool>,
     /// The last autosave failure, observable by the UI (`when(container.last_error()…)`).
@@ -796,6 +852,8 @@ impl ModelContainer {
                 tables: RefCell::new(HashMap::new()),
                 stores: RefCell::new(HashMap::new()),
                 dirty: RefCell::new(DirtyState::default()),
+                queries: RefCell::new(Vec::new()),
+                quiet: Cell::new(false),
                 sink: Cell::new(None),
                 autosave: Cell::new(true),
                 error,
@@ -864,6 +922,10 @@ impl ModelContainer {
         let dirty = {
             let mut d = self.inner.dirty.borrow_mut();
             if d.is_empty() {
+                drop(d);
+                // Nothing to flush — but an SQL-backed query may still be waiting on its
+                // deferred requery (a fetch swap on a clean container lands here).
+                self.run_deferred_requeries(&[]);
                 return Ok(Vec::new());
             }
             std::mem::take(&mut *d)
@@ -872,7 +934,10 @@ impl ModelContainer {
         let result = self.flush(dirty);
         self.inner.flushing.set(false);
         match &result {
-            Ok(_) => self.inner.error.set_if_changed(None),
+            Ok(stmts) => {
+                self.inner.error.set_if_changed(None);
+                self.run_deferred_requeries(stmts);
+            }
             Err(e) => self.inner.error.set(Some(e.to_string())),
         }
         result
@@ -1008,6 +1073,19 @@ impl ModelContainer {
             }) as Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>
         };
 
+        let reload = {
+            Rc::new(move |raw_rows: Vec<Vec<Value>>| -> Result<(), DbError> {
+                let mut decoded = Vec::with_capacity(raw_rows.len());
+                for r in raw_rows {
+                    decoded.push(M::from_row(&r)?);
+                }
+                let fresh = Keyed::new(decoded);
+                store.update("rescan", move |k| *k = fresh);
+                Ok(())
+            }) as Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>
+        };
+        let watch_undo = Rc::new(move |stack: &day_model::UndoStack| stack.watch(store))
+            as Rc<dyn Fn(&day_model::UndoStack)>;
         self.inner.tables.borrow_mut().insert(
             store_id,
             TableHooks {
@@ -1017,6 +1095,8 @@ impl ModelContainer {
                 fields,
                 row_for,
                 all_rows,
+                reload,
+                watch_undo,
             },
         );
         self.inner
@@ -1040,7 +1120,126 @@ impl ModelContainer {
             self.lightweight_migrate::<M>()?;
         }
         self.create_indexes::<M>()?;
+        self.create_shadow_tables::<M>()?;
         self.store_fingerprint(M::TABLE, &fp)?;
+        Ok(())
+    }
+
+    /// The FTS5 and R*Tree shadows a model declares: virtual tables plus `AFTER` triggers, so
+    /// the indexes stay true inside the same transaction as every write — even a write made by
+    /// another tool straight into the file. Backfilled when first created.
+    fn create_shadow_tables<M: Model>(&self) -> Result<(), DbError> {
+        let t = M::TABLE;
+        let key = M::KEY;
+        if !M::FTS_COLUMNS.is_empty() {
+            if !self.inner.caps.full_text_search {
+                return Err(DbError::new(
+                    DbErrorKind::Unsupported,
+                    format!(
+                        "`{t}` declares fts(…) but this driver's engine has no FTS5 — the \
+                         bundled and cipher engines compile it in"
+                    ),
+                ));
+            }
+            let cols = M::FTS_COLUMNS.join(", ");
+            let fresh = !self.table_exists(&format!("{t}_fts"))?;
+            self.conn().execute(
+                &format!(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS {t}_fts USING fts5({cols}, \
+                     content={t}, content_rowid={key})"
+                ),
+                &[],
+            )?;
+            let new_cols = M::FTS_COLUMNS
+                .iter()
+                .map(|c| format!("new.{c}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let old_cols = M::FTS_COLUMNS
+                .iter()
+                .map(|c| format!("old.{c}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.conn().execute(
+                &format!(
+                    "CREATE TRIGGER IF NOT EXISTS {t}_fts_ai AFTER INSERT ON {t} BEGIN \
+                     INSERT INTO {t}_fts(rowid, {cols}) VALUES (new.{key}, {new_cols}); END"
+                ),
+                &[],
+            )?;
+            self.conn().execute(
+                &format!(
+                    "CREATE TRIGGER IF NOT EXISTS {t}_fts_ad AFTER DELETE ON {t} BEGIN \
+                     INSERT INTO {t}_fts({t}_fts, rowid, {cols}) VALUES ('delete', old.{key}, {old_cols}); END"
+                ),
+                &[],
+            )?;
+            self.conn().execute(
+                &format!(
+                    "CREATE TRIGGER IF NOT EXISTS {t}_fts_au AFTER UPDATE ON {t} BEGIN \
+                     INSERT INTO {t}_fts({t}_fts, rowid, {cols}) VALUES ('delete', old.{key}, {old_cols}); \
+                     INSERT INTO {t}_fts(rowid, {cols}) VALUES (new.{key}, {new_cols}); END"
+                ),
+                &[],
+            )?;
+            if fresh {
+                // External-content rebuild: index whatever rows predate the declaration.
+                self.conn().execute(
+                    &format!("INSERT INTO {t}_fts({t}_fts) VALUES ('rebuild')"),
+                    &[],
+                )?;
+            }
+        }
+        if let Some(s) = M::SPATIAL {
+            if !self.inner.caps.rtree {
+                return Err(DbError::new(
+                    DbErrorKind::Unsupported,
+                    format!(
+                        "`{t}` declares spatial(…) but this driver's engine has no R*Tree — \
+                         the bundled and cipher engines compile it in"
+                    ),
+                ));
+            }
+            let (lat, lon) = (s.lat, s.lon);
+            let fresh = !self.table_exists(&format!("{t}_geo"))?;
+            self.conn().execute(
+                &format!(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS {t}_geo USING rtree({key}, \
+                     min_lat, max_lat, min_lon, max_lon)"
+                ),
+                &[],
+            )?;
+            self.conn().execute(
+                &format!(
+                    "CREATE TRIGGER IF NOT EXISTS {t}_geo_ai AFTER INSERT ON {t} BEGIN \
+                     INSERT OR REPLACE INTO {t}_geo VALUES (new.{key}, new.{lat}, new.{lat}, new.{lon}, new.{lon}); END"
+                ),
+                &[],
+            )?;
+            self.conn().execute(
+                &format!(
+                    "CREATE TRIGGER IF NOT EXISTS {t}_geo_au AFTER UPDATE OF {lat}, {lon} ON {t} BEGIN \
+                     INSERT OR REPLACE INTO {t}_geo VALUES (new.{key}, new.{lat}, new.{lat}, new.{lon}, new.{lon}); END"
+                ),
+                &[],
+            )?;
+            self.conn().execute(
+                &format!(
+                    "CREATE TRIGGER IF NOT EXISTS {t}_geo_ad AFTER DELETE ON {t} BEGIN \
+                     DELETE FROM {t}_geo WHERE {key} = old.{key}; END"
+                ),
+                &[],
+            )?;
+            if fresh {
+                self.conn().execute(
+                    &format!(
+                        "INSERT OR REPLACE INTO {t}_geo \
+                         SELECT {key}, {lat}, {lat}, {lon}, {lon} FROM {t}"
+                    ),
+                    &[],
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -1177,11 +1376,17 @@ impl ModelContainer {
         let inner = Rc::downgrade(&self.inner);
         let sink = day_model::install_change_sink(move |change| {
             if let Some(inner) = inner.upgrade() {
-                let tables = inner.tables.borrow();
-                inner
-                    .dirty
-                    .borrow_mut()
-                    .note(change, |store| tables.contains_key(&store));
+                if inner.quiet.get() {
+                    return;
+                }
+                {
+                    let tables = inner.tables.borrow();
+                    inner
+                        .dirty
+                        .borrow_mut()
+                        .note(change, |store| tables.contains_key(&store));
+                }
+                ModelContainer { inner }.dispatch_to_queries(change);
             }
         });
         self.inner.sink.set(Some(sink));
@@ -1412,10 +1617,25 @@ impl ModelContainer {
 fn upsert_stmt(hooks: &TableHooks, row: &[Value]) -> (String, Vec<Value>) {
     let cols = hooks.columns.join(", ");
     let marks = vec!["?"; hooks.columns.len()].join(", ");
+    // A true UPSERT, not INSERT OR REPLACE: the conflict path fires UPDATE triggers, which is
+    // what keeps the generated FTS/R*Tree shadows in sync (OR REPLACE's implicit delete skips
+    // AFTER DELETE triggers unless recursive_triggers is on).
+    let sets = hooks
+        .columns
+        .iter()
+        .filter(|c| **c != hooks.key_col)
+        .map(|c| format!("{c} = excluded.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let conflict = if sets.is_empty() {
+        "DO NOTHING".to_string()
+    } else {
+        format!("DO UPDATE SET {sets}")
+    };
     (
         format!(
-            "INSERT OR REPLACE INTO {} ({cols}) VALUES ({marks})",
-            hooks.table
+            "INSERT INTO {} ({cols}) VALUES ({marks}) ON CONFLICT({}) {conflict}",
+            hooks.table, hooks.key_col
         ),
         row.to_vec(),
     )
@@ -1428,3 +1648,659 @@ impl Drop for ContainerInner {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Live queries (docs/persistence.md; queries.rs holds the pure maintainer)
+// ---------------------------------------------------------------------------
+
+/// What a query's consumers have not yet seen. `Deltas` can animate a list row by row;
+/// `Reload` means the whole set moved (a requery, a fetch swap) and a reload is honest.
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryEvents {
+    None,
+    Deltas(Vec<Delta>),
+    Reload,
+}
+
+impl QueryEvents {
+    fn push(&mut self, deltas: &[Delta]) {
+        match self {
+            QueryEvents::None => *self = QueryEvents::Deltas(deltas.to_vec()),
+            QueryEvents::Deltas(d) => d.extend_from_slice(deltas),
+            QueryEvents::Reload => {}
+        }
+    }
+    fn reload(&mut self) {
+        *self = QueryEvents::Reload;
+    }
+}
+
+struct QueryState {
+    store_id: u64,
+    table: &'static str,
+    set: RefCell<LiveSet>,
+    /// Bumped whenever the result set changes; `ids()`/`count()` track it.
+    version: day_reactive::Signal<u64>,
+    pending: RefCell<QueryEvents>,
+    /// An SQL-backed fetch (raw / FTS / rank) whose answer went stale mid-turn; resolved
+    /// after the flush, when the statements (and their index triggers) have landed.
+    needs_sql: Cell<bool>,
+    /// `query_raw` only: the statement and the tables whose commit re-runs it.
+    raw: Option<RawQuery>,
+}
+
+struct RawQuery {
+    sql: String,
+    params: Vec<Value>,
+    tables: Vec<String>,
+}
+
+/// A live, typed result set over one model's table — ids only, maintained incrementally
+/// against the change log ([`LiveSet`]'s rules). Clone shares the same set.
+pub struct Query<M: Model> {
+    state: Rc<QueryState>,
+    container: ModelContainer,
+    _p: std::marker::PhantomData<fn() -> M>,
+}
+
+impl<M: Model> Clone for Query<M> {
+    fn clone(&self) -> Self {
+        Query {
+            state: self.state.clone(),
+            container: self.container.clone(),
+            _p: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<M: Model> Query<M> {
+    /// The result ids, in query order — a TRACKED read: the caller re-runs when the set
+    /// changes, and only then.
+    pub fn ids(&self) -> Vec<u64> {
+        let _ = self.state.version.get();
+        self.state.set.borrow().ids().to_vec()
+    }
+
+    /// The result count, tracked like [`Query::ids`].
+    pub fn count(&self) -> usize {
+        let _ = self.state.version.get();
+        self.state.set.borrow().ids().len()
+    }
+
+    /// The first result, tracked.
+    pub fn first(&self) -> Option<u64> {
+        let _ = self.state.version.get();
+        self.state.set.borrow().ids().first().copied()
+    }
+
+    /// Tracked membership test.
+    pub fn contains(&self, id: u64) -> bool {
+        let _ = self.state.version.get();
+        self.state.set.borrow().ids().contains(&id)
+    }
+
+    /// Untracked snapshot.
+    pub fn ids_untracked(&self) -> Vec<u64> {
+        self.state.set.borrow().ids().to_vec()
+    }
+
+    /// Predicate/sort evaluations so far — the cost the incremental path avoids, exposed so
+    /// a page (or a test) can show it staying flat.
+    pub fn evaluations(&self) -> usize {
+        self.state.set.borrow().evaluations()
+    }
+
+    /// Swap the fetch (a changed filter or sort): reseeds and reloads consumers. No-op when
+    /// equal to the current one, so a `query_fn` closure can re-run cheaply.
+    pub fn set_fetch(&self, fetch: Fetch) {
+        if *self.state.set.borrow().fetch() == fetch {
+            return;
+        }
+        let sql_backed = !fetch.evaluable();
+        {
+            let mut set = self.state.set.borrow_mut();
+            *set = LiveSet::new(fetch);
+        }
+        if sql_backed {
+            // Resolve through the database once pending statements land; mid-turn the index
+            // triggers have not run yet.
+            self.state.needs_sql.set(true);
+            let _ = self.container.save();
+        } else {
+            self.container.reseed_in_memory(&self.state);
+        }
+        self.bump(true);
+    }
+
+    /// Drain what changed since the last call — the list source's feed.
+    pub fn take_events(&self) -> QueryEvents {
+        std::mem::replace(&mut *self.state.pending.borrow_mut(), QueryEvents::None)
+    }
+
+    fn bump(&self, reload: bool) {
+        if reload {
+            self.state.pending.borrow_mut().reload();
+        }
+        self.state
+            .version
+            .set(self.state.version.get_untracked().wrapping_add(1));
+    }
+}
+
+/// Builder for a [`Query`] — `container.query::<Trip>().filter(…).sort(…).live()`.
+pub struct QueryBuilder<'c, M: Model> {
+    container: &'c ModelContainer,
+    fetch: Fetch,
+    _p: std::marker::PhantomData<fn() -> M>,
+}
+
+impl<M: Model> QueryBuilder<'_, M> {
+    pub fn filter(mut self, p: Pred) -> Self {
+        self.fetch = self.fetch.filter(p);
+        self
+    }
+    pub fn sort(mut self, s: Sort) -> Self {
+        self.fetch = self.fetch.sort(s);
+        self
+    }
+    pub fn limit(mut self, n: usize) -> Self {
+        self.fetch = self.fetch.limit(n);
+        self
+    }
+    /// Seed the set and keep it live against the change log.
+    pub fn live(self) -> Query<M> {
+        self.container.install_query::<M>(self.fetch, None)
+    }
+}
+
+/// Adapter: a table's rows, as predicates read them (column name → stored value).
+struct HooksRows<'a> {
+    hooks: &'a TableHooks,
+}
+
+struct ColsRow<'a> {
+    cols: &'a [&'static str],
+    values: Vec<Value>,
+}
+
+impl RowView for ColsRow<'_> {
+    fn col(&self, c: &str) -> Option<Value> {
+        self.cols
+            .iter()
+            .position(|n| *n == c)
+            .map(|i| Row::get(&self.values, i))
+    }
+}
+
+impl RowsView for HooksRows<'_> {
+    fn row_view(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
+        (self.hooks.row_for)(key).map(|values| {
+            Box::new(ColsRow {
+                cols: &self.hooks.columns,
+                values,
+            }) as Box<dyn RowView>
+        })
+    }
+}
+
+impl ModelContainer {
+    /// Start a typed query over `M`'s rows. Panics (like [`ModelContainer::store`]) if `M` is
+    /// not in this container's `schema!` — a wiring bug worth stopping on.
+    pub fn query<M: Model>(&self) -> QueryBuilder<'_, M> {
+        let _ = self.store::<M>();
+        QueryBuilder {
+            container: self,
+            fetch: Fetch::new(),
+            _p: std::marker::PhantomData,
+        }
+    }
+
+    /// The reactive-fetch form: `f` is a computation — a query whose FETCH depends on signals
+    /// (a search term, a filter toggle) re-seeds itself when they change.
+    pub fn query_fn<M: Model>(&self, f: impl Fn() -> Fetch + 'static) -> Query<M> {
+        let q = self.install_query::<M>(f(), None);
+        let q2 = q.clone();
+        day_reactive::bind(f, move |fetch| q2.set_fetch(fetch.clone()));
+        q
+    }
+
+    /// Raw SQL, declared: a read-only SELECT returning ids, re-run whenever a flush touches
+    /// one of the named tables. The price of the escape hatch is whole-query invalidation.
+    pub fn query_raw<M: Model>(
+        &self,
+        sql: impl Into<String>,
+        params: Vec<Value>,
+        tables: &[&str],
+    ) -> Query<M> {
+        self.install_query::<M>(
+            Fetch::new().filter(Pred::Raw(String::new(), Vec::new())),
+            Some(RawQuery {
+                sql: sql.into(),
+                params,
+                tables: tables.iter().map(|s| s.to_string()).collect(),
+            }),
+        )
+    }
+
+    /// Opt into undo: ONE history over every store this container loaded, `levels` deep —
+    /// SwiftData's `mainContext.undoManager = UndoManager()`, as one call. Undo/redo replay
+    /// flows through the same change pipeline as the user's edits, so autosave writes the
+    /// inverse statements and live queries animate rows back. Call it once, after open;
+    /// clear it on migration (`UndoStack::clear`).
+    pub fn undo(&self, levels: usize) -> day_model::UndoStack {
+        let stack = day_model::UndoStack::new(levels);
+        for hooks in self.inner.tables.borrow().values() {
+            (hooks.watch_undo)(&stack);
+        }
+        stack
+    }
+
+    /// The driver's connection, directly — for maintenance, imports, an extension's own
+    /// statements. Pending changes flush first; writes made here bypass the change log, so
+    /// call [`ModelContainer::rescan`] afterward if they touched Day's tables.
+    pub fn with_connection<R>(&self, f: impl FnOnce(&mut dyn SqliteConnection) -> R) -> R {
+        let _ = self.save();
+        f(self.conn().as_mut())
+    }
+
+    /// Reload every store from the file and re-run every query — the recovery from writes
+    /// that bypassed the change log ([`ModelContainer::with_connection`], another process).
+    pub fn rescan(&self) -> Result<(), DbError> {
+        self.save()?;
+        self.inner.quiet.set(true);
+        let result = self.reload_stores();
+        self.inner.quiet.set(false);
+        result?;
+        // Sets may have changed wholesale; reseed everything.
+        let states: Vec<Rc<QueryState>> = self
+            .inner
+            .queries
+            .borrow()
+            .iter()
+            .filter_map(|w| w.upgrade())
+            .collect();
+        for state in states {
+            if state.raw.is_some() || !state.set.borrow().fetch().evaluable() {
+                self.run_sql_backed(&state);
+            } else {
+                self.reseed_in_memory(&state);
+            }
+            state.pending.borrow_mut().reload();
+            state
+                .version
+                .set(state.version.get_untracked().wrapping_add(1));
+        }
+        Ok(())
+    }
+
+    fn install_query<M: Model>(&self, fetch: Fetch, raw: Option<RawQuery>) -> Query<M> {
+        let store = self.store::<M>();
+        let sql_backed = raw.is_some() || !fetch.evaluable();
+        let state = Rc::new(QueryState {
+            store_id: store.store_id(),
+            table: M::TABLE,
+            set: RefCell::new(LiveSet::new(fetch)),
+            version: day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(0)),
+            pending: RefCell::new(QueryEvents::None),
+            needs_sql: Cell::new(false),
+            raw,
+        });
+        self.inner.queries.borrow_mut().push(Rc::downgrade(&state));
+        let q = Query {
+            state,
+            container: self.clone(),
+            _p: std::marker::PhantomData,
+        };
+        if sql_backed {
+            q.state.needs_sql.set(true);
+            let _ = self.save(); // resolves the deferred requery immediately when clean
+            if q.state.needs_sql.get() {
+                // Nothing was dirty, so save() had nothing to flush — run it now.
+                self.run_sql_backed(&q.state);
+                q.state.needs_sql.set(false);
+            }
+        } else {
+            self.reseed_in_memory(&q.state);
+        }
+        q
+    }
+
+    /// In-memory seed over the store — the document pattern's fetch, no SQL at all.
+    fn reseed_in_memory(&self, state: &Rc<QueryState>) {
+        let tables = self.inner.tables.borrow();
+        let Some(hooks) = tables.get(&state.store_id) else {
+            return;
+        };
+        let keys: Vec<u64> = (hooks.all_rows)().iter().map(|(k, _)| *k).collect();
+        state.set.borrow_mut().seed(&keys, &HooksRows { hooks });
+    }
+
+    /// One announced change, routed to every query on that store.
+    fn dispatch_to_queries(&self, change: &day_model::Change) {
+        let Some(&store) = change.components.first() else {
+            return;
+        };
+        let states: Vec<Rc<QueryState>> = {
+            let mut queries = self.inner.queries.borrow_mut();
+            queries.retain(|w| w.strong_count() > 0);
+            queries
+                .iter()
+                .filter_map(|w| w.upgrade())
+                .filter(|s| s.store_id == store)
+                .collect()
+        };
+        if states.is_empty() {
+            return;
+        }
+        let tables = self.inner.tables.borrow();
+        let Some(hooks) = tables.get(&store) else {
+            return;
+        };
+
+        // A store-level change (wholesale update): every set may have moved.
+        let Some(&key) = change.components.get(1) else {
+            for state in &states {
+                self.requery(state, hooks);
+            }
+            return;
+        };
+        if key == day_model::STRUCTURE {
+            return; // the shape path duplicates the row paths
+        }
+        // The change log speaks FIELD names; predicates speak COLUMN names.
+        let column: &str = if change.components.len() >= 3 {
+            hooks
+                .fields
+                .iter()
+                .position(|f| *f == change.label)
+                .map(|i| hooks.columns[i])
+                .unwrap_or("\u{0}") // a transient field: never a dependency column
+        } else {
+            ""
+        };
+
+        for state in &states {
+            let outcome =
+                state
+                    .set
+                    .borrow_mut()
+                    .apply(key, column, change.op, &HooksRows { hooks });
+            match outcome {
+                Outcome::Unaffected => {}
+                Outcome::Changed(deltas) => {
+                    state.pending.borrow_mut().push(&deltas);
+                    state
+                        .version
+                        .set(state.version.get_untracked().wrapping_add(1));
+                }
+                Outcome::Requery => self.requery(state, hooks),
+            }
+        }
+    }
+
+    /// Resolve a Requery now if memory can answer it; defer to the post-flush hook if only
+    /// the database can (raw / FTS / rank — their SQL must see this turn's statements).
+    fn requery(&self, state: &Rc<QueryState>, hooks: &TableHooks) {
+        if state.raw.is_none() && state.set.borrow().fetch().evaluable() {
+            let before = state.set.borrow().ids().to_vec();
+            let keys: Vec<u64> = (hooks.all_rows)().iter().map(|(k, _)| *k).collect();
+            state.set.borrow_mut().seed(&keys, &HooksRows { hooks });
+            if state.set.borrow().ids() != before.as_slice() {
+                state.pending.borrow_mut().reload();
+                state
+                    .version
+                    .set(state.version.get_untracked().wrapping_add(1));
+            }
+        } else {
+            state.needs_sql.set(true);
+        }
+    }
+
+    /// After a flush: SQL-backed queries whose dependencies moved re-run against the file.
+    fn run_deferred_requeries(&self, stmts: &[(String, Vec<Value>)]) {
+        let states: Vec<Rc<QueryState>> = self
+            .inner
+            .queries
+            .borrow()
+            .iter()
+            .filter_map(|w| w.upgrade())
+            .collect();
+        for state in states {
+            let mut due = state.needs_sql.replace(false);
+            if let Some(raw) = &state.raw {
+                // A raw query re-runs when a flush touched one of its declared tables.
+                if !due {
+                    due = stmts
+                        .iter()
+                        .any(|(sql, _)| raw.tables.iter().any(|t| statement_touches(sql, t)));
+                }
+            }
+            if due {
+                self.run_sql_backed(&state);
+                state.pending.borrow_mut().reload();
+                state
+                    .version
+                    .set(state.version.get_untracked().wrapping_add(1));
+            }
+        }
+    }
+
+    /// Answer a fetch through the database: raw SQL verbatim, or FTS candidates narrowed by
+    /// the evaluable remainder in memory.
+    fn run_sql_backed(&self, state: &Rc<QueryState>) {
+        let ids = if let Some(raw) = &state.raw {
+            self.select_ids(&raw.sql, &raw.params)
+        } else {
+            let fetch = state.set.borrow().fetch().clone();
+            self.fts_fetch(state, &fetch)
+        };
+        state.set.borrow_mut().reset(ids);
+    }
+
+    fn select_ids(&self, sql: &str, params: &[Value]) -> Vec<u64> {
+        let mut ids = Vec::new();
+        if let Err(e) = self.conn().query(sql, params, &mut |row| {
+            if let Ok(id) = row.get(0).as_int() {
+                ids.push(id as u64);
+            }
+        }) {
+            // A malformed FTS query or raw statement must not read as "no results": surface
+            // it where autosave failures already go, and leave the set empty.
+            self.inner.error.set(Some(e.to_string()));
+        }
+        ids
+    }
+
+    /// FTS candidates (ranked when asked), then the remaining predicate and sort in memory.
+    fn fts_fetch(&self, state: &Rc<QueryState>, fetch: &Fetch) -> Vec<u64> {
+        let tables = self.inner.tables.borrow();
+        let Some(hooks) = tables.get(&state.store_id) else {
+            return Vec::new();
+        };
+        let by_rank = fetch.sort.iter().any(|s| s.by_rank);
+        let match_query = find_match_query(&fetch.pred);
+
+        let mut candidates: Vec<u64> = match match_query {
+            Some(q) => {
+                let fts = format!("{}_fts", state.table);
+                let order = if by_rank { " ORDER BY rank" } else { "" };
+                self.select_ids(
+                    &format!("SELECT rowid FROM {fts} WHERE {fts} MATCH ?{order}"),
+                    &[Value::Text(q)],
+                )
+            }
+            None => (hooks.all_rows)().iter().map(|(k, _)| *k).collect(),
+        };
+        // The evaluable remainder (Matches itself answers true in eval).
+        let rows = HooksRows { hooks };
+        candidates.retain(|k| {
+            rows.row_view(*k)
+                .map(|r| fetch.pred.eval(r.as_ref()))
+                .unwrap_or(false)
+        });
+        if !by_rank && !fetch.sort.is_empty() {
+            let mut sorter = LiveSet::new(Fetch {
+                pred: Pred::Always,
+                sort: fetch.sort.clone(),
+                limit: None,
+            });
+            sorter.seed(&candidates, &rows);
+            candidates = sorter.ids().to_vec();
+        }
+        if let Some(n) = fetch.limit {
+            candidates.truncate(n);
+        }
+        candidates
+    }
+
+    fn reload_stores(&self) -> Result<(), DbError> {
+        let hooks_list: Vec<(u64, &'static str)> = self
+            .inner
+            .tables
+            .borrow()
+            .iter()
+            .map(|(id, h)| (*id, h.table))
+            .collect();
+        for (store_id, table) in hooks_list {
+            let (columns, reload) = {
+                let tables = self.inner.tables.borrow();
+                let hooks = &tables[&store_id];
+                (hooks.columns.join(", "), hooks.reload.clone())
+            };
+            let mut rows: Vec<Vec<Value>> = Vec::new();
+            self.conn()
+                .query(&format!("SELECT {columns} FROM {table}"), &[], &mut |row| {
+                    let n = Row::len(row);
+                    rows.push((0..n).map(|i| row.get(i)).collect());
+                })?;
+            reload(rows)?;
+        }
+        Ok(())
+    }
+}
+
+/// Whether a statement's target table is `table` — a plain-text check over the SQL the fold
+/// itself produced (`INSERT OR REPLACE INTO t …`, `UPDATE t SET …`, `DELETE FROM t …`).
+fn statement_touches(sql: &str, table: &str) -> bool {
+    for prefix in ["INSERT OR REPLACE INTO ", "UPDATE ", "DELETE FROM "] {
+        if let Some(rest) = sql.strip_prefix(prefix) {
+            return rest.split([' ', '(']).next() == Some(table);
+        }
+    }
+    false
+}
+
+fn find_match_query(pred: &Pred) -> Option<String> {
+    match pred {
+        Pred::Matches { query, .. } => Some(query.clone()),
+        Pred::And(a, b) | Pred::Or(a, b) => find_match_query(a).or_else(|| find_match_query(b)),
+        Pred::Not(a) => find_match_query(a),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Query as a list row source (feature `pieces`)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "pieces")]
+mod pieces_glue {
+    use std::cell::RefCell;
+
+    use day_model::{Elem, Keyed, Store};
+    use day_pieces::{ModelSlot, RowConn, RowSource};
+
+    use crate::{Delta, Model, Query, QueryEvents};
+
+    /// `list(query, row)` — the query's ids are the display order, rows bind through
+    /// [`ModelSlot`] exactly as a store source's do, and set changes arrive as row deltas the
+    /// native list can animate.
+    impl<M: Model> RowSource for Query<M> {
+        type Slot = ModelSlot<M>;
+        type Ref = Elem<M>;
+        type Conn = QueryConn<M>;
+        fn connect(self) -> QueryConn<M> {
+            let store = self.container.store::<M>();
+            QueryConn {
+                query: self,
+                store,
+                keys: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    pub struct QueryConn<M: Model> {
+        query: Query<M>,
+        store: Store<Keyed<M>>,
+        keys: RefCell<Vec<u64>>,
+    }
+
+    impl<M: Model> RowConn for QueryConn<M> {
+        type Slot = ModelSlot<M>;
+        type Ref = Elem<M>;
+
+        fn refresh(&self) -> Vec<u64> {
+            let keys = self.query.ids();
+            *self.keys.borrow_mut() = keys.clone();
+            keys
+        }
+        fn len(&self) -> usize {
+            self.keys.borrow().len()
+        }
+        fn token_at(&self, index: usize) -> u64 {
+            self.keys.borrow().get(index).copied().unwrap_or(0)
+        }
+        fn tokens_now(&self) -> Vec<u64> {
+            self.keys.borrow().clone()
+        }
+        fn slot_at(&self, index: usize) -> Option<ModelSlot<M>> {
+            let key = self.keys.borrow().get(index).copied()?;
+            Some(ModelSlot::for_key(self.store, key))
+        }
+        fn rebind(&self, slot: &ModelSlot<M>, index: usize) {
+            if let Some(key) = self.keys.borrow().get(index).copied() {
+                slot.rebind_key(key);
+            }
+        }
+        fn select_ref(&self, index: usize) -> Option<Elem<M>> {
+            self.keys
+                .borrow()
+                .get(index)
+                .copied()
+                .map(|k| self.store.elem(k))
+        }
+        fn values_flow_by_reload(&self) -> bool {
+            false // row values flow through the store's own per-field notifications
+        }
+        fn take_row_events(&self) -> Option<Vec<day_spec::props::RowDelta>> {
+            match self.query.take_events() {
+                QueryEvents::Deltas(d) => Some(
+                    d.into_iter()
+                        .map(|d| match d {
+                            Delta::Insert(i, _) => day_spec::props::RowDelta::Insert(i),
+                            Delta::Remove(i, _) => day_spec::props::RowDelta::Remove(i),
+                            Delta::Move(from, to, _) => day_spec::props::RowDelta::Move(from, to),
+                        })
+                        .collect(),
+                ),
+                // Reload means "the whole set moved"; None here means the same to the list.
+                QueryEvents::Reload | QueryEvents::None => None,
+            }
+        }
+        fn commit_move(&self, _from: usize, _to: usize) {
+            // A sorted result set does not take user reordering; the app decides what a drag
+            // means and writes the model, which flows back through the query.
+        }
+        fn commit_delete(&self, index: usize) {
+            // The native delete affordance: drop from the local snapshot; the app's on_delete
+            // writes the store, and the query's own delta follows as the echo.
+            let mut keys = self.keys.borrow_mut();
+            if index < keys.len() {
+                keys.remove(index);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "pieces")]
+pub use pieces_glue::QueryConn;

@@ -2441,6 +2441,82 @@ fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::
 }
 
 // ---------------------------------------------------------------------------
+// DayUndoManager — the native FRONT of the app's one undo stack (docs/model.md)
+// ---------------------------------------------------------------------------
+
+/// The mirrored [`day_spec::UndoState`]: what the stock Edit menu reads through the standard
+/// `undo:`/`redo:` validation. The stack itself lives in day-model; this object only answers
+/// questions and forwards invocations — two histories can never fork.
+struct UndoIvars {
+    state: std::cell::RefCell<day_spec::UndoState>,
+}
+
+define_class!(
+    #[unsafe(super(objc2_foundation::NSUndoManager))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayUndoManager"]
+    #[ivars = UndoIvars]
+    struct DayUndoManager;
+
+    /// Overrides of the questions AppKit's menu validation asks, answered from the mirrored
+    /// state — and of the two verbs, forwarded as `Event::Undo` (enqueue-only, like every
+    /// other event). Registration/grouping machinery of the superclass is never used.
+    impl DayUndoManager {
+        #[unsafe(method(canUndo))]
+        fn can_undo(&self) -> bool {
+            self.ivars().state.borrow().can_undo
+        }
+
+        #[unsafe(method(canRedo))]
+        fn can_redo(&self) -> bool {
+            self.ivars().state.borrow().can_redo
+        }
+
+        #[unsafe(method(undo))]
+        fn do_undo(&self) {
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Undo { redo: false }))
+        }
+
+        #[unsafe(method(redo))]
+        fn do_redo(&self) {
+            ffi_guard::contain((), || emit(WINDOW_NODE, Event::Undo { redo: true }))
+        }
+
+        #[unsafe(method_id(undoMenuItemTitle))]
+        fn undo_menu_item_title(&self) -> Retained<NSString> {
+            // Route through the superclass's own title former, so "Undo" itself comes out in
+            // the system language; the action label arrived already localized from the app.
+            let label = self.ivars().state.borrow().undo_label.clone();
+            unsafe { self.undoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+        }
+
+        #[unsafe(method_id(redoMenuItemTitle))]
+        fn redo_menu_item_title(&self) -> Retained<NSString> {
+            let label = self.ivars().state.borrow().redo_label.clone();
+            unsafe { self.redoMenuTitleForUndoActionName(&NSString::from_str(&label)) }
+        }
+    }
+);
+
+thread_local! {
+    static UNDO_FRONT: std::cell::RefCell<Option<Retained<DayUndoManager>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn undo_front(mtm: MainThreadMarker) -> Retained<DayUndoManager> {
+    UNDO_FRONT.with(|u| {
+        u.borrow_mut()
+            .get_or_insert_with(|| {
+                let this = DayUndoManager::alloc(mtm).set_ivars(UndoIvars {
+                    state: std::cell::RefCell::new(day_spec::UndoState::default()),
+                });
+                unsafe { msg_send![super(this), init] }
+            })
+            .clone()
+    })
+}
+
+// ---------------------------------------------------------------------------
 // DayWinDelegate — resize + close + key tracking, per window
 // ---------------------------------------------------------------------------
 
@@ -2492,6 +2568,23 @@ define_class!(
                         unsafe { app.terminate(None) };
                     }
                 }
+            })
+        }
+
+        #[unsafe(method_id(windowWillReturnUndoManager:))]
+        fn window_will_return_undo_manager(
+            &self,
+            _window: &NSWindow,
+        ) -> Option<Retained<objc2_foundation::NSUndoManager>> {
+            // The responder chain already gave a focused text field its OWN manager before
+            // asking the window — typing undo stays the field's, the model stack gets the
+            // rest, exactly the precedence the plan's typing rule wants.
+            ffi_guard::contain(None, || {
+                UNDO_FRONT.with(|u| {
+                    u.borrow()
+                        .as_ref()
+                        .map(|m| Retained::into_super(m.clone()))
+                })
             })
         }
 
@@ -3133,6 +3226,9 @@ impl Toolkit for AppKit {
             // only backend where Text is real (docs/badge.md).
             | Cap::AppBadgeCount
             | Cap::AppBadgeText
+            // NSUndoManager fronted by DayUndoManager: the stock Edit menu retitles and
+            // enables itself, ⌘Z/⇧⌘Z land through the responder chain (docs/model.md).
+            | Cap::UndoBridge
             | Cap::AppBadgeDot
             | Cap::Appearance
             // firstBaselineOffsetFromTop — the platform's own answer (docs/baseline.md).
@@ -4065,6 +4161,38 @@ impl Toolkit for AppKit {
                 }
             }
             kinds::LIST => match patch.downcast_ref::<ListPatch>() {
+                Some(ListPatch::Splice(deltas)) => {
+                    // The set changed by exactly these deltas: animate each row in, out, or
+                    // across — the thing a reload cannot express. Indexes are sequential, so
+                    // each delta gets its own begin/endUpdates batch (NSTableView's combined
+                    // batch semantics re-interpret indexes; one-at-a-time stays literal).
+                    // Row realization stays deferred, as with Reload.
+                    if let Some((table, _)) = list_entry(ptr_of(h)) {
+                        use objc2_app_kit::NSTableViewAnimationOptions;
+                        for d in deltas {
+                            unsafe {
+                                table.beginUpdates();
+                                match d {
+                                    day_spec::props::RowDelta::Insert(i) => table
+                                        .insertRowsAtIndexes_withAnimation(
+                                            &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                                            NSTableViewAnimationOptions::SlideDown,
+                                        ),
+                                    day_spec::props::RowDelta::Remove(i) => table
+                                        .removeRowsAtIndexes_withAnimation(
+                                            &objc2_foundation::NSIndexSet::indexSetWithIndex(*i),
+                                            NSTableViewAnimationOptions::SlideUp,
+                                        ),
+                                    day_spec::props::RowDelta::Move(from, to) => {
+                                        table.moveRowAtIndex_toIndex(*from as isize, *to as isize)
+                                    }
+                                }
+                                table.endUpdates();
+                            }
+                        }
+                    }
+                    post_realize_visible_rows(ptr_of(h));
+                }
                 Some(ListPatch::Reload) => {
                     if let Some((table, data)) = list_entry(ptr_of(h)) {
                         // A reload whose rows are the SAME set in a new order (a shuffle,
@@ -4562,6 +4690,11 @@ impl Toolkit for AppKit {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         SINK.with(|s| *s.borrow_mut() = Some(Rc::from(sink)));
+    }
+
+    fn set_undo_state(&mut self, state: &day_spec::UndoState) {
+        let front = undo_front(self.mtm);
+        *front.ivars().state.borrow_mut() = state.clone();
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {

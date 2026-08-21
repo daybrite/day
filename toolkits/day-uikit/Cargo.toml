@@ -20,7 +20,7 @@ linkme = { workspace = true }
 objc2 = "0.6"
 block2 = "0.6"
 dispatch2 = "0.3"
-objc2-foundation = { version = "0.3", features = ["NSLocale", "NSString", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
+objc2-foundation = { version = "0.3", features = ["NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", features = ["CGContext", "CGGradient", "CGColorSpace"] }
 objc2-quartz-core = { version = "0.3", features = ["CADisplayLink"] }

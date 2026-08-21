@@ -32,6 +32,7 @@ implement them, and this table proves it.
 | `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_route` | · | · | · | · | · | · | · | · | ✓ | · |
+| `set_undo_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `set_app_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_toolbar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |

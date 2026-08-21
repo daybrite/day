@@ -3009,7 +3009,7 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                Some(ListPatch::Reload) => {
+                Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
                     LIST_STATE.with(|m| {
                         if let Some(e) = m.borrow().get(&widget_key(h)) {
                             // Deferred: this runs inside a with_tree borrow (see schedule_list_resize).

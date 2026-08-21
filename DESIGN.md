@@ -321,7 +321,7 @@ scripts), and `day-cli` (the `day` binary).
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive |
-| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance; opt-in via the facade's `persistence` feature | day-model, day-reactive |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
@@ -1245,6 +1245,13 @@ pub trait Toolkit: Sized + 'static {
     // Event::RouteRequested
     fn set_route(&mut self, route: &str) {}
 
+    // undo bridge (2026-08, docs/persistence.md): mirror the app's one undo stack into the
+    // platform's own undo object where one exists (Cap::UndoBridge — NSUndoManager fronts on
+    // appkit/uikit, so the stock Edit menu retitles/enables itself and ⌘Z / the three-finger
+    // gestures land); the user's invocation returns as Event::Undo { redo }. Everywhere else
+    // the app's own affordances call the stack and this duty stays a no-op.
+    fn set_undo_state(&mut self, state: &UndoState) {}
+
     // menus (docs/menus.md)
     fn set_app_menu(&mut self, items: &[MenuItem]) {}
     fn set_context_menu(&mut self, h, node: NodeId, items: &[MenuItem]) {}
@@ -1397,7 +1404,8 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > page between the floating-scrim and opaque bars, other backends ignore it). docs/layout.md and
 > [docs/navigation.md](docs/navigation.md) are normative. The built-in facts that rode `Event::Custom` tags became
 > typed variants (2026-08): `ListReorder`/`ListDelete` (the list piece's deferred commit echoes,
-> [docs/list.md](docs/list.md)) and `CoverHidden` ([docs/cover.md](docs/cover.md); `BridgeKind::CoverHidden = 26` on the
+> [docs/list.md](docs/list.md)), `Event::Undo { redo }` with `BridgeKind::UndoInvoked = 28` (the undo bridge's
+> up direction, 2026-08 — emitted only by native fronts) and `CoverHidden` ([docs/cover.md](docs/cover.md); `BridgeKind::CoverHidden = 26` on the
 > trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
 > `Custom` purely piece-defined. `LinkActivated(String)` joined them for styled text runs (2026-08,
 [docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
@@ -4196,10 +4204,52 @@ What shipped, and where:
 - **The facade** — `persistence` implies `model`; `sqlite-system`/`sqlite-cipher` select
   engines; the prelude re-exports the API and the `day_persistence` crate name.
 
-Not in this version (designed, not API): typed queries, lazy faulting, relations, external
-storage, FTS/R*Tree declarations, cross-connection watching. Adopter: Day-Showcase's Model page
+Adopter: Day-Showcase's Model page
 runs on a container on every native target (web stays in memory), with insert/edit/delete and
 the storage readout in the walkthrough.
+
+**Phases 3–5 (2026-08-21).** Queries, the extensions, and undo landed as designed, one pass:
+
+- **Queries** — predicates are DATA (`Pred`/`Fetch`, compiled to SQL once, evaluated in memory
+  after), maintained by the ported `LiveSet`: a column the query never mentions costs zero
+  evaluations, a predicate/sort column evaluates one row and emits `Insert`/`Remove`/`Move`
+  deltas, windows re-derive. The derive emits `Trip::name()` column refs beside the binding
+  accessors (no receiver, so the namespaces never collide); `container.query::<M>()` builds,
+  `query_fn` re-derives from signals, `query_raw` re-runs per named-table flush,
+  `with_connection` + `rescan` close the escape hatch. The 600-edit agreement test — and its
+  undo-interleaved variant — pin the property that makes skipping the database safe.
+- **Row deltas reached the toolkit line** — one new `ListPatch::Splice(Vec<RowDelta>)` with a
+  reload fallback on every backend and true animated splices on appkit (insert/remove/moveRow)
+  and uikit (performBatchUpdates-family); `RowConn::take_row_events` feeds it, so a
+  query-backed `list` animates a row out instead of reloading (mock-asserted headlessly).
+- **FTS5 + R*Tree** — struct-level `fts("a", "b")` / `spatial(lat, lon)` generate the
+  external-content shadow table, the R*Tree, their `AFTER` triggers and first-create
+  backfills; `matches`/`within`/`rank()` are typed predicates; capability checks refuse at
+  open naming the missing module. Consequence worth recording: the fold's upsert became a true
+  `ON CONFLICT DO UPDATE` — `INSERT OR REPLACE`'s implicit delete skips delete triggers unless
+  `recursive_triggers` is on, and the FTS index would silently rot.
+- **Sessions** — `Binding` grew `write_preview`/`write_commit` (defaulted to `write`); a
+  day-model field implements them as a preview overlay: store updated, field triggers wake,
+  nothing durable until commit seals ONE record whose prior predates the gesture. Sliders wire
+  the pair from `ValueChanged`/`ValueCommitted`; text fields preview per keystroke and commit
+  on Return/blur (the typing coalescer). Sixty previews = one unit, one UPDATE — asserted.
+- **Undo** — `UndoStack` in day-model (persistence optional): units are turns, inverted from
+  captured prior values (`restructure` now captures the deleted/inserted ROW when a values
+  consumer stands); replay is author-tagged (`Change.author`) and applies through the
+  derive-generated `ApplyField` seam; `container.undo(levels)` watches every store. The one
+  day-spec touch shipped as designed: `UndoState` duty + `Event::Undo`/`BridgeKind::UndoInvoked
+  = 28` + `Cap::UndoBridge` (§8 amendment; all three matrices regenerated). Native fronts: an
+  `NSUndoManager` subclass answering canUndo/titles from mirrored state and forwarding
+  invocations — the appkit window's `windowWillReturnUndoManager` and the uikit root VC's
+  `undoManager` both yield it, so a focused text field's own manager keeps precedence (the
+  typing rule, by construction).
+- Also fixed en route: `Mapped` (`field.map(...)`) now carries the mapped field's LABEL into
+  the change log — the literal "mapped" it wrote before was invisible to the SQL fold, so a
+  converted binding over a container store silently never persisted.
+
+Still deferred: lazy faulting, relations, external storage, cross-connection watching
+(preupdate hook), the wasm driver leg, session-suspend auto-commit and cross-window undo
+focus routing.
 
 ---
 

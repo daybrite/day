@@ -213,6 +213,13 @@ pub trait RowConn: 'static {
     /// own per-field notifications), which lets `list` skip the native reload entirely when
     /// the row SET is unchanged.
     fn values_flow_by_reload(&self) -> bool;
+    /// What changed since the last refresh, if the source can say PRECISELY — sequential
+    /// row deltas a host can animate. `None` means unknown: the list reloads, which is
+    /// always honest. Only sources that maintain their set incrementally (a live query)
+    /// answer `Some`.
+    fn take_row_events(&self) -> Option<Vec<day_spec::props::RowDelta>> {
+        None
+    }
     /// Rotate the snapshot for a committed native move (display indices).
     fn commit_move(&self, from: usize, to: usize);
     /// Drop a row from the snapshot for a committed native delete.
@@ -852,10 +859,18 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     let unchanged = !conn.values_flow_by_reload() && *last.borrow() == *toks;
                     *last.borrow_mut() = toks.clone();
                     if !is_echo && !unchanged {
-                        list_reload(node);
+                        match conn.take_row_events() {
+                            Some(deltas) if !deltas.is_empty() => list_splice(node, deltas),
+                            Some(_) => {}
+                            None => list_reload(node),
+                        }
                         if stick {
                             list_scroll_to_end(node);
                         }
+                    } else {
+                        // Consume events the host must not see twice (its own echo, or a
+                        // change whose set landed identical).
+                        let _ = conn.take_row_events();
                     }
                 },
             );
@@ -922,6 +937,21 @@ mod model_rows {
         }
     }
     impl<T> Copy for ModelSlot<T> {}
+
+    impl<T: Identified + Clone + 'static> ModelSlot<T> {
+        /// A slot pointed at `key` — for ROW SOURCES implemented outside this crate (a live
+        /// query). Application code receives slots from `list`/`each` instead.
+        pub fn for_key(store: Store<Keyed<T>>, key: u64) -> ModelSlot<T> {
+            ModelSlot {
+                store,
+                cur: Signal::new(key),
+            }
+        }
+        /// The recycle write, for external row sources: point this slot at another key.
+        pub fn rebind_key(&self, key: u64) {
+            self.cur.set_if_changed(key);
+        }
+    }
 
     impl<T: Identified + 'static> ModelSlot<T> {
         /// The row's key right now — TRACKED, so a closure reading it follows recycling

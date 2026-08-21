@@ -35,7 +35,8 @@ pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
     BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, install_list, list_reload,
-    list_scroll_to_end, list_scroll_to_row, list_set_selected, list_try_delete, list_try_reorder,
+    list_scroll_to_end, list_scroll_to_row, list_set_selected, list_splice, list_try_delete,
+    list_try_reorder,
 };
 pub use menu::{
     dispatch_menu_action, register_menu_action, register_scoped_menu_action, set_app_menu,
@@ -255,6 +256,46 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
     }
 }
 
+thread_local! {
+    static UNDO_INVOKE: std::cell::RefCell<Option<std::rc::Rc<dyn Fn(bool)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Wire an undo history to the platform (docs/model.md): the four signals mirror into the
+/// toolkit's native front where one exists (`Cap::UndoBridge` — the stock Edit menu retitles
+/// and enables itself, the platform's gestures land), and every invocation the platform
+/// delivers comes back through `on_invoke(redo)`. On a toolkit without a native undo system
+/// the state goes nowhere and the app's own affordances call the stack directly — installing
+/// the bridge is still harmless. Call once, after launch; installing again replaces the wiring.
+pub fn install_undo_bridge(
+    can_undo: day_reactive::Signal<bool>,
+    can_redo: day_reactive::Signal<bool>,
+    undo_label: day_reactive::Signal<String>,
+    redo_label: day_reactive::Signal<String>,
+    on_invoke: impl Fn(bool) + 'static,
+) {
+    UNDO_INVOKE.with(|u| *u.borrow_mut() = Some(std::rc::Rc::new(on_invoke)));
+    day_reactive::bind(
+        move || day_spec::UndoState {
+            can_undo: can_undo.get(),
+            can_redo: can_redo.get(),
+            undo_label: undo_label.get(),
+            redo_label: redo_label.get(),
+        },
+        |state: &day_spec::UndoState| {
+            let state = state.clone();
+            with_tree(|t| t.set_undo_state(&state));
+        },
+    );
+}
+
+fn dispatch_undo_invoke(redo: bool) {
+    let f = UNDO_INVOKE.with(|u| u.borrow().clone());
+    if let Some(f) = f {
+        day_reactive::batch(|| f(redo));
+    }
+}
+
 /// A runtime route request from the backend (`Event::RouteRequested` — web-dom's URL hash
 /// changing via browser back/forward or a hand-edited hash). Echoes of our own `set_route`
 /// match the current route and are dropped.
@@ -373,6 +414,9 @@ pub fn launch_with<P: Platform>(
                             );
                         }
                         day_spec::Event::RouteRequested(route) => handle_route_request(route),
+                        // A native undo front's invocation (⌘Z through the stock Edit menu, a
+                        // three-finger swipe): route to whatever stack the app installed.
+                        day_spec::Event::Undo { redo } => dispatch_undo_invoke(*redo),
                         _ => {}
                     }),
                 );

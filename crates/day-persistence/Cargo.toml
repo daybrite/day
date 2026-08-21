@@ -20,10 +20,14 @@ driver-rusqlite = ["dep:rusqlite"]
 bundled = ["rusqlite/bundled"]
 system = []
 cipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+# `list(query, row)`: Query as a day-pieces row source, emitting animatable row deltas.
+pieces = ["dep:day-pieces", "dep:day-spec"]
 
 [dependencies]
 day-model = { workspace = true }
 day-reactive = { workspace = true }
+day-pieces = { workspace = true, features = ["model"], optional = true }
+day-spec = { workspace = true, optional = true }
 rusqlite = { version = "0.40", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

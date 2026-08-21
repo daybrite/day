@@ -498,11 +498,14 @@ pub mod bridge {
         /// A styled text run's link was tapped (docs/text-runs.md); `text` = the run's target.
         /// Decodes to [`crate::Event::LinkActivated`].
         LinkActivated = 27,
+        /// The platform's own undo affordance fired (⌘Z, a three-finger swipe, the Edit menu
+        /// through a native front); `num` != 0 ⇒ redo.
+        UndoInvoked = 28,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 28] = [
+        pub const ALL: [BridgeKind; 29] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -531,6 +534,7 @@ pub mod bridge {
             BridgeKind::AppearanceChanged,
             BridgeKind::CoverHidden,
             BridgeKind::LinkActivated,
+            BridgeKind::UndoInvoked,
         ];
     }
 
@@ -591,6 +595,13 @@ pub enum Event {
     /// record (docs/coverage-matrix.md).
     ValueCommitted(f64),
     SelectionChanged(i64),
+    /// The platform's own undo affordance fired through a native front (⌘Z on the Edit menu,
+    /// a three-finger swipe, shake-to-undo) — `redo` distinguishes the pair. Only backends
+    /// with a native undo system emit it; everywhere else the app's own controls call the
+    /// stack directly and this event never exists (docs/model.md).
+    Undo {
+        redo: bool,
+    },
     /// A multi-select list's selection changed: the FULL set of selected row indices,
     /// ascending (empty = nothing selected). Emitted instead of `SelectionChanged` where
     /// `ListProps::multi_select` is honored (docs/list.md).
@@ -895,6 +906,19 @@ pub enum MenuRole {
     /// app registered with `day::register_new_window`. No platform has a native selector
     /// for it, so the item lowers to the registered dispatch action (disabled when none).
     NewWindow,
+}
+
+/// The undo stack's face, as a native front mirrors it ([`Toolkit::set_undo_state`]): what is
+/// possible and what the menu titles should say. Labels arrive ALREADY LOCALIZED — a toolkit
+/// cannot invent translated text, the same rule as every other label in this file.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct UndoState {
+    pub can_undo: bool,
+    pub can_redo: bool,
+    /// The next undo unit's display label ("Rename"), empty when nothing is undoable. Fronts
+    /// interpolate it into the platform's own title form ("Undo Rename").
+    pub undo_label: String,
+    pub redo_label: String,
 }
 
 /// One entry in a menu (recursive — a `Submenu` nests).
@@ -1317,6 +1341,12 @@ impl SizeClass {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cap {
     ListRecycling,
+    /// The toolkit fronts the app's undo stack with the platform's own undo system
+    /// ([`Toolkit::set_undo_state`] + `Event::Undo`) — `Native` where one exists
+    /// (`NSUndoManager` on macOS/iOS, `QUndoStack`), `Unsupported` everywhere else, where
+    /// Day's menu items and accelerators drive the stack directly and nothing platform-owned
+    /// needs mirroring (docs/model.md).
+    UndoBridge,
     /// The toolkit realizes `ListProps::reorderable` as drag-to-reorder rows — `Native` when the
     /// platform's own mechanism drives it (NSTableView drag/drop, UITableView drag delegates,
     /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
@@ -3404,10 +3434,24 @@ pub mod props {
         pub delete_label: String,
     }
 
+    /// One row-level result-set change. Indexes are SEQUENTIAL — each delta describes the
+    /// set as the previous ones left it — so a host applies them one at a time (or falls back
+    /// to a reload; the source's snapshot already holds the final state either way).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum RowDelta {
+        Insert(usize),
+        Remove(usize),
+        Move(usize, usize),
+    }
+
     #[derive(Clone, Debug, PartialEq)]
     pub enum ListPatch {
         /// The row set changed (count/order/content): the host re-queries its `ListSource`.
         Reload,
+        /// The row set changed by exactly these deltas — a host that can, animates each row
+        /// in, out, or across; one that cannot treats this as [`ListPatch::Reload`]. The
+        /// data source answers with the FINAL state throughout.
+        Splice(Vec<RowDelta>),
         /// An `Automatic`-height row's content size changed; the host re-measures just that row.
         RowSizeInvalidated(usize),
         /// Imperatively scroll the native list so its LAST row is fully visible (a chat timeline
@@ -3761,6 +3805,14 @@ pub trait Toolkit: Sized + 'static {
     // hand-edited hash comes back as `Event::RouteRequested`. Default no-op: most toolkits
     // have nowhere to put a route.
     fn set_route(&mut self, _route: &str) {}
+
+    // undo bridge (docs/model.md): mirror the app's undo stack into the platform's own undo
+    // objects, so the stock Edit menu retitles and enables itself and the platform's gestures
+    // land — the NATIVE FRONT of one Day-owned history. The state flows down whenever it
+    // changes; the user's invocation comes back up as `Event::Undo`. Default no-op: a backend
+    // without a native undo system answers `Cap::UndoBridge` `Unsupported`, and the app's own
+    // affordances (menu items, buttons, accelerators) drive the stack instead.
+    fn set_undo_state(&mut self, _state: &UndoState) {}
 
     // menus (§ menus): render `items` with the backend's native menu affordance, firing
     // `Event::MenuAction(id)` (enqueue-only) for each id'd item; `role` items use the native standard

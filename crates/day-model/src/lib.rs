@@ -257,6 +257,23 @@ thread_local! {
     /// Whether writes should capture prior/new values into the change log.
     static WANT_VALUES: Cell<bool> = const { Cell::new(false) };
 
+    /// Standing want-values consumers (an installed undo stack) — refcounted, unlike the
+    /// scoped RECORDER flag above.
+    static WANT_VALUES_STANDING: Cell<u32> = const { Cell::new(0) };
+
+    /// True while a PREVIEW write applies: triggers wake (the UI follows the drag), but no
+    /// change record is built — sinks, the recorder, autosave and undo all stay quiet until
+    /// the session commits (docs/model.md).
+    static PREVIEW_WRITE: Cell<bool> = const { Cell::new(false) };
+
+    /// Open preview sessions: field components → the pre-session value. Insert-once per
+    /// session; taken at commit/cancel.
+    static PREVIEWS: RefCell<HashMap<Vec<u64>, Rc<dyn Any>>> = RefCell::new(HashMap::new());
+
+    /// The author tag stamped on changes born while set — "undo"/"redo" during replay, a sync
+    /// engine's name during an import. `None` is the user.
+    static CURRENT_AUTHOR: Cell<Option<&'static str>> = const { Cell::new(None) };
+
     /// Standing consumers of every announced change — the persistence container's dirty
     /// tracking. Unlike the RECORDER (a scoped test seam), sinks persist until removed.
     static SINKS: RefCell<Vec<(u64, ChangeSink)>> = const { RefCell::new(Vec::new()) };
@@ -285,7 +302,9 @@ pub fn install_change_sink(f: impl Fn(&Change) + 'static) -> ChangeSinkId {
 }
 
 pub fn remove_change_sink(id: ChangeSinkId) {
-    SINKS.with(|s| s.borrow_mut().retain(|(i, _)| *i != id.0));
+    // Best-effort on the drop path: a container falling out of a reactive runtime's own
+    // thread-exit teardown may reach here after this TLS is gone, and that must not abort.
+    let _ = SINKS.try_with(|s| s.borrow_mut().retain(|(i, _)| *i != id.0));
 }
 
 fn sinks_active() -> bool {
@@ -506,6 +525,9 @@ pub struct Change {
     pub op: Op,
     pub prior: Option<Rc<dyn Any>>,
     pub value: Option<Rc<dyn Any>>,
+    /// Who made it: `None` is the user; an undo replay stamps "undo"/"redo"; an importer its
+    /// own name ([`with_author`]). Consumers can decline their own echoes.
+    pub author: Option<&'static str>,
 }
 
 impl Change {
@@ -533,7 +555,33 @@ impl fmt::Debug for Change {
 }
 
 fn values_wanted() -> bool {
-    WANT_VALUES.with(|w| w.get())
+    WANT_VALUES.with(|w| w.get()) || WANT_VALUES_STANDING.with(|w| w.get() > 0)
+}
+
+/// Keep prior/new values flowing on every change while `on` holders exist — the undo stack's
+/// standing form of what [`record_values`] does for one closure.
+pub fn want_values_standing(on: bool) {
+    WANT_VALUES_STANDING.with(|w| {
+        let v = w.get();
+        w.set(if on { v + 1 } else { v.saturating_sub(1) });
+    });
+}
+
+fn previewing() -> bool {
+    PREVIEW_WRITE.with(|p| p.get())
+}
+
+/// Run `f` with changes stamped as `author` — how an undo replay or an importer signs its
+/// writes so consumers (a sync engine, a query) can tell them from the user's.
+pub fn with_author<R>(author: &'static str, f: impl FnOnce() -> R) -> R {
+    let prev = CURRENT_AUTHOR.with(|a| a.replace(Some(author)));
+    let out = f();
+    CURRENT_AUTHOR.with(|a| a.set(prev));
+    out
+}
+
+fn current_author() -> Option<&'static str> {
+    CURRENT_AUTHOR.with(|a| a.get())
 }
 
 /// Record every change announced inside `f`. The test seam, and the persistence layer's input.
@@ -570,6 +618,11 @@ fn notify_change(
     prior: Option<Rc<dyn Any>>,
     value: Option<Rc<dyn Any>>,
 ) {
+    if previewing() {
+        // A preview write: the UI follows, nothing durable hears it.
+        wake(p);
+        return;
+    }
     let recording = RECORDER.with(|r| r.borrow().is_some());
     if recording || sinks_active() {
         let change = Change {
@@ -578,6 +631,7 @@ fn notify_change(
             op,
             prior,
             value,
+            author: current_author(),
         };
         feed_sinks(&change);
         if recording {
@@ -609,6 +663,11 @@ fn wake(p: Path) {
 /// triggers on the main thread. Wakes the deepest path whose interior steps are interned;
 /// anything deeper cannot have an observer, because observing is what interns.
 fn announce(parts: &[u64], label: &'static str) {
+    announce_op(parts, label, Op::Set);
+}
+
+/// [`announce`], with the operation named — the undo replay's seam.
+fn announce_op(parts: &[u64], label: &'static str, op: Op) {
     let resolved = (|| {
         let (last, interior) = parts.split_last()?;
         let mut parent = ROOT;
@@ -632,9 +691,10 @@ fn announce(parts: &[u64], label: &'static str) {
         let change = Change {
             components: parts.to_vec(),
             label,
-            op: Op::Set,
+            op,
             prior: None,
             value: None,
+            author: current_author(),
         };
         feed_sinks(&change);
         if recording {
@@ -1025,11 +1085,25 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// The affected key and the operation are announced alongside the shape path, because a
     /// persistence layer has to choose between an INSERT and a DELETE and cannot infer it from
     /// "the shape changed" — while the UI, which only re-reads `keys()`, ignores both.
-    pub fn restructure(self, label: &'static str, op: Op, key: u64, f: impl FnOnce(&mut Keyed<T>)) {
+    pub fn restructure(self, label: &'static str, op: Op, key: u64, f: impl FnOnce(&mut Keyed<T>))
+    where
+        T: Clone,
+    {
+        // When a values consumer stands by (an undo stack), a Delete carries the row it
+        // removed and an Insert the row it added — the whole of what inversion needs.
+        let capture = values_wanted();
+        let mut prior: Option<Rc<dyn Any>> = None;
+        let mut value: Option<Rc<dyn Any>> = None;
         {
             let mut g = self.inner.data.write().expect("store poisoned");
+            if capture && op == Op::Delete {
+                prior = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
+            }
             f(&mut g);
             g.reindex();
+            if capture && op == Op::Insert {
+                value = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
+            }
         }
         self.inner.version.fetch_add(1, Ordering::Relaxed);
         let root_id = self.root_id;
@@ -1038,8 +1112,8 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
             || vec![root_id, key],
             label,
             op,
-            None,
-            None,
+            prior,
+            value,
         );
         notify_change(
             Path::under(self.node, STRUCTURE),
@@ -1179,7 +1253,7 @@ impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
     where
         V: Clone,
     {
-        let capture = values_wanted();
+        let capture = values_wanted() && !previewing();
         let mut prior: Option<Rc<dyn Any>> = None;
         let mut after: Option<Rc<dyn Any>> = None;
         let get_mut = self.get_mut;
@@ -1270,6 +1344,12 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Binding<V> for Fiel
     fn write(&self, v: V) {
         self.update(move |slot| *slot = v);
     }
+    fn write_preview(&self, v: V) {
+        Field::write_preview(*self, v);
+    }
+    fn write_commit(&self, v: V) {
+        Field::write_commit(*self, v);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,6 +1362,9 @@ pub struct Mapped<F, V: 'static, U: 'static> {
     inner: F,
     to: fn(&V) -> U,
     from: fn(&U) -> V,
+    /// The mapped-over field's own label, so a converted write still names its column in the
+    /// change log (a literal "mapped" would be invisible to the SQL fold).
+    label: &'static str,
 }
 
 impl<F: Copy, V, U> Clone for Mapped<F, V, U> {
@@ -1299,6 +1382,7 @@ impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
             inner: self,
             to,
             from,
+            label: self.label,
         }
     }
 }
@@ -1319,6 +1403,52 @@ impl<F: Source<V>, V: Clone + Default + 'static, U: Clone + 'static> Binding<U>
             Some(v) => (self.to)(v),
             None => (self.to)(&V::default()),
         })
+    }
+    fn write_preview(&self, u: U) {
+        let v = (self.from)(&u);
+        let inner = self.inner;
+        let mut parts = Vec::new();
+        inner.components(&mut parts);
+        PREVIEWS.with(|p| {
+            p.borrow_mut().entry(parts).or_insert_with(|| {
+                Rc::new(inner.with_value_untracked(|s| s.cloned().unwrap_or_default()))
+            });
+        });
+        PREVIEW_WRITE.with(|f| f.set(true));
+        let ok = inner.update_value(|slot| *slot = v);
+        if ok {
+            inner.bump_version();
+            notify_change(inner.path(), Vec::new, self.label, Op::Set, None, None);
+        }
+        PREVIEW_WRITE.with(|f| f.set(false));
+    }
+    fn write_commit(&self, u: U) {
+        let inner = self.inner;
+        let mut parts = Vec::new();
+        inner.components(&mut parts);
+        let open = PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
+        match open {
+            None => self.write(u),
+            Some(prior) => {
+                let v = (self.from)(&u);
+                PREVIEW_WRITE.with(|f| f.set(true));
+                let ok = inner.update_value(|slot| *slot = v);
+                PREVIEW_WRITE.with(|f| f.set(false));
+                if ok {
+                    inner.bump_version();
+                    let after: Rc<dyn Any> =
+                        Rc::new(inner.with_value_untracked(|s| s.cloned().unwrap_or_default()));
+                    notify_change(
+                        inner.path(),
+                        || parts,
+                        self.label,
+                        Op::Set,
+                        Some(prior),
+                        Some(after),
+                    );
+                }
+            }
+        }
     }
     fn write(&self, u: U) {
         let v = (self.from)(&u);
@@ -1344,7 +1474,7 @@ impl<F: Source<V>, V: Clone + Default + 'static, U: Clone + 'static> Binding<U>
                     inner.components(&mut parts);
                     parts
                 },
-                "mapped",
+                self.label,
                 Op::Set,
                 prior,
                 after,
@@ -1381,5 +1511,449 @@ impl<M: Binding<usize> + Copy + 'static> Binding<f64> for Numeric<M> {
     }
     fn write(&self, v: f64) {
         self.inner.write(v.round().max(0.0) as usize);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Preview sessions (docs/model.md) — the write-side of ValueChanged / ValueCommitted
+// ---------------------------------------------------------------------------
+
+impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
+    /// A LIVE write: the value lands and this field's readers wake — a label tracking a
+    /// dragged slider follows — but no change record is born, so autosave, the undo stack and
+    /// every sink stay quiet. The first preview since the last commit captures the
+    /// pre-session value; [`Field::write_commit`] turns the whole gesture into ONE record.
+    pub fn write_preview(self, v: V) {
+        let mut parts = Vec::new();
+        Source::<V>::components(self, &mut parts);
+        PREVIEWS.with(|p| {
+            p.borrow_mut().entry(parts).or_insert_with(|| {
+                Rc::new(self.with_untracked(|s| s.cloned().unwrap_or_default()))
+            });
+        });
+        PREVIEW_WRITE.with(|f| f.set(true));
+        self.update(move |slot| *slot = v);
+        PREVIEW_WRITE.with(|f| f.set(false));
+    }
+
+    /// The settled value that ends a preview sequence: applies `v`, then announces ONE change
+    /// whose prior is the pre-session value — sixty thumb positions become one record, one
+    /// undo unit, one UPDATE. Without an open session this is a plain [`Binding::write`].
+    pub fn write_commit(self, v: V) {
+        let mut parts = Vec::new();
+        Source::<V>::components(self, &mut parts);
+        let open = PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
+        match open {
+            None => self.update(move |slot| *slot = v),
+            Some(prior) => {
+                PREVIEW_WRITE.with(|f| f.set(true));
+                self.update(move |slot| *slot = v);
+                PREVIEW_WRITE.with(|f| f.set(false));
+                let after: Rc<dyn Any> =
+                    Rc::new(self.with_untracked(|s| s.cloned().unwrap_or_default()));
+                notify_change(
+                    self.live_path(),
+                    || parts,
+                    self.label,
+                    Op::Set,
+                    Some(prior),
+                    Some(after),
+                );
+            }
+        }
+    }
+
+    /// The explicit session handle — for custom pieces and programmatic gestures; bindings
+    /// drive [`Field::write_preview`]/[`Field::write_commit`] on their own.
+    pub fn session(self) -> FieldSession<S, T, V> {
+        FieldSession { field: self }
+    }
+}
+
+/// An explicit preview session over one field (see [`Field::session`]). `Copy`, like the
+/// field itself.
+pub struct FieldSession<S: 'static, T: 'static, V: 'static> {
+    field: Field<S, T, V>,
+}
+
+impl<S: Copy, T, V> Clone for FieldSession<S, T, V> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<S: Copy, T, V> Copy for FieldSession<S, T, V> {}
+
+impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> FieldSession<S, T, V> {
+    pub fn preview(self, v: V) {
+        self.field.write_preview(v);
+    }
+    /// Seal the session at the CURRENT value.
+    pub fn commit(self) {
+        let v = self
+            .field
+            .with_untracked(|s| s.cloned().unwrap_or_default());
+        self.field.write_commit(v);
+    }
+    /// Abandon the session: the pre-session value comes back (readers wake), and no record of
+    /// any of it exists — Escape restores.
+    pub fn cancel(self) {
+        let mut parts = Vec::new();
+        Source::<V>::components(self.field, &mut parts);
+        if let Some(prior) = PREVIEWS.with(|p| p.borrow_mut().remove(&parts)) {
+            if let Ok(prior) = prior.downcast::<V>() {
+                self.field.write_preview((*prior).clone());
+                // The restore write re-opened a session pointing at itself; drop it.
+                let mut parts = Vec::new();
+                Source::<V>::components(self.field, &mut parts);
+                PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Undo (docs/model.md) — the change log read backward
+// ---------------------------------------------------------------------------
+
+/// Write one captured field value back into a struct, by label. Implemented by
+/// `#[derive(Observable)]` — the typed seam that lets a type-erased undo unit re-enter the
+/// store it came from.
+pub trait ApplyField {
+    fn apply_field(&mut self, label: &str, value: &dyn Any) -> bool;
+}
+
+struct StoreOps {
+    set_field: Rc<dyn Fn(u64, &'static str, &Rc<dyn Any>) -> bool>,
+    insert_row: Rc<dyn Fn(u64, &Rc<dyn Any>) -> bool>,
+    remove_row: Rc<dyn Fn(u64) -> bool>,
+}
+
+struct UndoUnit {
+    label: &'static str,
+    changes: Vec<Change>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Replay {
+    No,
+    Undoing,
+    Redoing,
+}
+
+struct UndoInner {
+    levels: usize,
+    undo: RefCell<std::collections::VecDeque<UndoUnit>>,
+    redo: RefCell<Vec<UndoUnit>>,
+    open: RefCell<Vec<Change>>,
+    group_label: Cell<Option<&'static str>>,
+    grouping: Cell<bool>,
+    replaying: Cell<Replay>,
+    ops: RefCell<HashMap<u64, StoreOps>>,
+    can_undo: day_reactive::Signal<bool>,
+    can_redo: day_reactive::Signal<bool>,
+    undo_label: day_reactive::Signal<String>,
+    redo_label: day_reactive::Signal<String>,
+    resolver: RefCell<Rc<dyn Fn(&'static str) -> String>>,
+    sink: Cell<Option<ChangeSinkId>>,
+}
+
+/// One undo history over the stores it [`UndoStack::watch`]es: units are turns (everything one
+/// event's dispatch changed), inverted — not snapshots. Enabling it turns on standing value
+/// capture; drop the stack and the capture stops.
+#[derive(Clone)]
+pub struct UndoStack {
+    inner: Rc<UndoInner>,
+}
+
+impl UndoStack {
+    /// A stack holding at most `levels` units — the bound on what history keeps in RAM.
+    pub fn new(levels: usize) -> UndoStack {
+        let (can_undo, can_redo, undo_label, redo_label) =
+            day_reactive::Scope::detached().enter(|| {
+                (
+                    day_reactive::Signal::new(false),
+                    day_reactive::Signal::new(false),
+                    day_reactive::Signal::new(String::new()),
+                    day_reactive::Signal::new(String::new()),
+                )
+            });
+        let stack = UndoStack {
+            inner: Rc::new(UndoInner {
+                levels: levels.max(1),
+                undo: RefCell::new(std::collections::VecDeque::new()),
+                redo: RefCell::new(Vec::new()),
+                open: RefCell::new(Vec::new()),
+                group_label: Cell::new(None),
+                grouping: Cell::new(false),
+                replaying: Cell::new(Replay::No),
+                ops: RefCell::new(HashMap::new()),
+                can_undo,
+                can_redo,
+                undo_label,
+                redo_label,
+                resolver: RefCell::new(Rc::new(|label: &'static str| {
+                    let mut s: String = label.replace(['_', '-'], " ");
+                    if let Some(first) = s.get_mut(0..1) {
+                        first.make_ascii_uppercase();
+                    }
+                    s
+                })),
+                sink: Cell::new(None),
+            }),
+        };
+        want_values_standing(true);
+        let weak = Rc::downgrade(&stack.inner);
+        let sink = install_change_sink(move |change| {
+            if let Some(inner) = weak.upgrade() {
+                UndoStack { inner }.capture(change);
+            }
+        });
+        stack.inner.sink.set(Some(sink));
+        let weak = Rc::downgrade(&stack.inner);
+        day_reactive::on_turn_end(move || {
+            if let Some(inner) = weak.upgrade() {
+                let stack = UndoStack { inner };
+                if !stack.inner.grouping.get() {
+                    stack.seal();
+                }
+            }
+        });
+        stack
+    }
+
+    /// Bring one store under this history. Only watched stores are captured; a change in any
+    /// other store passes the stack by.
+    pub fn watch<T: ApplyField + Identified + Clone + 'static>(&self, store: Store<Keyed<T>>) {
+        let ops = StoreOps {
+            set_field: {
+                Rc::new(move |key: u64, label: &'static str, value: &Rc<dyn Any>| {
+                    let elem = store.elem(key);
+                    let mut applied = false;
+                    let ok = elem.update_value(|row| {
+                        applied = row.apply_field(label, value.as_ref());
+                    });
+                    if ok && applied {
+                        elem.bump_version();
+                        announce_op(&[store.store_id(), key, field_id(label)], label, Op::Set);
+                    }
+                    ok && applied
+                })
+            },
+            insert_row: {
+                Rc::new(move |key: u64, row: &Rc<dyn Any>| {
+                    let Some(row) = row.downcast_ref::<T>() else {
+                        return false;
+                    };
+                    let row = row.clone();
+                    store.restructure("undo", Op::Insert, key, move |k| {
+                        k.push(row);
+                    });
+                    true
+                })
+            },
+            remove_row: {
+                Rc::new(move |key: u64| {
+                    store.restructure("undo", Op::Delete, key, move |k| {
+                        k.remove(key);
+                    });
+                    true
+                })
+            },
+        };
+        self.inner.ops.borrow_mut().insert(store.store_id(), ops);
+    }
+
+    fn capture(&self, change: &Change) {
+        if self.inner.replaying.get() != Replay::No {
+            return;
+        }
+        // Another author's writes (an importer, a sync engine) are not the USER's history:
+        // undoing them from the user's stack would revert work the user never did. Their tag
+        // is exactly the evidence this decision needs.
+        if change.author.is_some() {
+            return;
+        }
+        let Some(&store) = change.components.first() else {
+            return;
+        };
+        if !self.inner.ops.borrow().contains_key(&store) {
+            return;
+        }
+        let Some(&key) = change.components.get(1) else {
+            // A wholesale rewrite: history no longer describes reachable states.
+            self.clear();
+            return;
+        };
+        if key == STRUCTURE {
+            return;
+        }
+        if change.op == Op::Set && change.components.len() >= 3 && change.prior.is_none() {
+            // A value-less field Set (an author's announce) cannot invert; skip it.
+            return;
+        }
+        self.inner.open.borrow_mut().push(change.clone());
+    }
+
+    /// Close the open unit (turn end does this; a group does it once at its end).
+    fn seal(&self) {
+        let changes = std::mem::take(&mut *self.inner.open.borrow_mut());
+        if changes.is_empty() {
+            return;
+        }
+        let label = self
+            .inner
+            .group_label
+            .take()
+            .unwrap_or_else(|| changes.first().map(|c| c.label).unwrap_or(""));
+        let mut undo = self.inner.undo.borrow_mut();
+        undo.push_back(UndoUnit { label, changes });
+        while undo.len() > self.inner.levels {
+            undo.pop_front();
+        }
+        drop(undo);
+        // A NEW user unit forks history: redo is gone.
+        self.inner.redo.borrow_mut().clear();
+        self.refresh();
+    }
+
+    /// Everything `f` changes lands as ONE unit named `label` — a multi-field commit, an
+    /// inspector applying twelve properties.
+    pub fn grouped(&self, label: &'static str, f: impl FnOnce()) {
+        self.seal();
+        self.inner.grouping.set(true);
+        self.inner.group_label.set(Some(label));
+        f();
+        self.inner.grouping.set(false);
+        self.seal();
+    }
+
+    pub fn can_undo(&self) -> day_reactive::Signal<bool> {
+        self.inner.can_undo
+    }
+    pub fn can_redo(&self) -> day_reactive::Signal<bool> {
+        self.inner.can_redo
+    }
+    /// The next undo unit's display label ("Name", or whatever the resolver makes of it) —
+    /// empty when there is nothing to undo. What a menu title interpolates.
+    pub fn undo_label(&self) -> day_reactive::Signal<String> {
+        self.inner.undo_label
+    }
+    pub fn redo_label(&self) -> day_reactive::Signal<String> {
+        self.inner.redo_label
+    }
+
+    /// How unit labels become display text (Fluent lookup, capitalization); the default
+    /// capitalizes the raw label.
+    pub fn set_label_resolver(&self, f: impl Fn(&'static str) -> String + 'static) {
+        *self.inner.resolver.borrow_mut() = Rc::new(f);
+        self.refresh();
+    }
+
+    pub fn undo(&self) -> bool {
+        self.seal();
+        let Some(unit) = self.inner.undo.borrow_mut().pop_back() else {
+            return false;
+        };
+        self.inner.replaying.set(Replay::Undoing);
+        with_author("undo", || {
+            day_reactive::batch(|| {
+                for ch in unit.changes.iter().rev() {
+                    self.apply(ch, true);
+                }
+            });
+        });
+        self.inner.replaying.set(Replay::No);
+        self.inner.redo.borrow_mut().push(unit);
+        self.refresh();
+        true
+    }
+
+    pub fn redo(&self) -> bool {
+        let Some(unit) = self.inner.redo.borrow_mut().pop() else {
+            return false;
+        };
+        self.inner.replaying.set(Replay::Redoing);
+        with_author("redo", || {
+            day_reactive::batch(|| {
+                for ch in &unit.changes {
+                    self.apply(ch, false);
+                }
+            });
+        });
+        self.inner.replaying.set(Replay::No);
+        self.inner.undo.borrow_mut().push_back(unit);
+        self.refresh();
+        true
+    }
+
+    /// Drop all history (a schema migration, a wholesale reload).
+    pub fn clear(&self) {
+        self.inner.undo.borrow_mut().clear();
+        self.inner.redo.borrow_mut().clear();
+        self.inner.open.borrow_mut().clear();
+        self.refresh();
+    }
+
+    fn apply(&self, ch: &Change, invert: bool) {
+        let (Some(&store), Some(&key)) = (ch.components.first(), ch.components.get(1)) else {
+            return;
+        };
+        let ops = self.inner.ops.borrow();
+        let Some(ops) = ops.get(&store) else {
+            return;
+        };
+        let effective = if invert {
+            match ch.op {
+                Op::Set => Op::Set,
+                Op::Insert => Op::Delete,
+                Op::Delete => Op::Insert,
+                Op::Move => return,
+            }
+        } else {
+            ch.op
+        };
+        match effective {
+            Op::Set => {
+                let v = if invert { &ch.prior } else { &ch.value };
+                if let Some(v) = v {
+                    (ops.set_field)(key, ch.label, v);
+                }
+            }
+            Op::Insert => {
+                let row = if invert { &ch.prior } else { &ch.value };
+                if let Some(row) = row {
+                    (ops.insert_row)(key, row);
+                }
+            }
+            Op::Delete => {
+                (ops.remove_row)(key);
+            }
+            Op::Move => {}
+        }
+    }
+
+    fn refresh(&self) {
+        let resolver = self.inner.resolver.borrow().clone();
+        let undo = self.inner.undo.borrow();
+        self.inner.can_undo.set_if_changed(!undo.is_empty());
+        self.inner
+            .undo_label
+            .set_if_changed(undo.back().map(|u| resolver(u.label)).unwrap_or_default());
+        drop(undo);
+        let redo = self.inner.redo.borrow();
+        self.inner.can_redo.set_if_changed(!redo.is_empty());
+        self.inner
+            .redo_label
+            .set_if_changed(redo.last().map(|u| resolver(u.label)).unwrap_or_default());
+    }
+}
+
+impl Drop for UndoInner {
+    fn drop(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            remove_change_sink(sink);
+        }
+        // Balance the standing want-values this stack held (best-effort at thread teardown).
+        let _ = WANT_VALUES_STANDING.try_with(|w| w.set(w.get().saturating_sub(1)));
     }
 }

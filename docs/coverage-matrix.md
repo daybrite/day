@@ -68,6 +68,7 @@ An app branches on this rather than on the target name.
 | cap | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|
 | `ListRecycling` | – | – | – | – | E | – | – | E |
+| `UndoBridge` | N | N | – | – | – | – | – | – |
 | `ListReorder` | N | N | N | N | N | N | N | E |
 | `ListDelete` | – | N | – | – | – | N | N | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |

@@ -181,6 +181,118 @@ feature: `DayDate` and `DayTime` canonically as `INTEGER` (epoch days, seconds-o
 `Iso8601` (`TEXT`, lexicographic order is chronological order), `EpochSeconds` and
 `EpochMillis` for interop that expects Unix time.
 
+## Queries
+
+A `Query` is a predicate, a sort and a window over one model's table — ids only, and a TRACKED
+read: `ids()`/`count()`/`first()` re-run their caller exactly when the result set changes.
+Predicates build from the same names that bind controls: the derive emits `Trip::name()` (a
+typed column ref) beside the accessor `trip.name()`, so a typo is a compile error and every
+argument encodes through the field's own codec.
+
+```rust
+let trips = container.query::<Trip>()
+    .filter(Trip::done().eq(false) & Trip::start_day().between(from, to))
+    .sort(Trip::start_day().asc())
+    .limit(200)
+    .live();
+
+// The reactive form: the fetch re-derives when its signals change.
+let results = container.query_fn::<Trip>(move || {
+    let t = term.get();
+    Fetch::new().filter(Trip::name().contains_ci(t)).sort(Trip::name().asc())
+});
+```
+
+The result set is maintained INCREMENTALLY against the change log (`LiveSet`, the
+fetched-results-controller algorithm with one better tier): a change to a column the query
+never mentions costs nothing at all — no predicate evaluation, no waking; a predicate or sort
+column evaluates exactly the changed row and emits an `Insert`/`Remove`/`Move` delta; only a
+windowed (`limit`) boundary crossing re-derives the set. The 600-edit agreement test in
+`tests/liveset.rs` pins the property that makes skipping the database safe: the incremental
+path lands, id for id, where a fresh fetch would.
+
+`list(query, row)` (facade feature `persistence`) makes a query a row source: rows bind through
+`ModelSlot` exactly as a store source's do, and set changes reach the native list as
+`ListPatch::Splice` row deltas it can animate — an NSTableView slides the row out instead of
+reloading. Hosts that cannot animate treat a splice as a reload.
+
+Three tiers of SQL access, each stating its price: the typed builder (incremental, the
+default); `query_raw::<M>(sql, params, &["tables"])` — a read-only SELECT of ids, re-run whole
+whenever a flush touches a named table; and `with_connection(|conn| …)` — the driver's
+connection for maintenance and imports, whose writes bypass the change log entirely. Call
+`rescan()` afterward: it reloads every store from the file (without re-marking them dirty) and
+re-runs every query.
+
+## Full-text and spatial
+
+Both of SQLite's own answers ship in the derive:
+
+```rust
+#[derive(Model, Clone, Default, PartialEq)]
+#[model(table = "posts", fts("title", "body"), spatial(lat = "lat", lon = "lon"))]
+struct Post { /* … */ }
+
+query.filter(Post::fts().matches("kyoto OR osaka")).sort(rank())   // bm25, best first
+query.filter(Post::geo().within(GeoRect { min_lat, max_lat, min_lon, max_lon }))
+```
+
+The schema derive generates the standard patterns rather than asking you to hand-write them: an
+external-content FTS5 table (`posts_fts`, `content=posts`) and an R*Tree table (`posts_geo`),
+each kept true by three `AFTER INSERT/UPDATE/DELETE` triggers — inside the same transaction as
+every write, and correct even for rows another tool writes into the file. (This is also why the
+fold's upsert is a true `ON CONFLICT DO UPDATE` and not `INSERT OR REPLACE`: the latter's
+implicit delete skips the delete triggers unless `recursive_triggers` is on, and the index
+would rot.) A freshly created shadow backfills from existing rows.
+
+The two predicates sit at different tiers, honestly. `within` is range comparisons over two
+REAL columns, so it evaluates in memory — a moved pin is one evaluation and one `Move` delta.
+`matches` cannot be evaluated without reimplementing the tokenizer, so it declares the INDEXED
+columns as its dependency set: a change to one of them re-queries (deferred until after the
+flush, when the triggers have run), and a change to any column outside the set still costs
+nothing. A driver whose engine lacks FTS5 or R*Tree fails `open` with the module named — an
+error at open, never a silent downgrade at query time.
+
+## Undo
+
+```rust
+let stack = container.undo(100);   // one history over every store, 100 units deep
+day::install_undo(&stack);         // native fronts where the platform has them
+```
+
+The unit of undo is a TURN — everything one event's dispatch changed — inverted from the same
+change log the SQL fold reads: a `Set` inverts by writing the prior back, a `Delete` carries
+the row it removed and inverts to an insert, an `Insert` inverts to a delete. An undo replays
+those inverses (in reverse, in one batch) tagged with the author `undo`, and everything
+downstream just works: field triggers wake exactly what changed back, live queries animate the
+row's return, autosave writes the inverse statements — undoing a delete is ONE `INSERT`, never
+a snapshot. `grouped(label, f)` makes a multi-write gesture one unit; `set_label_resolver`
+turns unit labels into display text; `can_undo`/`undo_label` are signals a button or menu
+wires to directly. The stack lives in day-model, so a plain in-memory store undoes identically
+— persistence is optional to undo, not the other way around.
+
+Where the platform has its own undo system, `day::install_undo` mirrors the stack into a native
+FRONT (`Cap::UndoBridge`): on macOS the window answers `undoManager` with a Day-owned
+`NSUndoManager` subclass, so the stock Edit menu retitles and enables itself and ⌘Z lands
+through the responder chain — and a focused text field's own manager keeps precedence, which is
+the typing rule. iOS gets the same front through the root view controller, so the three-finger
+gestures, shake-to-undo and the iPad menu bar all reach the one stack. Everywhere else the
+app's own affordances call `stack.undo()` directly.
+
+## Sessions: preview, then commit
+
+A slider mid-drag must move the model LIVE (labels and swatches render from it) while the
+durable fact is the settled value. The `Binding` trait carries the split — `write_preview`
+(from `Event::ValueChanged`) and `write_commit` (from `Event::ValueCommitted`) — and a
+day-model field implements it as a session: previews land in the store and wake this field's
+readers, but no change record exists until the commit, which announces ONE record whose prior
+is the pre-drag value. Sixty thumb positions cost sixty UI wakes (their job), one undo unit,
+and one `UPDATE`. Text fields ride the same machinery: each keystroke previews, Return or
+focus loss commits — the typing coalescer. `field.session()` gives the explicit form
+(`preview`/`commit`/`cancel` — Escape restores, zero records); a plain `Signal` binding
+defaults both methods to `write`, so nothing changes where no session semantics exist. One
+edge to know: a session left open (focus never leaves a field before the process dies) has not
+committed, and its typing is not yet in the change log or the file.
+
 ## Encryption
 
 With the `sqlite-cipher` engine, `.key(Secret::new(…))` opens an encrypted database; a wrong or

@@ -1360,6 +1360,18 @@ pub trait Binding<T: 'static>: Clone + 'static {
     fn peek(&self) -> T;
     /// Write the value, waking whatever tracks it.
     fn write(&self, v: T);
+    /// A LIVE write mid-gesture (`Event::ValueChanged`): readers must follow, but nothing
+    /// durable should key off it. Defaults to [`Binding::write`] — a plain signal has no
+    /// notion of "durable", and a degraded backend that never commits stays correct.
+    fn write_preview(&self, v: T) {
+        self.write(v);
+    }
+    /// The settled value that ends a gesture (`Event::ValueCommitted`). Defaults to
+    /// [`Binding::write`]; a day-model field seals its preview session here — one change
+    /// record, one undo unit, one UPDATE for the whole drag.
+    fn write_commit(&self, v: T) {
+        self.write(v);
+    }
 }
 
 impl<T: Clone + 'static> Binding<T> for Signal<T> {

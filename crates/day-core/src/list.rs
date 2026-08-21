@@ -102,6 +102,12 @@ pub fn list_reload(node: RNode) {
 
 /// Imperatively scroll the native list so its last row is fully visible (chat "stick to bottom").
 /// A no-op while the list is empty. Call with no borrow held.
+/// Row-level deltas to the native host — the animatable alternative to [`list_reload`], for
+/// sources that know exactly how their set changed (a live query's maintainer does).
+pub fn list_splice(node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
+    with_tree(|t| t.list_splice(node, deltas));
+}
+
 pub fn list_scroll_to_end(node: RNode) {
     with_tree(|t| t.list_scroll_to_end(node));
 }

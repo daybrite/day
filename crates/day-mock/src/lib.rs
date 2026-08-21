@@ -804,6 +804,7 @@ impl Toolkit for MockToolkit {
             } else if let Some(p) = patch.downcast_ref::<ListPatch>() {
                 match p {
                     ListPatch::Reload => "list reload".into(),
+                    ListPatch::Splice(deltas) => format!("list splice {deltas:?}"),
                     ListPatch::RowSizeInvalidated(i) => format!("list row-size-invalidated {i}"),
                     ListPatch::ScrollToEnd => {
                         // Record that the host was asked to follow its last row (probe-visible).

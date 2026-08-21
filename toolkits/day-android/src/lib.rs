@@ -2656,7 +2656,7 @@ mod imp {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) => {
+                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
                         // notifyDataSetChanged: getCount reads the snapshot, getView is deferred to
                         // the next layout — safe inside a with_tree borrow.
                         call_void(

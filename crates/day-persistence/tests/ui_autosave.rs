@@ -90,3 +90,74 @@ fn keystrokes_into_a_container_store_keep_patching_the_row_label() {
         "final text reached the cell: {last}"
     );
 }
+
+/// `list(query, row)`: a predicate flip arrives at the native host as an animatable row
+/// delta, not a reload — and a column the query never mentions produces neither.
+#[cfg(feature = "pieces")]
+#[test]
+fn a_query_backed_list_splices_instead_of_reloading() {
+    use day_persistence::Sort;
+
+    let container =
+        ModelContainer::open(Sqlite::memory(), schema![Task]).expect("open memory container");
+    let store: Store<Keyed<Task>> = container.store::<Task>();
+    store.update("seed", |k| {
+        *k = Keyed::new(
+            (1..=5u32)
+                .map(|n| Task {
+                    id: n,
+                    name: format!("Task {n}"),
+                })
+                .collect(),
+        );
+    });
+    let query = container
+        .query::<Task>()
+        .filter(Task::name().contains("Task"))
+        .sort(Sort::asc("id"))
+        .live();
+
+    let probe = boot(move || {
+        list(query, |slot: ModelSlot<Task>| {
+            label(move || slot.name().read())
+        })
+        .row_height(RowHeight::Uniform(40.0))
+        .any()
+    });
+    flush_sync();
+    let reloads = count(&probe, "list reload");
+    let splices = count(&probe, "list splice");
+
+    // Rename row 3 so it leaves the set: one splice (Remove), zero reloads.
+    store.elem(3).name().write("renamed away".into());
+    flush_sync();
+    assert_eq!(
+        count(&probe, "list splice") - splices,
+        1,
+        "one splice patch"
+    );
+    assert_eq!(count(&probe, "list reload") - reloads, 0, "no reload");
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("list splice [Remove(2)]")),
+        "the delta names the row: {:?}",
+        probe
+            .log()
+            .iter()
+            .filter(|l| l.contains("splice"))
+            .collect::<Vec<_>>()
+    );
+
+    // A value edit that stays in the set and in place: no splice, no reload.
+    let (r, s) = (count(&probe, "list reload"), count(&probe, "list splice"));
+    store.elem(1).name().write("Task 1 edited".into());
+    flush_sync();
+    assert_eq!(count(&probe, "list reload") - r, 0);
+    assert_eq!(
+        count(&probe, "list splice") - s,
+        0,
+        "the row repaints itself; the set is untouched"
+    );
+}

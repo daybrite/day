@@ -1849,7 +1849,9 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) => schedule_list_populate(h.0 as usize),
+                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
+                        schedule_list_populate(h.0 as usize)
+                    }
                     Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
                     Some(ListPatch::ScrollToRow(row)) => {
                         schedule_list_scroll_row(h.0 as usize, *row)

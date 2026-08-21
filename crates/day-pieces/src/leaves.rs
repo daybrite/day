@@ -721,17 +721,24 @@ impl<S: Binding<f64>> Piece for Slider<S> {
         let v = self.value;
         let (step, min, max) = (self.step, self.min, self.max);
         cx.on(node, move |ev| {
-            if let Event::ValueChanged(val) = ev {
-                // Honor `.step(_)` at the framework layer so EVERY backend produces stepped values —
-                // several native sliders (e.g. iOS `UISlider`) have no native step and emit a
-                // continuous stream while dragging. Snapping here keeps the bound signal (and the
-                // thumb, via `bind_seeded` above) on the step grid, and stops a `.step`-bound consumer
-                // from being hammered ~60×/s with sub-step deltas during a drag.
-                let snapped = match step {
-                    Some(s) if s > 0.0 => (min + ((val - min) / s).round() * s).clamp(min, max),
-                    _ => *val,
-                };
-                v.write(snapped);
+            // Honor `.step(_)` at the framework layer so EVERY backend produces stepped values —
+            // several native sliders (e.g. iOS `UISlider`) have no native step and emit a
+            // continuous stream while dragging. Snapping here keeps the bound signal (and the
+            // thumb, via `bind_seeded` above) on the step grid, and stops a `.step`-bound consumer
+            // from being hammered ~60×/s with sub-step deltas during a drag.
+            let snap = |val: f64| match step {
+                Some(s) if s > 0.0 => (min + ((val - min) / s).round() * s).clamp(min, max),
+                _ => val,
+            };
+            match ev {
+                // The live half of the pair: readers follow the thumb; nothing durable keys
+                // off it (a day-model field opens a preview session here).
+                Event::ValueChanged(val) => v.write_preview(snap(*val)),
+                // The settled value: ONE record for the whole drag. A backend that cannot
+                // tell the two apart never sends this, and the preview default (a plain
+                // write) keeps it correct — chattier, never wrong.
+                Event::ValueCommitted(val) => v.write_commit(snap(*val)),
+                _ => {}
             }
         });
         node
@@ -810,14 +817,37 @@ impl<S: Binding<String>> Piece for TextField<S> {
         );
         let v = self.value;
         let submit = self.on_submit;
+        // Typing is a session: each keystroke is a PREVIEW (readers follow, nothing durable
+        // fires), sealed into one committed change on Return or focus loss — the typing
+        // coalescer. For a plain Signal binding preview defaults to write, so nothing changes
+        // where no session semantics exist. TEARDOWN seals too: navigating away from a page
+        // mid-type must not leave the last burst outside the change log.
+        let last: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        {
+            let (v, last) = (v.clone(), last.clone());
+            day_reactive::Scope::current().on_cleanup(move || {
+                if let Some(t) = last.borrow_mut().take() {
+                    v.write_commit(t);
+                }
+            });
+        }
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
                 *guard.borrow_mut() = Some(t.clone());
-                v.write(t.clone());
+                *last.borrow_mut() = Some(t.clone());
+                v.write_preview(t.clone());
             }
             Event::Submitted => {
+                if let Some(t) = last.borrow_mut().take() {
+                    v.write_commit(t);
+                }
                 if let Some(f) = &submit {
                     f();
+                }
+            }
+            Event::FocusChanged(false) => {
+                if let Some(t) = last.borrow_mut().take() {
+                    v.write_commit(t);
                 }
             }
             _ => {}

@@ -76,6 +76,27 @@ pub mod persistence {
     pub use day_persistence::*;
 }
 
+/// Wire an [`model::UndoStack`] to the platform: native fronts (the stock Edit menu, ⌘Z,
+/// iOS's three-finger gestures) where the toolkit has them, and the stack's own signals for
+/// the app's buttons everywhere (docs/model.md). One call, after the stack exists.
+#[cfg(feature = "model")]
+pub fn install_undo(stack: &day_model::UndoStack) {
+    let s = stack.clone();
+    day_core::install_undo_bridge(
+        stack.can_undo(),
+        stack.can_redo(),
+        stack.undo_label(),
+        stack.redo_label(),
+        move |redo| {
+            if redo {
+                s.redo();
+            } else {
+                s.undo();
+            }
+        },
+    );
+}
+
 #[cfg(feature = "prefs")]
 pub mod prefs {
     pub use day_part_prefs::*;

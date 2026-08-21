@@ -180,7 +180,9 @@ fn an_insert_absorbs_the_edits_that_fill_it() {
 
     assert_eq!(
         sql,
-        ["INSERT OR REPLACE INTO notes (id, title, body, pinned) VALUES (?, ?, ?, ?)"]
+        [
+            "INSERT INTO notes (id, title, body, pinned) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body, pinned = excluded.pinned"
+        ]
     );
 }
 
@@ -281,9 +283,7 @@ fn a_wholesale_rewrite_resyncs_the_table() {
     // fixture still answers the key scan with it).
     assert_eq!(sql.len(), 4, "{sql:?}");
     assert_eq!(
-        sql.iter()
-            .filter(|s| s.starts_with("INSERT OR REPLACE"))
-            .count(),
+        sql.iter().filter(|s| s.starts_with("INSERT INTO")).count(),
         2
     );
     assert!(sql.iter().any(|s| s.starts_with("SELECT id FROM notes")));
@@ -436,7 +436,9 @@ fn a_transient_labeled_change_writes_nothing() {
         .expect("save");
     assert_eq!(
         sql,
-        ["INSERT OR REPLACE INTO notes (id, title, body, pinned) VALUES (?, ?, ?, ?)"],
+        [
+            "INSERT INTO notes (id, title, body, pinned) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, body = excluded.body, pinned = excluded.pinned"
+        ],
         "a change that names no column resolves to a whole-row upsert, never silence"
     );
 }

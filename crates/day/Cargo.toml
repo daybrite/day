@@ -31,7 +31,7 @@ model = ["dep:day-model", "day-pieces/model"]
 # SQLite persistence for the model (docs/persistence.md): `ModelContainer`, `#[derive(Model)]`,
 # the bundled engine. `sqlite-system` links the OS libsqlite3 instead; `sqlite-cipher` builds
 # SQLCipher. Engine features are additive on top of `persistence`.
-persistence = ["model", "dep:day-persistence"]
+persistence = ["model", "dep:day-persistence", "day-persistence/pieces"]
 sqlite-system = ["persistence", "day-persistence/system"]
 sqlite-cipher = ["persistence", "day-persistence/cipher"]
 

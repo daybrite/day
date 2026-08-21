@@ -2490,7 +2490,7 @@ fn list_paint_selection(entry: &ListEntry) {
 
 fn list_patch(el: u32, p: &ListPatch) {
     match p {
-        ListPatch::Reload => post_local(move || list_populate(el)),
+        ListPatch::Reload | ListPatch::Splice(_) => post_local(move || list_populate(el)),
         ListPatch::RowSizeInvalidated(_) => {}
         ListPatch::ScrollToEnd => unsafe { day_dom_scroll_edge(el, 1, 1) },
         ListPatch::ScrollToRow(row) => {
