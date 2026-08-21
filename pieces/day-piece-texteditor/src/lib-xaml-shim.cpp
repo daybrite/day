@@ -82,6 +82,15 @@ std::string narrow(winrt::hstring const &h) {
     return out;
 }
 
+/// day's sizes cross as XAML DIPs (1/96 in) — `FontSize` takes them verbatim everywhere else in
+/// this backend, which is what fixes one number to one rendered size across a window. RichEdit's
+/// TOM is typographic POINTS (1/72 in), so handing it the same number drew this editor's text a
+/// third larger than every label beside it. Convert on the way in; ranges and the typing style go
+/// through here too, so a run's own size lands on the same scale as the base.
+float tom_points(double dip) {
+    return static_cast<float>(dip * 72.0 / 96.0);
+}
+
 WU::Color unpack(uint32_t argb) {
     return WU::ColorHelper::FromArgb(static_cast<uint8_t>((argb >> 24) & 0xFF),
                                      static_cast<uint8_t>((argb >> 16) & 0xFF),
@@ -220,7 +229,7 @@ void day_texteditor_xaml_begin_attrs(void *handle) {
     doc.BatchDisplayUpdates();
     auto all = doc.GetRange(0, INT32_MAX);
     auto fmt = all.CharacterFormat();
-    fmt.Size(static_cast<float>(st->base));
+    fmt.Size(tom_points(st->base));
     fmt.Bold(WUT::FormatEffect::Off);
     fmt.Italic(WUT::FormatEffect::Off);
     fmt.Underline(WUT::UnderlineType::None);
@@ -244,7 +253,7 @@ void day_texteditor_xaml_apply_run(void *handle, int start, int end, double pt, 
     if (!box) return;
     auto range = box.Document().GetRange(start, end);
     auto fmt = range.CharacterFormat();
-    fmt.Size(static_cast<float>(pt));
+    fmt.Size(tom_points(pt));
     fmt.Bold(bold ? WUT::FormatEffect::On : WUT::FormatEffect::Off);
     fmt.Italic(italic ? WUT::FormatEffect::On : WUT::FormatEffect::Off);
     fmt.Strikethrough(strike ? WUT::FormatEffect::On : WUT::FormatEffect::Off);
@@ -312,7 +321,7 @@ void day_texteditor_xaml_set_typing(void *handle, double pt, int bold, int itali
     if (!box) return;
     auto sel = box.Document().Selection();
     auto fmt = sel.CharacterFormat();
-    fmt.Size(static_cast<float>(pt));
+    fmt.Size(tom_points(pt));
     fmt.Bold(bold ? WUT::FormatEffect::On : WUT::FormatEffect::Off);
     fmt.Italic(italic ? WUT::FormatEffect::On : WUT::FormatEffect::Off);
     fmt.Strikethrough(strike ? WUT::FormatEffect::On : WUT::FormatEffect::Off);
