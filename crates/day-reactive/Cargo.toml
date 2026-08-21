@@ -9,4 +9,5 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+log = { workspace = true }
 slotmap = { workspace = true }

@@ -66,7 +66,7 @@ fn build_bundles(locales: &[(&str, &str)]) -> HashMap<String, FluentBundle<Fluen
                 let _ = bundle.add_resource(res);
             }
             Err((res, errs)) => {
-                eprintln!("day-l10n: {name}: {} syntax error(s)", errs.len());
+                log::warn!("day-l10n: {name}: {} syntax error(s)", errs.len());
                 let _ = bundle.add_resource(res);
             }
         }

@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+log = { workspace = true }
 day-geometry = { workspace = true }
 day-fonts = { workspace = true }
 # The default resource opener mmaps the backing file for zero-copy random access (the "plain file

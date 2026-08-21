@@ -1022,7 +1022,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             roots.first().copied()
         };
         let Some(t) = target else {
-            eprintln!("day: context_menu on a subtree with no native view — menu dropped");
+            log::warn!("context_menu on a subtree with no native view — menu dropped");
             return;
         };
         if let Some(h) = self.nodes.get(t).and_then(|n| n.handle.clone()) {
@@ -1214,8 +1214,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             && let Some(n) = self.nodes.get_mut(node)
         {
             if n.tweaked {
-                eprintln!(
-                    "day: `.selectable()` rebuilt this widget as a different native class, \
+                log::warn!(
+                    "`.selectable()` rebuilt this widget as a different native class, \
                      discarding an earlier tweak's changes — apply `.selectable()` BEFORE the \
                      tweak so it runs against the widget that ships (docs/tweaks.md)."
                 );

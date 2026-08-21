@@ -30,7 +30,7 @@ fn make(_backend: &mut Android, p: &ActivityProps, _id: NodeId) -> AHandle {
             &[JValue::Bool(p.animating), JValue::Bool(p.large)],
         );
         AHandle(made.unwrap_or_else(|_| {
-            eprintln!("day-piece-activity: DayActivity.makeActivity failed; substituting a placeholder");
+            log::warn!("day-piece-activity: DayActivity.makeActivity failed; substituting a placeholder");
             day_android::placeholder_view(env, "activity")
         }))
     })

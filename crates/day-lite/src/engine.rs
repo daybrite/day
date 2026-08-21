@@ -184,7 +184,7 @@ impl Loader for PkgLoader {
         let source = String::from_utf8_lossy(&bytes).into_owned();
         let js = if name.ends_with(".ts") {
             crate::ts::strip(name, &source).map_err(|e| {
-                eprintln!("day-lite: {e}");
+                log::warn!("day-lite: {e}");
                 rquickjs::Error::new_loading(name)
             })?
         } else {
@@ -785,7 +785,7 @@ fn install_api(ctx: &Ctx<'_>, bridges: &[Bridge]) -> rquickjs::Result<()> {
     g.set(
         "__day_log",
         Function::new(ctx.clone(), |level: String, msg: String| {
-            eprintln!("day-lite[{level}]: {msg}");
+            log::warn!("day-lite[{level}]: {msg}");
             let _ = with_services(|s| s.log.borrow_mut().push(format!("[{level}] {msg}")));
         })?,
     )?;

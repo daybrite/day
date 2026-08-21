@@ -42,7 +42,7 @@ mod date_renderer {
                 ],
             );
             AHandle(made.unwrap_or_else(|_| {
-                eprintln!(
+                log::warn!(
                     "day-piece-datetime: DayDateTime.makeDatePicker failed; substituting a placeholder"
                 );
                 day_android::placeholder_view(env, "date_picker")
@@ -87,7 +87,7 @@ mod time_renderer {
                 ],
             );
             AHandle(made.unwrap_or_else(|_| {
-                eprintln!(
+                log::warn!(
                     "day-piece-datetime: DayDateTime.makeTimePicker failed; substituting a placeholder"
                 );
                 day_android::placeholder_view(env, "time_picker")

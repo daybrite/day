@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+log = { workspace = true }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-model = { workspace = true, optional = true }

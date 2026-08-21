@@ -9,6 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+log = { workspace = true }
 day-reactive = { workspace = true }
 fluent-bundle = "0.16"
 unic-langid = "0.9"

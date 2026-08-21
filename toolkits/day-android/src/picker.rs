@@ -49,7 +49,7 @@ fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
             .ok()
         });
         AHandle(made.unwrap_or_else(|| {
-            eprintln!("day-android: DayPicker.makePicker failed; substituting a placeholder");
+            log::warn!("day-android: DayPicker.makePicker failed; substituting a placeholder");
             crate::placeholder_view(env, "picker")
         }))
     })

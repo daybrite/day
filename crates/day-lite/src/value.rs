@@ -155,6 +155,6 @@ pub fn report_js_error(ctx: &Ctx<'_>, what: &str, e: rquickjs::Error) {
     } else {
         e.to_string()
     };
-    eprintln!("day-lite: {what}: {detail}");
+    log::warn!("day-lite: {what}: {detail}");
     with_services(|s| s.report_error(&detail));
 }

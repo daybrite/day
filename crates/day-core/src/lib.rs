@@ -233,8 +233,101 @@ mod title_tag_tests {
 /// exit into a spurious crash. Framework logging on those paths must never panic, so it goes
 /// through here rather than the `*println!` macros.
 pub(crate) fn diag(args: std::fmt::Arguments<'_>) {
+    write_line(&args.to_string());
+}
+
+// ---- logging (docs/logging.md) ---------------------------------------------------------------
+
+/// Where a formatted line goes. Unset means the process's own stderr, which is right on every
+/// native target: a terminal on the desktop, Xcode's console on Apple, and logcat on Android
+/// (day-android `dup2`s fd 2 into it). `wasm32-unknown-unknown` is the one target where that is
+/// wrong rather than merely different — std's stdio there accepts the bytes and DROPS them, so
+/// every line vanishes — and day-dom installs a sink reaching the browser console instead.
+static LOG_SINK: std::sync::OnceLock<fn(log::Level, &str)> = std::sync::OnceLock::new();
+
+/// Install the line sink. First registration wins (one host per process). Called before launch —
+/// `day::web::start` does it for the browser.
+pub fn set_log_sink(f: fn(log::Level, &str)) {
+    let _ = LOG_SINK.set(f);
+}
+
+/// Write one already-formatted line, never panicking. See [`diag`] for why that matters: the
+/// `*println!` macros panic on a failed write, a closed stderr pipe is routine when `day launch`
+/// tears the app down, and a panic raised inside a native trampoline aborts the process.
+fn write_line(line: &str) {
     use std::io::Write as _;
-    let _ = writeln!(std::io::stderr(), "{args}");
+    let _ = writeln!(std::io::stderr(), "{line}");
+}
+
+/// Day's default [`log::Log`].
+///
+/// Not `env_logger` or another off-the-shelf backend, for the reason above: they print through
+/// `*println!`, and a panic on that path is an abort rather than a lost line. An app that wants
+/// one installs it itself — see [`init_logging`].
+struct DayLogger;
+
+impl log::Log for DayLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        // The level filter is `log::set_max_level`'s job, checked by the macros before they even
+        // format; answering `true` here keeps `log_enabled!` honest for anything that asks.
+        metadata.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        // `WARN day_gtk: could not register bundled font …` — the level first so a scan down the
+        // column finds problems, then the emitting crate, which is what says *which* backend or
+        // piece is unhappy. The old hand-written `day: ` prefixes said only that it was us.
+        let sink = LOG_SINK.get();
+        let line = format!(
+            "{:<5} {}: {}",
+            record.level(),
+            record.target(),
+            record.args()
+        );
+        match sink {
+            Some(f) => f(record.level(), &line),
+            None => write_line(&line),
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// Install Day's default logger and level, unless the app already installed its own.
+///
+/// Called from [`launch_with`], so logging works with no ceremony at all: an app writes
+/// `log::info!(…)` (or `day::info!`, the same macro re-exported through the prelude) and the line
+/// comes out on every platform. `set_logger` answers `Err` when a logger is already registered —
+/// that is the whole customization story, and why the error is deliberately ignored: an app that
+/// called `env_logger::init()` (or installed `tracing`, or its own `log::Log`) before
+/// `day::launch` keeps it, and Day does not fight for the slot.
+///
+/// The default level is `Debug` in a debug build and `Info` in a release one; `DAY_LOG` overrides
+/// it with a level name (`off`/`error`/`warn`/`info`/`debug`/`trace`). Reading an environment
+/// variable is a native-only affordance — on the web there is no process environment, so the
+/// launch path sets the level explicitly from the page's query string instead.
+pub fn init_logging() {
+    let level = std::env::var("DAY_LOG")
+        .ok()
+        .and_then(|v| v.parse::<log::LevelFilter>().ok())
+        .unwrap_or(if cfg!(debug_assertions) {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Info
+        });
+    set_log_level(level);
+    // Err = the app got there first, which is exactly the intended escape hatch.
+    let _ = log::set_logger(&DayLogger);
+}
+
+/// Set the maximum level that will be emitted. Separate from [`init_logging`] because the web
+/// launch path has to supply the level from the page URL rather than the environment, and because
+/// an app may want to raise or lower it at runtime.
+pub fn set_log_level(level: log::LevelFilter) {
+    log::set_max_level(level);
 }
 
 /// Run a posted main-thread task, CONTAINING any panic (the `pump_events` twin for the poster /
@@ -444,6 +537,10 @@ pub fn launch_with<P: Platform>(
     mut options: WindowOptions,
     root_piece: impl FnOnce() -> AnyPiece + 'static,
 ) {
+    // Before anything else that might want to report: from here on `log::warn!` and friends come
+    // out, on every backend, with no app-side setup. An app that installed its own logger first
+    // keeps it (docs/logging.md).
+    init_logging();
     // Record the backend identity for runtime introspection (crash reports, diagnostics).
     let _ = BACKEND_NAME.set(P::TARGET);
     let _ = TOOLKIT_KEY.set(P::TOOLKIT);
@@ -597,7 +694,7 @@ pub fn launch_with<P: Platform>(
                 if let Some(route) = nav::launch_deeplink()
                     && !nav::navigate(&route)
                 {
-                    eprintln!("day: launch deep link {route:?} did not match a route");
+                    log::warn!("launch deep link {route:?} did not match a route");
                 }
                 // Consume the `request_route` buffer the line above may have read: a tap that
                 // cold-started the process has now been applied, and leaving it set would
@@ -642,13 +739,13 @@ fn autodrive(spec: &str) {
                 Ok(bytes) => {
                     let _ = std::fs::write(&path, bytes);
                 }
-                Err(e) => eprintln!("day autodrive: snapshot failed: {e}"),
+                Err(e) => log::warn!("day autodrive: snapshot failed: {e}"),
             }
             continue;
         }
         let node = with_tree(|t| t.find_by_id(parts[0]));
         let Some(node) = node else {
-            eprintln!("day autodrive: id {:?} not found", parts[0]);
+            log::warn!("day autodrive: id {:?} not found", parts[0]);
             continue;
         };
         // Gesture drivers (docs/shapes.md): tap fires at the node's local center; drag runs a

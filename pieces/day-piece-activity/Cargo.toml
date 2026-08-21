@@ -37,6 +37,7 @@ mock = []
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
 
 [dependencies]
+log = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }

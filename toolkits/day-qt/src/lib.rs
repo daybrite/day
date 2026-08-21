@@ -2480,7 +2480,7 @@ impl Platform for Qt {
             // QApplication above) before the first label realizes.
             for path in day_spec::fonts::bundled_fonts() {
                 if ffi::day_qt_register_font(cstr(&path.to_string_lossy()).as_ptr()) < 0 {
-                    eprintln!("day: could not register bundled font {}", path.display());
+                    log::warn!("could not register bundled font {}", path.display());
                 }
             }
             // App icon (§18.2): Dock on macOS, taskbar on Linux/Windows (set by `day launch`).

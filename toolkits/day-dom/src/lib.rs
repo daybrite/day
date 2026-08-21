@@ -142,6 +142,10 @@ unsafe extern "C" {
     /// `prefers-color-scheme`. Returns the effective mode (0/1) after applying.
     fn day_dom_set_dark(mode: u32) -> u32;
     fn day_dom_warn(ptr: *const u8, len: usize);
+    /// One log line to the browser console (docs/logging.md), at `log`'s level ordering —
+    /// 1 Error … 5 Trace — so it lands on the matching `console.*` method and the devtools level
+    /// filter applies to Day's output too.
+    fn day_dom_log(level: u32, ptr: *const u8, len: usize);
     /// The page's wall clock (`Date.now()`), in milliseconds since the Unix epoch. This is the
     /// only wall clock on `wasm32-unknown-unknown` — `std::time::SystemTime::now()` aborts there.
     fn day_dom_now_ms() -> f64;
@@ -3270,4 +3274,23 @@ pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         warn(&format!("day panic: {info}"));
     }));
+}
+
+/// The browser-console sink for Day's logger (docs/logging.md).
+///
+/// Hand-rolled rather than `console_log` or `wasm-logger`: both require `web-sys` (and
+/// wasm-logger `wasm-bindgen`), which this backend deliberately does without — the whole shim is
+/// numeric ids across `extern "C"`, with no bundler and no npm. Routing an already-formatted line
+/// to `console.*` is one call, so the dependency would buy nothing and cost the toolchain.
+///
+/// Pass this to `day_core::set_log_sink`; the facade does it in `day::web::start`.
+pub fn console_sink(level: log::Level, line: &str) {
+    unsafe { day_dom_log(level as u32, line.as_ptr(), line.len()) };
+}
+
+/// The level named by `?DAY_LOG=` in the page URL, if any. The web has no process environment for
+/// `DAY_LOG` to live in, so the launch server forwards it as a query parameter (docs/web.md) —
+/// `day launch -p web-dom --env DAY_LOG=debug` reaches this.
+pub fn launch_log_level() -> Option<log::LevelFilter> {
+    host_env("DAY_LOG").and_then(|v| v.parse().ok())
 }

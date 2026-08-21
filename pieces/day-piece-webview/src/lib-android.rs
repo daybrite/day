@@ -54,7 +54,7 @@ fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {
             .ok()
         });
         AHandle(made.unwrap_or_else(|| {
-            eprintln!("day-piece-webview: DayWebView.makeWebView failed; substituting a placeholder");
+            log::warn!("day-piece-webview: DayWebView.makeWebView failed; substituting a placeholder");
             day_android::placeholder_view(env, "web_view")
         }))
     })

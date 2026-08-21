@@ -290,7 +290,7 @@ pub(crate) fn take_requested_route() -> Option<String> {
 /// route and are dropped.
 pub(crate) fn apply_route_request(route: &str) {
     if current_route().as_deref() != Some(route) && !navigate(route) {
-        eprintln!("day: requested route {route:?} did not match");
+        log::warn!("requested route {route:?} did not match");
     }
 }
 

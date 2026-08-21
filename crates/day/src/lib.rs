@@ -166,6 +166,23 @@ pub mod prefs {
 pub use day_core::{lifecycle_supported, on_lifecycle};
 pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
 
+/// The `log` crate itself, for an app that needs more than the macros (a `LevelFilter`, a custom
+/// `log::Log`). Re-exported by NAME so `use day::prelude::*` is enough — the same rule the model
+/// and persistence re-exports follow.
+pub use ::log;
+/// Raise or lower the level Day's default logger emits, at runtime. `DAY_LOG` sets it at startup
+/// on native targets; the web launch path reads `?DAY_LOG=` from the page URL.
+pub use day_core::set_log_level;
+/// Logging (docs/logging.md). `day::info!("…")` and friends are the `log` crate's macros,
+/// re-exported so an app needs no `log` dependency of its own for the common case — and, because
+/// they ARE `log`'s, anything that speaks `log` (`env_logger`, `tracing-log`, a hand-written
+/// `log::Log`) works without adapters.
+///
+/// Day installs a default logger at launch, so these come out with no setup on every platform:
+/// stderr natively, the browser console on web-dom. An app that wants something else calls
+/// `log::set_logger` (or `env_logger::init()`) BEFORE `day::launch` and keeps it.
+pub use log::{debug, error, info, log_enabled, trace, warn};
+
 /// A PNG of this window, as the app itself sees it (docs/window-image.md).
 ///
 /// The same capture the dayscript `screenshot` step takes, offered to the app: the window's
@@ -357,6 +374,10 @@ pub mod prelude {
     #[cfg(feature = "persistence")]
     pub use day_macros::Model;
     pub use day_spec::Point;
+    // Logging (docs/logging.md): `info!`/`warn!`/`error!`/`debug!`/`trace!` with no setup and no
+    // `log` dependency in the app's own Cargo.toml. These are `log`'s macros, so an app that later
+    // installs `env_logger` or `tracing` keeps every call site it already wrote.
+    pub use super::{debug, error, info, log, log_enabled, set_log_level, trace, warn};
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
     pub use day_core::{
@@ -915,6 +936,18 @@ pub mod web {
     /// into the host page's day root.
     pub fn start(title: &str, root: impl FnOnce() -> crate::AnyPiece + 'static) {
         day_dom::install_panic_hook();
+        // Point the logger at the browser console BEFORE anything can log (docs/logging.md).
+        // Installed here rather than inside day-dom because a backend depends only on day-spec —
+        // the facade is where the toolkit and the core are allowed to meet. Without this every
+        // line would be silently dropped: std's stdio on wasm32-unknown-unknown takes the bytes
+        // and discards them.
+        day_core::set_log_sink(day_dom::console_sink);
+        // `DAY_LOG` has no process environment to live in here; the launch server forwards it as
+        // a query parameter. `init_logging` (from `launch_with`) sets the default level, so this
+        // only has to override when the page actually asked.
+        if let Some(level) = day_dom::launch_log_level() {
+            day_core::set_log_level(level);
+        }
         if let Some(locale) = day_dom::launch_locale() {
             day_fluent::set_launch_locale(&locale);
         }

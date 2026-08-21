@@ -48,7 +48,7 @@ fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
             .ok()
         });
         AHandle(made.unwrap_or_else(|| {
-            eprintln!("day-android: DayTextArea.makeTextArea failed; substituting a placeholder");
+            log::warn!("day-android: DayTextArea.makeTextArea failed; substituting a placeholder");
             crate::placeholder_view(env, "text_area")
         }))
     })

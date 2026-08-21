@@ -197,8 +197,8 @@ pub mod placeholder {
     pub fn report(kind: PieceKind, toolkit: &str) {
         let Ok(mut seen) = table().lock() else { return };
         if seen.insert(kind) {
-            eprintln!(
-                "day: no renderer for piece kind \"{kind}\" on {toolkit} — is the piece's \
+            log::warn!(
+                "no renderer for piece kind \"{kind}\" on {toolkit} — is the piece's \
                  {toolkit} feature enabled? (rendering a placeholder)"
             );
         }
@@ -380,7 +380,7 @@ pub mod ffi_guard {
                     .map(|s| s.to_string())
                     .or_else(|| payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| "<non-string panic>".into());
-                eprintln!("day: panic contained at an FFI boundary: {msg}");
+                log::error!("panic contained at an FFI boundary: {msg}");
                 if let Some(recover) = RECOVERY.get() {
                     recover();
                 }
@@ -4323,7 +4323,7 @@ impl<B: Toolkit> Registry<B> {
                 false,
                 "duplicate renderer registered for piece kind {kind:?}"
             );
-            eprintln!("day: duplicate renderer for piece kind {kind:?} — later registration wins");
+            log::warn!("duplicate renderer for piece kind {kind:?} — later registration wins");
         }
     }
     pub fn get(&self, kind: PieceKind) -> Option<&Renderer<B>> {

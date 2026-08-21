@@ -180,7 +180,7 @@ fn make(_backend: &mut Uikit, p: &WebProps, id: NodeId) -> Retained<UIView> {
             let _: *mut AnyObject =
                 unsafe { msg_send![&web, loadFileURL: &*index, allowingReadAccessToURL: &*root] };
         } else {
-            eprintln!(
+            log::warn!(
                 "day-piece-webview: inline site {:?} not found in the staged assets",
                 p.inline_root
             );

@@ -2986,8 +2986,8 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
                     }
                 }
                 None => {
-                    eprintln!(
-                        "day: unknown font family {name:?} — falling back to the system font \
+                    log::warn!(
+                        "unknown font family {name:?} — falling back to the system font \
                          (is the file in the project's fonts/ directory?)"
                     );
                     let w = spec
@@ -3204,7 +3204,7 @@ fn register_bundled_fonts() {
             )
         };
         if !ok {
-            eprintln!("day: could not register bundled font {}", path.display());
+            log::warn!("could not register bundled font {}", path.display());
         }
     }
 }
@@ -5595,7 +5595,7 @@ impl Platform for AppKit {
                     if let Some(content) = primary_content() {
                         let desc: Retained<NSString> =
                             unsafe { msg_send![&*content, _subtreeDescription] };
-                        eprintln!("{desc}");
+                        log::warn!("{desc}");
                     }
                 }));
             });

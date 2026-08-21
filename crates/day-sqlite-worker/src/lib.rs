@@ -76,7 +76,7 @@ mod os {
                 .unwrap_or(0.0)
         }
         pub fn log_line(s: &str) {
-            eprintln!("[day-sql] {s}");
+            log::warn!("[day-sql] {s}");
         }
         pub fn entropy(buf: &mut [u8]) {
             // SQLite wants seed material, not key material. RandomState is std's OS-seeded

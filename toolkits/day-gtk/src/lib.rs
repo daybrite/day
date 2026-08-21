@@ -1941,7 +1941,7 @@ fn register_bundled_fonts() {
             };
             // NULL config = the current default configuration.
             if unsafe { FcConfigAppFontAddFile(std::ptr::null_mut(), c.as_ptr()) } == 0 {
-                eprintln!("day: could not register bundled font {}", path.display());
+                log::warn!("could not register bundled font {}", path.display());
             }
         }
     }
@@ -1997,7 +1997,7 @@ fn register_bundled_fonts() {
         for path in &fonts {
             let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
             if unsafe { AddFontResourceExW(wide.as_ptr(), 0x10, std::ptr::null_mut()) } == 0 {
-                eprintln!("day: could not register bundled font {}", path.display());
+                log::warn!("could not register bundled font {}", path.display());
             }
         }
     }
@@ -2031,8 +2031,8 @@ fn check_bundled_fonts(widget: &impl gtk4::prelude::IsA<gtk4::Widget>) {
             .iter()
             .any(|f| f.eq_ignore_ascii_case(&names.family))
         {
-            eprintln!(
-                "day: bundled font family {:?} ({}) did not register with Pango — labels using \
+            log::warn!(
+                "bundled font family {:?} ({}) did not register with Pango — labels using \
                  it will fall back to the default face",
                 names.family,
                 path.display()

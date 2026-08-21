@@ -546,14 +546,14 @@ fn serve(port: u16, token: String) {
                 // otherwise bury the run's own output.
                 if !said {
                     said = true;
-                    eprintln!("day-script: 127.0.0.1:{port} still busy ({e}) — waiting for it");
+                    log::warn!("day-script: 127.0.0.1:{port} still busy ({e}) — waiting for it");
                 }
                 std::thread::sleep(Duration::from_millis(250));
             }
             Err(e) => {
                 // Loud: an app with no engine looks exactly like a healthy one until a script
                 // drives the wrong process.
-                eprintln!(
+                log::error!(
                     "day-script: bind 127.0.0.1:{port} failed after 15s: {e} — this app has NO \
                      dayscript engine; anything driving this port is reaching a DIFFERENT process"
                 );

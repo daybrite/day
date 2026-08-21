@@ -44,7 +44,7 @@ fn make(_backend: &mut Android, p: &ComboProps, id: NodeId) -> AHandle {
             .ok()
         });
         AHandle(made.unwrap_or_else(|| {
-            eprintln!("day-piece-combobox: DayCombo.makeCombo failed; substituting a placeholder");
+            log::warn!("day-piece-combobox: DayCombo.makeCombo failed; substituting a placeholder");
             day_android::placeholder_view(env, "combo_box")
         }))
     })

@@ -172,7 +172,7 @@ fn make(backend: &mut AppKit, p: &WebProps, id: NodeId) -> Retained<NSView> {
             }
             let _ = unsafe { web.loadFileURL_allowingReadAccessToURL(&index, &root) };
         } else {
-            eprintln!(
+            log::warn!(
                 "day-piece-webview: inline site {:?} not found in the staged assets",
                 p.inline_root
             );

@@ -930,6 +930,18 @@ const env = {
     return bytes.length;
   },
   day_dom_warn: (ptr, len) => console.warn(str(ptr, len)),
+  // Logging (docs/logging.md). std's stdout/stderr on wasm32-unknown-unknown accept bytes and
+  // DROP them, so the console is the only sink a page has. `level` is log's ordering — 1 Error,
+  // 2 Warn, 3 Info, 4 Debug, 5 Trace — mapped onto the console methods a browser filters by, so
+  // the devtools level selector works on Day's output the way it does on the page's own.
+  day_dom_log: (level, ptr, len) => {
+    const msg = str(ptr, len);
+    if (level <= 1) console.error(msg);
+    else if (level === 2) console.warn(msg);
+    else if (level === 3) console.info(msg);
+    else if (level === 4) console.debug(msg);
+    else console.debug(msg);
+  },
   // Wall clock for the wasm side (SystemTime::now() aborts on wasm32-unknown-unknown).
   day_dom_now_ms: () => Date.now(),
 

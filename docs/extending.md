@@ -61,7 +61,7 @@ realize payload; a sparse `Patch` enum carries changes.
 Those modifiers return `Decorated<YourPiece>` rather than erasing, so a chain keeps your type. To
 make your OWN builder methods reachable after one, declare them in a `*Builder` trait and forward
 it through `Decorated::map_inner` — the pattern every built-in piece follows, written up in
-docs/api-style.md "Typed builders and erasure":
+[docs/api-style.md](api-style.md) "Typed builders and erasure":
 
 ```rust
 pub trait GaugeBuilder: Sized {

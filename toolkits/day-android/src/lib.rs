@@ -341,7 +341,7 @@ mod imp {
     /// always safe to ignore or handle without the call site remembering the clear.
     fn clear_pending(env: &Env, class: &str, name: &str) {
         if env.exception_check() {
-            eprintln!("day-android: JNI call {class}.{name} threw (cleared; trace in logcat):");
+            log::warn!("day-android: JNI call {class}.{name} threw (cleared; trace in logcat):");
             env.exception_describe();
             env.exception_clear();
         }
@@ -919,7 +919,7 @@ mod imp {
         match try_make_view(env, method, sig, args) {
             Ok(g) => g,
             Err(e) => {
-                eprintln!(
+                log::warn!(
                     "day-android: DayBridge.{method} failed ({e}); substituting a placeholder view"
                 );
                 placeholder_view(env, method)
@@ -1054,7 +1054,7 @@ mod imp {
             // Only fails when the JNI global-ref table is already exhausted; without a root
             // there is nothing to run, so degrade loudly rather than panic-abort the up-call.
             let Ok(root_ref) = env.new_global_ref(root) else {
-                eprintln!("day-android: init could not take a global ref on the root view");
+                log::error!("day-android: init could not take a global ref on the root view");
                 return;
             };
             let handle = AHandle(std::sync::Arc::new(root_ref));
@@ -1344,7 +1344,7 @@ mod imp {
                     if let Ok(mut g) = seen.lock()
                         && g.insert(unknown)
                     {
-                        eprintln!("day-android: dropping unknown event kind {unknown}");
+                        log::warn!("day-android: dropping unknown event kind {unknown}");
                     }
                 }
                 let _ = unknown;

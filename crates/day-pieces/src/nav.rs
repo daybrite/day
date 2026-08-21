@@ -377,8 +377,8 @@ fn note_routed_one_of_n(kind: &str) {
 /// backend bug rather than as a shape the app can change.
 #[cfg(debug_assertions)]
 fn warn_merged_bar_actions(n: usize) {
-    eprintln!(
-        "day: this stack's {n} bar action(s) are not drawn — it MERGED into the enclosing \
+    log::warn!(
+        "this stack's {n} bar action(s) are not drawn — it MERGED into the enclosing \
          navigation host, which owns the bar (docs/navigation.md). Declare them on that host \
          instead, or keep this stack standalone."
     );
@@ -386,8 +386,8 @@ fn warn_merged_bar_actions(n: usize) {
 
 #[cfg(debug_assertions)]
 fn warn_sibling_selectors(kind: &str) {
-    eprintln!(
-        "day: two routed one-of-N surfaces ({kind}) are mounted at the same navigation level. \
+    log::warn!(
+        "two routed one-of-N surfaces ({kind}) are mounted at the same navigation level. \
          Their keys both flow into current_route(), so you'll see `section/childA/childB` and \
          `navigate(\"child\")` is ambiguous. Mark all but the primary one `.local()` \
          (docs/navigation.md)."

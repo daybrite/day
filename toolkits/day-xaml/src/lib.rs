@@ -799,8 +799,8 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
                 {
                     Some(file) => Some(cstr(&format!("ms-appx:///fonts/{file}#{family}"))),
                     None => {
-                        eprintln!(
-                            "day: unknown font family {family:?} — falling back to the system font \
+                        log::warn!(
+                            "unknown font family {family:?} — falling back to the system font \
                          (is the file in the project's fonts/ directory?)"
                         );
                         None
@@ -835,7 +835,7 @@ fn stage_bundled_fonts() {
         if let Err(e) =
             std::fs::create_dir_all(&dir).and_then(|_| std::fs::copy(&src, &dst).map(|_| ()))
         {
-            eprintln!(
+            log::warn!(
                 "day-xaml: could not stage bundled font {}: {e}",
                 src.display()
             );
@@ -2650,7 +2650,7 @@ impl Platform for Xaml {
                 min_h,
             );
             if win.is_null() {
-                eprintln!("day-xaml: could not create the XAML window (see error above)");
+                log::error!("day-xaml: could not create the XAML window (see error above)");
                 return;
             }
             self.window = win;

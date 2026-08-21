@@ -123,7 +123,7 @@ fn make(_backend: &mut Gtk, p: &WebProps, id: NodeId) -> gtk4::Widget {
                 });
                 wv.load_uri(&start);
             }
-            Err(e) => eprintln!("day-piece-webview: inline site {:?}: {e}", p.inline_root),
+            Err(e) => log::warn!("day-piece-webview: inline site {:?}: {e}", p.inline_root),
         }
     } else if !p.url.is_empty() {
         wv.load_uri(&p.url);

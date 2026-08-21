@@ -43,6 +43,7 @@ day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-fluent = { workspace = true }
+log = { workspace = true }
 day-script = { workspace = true }
 day-model = { workspace = true, optional = true }
 day-persistence = { workspace = true, optional = true }

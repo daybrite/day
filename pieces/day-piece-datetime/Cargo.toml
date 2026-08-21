@@ -34,6 +34,7 @@ dom = ["dep:day-dom"]
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom"]
 
 [dependencies]
+log = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }

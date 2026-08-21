@@ -442,7 +442,7 @@ pub fn flush_sync() {
                                 "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
                             );
                         } else {
-                            eprintln!(
+                            log::warn!(
                                 "day-reactive: effect created at {loc} exceeded the re-run cap; skipping it for the rest of this drain (the next source write re-arms it)"
                             );
                         }
@@ -1033,7 +1033,7 @@ impl<T: 'static> Signal<T> {
             let loc = Location::caller();
             let first = with_rt(|rt| rt.warned_writes.insert(loc as *const _));
             if first && cfg!(debug_assertions) {
-                eprintln!(
+                log::warn!(
                     "day-reactive: write at {loc} to a disposed signal (created at {}) ignored",
                     self.created_at
                 );

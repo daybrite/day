@@ -172,6 +172,11 @@ day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.2.6" }
 day-dom = { path = "toolkits/day-dom", version = "0.2.6" }
 slotmap = "1.1"
 linkme = "0.3"
+# The logging facade every day crate emits through (docs/logging.md). A facade only — no backend,
+# no dependencies of its own, `no_std`-capable — so taking it costs a crate name and nothing else,
+# and it is what lets an app install `env_logger`/`tracing`/its own `log::Log` with no cooperation
+# from us. day-core ships the default implementation; day-dom the browser-console one.
+log = "0.4"
 # icu4x (docs/localization.md "Formatted values"/"Sorting"): one minor version across the runtime
 # crates so day-cli's exact-pinned datagen output (baked data) always matches what day-l10n
 # compiles against. `compiled_data` is the all-locale fallback; `day build` thins it per app via

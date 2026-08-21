@@ -47,7 +47,7 @@ day::invalidate_size(node);
 Each toolkit crate has an `ext` module with a typed (or raw) accessor and a matching
 `Decorate` extension trait. Those traits return `day_pieces::Decorated<Self>`, like every other
 modifier, so a tweak does not erase the piece's type and can be chained on either side of a typed
-builder (docs/api-style.md "Typed builders and erasure"). The support tiers:
+builder ([docs/api-style.md](api-style.md) "Typed builders and erasure"). The support tiers:
 
 Every accessor hands the closure the native widget **and its concrete class name** (a `&str`),
 then whatever context that toolkit needs:

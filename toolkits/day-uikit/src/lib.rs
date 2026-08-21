@@ -1140,7 +1140,7 @@ mod imp {
                         unsafe { content.setFrame(frame) };
                         if *DIAG_NAV {
                             let a = content.frame();
-                            eprintln!(
+                            log::debug!(
                                 "DAYDIAG   applied node={} nsubs={} content=({},{} {}x{})",
                                 self.ivars().node.0, subs.count(),
                                 a.origin.x, a.origin.y, a.size.width, a.size.height,
@@ -1150,7 +1150,7 @@ mod imp {
                     if *DIAG_NAV {
                         let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
                         let winf = unsafe { self.convertRect_toView(bounds, None) };
-                        eprintln!(
+                        log::debug!(
                             "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) -> report {}x{} super={}x{} hidden={}",
                             self.ivars().node.0,
                             bounds.size.width, bounds.size.height,
@@ -1450,7 +1450,7 @@ mod imp {
             return;
         }
         if *DIAG_NAV {
-            eprintln!(
+            log::debug!(
                 "DAYDIAG exec SYNC native={} -> target={}",
                 current.count(),
                 vcs.len()
@@ -1516,7 +1516,7 @@ mod imp {
                             && state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
                         {
                             if *DIAG_NAV {
-                                eprintln!(
+                                log::debug!(
                                     "DAYDIAG didShow REBASE native={native} (collapse flip in flight)"
                                 );
                             }
@@ -1526,7 +1526,7 @@ mod imp {
                         let prev = state.last_native.replace(native);
                         let popped = native < prev && native < state.vcs.len();
                         if *DIAG_NAV {
-                            eprintln!(
+                            log::debug!(
                                 "DAYDIAG didShow native={native} prev={prev} mirror={} suspicious={popped}",
                                 state.vcs.len(),
                             );
@@ -1556,7 +1556,7 @@ mod imp {
                                     unsafe { state.active_nav().viewControllers() }.count();
                                 state.last_native.set(native);
                                 if *DIAG_NAV {
-                                    eprintln!(
+                                    log::debug!(
                                         "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
                                         state.vcs.len(),
                                         native < state.vcs.len(),
@@ -1815,7 +1815,7 @@ mod imp {
                     ROOT_BASE_FRAME.with(|f| f.set(inner));
                     unsafe { root.setFrame(inner) };
                     if *DIAG_NAV {
-                        eprintln!(
+                        log::debug!(
                             "DAYDIAG holder bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
                             bounds.size.width,
                             bounds.size.height,
@@ -1885,7 +1885,7 @@ mod imp {
                 if !fired.load(std::sync::atomic::Ordering::Relaxed)
                     && vc_probe.get(mtm).presentingViewController().is_none()
                 {
-                    eprintln!("day: cover dismissal completion lost — reporting CoverHidden");
+                    log::warn!("cover dismissal completion lost — reporting CoverHidden");
                     emit(node, Event::CoverHidden);
                 }
             });
@@ -3431,8 +3431,8 @@ mod imp {
                 let raw = match UIFont::fontWithName_size(&NSString::from_str(name), pt) {
                     Some(f) => f,
                     None => {
-                        eprintln!(
-                            "day: unknown font family {name:?} — falling back to the system \
+                        log::warn!(
+                            "unknown font family {name:?} — falling back to the system \
                              font (is the file in the project's fonts/ directory?)"
                         );
                         let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
@@ -5877,7 +5877,7 @@ mod imp {
             .unwrap_or(dispatch2::DispatchTime::NOW);
         let _ = dispatch2::DispatchQueue::main().after(when, move || {
             if MODAL_BUSY.get() && MODAL_GEN.get() == generation {
-                eprintln!("day: modal transition completion lost — unjamming the queue");
+                log::warn!("modal transition completion lost — unjamming the queue");
                 MODAL_BUSY.set(false);
                 modal_pump();
             }
@@ -6044,8 +6044,8 @@ mod imp {
                     // Out of retries: say so. Silence here is what made this cost a CI run to
                     // find — the panel simply never appeared and every later step read as a
                     // missing element.
-                    eprintln!(
-                        "day: a cover could not be presented after {tries} retries \
+                    log::warn!(
+                        "a cover could not be presented after {tries} retries \
                          (transition still animating, or no window to present on) — \
                          the app continues without it"
                     );

@@ -208,7 +208,7 @@ fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
             Err(e) => {
                 // Degrade loudly, as every other native make does: a visible placeholder leaf
                 // rather than a panic inside a JNI up-call (§8.5).
-                eprintln!(
+                log::warn!(
                     "day-piece-texteditor: DayTextEditor.makeEditor failed ({e}); \
                      substituting a placeholder view"
                 );

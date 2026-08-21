@@ -440,7 +440,7 @@ impl Piece for Label {
         let runs = match day_spec::runs_are_valid(&initial, &runs) {
             Ok(()) => runs,
             Err(why) => {
-                eprintln!("day: label runs ignored — {why}; the text renders unstyled");
+                log::warn!("label runs ignored — {why}; the text renders unstyled");
                 Vec::new()
             }
         };

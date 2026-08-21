@@ -668,7 +668,7 @@ shadow the trait's, keeping the chain flat rather than nesting. A piece's own bu
 declared in a `*Builder` trait (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`)
 that `Decorated<P>` forwards through `map_inner`, so `label(…).padding(8.0).font(…)` resolves and
 there is no "typed modifiers must come first" ordering rule. Toolkit and `day-tweak-*` extension
-traits follow the same signature (docs/tweaks.md, docs/api-style.md "Typed builders and erasure").
+traits follow the same signature ([docs/tweaks.md](docs/tweaks.md), [docs/api-style.md](docs/api-style.md) "Typed builders and erasure").
 `Decorate::modifier` is the one erasing modifier, because `Modifier` is defined over `AnyPiece`.
 Annotating ops (`id`, `selectable`, `grid_span`) still target the node built so far, which is why
 grid facts are documented as applying LAST.
