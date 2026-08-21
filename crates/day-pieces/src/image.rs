@@ -6,6 +6,8 @@
 
 use day_core::*;
 use day_spec::kinds;
+
+use crate::Decorated;
 use day_spec::props::*;
 
 // ---------------------------------------------------------------------------
@@ -185,5 +187,85 @@ impl Piece for Vector {
             );
         }
         node
+    }
+}
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Image`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ImageBuilder: Sized {
+    fn content_mode(self, m: ContentMode) -> Self;
+    fn fit(self) -> Self;
+    fn fill(self) -> Self;
+    fn stretch(self) -> Self;
+    fn decorative(self) -> Self;
+}
+
+impl ImageBuilder for Image {
+    fn content_mode(self, m: ContentMode) -> Self {
+        Image::content_mode(self, m)
+    }
+    fn fit(self) -> Self {
+        Image::fit(self)
+    }
+    fn fill(self) -> Self {
+        Image::fill(self)
+    }
+    fn stretch(self) -> Self {
+        Image::stretch(self)
+    }
+    fn decorative(self) -> Self {
+        Image::decorative(self)
+    }
+}
+
+impl<Inner: ImageBuilder + Piece> ImageBuilder for Decorated<Inner> {
+    fn content_mode(self, m: ContentMode) -> Self {
+        self.map_inner(|inner_piece| inner_piece.content_mode(m))
+    }
+    fn fit(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.fit())
+    }
+    fn fill(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.fill())
+    }
+    fn stretch(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.stretch())
+    }
+    fn decorative(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.decorative())
+    }
+}
+
+/// [`Vector`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait VectorBuilder: Sized {
+    fn tint<M>(self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self;
+    fn weight(self, w: VectorWeight) -> Self;
+    fn decorative(self) -> Self;
+}
+
+impl VectorBuilder for Vector {
+    fn tint<M>(self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self {
+        Vector::tint(self, color)
+    }
+    fn weight(self, w: VectorWeight) -> Self {
+        Vector::weight(self, w)
+    }
+    fn decorative(self) -> Self {
+        Vector::decorative(self)
+    }
+}
+
+impl<Inner: VectorBuilder + Piece> VectorBuilder for Decorated<Inner> {
+    fn tint<M>(self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.tint(color))
+    }
+    fn weight(self, w: VectorWeight) -> Self {
+        self.map_inner(|inner_piece| inner_piece.weight(w))
+    }
+    fn decorative(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.decorative())
     }
 }

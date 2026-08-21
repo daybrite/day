@@ -67,7 +67,7 @@ impl Tickmarks {
 /// `.tickmarks(…)` on any piece whose native widget is a slider (i.e. `slider(…)`).
 pub trait SliderTickmarksTweak: Decorate + Sized {
     #[allow(unused_variables)]
-    fn tickmarks(self, ticks: Tickmarks) -> day_core::AnyPiece {
+    fn tickmarks(self, ticks: Tickmarks) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| apply(n, ticks))
     }
 }

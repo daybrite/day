@@ -405,11 +405,17 @@ fn ftl_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// The message keys defined in a Fluent source (terms/attributes/comments ignored). Public so the
-/// CLI lint (`day lint` fluent coverage) shares this one `fluent-syntax` parser with the codegen and
+/// The message keys defined in a Fluent source (terms/comments ignored — and ATTRIBUTES too:
+/// a locale that omits `menu_group.key` deliberately inherits the default locale's shortcut,
+/// so the coverage lint must not demand attributes everywhere). Public so the CLI lint
+/// (`day lint` fluent coverage) shares this one `fluent-syntax` parser with the codegen and
 /// the runtime resolver, instead of a hand-rolled line scanner.
 pub fn message_keys(ftl_src: &str) -> Vec<String> {
-    ftl_messages(ftl_src).into_iter().map(|m| m.key).collect()
+    ftl_messages(ftl_src)
+        .into_iter()
+        .map(|m| m.key)
+        .filter(|k| !k.contains('.'))
+        .collect()
 }
 
 /// Localization keys → parameter-typed `res::str` functions. Parses each `.ftl` with `fluent-syntax`
@@ -429,13 +435,19 @@ fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
         let loc = display(&path);
         let is_en = locale_of(&path) == "en";
         for msg in ftl_messages(&src) {
-            if !is_rust_ident(&msg.key) {
+            let ident_ok = match msg.key.split_once('.') {
+                // `message.attr` (an attribute entry): both halves become one generated fn
+                // name, `message_attr`, so both must be identifiers.
+                Some((m, a)) => is_rust_ident(m) && is_rust_ident(a),
+                None => is_rust_ident(&msg.key),
+            };
+            if !ident_ok {
                 return Err(format!(
                     "day-build: localization key {:?} ({loc}) is not a valid Rust identifier — \
                      rename it to snake_case (e.g. `{}`) in every resource/locales/*/*.ftl (Fluent \
                      allows `-`, Rust identifiers do not).",
                     msg.key,
-                    msg.key.replace('-', "_")
+                    msg.key.replace(['-', '.'], "_")
                 ));
             }
             // Doc: prefer the `en` value, else keep the first one seen.
@@ -469,6 +481,21 @@ fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
                         }
                     }
                 }
+            }
+        }
+    }
+    // An attribute's generated fn is `message_attr` — it must not collide with a real
+    // message of that name (or another attribute flattening to it).
+    {
+        let mut fn_names: std::collections::BTreeMap<String, &String> = Default::default();
+        for key in agreed.keys() {
+            let fn_name = key.replace('.', "_");
+            if let Some(prev) = fn_names.insert(fn_name.clone(), key) {
+                return Err(format!(
+                    "day-build: localization keys {prev:?} and {key:?} both generate \
+                     `res::str::{fn_name}()` — rename one (a `message.attr` attribute \
+                     flattens to `message_attr`)."
+                ));
             }
         }
     }
@@ -547,8 +574,10 @@ struct FtlMessage {
     value_text: String,
 }
 
-/// Parse a Fluent resource → one [`FtlMessage`] per message (terms/attributes/comments/junk ignored;
-/// a parse error on an unrelated entry is tolerated — the partial resource is still walked).
+/// Parse a Fluent resource → one [`FtlMessage`] per message, PLUS one per message ATTRIBUTE
+/// under the dotted key `message.attr` (how a localized keyboard-shortcut key rides beside
+/// its command's label — docs/localization.md; terms/comments/junk ignored; a parse error on
+/// an unrelated entry is tolerated — the partial resource is still walked).
 fn ftl_messages(src: &str) -> Vec<FtlMessage> {
     use fluent_syntax::ast::Entry;
     let res = match fluent_syntax::parser::parse(src) {
@@ -571,6 +600,15 @@ fn ftl_messages(src: &str) -> Vec<FtlMessage> {
                 params,
                 value_text,
             });
+            for attr in &m.attributes {
+                let mut params = Params::new();
+                collect_pattern_vars(&attr.value, &mut params, false);
+                out.push(FtlMessage {
+                    key: format!("{}.{}", m.id.name, attr.id.name),
+                    params,
+                    value_text: pattern_text(&attr.value),
+                });
+            }
         }
     }
     out
@@ -937,7 +975,7 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
         };
         s.push_str(&format!(
             "    /// {doc}\n    pub fn {}{generic_list}({}) -> day::LocalizedText {{ {body} }}\n",
-            ident_token(&e.key),
+            ident_token(&e.key.replace('.', "_")),
             sig_params.join(", "),
         ));
     }
@@ -1372,6 +1410,44 @@ mod tests {
         assert!(code.contains(
             "pub fn deviceinfo_system<M0, M1>(name: impl day::IntoFArg<M0>, version: impl day::IntoFArg<M1>) -> day::LocalizedText { day::tr(\"deviceinfo_system\").arg(\"name\", name).arg(\"version\", version) }"
         ));
+    }
+
+    // ---- Attributes: localized shortcut keys ride beside their command's label ----
+
+    #[test]
+    fn message_attributes_generate_dotted_tr_accessors() {
+        let root = tmp("attr-accessors");
+        ftl(&root, "en", "menu_group = Group\n    .key = g\n");
+        // fr omits `.key` — the runtime falls back to the default locale's; the codegen
+        // still emits ONE accessor from the union.
+        ftl(&root, "fr", "menu_group = Grouper\n");
+        let entries = plan_strings(&root.join("resource/locales")).expect("plan");
+        let plan = ResourcePlan {
+            strings: entries,
+            ..Default::default()
+        };
+        let code = render(&plan);
+        assert!(
+            code.contains("pub fn menu_group() -> day::LocalizedText { day::tr(\"menu_group\") }")
+        );
+        assert!(
+            code.contains(
+                "pub fn menu_group_key() -> day::LocalizedText { day::tr(\"menu_group.key\") }"
+            ),
+            "{code}"
+        );
+    }
+
+    #[test]
+    fn an_attribute_colliding_with_a_message_fn_name_is_a_build_error() {
+        let root = tmp("attr-collision");
+        ftl(
+            &root,
+            "en",
+            "menu_group = Group\n    .key = g\nmenu_group_key = Shadow\n",
+        );
+        let err = plan_strings(&root.join("resource/locales")).expect_err("must collide");
+        assert!(err.contains("menu_group_key"), "{err}");
     }
 
     // ---- The `locales` catalog: the app's whole language list, discovered not declared ----

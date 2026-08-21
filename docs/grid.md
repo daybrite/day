@@ -51,8 +51,8 @@ impl GridRow {
 }
 
 // Decorate (any piece; inert outside a grid):
-fn grid_span(self, n: usize) -> AnyPiece;          // span n ≥ 1 columns
-fn grid_align(self, a: Alignment) -> AnyPiece;     // per-cell alignment override
+fn grid_span(self, n: usize) -> Decorated<Self>;     // span n ≥ 1 columns
+fn grid_align(self, a: Alignment) -> Decorated<Self>;// per-cell alignment override
 ```
 
 SwiftUI mapping: `grid` ↔ `Grid(alignment:horizontalSpacing:verticalSpacing:)`, `grid_row` ↔

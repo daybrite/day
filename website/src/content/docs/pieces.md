@@ -93,8 +93,25 @@ fn settings_page() -> AnyPiece {
 }
 ```
 
-Most modifiers (`.id()`, `.padding()`, `.on_tap()` …) already return `AnyPiece`, so the trailing
-`.any()` is only needed when the last call in the chain is a piece-specific method.
+Modifiers (`.id()`, `.padding()`, `.on_tap()` …) do *not* erase: they return `Decorated<P>`, which
+keeps the decorated piece's own type, so `.any()` is what you call at the boundary where a single
+`AnyPiece` is actually required. Calling it on a piece that is already erased is free — `AnyPiece`
+hands itself back rather than boxing a box.
+
+Keeping the type is what lets a piece's own builders be chained after a generic modifier, in either
+order:
+
+```rust
+label("Saved").font(Font::Caption).padding(8.0)   // typed first
+label("Saved").padding(8.0).font(Font::Caption)   // generic first — same result
+```
+
+A build-time branch between two different piece types takes `Either` rather than erasing both
+sides:
+
+```rust
+if compact { Either::Left(row(children)) } else { Either::Right(column(children)) }
+```
 
 ## The built-in vocabulary
 

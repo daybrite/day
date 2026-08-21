@@ -745,21 +745,27 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
         (inner, _) => inner,
     };
 
-    // Generic Decorate modifiers: erase, wrap, stay erased.
+    // Generic Decorate modifiers: erase, wrap, stay erased. The dyn surface has no static piece
+    // type to preserve, so each arm re-erases the `Decorated` a modifier now returns — `.any()`
+    // on the erased inner piece is free (`AnyPiece::any` is inherent and returns `self`), so this
+    // costs exactly the one box the old per-modifier chain cost.
     let p = inner.into_any();
     let out: AnyPiece = match name {
-        "id" => p.id(str_arg(args, 0, "id")?),
-        "padding" => p.padding(num(args, 0, "padding")?),
-        "frame" => p.frame(num(args, 0, "frame")?, num(args, 1, "frame")?),
-        "width" => p.width(num(args, 0, "width")?),
-        "height" => p.height(num(args, 0, "height")?),
-        "corner_radius" => p.corner_radius(num(args, 0, "corner_radius")?),
+        "id" => p.id(str_arg(args, 0, "id")?).any(),
+        "padding" => p.padding(num(args, 0, "padding")?).any(),
+        "frame" => p
+            .frame(num(args, 0, "frame")?, num(args, 1, "frame")?)
+            .any(),
+        "width" => p.width(num(args, 0, "width")?).any(),
+        "height" => p.height(num(args, 0, "height")?).any(),
+        "corner_radius" => p.corner_radius(num(args, 0, "corner_radius")?).any(),
         "background" => match args.first() {
             Some(DynValue::Fn(f)) => {
                 let f = f.clone();
                 p.background(move || color_of(&f(&[])).unwrap_or(Color::CLEAR))
+                    .any()
             }
-            Some(v) => p.background(color_of(v)?),
+            Some(v) => p.background(color_of(v)?).any(),
             None => {
                 return Err(DynError::Type {
                     what: "background",
@@ -768,7 +774,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
             }
         },
         "on_tap" => match args.first() {
-            Some(DynValue::Fn(f)) => p.on_tap(callback0(f)),
+            Some(DynValue::Fn(f)) => p.on_tap(callback0(f)).any(),
             _ => {
                 return Err(DynError::Type {
                     what: "on_tap",
@@ -776,19 +782,20 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
                 });
             }
         },
-        "grow" => p.grow(),
-        "grow_w" => p.grow_w(),
-        "grow_h" => p.grow_h(),
-        "grid_span" => p.grid_span(num(args, 0, "grid_span")? as usize),
-        "grid_align" => {
-            let a = str_arg(args, 0, "grid_align")?;
-            p.grid_align(alignment_of(&a).ok_or(DynError::Type {
-                what: "grid_align",
-                want: "an alignment name",
-            })?)
-        }
+        "grow" => p.grow().any(),
+        "grow_w" => p.grow_w().any(),
+        "grow_h" => p.grow_h().any(),
+        "grid_span" => p.grid_span(num(args, 0, "grid_span")? as usize).any(),
+        "grid_align" => p
+            .grid_align(
+                alignment_of(&str_arg(args, 0, "grid_align")?).ok_or(DynError::Type {
+                    what: "grid_align",
+                    want: "an alignment name",
+                })?,
+            )
+            .any(),
         "overlay" => match args.first() {
-            Some(DynValue::Piece(over)) => p.overlay(over.into_any()),
+            Some(DynValue::Piece(over)) => p.overlay(over.into_any()).any(),
             _ => {
                 return Err(DynError::Type {
                     what: "overlay",
@@ -803,7 +810,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
                 want: "an alignment name",
             })?;
             match args.get(1) {
-                Some(DynValue::Piece(over)) => p.overlay_aligned(al, over.into_any()),
+                Some(DynValue::Piece(over)) => p.overlay_aligned(al, over.into_any()).any(),
                 _ => {
                     return Err(DynError::Type {
                         what: "overlay_aligned",
@@ -812,8 +819,8 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
                 }
             }
         }
-        "defers_system_gestures" => p.defers_system_gestures(Edges::ALL),
-        "interactive_dismiss_disabled" => p.interactive_dismiss_disabled(),
+        "defers_system_gestures" => p.defers_system_gestures(Edges::ALL).any(),
+        "interactive_dismiss_disabled" => p.interactive_dismiss_disabled().any(),
         other => {
             let ext = ext_modifiers()
                 .lock()

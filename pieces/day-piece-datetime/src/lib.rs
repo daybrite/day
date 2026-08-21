@@ -832,3 +832,94 @@ mod tests {
         );
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`DatePicker`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait DatePickerBuilder: Sized {
+    fn compact(self) -> Self;
+    fn inline(self) -> Self;
+    fn style(self, style: Style) -> Self;
+    fn min(self, min: DayDate) -> Self;
+    fn max(self, max: DayDate) -> Self;
+}
+
+impl<S: Binding<DayDate>> DatePickerBuilder for DatePicker<S> {
+    fn compact(self) -> Self {
+        DatePicker::compact(self)
+    }
+    fn inline(self) -> Self {
+        DatePicker::inline(self)
+    }
+    fn style(self, style: Style) -> Self {
+        DatePicker::style(self, style)
+    }
+    fn min(self, min: DayDate) -> Self {
+        DatePicker::min(self, min)
+    }
+    fn max(self, max: DayDate) -> Self {
+        DatePicker::max(self, max)
+    }
+}
+
+impl<Inner: DatePickerBuilder + day_pieces::prelude::Piece> DatePickerBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn compact(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.compact())
+    }
+    fn inline(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.inline())
+    }
+    fn style(self, style: Style) -> Self {
+        self.map_inner(|inner_piece| inner_piece.style(style))
+    }
+    fn min(self, min: DayDate) -> Self {
+        self.map_inner(|inner_piece| inner_piece.min(min))
+    }
+    fn max(self, max: DayDate) -> Self {
+        self.map_inner(|inner_piece| inner_piece.max(max))
+    }
+}
+
+/// [`TimePicker`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait TimePickerBuilder: Sized {
+    fn compact(self) -> Self;
+    fn inline(self) -> Self;
+    fn style(self, style: Style) -> Self;
+    fn seconds(self, seconds: bool) -> Self;
+}
+
+impl<S: Binding<DayTime>> TimePickerBuilder for TimePicker<S> {
+    fn compact(self) -> Self {
+        TimePicker::compact(self)
+    }
+    fn inline(self) -> Self {
+        TimePicker::inline(self)
+    }
+    fn style(self, style: Style) -> Self {
+        TimePicker::style(self, style)
+    }
+    fn seconds(self, seconds: bool) -> Self {
+        TimePicker::seconds(self, seconds)
+    }
+}
+
+impl<Inner: TimePickerBuilder + day_pieces::prelude::Piece> TimePickerBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn compact(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.compact())
+    }
+    fn inline(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.inline())
+    }
+    fn style(self, style: Style) -> Self {
+        self.map_inner(|inner_piece| inner_piece.style(style))
+    }
+    fn seconds(self, seconds: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.seconds(seconds))
+    }
+}

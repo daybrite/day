@@ -4,6 +4,9 @@
 //! `Decorate` — the chainable modifiers every piece inherits: padding and sizing, background and
 //! corner radius, gestures (`on_tap`, drag), accessibility (`A11yBuilder`), and native-handle
 //! capture (`NativeRef`) — plus the `Modifier` / `IntoInsets` supporting traits.
+//!
+//! Modifiers return [`Decorated<P>`], which keeps the decorated piece's OWN type, so a chain
+//! never stops reaching that piece's builder methods (§5.2).
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -122,26 +125,89 @@ fn layer_node(cx: &mut BuildCx) -> RNode {
     )
 }
 
-pub trait Decorate: Piece + Sized {
-    /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
-    fn id(self, id: impl Into<String>) -> AnyPiece {
-        let id = id.into();
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+// ---------------------------------------------------------------------------
+// Decorated — a piece plus its modifiers, with the piece's own type kept (§5.2)
+// ---------------------------------------------------------------------------
+
+/// The build of a piece plus every modifier applied to it so far.
+type Build = Box<dyn FnOnce(&mut BuildCx) -> RNode>;
+
+/// A piece with modifiers chained onto it, keeping the decorated piece's OWN type (§5.2).
+///
+/// Every [`Decorate`] modifier returns one of these rather than erasing to [`AnyPiece`], which is
+/// what lets a chain keep reaching the piece's own builder methods — `label(…).padding(8.0)` is
+/// still a decorated `Label`, so `.font(…)` after it resolves. Modifiers applied to a `Decorated`
+/// append in place (the inherent methods below shadow the trait's), so a chain stays flat instead
+/// of nesting `Decorated<Decorated<…>>`.
+///
+/// Erase explicitly with `.any()` when a single [`AnyPiece`] is what's needed (a `PieceVec`, a
+/// `-> AnyPiece` signature).
+pub struct Decorated<P> {
+    inner: P,
+    ops: Vec<Box<dyn FnOnce(Build) -> Build>>,
+}
+
+impl<P: Piece> Decorated<P> {
+    /// An undecorated piece, ready to have modifiers applied CONDITIONALLY. Starting here gives
+    /// every branch the same type, so an optional modifier needs no erasure:
+    ///
+    /// ```ignore
+    /// let leaf = Decorated::new(draw);
+    /// let leaf = match id { Some(id) => leaf.id(id), None => leaf };
+    /// let leaf = if editable { leaf.on_tap(f) } else { leaf };
+    /// ```
+    pub fn new(inner: P) -> Self {
+        Decorated {
+            inner,
+            ops: Vec::new(),
+        }
+    }
+
+    fn push(mut self, op: impl FnOnce(Build) -> Build + 'static) -> Self {
+        self.ops.push(Box::new(op));
+        self
+    }
+
+    /// Replace the undecorated piece, keeping the modifier chain — how a typed builder trait
+    /// reaches through a decoration (docs/api-style.md "Typed builders"). `f` sees the piece as
+    /// it was before any modifier, which is why modifier order stops mattering.
+    pub fn map_inner<Q: Piece>(self, f: impl FnOnce(P) -> Q) -> Decorated<Q> {
+        Decorated {
+            inner: f(self.inner),
+            ops: self.ops,
+        }
+    }
+}
+
+impl<P: Piece> Piece for Decorated<P> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let Decorated { inner, ops } = self;
+        // Ops compose outward in call order: the FIRST modifier is innermost, matching the
+        // per-modifier wrapper chain this replaced.
+        let mut build: Build = Box::new(move |cx| inner.build(cx));
+        for op in ops {
+            build = op(build);
+        }
+        build(cx)
+    }
+}
+
+// --- The modifier bodies, written once and shared by the trait and the inherent impl ---
+
+fn op_id(id: String) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             with_tree(|t| t.set_id(n, id));
             n
         })
     }
+}
 
-    /// Reactive element id — the id for rows inside a recycling [`list`](crate::list). A plain
-    /// [`id`](Self::id) is assigned once at build, but a recycled cell REBINDS to different
-    /// items over its life (and drag-to-reorder rebinds eagerly), so a static item-derived id
-    /// keeps naming the first-bound item. This variant re-registers whenever the closure's
-    /// value changes — read your `ItemSlot` inside it:
-    /// `.id_of(move || format!("row-remove-{}", slot.key()))`.
-    fn id_of(self, id: impl Fn() -> String + 'static) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_id_of(id: impl Fn() -> String + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             day_reactive::bind(id, move |s: &String| {
                 let s = s.clone();
                 with_tree(|t| t.set_id(n, s));
@@ -149,28 +215,12 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// Keyed id for collection items: rendered `prefix:key` (§5.5).
-    fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> AnyPiece {
-        let id = format!("{prefix}:{key}");
-        self.id(id)
-    }
-
-    /// Apply a **tweak**: `f` runs once at mount, after the native widget exists, with the
-    /// realized node (docs/tweaks.md). Reach the typed native handle through the compiled
-    /// backend's ext accessor (`day_appkit::with_native`, `day_gtk::with_native`, …) — or apply
-    /// a packaged `day-tweak-*` crate's modifier instead of calling this directly. If the native
-    /// change affects the widget's intrinsic size, follow it with
-    /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,
-    /// enabled, frame, a11y) on its next patch; unmanaged properties are stable.
-    ///
-    /// Order it AFTER any modifier that can rebuild the backing widget — today
-    /// [`selectable`](Decorate::selectable), which on UIKit realizes the label as a different
-    /// native class. Chained before it, the tweak runs against the widget the rebuild discards
-    /// (Day warns at runtime); chained after, it sees the widget that ships.
-    fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_tweak(f: impl FnOnce(day_core::RNode) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             f(n);
             // Mark the node so a LATER backing swap (`.selectable()` on a toolkit that
             // rebuilds the widget) warns about the discarded tweak instead of losing it
@@ -179,84 +229,65 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// Make this piece's text **user-selectable** — the reader can select and copy it
-    /// (docs/text.md). Most useful on a [`label`](crate::label): text is NOT selectable by default
-    /// on any backend, matching each platform's native behavior.
-    ///
-    /// Every backend honors it on a label: most flip the native widget's selection affordance
-    /// (AppKit, GTK, Qt, XAML, HarmonyOS, Android, web); UIKit — whose `UILabel` has none —
-    /// rebuilds the label as a read-only `UITextView` behind the same handle. On other widgets
-    /// it is best-effort: a backing with no selection affordance leaves the text unselectable
-    /// rather than erroring, and a container cascades only where the platform's affordance does
-    /// (the web) — prefer the label itself. Selection visuals and the copy shortcut are the
-    /// platform's own. Unmanaged — set once at mount, and it survives Day's text updates.
-    fn selectable(self) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_selectable() -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             with_tree(|t| t.set_node_selectable(n, true));
             n
         })
     }
+}
 
-    /// Capture a [`NativeRef`] to this piece's realized node for later imperative access
-    /// (docs/tweaks.md). The ref clears automatically when the piece's scope is disposed.
-    fn native_ref(self, r: &NativeRef) -> AnyPiece {
-        let r = r.clone();
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_native_ref(r: NativeRef) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             r.transition(Some(n));
             let cleared = r.clone();
             Scope::current().on_cleanup(move || cleared.transition(None));
             n
         })
     }
+}
 
-    fn padding(self, insets: impl IntoInsets) -> AnyPiece {
-        let insets = insets.into_insets();
-        piece_fn(move |cx| {
+fn op_padding(insets: Insets) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let w = cx.layout_only(
                 Rc::new(PaddingLayout { insets }),
                 Flex::default(),
                 Boundary::No,
             );
             cx.under(w, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             w
         })
     }
+}
 
-    /// Cap this piece's width at `max` points: the child is never PROPOSED more, so text
-    /// wraps inside the cap (chat bubbles, readable columns) while narrower content hugs.
-    fn max_width(self, max: f64) -> AnyPiece {
-        piece_fn(move |cx| {
+fn op_max_width(max: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let w = cx.layout_only(
                 Rc::new(MaxWidthLayout { max }),
                 Flex::default(),
                 Boundary::No,
             );
             cx.under(w, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             w
         })
     }
+}
 
-    /// Reserve at least the space `sample` needs, so this piece's size stops changing with its
-    /// content.
-    ///
-    /// For a numeric readout beside a slider: `label(move || value()).reserving("100")` keeps the
-    /// row still while the number changes, because the reservation is a real measurement of
-    /// `"100"` in this piece's own font — it scales with the platform's accessibility text size
-    /// instead of being a point value that clips when someone turns text up.
-    ///
-    /// Pass the WIDEST value the field can show (`"100"`, `"-99.9"`, `"88:88"`). Pair it with
-    /// [`Decorate::tabular_numbers`] so the digits themselves stop shifting inside the reservation.
-    /// The sample never paints and never takes hit-testing area.
-    fn reserving(self, sample: impl Into<String>) -> AnyPiece {
-        let sample = sample.into();
-        piece_fn(move |cx| {
+fn op_reserving(sample: String) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let w = cx.layout_only(
                 Rc::new(day_core::ReserveLayout),
                 Flex::default(),
@@ -266,81 +297,50 @@ pub trait Decorate: Piece + Sized {
                 // children[0]: the measured-but-invisible sample.
                 let _ = crate::label(sample.clone()).opacity(0.0).build(cx);
                 // children[1]: the real content.
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             w
         })
     }
+}
 
-    fn frame(self, width: f64, height: f64) -> AnyPiece {
-        piece_fn(move |cx| {
+/// `frame`/`width`/`height`: a fixed size on one or both axes. Two fixed axes make a layout
+/// boundary (§7.4); one does not.
+fn op_frame(
+    width: Option<f64>,
+    height: Option<f64>,
+    boundary: Boundary,
+) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let w = cx.layout_only(
-                Rc::new(FrameLayout {
-                    width: Some(width),
-                    height: Some(height),
-                }),
+                Rc::new(FrameLayout { width, height }),
                 Flex::default(),
-                Boundary::Yes, // two-axis fixed frame = layout boundary (§7.4)
+                boundary,
             );
             cx.under(w, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             w
         })
     }
+}
 
-    /// Fix this piece's WIDTH to `width` points while its height stays flexible (hugging its content
-    /// or filling on the cross axis). The single-axis complement to [`Self::frame`] — e.g. a
-    /// fixed-width sidebar pane in a `row` whose height fills the window.
-    fn width(self, width: f64) -> AnyPiece {
-        piece_fn(move |cx| {
-            let w = cx.layout_only(
-                Rc::new(FrameLayout {
-                    width: Some(width),
-                    height: None,
-                }),
-                Flex::default(),
-                Boundary::No,
-            );
-            cx.under(w, |cx| {
-                let _ = self.build(cx);
-            });
-            w
-        })
-    }
-
-    /// Fix this piece's HEIGHT to `height` points while its width stays flexible. The single-axis
-    /// complement to [`Self::frame`] — e.g. a fixed-height header/toolbar bar that fills its width.
-    fn height(self, height: f64) -> AnyPiece {
-        piece_fn(move |cx| {
-            let w = cx.layout_only(
-                Rc::new(FrameLayout {
-                    width: None,
-                    height: Some(height),
-                }),
-                Flex::default(),
-                Boundary::No,
-            );
-            cx.under(w, |cx| {
-                let _ = self.build(cx);
-            });
-            w
-        })
-    }
-
-    fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_a11y(f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             let props = f(A11yBuilder::default()).0;
             with_tree(|t| t.set_a11y(n, props));
             n
         })
     }
+}
 
-    /// Fire when this piece is tapped (bounding-box; shapes override with path-precise testing).
-    fn on_tap(self, f: impl Fn() + 'static) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_on_tap(f: impl Fn() + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             with_tree(|t| t.enable_gesture(n, GestureKind::Tap));
             cx.on(n, move |ev| {
                 if matches!(ev, Event::Tap(_)) {
@@ -350,21 +350,12 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// [`on_tap`](Self::on_tap), told WHERE — the point in the piece's own coordinate space,
-    /// origin at its top-leading corner.
-    ///
-    /// What a drawn control needs and a native one does not: a canvas showing a color wheel, a
-    /// map, or a waveform has to turn "the user pressed here" into a value, and only the piece
-    /// knows how. Pair it with [`on_drag`](Self::on_drag) — which already reports a location — to
-    /// track a press that turns into a drag; the two are idempotent together, so a backend that
-    /// reports a tap as a zero-length drag costs nothing.
-    ///
-    /// `Event::Tap` has always carried the point; this is the decorator that stops throwing it
-    /// away.
-    fn on_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_on_tap_at(f: impl Fn(day_spec::Point) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             with_tree(|t| t.enable_gesture(n, GestureKind::Tap));
             cx.on(n, move |ev| {
                 if let Event::Tap(p) = ev {
@@ -374,17 +365,15 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// Bind this control's keyboard focus to a signal (docs/focus.md), two-way like every other
-    /// binding: native focus changes write the signal; writing the signal moves focus. Takes a
-    /// `Signal<bool>` for one control, or `(Signal<Option<K>>, K::Variant)` binding one control
-    /// of a group — writing `false`/`None` resigns focus (dismissing the soft keyboard on
-    /// mobile). Focus applies asynchronously: a write is a request, resolved on the next turn,
-    /// and the signal always ends up reflecting what the platform actually did.
-    fn focused<M>(self, binding: impl IntoFocusBinding<M>) -> AnyPiece {
-        let (want, on_native) = binding.into_focus_binding();
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_focused(
+    want: Box<dyn Fn() -> bool>,
+    on_native: Box<dyn Fn(bool)>,
+) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             // Echo cell: the control's focus state as last reported by the NATIVE side. An
             // apply whose desired state matches it is the echo of a native change (or already
             // satisfied) and must not re-drive the toolkit — the selector echo-cell rule.
@@ -416,13 +405,12 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)
-    /// or long-press (mobile). Items are built with [`menu_item`]/[`sub_menu`]/[`menu_role`]/
-    /// [`menu_separator`]. Passing an empty `Vec` removes any menu.
-    fn context_menu(self, items: Vec<MenuEntry>) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             // Scoped: the action closures die with the build scope, not the process —
             // an unscoped registration here leaks one closure per remount.
             let model = lower_menu_scoped(items);
@@ -430,11 +418,12 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// Fire on each phase of a drag over this piece.
-    fn on_drag(self, f: impl Fn(Drag) + 'static) -> AnyPiece {
-        piece_fn(move |cx| {
-            let n = self.build(cx);
+fn op_on_drag(f: impl Fn(Drag) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
             with_tree(|t| t.enable_gesture(n, GestureKind::Drag));
             cx.on(n, move |ev| {
                 if let Event::Drag {
@@ -453,15 +442,11 @@ pub trait Decorate: Piece + Sized {
             n
         })
     }
+}
 
-    /// Fill the piece's bounds with a solid color painted behind it — a message-bubble / card /
-    /// badge surface. Accepts a constant [`Color`], a `Signal<Color>`, or a `Fn() -> Color`; a
-    /// reactive color repaints the surface when its source changes. Wraps the piece in a native
-    /// container that carries the fill, so it composes with [`Self::corner_radius`] for a rounded
-    /// colored surface and with [`Self::padding`] for interior inset.
-    fn background<M>(self, color: impl IntoReactive<Color, M>) -> AnyPiece {
-        let color = color.into_reactive();
-        piece_fn(move |cx| {
+fn op_background(color: Reactive<Color>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let node = cx.native(
                 kinds::CONTAINER,
                 &ContainerProps {
@@ -475,7 +460,7 @@ pub trait Decorate: Piece + Sized {
                 Boundary::No,
             );
             cx.under(node, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             // Only a reactive source needs a binding; a constant fill is applied once at realize.
             if let Reactive::Dyn(_) = &color {
@@ -491,12 +476,11 @@ pub trait Decorate: Piece + Sized {
             node
         })
     }
+}
 
-    /// Round the piece's corners to `radius` points, clipping its background and content to the
-    /// rounded rectangle. Compose after [`Self::background`] for a rounded colored surface, or use
-    /// alone to round a clipped child (e.g. an avatar image).
-    fn corner_radius(self, radius: f64) -> AnyPiece {
-        piece_fn(move |cx| {
+fn op_corner_radius(radius: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let node = cx.native(
                 kinds::CONTAINER,
                 &ContainerProps {
@@ -510,21 +494,19 @@ pub trait Decorate: Piece + Sized {
                 Boundary::No,
             );
             cx.under(node, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             node
         })
     }
+}
 
-    /// Animate/set the piece's opacity (`0.0` transparent … `1.0` opaque). Wrapped in a native
-    /// layer so it composes with `.background`; the change animates when made inside
-    /// [`with_animation`] or under a `.animation` ancestor (§8.4).
-    fn opacity<M>(self, opacity: impl IntoReactive<f64, M>) -> AnyPiece {
-        let op = opacity.into_reactive();
-        piece_fn(move |cx| {
+fn op_opacity(op: Reactive<f64>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let node = layer_node(cx);
             cx.under(node, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             bind(
                 move || op.get(),
@@ -533,16 +515,14 @@ pub trait Decorate: Piece + Sized {
             node
         })
     }
+}
 
-    /// Apply an animatable [`Transform`] (translate/scale/rotate about the center) — the cheap
-    /// movement/scaling channel that never triggers relayout (§8.4). Prefer this over `.offset`
-    /// for animated motion.
-    fn transform<M>(self, t: impl IntoReactive<Transform, M>) -> AnyPiece {
-        let t = t.into_reactive();
-        piece_fn(move |cx| {
+fn op_transform(t: Reactive<Transform>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let node = layer_node(cx);
             cx.under(node, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             bind(
                 move || t.get(),
@@ -551,63 +531,24 @@ pub trait Decorate: Piece + Sized {
             node
         })
     }
+}
 
-    /// Uniformly scale the piece by `factor` about its center (animatable). Convenience over
-    /// [`Self::transform`].
-    fn scale<M>(self, factor: impl IntoReactive<f64, M>) -> AnyPiece {
-        let f = factor.into_reactive();
-        self.transform(move || Transform::scale(f.get(), f.get()))
-    }
-
-    /// Rotate the piece by `degrees` clockwise about its center (animatable).
-    fn rotation<M>(self, degrees: impl IntoReactive<f64, M>) -> AnyPiece {
-        let d = degrees.into_reactive();
-        self.transform(move || Transform::rotate(d.get()))
-    }
-
-    /// Translate the piece by (`x`, `y`) points WITHOUT relayout (animatable) — the
-    /// animation-friendly sibling of `.offset`.
-    fn translation<Mx, My>(
-        self,
-        x: impl IntoReactive<f64, Mx>,
-        y: impl IntoReactive<f64, My>,
-    ) -> AnyPiece {
-        let (x, y) = (x.into_reactive(), y.into_reactive());
-        self.transform(move || Transform::translate(x.get(), y.get()))
-    }
-
-    /// Attach an implicit animation (§8.4): changes to this piece's — and its descendants' —
-    /// animatable properties animate with `anim` even outside a [`with_animation`]. SwiftUI's
-    /// `.animation`. The ambient `with_animation` takes precedence when both apply.
-    fn animation(self, anim: AnimSpec) -> AnyPiece {
-        piece_fn(move |cx| {
+fn op_animation(anim: AnimSpec) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let node = layer_node(cx);
             with_tree(|t| t.set_implicit_anim(node, Some(anim)));
             cx.under(node, |cx| {
-                let _ = self.build(cx);
+                let _ = inner(cx);
             });
             node
         })
     }
+}
 
-    /// Apply a [`Modifier`] — or, via the blanket impl, a plain `FnOnce(AnyPiece) -> AnyPiece`
-    /// closure — to this piece. Pure composition: `content.modifier(m) == m.apply(content.any())`.
-    fn modifier(self, m: impl Modifier) -> AnyPiece {
-        m.apply(self.any())
-    }
-
-    /// Draw `over` on top of this piece, centered, WITHOUT affecting layout size — a badge /
-    /// annotation overlay. `self` is the sizing content (bottom of the z-order); `over` is proposed
-    /// `self`'s size and drawn on top. For an explicit alignment use [`Self::overlay_aligned`]; for
-    /// a stack that sizes to the UNION of its children use [`zstack`].
-    fn overlay(self, over: impl Piece) -> AnyPiece {
-        self.overlay_aligned(Alignment::Center, over)
-    }
-
-    /// [`Self::overlay`] with an explicit [`Alignment`] for the annotation (e.g. a corner badge with
-    /// [`Alignment::TopTrailing`]).
-    fn overlay_aligned(self, align: Alignment, over: impl Piece) -> AnyPiece {
-        piece_fn(move |cx| {
+fn op_overlay_aligned(align: Alignment, over: impl Piece) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
             let node = cx.native(
                 kinds::CONTAINER,
                 &ContainerProps::default(),
@@ -619,11 +560,453 @@ pub trait Decorate: Piece + Sized {
                 Boundary::No,
             );
             cx.under(node, |cx| {
-                let _ = self.build(cx); // sizing content (bottom)
+                let _ = inner(cx); // sizing content (bottom)
                 let _ = over.build(cx); // annotation on top
             });
             node
         })
+    }
+}
+
+fn op_aspect_ratio(ratio: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            if !(ratio.is_finite() && ratio > 0.0) {
+                return inner(cx);
+            }
+            let node = cx.layout_only(
+                Rc::new(AspectRatioLayout { ratio }),
+                Flex::default(),
+                // NOT a boundary: the child still measures itself, and the ratio only decides
+                // the box it is offered.
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = inner(cx);
+            });
+            node
+        })
+    }
+}
+
+fn op_grow_axes(w: bool, h: bool) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let node = cx.layout_only(
+                Rc::new(GrowLayout { w, h }),
+                Flex {
+                    grow_w: w,
+                    grow_h: h,
+                    ..Default::default()
+                },
+                Boundary::No,
+            );
+            cx.under(node, |cx| {
+                let _ = inner(cx);
+            });
+            node
+        })
+    }
+}
+
+fn op_grid_facts(facts: GridFacts) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let node = inner(cx);
+            with_tree(|t| t.set_grid_facts(node, facts));
+            node
+        })
+    }
+}
+
+fn op_defers_system_gestures(edges: day_spec::Edges) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let token = day_core::shield::push_gesture_deferral(edges);
+            Scope::current().on_cleanup(move || day_core::shield::pop_gesture_deferral(token));
+            inner(cx)
+        })
+    }
+}
+
+fn op_interactive_dismiss_disabled() -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let token = day_core::shield::push_dismiss_disabled();
+            Scope::current().on_cleanup(move || day_core::shield::pop_dismiss_disabled(token));
+            inner(cx)
+        })
+    }
+}
+
+// --- The chained modifier surface, on an already-decorated piece ---
+//
+// These INHERENT methods shadow the `Decorate` trait's (inherent wins method resolution), so a
+// modifier applied to a `Decorated` appends to its op list instead of wrapping it in another
+// `Decorated`. Each is the same one-liner the trait method is; the bodies live in the `op_*`
+// functions above. Documentation stays on the trait, which is the surface every piece has.
+impl<P: Piece> Decorated<P> {
+    pub fn id(self, id: impl Into<String>) -> Self {
+        self.push(op_id(id.into()))
+    }
+    pub fn id_of(self, id: impl Fn() -> String + 'static) -> Self {
+        self.push(op_id_of(id))
+    }
+    pub fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> Self {
+        self.id(format!("{prefix}:{key}"))
+    }
+    pub fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> Self {
+        self.push(op_tweak(f))
+    }
+    pub fn selectable(self) -> Self {
+        self.push(op_selectable())
+    }
+    pub fn native_ref(self, r: &NativeRef) -> Self {
+        self.push(op_native_ref(r.clone()))
+    }
+    pub fn padding(self, insets: impl IntoInsets) -> Self {
+        self.push(op_padding(insets.into_insets()))
+    }
+    pub fn max_width(self, max: f64) -> Self {
+        self.push(op_max_width(max))
+    }
+    pub fn reserving(self, sample: impl Into<String>) -> Self {
+        self.push(op_reserving(sample.into()))
+    }
+    pub fn frame(self, width: f64, height: f64) -> Self {
+        self.push(op_frame(Some(width), Some(height), Boundary::Yes))
+    }
+    pub fn width(self, width: f64) -> Self {
+        self.push(op_frame(Some(width), None, Boundary::No))
+    }
+    pub fn height(self, height: f64) -> Self {
+        self.push(op_frame(None, Some(height), Boundary::No))
+    }
+    pub fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> Self {
+        self.push(op_a11y(f))
+    }
+    pub fn on_tap(self, f: impl Fn() + 'static) -> Self {
+        self.push(op_on_tap(f))
+    }
+    pub fn on_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> Self {
+        self.push(op_on_tap_at(f))
+    }
+    pub fn focused<M>(self, binding: impl IntoFocusBinding<M>) -> Self {
+        let (want, on_native) = binding.into_focus_binding();
+        self.push(op_focused(want, on_native))
+    }
+    pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
+        self.push(op_context_menu(items))
+    }
+    pub fn on_drag(self, f: impl Fn(Drag) + 'static) -> Self {
+        self.push(op_on_drag(f))
+    }
+    pub fn background<M>(self, color: impl IntoReactive<Color, M>) -> Self {
+        self.push(op_background(color.into_reactive()))
+    }
+    pub fn corner_radius(self, radius: f64) -> Self {
+        self.push(op_corner_radius(radius))
+    }
+    pub fn opacity<M>(self, opacity: impl IntoReactive<f64, M>) -> Self {
+        self.push(op_opacity(opacity.into_reactive()))
+    }
+    pub fn transform<M>(self, t: impl IntoReactive<Transform, M>) -> Self {
+        self.push(op_transform(t.into_reactive()))
+    }
+    pub fn scale<M>(self, factor: impl IntoReactive<f64, M>) -> Self {
+        let f = factor.into_reactive();
+        self.transform(move || Transform::scale(f.get(), f.get()))
+    }
+    pub fn rotation<M>(self, degrees: impl IntoReactive<f64, M>) -> Self {
+        let d = degrees.into_reactive();
+        self.transform(move || Transform::rotate(d.get()))
+    }
+    pub fn translation<Mx, My>(
+        self,
+        x: impl IntoReactive<f64, Mx>,
+        y: impl IntoReactive<f64, My>,
+    ) -> Self {
+        let (x, y) = (x.into_reactive(), y.into_reactive());
+        self.transform(move || Transform::translate(x.get(), y.get()))
+    }
+    pub fn animation(self, anim: AnimSpec) -> Self {
+        self.push(op_animation(anim))
+    }
+    /// Erases, like [`Decorate::modifier`] — `Modifier` is defined over [`AnyPiece`].
+    pub fn modifier(self, m: impl Modifier) -> AnyPiece {
+        m.apply(self.any())
+    }
+    pub fn overlay(self, over: impl Piece) -> Self {
+        self.overlay_aligned(Alignment::Center, over)
+    }
+    pub fn overlay_aligned(self, align: Alignment, over: impl Piece) -> Self {
+        self.push(op_overlay_aligned(align, over))
+    }
+    pub fn aspect_ratio(self, ratio: f64) -> Self {
+        self.push(op_aspect_ratio(ratio))
+    }
+    pub fn grow(self) -> Self {
+        self.grow_axes(true, true)
+    }
+    pub fn grow_w(self) -> Self {
+        self.grow_axes(true, false)
+    }
+    pub fn grow_h(self) -> Self {
+        self.grow_axes(false, true)
+    }
+    #[doc(hidden)]
+    pub fn grow_axes(self, w: bool, h: bool) -> Self {
+        self.push(op_grow_axes(w, h))
+    }
+    pub fn grid_span(self, n: usize) -> Self {
+        self.push(op_grid_facts(GridFacts {
+            col_span: n.clamp(1, u16::MAX as usize) as u16,
+            ..Default::default()
+        }))
+    }
+    pub fn grid_align(self, a: Alignment) -> Self {
+        self.push(op_grid_facts(GridFacts {
+            align: Some(a),
+            ..Default::default()
+        }))
+    }
+    pub fn defers_system_gestures(self, edges: day_spec::Edges) -> Self {
+        self.push(op_defers_system_gestures(edges))
+    }
+    pub fn interactive_dismiss_disabled(self) -> Self {
+        self.push(op_interactive_dismiss_disabled())
+    }
+    /// Erase to a single [`AnyPiece`].
+    pub fn any(self) -> AnyPiece {
+        AnyPiece::new(self)
+    }
+}
+
+pub trait Decorate: Piece + Sized {
+    /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
+    fn id(self, id: impl Into<String>) -> Decorated<Self> {
+        Decorated::new(self).id(id)
+    }
+
+    /// Reactive element id — the id for rows inside a recycling [`list`](crate::list). A plain
+    /// [`id`](Self::id) is assigned once at build, but a recycled cell REBINDS to different
+    /// items over its life (and drag-to-reorder rebinds eagerly), so a static item-derived id
+    /// keeps naming the first-bound item. This variant re-registers whenever the closure's
+    /// value changes — read your `ItemSlot` inside it:
+    /// `.id_of(move || format!("row-remove-{}", slot.key()))`.
+    fn id_of(self, id: impl Fn() -> String + 'static) -> Decorated<Self> {
+        Decorated::new(self).id_of(id)
+    }
+
+    /// Keyed id for collection items: rendered `prefix:key` (§5.5).
+    fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> Decorated<Self> {
+        Decorated::new(self).id_keyed(prefix, key)
+    }
+
+    /// Apply a **tweak**: `f` runs once at mount, after the native widget exists, with the
+    /// realized node (docs/tweaks.md). Reach the typed native handle through the compiled
+    /// backend's ext accessor (`day_appkit::with_native`, `day_gtk::with_native`, …) — or apply
+    /// a packaged `day-tweak-*` crate's modifier instead of calling this directly. If the native
+    /// change affects the widget's intrinsic size, follow it with
+    /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,
+    /// enabled, frame, a11y) on its next patch; unmanaged properties are stable.
+    ///
+    /// Order it AFTER any modifier that can rebuild the backing widget — today
+    /// [`selectable`](Decorate::selectable), which on UIKit realizes the label as a different
+    /// native class. Chained before it, the tweak runs against the widget the rebuild discards
+    /// (Day warns at runtime); chained after, it sees the widget that ships.
+    fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> Decorated<Self> {
+        Decorated::new(self).tweak(f)
+    }
+
+    /// Make this piece's text **user-selectable** — the reader can select and copy it
+    /// (docs/text.md). Most useful on a [`label`](crate::label): text is NOT selectable by default
+    /// on any backend, matching each platform's native behavior.
+    ///
+    /// Every backend honors it on a label: most flip the native widget's selection affordance
+    /// (AppKit, GTK, Qt, XAML, HarmonyOS, Android, web); UIKit — whose `UILabel` has none —
+    /// rebuilds the label as a read-only `UITextView` behind the same handle. On other widgets
+    /// it is best-effort: a backing with no selection affordance leaves the text unselectable
+    /// rather than erroring, and a container cascades only where the platform's affordance does
+    /// (the web) — prefer the label itself. Selection visuals and the copy shortcut are the
+    /// platform's own. Unmanaged — set once at mount, and it survives Day's text updates.
+    fn selectable(self) -> Decorated<Self> {
+        Decorated::new(self).selectable()
+    }
+
+    /// Capture a [`NativeRef`] to this piece's realized node for later imperative access
+    /// (docs/tweaks.md). The ref clears automatically when the piece's scope is disposed.
+    fn native_ref(self, r: &NativeRef) -> Decorated<Self> {
+        Decorated::new(self).native_ref(r)
+    }
+
+    fn padding(self, insets: impl IntoInsets) -> Decorated<Self> {
+        Decorated::new(self).padding(insets)
+    }
+
+    /// Cap this piece's width at `max` points: the child is never PROPOSED more, so text
+    /// wraps inside the cap (chat bubbles, readable columns) while narrower content hugs.
+    fn max_width(self, max: f64) -> Decorated<Self> {
+        Decorated::new(self).max_width(max)
+    }
+
+    /// Reserve at least the space `sample` needs, so this piece's size stops changing with its
+    /// content.
+    ///
+    /// For a numeric readout beside a slider: `label(move || value()).reserving("100")` keeps the
+    /// row still while the number changes, because the reservation is a real measurement of
+    /// `"100"` in this piece's own font — it scales with the platform's accessibility text size
+    /// instead of being a point value that clips when someone turns text up.
+    ///
+    /// Pass the WIDEST value the field can show (`"100"`, `"-99.9"`, `"88:88"`). Pair it with
+    /// tabular numbers so the digits themselves stop shifting inside the reservation.
+    /// The sample never paints and never takes hit-testing area.
+    fn reserving(self, sample: impl Into<String>) -> Decorated<Self> {
+        Decorated::new(self).reserving(sample)
+    }
+
+    fn frame(self, width: f64, height: f64) -> Decorated<Self> {
+        Decorated::new(self).frame(width, height)
+    }
+
+    /// Fix this piece's WIDTH to `width` points while its height stays flexible (hugging its content
+    /// or filling on the cross axis). The single-axis complement to [`Self::frame`] — e.g. a
+    /// fixed-width sidebar pane in a `row` whose height fills the window.
+    fn width(self, width: f64) -> Decorated<Self> {
+        Decorated::new(self).width(width)
+    }
+
+    /// Fix this piece's HEIGHT to `height` points while its width stays flexible. The single-axis
+    /// complement to [`Self::frame`] — e.g. a fixed-height header/toolbar bar that fills its width.
+    fn height(self, height: f64) -> Decorated<Self> {
+        Decorated::new(self).height(height)
+    }
+
+    fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> Decorated<Self> {
+        Decorated::new(self).a11y(f)
+    }
+
+    /// Fire when this piece is tapped (bounding-box; shapes override with path-precise testing).
+    fn on_tap(self, f: impl Fn() + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_tap(f)
+    }
+
+    /// [`on_tap`](Self::on_tap), told WHERE — the point in the piece's own coordinate space,
+    /// origin at its top-leading corner.
+    ///
+    /// What a drawn control needs and a native one does not: a canvas showing a color wheel, a
+    /// map, or a waveform has to turn "the user pressed here" into a value, and only the piece
+    /// knows how. Pair it with [`on_drag`](Self::on_drag) — which already reports a location — to
+    /// track a press that turns into a drag; the two are idempotent together, so a backend that
+    /// reports a tap as a zero-length drag costs nothing.
+    ///
+    /// `Event::Tap` has always carried the point; this is the decorator that stops throwing it
+    /// away.
+    fn on_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_tap_at(f)
+    }
+
+    /// Bind this control's keyboard focus to a signal (docs/focus.md), two-way like every other
+    /// binding: native focus changes write the signal; writing the signal moves focus. Takes a
+    /// `Signal<bool>` for one control, or `(Signal<Option<K>>, K::Variant)` binding one control
+    /// of a group — writing `false`/`None` resigns focus (dismissing the soft keyboard on
+    /// mobile). Focus applies asynchronously: a write is a request, resolved on the next turn,
+    /// and the signal always ends up reflecting what the platform actually did.
+    fn focused<M>(self, binding: impl IntoFocusBinding<M>) -> Decorated<Self> {
+        Decorated::new(self).focused(binding)
+    }
+
+    /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)
+    /// or long-press (mobile). Items are built with [`menu_item`]/[`sub_menu`]/[`menu_role`]/
+    /// [`menu_separator`]. Passing an empty `Vec` removes any menu.
+    fn context_menu(self, items: Vec<MenuEntry>) -> Decorated<Self> {
+        Decorated::new(self).context_menu(items)
+    }
+
+    /// Fire on each phase of a drag over this piece.
+    fn on_drag(self, f: impl Fn(Drag) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_drag(f)
+    }
+
+    /// Fill the piece's bounds with a solid color painted behind it — a message-bubble / card /
+    /// badge surface. Accepts a constant [`Color`], a `Signal<Color>`, or a `Fn() -> Color`; a
+    /// reactive color repaints the surface when its source changes. Wraps the piece in a native
+    /// container that carries the fill, so it composes with [`Self::corner_radius`] for a rounded
+    /// colored surface and with [`Self::padding`] for interior inset.
+    fn background<M>(self, color: impl IntoReactive<Color, M>) -> Decorated<Self> {
+        Decorated::new(self).background(color)
+    }
+
+    /// Round the piece's corners to `radius` points, clipping its background and content to the
+    /// rounded rectangle. Compose after [`Self::background`] for a rounded colored surface, or use
+    /// alone to round a clipped child (e.g. an avatar image).
+    fn corner_radius(self, radius: f64) -> Decorated<Self> {
+        Decorated::new(self).corner_radius(radius)
+    }
+
+    /// Animate/set the piece's opacity (`0.0` transparent … `1.0` opaque). Wrapped in a native
+    /// layer so it composes with `.background`; the change animates when made inside
+    /// [`with_animation`] or under a `.animation` ancestor (§8.4).
+    fn opacity<M>(self, opacity: impl IntoReactive<f64, M>) -> Decorated<Self> {
+        Decorated::new(self).opacity(opacity)
+    }
+
+    /// Apply an animatable [`Transform`] (translate/scale/rotate about the center) — the cheap
+    /// movement/scaling channel that never triggers relayout (§8.4). Prefer this over `.offset`
+    /// for animated motion.
+    fn transform<M>(self, t: impl IntoReactive<Transform, M>) -> Decorated<Self> {
+        Decorated::new(self).transform(t)
+    }
+
+    /// Uniformly scale the piece by `factor` about its center (animatable). Convenience over
+    /// [`Self::transform`].
+    fn scale<M>(self, factor: impl IntoReactive<f64, M>) -> Decorated<Self> {
+        Decorated::new(self).scale(factor)
+    }
+
+    /// Rotate the piece by `degrees` clockwise about its center (animatable).
+    fn rotation<M>(self, degrees: impl IntoReactive<f64, M>) -> Decorated<Self> {
+        Decorated::new(self).rotation(degrees)
+    }
+
+    /// Translate the piece by (`x`, `y`) points WITHOUT relayout (animatable) — the
+    /// animation-friendly sibling of `.offset`.
+    fn translation<Mx, My>(
+        self,
+        x: impl IntoReactive<f64, Mx>,
+        y: impl IntoReactive<f64, My>,
+    ) -> Decorated<Self> {
+        Decorated::new(self).translation(x, y)
+    }
+
+    /// Attach an implicit animation (§8.4): changes to this piece's — and its descendants' —
+    /// animatable properties animate with `anim` even outside a [`with_animation`]. SwiftUI's
+    /// `.animation`. The ambient `with_animation` takes precedence when both apply.
+    fn animation(self, anim: AnimSpec) -> Decorated<Self> {
+        Decorated::new(self).animation(anim)
+    }
+
+    /// Apply a [`Modifier`] — or, via the blanket impl, a plain `FnOnce(AnyPiece) -> AnyPiece`
+    /// closure — to this piece. Pure composition: `content.modifier(m) == m.apply(content.any())`.
+    ///
+    /// The one modifier that ERASES: `Modifier` is defined over [`AnyPiece`], so the piece's own
+    /// type cannot survive it.
+    fn modifier(self, m: impl Modifier) -> AnyPiece {
+        m.apply(self.any())
+    }
+
+    /// Draw `over` on top of this piece, centered, WITHOUT affecting layout size — a badge /
+    /// annotation overlay. `self` is the sizing content (bottom of the z-order); `over` is proposed
+    /// `self`'s size and drawn on top. For an explicit alignment use [`Self::overlay_aligned`]; for
+    /// a stack that sizes to the UNION of its children use [`zstack`].
+    fn overlay(self, over: impl Piece) -> Decorated<Self> {
+        Decorated::new(self).overlay(over)
+    }
+
+    /// [`Self::overlay`] with an explicit [`Alignment`] for the annotation (e.g. a corner badge with
+    /// [`Alignment::TopTrailing`]).
+    fn overlay_aligned(self, align: Alignment, over: impl Piece) -> Decorated<Self> {
+        Decorated::new(self).overlay_aligned(align, over)
     }
 
     /// Constrain this piece to a `width / height` ratio: the largest box of that shape which
@@ -635,96 +1018,43 @@ pub trait Decorate: Piece + Sized {
     /// piece.
     ///
     /// A ratio that is not finite and positive describes no box, so it is ignored.
-    fn aspect_ratio(self, ratio: f64) -> AnyPiece {
-        piece_fn(move |cx| {
-            if !(ratio.is_finite() && ratio > 0.0) {
-                return self.build(cx);
-            }
-            let node = cx.layout_only(
-                Rc::new(AspectRatioLayout { ratio }),
-                Flex::default(),
-                // NOT a boundary: the child still measures itself, and the ratio only decides
-                // the box it is offered.
-                Boundary::No,
-            );
-            cx.under(node, |cx| {
-                let _ = self.build(cx);
-            });
-            node
-        })
+    fn aspect_ratio(self, ratio: f64) -> Decorated<Self> {
+        Decorated::new(self).aspect_ratio(ratio)
     }
 
     /// Expand to fill the available space on both axes (a filling pane / card that stretches to
     /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`] — the stack
     /// offers it the space and it fills; no native backing, so this is a pure layout change.
-    fn grow(self) -> AnyPiece {
-        self.grow_axes(true, true)
+    fn grow(self) -> Decorated<Self> {
+        Decorated::new(self).grow()
     }
 
     /// Expand to fill the available horizontal space.
-    fn grow_w(self) -> AnyPiece {
-        self.grow_axes(true, false)
+    fn grow_w(self) -> Decorated<Self> {
+        Decorated::new(self).grow_w()
     }
 
     /// Expand to fill the available vertical space.
-    fn grow_h(self) -> AnyPiece {
-        self.grow_axes(false, true)
+    fn grow_h(self) -> Decorated<Self> {
+        Decorated::new(self).grow_h()
     }
 
     #[doc(hidden)]
-    fn grow_axes(self, w: bool, h: bool) -> AnyPiece {
-        piece_fn(move |cx| {
-            let node = cx.layout_only(
-                Rc::new(GrowLayout { w, h }),
-                Flex {
-                    grow_w: w,
-                    grow_h: h,
-                    ..Default::default()
-                },
-                Boundary::No,
-            );
-            cx.under(node, |cx| {
-                let _ = self.build(cx);
-            });
-            node
-        })
+    fn grow_axes(self, w: bool, h: bool) -> Decorated<Self> {
+        Decorated::new(self).grow_axes(w, h)
     }
 
     /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers set
     /// facts on the node the grid sees: apply them LAST (outermost), like `.grow_w()` — an
     /// outer wrapper would hide the facts from the grid.
-    fn grid_span(self, n: usize) -> AnyPiece {
-        piece_fn(move |cx| {
-            let node = self.build(cx);
-            with_tree(|t| {
-                t.set_grid_facts(
-                    node,
-                    GridFacts {
-                        col_span: n.clamp(1, u16::MAX as usize) as u16,
-                        ..Default::default()
-                    },
-                )
-            });
-            node
-        })
+    fn grid_span(self, n: usize) -> Decorated<Self> {
+        Decorated::new(self).grid_span(n)
     }
 
     /// Override this cell's alignment within its cell rect of the enclosing [`grid`]
     /// (docs/grid.md). Apply LAST (outermost), like [`Self::grid_span`].
-    fn grid_align(self, a: Alignment) -> AnyPiece {
-        piece_fn(move |cx| {
-            let node = self.build(cx);
-            with_tree(|t| {
-                t.set_grid_facts(
-                    node,
-                    GridFacts {
-                        align: Some(a),
-                        ..Default::default()
-                    },
-                )
-            });
-            node
-        })
+    fn grid_align(self, a: Alignment) -> Decorated<Self> {
+        Decorated::new(self).grid_align(a)
     }
 
     /// While this subtree is mounted, ask the OS to require a second swipe for its edge
@@ -733,26 +1063,21 @@ pub trait Decorate: Piece + Sized {
     /// so a swipe up from the bottom doesn't leave the app. iOS defers the chosen edges'
     /// system gestures; Android enters swipe-to-reveal immersive mode while any subtree
     /// requests deferral; desktop backends no-op.
-    fn defers_system_gestures(self, edges: day_spec::Edges) -> AnyPiece {
-        piece_fn(move |cx| {
-            let token = day_core::shield::push_gesture_deferral(edges);
-            Scope::current().on_cleanup(move || day_core::shield::pop_gesture_deferral(token));
-            self.build(cx)
-        })
+    fn defers_system_gestures(self, edges: day_spec::Edges) -> Decorated<Self> {
+        Decorated::new(self).defers_system_gestures(edges)
     }
 
     /// While this subtree is mounted, the enclosing [`cover`] (or other modal surface) must
     /// not be dismissed interactively — the SwiftUI `interactiveDismissDisabled()` analogue
     /// (docs/cover.md). System back / sheet gestures are ignored; only programmatic writes
     /// (an explicit close control) dismiss it.
-    fn interactive_dismiss_disabled(self) -> AnyPiece {
-        piece_fn(move |cx| {
-            let token = day_core::shield::push_dismiss_disabled();
-            Scope::current().on_cleanup(move || day_core::shield::pop_dismiss_disabled(token));
-            self.build(cx)
-        })
+    fn interactive_dismiss_disabled(self) -> Decorated<Self> {
+        Decorated::new(self).interactive_dismiss_disabled()
     }
 
+    /// Erase to a single [`AnyPiece`] — for a `PieceVec`, a `-> AnyPiece` signature, or any other
+    /// place one concrete type is required. [`AnyPiece::any`] is inherent and returns `self`, so
+    /// erasing an already-erased piece costs nothing.
     fn any(self) -> AnyPiece {
         AnyPiece::new(self)
     }

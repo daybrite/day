@@ -58,7 +58,7 @@ pub trait AndroidExt: Decorate + Sized {
     fn android(
         self,
         f: impl FnOnce(&Global<JObject<'static>>, &str, &mut Env) + 'static,
-    ) -> day_core::AnyPiece {
+    ) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             let _ = with_native(n, f);
         })

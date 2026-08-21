@@ -58,7 +58,7 @@ fn apply(node: day_core::RNode, text: &str) {
 /// `.tooltip(text)` on any piece — a native hover (desktop) / long-press (Android) help string.
 pub trait TooltipTweak: Decorate + Sized {
     #[allow(unused_variables)]
-    fn tooltip(self, text: impl Into<String>) -> day_core::AnyPiece {
+    fn tooltip(self, text: impl Into<String>) -> day_pieces::Decorated<Self> {
         let text = text.into();
         #[cfg(any(
             feature = "appkit",

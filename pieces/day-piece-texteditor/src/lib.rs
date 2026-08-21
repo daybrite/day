@@ -552,3 +552,74 @@ mod tests {
         assert_eq!(byte_of_char(s, c_start + c_len), r.end);
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`TextEditor`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait TextEditorBuilder: Sized {
+    fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self;
+    fn typing_style(self, style: Signal<RunStyle>) -> Self;
+    fn base(self, base: Font) -> Self;
+    fn editable<M>(self, v: impl day_pieces::IntoReactive<bool, M>) -> Self;
+    fn spellcheck(self, on: bool) -> Self;
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
+    fn min_lines(self, n: u32) -> Self;
+    fn max_lines(self, n: u32) -> Self;
+}
+
+impl TextEditorBuilder for TextEditor {
+    fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self {
+        TextEditor::selection(self, sel)
+    }
+    fn typing_style(self, style: Signal<RunStyle>) -> Self {
+        TextEditor::typing_style(self, style)
+    }
+    fn base(self, base: Font) -> Self {
+        TextEditor::base(self, base)
+    }
+    fn editable<M>(self, v: impl day_pieces::IntoReactive<bool, M>) -> Self {
+        TextEditor::editable(self, v)
+    }
+    fn spellcheck(self, on: bool) -> Self {
+        TextEditor::spellcheck(self, on)
+    }
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        TextEditor::placeholder(self, t)
+    }
+    fn min_lines(self, n: u32) -> Self {
+        TextEditor::min_lines(self, n)
+    }
+    fn max_lines(self, n: u32) -> Self {
+        TextEditor::max_lines(self, n)
+    }
+}
+
+impl<Inner: TextEditorBuilder + day_pieces::prelude::Piece> TextEditorBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.selection(sel))
+    }
+    fn typing_style(self, style: Signal<RunStyle>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.typing_style(style))
+    }
+    fn base(self, base: Font) -> Self {
+        self.map_inner(|inner_piece| inner_piece.base(base))
+    }
+    fn editable<M>(self, v: impl day_pieces::IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.editable(v))
+    }
+    fn spellcheck(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.spellcheck(on))
+    }
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.placeholder(t))
+    }
+    fn min_lines(self, n: u32) -> Self {
+        self.map_inner(|inner_piece| inner_piece.min_lines(n))
+    }
+    fn max_lines(self, n: u32) -> Self {
+        self.map_inner(|inner_piece| inner_piece.max_lines(n))
+    }
+}

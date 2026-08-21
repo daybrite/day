@@ -327,6 +327,105 @@ impl Label {
     }
 }
 
+/// [`Label`]'s own builders, reachable THROUGH a decoration (§5.2).
+///
+/// `label(…).padding(8.0).font(Font::Caption)` resolves because [`Decorated`] forwards this trait
+/// to the label it wraps, so generic modifiers and typed ones may be chained in any order. The
+/// inherent methods on `Label` remain the implementation; this trait carries them across a
+/// decoration.
+pub trait LabelBuilder: Sized {
+    fn font(self, f: Font) -> Self;
+    fn weight(self, w: day_spec::FontWeight) -> Self;
+    fn bold(self) -> Self;
+    fn italic(self) -> Self;
+    fn tabular(self) -> Self;
+    fn monospace(self) -> Self;
+    fn runs(self, runs: Vec<day_spec::TextRun>) -> Self;
+    fn runs_from(self, b: TextBuilder) -> Self;
+    fn markdown(self) -> Self;
+    fn align(self, align: TextAlign) -> Self;
+    fn on_link(self, f: impl Fn(&str) + 'static) -> Self;
+    fn color<M>(self, c: impl IntoReactive<day_spec::Color, M>) -> Self;
+}
+
+impl LabelBuilder for Label {
+    fn font(self, f: Font) -> Self {
+        Label::font(self, f)
+    }
+    fn weight(self, w: day_spec::FontWeight) -> Self {
+        Label::weight(self, w)
+    }
+    fn bold(self) -> Self {
+        Label::bold(self)
+    }
+    fn italic(self) -> Self {
+        Label::italic(self)
+    }
+    fn tabular(self) -> Self {
+        Label::tabular(self)
+    }
+    fn monospace(self) -> Self {
+        Label::monospace(self)
+    }
+    fn runs(self, runs: Vec<day_spec::TextRun>) -> Self {
+        Label::runs(self, runs)
+    }
+    fn runs_from(self, b: TextBuilder) -> Self {
+        Label::runs_from(self, b)
+    }
+    fn markdown(self) -> Self {
+        Label::markdown(self)
+    }
+    fn align(self, align: TextAlign) -> Self {
+        Label::align(self, align)
+    }
+    fn on_link(self, f: impl Fn(&str) + 'static) -> Self {
+        Label::on_link(self, f)
+    }
+    fn color<M>(self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
+        Label::color(self, c)
+    }
+}
+
+impl<P: LabelBuilder + Piece> LabelBuilder for Decorated<P> {
+    fn font(self, f: Font) -> Self {
+        self.map_inner(|p| p.font(f))
+    }
+    fn weight(self, w: day_spec::FontWeight) -> Self {
+        self.map_inner(|p| p.weight(w))
+    }
+    fn bold(self) -> Self {
+        self.map_inner(LabelBuilder::bold)
+    }
+    fn italic(self) -> Self {
+        self.map_inner(LabelBuilder::italic)
+    }
+    fn tabular(self) -> Self {
+        self.map_inner(LabelBuilder::tabular)
+    }
+    fn monospace(self) -> Self {
+        self.map_inner(LabelBuilder::monospace)
+    }
+    fn runs(self, runs: Vec<day_spec::TextRun>) -> Self {
+        self.map_inner(|p| p.runs(runs))
+    }
+    fn runs_from(self, b: TextBuilder) -> Self {
+        self.map_inner(|p| p.runs_from(b))
+    }
+    fn markdown(self) -> Self {
+        self.map_inner(LabelBuilder::markdown)
+    }
+    fn align(self, align: TextAlign) -> Self {
+        self.map_inner(|p| p.align(align))
+    }
+    fn on_link(self, f: impl Fn(&str) + 'static) -> Self {
+        self.map_inner(|p| p.on_link(f))
+    }
+    fn color<M>(self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
+        self.map_inner(|p| p.color(c))
+    }
+}
+
 impl Piece for Label {
     fn build(self, cx: &mut BuildCx) -> RNode {
         // `.markdown()` replaces both the text and the runs: the markers are stripped from what
@@ -536,6 +635,52 @@ impl Button {
     pub fn tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
         self.tint = Some(color.into_reactive());
         self
+    }
+}
+
+/// [`Button`]'s own builders, reachable THROUGH a decoration — the [`LabelBuilder`] pattern, for
+/// buttons: `button(…).padding(8.0).prominent()` resolves.
+pub trait ButtonBuilder: Sized {
+    fn action(self, f: impl Fn() + 'static) -> Self;
+    fn bordered(self) -> Self;
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
+    fn prominent(self) -> Self;
+    fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self;
+}
+
+impl ButtonBuilder for Button {
+    fn action(self, f: impl Fn() + 'static) -> Self {
+        Button::action(self, f)
+    }
+    fn bordered(self) -> Self {
+        Button::bordered(self)
+    }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        Button::enabled(self, v)
+    }
+    fn prominent(self) -> Self {
+        Button::prominent(self)
+    }
+    fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
+        Button::tint(self, color)
+    }
+}
+
+impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
+    fn action(self, f: impl Fn() + 'static) -> Self {
+        self.map_inner(|p| p.action(f))
+    }
+    fn bordered(self) -> Self {
+        self.map_inner(ButtonBuilder::bordered)
+    }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|p| p.enabled(v))
+    }
+    fn prominent(self) -> Self {
+        self.map_inner(ButtonBuilder::prominent)
+    }
+    fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
+        self.map_inner(|p| p.tint(color))
     }
 }
 
@@ -937,5 +1082,107 @@ impl Piece for Spacer {
             },
             Boundary::No,
         )
+    }
+}
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Link`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait LinkBuilder: Sized {
+    fn font(self, f: Font) -> Self;
+    fn color(self, c: day_spec::Color) -> Self;
+    fn bold(self) -> Self;
+}
+
+impl LinkBuilder for Link {
+    fn font(self, f: Font) -> Self {
+        Link::font(self, f)
+    }
+    fn color(self, c: day_spec::Color) -> Self {
+        Link::color(self, c)
+    }
+    fn bold(self) -> Self {
+        Link::bold(self)
+    }
+}
+
+impl<Inner: LinkBuilder + Piece> LinkBuilder for Decorated<Inner> {
+    fn font(self, f: Font) -> Self {
+        self.map_inner(|inner_piece| inner_piece.font(f))
+    }
+    fn color(self, c: day_spec::Color) -> Self {
+        self.map_inner(|inner_piece| inner_piece.color(c))
+    }
+    fn bold(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.bold())
+    }
+}
+
+/// [`Toggle`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ToggleBuilder: Sized {
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
+}
+
+impl<S: Binding<bool>> ToggleBuilder for Toggle<S> {
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        Toggle::enabled(self, v)
+    }
+}
+
+impl<Inner: ToggleBuilder + Piece> ToggleBuilder for Decorated<Inner> {
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.enabled(v))
+    }
+}
+
+/// [`Slider`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait SliderBuilder: Sized {
+    fn range(self, r: std::ops::RangeInclusive<f64>) -> Self;
+    fn step(self, s: f64) -> Self;
+}
+
+impl<S: Binding<f64>> SliderBuilder for Slider<S> {
+    fn range(self, r: std::ops::RangeInclusive<f64>) -> Self {
+        Slider::range(self, r)
+    }
+    fn step(self, s: f64) -> Self {
+        Slider::step(self, s)
+    }
+}
+
+impl<Inner: SliderBuilder + Piece> SliderBuilder for Decorated<Inner> {
+    fn range(self, r: std::ops::RangeInclusive<f64>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.range(r))
+    }
+    fn step(self, s: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.step(s))
+    }
+}
+
+/// [`TextField`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait TextFieldBuilder: Sized {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
+    fn on_submit(self, f: impl Fn() + 'static) -> Self;
+}
+
+impl<S: Binding<String>> TextFieldBuilder for TextField<S> {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        TextField::placeholder(self, t)
+    }
+    fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        TextField::on_submit(self, f)
+    }
+}
+
+impl<Inner: TextFieldBuilder + Piece> TextFieldBuilder for Decorated<Inner> {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.placeholder(t))
+    }
+    fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_submit(f))
     }
 }

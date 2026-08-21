@@ -240,3 +240,32 @@ pub mod json {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, uikit);
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`SwiftUi`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait SwiftUiBuilder: Sized {
+    fn params<M>(self, params: impl IntoReactive<String, M>) -> Self;
+    fn state_key(self, key: impl Into<String>) -> Self;
+}
+
+impl SwiftUiBuilder for SwiftUi {
+    fn params<M>(self, params: impl IntoReactive<String, M>) -> Self {
+        SwiftUi::params(self, params)
+    }
+    fn state_key(self, key: impl Into<String>) -> Self {
+        SwiftUi::state_key(self, key)
+    }
+}
+
+impl<Inner: SwiftUiBuilder + day_pieces::prelude::Piece> SwiftUiBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn params<M>(self, params: impl IntoReactive<String, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.params(params))
+    }
+    fn state_key(self, key: impl Into<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.state_key(key))
+    }
+}

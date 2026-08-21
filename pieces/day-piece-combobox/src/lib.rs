@@ -147,3 +147,25 @@ impl Piece for ComboBox {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, mdc, xaml);
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`ComboBox`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ComboBoxBuilder: Sized {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
+}
+
+impl ComboBoxBuilder for ComboBox {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        ComboBox::placeholder(self, t)
+    }
+}
+
+impl<Inner: ComboBoxBuilder + day_pieces::prelude::Piece> ComboBoxBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.placeholder(t))
+    }
+}

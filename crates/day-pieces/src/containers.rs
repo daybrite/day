@@ -11,6 +11,8 @@ use day_reactive::{Signal, watch};
 use day_spec::kinds;
 use day_spec::props::*;
 
+use crate::Decorated;
+
 // ---------------------------------------------------------------------------
 // Containers
 // ---------------------------------------------------------------------------
@@ -62,6 +64,31 @@ impl<C: PieceSeq> Column<C> {
             HAlign::Trailing => CrossAlign::Trailing,
         };
         self
+    }
+}
+
+/// [`Column`]'s own builders, reachable THROUGH a decoration (§5.2) — see [`LabelBuilder`] for the
+/// pattern. `column(…).padding(8.0).spacing(4.0)` resolves.
+pub trait ColumnBuilder: Sized {
+    fn spacing(self, s: f64) -> Self;
+    fn align(self, a: HAlign) -> Self;
+}
+
+impl<C: PieceSeq> ColumnBuilder for Column<C> {
+    fn spacing(self, s: f64) -> Self {
+        Column::spacing(self, s)
+    }
+    fn align(self, a: HAlign) -> Self {
+        Column::align(self, a)
+    }
+}
+
+impl<P: ColumnBuilder + Piece> ColumnBuilder for Decorated<P> {
+    fn spacing(self, s: f64) -> Self {
+        self.map_inner(|p| p.spacing(s))
+    }
+    fn align(self, a: HAlign) -> Self {
+        self.map_inner(|p| p.align(a))
     }
 }
 
@@ -171,6 +198,38 @@ impl<C: PieceSeq> Row<C> {
         );
         cx.under(node, |cx| self.children.build_each(cx));
         node
+    }
+}
+
+/// [`Row`]'s own builders, reachable THROUGH a decoration (§5.2) — see [`LabelBuilder`] for the
+/// pattern.
+pub trait RowBuilder: Sized {
+    fn spacing(self, s: f64) -> Self;
+    fn align(self, a: VAlign) -> Self;
+    fn fit(self, fit: RowFit) -> Self;
+}
+
+impl<C: PieceSeq> RowBuilder for Row<C> {
+    fn spacing(self, s: f64) -> Self {
+        Row::spacing(self, s)
+    }
+    fn align(self, a: VAlign) -> Self {
+        Row::align(self, a)
+    }
+    fn fit(self, fit: RowFit) -> Self {
+        Row::fit(self, fit)
+    }
+}
+
+impl<P: RowBuilder + Piece> RowBuilder for Decorated<P> {
+    fn spacing(self, s: f64) -> Self {
+        self.map_inner(|p| p.spacing(s))
+    }
+    fn align(self, a: VAlign) -> Self {
+        self.map_inner(|p| p.align(a))
+    }
+    fn fit(self, fit: RowFit) -> Self {
+        self.map_inner(|p| p.fit(fit))
     }
 }
 
@@ -473,5 +532,114 @@ impl<C: PieceSeq> Piece for ZStack<C> {
         );
         cx.under(node, |cx| self.children.build_each(cx));
         node
+    }
+}
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Grid`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait GridBuilder: Sized {
+    fn spacing(self, s: f64) -> Self;
+    fn row_spacing(self, s: f64) -> Self;
+    fn column_spacing(self, s: f64) -> Self;
+    fn align(self, a: Alignment) -> Self;
+}
+
+impl<C: PieceSeq> GridBuilder for Grid<C> {
+    fn spacing(self, s: f64) -> Self {
+        Grid::spacing(self, s)
+    }
+    fn row_spacing(self, s: f64) -> Self {
+        Grid::row_spacing(self, s)
+    }
+    fn column_spacing(self, s: f64) -> Self {
+        Grid::column_spacing(self, s)
+    }
+    fn align(self, a: Alignment) -> Self {
+        Grid::align(self, a)
+    }
+}
+
+impl<Inner: GridBuilder + Piece> GridBuilder for Decorated<Inner> {
+    fn spacing(self, s: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.spacing(s))
+    }
+    fn row_spacing(self, s: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.row_spacing(s))
+    }
+    fn column_spacing(self, s: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.column_spacing(s))
+    }
+    fn align(self, a: Alignment) -> Self {
+        self.map_inner(|inner_piece| inner_piece.align(a))
+    }
+}
+
+/// [`GridRow`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait GridRowBuilder: Sized {
+    fn align(self, a: VAlign) -> Self;
+}
+
+impl<C: PieceSeq> GridRowBuilder for GridRow<C> {
+    fn align(self, a: VAlign) -> Self {
+        GridRow::align(self, a)
+    }
+}
+
+impl<Inner: GridRowBuilder + Piece> GridRowBuilder for Decorated<Inner> {
+    fn align(self, a: VAlign) -> Self {
+        self.map_inner(|inner_piece| inner_piece.align(a))
+    }
+}
+
+/// [`Scroll`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ScrollBuilder: Sized {
+    fn horizontal(self) -> Self;
+    fn axis(self, axis: Axis) -> Self;
+    fn scroll_target(self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self;
+}
+
+impl<P: Piece> ScrollBuilder for Scroll<P> {
+    fn horizontal(self) -> Self {
+        Scroll::horizontal(self)
+    }
+    fn axis(self, axis: Axis) -> Self {
+        Scroll::axis(self, axis)
+    }
+    fn scroll_target(self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self {
+        Scroll::scroll_target(self, sig)
+    }
+}
+
+impl<Inner: ScrollBuilder + Piece> ScrollBuilder for Decorated<Inner> {
+    fn horizontal(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.horizontal())
+    }
+    fn axis(self, axis: Axis) -> Self {
+        self.map_inner(|inner_piece| inner_piece.axis(axis))
+    }
+    fn scroll_target(self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.scroll_target(sig))
+    }
+}
+
+/// [`ZStack`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ZStackBuilder: Sized {
+    fn align(self, a: Alignment) -> Self;
+}
+
+impl<C: PieceSeq> ZStackBuilder for ZStack<C> {
+    fn align(self, a: Alignment) -> Self {
+        ZStack::align(self, a)
+    }
+}
+
+impl<Inner: ZStackBuilder + Piece> ZStackBuilder for Decorated<Inner> {
+    fn align(self, a: Alignment) -> Self {
+        self.map_inner(|inner_piece| inner_piece.align(a))
     }
 }

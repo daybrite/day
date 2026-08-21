@@ -536,6 +536,7 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     .frame(FIELD_W, FIELD_H)
     .corner_radius(10.0)
     .id("color-picker-shade")
+    .any()
 }
 
 /// The hue strip: one linear gradient through the six primaries and back to red.
@@ -558,6 +559,7 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
     .frame(FIELD_W, STRIP_H)
     .corner_radius(STRIP_H / 2.0)
     .id("color-picker-hue")
+    .any()
 }
 
 /// The opacity strip: the current color faded across, over the checkerboard that is the only way
@@ -579,6 +581,7 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
     .frame(FIELD_W, STRIP_H)
     .corner_radius(STRIP_H / 2.0)
     .id("color-picker-opacity")
+    .any()
 }
 
 /// A wrapping row of preset swatches. `RowFit::Wrap` rather than a grid: the palette is however
@@ -624,6 +627,7 @@ fn preset_row(
         .fit(RowFit::Wrap { run_spacing: 6.0 })
         .grow_w()
         .id("color-picker-presets")
+        .any()
 }
 
 /// The current color, large, over a checkerboard, with its hex beside it.
@@ -703,3 +707,67 @@ fn checkerboard(d: &mut Draw, size: Size) {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, xaml, dom);
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`ColorPicker`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ColorPickerBuilder: Sized {
+    fn alpha(self, on: bool) -> Self;
+    fn idiom(self, idiom: PickerIdiom) -> Self;
+    fn native(self) -> Self;
+    fn composed(self) -> Self;
+    fn title<M>(self, t: impl IntoText<M>) -> Self;
+    fn presets(self, presets: Vec<Color>) -> Self;
+    fn key(self, key: impl Into<String>) -> Self;
+}
+
+impl<C: Binding<Color>> ColorPickerBuilder for ColorPicker<C> {
+    fn alpha(self, on: bool) -> Self {
+        ColorPicker::alpha(self, on)
+    }
+    fn idiom(self, idiom: PickerIdiom) -> Self {
+        ColorPicker::idiom(self, idiom)
+    }
+    fn native(self) -> Self {
+        ColorPicker::native(self)
+    }
+    fn composed(self) -> Self {
+        ColorPicker::composed(self)
+    }
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        ColorPicker::title(self, t)
+    }
+    fn presets(self, presets: Vec<Color>) -> Self {
+        ColorPicker::presets(self, presets)
+    }
+    fn key(self, key: impl Into<String>) -> Self {
+        ColorPicker::key(self, key)
+    }
+}
+
+impl<Inner: ColorPickerBuilder + day_pieces::prelude::Piece> ColorPickerBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn alpha(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.alpha(on))
+    }
+    fn idiom(self, idiom: PickerIdiom) -> Self {
+        self.map_inner(|inner_piece| inner_piece.idiom(idiom))
+    }
+    fn native(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.native())
+    }
+    fn composed(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.composed())
+    }
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.title(t))
+    }
+    fn presets(self, presets: Vec<Color>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.presets(presets))
+    }
+    fn key(self, key: impl Into<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.key(key))
+    }
+}

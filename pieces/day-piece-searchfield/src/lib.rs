@@ -145,3 +145,25 @@ fn anchor_backend() {
     #[cfg(all(feature = "xaml", windows))]
     xaml_impl::anchor();
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`SearchField`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait SearchFieldBuilder: Sized {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
+}
+
+impl<S: Binding<String>> SearchFieldBuilder for SearchField<S> {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        SearchField::placeholder(self, t)
+    }
+}
+
+impl<Inner: SearchFieldBuilder + day_pieces::prelude::Piece> SearchFieldBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.placeholder(t))
+    }
+}

@@ -6199,6 +6199,13 @@ pub(crate) fn build_ns_menu(
                 };
                 if let Some(s) = &sc {
                     it.setKeyEquivalentModifierMask(ns_modifiers(s));
+                    // AppKit's own per-layout/per-language adjustments (macOS 12+): remap a
+                    // key equivalent the current keyboard layout cannot type, and MIRROR
+                    // directional pairs (⌘[ / ⌘]) under RTL languages — the system half of
+                    // shortcut localization; the catalog half is the `.key` attribute
+                    // (docs/localization.md).
+                    it.setAllowsAutomaticKeyEquivalentLocalization(true);
+                    it.setAllowsAutomaticKeyEquivalentMirroring(true);
                 }
                 if custom {
                     let tobj: &objc2::runtime::AnyObject = target.as_ref();

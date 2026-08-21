@@ -129,6 +129,16 @@ impl AnyPiece {
     pub fn new<P: Piece>(p: P) -> Self {
         AnyPiece(Box::new(move |cx| p.build(cx)))
     }
+
+    /// Already erased — hands itself back instead of boxing a box.
+    ///
+    /// INHERENT so it shadows the blanket `Decorate::any` (inherent methods win method
+    /// resolution). Every `Decorate` modifier returns an erased piece, so `.padding(8.0).any()`
+    /// and friends are common in app code and would otherwise pay a second allocation and a
+    /// second indirect call for nothing.
+    pub fn any(self) -> AnyPiece {
+        self
+    }
 }
 
 impl Piece for AnyPiece {
@@ -140,6 +150,52 @@ impl Piece for AnyPiece {
 /// A piece from a closure.
 pub fn piece_fn(f: impl FnOnce(&mut BuildCx) -> RNode + 'static) -> AnyPiece {
     AnyPiece(Box::new(f))
+}
+
+/// A build-time branch between two piece TYPES, without erasing either (§5.1).
+///
+/// `if compact { a.any() } else { b.any() }` boxes whichever arm it takes; `Either` keeps both
+/// concrete, so the branch costs nothing and the chosen arm's type survives into the parent:
+///
+/// ```ignore
+/// if compact { Either::Left(row(…)) } else { Either::Right(column(…)) }
+/// ```
+///
+/// For a branch on a SIGNAL — one that must re-evaluate — use `when(…).otherwise(…)` instead.
+/// This is a plain `if` resolved once at build.
+pub enum Either<A, B> {
+    Left(A),
+    Right(B),
+}
+
+impl<A: Piece, B: Piece> Piece for Either<A, B> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        match self {
+            Either::Left(a) => a.build(cx),
+            Either::Right(b) => b.build(cx),
+        }
+    }
+}
+
+#[cfg(test)]
+mod any_piece_tests {
+    use super::*;
+    use slotmap::Key as _;
+
+    fn box_addr(p: &AnyPiece) -> *const () {
+        (&*p.0 as *const dyn FnOnce(&mut BuildCx) -> RNode).cast::<()>()
+    }
+
+    /// `.any()` on an already-erased piece hands the SAME allocation back. Guards the inherent
+    /// method against being deleted as "redundant with `Decorate::any`" — it is what stops a
+    /// second box, and method resolution silently falls back to the blanket trait without it.
+    #[test]
+    fn any_on_an_erased_piece_reuses_its_box() {
+        let p = piece_fn(|_| RNode::null());
+        let before = box_addr(&p);
+        let p = p.any();
+        assert_eq!(before, box_addr(&p));
+    }
 }
 
 // ---------------------------------------------------------------------------

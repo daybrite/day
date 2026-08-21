@@ -65,7 +65,7 @@ pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
 /// The XAML tweak modifier: runs once at mount with the borrowed ABI pointer and its class name
 /// (docs/tweaks.md).
 pub trait XamlExt: Decorate + Sized {
-    fn xaml_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_core::AnyPiece {
+    fn xaml_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             if let Some((abi, class)) = with_native_raw(n) {
                 f(abi, class);

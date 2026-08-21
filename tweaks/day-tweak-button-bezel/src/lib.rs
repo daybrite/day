@@ -54,7 +54,7 @@ fn ns_bezel(b: Bezel) -> objc2_app_kit::NSBezelStyle {
 /// `.bezel(…)` on any piece whose native widget is an `NSButton` (i.e. `button(…)`).
 pub trait ButtonBezelTweak: Decorate + Sized {
     #[allow(unused_variables)]
-    fn bezel(self, bezel: Bezel) -> day_core::AnyPiece {
+    fn bezel(self, bezel: Bezel) -> day_pieces::Decorated<Self> {
         #[cfg(feature = "appkit")]
         {
             self.tweak(move |n| {

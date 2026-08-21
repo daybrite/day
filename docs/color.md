@@ -212,7 +212,7 @@ Promote `Paint` from canvas-only to the type every *surface* takes, with
 `impl From<Color> for Paint` so existing call sites compile unchanged:
 
 ```rust
-fn background<M>(self, paint: impl IntoReactive<Paint, M>) -> AnyPiece;   // Decorate
+fn background<M>(self, paint: impl IntoReactive<Paint, M>) -> Decorated<Self>;  // Decorate
 fn background(self, f: impl Fn(&R) -> Paint + 'static) -> Self;           // Cover
 pub fn fill<M>(self, paint: impl IntoReactive<Paint, M>) -> Self;         // ShapePiece
 ```

@@ -473,3 +473,84 @@ impl Piece for ShapePiece {
         node
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`ShapePiece`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ShapePieceBuilder: Sized {
+    fn fill<M>(self, p: impl IntoReactive<Color, M>) -> Self;
+    fn fill_linear<M>(self, g: impl IntoReactive<LinearGradient, M>) -> Self;
+    fn fill_radial<M>(self, g: impl IntoReactive<RadialGradient, M>) -> Self;
+    fn stroke<M1, M2>(
+        self,
+        color: impl IntoReactive<Color, M1>,
+        width: impl IntoReactive<f64, M2>,
+    ) -> Self;
+    fn inset<M>(self, v: impl IntoReactive<f64, M>) -> Self;
+    fn rotate<M>(self, deg: impl IntoReactive<f64, M>) -> Self;
+    fn offset<M1, M2>(self, x: impl IntoReactive<f64, M1>, y: impl IntoReactive<f64, M2>) -> Self;
+    fn at(self, fx: f64, fy: f64, fw: f64, fh: f64) -> Self;
+}
+
+impl ShapePieceBuilder for ShapePiece {
+    fn fill<M>(self, p: impl IntoReactive<Color, M>) -> Self {
+        ShapePiece::fill(self, p)
+    }
+    fn fill_linear<M>(self, g: impl IntoReactive<LinearGradient, M>) -> Self {
+        ShapePiece::fill_linear(self, g)
+    }
+    fn fill_radial<M>(self, g: impl IntoReactive<RadialGradient, M>) -> Self {
+        ShapePiece::fill_radial(self, g)
+    }
+    fn stroke<M1, M2>(
+        self,
+        color: impl IntoReactive<Color, M1>,
+        width: impl IntoReactive<f64, M2>,
+    ) -> Self {
+        ShapePiece::stroke(self, color, width)
+    }
+    fn inset<M>(self, v: impl IntoReactive<f64, M>) -> Self {
+        ShapePiece::inset(self, v)
+    }
+    fn rotate<M>(self, deg: impl IntoReactive<f64, M>) -> Self {
+        ShapePiece::rotate(self, deg)
+    }
+    fn offset<M1, M2>(self, x: impl IntoReactive<f64, M1>, y: impl IntoReactive<f64, M2>) -> Self {
+        ShapePiece::offset(self, x, y)
+    }
+    fn at(self, fx: f64, fy: f64, fw: f64, fh: f64) -> Self {
+        ShapePiece::at(self, fx, fy, fw, fh)
+    }
+}
+
+impl<Inner: ShapePieceBuilder + Piece> ShapePieceBuilder for Decorated<Inner> {
+    fn fill<M>(self, p: impl IntoReactive<Color, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.fill(p))
+    }
+    fn fill_linear<M>(self, g: impl IntoReactive<LinearGradient, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.fill_linear(g))
+    }
+    fn fill_radial<M>(self, g: impl IntoReactive<RadialGradient, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.fill_radial(g))
+    }
+    fn stroke<M1, M2>(
+        self,
+        color: impl IntoReactive<Color, M1>,
+        width: impl IntoReactive<f64, M2>,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.stroke(color, width))
+    }
+    fn inset<M>(self, v: impl IntoReactive<f64, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.inset(v))
+    }
+    fn rotate<M>(self, deg: impl IntoReactive<f64, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.rotate(deg))
+    }
+    fn offset<M1, M2>(self, x: impl IntoReactive<f64, M1>, y: impl IntoReactive<f64, M2>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.offset(x, y))
+    }
+    fn at(self, fx: f64, fy: f64, fw: f64, fh: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.at(fx, fy, fw, fh))
+    }
+}

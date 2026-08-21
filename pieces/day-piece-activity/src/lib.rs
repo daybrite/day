@@ -157,3 +157,32 @@ mod tests {
         assert_eq!(probe.find_by_kind(KIND).len(), 1);
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Activity`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ActivityBuilder: Sized {
+    fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self;
+    fn large(self, large: bool) -> Self;
+}
+
+impl ActivityBuilder for Activity {
+    fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self {
+        Activity::animating(self, source)
+    }
+    fn large(self, large: bool) -> Self {
+        Activity::large(self, large)
+    }
+}
+
+impl<Inner: ActivityBuilder + day_pieces::prelude::Piece> ActivityBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.animating(source))
+    }
+    fn large(self, large: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.large(large))
+    }
+}

@@ -205,3 +205,44 @@ mod tests {
         flush_sync();
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Map`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait MapBuilder: Sized {
+    fn center(self, lat: f64, lon: f64) -> Self;
+    fn center_signal<M>(self, coord: impl IntoReactive<Coord, M>) -> Self;
+    fn span(self, degrees: f64) -> Self;
+    fn marker(self, lat: f64, lon: f64) -> Self;
+}
+
+impl MapBuilder for Map {
+    fn center(self, lat: f64, lon: f64) -> Self {
+        Map::center(self, lat, lon)
+    }
+    fn center_signal<M>(self, coord: impl IntoReactive<Coord, M>) -> Self {
+        Map::center_signal(self, coord)
+    }
+    fn span(self, degrees: f64) -> Self {
+        Map::span(self, degrees)
+    }
+    fn marker(self, lat: f64, lon: f64) -> Self {
+        Map::marker(self, lat, lon)
+    }
+}
+
+impl<Inner: MapBuilder + day_pieces::prelude::Piece> MapBuilder for day_pieces::Decorated<Inner> {
+    fn center(self, lat: f64, lon: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.center(lat, lon))
+    }
+    fn center_signal<M>(self, coord: impl IntoReactive<Coord, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.center_signal(coord))
+    }
+    fn span(self, degrees: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.span(degrees))
+    }
+    fn marker(self, lat: f64, lon: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.marker(lat, lon))
+    }
+}

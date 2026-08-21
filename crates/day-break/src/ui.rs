@@ -16,7 +16,11 @@ use crate::i18n::t;
 const CARD: Color = Color::rgba(0.5, 0.5, 0.55, 0.16);
 
 fn card(content: AnyPiece) -> AnyPiece {
-    content.padding(14.0).background(CARD).corner_radius(12.0)
+    content
+        .padding(14.0)
+        .background(CARD)
+        .corner_radius(12.0)
+        .any()
 }
 
 /// A banner disclosing the newest pending crash report, with View / Send / Discard. Renders

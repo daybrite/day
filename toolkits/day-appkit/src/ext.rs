@@ -51,7 +51,7 @@ pub trait AppKitExt: Decorate + Sized {
     fn appkit(
         self,
         f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) + 'static,
-    ) -> day_core::AnyPiece {
+    ) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             let _ = with_native(n, f);
         })

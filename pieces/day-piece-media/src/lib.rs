@@ -256,3 +256,67 @@ mod tests {
         flush_sync();
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Media`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait MediaBuilder: Sized {
+    fn autoplay(self, autoplay: bool) -> Self;
+    fn looping(self, looping: bool) -> Self;
+    fn muted(self, muted: bool) -> Self;
+    fn controls(self, controls: bool) -> Self;
+    fn play(self, trigger: Trigger) -> Self;
+    fn pause(self, trigger: Trigger) -> Self;
+    fn load(self, trigger: Trigger) -> Self;
+}
+
+impl MediaBuilder for Media {
+    fn autoplay(self, autoplay: bool) -> Self {
+        Media::autoplay(self, autoplay)
+    }
+    fn looping(self, looping: bool) -> Self {
+        Media::looping(self, looping)
+    }
+    fn muted(self, muted: bool) -> Self {
+        Media::muted(self, muted)
+    }
+    fn controls(self, controls: bool) -> Self {
+        Media::controls(self, controls)
+    }
+    fn play(self, trigger: Trigger) -> Self {
+        Media::play(self, trigger)
+    }
+    fn pause(self, trigger: Trigger) -> Self {
+        Media::pause(self, trigger)
+    }
+    fn load(self, trigger: Trigger) -> Self {
+        Media::load(self, trigger)
+    }
+}
+
+impl<Inner: MediaBuilder + day_pieces::prelude::Piece> MediaBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn autoplay(self, autoplay: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.autoplay(autoplay))
+    }
+    fn looping(self, looping: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.looping(looping))
+    }
+    fn muted(self, muted: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.muted(muted))
+    }
+    fn controls(self, controls: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.controls(controls))
+    }
+    fn play(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.play(trigger))
+    }
+    fn pause(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.pause(trigger))
+    }
+    fn load(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.load(trigger))
+    }
+}

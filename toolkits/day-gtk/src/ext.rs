@@ -40,7 +40,7 @@ pub fn with_native<R>(node: RNode, f: impl FnOnce(&gtk4::Widget, &str) -> R) -> 
 
 /// The GTK tweak modifier: runs once at mount, after the widget exists (docs/tweaks.md).
 pub trait GtkExt: Decorate + Sized {
-    fn gtk(self, f: impl FnOnce(&gtk4::Widget, &str) + 'static) -> day_core::AnyPiece {
+    fn gtk(self, f: impl FnOnce(&gtk4::Widget, &str) + 'static) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             let _ = with_native(n, f);
         })

@@ -305,3 +305,97 @@ impl<S: Binding<String>> Piece for TextArea<S> {
         node
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Picker`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait PickerBuilder: Sized {
+    fn menu(self) -> Self;
+    fn segmented(self) -> Self;
+    fn inline(self) -> Self;
+    fn style(self, style: day_spec::props::PickerStyle) -> Self;
+}
+
+impl<Sel: Binding<usize>> PickerBuilder for Picker<Sel> {
+    fn menu(self) -> Self {
+        Picker::menu(self)
+    }
+    fn segmented(self) -> Self {
+        Picker::segmented(self)
+    }
+    fn inline(self) -> Self {
+        Picker::inline(self)
+    }
+    fn style(self, style: day_spec::props::PickerStyle) -> Self {
+        Picker::style(self, style)
+    }
+}
+
+impl<Inner: PickerBuilder + Piece> PickerBuilder for Decorated<Inner> {
+    fn menu(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.menu())
+    }
+    fn segmented(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.segmented())
+    }
+    fn inline(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.inline())
+    }
+    fn style(self, style: day_spec::props::PickerStyle) -> Self {
+        self.map_inner(|inner_piece| inner_piece.style(style))
+    }
+}
+
+/// [`TextArea`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait TextAreaBuilder: Sized {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
+    fn min_lines(self, lines: u32) -> Self;
+    fn max_lines(self, lines: u32) -> Self;
+    fn editable<M>(self, v: impl IntoReactive<bool, M>) -> Self;
+    fn spellcheck<M>(self, v: impl IntoReactive<bool, M>) -> Self;
+    fn on_submit(self, f: impl Fn() + 'static) -> Self;
+}
+
+impl<S: Binding<String>> TextAreaBuilder for TextArea<S> {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        TextArea::placeholder(self, t)
+    }
+    fn min_lines(self, lines: u32) -> Self {
+        TextArea::min_lines(self, lines)
+    }
+    fn max_lines(self, lines: u32) -> Self {
+        TextArea::max_lines(self, lines)
+    }
+    fn editable<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        TextArea::editable(self, v)
+    }
+    fn spellcheck<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        TextArea::spellcheck(self, v)
+    }
+    fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        TextArea::on_submit(self, f)
+    }
+}
+
+impl<Inner: TextAreaBuilder + Piece> TextAreaBuilder for Decorated<Inner> {
+    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.placeholder(t))
+    }
+    fn min_lines(self, lines: u32) -> Self {
+        self.map_inner(|inner_piece| inner_piece.min_lines(lines))
+    }
+    fn max_lines(self, lines: u32) -> Self {
+        self.map_inner(|inner_piece| inner_piece.max_lines(lines))
+    }
+    fn editable<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.editable(v))
+    }
+    fn spellcheck<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.spellcheck(v))
+    }
+    fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_submit(f))
+    }
+}

@@ -63,28 +63,39 @@ pub mod prelude {
     pub use crate::ToolbarEntry;
     pub use crate::routes;
     pub use crate::{
-        A11yBuilder, Alert, BackRequest, BackResponse, Binding, Confirm, Corner, Cover, Decorate,
-        Drag, Draw, FileUrl, FormSection, Grid, GridRow, HAlign, IntoFocusBinding, IntoFraction,
-        IntoReactive, IntoText, ItemSlot, Link, List, MenuEntry, Modifier, NativeRef, NavItem,
-        OpenFile, PathBuilder, Prompt, Reactive, Reorder, Route, RoutePath, RowFit, SaveFile,
-        Selector, SelectorStyle, ShapeKind, ShapePiece, Stack, TextBuilder, VAlign, VectorWeight,
-        When, ZStack, alert, app_menu, app_menu_reactive, arc, button, canvas, capsule, circle,
-        column, confirm, cover, current_route, divider, each, ellipse, environment, form,
-        frame_clock, grid, grid_row, image, item, items, label, labeled, line, link, list,
-        menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to, navigate,
-        navigate_to, open_file, picker, polygon, progress, prompt, rectangle, rounded_rectangle,
-        route, route_param, route_params, row, save_file, scroll, section, segment, selector,
-        shape, shape_group, shape_group_fn, slider, spacer, spinner, stack, sub_menu, text_area,
-        text_field, toggle, toolbar, toolbar_button, toolbar_flexible_space, toolbar_label,
-        toolbar_menu, toolbar_reactive, toolbar_segmented, toolbar_separator,
-        toolbar_sidebar_toggle, toolbar_space, toolbar_toggle, vector, when, with_environment,
-        zstack,
+        A11yBuilder, Alert, BackRequest, BackResponse, Binding, ButtonBuilder, ColumnBuilder,
+        Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileUrl, FormSection, Grid,
+        GridRow, HAlign, IntoFocusBinding, IntoFraction, IntoReactive, IntoText, ItemSlot,
+        LabelBuilder, Link, List, MenuEntry, Modifier, NativeRef, NavItem, OpenFile, PathBuilder,
+        Prompt, Reactive, Reorder, Route, RoutePath, RowBuilder, RowFit, SaveFile, Selector,
+        SelectorStyle, ShapeKind, ShapePiece, Stack, TextBuilder, VAlign, VectorWeight, When,
+        ZStack, alert, app_menu, app_menu_reactive, arc, button, canvas, capsule, circle, column,
+        confirm, cover, current_route, divider, each, ellipse, environment, form, frame_clock,
+        grid, grid_row, image, item, items, label, labeled, line, link, list, menu_item, menu_role,
+        menu_separator, nav_back, nav_link, nav_link_to, navigate, navigate_to, open_file, picker,
+        polygon, progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params,
+        row, save_file, scroll, section, segment, selector, shape, shape_group, shape_group_fn,
+        slider, spacer, spinner, stack, sub_menu, text_area, text_field, toggle, toolbar,
+        toolbar_button, toolbar_flexible_space, toolbar_label, toolbar_menu, toolbar_reactive,
+        toolbar_segmented, toolbar_separator, toolbar_sidebar_toggle, toolbar_space,
+        toolbar_toggle, vector, when, with_environment, zstack,
+    };
+    // Typed builder traits (docs/api-style.md "Typed builders and erasure"): each piece's own
+    // builders, forwarded through `Decorated` so they still chain after a generic modifier. A
+    // piece implements exactly one, so the names they share (`title`, `style`, `align`, …) never
+    // become ambiguous at a call site. (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder` and
+    // `RowBuilder` sit in the list above, in alphabetical company.)
+    pub use crate::{
+        CoverBuilder, FormSectionBuilder, GridBuilder, GridRowBuilder, ImageBuilder, LinkBuilder,
+        ListBuilder, PickerBuilder, ScrollBuilder, SelectorBuilder, ShapePieceBuilder,
+        SliderBuilder, StackBuilder, TextAreaBuilder, TextFieldBuilder, ToggleBuilder,
+        VectorBuilder, WhenBuilder, ZStackBuilder,
     };
     #[cfg(feature = "model")]
     pub use crate::{ModelSlot, Rows, StoreRows};
     pub use crate::{Picker, TextArea};
     pub use day_core::{
-        Alignment, AnyPiece, BuildCx, Piece, PieceSeq, PieceVec, RNode, ScrollTarget,
+        Alignment, AnyPiece, BuildCx, Either, Piece, PieceSeq, PieceVec, RNode, ScrollTarget,
         invalidate_size, open_url, piece_fn, with_animation,
     };
     pub use day_geometry::{Affine, Animatable, Color, Insets, Point, Rect, Size, Transform};

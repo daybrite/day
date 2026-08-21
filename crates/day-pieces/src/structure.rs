@@ -13,6 +13,8 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{Scope, Signal, watch};
 use day_spec::props::*;
+
+use crate::Decorated;
 use day_spec::{Event, kinds};
 
 // ---------------------------------------------------------------------------
@@ -1114,3 +1116,139 @@ mod model_rows {
 
 #[cfg(feature = "model")]
 pub use model_rows::{ModelSlot, Rows, StoreRows};
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`When`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait WhenBuilder: Sized {
+    fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self;
+}
+
+impl WhenBuilder for When {
+    fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self {
+        When::otherwise(self, build_arm)
+    }
+}
+
+impl<Inner: WhenBuilder + Piece> WhenBuilder for Decorated<Inner> {
+    fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.otherwise(build_arm))
+    }
+}
+
+/// [`List`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait ListBuilder<S: RowSource + 'static>: Sized {
+    fn row_height(self, h: RowHeight) -> Self;
+    fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self;
+    fn multi_select(self, on: bool) -> Self;
+    fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self;
+    fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self;
+    fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self;
+    fn stick_to_bottom(self, on: bool) -> Self;
+    fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self;
+    fn reorderable(self, on: bool) -> Self;
+    fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self;
+    fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self;
+    fn deletable(self, on: bool) -> Self;
+    fn delete_label(self, text: impl Into<String>) -> Self;
+    fn on_delete(self, f: impl Fn(usize) + 'static) -> Self;
+    fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self;
+}
+
+impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
+    fn row_height(self, h: RowHeight) -> Self {
+        List::row_height(self, h)
+    }
+    fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self {
+        List::on_select(self, f)
+    }
+    fn multi_select(self, on: bool) -> Self {
+        List::multi_select(self, on)
+    }
+    fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self {
+        List::on_selection(self, f)
+    }
+    fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
+        List::selected_rows(self, rows)
+    }
+    fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self {
+        List::scroll_to_end(self, trigger)
+    }
+    fn stick_to_bottom(self, on: bool) -> Self {
+        List::stick_to_bottom(self, on)
+    }
+    fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self {
+        List::scroll_to_row(self, sig)
+    }
+    fn reorderable(self, on: bool) -> Self {
+        List::reorderable(self, on)
+    }
+    fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self {
+        List::on_reorder(self, f)
+    }
+    fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
+        List::reorder_guard(self, g)
+    }
+    fn deletable(self, on: bool) -> Self {
+        List::deletable(self, on)
+    }
+    fn delete_label(self, text: impl Into<String>) -> Self {
+        List::delete_label(self, text)
+    }
+    fn on_delete(self, f: impl Fn(usize) + 'static) -> Self {
+        List::on_delete(self, f)
+    }
+    fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
+        List::delete_guard(self, g)
+    }
+}
+
+impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for Decorated<Inner> {
+    fn row_height(self, h: RowHeight) -> Self {
+        self.map_inner(|inner_piece| inner_piece.row_height(h))
+    }
+    fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_select(f))
+    }
+    fn multi_select(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.multi_select(on))
+    }
+    fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_selection(f))
+    }
+    fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.selected_rows(rows))
+    }
+    fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.scroll_to_end(trigger))
+    }
+    fn stick_to_bottom(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.stick_to_bottom(on))
+    }
+    fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.scroll_to_row(sig))
+    }
+    fn reorderable(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.reorderable(on))
+    }
+    fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_reorder(f))
+    }
+    fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.reorder_guard(g))
+    }
+    fn deletable(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.deletable(on))
+    }
+    fn delete_label(self, text: impl Into<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.delete_label(text))
+    }
+    fn on_delete(self, f: impl Fn(usize) + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_delete(f))
+    }
+    fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.delete_guard(g))
+    }
+}

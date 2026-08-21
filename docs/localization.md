@@ -113,6 +113,42 @@ label(res::str::nav_home())                      // 0-param keys are nullary fun
 > and the runtime resolver (`fluent-bundle`) all use `fluent-syntax`, so what the tooling accepts is what
 > resolves at runtime.
 
+## Keyboard shortcuts: localizable, but stable by default
+
+Shortcut LETTERS are not translated the way labels are. The modern convention — Apple's and
+Microsoft's alike — keeps ⌘C/⌘S/⌘G the same characters in every language: they bind to the
+COMMAND, not to the translated word (French macOS quits with ⌘Q and saves with ⌘S, whatever
+"Quitter" and "Enregistrer" start with), because cross-application muscle memory and
+documentation outweigh mnemonic spelling. What DOES vary is the keyboard itself, and that is
+the operating system's job, not the translator's: macOS remaps a key equivalent the current
+layout cannot type and MIRRORS directional pairs (⌘[ / ⌘]) under right-to-left languages —
+day-appkit opts every chorded item into both behaviors.
+
+For the rare case where a locale genuinely needs a different letter, the shortcut key is
+catalog data like any other string: a Fluent **attribute** on the command's own message, so
+the translator sees the two together —
+
+```ftl
+menu_group = Group
+    .key = g
+```
+
+`day-build` generates a `res::str::menu_group_key()` accessor beside `menu_group()`, and the
+app builds its `Shortcut` from it:
+
+```rust
+menu_item(res::str::menu_group().format())
+    .action(group_selection)
+    .shortcut(Shortcut { key: res::str::menu_group_key().format(), primary: true, ..Default::default() })
+```
+
+A locale that omits `.key` inherits the default locale's through the ordinary fallback chain
+— which is the point: shortcuts stay stable across languages unless a locale deliberately
+overrides, and the coverage lint does not demand the attribute anywhere. Modifier schemes
+(primary/shift/alt) are command semantics and stay in code. Role items
+(`menu_role(MenuRole::Copy)`, [docs/menus.md](menus.md)) keep the platform's own system
+shortcuts and never localize them.
+
 ## Formatted values: `NUMBER()` and `DATETIME()`
 
 Every bundle (app and core, registered automatically by `day-l10n`) provides icu4x-backed

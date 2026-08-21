@@ -125,3 +125,39 @@ impl Piece for Lottie {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(uikit, mdc);
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Lottie`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait LottieBuilder: Sized {
+    fn looping(self, looping: bool) -> Self;
+    fn autoplay(self, autoplay: bool) -> Self;
+    fn speed<M>(self, speed: impl IntoReactive<f64, M>) -> Self;
+}
+
+impl LottieBuilder for Lottie {
+    fn looping(self, looping: bool) -> Self {
+        Lottie::looping(self, looping)
+    }
+    fn autoplay(self, autoplay: bool) -> Self {
+        Lottie::autoplay(self, autoplay)
+    }
+    fn speed<M>(self, speed: impl IntoReactive<f64, M>) -> Self {
+        Lottie::speed(self, speed)
+    }
+}
+
+impl<Inner: LottieBuilder + day_pieces::prelude::Piece> LottieBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn looping(self, looping: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.looping(looping))
+    }
+    fn autoplay(self, autoplay: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.autoplay(autoplay))
+    }
+    fn speed<M>(self, speed: impl IntoReactive<f64, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.speed(speed))
+    }
+}

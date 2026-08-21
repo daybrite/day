@@ -629,8 +629,10 @@ Authoring-surface edges, specified now so they don't accrete ad hoc:
 
 - **`PieceSeq` flattens recursively** — a tuple containing a `PieceSeq` contributes its children
   in place with no extra node — and `PieceVec(Vec<AnyPiece>)` covers the runtime-heterogeneous
-  case (`row(PieceVec(stars))`). `Decorate` provides `fn any(self) -> AnyPiece` for build-time
-  heterogeneous branches (`if compact { a.any() } else { b.any() }`).
+  case (`row(PieceVec(stars))`). A build-time heterogeneous branch takes `Either<A, B>`
+  (`if compact { Either::Left(a) } else { Either::Right(b) }`), which keeps both arms concrete;
+  `Decorate::any` erases when a single `AnyPiece` is what's actually needed. `AnyPiece::any` is
+  inherent and returns `self`, so re-erasing an erased piece costs nothing.
 - **Closure capture rules**: the builder closures of `when`/`each` are `Fn` (they may
   run more than once); non-`Copy` captures must be cloned per activation
   (`let items = items.clone();` inside the closure, or capture a `Signal` — signals are `Copy`,
@@ -657,8 +659,19 @@ children. Concrete piece structs (`Label`, `Button`, `Column`…) are public so 
 inherent methods (good rustdoc, good autocomplete) — the modifiers that apply to ANY piece
 (`padding`, `id`, `a11y`, `background`, `on_tap`…) come from a blanket `Decorate` extension trait,
 while a modifier only some pieces can honor stays an inherent method on those pieces: `style` is
-typed per piece (`Button::style` takes a `ButtonStyle`, `Picker::style` a `PickerStyle`), and
-`enabled` needs a control to gray out (`Button::enabled`, `Toggle::enabled`).
+typed per piece (`Picker::style` takes a `PickerStyle`), and `enabled` needs a control to gray out
+(`Button::enabled`, `Toggle::enabled`).
+
+**Modifiers do not erase.** Each `Decorate` method returns `Decorated<Self>` — the piece plus an
+ordered op list — so the concrete piece type survives a chain; inherent methods on `Decorated<P>`
+shadow the trait's, keeping the chain flat rather than nesting. A piece's own builders are also
+declared in a `*Builder` trait (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`)
+that `Decorated<P>` forwards through `map_inner`, so `label(…).padding(8.0).font(…)` resolves and
+there is no "typed modifiers must come first" ordering rule. Toolkit and `day-tweak-*` extension
+traits follow the same signature (docs/tweaks.md, docs/api-style.md "Typed builders and erasure").
+`Decorate::modifier` is the one erasing modifier, because `Modifier` is defined over `AnyPiece`.
+Annotating ops (`id`, `selectable`, `grid_span`) still target the node built so far, which is why
+grid facts are documented as applying LAST.
 
 ### §5.3 Built-in pieces (MVP set)
 

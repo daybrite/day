@@ -290,8 +290,19 @@ fn message_from(
             let lang = locale_name.split('-').next().unwrap_or(locale_name);
             map.get(lang)
         })?;
-    let msg = bundle.get_message(key)?;
-    let pattern = msg.value()?;
+    // `message.attribute` reaches a Fluent ATTRIBUTE (a message id itself can never contain
+    // a dot, so the split is unambiguous) — how localized keyboard-shortcut keys resolve
+    // (`menu_group.key`, docs/localization.md): the attribute lives beside its command's
+    // label, and a locale that omits it falls through this chain to the default's.
+    let (msg_key, attr) = match key.split_once('.') {
+        Some((m, a)) => (m, Some(a)),
+        None => (key, None),
+    };
+    let msg = bundle.get_message(msg_key)?;
+    let pattern = match attr {
+        Some(a) => msg.get_attribute(a)?.value(),
+        None => msg.value()?,
+    };
     let mut errs = Vec::new();
     Some(
         bundle
@@ -436,6 +447,39 @@ mod tests {
         assert_eq!(strip_isolates(&format_in("xx", "day-copy", &[])), "Copy");
         // Unknown key → visible marker, never a panic.
         assert_eq!(format_in("en", "nope", &[]), "⟨nope⟩");
+    }
+
+    #[test]
+    fn shortcut_key_attributes_resolve_and_fall_back_across_locales() {
+        install(
+            "en",
+            &[
+                ("en", "menu_group = Group\n    .key = g\n"),
+                // fr omits the attribute — the shortcut stays the default locale's, which is
+                // the industry posture (letters stay stable across languages)…
+                ("fr", "menu_group = Grouper\n"),
+                // …while a locale that NEEDS to differ simply declares it.
+                ("de", "menu_group = Gruppieren\n    .key = r\n"),
+            ],
+        );
+        assert_eq!(strip_isolates(&format_in("en", "menu_group.key", &[])), "g");
+        assert_eq!(
+            strip_isolates(&format_in("fr", "menu_group.key", &[])),
+            "g",
+            "an omitted attribute falls back to the default locale's"
+        );
+        assert_eq!(
+            strip_isolates(&format_in("de", "menu_group.key", &[])),
+            "r",
+            "a locale may deliberately override"
+        );
+        assert_eq!(
+            strip_isolates(&format_in("fr", "menu_group", &[])),
+            "Grouper",
+            "the message value is untouched"
+        );
+        assert_eq!(format_in("en", "menu_group.nope", &[]), "⟨menu_group.nope⟩");
+        install("en", &[]); // leave the thread's shared state clean for other tests
     }
 
     #[test]

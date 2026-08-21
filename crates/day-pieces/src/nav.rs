@@ -3121,3 +3121,353 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         node
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Selector`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait SelectorBuilder<K: Route>: Sized {
+    fn style(self, style: SelectorStyle) -> Self;
+    fn title<M>(self, t: impl IntoText<M>) -> Self;
+    fn section<M>(self, title: impl IntoText<M>) -> Self;
+    fn badge<M>(self, badge: impl IntoText<M>) -> Self;
+    fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self;
+    fn badge_tint(self, color: day_spec::Color) -> Self;
+    fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self;
+    fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self;
+    fn item<M, P: Piece>(
+        self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self;
+    fn item_icon<M, P: Piece>(
+        self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        icon: impl Into<day_spec::ImageName>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self;
+    fn immersive(self) -> Self;
+    fn icon_tint(self, color: day_spec::Color) -> Self;
+    fn items<T: Clone + 'static>(
+        self,
+        items: impl Fn() -> Vec<T> + 'static,
+        map: impl Fn(&T) -> NavItem<K> + 'static,
+    ) -> Self;
+    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
+    fn local(self) -> Self;
+    fn restore(self, key: impl Into<String>) -> Self;
+    fn bar_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self;
+    fn list_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self;
+    fn searchable(self, query: Signal<String>) -> Self;
+    fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self;
+    fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self;
+    fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self;
+    fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self;
+}
+
+impl<K: Route, S: Binding<K>> SelectorBuilder<K> for Selector<S, K> {
+    fn style(self, style: SelectorStyle) -> Self {
+        Selector::style(self, style)
+    }
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        Selector::title(self, t)
+    }
+    fn section<M>(self, title: impl IntoText<M>) -> Self {
+        Selector::section(self, title)
+    }
+    fn badge<M>(self, badge: impl IntoText<M>) -> Self {
+        Selector::badge(self, badge)
+    }
+    fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self {
+        Selector::badge_icon(self, icon)
+    }
+    fn badge_tint(self, color: day_spec::Color) -> Self {
+        Selector::badge_tint(self, color)
+    }
+    fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
+        Selector::header(self, build)
+    }
+    fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
+        Selector::presentation(self, presentation)
+    }
+    fn item<M, P: Piece>(
+        self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self {
+        Selector::item(self, key, title, build)
+    }
+    fn item_icon<M, P: Piece>(
+        self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        icon: impl Into<day_spec::ImageName>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self {
+        Selector::item_icon(self, key, title, icon, build)
+    }
+    fn immersive(self) -> Self {
+        Selector::immersive(self)
+    }
+    fn icon_tint(self, color: day_spec::Color) -> Self {
+        Selector::icon_tint(self, color)
+    }
+    fn items<T: Clone + 'static>(
+        self,
+        items: impl Fn() -> Vec<T> + 'static,
+        map: impl Fn(&T) -> NavItem<K> + 'static,
+    ) -> Self {
+        Selector::items(self, items, map)
+    }
+    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
+        Selector::destination(self, build)
+    }
+    fn local(self) -> Self {
+        Selector::local(self)
+    }
+    fn restore(self, key: impl Into<String>) -> Self {
+        Selector::restore(self, key)
+    }
+    fn bar_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        Selector::bar_action(self, icon, label, action)
+    }
+    fn list_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        Selector::list_action(self, icon, label, action)
+    }
+    fn searchable(self, query: Signal<String>) -> Self {
+        Selector::searchable(self, query)
+    }
+    fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
+        Selector::search_prompt(self, prompt)
+    }
+    fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
+        Selector::search_placement(self, placement)
+    }
+    fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
+        Selector::search_scopes(self, scope, titles)
+    }
+    fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
+        Selector::search_suggestions(self, f)
+    }
+}
+
+impl<K: Route, Inner: SelectorBuilder<K> + Piece> SelectorBuilder<K> for Decorated<Inner> {
+    fn style(self, style: SelectorStyle) -> Self {
+        self.map_inner(|inner_piece| inner_piece.style(style))
+    }
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.title(t))
+    }
+    fn section<M>(self, title: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.section(title))
+    }
+    fn badge<M>(self, badge: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.badge(badge))
+    }
+    fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.badge_icon(icon))
+    }
+    fn badge_tint(self, color: day_spec::Color) -> Self {
+        self.map_inner(|inner_piece| inner_piece.badge_tint(color))
+    }
+    fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.header(build))
+    }
+    fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
+        self.map_inner(|inner_piece| inner_piece.presentation(presentation))
+    }
+    fn item<M, P: Piece>(
+        self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.item(key, title, build))
+    }
+    fn item_icon<M, P: Piece>(
+        self,
+        key: impl Into<K>,
+        title: impl IntoText<M>,
+        icon: impl Into<day_spec::ImageName>,
+        build: impl Fn() -> P + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.item_icon(key, title, icon, build))
+    }
+    fn immersive(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.immersive())
+    }
+    fn icon_tint(self, color: day_spec::Color) -> Self {
+        self.map_inner(|inner_piece| inner_piece.icon_tint(color))
+    }
+    fn items<T: Clone + 'static>(
+        self,
+        items: impl Fn() -> Vec<T> + 'static,
+        map: impl Fn(&T) -> NavItem<K> + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.items(items, map))
+    }
+    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.destination(build))
+    }
+    fn local(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.local())
+    }
+    fn restore(self, key: impl Into<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.restore(key))
+    }
+    fn bar_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.bar_action(icon, label, action))
+    }
+    fn list_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.list_action(icon, label, action))
+    }
+    fn searchable(self, query: Signal<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.searchable(query))
+    }
+    fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.search_prompt(prompt))
+    }
+    fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
+        self.map_inner(|inner_piece| inner_piece.search_placement(placement))
+    }
+    fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.search_scopes(scope, titles))
+    }
+    fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.search_suggestions(f))
+    }
+}
+
+/// [`Stack`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait StackBuilder<K: Route>: Sized {
+    fn title<M>(self, t: impl IntoText<M>) -> Self;
+    fn bar_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self;
+    fn list_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self;
+    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
+    fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self;
+    fn restore(self, key: impl Into<String>) -> Self;
+}
+
+impl<K: Route, S: Binding<Vec<K>>> StackBuilder<K> for Stack<S, K> {
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        Stack::title(self, t)
+    }
+    fn bar_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        Stack::bar_action(self, icon, label, action)
+    }
+    fn list_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        Stack::list_action(self, icon, label, action)
+    }
+    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
+        Stack::destination(self, build)
+    }
+    fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self {
+        Stack::on_back(self, guard)
+    }
+    fn restore(self, key: impl Into<String>) -> Self {
+        Stack::restore(self, key)
+    }
+}
+
+impl<K: Route, Inner: StackBuilder<K> + Piece> StackBuilder<K> for Decorated<Inner> {
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.title(t))
+    }
+    fn bar_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.bar_action(icon, label, action))
+    }
+    fn list_action<M>(
+        self,
+        icon: impl Into<day_spec::ImageName>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.list_action(icon, label, action))
+    }
+    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.destination(build))
+    }
+    fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_back(guard))
+    }
+    fn restore(self, key: impl Into<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.restore(key))
+    }
+}
+
+/// [`Cover`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait CoverBuilder: Sized {
+    fn unrouted(self) -> Self;
+}
+
+impl<S: Binding<Option<R>>, R: Route> CoverBuilder for Cover<S, R> {
+    fn unrouted(self) -> Self {
+        Cover::unrouted(self)
+    }
+}
+
+impl<Inner: CoverBuilder + Piece> CoverBuilder for Decorated<Inner> {
+    fn unrouted(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.unrouted())
+    }
+}

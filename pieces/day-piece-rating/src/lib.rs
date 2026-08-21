@@ -142,16 +142,19 @@ fn star<S: Binding<usize>>(
     // addressed by id) attached to *that* wrapper never fires, because the click lands on the real
     // canvas view underneath and the tap handler lives on the canvas node. So tag + wire the canvas,
     // then size it. (The shapes page does the same for exactly this reason.)
+    // Starting from an undecorated `Decorated` keeps every branch below the same type, so the
+    // optional id and tap handler need no erasure to line up.
+    let leaf = Decorated::new(draw);
     let leaf = match id {
-        Some(id) => draw.id(id),
-        None => draw,
+        Some(id) => leaf.id(id),
+        None => leaf,
     };
     let leaf = if editable {
         leaf.on_tap(move || value.write(index + 1))
     } else {
         leaf
     };
-    leaf.frame(size, size)
+    leaf.frame(size, size).any()
 }
 
 /// The 10 vertices of a 5-point star inscribed in `size`, centered, pointing up. Even indices sit on
@@ -192,6 +195,7 @@ impl Modifier for Card {
             .padding(16.0)
             .background(CARD_BG)
             .corner_radius(12.0)
+            .any()
     }
 }
 
@@ -216,5 +220,48 @@ pub fn badge(count: i64, over: AnyPiece) -> AnyPiece {
         .padding(Insets::symmetric(6.0, 2.0))
         .background(BADGE_BLUE)
         .corner_radius(10.0);
-    over.overlay_aligned(Alignment::TopTrailing, pill)
+    over.overlay_aligned(Alignment::TopTrailing, pill).any()
+}
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`Rating`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait RatingBuilder: Sized {
+    fn max(self, max: u32) -> Self;
+    fn star_size(self, points: f64) -> Self;
+    fn editable(self, editable: bool) -> Self;
+    fn color(self, color: Color) -> Self;
+}
+
+impl<S: Binding<usize>> RatingBuilder for Rating<S> {
+    fn max(self, max: u32) -> Self {
+        Rating::max(self, max)
+    }
+    fn star_size(self, points: f64) -> Self {
+        Rating::star_size(self, points)
+    }
+    fn editable(self, editable: bool) -> Self {
+        Rating::editable(self, editable)
+    }
+    fn color(self, color: Color) -> Self {
+        Rating::color(self, color)
+    }
+}
+
+impl<Inner: RatingBuilder + day_pieces::prelude::Piece> RatingBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn max(self, max: u32) -> Self {
+        self.map_inner(|inner_piece| inner_piece.max(max))
+    }
+    fn star_size(self, points: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.star_size(points))
+    }
+    fn editable(self, editable: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.editable(editable))
+    }
+    fn color(self, color: Color) -> Self {
+        self.map_inner(|inner_piece| inner_piece.color(color))
+    }
 }

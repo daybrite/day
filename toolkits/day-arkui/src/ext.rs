@@ -46,7 +46,7 @@ pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
 /// The ArkUI tweak modifier: runs once at mount with the raw node handle and its type name
 /// (docs/tweaks.md).
 pub trait ArkUiExt: Decorate + Sized {
-    fn arkui_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_core::AnyPiece {
+    fn arkui_raw(self, f: impl FnOnce(*mut c_void, &str) + 'static) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             if let Some((w, class)) = with_native_raw(n) {
                 f(w, class);

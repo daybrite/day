@@ -58,6 +58,26 @@ impl Piece for Gauge {
 `impl Piece` gives you `.id()`/`.a11y()`/`.frame()` for free (blanket `Decorate`). Props are the full
 realize payload; a sparse `Patch` enum carries changes.
 
+Those modifiers return `Decorated<YourPiece>` rather than erasing, so a chain keeps your type. To
+make your OWN builder methods reachable after one, declare them in a `*Builder` trait and forward
+it through `Decorated::map_inner` — the pattern every built-in piece follows, written up in
+docs/api-style.md "Typed builders and erasure":
+
+```rust
+pub trait GaugeBuilder: Sized {
+    fn ticks(self, n: usize) -> Self;
+}
+impl GaugeBuilder for Gauge {
+    fn ticks(self, n: usize) -> Self { Gauge::ticks(self, n) }
+}
+impl<Inner: GaugeBuilder + Piece> GaugeBuilder for Decorated<Inner> {
+    fn ticks(self, n: usize) -> Self { self.map_inner(|p| p.ticks(n)) }
+}
+```
+
+Skip any method whose name `Decorate` already defines (`id`, `background`, `scale`, …): the
+inherent method on `Decorated` wins resolution, so a forwarded twin would never be called.
+
 ## 2. Per-backend renderers: the `renderer!` macro
 
 Each backend module registers its native renderer into that backend's `RENDERERS` slice, the same

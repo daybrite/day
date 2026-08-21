@@ -52,7 +52,7 @@ pub trait UiKitExt: Decorate + Sized {
     fn uikit(
         self,
         f: impl FnOnce(&Retained<UIView>, &str, MainThreadMarker) + 'static,
-    ) -> day_core::AnyPiece {
+    ) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             let _ = with_native(n, f);
         })

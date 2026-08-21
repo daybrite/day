@@ -307,3 +307,23 @@ impl day_core::Layout for LabeledLayout {
         cx.place_child(ctl, Rect::new(colw + LABELED_GAP, ctl_y, cw, cs.height));
     }
 }
+
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`FormSection`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait FormSectionBuilder: Sized {
+    fn title<M>(self, t: impl IntoText<M>) -> Self;
+}
+
+impl<C: PieceSeq + 'static> FormSectionBuilder for FormSection<C> {
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        FormSection::title(self, t)
+    }
+}
+
+impl<Inner: FormSectionBuilder + Piece> FormSectionBuilder for Decorated<Inner> {
+    fn title<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.title(t))
+    }
+}

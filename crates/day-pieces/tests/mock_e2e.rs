@@ -309,6 +309,98 @@ fn when_builds_and_disposes() {
     );
 }
 
+/// A multi-modifier chain stays ONE `Decorated<Label>` — it does not nest
+/// `Decorated<Decorated<…>>`, and the piece's own type survives to the end. This signature is the
+/// assertion; if the inherent shadows on `Decorated` were lost, it would stop compiling.
+fn typed_chain() -> Decorated<day_pieces::Label> {
+    label("chained").padding(4.0).grow_w().id("chained")
+}
+
+#[test]
+fn decorated_keeps_the_piece_type_and_applies_in_call_order() {
+    let seen: Rc<RefCell<Vec<&'static str>>> = Rc::default();
+    let (a, b) = (seen.clone(), seen.clone());
+    let probe = boot(move || {
+        label("x")
+            .tweak(move |_| a.borrow_mut().push("first"))
+            .padding(4.0)
+            .tweak(move |_| b.borrow_mut().push("second"))
+            .any()
+    });
+    // Ops run in the order they were chained, whatever they wrap.
+    assert_eq!(*seen.borrow(), vec!["first", "second"]);
+    assert_eq!(probe.find_by_kind("day.label").len(), 1);
+
+    let probe = boot(|| typed_chain().any());
+    assert_eq!(probe.find_by_kind("day.label")[0].1.text, "chained");
+}
+
+#[test]
+fn typed_builders_reach_through_a_decoration() {
+    // The old rule was "typed modifiers before generic ones, or the type is gone". Both orders
+    // compile now, and mean the same thing — that this file compiles IS half the assertion.
+    let probe = boot(|| {
+        column((
+            button("early").enabled(false).padding(4.0).any(),
+            button("late").padding(4.0).enabled(false).any(),
+            label("l")
+                .font(Font::Caption)
+                .selectable()
+                .padding(4.0)
+                .any(),
+            label("r")
+                .selectable()
+                .padding(4.0)
+                .font(Font::Caption)
+                .any(),
+        ))
+        .padding(2.0)
+        .spacing(6.0)
+        .any()
+    });
+
+    let buttons = probe.find_by_kind("day.button");
+    assert_eq!(buttons.len(), 2);
+    assert!(
+        buttons.iter().all(|(_, w)| !w.enabled),
+        "`.enabled(false)` must land on the button whichever side of `.padding` it is chained"
+    );
+
+    // `.font()` after `.padding()` compiles only because `Decorated` forwards `LabelBuilder`.
+    // `.selectable()` is a Decorate op and still targets the node built SO FAR, so both labels
+    // chain it before `.padding` — annotator targeting is unchanged by any of this.
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2);
+    assert!(
+        labels.iter().all(|(_, w)| w.selectable),
+        "a Decorate annotator still lands on the piece it was chained onto"
+    );
+}
+
+#[test]
+fn either_builds_the_chosen_arm_without_erasing() {
+    // Both arms are DIFFERENT piece types, and neither is boxed — the branch is a plain `if`
+    // resolved at build.
+    fn pane(compact: bool) -> impl Piece {
+        if compact {
+            Either::Left(label("narrow"))
+        } else {
+            Either::Right(column((label("wide"), label("extra"))))
+        }
+    }
+
+    let probe = boot(|| pane(true).any());
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 1);
+    assert_eq!(labels[0].1.text, "narrow");
+
+    let probe = boot(|| pane(false).any());
+    let labels = probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2);
+    assert_eq!(labels[0].1.text, "wide");
+    assert_eq!(labels[1].1.text, "extra");
+}
+
 #[test]
 fn when_otherwise_swaps_arms() {
     let ok = Signal::new(true);
@@ -476,6 +568,7 @@ fn tabs_selector(sel: Signal<String>) -> AnyPiece {
         .item("two", "Two", || label("two-content"))
         .item("three", "Three", || label("three-content"))
         .id("main-tabs")
+        .any()
 }
 
 /// A pinned-`Tabs` selector is a NAV host wearing a tab bar — there is no second host kind
@@ -744,6 +837,7 @@ fn stack_root(path: Signal<Vec<String>>) -> AnyPiece {
     stack(path, label("home-content"))
         .destination(|key| label(format!("detail:{key}")))
         .id("nav-stack")
+        .any()
 }
 
 #[test]
@@ -2171,7 +2265,11 @@ fn shape_fill_linear_records_gradient_paint() {
 #[test]
 fn focus_two_way_bool_binding() {
     let editing = Signal::new(false);
-    let probe = boot(move || text_field(Signal::new(String::new())).focused(editing));
+    let probe = boot(move || {
+        text_field(Signal::new(String::new()))
+            .focused(editing)
+            .any()
+    });
     let node = node_id(&probe, "day.text_field", 0);
 
     // Native gain writes the signal; the echo cell must swallow the resulting bind apply
@@ -2262,7 +2360,11 @@ fn focus_initial_some_requests_focus_on_mount() {
         Name,
     }
     let focus = Signal::new(Some(Field::Name));
-    let probe = boot(move || text_field(Signal::new(String::new())).focused((focus, Field::Name)));
+    let probe = boot(move || {
+        text_field(Signal::new(String::new()))
+            .focused((focus, Field::Name))
+            .any()
+    });
     flush_sync();
     assert!(
         probe
@@ -2553,7 +2655,7 @@ fn open_file_reads_the_chosen_path() {
 }
 
 // ---------------------------------------------------------------------------
-// Tier A.1 composition-first primitives: zstack / overlay / modifier / ButtonStyle / @Environment.
+// Tier A.1 composition-first primitives: zstack / overlay / modifier / ButtonBuilder / @Environment.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -2612,7 +2714,8 @@ fn overlay_sizes_to_first_child() {
 #[test]
 fn modifier_closure_wraps_the_piece() {
     // A plain FnOnce(AnyPiece) -> AnyPiece is a Modifier (blanket impl): wrap the label in a surface.
-    let probe = boot(|| label("m").modifier(|p: AnyPiece| p.background(Color::hex(0x445566))));
+    let probe =
+        boot(|| label("m").modifier(|p: AnyPiece| p.background(Color::hex(0x445566)).any()));
     assert_eq!(probe.find_by_kind("day.label")[0].1.text, "m");
     assert!(
         probe

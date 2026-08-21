@@ -46,3 +46,32 @@ Scope: the rule binds the **app-facing surface** (day-pieces, Day umbrella, day-
 `BuildCx`/nav API). Engine seams (the `Toolkit` trait, `TreeOps`, FFI shims) prefer the
 same, but a documented `bool` parameter is acceptable where changing it would ripple
 through every backend for internal call sites only.
+
+## Typed builders and erasure
+
+A builder method must not throw away the piece's type. Two rules follow from that:
+
+1. **Generic modifiers return `Decorated<Self>`, never `AnyPiece`.** Every `Decorate` method,
+   and every extension trait a toolkit or `day-tweak-*` crate adds (`.gtk(…)`, `.tooltip(…)`,
+   `.tickmarks(…)`), returns `Decorated<Self>`. `Decorated` carries an ordered op list beside
+   the piece it wraps, and its inherent methods shadow the trait's, so chains stay flat rather
+   than nesting `Decorated<Decorated<…>>`. The one exception is `Decorate::modifier`, because
+   `Modifier` is defined over `AnyPiece` and cannot preserve a type it never sees.
+
+2. **A piece's own builders go in a `*Builder` trait, forwarded through `Decorated`.**
+   `Label`'s inherent methods are the implementation; `LabelBuilder` re-declares them and
+   `impl<P: LabelBuilder + Piece> LabelBuilder for Decorated<P>` forwards each through
+   `Decorated::map_inner`. That is what makes `label(…).padding(8.0).font(…)` resolve, so a
+   piece never imposes a "typed modifiers first" ordering rule on its callers. Name the trait
+   after the piece (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`) — `*Style`
+   names belong to the value enums (`PickerStyle`, `SelectorStyle`).
+
+Erasure stays explicit and one-way: `.any()` at the boundary that genuinely needs a single
+`AnyPiece` — a `PieceVec`, an `-> AnyPiece` signature, a stored piece. It is free on a piece
+that is already erased (`AnyPiece::any` is inherent and returns `self`). A build-time branch
+between two piece types uses `Either<A, B>` rather than erasing both arms; a branch on a
+signal uses `when(…).otherwise(…)`.
+
+There is no `From<P> for AnyPiece`, and there cannot be a blanket one: `AnyPiece` implements
+`Piece`, so a blanket impl collides with core's reflexive `impl<T> From<T> for T`. `.any()`
+is the single spelling.
