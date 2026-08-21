@@ -137,7 +137,13 @@ fn stepper(value: impl Binding<i64> + Copy) -> AnyPiece {
 // not to fn-pointer types, so taking `&str` does not compile at the call site below.
 #[allow(clippy::ptr_arg)]
 fn date_of(s: &String) -> day_piece_datetime::DayDate {
-    day_piece_datetime::DayDate::parse_iso(s).unwrap_or_else(day_piece_datetime::DayDate::today)
+    day_piece_datetime::DayDate::parse_iso(s).unwrap_or_else(|| {
+        // `debug!`, not `warn!` (docs/logging.md): a half-typed date is normal while the user is
+        // still typing, so this is a trace for whoever is debugging the field — off by default in
+        // a release build, and on with `DAY_LOG=debug`. Levels are how you say that.
+        debug!("date {s:?} is not ISO-8601 — showing today");
+        day_piece_datetime::DayDate::today()
+    })
 }
 
 fn iso_of(d: &day_piece_datetime::DayDate) -> String {

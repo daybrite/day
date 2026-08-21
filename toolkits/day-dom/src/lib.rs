@@ -3033,6 +3033,7 @@ pub extern "C" fn day_dom_present_result(req: u32, which: i32, ptr: *mut u8, len
 /// land in the `web_files` store under `/day-web/<name>`, and that virtual path answers the
 /// awaiting flow as `PresentResult::Files` — the pieces layer reads it back like a local path
 /// (docs/files.md).
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // both buffers are live `day_dom_alloc` allocations from the shim
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_present_files(
     req: u32,

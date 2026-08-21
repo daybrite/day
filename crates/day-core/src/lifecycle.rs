@@ -63,10 +63,10 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
             // contained, not fatal.
             if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f())).is_err() {
                 any_panicked = true;
-                crate::diag(format_args!(
-                    "day: an on_lifecycle({}) handler panicked and was contained — the app continues.",
+                log::warn!(
+                    "an on_lifecycle({}) handler panicked and was contained — the app continues.",
                     phase.name()
-                ));
+                );
                 crate::notify_contained_panic();
             }
         }
@@ -96,12 +96,12 @@ fn warn_if_unsupported(phase: Lifecycle) {
     }
     let first = WARNED.with(|w| w.borrow_mut().insert(phase));
     if first {
-        crate::diag(format_args!(
-            "day: an `on_lifecycle({})` handler was registered, but this backend never delivers \
+        log::warn!(
+            "an `on_lifecycle({})` handler was registered, but this backend never delivers \
              that phase, so it will not run. Guard it with `day::lifecycle_supported(..)` or a \
              `day::require_lifecycle!(..)` compile-time check (docs/lifecycle.md).",
             phase.name()
-        ));
+        );
     }
 }
 

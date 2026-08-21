@@ -110,6 +110,7 @@ export const groups = [
       ['coverage-matrix', 'which piece kinds each backend renders (generated, CI-gated)'],
       ['duty-matrix', 'which backend implements which Toolkit duty (generated, CI-gated)'],
       ['recorder-matrix', 'event → recorded dayscript step coverage (generated, CI-gated)'],
+      ['logging', 'the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers'],
       ['break', '`day-break` consent-first crash reporting'],
       ['lite', '`day-lite` JS/TS miniapps and superapp embedding'],
       ['store', 'store listings and `day store`'],

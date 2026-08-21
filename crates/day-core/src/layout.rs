@@ -153,12 +153,12 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         } else {
             ids.join(", ")
         };
-        crate::diag(format_args!(
+        log::warn!(
             "day layout: children overflow their container by {:.0}pt ({needed:.0} needed, \
              {available:.0} available; {who}) — give the row a fit policy: \
              .fit(RowFit::Wrap/ColumnAt/Scroll) (docs/size-classes.md)",
             needed - available,
-        ));
+        );
     }
 }
 

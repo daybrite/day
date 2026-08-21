@@ -225,17 +225,6 @@ mod title_tag_tests {
     }
 }
 
-/// Write a framework diagnostic line to stderr, IGNORING I/O errors. `eprintln!`/`println!` PANIC
-/// when the write fails — most commonly a broken/closed stderr pipe, which happens routinely when
-/// the parent `day launch` tears the app down or the controlling terminal goes away. Such a panic
-/// raised from inside a native trampoline (the event sink, a lifecycle callback, a GCD/glib block)
-/// unwinds into non-Rust frames and ABORTS the process (`panic_cannot_unwind`) — turning a clean
-/// exit into a spurious crash. Framework logging on those paths must never panic, so it goes
-/// through here rather than the `*println!` macros.
-pub(crate) fn diag(args: std::fmt::Arguments<'_>) {
-    write_line(&args.to_string());
-}
-
 // ---- logging (docs/logging.md) ---------------------------------------------------------------
 
 /// Where a formatted line goes. Unset means the process's own stderr, which is right on every
@@ -340,10 +329,10 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
             .map(|s| (*s).to_string())
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "unknown panic".to_string());
-        diag(format_args!(
-            "day: a posted main-thread task panicked and was contained — the app continues, but \
+        log::warn!(
+            "a posted main-thread task panicked and was contained — the app continues, but \
              reactive/UI state may be inconsistent until the next interaction. Cause: {msg}"
-        ));
+        );
         day_reactive::recover_from_panic();
         notify_contained_panic();
     }

@@ -109,7 +109,7 @@ impl Sqlite {
     /// ```ignore
     /// let driver = Sqlite::app_data("trips.db")?;
     /// let driver = if cfg!(debug_assertions) {
-    ///     driver.trace_sql(|sql| eprintln!("[sql] {sql}"))
+    ///     driver.trace_sql(|sql| log::trace!("sql: {sql}"))
     /// } else {
     ///     driver
     /// };

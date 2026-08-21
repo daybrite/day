@@ -60,6 +60,13 @@ pub(crate) fn has_menu_bar() -> bool {
 }
 
 pub fn root() -> AnyPiece {
+    // Logging (docs/logging.md). `info!`/`warn!`/`error!`/`debug!`/`trace!` come from the prelude
+    // and need no setup: Day installs a logger at launch, so this line reaches the terminal on the
+    // desktop, logcat on Android, the Xcode console on Apple, and the browser's JS console on the
+    // web — where a plain `println!` would be silently dropped. Raise the level with
+    // `DAY_LOG=debug day launch -p …`, or install `env_logger`/`tracing` before `day::launch` and
+    // Day steps aside.
+    info!("{{title}} starting");
     // Registers every locale under `resource/locales/` (generated, §18.5). To add a language,
     // copy `resource/locales/en/` to e.g. `resource/locales/fr/` and translate it — this line
     // already covers it.

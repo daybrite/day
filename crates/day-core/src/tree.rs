@@ -964,10 +964,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 _ => break,
             }
         }
-        crate::diag(format_args!(
-            "day: enable_gesture({kind:?}) found no native view under the target node — \
+        log::warn!(
+            "enable_gesture({kind:?}) found no native view under the target node — \
              the gesture will not fire natively (attach it to a piece with a native handle)"
-        ));
+        );
     }
 
     fn focus_node(&mut self, node: RNode, focused: bool) {
@@ -1869,10 +1869,10 @@ pub fn pump_events() {
             .map(|s| (*s).to_string())
             .or_else(|| payload.downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "unknown panic".to_string());
-        crate::diag(format_args!(
-            "day: a native event handler panicked and was contained — the app continues, but \
+        log::warn!(
+            "a native event handler panicked and was contained — the app continues, but \
              reactive/UI state may be inconsistent until the next interaction. Cause: {msg}"
-        ));
+        );
         // Drop the in-flight event batch and reset drain state so the runtime isn't wedged.
         EVENTS.with(|e| e.borrow_mut().clear());
         PUMP_PENDING.set(false);
@@ -1978,9 +1978,7 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
             && matches!(ev, Event::Pressed | Event::Tap(_))
             && !with_tree(|t| t.node_exists(node))
         {
-            crate::diag(format_args!(
-                "day: {ev:?} dropped — node {id:?} no longer exists (stale reference)"
-            ));
+            log::warn!("{ev:?} dropped — node {id:?} no longer exists (stale reference)");
         }
         return;
     }

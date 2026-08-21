@@ -354,7 +354,7 @@ SQLite itself. The usual shape is a debug-only logger:
 ```rust
 let driver = Sqlite::app_data("trips.db")?;
 let driver = if cfg!(debug_assertions) {
-    driver.trace_sql(|sql| eprintln!("[sql] {sql}"))
+    driver.trace_sql(|sql| trace!("sql: {sql}"))
 } else {
     driver
 };

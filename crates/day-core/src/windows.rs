@@ -19,7 +19,7 @@ use day_spec::props::{CoverPatch, CoverProps};
 use day_spec::{Event, NodeId, Size, WindowKind, WindowOptions, WindowRole, kinds};
 
 use crate::AnyPiece;
-use crate::build::{Boundary, BuildCx, Piece as _};
+use crate::build::{Boundary, BuildCx, Piece};
 use crate::tree::{RNode, WindowRootReply, id_to_rnode, rnode_to_id, with_tree};
 
 /// How a window record is realized.
@@ -169,11 +169,11 @@ enum CloseAction {
 /// open windows (`Cap::MultiWindow` = `Unsupported` — probe it to adapt chrome) the
 /// content presents as a fullscreen cover in the primary window instead, closable the
 /// same way.
-pub fn open_window(
+pub fn open_window<P: Piece>(
     key: Option<&str>,
     mut options: WindowOptions,
     kind: WindowKind,
-    build: impl FnOnce() -> AnyPiece + 'static,
+    build: impl FnOnce() -> P + 'static,
 ) -> WindowHandle {
     if let Some(k) = key
         && let Some(existing) = window_by_key(k)
@@ -238,14 +238,16 @@ pub fn open_window(
                 kind,
                 scope,
                 Tier::PendingNative {
-                    build: Some(Box::new(build)),
+                    build: Some(Box::new(move || AnyPiece::new(build()))),
                     title: options.title.clone(),
                 },
             );
             wire_window_events(root);
             WindowHandle { root }
         }
-        WindowRootReply::Unsupported => open_as_cover(key, kind, scope, Box::new(build)),
+        WindowRootReply::Unsupported => {
+            open_as_cover(key, kind, scope, Box::new(move || AnyPiece::new(build())))
+        }
     }
 }
 
@@ -593,7 +595,7 @@ pub const PREFERENCES_KEY: &str = "day.preferences";
 /// the auto Settings…/Preferences menu item, and [`open_preferences`] everywhere (cover
 /// fallback where the toolkit cannot open windows). The window titles itself with
 /// `options.title`; use [`register_preferences_with`] to localize it or change the size.
-pub fn register_preferences(build: impl Fn() -> AnyPiece + 'static) {
+pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
     register_preferences_with(
         WindowOptions {
             title: "Settings".into(),
@@ -612,8 +614,11 @@ pub fn register_preferences(build: impl Fn() -> AnyPiece + 'static) {
 }
 
 /// [`register_preferences`] with explicit window options (localized title, size).
-pub fn register_preferences_with(options: WindowOptions, build: impl Fn() -> AnyPiece + 'static) {
-    PREFS.with(|p| *p.borrow_mut() = Some((Rc::new(build), options)));
+pub fn register_preferences_with<P: Piece>(
+    options: WindowOptions,
+    build: impl Fn() -> P + 'static,
+) {
+    PREFS.with(|p| *p.borrow_mut() = Some((Rc::new(move || AnyPiece::new(build())), options)));
     if PREFS_ACTION.get() == 0 {
         PREFS_ACTION.set(crate::menu::register_menu_action(Rc::new(|| {
             open_preferences();
@@ -629,9 +634,7 @@ pub fn register_preferences_with(options: WindowOptions, build: impl Fn() -> Any
 /// toolbar gears alike. `false` = no preferences piece is registered (logged).
 pub fn open_preferences() -> bool {
     let Some((build, options)) = PREFS.with(|p| p.borrow().clone()) else {
-        crate::diag(format_args!(
-            "day: open_preferences without register_preferences — ignored"
-        ));
+        log::warn!("open_preferences without register_preferences — ignored");
         return false;
     };
     open_window(
@@ -646,8 +649,8 @@ pub fn open_preferences() -> bool {
 /// Register the builder behind File ▸ New Window and the macOS tab-bar "+" (docs/windows.md):
 /// each call opens another `WindowKind::Normal` window. A `menu_role(MenuRole::NewWindow)`
 /// item lowers to this action; without a registration it lowers disabled.
-pub fn register_new_window(build: impl Fn() -> AnyPiece + 'static) {
-    NEW_WINDOW.with(|p| *p.borrow_mut() = Some(Rc::new(build)));
+pub fn register_new_window<P: Piece>(build: impl Fn() -> P + 'static) {
+    NEW_WINDOW.with(|p| *p.borrow_mut() = Some(Rc::new(move || AnyPiece::new(build()))));
     if NEW_WINDOW_ACTION.get() == 0 {
         NEW_WINDOW_ACTION.set(crate::menu::register_menu_action(Rc::new(|| {
             open_new_window();

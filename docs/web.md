@@ -53,6 +53,13 @@ index.html                        app.wasm (Rust cdylib)
   instantiated. Emits nothing off wasm32, like the other entry macros (§17.4). Apps reach it
   through `day::day_main!("App Name", root)`, which expands to this macro and to every other
   platform's entry — one line in `lib.rs` covering all of them.
+- **Logging** ([docs/logging.md](logging.md)) — `day_dom_log(level, ptr, len)` is the console
+  seam: `error!`/`warn!`/`info!`/`debug!` land on the matching `console.*` method, so devtools'
+  level filter applies to Day's output. This is the only sink a page has, because std's stdout on
+  `wasm32-unknown-unknown` accepts bytes and DROPS them — a bare `println!` in a Day app is
+  silent here, which is why the framework and the scaffold both log through `log`. Hand-rolled
+  rather than `console_log`/`wasm-logger`: both need `web-sys`, and one of them `wasm-bindgen`,
+  which this backend does without.
 
 Two places where the browser, not day-core, owns geometry:
 

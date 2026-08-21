@@ -470,13 +470,13 @@ macro_rules! require_lifecycle {
 /// launchers below exist in that build. Starts the dayscript engine exactly as they do — which
 /// is what keeps `day launch --script`, `day drive`, and the session registry working on a
 /// backend this repository has never heard of.
-pub fn launch_external<P: day_spec::Platform>(
+pub fn launch_external<P: day_spec::Platform, R: Piece>(
     backend: P,
     options: WindowOptions,
-    root: impl FnOnce() -> AnyPiece + 'static,
+    root: impl FnOnce() -> R + 'static,
 ) {
     day_script::init();
-    day_core::launch_with(backend, options, root);
+    day_core::launch_with(backend, options, move || AnyPiece::new(root()));
 }
 
 /// Start `backend`, seeding the ambient locale first.
@@ -491,55 +491,55 @@ pub fn launch_external<P: day_spec::Platform>(
 // otherwise report this as dead. Listing the backends here instead would be a second copy of the
 // cfg set below, drifting the first time one is added.
 #[allow(dead_code)]
-fn start<P: day_spec::Platform>(
+fn start<P: day_spec::Platform, R: Piece>(
     backend: P,
     options: WindowOptions,
-    root: impl FnOnce() -> AnyPiece + 'static,
+    root: impl FnOnce() -> R + 'static,
 ) {
     day_fluent::add_launch_locales(&backend.locale_hints());
-    day_core::launch_with(backend, options, root);
+    day_core::launch_with(backend, options, move || AnyPiece::new(root()));
 }
 
 /// Launch the app on the selected backend (blocks; owns the native main loop).
 #[cfg(feature = "appkit")]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
     start(day_appkit::AppKit::new(), options, root);
 }
 
 #[cfg(feature = "gtk")]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
     start(day_gtk::Gtk::new(), options, root);
 }
 
 #[cfg(feature = "qt")]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
     start(day_qt::Qt::new(), options, root);
 }
 
 #[cfg(all(feature = "uikit", target_os = "ios"))]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
     start(day_uikit::Uikit::new(), options, root);
 }
 
 #[cfg(all(feature = "xaml", windows))]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     day_script::init();
     start(day_xaml::Xaml::new(), options, root);
 }
 
 #[cfg(all(feature = "dom", target_arch = "wasm32"))]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     // No day_script::init(): dayscript's TCP transport has no wasm equivalent yet
     // (a WebSocket transport is planned; see docs/web.md).
     start(day_dom::Dom::new(), options, root);
 }
 
 #[cfg(feature = "mock")]
-pub fn launch(options: WindowOptions, root: impl FnOnce() -> AnyPiece + 'static) {
+pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'static) {
     let (mock, _probe) = day_mock::MockToolkit::new();
     start(mock, options, root);
 }
@@ -934,7 +934,7 @@ pub mod web {
     /// engine and its URL hash to the deep-link seam, arm the dayscript web transport when
     /// the serving `day launch` session invites it (`?dayscript=` token), and launch `root`
     /// into the host page's day root.
-    pub fn start(title: &str, root: impl FnOnce() -> crate::AnyPiece + 'static) {
+    pub fn start<P: crate::Piece>(title: &str, root: impl FnOnce() -> P + 'static) {
         day_dom::install_panic_hook();
         // Point the logger at the browser console BEFORE anything can log (docs/logging.md).
         // Installed here rather than inside day-dom because a backend depends only on day-spec —

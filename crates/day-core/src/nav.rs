@@ -348,11 +348,11 @@ fn warn_no_nav_store(key: &str) {
     }
     WARNED.with(|w| {
         if !w.replace(true) {
-            crate::diag(format_args!(
-                "day: .restore({key:?}) has no NavStore installed — navigation state will not \
+            log::warn!(
+                ".restore({key:?}) has no NavStore installed — navigation state will not \
                  persist. Call `day::prefs::install_nav_store()` before the UI mounts \
                  (docs/navigation.md)."
-            ));
+            );
         }
     });
 }
