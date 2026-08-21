@@ -2600,14 +2600,14 @@ define_class!(
                     // ("Undo Move Shape"), exactly as AppKit's own windows do.
                     Some(a) if a == sel!(undo:) => match self.acting_undo_manager() {
                         Some(m) => {
-                            item.setTitle(&unsafe { m.undoMenuItemTitle() }.as_ref());
+                            item.setTitle(unsafe { m.undoMenuItemTitle() }.as_ref());
                             unsafe { m.canUndo() }
                         }
                         None => false,
                     },
                     Some(a) if a == sel!(redo:) => match self.acting_undo_manager() {
                         Some(m) => {
-                            item.setTitle(&unsafe { m.redoMenuItemTitle() }.as_ref());
+                            item.setTitle(unsafe { m.redoMenuItemTitle() }.as_ref());
                             unsafe { m.canRedo() }
                         }
                         None => false,

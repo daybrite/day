@@ -465,6 +465,11 @@ pub fn launch_external<P: day_spec::Platform>(
 /// hints are read from the live backend here, one step before it is handed the root. Without this
 /// step `Toolkit::locale_hints` is a trait method nobody calls, and every native app opens in its
 /// default language whatever the device is set to (docs/localization.md).
+// Every caller is a `launch` behind its own backend feature (§3.2), so a featureless
+// `cargo check -p day` — which is what a bare workspace check builds — has none of them and would
+// otherwise report this as dead. Listing the backends here instead would be a second copy of the
+// cfg set below, drifting the first time one is added.
+#[allow(dead_code)]
 fn start<P: day_spec::Platform>(
     backend: P,
     options: WindowOptions,

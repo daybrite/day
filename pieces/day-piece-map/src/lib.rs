@@ -167,45 +167,6 @@ impl Piece for Map {
 
 day_pieces::glue_modules!(appkit, uikit);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use day_mock::MockToolkit;
-    use day_reactive::{Signal, flush_sync};
-    use day_spec::{Size, WindowOptions};
-
-    // Building + recentering the piece must never panic — even with no native renderer registered
-    // (the mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches, exactly
-    // like a backend built without this piece's feature, e.g. GTK/Qt/Android/XAML).
-    #[test]
-    fn build_and_recenter_do_not_panic() {
-        let center = Signal::new((37.7749, -122.4194)); // San Francisco
-
-        day_core::uninstall_tree();
-        let (mock, probe) = MockToolkit::new();
-        let options = WindowOptions {
-            title: "test".into(),
-            size: Size::new(400.0, 300.0),
-            ..Default::default()
-        };
-        day_core::launch_with(mock, options, move || {
-            day_core::AnyPiece::new(
-                map()
-                    .center_signal(center)
-                    .span(0.05)
-                    .marker(37.8199, -122.4783),
-            )
-        });
-
-        let found = probe.find_by_kind(KIND);
-        assert_eq!(found.len(), 1, "one map leaf realized");
-
-        // Moving the bound center becomes a `Center` patch the mock ignores gracefully.
-        center.set((40.7128, -74.0060)); // New York
-        flush_sync();
-    }
-}
-
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
 /// [`Map`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
@@ -244,5 +205,44 @@ impl<Inner: MapBuilder + day_pieces::prelude::Piece> MapBuilder for day_pieces::
     }
     fn marker(self, lat: f64, lon: f64) -> Self {
         self.map_inner(|inner_piece| inner_piece.marker(lat, lon))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use day_mock::MockToolkit;
+    use day_reactive::{Signal, flush_sync};
+    use day_spec::{Size, WindowOptions};
+
+    // Building + recentering the piece must never panic — even with no native renderer registered
+    // (the mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches, exactly
+    // like a backend built without this piece's feature, e.g. GTK/Qt/Android/XAML).
+    #[test]
+    fn build_and_recenter_do_not_panic() {
+        let center = Signal::new((37.7749, -122.4194)); // San Francisco
+
+        day_core::uninstall_tree();
+        let (mock, probe) = MockToolkit::new();
+        let options = WindowOptions {
+            title: "test".into(),
+            size: Size::new(400.0, 300.0),
+            ..Default::default()
+        };
+        day_core::launch_with(mock, options, move || {
+            day_core::AnyPiece::new(
+                map()
+                    .center_signal(center)
+                    .span(0.05)
+                    .marker(37.8199, -122.4783),
+            )
+        });
+
+        let found = probe.find_by_kind(KIND);
+        assert_eq!(found.len(), 1, "one map leaf realized");
+
+        // Moving the bound center becomes a `Center` patch the mock ignores gracefully.
+        center.set((40.7128, -74.0060)); // New York
+        flush_sync();
     }
 }

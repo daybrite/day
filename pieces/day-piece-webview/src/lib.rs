@@ -540,6 +540,9 @@ pub fn eval_support() -> day_spec::Support {
 
 /// A native web view bound to `url`. Attach command triggers with `.go()/.back()/.forward()/
 /// .stop()/.reload()`; fire them (`Trigger::notify`) from buttons.
+/// What `.on_link(…)` stores: decides what a navigation to a URL should do.
+type LinkDecider = Rc<dyn Fn(&str) -> LinkPolicy>;
+
 pub struct WebView {
     url: Signal<String>,
     go: Option<Trigger>,
@@ -551,7 +554,7 @@ pub struct WebView {
     session: Option<WebSession>,
     inline: Option<InlineSite>,
     inline_start: String,
-    on_link: Option<Rc<dyn Fn(&str) -> LinkPolicy>>,
+    on_link: Option<LinkDecider>,
 }
 
 /// `web_view(url)` — a native web view showing `url`. The initial value loads on creation; call
@@ -787,6 +790,84 @@ day_pieces::glue_modules!(appkit, qt, uikit, mdc, xaml, arkui, dom);
 #[path = "lib-gtk.rs"]
 mod gtk_impl;
 
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`WebView`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait WebViewBuilder: Sized {
+    fn go(self, trigger: Trigger) -> Self;
+    fn back(self, trigger: Trigger) -> Self;
+    fn forward(self, trigger: Trigger) -> Self;
+    fn stop(self, trigger: Trigger) -> Self;
+    fn reload(self, trigger: Trigger) -> Self;
+    fn js(self, handle: JsHandle) -> Self;
+    fn session(self, session: WebSession) -> Self;
+    fn start_page(self, page: impl Into<String>) -> Self;
+    fn on_external_link(self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self;
+}
+
+impl WebViewBuilder for WebView {
+    fn go(self, trigger: Trigger) -> Self {
+        WebView::go(self, trigger)
+    }
+    fn back(self, trigger: Trigger) -> Self {
+        WebView::back(self, trigger)
+    }
+    fn forward(self, trigger: Trigger) -> Self {
+        WebView::forward(self, trigger)
+    }
+    fn stop(self, trigger: Trigger) -> Self {
+        WebView::stop(self, trigger)
+    }
+    fn reload(self, trigger: Trigger) -> Self {
+        WebView::reload(self, trigger)
+    }
+    fn js(self, handle: JsHandle) -> Self {
+        WebView::js(self, handle)
+    }
+    fn session(self, session: WebSession) -> Self {
+        WebView::session(self, session)
+    }
+    fn start_page(self, page: impl Into<String>) -> Self {
+        WebView::start_page(self, page)
+    }
+    fn on_external_link(self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self {
+        WebView::on_external_link(self, f)
+    }
+}
+
+impl<Inner: WebViewBuilder + day_pieces::prelude::Piece> WebViewBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn go(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.go(trigger))
+    }
+    fn back(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.back(trigger))
+    }
+    fn forward(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.forward(trigger))
+    }
+    fn stop(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.stop(trigger))
+    }
+    fn reload(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.reload(trigger))
+    }
+    fn js(self, handle: JsHandle) -> Self {
+        self.map_inner(|inner_piece| inner_piece.js(handle))
+    }
+    fn session(self, session: WebSession) -> Self {
+        self.map_inner(|inner_piece| inner_piece.session(session))
+    }
+    fn start_page(self, page: impl Into<String>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.start_page(page))
+    }
+    fn on_external_link(self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_external_link(f))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -886,83 +967,5 @@ mod tests {
         // A literal line terminator would end the string mid-source.
         assert_eq!(js_string_literal("a\u{2028}b"), "\"a\\u2028b\"");
         assert_eq!(js_string_literal("a\u{1}b"), "\"a\\u0001b\"");
-    }
-}
-
-// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`WebView`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait WebViewBuilder: Sized {
-    fn go(self, trigger: Trigger) -> Self;
-    fn back(self, trigger: Trigger) -> Self;
-    fn forward(self, trigger: Trigger) -> Self;
-    fn stop(self, trigger: Trigger) -> Self;
-    fn reload(self, trigger: Trigger) -> Self;
-    fn js(self, handle: JsHandle) -> Self;
-    fn session(self, session: WebSession) -> Self;
-    fn start_page(self, page: impl Into<String>) -> Self;
-    fn on_external_link(self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self;
-}
-
-impl WebViewBuilder for WebView {
-    fn go(self, trigger: Trigger) -> Self {
-        WebView::go(self, trigger)
-    }
-    fn back(self, trigger: Trigger) -> Self {
-        WebView::back(self, trigger)
-    }
-    fn forward(self, trigger: Trigger) -> Self {
-        WebView::forward(self, trigger)
-    }
-    fn stop(self, trigger: Trigger) -> Self {
-        WebView::stop(self, trigger)
-    }
-    fn reload(self, trigger: Trigger) -> Self {
-        WebView::reload(self, trigger)
-    }
-    fn js(self, handle: JsHandle) -> Self {
-        WebView::js(self, handle)
-    }
-    fn session(self, session: WebSession) -> Self {
-        WebView::session(self, session)
-    }
-    fn start_page(self, page: impl Into<String>) -> Self {
-        WebView::start_page(self, page)
-    }
-    fn on_external_link(self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self {
-        WebView::on_external_link(self, f)
-    }
-}
-
-impl<Inner: WebViewBuilder + day_pieces::prelude::Piece> WebViewBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn go(self, trigger: Trigger) -> Self {
-        self.map_inner(|inner_piece| inner_piece.go(trigger))
-    }
-    fn back(self, trigger: Trigger) -> Self {
-        self.map_inner(|inner_piece| inner_piece.back(trigger))
-    }
-    fn forward(self, trigger: Trigger) -> Self {
-        self.map_inner(|inner_piece| inner_piece.forward(trigger))
-    }
-    fn stop(self, trigger: Trigger) -> Self {
-        self.map_inner(|inner_piece| inner_piece.stop(trigger))
-    }
-    fn reload(self, trigger: Trigger) -> Self {
-        self.map_inner(|inner_piece| inner_piece.reload(trigger))
-    }
-    fn js(self, handle: JsHandle) -> Self {
-        self.map_inner(|inner_piece| inner_piece.js(handle))
-    }
-    fn session(self, session: WebSession) -> Self {
-        self.map_inner(|inner_piece| inner_piece.session(session))
-    }
-    fn start_page(self, page: impl Into<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.start_page(page))
-    }
-    fn on_external_link(self, f: impl Fn(&str) -> LinkPolicy + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_external_link(f))
     }
 }

@@ -843,6 +843,9 @@ fn nav_suite_sync(host: *mut std::os::raw::c_void) {
     }
 }
 
+/// A realized nav menu's rows: `(node, titles, icon names)`.
+type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
+
 thread_local! {
     static NAV_SUITES: RefCell<HashMap<usize, NavSuite>> = RefCell::new(HashMap::new());
     /// Suite page widgets, so a released one drops out of its suite. Unlike the `tabs()` piece's
@@ -852,8 +855,7 @@ thread_local! {
         RefCell::new(std::collections::HashSet::new());
     /// A realized NAV_MENU's rows by widget: `(node, titles, icon names)`, kept until the menu is
     /// inserted and a suite above it can be found and handed them.
-    static NAV_SUITE_ROWS: RefCell<HashMap<usize, (NodeId, Vec<String>, Vec<Option<String>>)>> =
-        RefCell::new(HashMap::new());
+    static NAV_SUITE_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
 }
 
 /// A tab click. Reported against the MENU, not the host, so one handler serves every presentation.
@@ -873,7 +875,6 @@ extern "C" fn nav_suite_changed(id: u64, index: c_int) {
 }
 
 /// Report each tab page's content size so NavLayout re-lays it (enqueue-only, §8.3).
-
 extern "C" fn present_cb(req: u64, tag: c_int, index: i64, text: *const c_char) {
     ffi_guard::contain((), || {
         let text = if text.is_null() {
@@ -1971,7 +1972,7 @@ impl Toolkit for Qt {
                     let id = NAV_PAGE_IDS
                         .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
                         .unwrap_or(NodeId(0));
-                    suite.pages.push((child.clone(), id));
+                    suite.pages.push((*child, id));
                     // Hiding tab 0 does not move off it — QTabWidget keeps showing whatever the
                     // current index points at, so the FIRST destination has to claim it or the
                     // content area stays on the sidebar page nobody is meant to see.

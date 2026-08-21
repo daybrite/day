@@ -490,69 +490,6 @@ pub fn text_payload(text: &str) -> String {
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn diff_recovers_a_keystroke() {
-        assert_eq!(diff_edit("hello", "hellXo"), (4, 0, 1));
-        assert_eq!(diff_edit("hello", "hello!"), (5, 0, 1));
-        assert_eq!(diff_edit("hello", "Xhello"), (0, 0, 1));
-    }
-
-    #[test]
-    fn diff_recovers_a_deletion_and_a_replacement() {
-        assert_eq!(diff_edit("hello", "helo"), (3, 1, 0));
-        assert_eq!(diff_edit("hello", "heLLo"), (2, 2, 2));
-        assert_eq!(diff_edit("hello", ""), (0, 5, 0));
-        assert_eq!(diff_edit("", "hi"), (0, 0, 2));
-    }
-
-    #[test]
-    fn diff_never_splits_a_character() {
-        // "é" is two bytes; replacing it must not produce a range inside it.
-        let (o, r, i) = diff_edit("café", "cafe");
-        assert!("café".is_char_boundary(o) && "café".is_char_boundary(o + r));
-        assert!("cafe".is_char_boundary(o + i));
-        // An emoji swapped for another, both four bytes.
-        let (o, r, i) = diff_edit("a😀b", "a😃b");
-        assert!("a😀b".is_char_boundary(o) && "a😀b".is_char_boundary(o + r));
-        assert!("a😃b".is_char_boundary(o + i));
-    }
-
-    #[test]
-    fn an_unchanged_string_is_an_empty_edit() {
-        assert_eq!(diff_edit("hello", "hello"), (5, 0, 0));
-    }
-
-    #[test]
-    fn selection_payload_round_trips() {
-        assert_eq!(parse_selection(&selection_payload(3, 9)), Some(3..9));
-        // Backwards drags arrive with end < start; the range comes back ordered.
-        assert_eq!(parse_selection(&selection_payload(9, 3)), Some(3..9));
-        assert_eq!(parse_selection("something else"), None);
-        assert_eq!(parse_selection("sel 3"), None);
-    }
-
-    #[test]
-    fn offset_conversions_agree_on_astral_text() {
-        let s = "a😀é b";
-        let r = 1..(1 + '😀'.len_utf8());
-        let (u16_start, u16_len) = utf16_range(s, &r).unwrap();
-        assert_eq!(
-            (u16_start, u16_len),
-            (1, 2),
-            "a surrogate pair is two units"
-        );
-        assert_eq!(byte_of_utf16(s, u16_start), 1);
-        assert_eq!(byte_of_utf16(s, u16_start + u16_len), r.end);
-        let (c_start, c_len) = char_range(s, &r).unwrap();
-        assert_eq!((c_start, c_len), (1, 1), "and one character");
-        assert_eq!(byte_of_char(s, c_start + c_len), r.end);
-    }
-}
-
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
 /// [`TextEditor`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
@@ -621,5 +558,68 @@ impl<Inner: TextEditorBuilder + day_pieces::prelude::Piece> TextEditorBuilder
     }
     fn max_lines(self, n: u32) -> Self {
         self.map_inner(|inner_piece| inner_piece.max_lines(n))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diff_recovers_a_keystroke() {
+        assert_eq!(diff_edit("hello", "hellXo"), (4, 0, 1));
+        assert_eq!(diff_edit("hello", "hello!"), (5, 0, 1));
+        assert_eq!(diff_edit("hello", "Xhello"), (0, 0, 1));
+    }
+
+    #[test]
+    fn diff_recovers_a_deletion_and_a_replacement() {
+        assert_eq!(diff_edit("hello", "helo"), (3, 1, 0));
+        assert_eq!(diff_edit("hello", "heLLo"), (2, 2, 2));
+        assert_eq!(diff_edit("hello", ""), (0, 5, 0));
+        assert_eq!(diff_edit("", "hi"), (0, 0, 2));
+    }
+
+    #[test]
+    fn diff_never_splits_a_character() {
+        // "é" is two bytes; replacing it must not produce a range inside it.
+        let (o, r, i) = diff_edit("café", "cafe");
+        assert!("café".is_char_boundary(o) && "café".is_char_boundary(o + r));
+        assert!("cafe".is_char_boundary(o + i));
+        // An emoji swapped for another, both four bytes.
+        let (o, r, i) = diff_edit("a😀b", "a😃b");
+        assert!("a😀b".is_char_boundary(o) && "a😀b".is_char_boundary(o + r));
+        assert!("a😃b".is_char_boundary(o + i));
+    }
+
+    #[test]
+    fn an_unchanged_string_is_an_empty_edit() {
+        assert_eq!(diff_edit("hello", "hello"), (5, 0, 0));
+    }
+
+    #[test]
+    fn selection_payload_round_trips() {
+        assert_eq!(parse_selection(&selection_payload(3, 9)), Some(3..9));
+        // Backwards drags arrive with end < start; the range comes back ordered.
+        assert_eq!(parse_selection(&selection_payload(9, 3)), Some(3..9));
+        assert_eq!(parse_selection("something else"), None);
+        assert_eq!(parse_selection("sel 3"), None);
+    }
+
+    #[test]
+    fn offset_conversions_agree_on_astral_text() {
+        let s = "a😀é b";
+        let r = 1..(1 + '😀'.len_utf8());
+        let (u16_start, u16_len) = utf16_range(s, &r).unwrap();
+        assert_eq!(
+            (u16_start, u16_len),
+            (1, 2),
+            "a surrogate pair is two units"
+        );
+        assert_eq!(byte_of_utf16(s, u16_start), 1);
+        assert_eq!(byte_of_utf16(s, u16_start + u16_len), r.end);
+        let (c_start, c_len) = char_range(s, &r).unwrap();
+        assert_eq!((c_start, c_len), (1, 1), "and one character");
+        assert_eq!(byte_of_char(s, c_start + c_len), r.end);
     }
 }

@@ -235,6 +235,49 @@ impl Piece for RemoteImage {
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 
+// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
+
+/// [`RemoteImage`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
+pub trait RemoteImageBuilder: Sized {
+    fn circle(self) -> Self;
+    fn rounded(self, radius: f64) -> Self;
+    fn content_mode(self, mode: ContentMode) -> Self;
+    fn placeholder_color(self, color: Color) -> Self;
+}
+
+impl RemoteImageBuilder for RemoteImage {
+    fn circle(self) -> Self {
+        RemoteImage::circle(self)
+    }
+    fn rounded(self, radius: f64) -> Self {
+        RemoteImage::rounded(self, radius)
+    }
+    fn content_mode(self, mode: ContentMode) -> Self {
+        RemoteImage::content_mode(self, mode)
+    }
+    fn placeholder_color(self, color: Color) -> Self {
+        RemoteImage::placeholder_color(self, color)
+    }
+}
+
+impl<Inner: RemoteImageBuilder + day_pieces::prelude::Piece> RemoteImageBuilder
+    for day_pieces::Decorated<Inner>
+{
+    fn circle(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.circle())
+    }
+    fn rounded(self, radius: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.rounded(radius))
+    }
+    fn content_mode(self, mode: ContentMode) -> Self {
+        self.map_inner(|inner_piece| inner_piece.content_mode(mode))
+    }
+    fn placeholder_color(self, color: Color) -> Self {
+        self.map_inner(|inner_piece| inner_piece.placeholder_color(color))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,48 +327,5 @@ mod tests {
 
         let shaped = remote_image(src).rounded(8.0);
         assert_eq!(shaped.clip, Clip::Rounded(8.0));
-    }
-}
-
-// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`RemoteImage`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait RemoteImageBuilder: Sized {
-    fn circle(self) -> Self;
-    fn rounded(self, radius: f64) -> Self;
-    fn content_mode(self, mode: ContentMode) -> Self;
-    fn placeholder_color(self, color: Color) -> Self;
-}
-
-impl RemoteImageBuilder for RemoteImage {
-    fn circle(self) -> Self {
-        RemoteImage::circle(self)
-    }
-    fn rounded(self, radius: f64) -> Self {
-        RemoteImage::rounded(self, radius)
-    }
-    fn content_mode(self, mode: ContentMode) -> Self {
-        RemoteImage::content_mode(self, mode)
-    }
-    fn placeholder_color(self, color: Color) -> Self {
-        RemoteImage::placeholder_color(self, color)
-    }
-}
-
-impl<Inner: RemoteImageBuilder + day_pieces::prelude::Piece> RemoteImageBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn circle(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.circle())
-    }
-    fn rounded(self, radius: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.rounded(radius))
-    }
-    fn content_mode(self, mode: ContentMode) -> Self {
-        self.map_inner(|inner_piece| inner_piece.content_mode(mode))
-    }
-    fn placeholder_color(self, color: Color) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder_color(color))
     }
 }

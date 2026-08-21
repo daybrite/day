@@ -1485,6 +1485,9 @@ struct ListEntry {
     source: Rc<RefCell<Option<ListSource>>>,
 }
 
+/// A realized nav menu's rows: `(node, titles, icon names)`.
+type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
+
 thread_local! {
     /// LIST scrolled-window key → its model + source holder.
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
@@ -1502,8 +1505,7 @@ thread_local! {
     /// Recorded at realize, where the props are, and handed to a navigation suite at INSERT — the
     /// first moment the menu has ancestors to walk. Where there is no suite above it (every
     /// presentation but `Tabs`) the handover finds nothing and the rows stay a list.
-    static NAV_MENU_ROWS: RefCell<HashMap<usize, (NodeId, Vec<String>, Vec<Option<String>>)>> =
-        RefCell::new(HashMap::new());
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
 }
 
 /// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).

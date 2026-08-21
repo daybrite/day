@@ -208,55 +208,6 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, dom);
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's
 // own error UI — see Cargo.toml + docs/media.md).
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use day_mock::MockToolkit;
-    use day_reactive::{Signal, flush_sync};
-    use day_spec::{Size, WindowOptions};
-
-    // Building + driving the piece must never panic — even with no native renderer registered
-    // (the mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches,
-    // exactly like a backend built without this piece's feature).
-    #[test]
-    fn build_and_commands_do_not_panic() {
-        let url = Signal::new("https://example.com/flower.mp4".to_string());
-        let play = Trigger::new();
-        let pause = Trigger::new();
-        let load = Trigger::new();
-
-        day_core::uninstall_tree();
-        let (mock, probe) = MockToolkit::new();
-        let options = WindowOptions {
-            title: "test".into(),
-            size: Size::new(400.0, 300.0),
-            ..Default::default()
-        };
-        day_core::launch_with(mock, options, move || {
-            day_core::AnyPiece::new(
-                media(url)
-                    .autoplay(false)
-                    .looping(true)
-                    .muted(true)
-                    .controls(false)
-                    .play(play)
-                    .pause(pause)
-                    .load(load),
-            )
-        });
-
-        let found = probe.find_by_kind(KIND);
-        assert_eq!(found.len(), 1, "one media leaf realized");
-
-        // Fire every command trigger; each becomes a MediaPatch the mock ignores gracefully.
-        play.notify();
-        pause.notify();
-        url.set("file:///tmp/other.mp4".to_string());
-        load.notify();
-        flush_sync();
-    }
-}
-
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
 /// [`Media`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
@@ -318,5 +269,54 @@ impl<Inner: MediaBuilder + day_pieces::prelude::Piece> MediaBuilder
     }
     fn load(self, trigger: Trigger) -> Self {
         self.map_inner(|inner_piece| inner_piece.load(trigger))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use day_mock::MockToolkit;
+    use day_reactive::{Signal, flush_sync};
+    use day_spec::{Size, WindowOptions};
+
+    // Building + driving the piece must never panic — even with no native renderer registered
+    // (the mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches,
+    // exactly like a backend built without this piece's feature).
+    #[test]
+    fn build_and_commands_do_not_panic() {
+        let url = Signal::new("https://example.com/flower.mp4".to_string());
+        let play = Trigger::new();
+        let pause = Trigger::new();
+        let load = Trigger::new();
+
+        day_core::uninstall_tree();
+        let (mock, probe) = MockToolkit::new();
+        let options = WindowOptions {
+            title: "test".into(),
+            size: Size::new(400.0, 300.0),
+            ..Default::default()
+        };
+        day_core::launch_with(mock, options, move || {
+            day_core::AnyPiece::new(
+                media(url)
+                    .autoplay(false)
+                    .looping(true)
+                    .muted(true)
+                    .controls(false)
+                    .play(play)
+                    .pause(pause)
+                    .load(load),
+            )
+        });
+
+        let found = probe.find_by_kind(KIND);
+        assert_eq!(found.len(), 1, "one media leaf realized");
+
+        // Fire every command trigger; each becomes a MediaPatch the mock ignores gracefully.
+        play.notify();
+        pause.notify();
+        url.set("file:///tmp/other.mp4".to_string());
+        load.notify();
+        flush_sync();
     }
 }
