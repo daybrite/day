@@ -20,4 +20,4 @@ tiny-skia = "0.12"
 # Raw-XML access for SF Symbol template slicing (classify.rs): usvg normalizes structure away,
 # so variant extraction cuts the original markup by byte range. Already in the tree as a usvg
 # dependency — no new compiled crate.
-roxmltree = "0.20"
+roxmltree = "0.21"
