@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `#[derive(Observable)]` — the day-model derive.
+//! `#[derive(Observable)]` and `#[derive(Model)]` — the day-model and day-persistence derives.
 //!
-//! For `struct Item { id: u32, name: String, … }` it generates:
+//! For `struct Item { id: u32, name: String, … }`, `Observable` generates:
 //!
 //! - `impl day_model::Identified for Item` from the `#[obs(key)]` field — always explicit, never
 //!   inferred: a struct that happens to carry an `id` that is not its key would make inference a
@@ -13,12 +13,20 @@
 //!   all work;
 //! - `Item::OBSERVED_FIELDS`, so a test can assert what is observable without reflection.
 //!
-//! `#[obs(skip)]` leaves a field out entirely: no accessor, no path, no trigger.
+//! `#[obs(skip)]` leaves a field out entirely: no accessor, no path, no trigger — and, under
+//! `Model`, no column: a field the change log cannot name could never mark its row dirty, so
+//! persisting it would silently lose edits.
+//!
+//! `Model` implies `Observable` and adds the schema half (docs/persistence.md): `impl
+//! day_persistence::Model` with the table name, column list, row↔struct mappers and the default
+//! row. `#[model(id)]` marks the key (it is `#[obs(key)]` too); field options are `column =
+//! "…"`, `unique`, `index`, `transient` (observable, never stored), `with = Codec` and `json`;
+//! struct options are `table = "…"` and `index("a", "b")` for composites.
 //!
 //! Field ids come from field NAMES (`day_model::field_id`), so no index can be duplicated by
-//! hand. Generated paths say `day_model::…` unqualified: day-model depends on nothing that could
-//! shadow it, and the `day` facade's prelude re-exports the crate under that name, so both a
-//! direct dependency and `use day::prelude::*` resolve it.
+//! hand. Generated paths say `day_model::…` / `day_persistence::…` unqualified: the crates
+//! depend on nothing that could shadow them, and the `day` facade's prelude re-exports both
+//! names, so a direct dependency and `use day::prelude::*` both resolve them.
 //!
 //! Same construction as [`crate::build_path!`]: no syn, no quote. A derive that needs field
 //! NAMES and type TOKENS never has to understand a type, only re-emit it.
@@ -26,61 +34,112 @@
 use proc_macro::{Delimiter, TokenStream, TokenTree};
 
 pub(crate) fn observable(input: TokenStream) -> TokenStream {
-    match expand(input) {
-        Ok(ts) => ts,
+    finish(expand_observable(input))
+}
+
+pub(crate) fn model(input: TokenStream) -> TokenStream {
+    finish(expand_model(input))
+}
+
+fn finish(result: Result<String, String>) -> TokenStream {
+    match result {
+        Ok(out) => out
+            .parse()
+            .unwrap_or_else(|e| panic!("generated code did not parse: {e}")),
         Err(msg) => format!("compile_error!({msg:?});")
             .parse()
             .expect("compile_error! literal always parses"),
     }
 }
 
+#[derive(Default)]
 struct FieldDef {
     name: String,
     ty: String,
     key: bool,
     skip: bool,
+    // The #[model(…)] half; inert under a bare Observable.
+    column: Option<String>,
+    unique: bool,
+    indexed: bool,
+    transient: bool,
+    with: Option<String>,
+    json: bool,
 }
 
-fn expand(input: TokenStream) -> Result<TokenStream, String> {
-    let tokens: Vec<TokenTree> = input.into_iter().collect();
-
-    // struct <Name> { … } — generics are rejected rather than mis-handled.
-    let mut i = 0;
-    while i < tokens.len() {
-        if matches!(&tokens[i], TokenTree::Ident(id) if id.to_string() == "struct") {
-            break;
-        }
-        i += 1;
+impl FieldDef {
+    fn column_name(&self) -> &str {
+        self.column.as_deref().unwrap_or(&self.name)
     }
-    if i >= tokens.len() {
-        return Err("Observable expects a struct".into());
+    fn persisted(&self) -> bool {
+        !self.skip && !self.transient
     }
-    let name = match tokens.get(i + 1) {
-        Some(TokenTree::Ident(id)) => id.to_string(),
-        _ => return Err("Observable expects a named struct".into()),
-    };
-    let body = match tokens.get(i + 2) {
-        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => g.stream(),
-        Some(TokenTree::Punct(p)) if p.as_char() == '<' => {
-            return Err("Observable does not support generic structs yet".into());
-        }
-        _ => return Err("Observable expects a struct with named fields".into()),
-    };
+    fn nullable(&self) -> bool {
+        self.ty == "Option" || self.ty.starts_with("Option <")
+    }
+}
 
-    let fields = parse_fields(body)?;
-    let observed: Vec<&FieldDef> = fields.iter().filter(|f| !f.skip).collect();
-    let keys: Vec<&FieldDef> = fields.iter().filter(|f| f.key).collect();
+struct StructDef {
+    name: String,
+    table: Option<String>,
+    composites: Vec<Vec<String>>,
+    fields: Vec<FieldDef>,
+}
+
+fn expand_observable(input: TokenStream) -> Result<String, String> {
+    let def = parse_struct(input)?;
+    let keys: Vec<&FieldDef> = def.fields.iter().filter(|f| f.key).collect();
     if keys.len() > 1 {
         return Err(format!(
-            "Observable: `{name}` marks more than one field #[obs(key)]"
+            "Observable: `{}` marks more than one field #[obs(key)]",
+            def.name
+        ));
+    }
+    Ok(emit_observable(&def))
+}
+
+fn expand_model(input: TokenStream) -> Result<String, String> {
+    let def = parse_struct(input)?;
+    let keys: Vec<&FieldDef> = def.fields.iter().filter(|f| f.key).collect();
+    let key = match keys.as_slice() {
+        [k] => *k,
+        [] => {
+            return Err(format!(
+                "Model: `{}` needs exactly one field marked #[model(id)]",
+                def.name
+            ));
+        }
+        _ => {
+            return Err(format!(
+                "Model: `{}` marks more than one field as the id",
+                def.name
+            ));
+        }
+    };
+    if key.transient || key.skip {
+        return Err(format!(
+            "Model: `{}`'s id field cannot be transient or skipped",
+            def.name
         ));
     }
 
+    let mut out = emit_observable(&def);
+    out.push_str(&emit_model(&def, key)?);
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Emission
+// ---------------------------------------------------------------------------
+
+fn emit_observable(def: &StructDef) -> String {
+    let name = &def.name;
+    let observed: Vec<&FieldDef> = def.fields.iter().filter(|f| !f.skip).collect();
     let mut out = String::new();
 
     // The key, if one was marked. Without one the struct still observes; putting it in a
     // `Keyed` collection is then a compile error naming `Identified` and this attribute.
-    if let Some(k) = keys.first() {
+    if let Some(k) = def.fields.iter().find(|f| f.key) {
         out.push_str(&format!(
             "impl day_model::Identified for {name} {{\n\
              \x20   fn obs_key(&self) -> u64 {{ self.{} as u64 }}\n\
@@ -116,13 +175,326 @@ fn expand(input: TokenStream) -> Result<TokenStream, String> {
             .collect::<Vec<_>>()
             .join(", ")
     ));
-
-    out.parse()
-        .map_err(|e| format!("generated code did not parse: {e}"))
+    out
 }
 
-/// Split the brace body on top-level commas and read `#[obs(...)] vis name : Type` out of each.
-/// "Top-level" means outside `<…>` too, so a `HashMap<u64, usize>` field stays one chunk —
+/// The schema half. Every generated expression goes through `day_persistence::` paths and the
+/// field's own type — the derive never guesses a SQL type, it asks `ColumnValue::SQL_TYPE` (or
+/// the named codec's) at compile time.
+fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
+    let name = &def.name;
+    let table = def.table.clone().unwrap_or_else(|| snake_case(name));
+    let persisted: Vec<&FieldDef> = def.fields.iter().filter(|f| f.persisted()).collect();
+
+    let mut columns = String::new();
+    for f in &persisted {
+        let sql = sql_type_expr(f);
+        columns.push_str(&format!(
+            "        day_persistence::ColumnDef {{ name: \"{}\", field: \"{}\", sql: {sql}, \
+             not_null: {}, unique: {}, indexed: {} }},\n",
+            f.column_name(),
+            f.name,
+            !f.nullable(),
+            f.unique,
+            f.indexed,
+        ));
+    }
+
+    let composites = def
+        .composites
+        .iter()
+        .map(|cols| {
+            format!(
+                "&[{}]",
+                cols.iter()
+                    .map(|c| format!("\"{c}\""))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let mut to_row = String::new();
+    for f in &persisted {
+        to_row.push_str(&format!("            {},\n", encode_expr(f)));
+    }
+
+    let mut from_row = String::new();
+    for f in &def.fields {
+        if let Some(i) = persisted.iter().position(|p| p.name == f.name) {
+            from_row.push_str(&format!("            {}: {},\n", f.name, decode_expr(f, i)));
+        } else {
+            from_row.push_str(&format!(
+                "            {}: ::core::default::Default::default(),\n",
+                f.name
+            ));
+        }
+    }
+
+    Ok(format!(
+        "impl day_persistence::Model for {name} {{\n\
+         \x20   const TABLE: &'static str = \"{table}\";\n\
+         \x20   const KEY: &'static str = \"{key_col}\";\n\
+         \x20   const COLUMNS: &'static [day_persistence::ColumnDef] = &[\n{columns}    ];\n\
+         \x20   const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[{composites}];\n\
+         \x20   fn to_row(&self) -> Vec<day_persistence::Value> {{\n\
+         \x20       vec![\n{to_row}        ]\n\
+         \x20   }}\n\
+         \x20   fn from_row(row: &dyn day_persistence::Row) -> \
+         Result<Self, day_persistence::DbError> {{\n\
+         \x20       Ok(Self {{\n{from_row}        }})\n\
+         \x20   }}\n\
+         \x20   fn default_row() -> Vec<day_persistence::Value> {{\n\
+         \x20       day_persistence::Model::to_row(&<Self as ::core::default::Default>::default())\n\
+         \x20   }}\n\
+         }}\n",
+        key_col = key.column_name(),
+    ))
+}
+
+fn sql_type_expr(f: &FieldDef) -> String {
+    match codec(f) {
+        Some(codec) => format!(
+            "<{codec} as day_persistence::ValueCodec<{}>>::SQL_TYPE",
+            f.ty
+        ),
+        None => format!("<{} as day_persistence::ColumnValue>::SQL_TYPE", f.ty),
+    }
+}
+
+fn encode_expr(f: &FieldDef) -> String {
+    match codec(f) {
+        Some(codec) => format!(
+            "<{codec} as day_persistence::ValueCodec<{}>>::to_sqlite_value(&self.{})",
+            f.ty, f.name
+        ),
+        None => format!(
+            "day_persistence::ColumnValue::to_sqlite_value(&self.{})",
+            f.name
+        ),
+    }
+}
+
+/// A stored NULL decodes as the field's `Default` — what makes an added column's old rows
+/// readable before their backfill, matching the model's own deleted-row semantics.
+fn decode_expr(f: &FieldDef, i: usize) -> String {
+    let read = format!("day_persistence::Row::get(row, {i}usize)");
+    match codec(f) {
+        Some(codec) => format!(
+            "match {read} {{\n\
+             \x20               day_persistence::Value::Null => ::core::default::Default::default(),\n\
+             \x20               v => <{codec} as day_persistence::ValueCodec<{}>>::from_sqlite_value(v)?,\n\
+             \x20           }}",
+            f.ty
+        ),
+        None => format!(
+            "match {read} {{\n\
+             \x20               day_persistence::Value::Null => ::core::default::Default::default(),\n\
+             \x20               v => <{} as day_persistence::ColumnValue>::from_sqlite_value(v)?,\n\
+             \x20           }}",
+            f.ty
+        ),
+    }
+}
+
+fn codec(f: &FieldDef) -> Option<String> {
+    if let Some(with) = &f.with {
+        Some(with.clone())
+    } else if f.json {
+        Some("day_persistence::Json".into())
+    } else {
+        None
+    }
+}
+
+fn snake_case(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 4);
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.extend(ch.to_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Parsing
+// ---------------------------------------------------------------------------
+
+/// The whole derive input: struct-level `#[model(…)]` options, the name, and the fields.
+fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
+    let tokens: Vec<TokenTree> = input.into_iter().collect();
+
+    let mut table = None;
+    let mut composites = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        match &tokens[i] {
+            TokenTree::Ident(id) if id.to_string() == "struct" => break,
+            TokenTree::Punct(p) if p.as_char() == '#' => {
+                if let Some(TokenTree::Group(g)) = tokens.get(i + 1) {
+                    if let Some(items) = attr_items(g, "model") {
+                        parse_struct_options(items, &mut table, &mut composites)?;
+                    }
+                    i += 2;
+                    continue;
+                }
+                return Err("malformed attribute on the struct".into());
+            }
+            _ => i += 1,
+        }
+    }
+    if i >= tokens.len() {
+        return Err("the derive expects a struct".into());
+    }
+    let name = match tokens.get(i + 1) {
+        Some(TokenTree::Ident(id)) => id.to_string(),
+        _ => return Err("the derive expects a named struct".into()),
+    };
+    let body = match tokens.get(i + 2) {
+        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Brace => g.stream(),
+        Some(TokenTree::Punct(p)) if p.as_char() == '<' => {
+            return Err("the derive does not support generic structs yet".into());
+        }
+        _ => return Err("the derive expects a struct with named fields".into()),
+    };
+
+    Ok(StructDef {
+        name,
+        table,
+        composites,
+        fields: parse_fields(body)?,
+    })
+}
+
+/// If the bracket group is `name(…)`, return the paren group's items split on top-level commas.
+fn attr_items(bracket: &proc_macro::Group, name: &str) -> Option<Vec<Vec<TokenTree>>> {
+    let inner: Vec<TokenTree> = bracket.stream().into_iter().collect();
+    match (inner.first(), inner.get(1)) {
+        (Some(TokenTree::Ident(id)), Some(TokenTree::Group(g)))
+            if id.to_string() == name && g.delimiter() == Delimiter::Parenthesis =>
+        {
+            let mut items = vec![Vec::new()];
+            for tt in g.stream() {
+                match &tt {
+                    TokenTree::Punct(p) if p.as_char() == ',' => items.push(Vec::new()),
+                    _ => items.last_mut().expect("never empty").push(tt),
+                }
+            }
+            items.retain(|item| !item.is_empty());
+            Some(items)
+        }
+        _ => None,
+    }
+}
+
+fn parse_struct_options(
+    items: Vec<Vec<TokenTree>>,
+    table: &mut Option<String>,
+    composites: &mut Vec<Vec<String>>,
+) -> Result<(), String> {
+    for item in items {
+        match item.as_slice() {
+            [
+                TokenTree::Ident(id),
+                TokenTree::Punct(eq),
+                TokenTree::Literal(lit),
+            ] if id.to_string() == "table" && eq.as_char() == '=' => {
+                *table = Some(string_literal(lit)?);
+            }
+            [TokenTree::Ident(id), TokenTree::Group(g)]
+                if id.to_string() == "index" && g.delimiter() == Delimiter::Parenthesis =>
+            {
+                let mut cols = Vec::new();
+                for tt in g.stream() {
+                    match &tt {
+                        TokenTree::Literal(lit) => cols.push(string_literal(lit)?),
+                        TokenTree::Punct(p) if p.as_char() == ',' => {}
+                        other => {
+                            return Err(format!(
+                                "index(…) expects string literals, found `{other}`"
+                            ));
+                        }
+                    }
+                }
+                composites.push(cols);
+            }
+            other => {
+                return Err(format!(
+                    "unknown #[model] option on the struct: `{}` (supported: table = \"…\", index(\"a\", \"b\"))",
+                    tokens_text(other)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_field_options(items: Vec<Vec<TokenTree>>, f: &mut FieldDef) -> Result<(), String> {
+    for item in items {
+        match item.as_slice() {
+            [TokenTree::Ident(id)] => match id.to_string().as_str() {
+                "id" => f.key = true,
+                "unique" => f.unique = true,
+                "index" => f.indexed = true,
+                "transient" => f.transient = true,
+                "json" => f.json = true,
+                other => {
+                    return Err(format!(
+                        "unknown #[model] option on field `{}`: `{other}` (supported: id, unique, index, transient, json, column = \"…\", with = Codec)",
+                        f.name
+                    ));
+                }
+            },
+            [
+                TokenTree::Ident(id),
+                TokenTree::Punct(eq),
+                TokenTree::Literal(lit),
+            ] if id.to_string() == "column" && eq.as_char() == '=' => {
+                f.column = Some(string_literal(lit)?);
+            }
+            [TokenTree::Ident(id), TokenTree::Punct(eq), rest @ ..]
+                if id.to_string() == "with" && eq.as_char() == '=' && !rest.is_empty() =>
+            {
+                f.with = Some(tokens_text(rest));
+            }
+            other => {
+                return Err(format!(
+                    "unknown #[model] option on field `{}`: `{}`",
+                    f.name,
+                    tokens_text(other)
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn string_literal(lit: &proc_macro::Literal) -> Result<String, String> {
+    let s = lit.to_string();
+    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
+        Ok(s[1..s.len() - 1].to_string())
+    } else {
+        Err(format!("expected a string literal, found `{s}`"))
+    }
+}
+
+fn tokens_text(tokens: &[TokenTree]) -> String {
+    tokens
+        .iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Split the brace body on top-level commas and read `#[obs|model(...)] vis name : Type` out of
+/// each. "Top-level" means outside `<…>` too, so a `HashMap<u64, usize>` field stays one chunk —
 /// brackets and parens are already single `Group` tokens, but angles arrive as bare puncts.
 fn parse_fields(body: TokenStream) -> Result<Vec<FieldDef>, String> {
     let mut fields = Vec::new();
@@ -162,22 +534,32 @@ fn parse_fields(body: TokenStream) -> Result<Vec<FieldDef>, String> {
 
 fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
     let mut i = 0;
-    let mut key = false;
-    let mut skip = false;
+    let mut f = FieldDef::default();
+    let mut deferred: Vec<Vec<Vec<TokenTree>>> = Vec::new();
 
-    // Attributes and doc comments.
+    // Attributes and doc comments. `#[model(…)]` items need the field NAME for their errors,
+    // so they are parsed after it is known.
     while i < chunk.len() {
         match &chunk[i] {
             TokenTree::Punct(p) if p.as_char() == '#' => {
                 if let Some(TokenTree::Group(g)) = chunk.get(i + 1) {
-                    let text = g.stream().to_string();
-                    if text.starts_with("obs") {
-                        if text.contains("key") {
-                            key = true;
+                    if let Some(items) = attr_items(g, "obs") {
+                        for item in items {
+                            match item.as_slice() {
+                                [TokenTree::Ident(id)] if id.to_string() == "key" => f.key = true,
+                                [TokenTree::Ident(id)] if id.to_string() == "skip" => {
+                                    f.skip = true;
+                                }
+                                other => {
+                                    return Err(format!(
+                                        "unknown #[obs] option: `{}` (supported: key, skip)",
+                                        tokens_text(other)
+                                    ));
+                                }
+                            }
                         }
-                        if text.contains("skip") {
-                            skip = true;
-                        }
+                    } else if let Some(items) = attr_items(g, "model") {
+                        deferred.push(items);
                     }
                     i += 2;
                     continue;
@@ -200,30 +582,24 @@ fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
         }
     }
 
-    let name = match chunk.get(i) {
+    f.name = match chunk.get(i) {
         Some(TokenTree::Ident(id)) => id.to_string(),
         _ => return Err("expected a field name".into()),
     };
     i += 1;
     match chunk.get(i) {
         Some(TokenTree::Punct(p)) if p.as_char() == ':' => i += 1,
-        _ => return Err(format!("expected `:` after field `{name}`")),
+        _ => return Err(format!("expected `:` after field `{}`", f.name)),
     }
 
     // The type is whatever is left — re-emitted verbatim, never interpreted.
-    let ty: String = chunk[i..]
-        .iter()
-        .map(|t| t.to_string())
-        .collect::<Vec<_>>()
-        .join(" ");
-    if ty.is_empty() {
-        return Err(format!("field `{name}` has no type"));
+    f.ty = tokens_text(&chunk[i..]);
+    if f.ty.is_empty() {
+        return Err(format!("field `{}` has no type", f.name));
     }
 
-    Ok(FieldDef {
-        name,
-        ty,
-        key,
-        skip,
-    })
+    for items in deferred {
+        parse_field_options(items, &mut f)?;
+    }
+    Ok(f)
 }

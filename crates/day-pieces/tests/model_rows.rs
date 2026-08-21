@@ -236,3 +236,91 @@ fn slot_bindings_follow_the_recycled_row() {
     let tf = probe.find_by_kind("day.text_field")[0].1.text.clone();
     assert_eq!(tf, "new row", "the once-built control tracked the recycle");
 }
+
+/// Phase-2 regression probe: with a STANDING change sink installed (the persistence container's
+/// shape) and a turn-end callback reading the store, every one of a burst of sequential field
+/// writes must still patch the row's label — the Showcase walkthrough caught a row label
+/// freezing partway through a rename.
+#[test]
+fn sequential_writes_keep_patching_under_a_change_sink() {
+    let store = store();
+    let sink = day_model::install_change_sink(|change| {
+        let _ = change.components.first();
+    });
+    day_reactive::on_turn_end(move || {
+        store.with_untracked(|k| {
+            let _ = k.items().len();
+        });
+    });
+
+    let probe = boot(move || {
+        list(store, |slot: ModelSlot<Row>| {
+            label(move || slot.name().read())
+        })
+        .row_height(RowHeight::Uniform(40.0))
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    probe.list_bind(host, 0, MockHandle(9300));
+    probe.list_bind(host, 1, MockHandle(9301));
+    flush_sync();
+    let labels = count(&probe, "update day.label");
+
+    let mut text = String::new();
+    for ch in "Renamed task".chars() {
+        text.push(ch);
+        store.elem(1).name().write(text.clone());
+        flush_sync();
+    }
+
+    assert_eq!(
+        count(&probe, "update day.label") - labels,
+        "Renamed task".chars().count(),
+        "every keystroke patched the bound row label; none were dropped"
+    );
+    let last = probe
+        .log()
+        .iter()
+        .rev()
+        .find(|l| l.contains("update day.label"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        last.contains("Renamed task"),
+        "final text reached the cell: {last}"
+    );
+    day_model::remove_change_sink(sink);
+}
+
+/// A text patch inside a BOUND cell must re-lay-out that cell. Cell anchors live outside the
+/// window trees, so the window pass never reaches them — layout_now's dirty-cell sweep does.
+/// Without it, a row label edited to longer text keeps the frame its old text measured and
+/// truncates the very text it was just given (the Showcase rename froze at "Re…").
+#[test]
+fn a_cell_label_edit_re_lays_out_its_cell() {
+    let store = store();
+    let probe = boot(move || {
+        list(store, |slot: ModelSlot<Row>| {
+            // Hug the text (no grow): the label's frame width tracks its content, so a stale
+            // frame is observable as a missing set_frame after the patch.
+            row((label(move || slot.name().read()),))
+        })
+        .row_height(RowHeight::Uniform(40.0))
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    probe.list_bind(host, 1, MockHandle(9500));
+    flush_sync();
+    let frames = count(&probe, "set_frame");
+
+    store
+        .elem(1)
+        .name()
+        .write("a much longer name than before".into());
+    flush_sync();
+
+    assert!(
+        count(&probe, "set_frame") > frames,
+        "the patched cell was re-laid-out (its label's frame follows its text)"
+    );
+}

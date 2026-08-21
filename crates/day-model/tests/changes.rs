@@ -87,3 +87,40 @@ fn a_mapped_write_captures_the_stored_type() {
     );
     assert_eq!(changes[0].value_as::<i64>(), Some(&2));
 }
+
+#[test]
+fn a_standing_sink_sees_every_change_until_removed() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let store = store();
+    let seen: Rc<RefCell<Vec<&'static str>>> = Rc::new(RefCell::new(Vec::new()));
+    let s = seen.clone();
+    let sink = day_model::install_change_sink(move |c| s.borrow_mut().push(c.label));
+
+    store.elem(1).name().write("one".into());
+    store.elem(1).count().update(|c| *c += 1);
+    assert_eq!(*seen.borrow(), vec!["name", "count"]);
+
+    day_model::remove_change_sink(sink);
+    store.elem(1).name().write("two".into());
+    assert_eq!(seen.borrow().len(), 2, "a removed sink hears nothing");
+}
+
+#[test]
+fn a_sink_and_the_recorder_see_the_same_changes() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let store = store();
+    let sink_count = Rc::new(Cell::new(0usize));
+    let s = sink_count.clone();
+    let sink = day_model::install_change_sink(move |_| s.set(s.get() + 1));
+
+    let (_, log) = day_model::record_changes(|| {
+        store.elem(1).name().write("both".into());
+    });
+    assert_eq!(log.len(), 1);
+    assert_eq!(sink_count.get(), 1);
+    day_model::remove_change_sink(sink);
+}

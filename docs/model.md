@@ -164,9 +164,12 @@ assert_eq!(log, vec!["name"]);
 
 `record_changes` yields the full `Change` records; `record_values` additionally captures each
 write's **prior and new value** (the form an undo unit needs — one clone per write while a
-consumer asks, nothing when none does). `observed_paths()` and `interned_nodes()` expose the
-cost of observation itself, so a test can assert that triggers and interner slots are reclaimed
-when the scopes observing them die.
+consumer asks, nothing when none does). Where those are scoped test seams,
+`install_change_sink(f)` registers a STANDING consumer of every announced change until
+`remove_change_sink` — how [day-persistence](persistence.md)'s container watches the stores it
+loaded; `store.store_id()` names a store the way a change's first path component does.
+`observed_paths()` and `interned_nodes()` expose the cost of observation itself, so a test can
+assert that triggers and interner slots are reclaimed when the scopes observing them die.
 
 ## Costs, and where they go
 
@@ -180,4 +183,5 @@ when the scopes observing them die.
 
 The scaffold's own editor (`day new`, `src/pages/detail.rs`) is the worked example: each form
 control binds a field accessor directly, and the model file's one coarse `watch` is the whole
-persistence story.
+persistence story. When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
+is the next step: the same store, loaded from and autosaved to SQLite.

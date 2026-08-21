@@ -18,6 +18,7 @@ build = "build.rs"
 # selection stays portable as composition (`row((date_picker(d), time_picker(t)))`).
 
 [features]
+persistence = ["dep:day-persistence"]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]
@@ -47,6 +48,8 @@ day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
+# `persistence`: SQLite codecs only — no engine, no driver, so this never drags rusqlite in.
+day-persistence = { path = "../../crates/day-persistence", version = "=0.2.6", default-features = false, optional = true }
 day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }

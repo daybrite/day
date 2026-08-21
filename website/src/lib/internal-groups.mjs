@@ -48,6 +48,7 @@ export const groups = [
       ['lifecycle', 'app phases and their per-platform availability'],
       ['async', 'tasks, resources, and the runtime rules'],
       ['model', 'the per-property observable store and the Observable derive'],
+      ['persistence', 'SQLite storage for the model: ModelContainer, the Model derive, migrations'],
       ['resources', 'asset packaging and the zero-copy runtime path'],
       ['vectors', 'resolution-independent SVG glyphs and the `vector` piece'],
       ['color', 'the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it'],

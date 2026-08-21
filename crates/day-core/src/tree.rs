@@ -471,6 +471,26 @@ impl<B: Toolkit> Tree<B> {
             crate::layout::measure_node(self, root, p);
             crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
         }
+        // Bound list cells live OUTSIDE the window trees: their anchors are parentless
+        // boundaries, laid out at bind time. A patch inside one marks its anchor and stops
+        // there, so the pass above never reaches it — sweep the bound cells and re-lay-out the
+        // marked ones, or a row label that grew mid-edit keeps its stale frame and truncates
+        // the very text it was just given.
+        let dirty_cells: Vec<(RNode, usize)> = self
+            .lists
+            .iter()
+            .flat_map(|(list, state)| {
+                state.cells.iter().filter_map(|(key, cell)| {
+                    self.nodes
+                        .get(cell.anchor)
+                        .filter(|n| n.needs_measure)
+                        .map(|_| (*list, *key))
+                })
+            })
+            .collect();
+        for (list, key) in dirty_cells {
+            self.list_layout_cell(list, key);
+        }
         let queue = std::mem::take(&mut self.release_queue);
         for (kind, h) in queue {
             // The piece's own teardown runs FIRST, while the handle is still valid: it may read

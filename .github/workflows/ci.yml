@@ -506,7 +506,15 @@ jobs:
           tool: cargo-ndk
       - name: Android NDK env
         if: matrix.toolkit == 'mdc'
-        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and
+          # cc-rs never finds the NDK's API-suffixed clang on its own — the plain
+          # `aarch64-linux-android-clang` name does not exist in modern NDKs. minSdk 24, the
+          # scaffold's own floor (templates/app/platform/android/build.gradle.kts).
+          NDK_BIN="$(echo "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin)"
+          echo "CC_aarch64_linux_android=$NDK_BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$NDK_BIN/llvm-ar" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
@@ -1262,6 +1270,12 @@ jobs:
           echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          # cc-rs never finds the NDK's wrapper clang on its own (not on PATH; scripts/ci/lint.sh
+          # derives the same trio) — bundled SQLite (day-persistence) compiles C in the arkui
+          # clippy graph.
+          echo "CC_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang++" >> "$GITHUB_ENV"
+          echo "AR_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/llvm-ar" >> "$GITHUB_ENV"
       - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm)
         uses: actions/cache@v6
         with:

@@ -28,6 +28,12 @@ mock = ["dep:day-mock"]
 # The per-property observable store (docs/model.md): day::model plus the Observable derive in
 # the prelude. Off by default — an app that binds plain Signals pays nothing for it.
 model = ["dep:day-model", "day-pieces/model"]
+# SQLite persistence for the model (docs/persistence.md): `ModelContainer`, `#[derive(Model)]`,
+# the bundled engine. `sqlite-system` links the OS libsqlite3 instead; `sqlite-cipher` builds
+# SQLCipher. Engine features are additive on top of `persistence`.
+persistence = ["model", "dep:day-persistence"]
+sqlite-system = ["persistence", "day-persistence/system"]
+sqlite-cipher = ["persistence", "day-persistence/cipher"]
 
 [dependencies]
 day-macros = { path = "../day-macros", version = "=0.2.6" }
@@ -39,6 +45,7 @@ day-pieces = { workspace = true }
 day-fluent = { workspace = true }
 day-script = { workspace = true }
 day-model = { workspace = true, optional = true }
+day-persistence = { workspace = true, optional = true }
 # Persistent settings, promoted into the facade (docs/prefs.md): 5 of 6 sibling apps depend on it
 # and it is the only part that lives in the reactive layer. Optional so it can be declined.
 day-part-prefs = { workspace = true, optional = true }

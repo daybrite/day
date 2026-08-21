@@ -256,6 +256,50 @@ thread_local! {
 
     /// Whether writes should capture prior/new values into the change log.
     static WANT_VALUES: Cell<bool> = const { Cell::new(false) };
+
+    /// Standing consumers of every announced change — the persistence container's dirty
+    /// tracking. Unlike the RECORDER (a scoped test seam), sinks persist until removed.
+    static SINKS: RefCell<Vec<(u64, ChangeSink)>> = const { RefCell::new(Vec::new()) };
+
+    static NEXT_SINK: Cell<u64> = const { Cell::new(1) };
+}
+
+type ChangeSink = Rc<dyn Fn(&Change)>;
+
+/// Handle for one installed change sink; pass it back to [`remove_change_sink`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ChangeSinkId(u64);
+
+/// Install a STANDING consumer of every announced change (main thread). Where
+/// [`record_changes`] is a scoped test seam, a sink lives until removed — it is how a
+/// persistence container watches the stores it loaded. Sinks receive the same [`Change`] the
+/// recorder would; they must not write to any store from inside the callback.
+pub fn install_change_sink(f: impl Fn(&Change) + 'static) -> ChangeSinkId {
+    let id = NEXT_SINK.with(|n| {
+        let id = n.get();
+        n.set(id + 1);
+        id
+    });
+    SINKS.with(|s| s.borrow_mut().push((id, Rc::new(f))));
+    ChangeSinkId(id)
+}
+
+pub fn remove_change_sink(id: ChangeSinkId) {
+    SINKS.with(|s| s.borrow_mut().retain(|(i, _)| *i != id.0));
+}
+
+fn sinks_active() -> bool {
+    SINKS.with(|s| !s.borrow().is_empty())
+}
+
+/// Deliver to every sink with the registry borrow RELEASED, so a sink's bookkeeping can never
+/// collide with sink installation from another callback.
+fn feed_sinks(change: &Change) {
+    let sinks: Vec<ChangeSink> =
+        SINKS.with(|s| s.borrow().iter().map(|(_, f)| f.clone()).collect());
+    for f in sinks {
+        f(change);
+    }
 }
 
 /// A live trigger and who is watching it.
@@ -526,17 +570,24 @@ fn notify_change(
     prior: Option<Rc<dyn Any>>,
     value: Option<Rc<dyn Any>>,
 ) {
-    RECORDER.with(|r| {
-        if let Some(log) = r.borrow_mut().as_mut() {
-            log.push(Change {
-                components: components(),
-                label,
-                op,
-                prior,
-                value,
+    let recording = RECORDER.with(|r| r.borrow().is_some());
+    if recording || sinks_active() {
+        let change = Change {
+            components: components(),
+            label,
+            op,
+            prior,
+            value,
+        };
+        feed_sinks(&change);
+        if recording {
+            RECORDER.with(|r| {
+                if let Some(log) = r.borrow_mut().as_mut() {
+                    log.push(change);
+                }
             });
         }
-    });
+    }
     wake(p);
 }
 
@@ -576,17 +627,24 @@ fn announce(parts: &[u64], label: &'static str) {
         Some(Path::under(parent, *last))
     })();
     let Some(p) = resolved else { return };
-    RECORDER.with(|r| {
-        if let Some(log) = r.borrow_mut().as_mut() {
-            log.push(Change {
-                components: parts.to_vec(),
-                label,
-                op: Op::Set,
-                prior: None,
-                value: None,
+    let recording = RECORDER.with(|r| r.borrow().is_some());
+    if recording || sinks_active() {
+        let change = Change {
+            components: parts.to_vec(),
+            label,
+            op: Op::Set,
+            prior: None,
+            value: None,
+        };
+        feed_sinks(&change);
+        if recording {
+            RECORDER.with(|r| {
+                if let Some(log) = r.borrow_mut().as_mut() {
+                    log.push(change);
+                }
             });
         }
-    });
+    }
     wake(p);
 }
 
@@ -712,6 +770,12 @@ impl<T: 'static> Store<T> {
     /// Bumped on every write; a cheap way for tests to ask "did anything change".
     pub fn version(self) -> u64 {
         self.inner.version.load(Ordering::Relaxed)
+    }
+
+    /// This store's root id — the first component of every path under it. A persistence
+    /// container keys its table map on it.
+    pub fn store_id(self) -> u64 {
+        self.root_id
     }
 
     /// Announce everything background transactions committed, returning how many paths were

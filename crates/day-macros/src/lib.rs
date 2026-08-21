@@ -183,7 +183,20 @@ fn compile_error(message: &str) -> TokenStream {
 /// `store.elem(id).name()`, nested `item.address().city()`), `Identified` from the field marked
 /// `#[obs(key)]` (always explicit), and `OBSERVED_FIELDS`. `#[obs(skip)]` leaves a field out:
 /// no accessor, no path, no trigger.
-#[proc_macro_derive(Observable, attributes(obs))]
+#[proc_macro_derive(Observable, attributes(obs, model))]
 pub fn observable(input: TokenStream) -> TokenStream {
     obs::observable(input)
+}
+
+/// A persistable model — everything [`macro@Observable`] generates, plus `impl
+/// day_persistence::Model`: table name, column list, row↔struct mappers and the default row.
+/// See day-persistence's crate docs and `docs/persistence.md`.
+///
+/// `#[model(id)]` marks the key (it is `#[obs(key)]` too). Field options: `column = "…"`,
+/// `unique`, `index`, `transient` (observable, never stored), `with = Codec`, `json`. Struct
+/// options: `table = "…"` (snake_cased struct name otherwise), `index("a", "b")` for
+/// composites. `#[obs(skip)]` removes a field from both halves.
+#[proc_macro_derive(Model, attributes(model, obs))]
+pub fn model(input: TokenStream) -> TokenStream {
+    obs::model(input)
 }

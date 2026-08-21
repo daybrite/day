@@ -76,6 +76,7 @@ the architecture-level view and the rationale.
 | app lifecycle | [docs/lifecycle.md](docs/lifecycle.md) | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | [docs/async.md](docs/async.md) | [§4.5](#45-async) |
 | observable model — per-property `Store`/`Keyed`/`Elem`/`Field`, `#[derive(Observable)]`, the change log | [docs/model.md](docs/model.md) | [Addendum](#addendum-2026-08-22--day-model-per-property-observation) |
+| persistence — `ModelContainer`, `#[derive(Model)]`, SQLite drivers/engines, migrations, codecs | [docs/persistence.md](docs/persistence.md) | [Addendum](#addendum-2026-08-22--day-persistence-sqlite-storage-for-the-model) |
 | tweaks — per-toolkit configuration of built-ins | [docs/tweaks.md](docs/tweaks.md) | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
@@ -136,6 +137,7 @@ section would restate something a `docs/*.md` file owns, point to it instead of 
 - [§24 Adversarial review findings and resolutions](#24-adversarial-review-findings-and-resolutions)
 - [Addendum (2026-07-09): Tweaks](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces)
 - [Addendum (2026-08-22): day-model — per-property observation](#addendum-2026-08-22--day-model-per-property-observation)
+- [Addendum (2026-08-22): day-persistence — SQLite storage for the model](#addendum-2026-08-22--day-persistence-sqlite-storage-for-the-model)
 
 **Appendices**
 
@@ -319,6 +321,7 @@ scripts), and `day-cli` (the `day` binary).
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance; opt-in via the facade's `persistence` feature | day-model, day-reactive |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
@@ -4124,7 +4127,7 @@ beside a tracked `exists()`; `Store::new` leaks and the handle stays `Copy` (the
 `Signal::global` precedent — a scoped owner arrives with the persistence container);
 announcement of background transactions stays an explicit `pump()` until that container exists.
 `Signal<T>` is unchanged throughout, and an app can hold both. Part II of the plan
-(day-persistence) is designed but not adopted; nothing here presumes it.
+(day-persistence) shipped as its own addendum below; nothing here presumes it.
 
 **Consolidation (2026-08-20).** Three follow-ons landed as one pass:
 
@@ -4151,6 +4154,52 @@ announcement of background transactions stays an explicit `pump()` until that co
 Adopters: the scaffold's list is store-driven end to end; Day-Time's alarm card converted (the
 independent generalization check — including a hand-written `Binding` for one bit of a mask);
 Day-Showcase gained a Model page with walkthrough coverage.
+
+## Addendum (2026-08-22) — day-persistence: SQLite storage for the model
+
+Adopted as phase 2 of the same plan: the change log, folded into SQL.
+[docs/persistence.md](docs/persistence.md) is normative. The shape is deliberately SwiftData's —
+a container opens a database, loads each model's table into an ordinary `Store<Keyed<M>>`, and
+autosaves the fold of whatever the UI already announced — with the schema visible instead of
+hidden, and the engine a cargo feature instead of a linked fate.
+
+What shipped, and where:
+
+- **`crates/day-persistence`** — `ModelContainer` (open → migrate → load → watch): a standing
+  change sink (day-model grew `install_change_sink`/`store_id` for it) marks rows dirty as
+  changes announce; a turn's end flushes the fold in one transaction. Merge rules: same-row
+  changes coalesce onto one `UPDATE`, an insert absorbs the edits that fill it, a delete absorbs
+  everything, a wholesale `Store::update` resyncs its table. Row values are read from the store
+  at flush time; the change log never carries contents. `record_sql` returns one flush's SQL —
+  the headless assert ("twenty keystrokes, one `UPDATE`" is a test, not a slogan).
+- **Drivers** — the object-safe `SqliteConnection` seam under a `SqliteDriver` trait. Built-ins:
+  `Sqlite` (rusqlite; `bundled` default / `system` / `cipher` as engine features;
+  `at`/`memory`/`app_data` — the last resolving day-part-fs' data-root rules under a `day-db/`
+  leaf) and `Recorder` (fixture-answering, statement-logging, always compiled). `capabilities()`
+  reports what is real per build.
+- **Schema** — derived DDL is `STRICT` where the engine allows, readable by any tool, and
+  bookkept in one `_day_schema` table (fingerprint + version); every other table in the file is
+  left alone, so hand-made tables coexist. Fingerprint drift runs lightweight migration
+  (add + backfill with the field's `Default`, drop); renames and recodes are staged
+  `MigrationPlan` stages, ascending, transactional, with newer-than-this-build files refused.
+- **`#[derive(Model)]`** in day-macros (same no-syn construction): implies `Observable`, adds
+  the trait half — `TABLE`/`KEY`/`COLUMNS` (each column carrying its field name, which is what
+  lets `#[model(column = …)]` renames meet the change log's field labels), row↔struct mappers,
+  `NULL`-reads-as-`Default` leniency. `Observable` also accepts `#[model(…)]`, so a web build
+  swaps only the derive line. Codecs: `ColumnValue` (one impl per type) and named
+  `ValueCodec`s (`#[model(with = …)]`, `#[model(json)]`); day-piece-datetime ships
+  `DayDate`/`DayTime` canonical `INTEGER` forms plus `Iso8601`/`EpochSeconds`/`EpochMillis`
+  behind its `persistence` feature.
+- **Cipher** — `.key(Secret)` (zeroed on drop, never stored by Day), `BadKey` at open,
+  `rekey`/`encrypt_to`/`decrypt_to`; maintenance is `backup_to` (`VACUUM INTO`),
+  `integrity_check`, `checkpoint`, `vacuum`, `size_bytes`.
+- **The facade** — `persistence` implies `model`; `sqlite-system`/`sqlite-cipher` select
+  engines; the prelude re-exports the API and the `day_persistence` crate name.
+
+Not in this version (designed, not API): typed queries, lazy faulting, relations, external
+storage, FTS/R*Tree declarations, cross-connection watching. Adopter: Day-Showcase's Model page
+runs on a container on every native target (web stays in memory), with insert/edit/delete and
+the storage readout in the walkthrough.
 
 ---
 

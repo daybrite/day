@@ -1,0 +1,41 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "day-persistence"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "SQLite persistence for the observable model: driver trait, container, autosave fold."
+repository.workspace = true
+license.workspace = true
+
+[features]
+# The built-in rusqlite driver with a bundled SQLite: the default engine. `system` links the
+# OS's libsqlite3 instead (leave `bundled` off); `cipher` swaps the bundled engine for SQLCipher
+# with vendored crypto. Trait-only consumers (codec impls in pieces) use default-features=false.
+default = ["driver-rusqlite", "bundled"]
+driver-rusqlite = ["dep:rusqlite"]
+bundled = ["rusqlite/bundled"]
+system = []
+cipher = ["rusqlite/bundled-sqlcipher-vendored-openssl"]
+
+[dependencies]
+day-model = { workspace = true }
+day-reactive = { workspace = true }
+rusqlite = { version = "0.40", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+day-macros = { path = "../day-macros", version = "=0.2.6" }
+# The real-driver tests open the produced files directly to verify what was stored — same
+# crate the driver itself uses, so this adds no dependency edge.
+rusqlite = { version = "0.40", features = ["bundled"] }
+# The UI-integration test drives a mock-toolkit list against a live container — same harness
+# day-model's own dev-deps use.
+day-core = { workspace = true }
+day-pieces = { workspace = true, features = ["model"] }
+day-mock = { workspace = true }
+day-spec = { workspace = true }

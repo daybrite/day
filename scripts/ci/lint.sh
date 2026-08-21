@@ -88,8 +88,24 @@ app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features m
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,
 #    day-appkit, …) — the crates a host clippy never compiles.
 if have_target aarch64-linux-android; then
-  app_leg "clippy android (mdc)" cargo clippy --target aarch64-linux-android --lib \
-    --no-default-features --features mdc -- "${XCROSS[@]}"
+  # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and cc-rs
+  # never finds the NDK's API-suffixed clang on its own (`aarch64-linux-android-clang` does not
+  # exist in modern NDKs — the wrappers carry the API level). Derive CC_/AR_ from the NDK, the
+  # same posture as the ohos leg below; a caller's own values win. ANDROID_NDK_HOME first, then
+  # the conventional local installs.
+  ANDROID_NDK="${ANDROID_NDK_HOME:-}"
+  if [ -z "$ANDROID_NDK" ]; then
+    for cand in /opt/homebrew/share/android-ndk "$HOME/Library/Android/sdk/ndk"/* "$HOME/Android/Sdk/ndk"/*; do
+      [ -d "$cand/toolchains/llvm/prebuilt" ] && ANDROID_NDK="$cand"
+    done
+  fi
+  NDK_BIN="$(echo "$ANDROID_NDK"/toolchains/llvm/prebuilt/*/bin)"
+  if [ -x "$NDK_BIN/aarch64-linux-android24-clang" ]; then
+    export CC_aarch64_linux_android="${CC_aarch64_linux_android:-$NDK_BIN/aarch64-linux-android24-clang}"
+    export AR_aarch64_linux_android="${AR_aarch64_linux_android:-$NDK_BIN/llvm-ar}"
+    app_leg "clippy android (mdc)" cargo clippy --target aarch64-linux-android --lib \
+      --no-default-features --features mdc -- "${XCROSS[@]}"
+  else skip "clippy android (mdc)" "no Android NDK found (set ANDROID_NDK_HOME)"; fi
 else skip "clippy android (mdc)" "rustup target add aarch64-linux-android"; fi
 
 # arkui needs the OpenHarmony NDK for day-arkui-sys's build.rs and ring's C compile — CI exports it;

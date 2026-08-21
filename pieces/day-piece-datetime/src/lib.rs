@@ -279,6 +279,106 @@ impl std::fmt::Display for DayTime {
 }
 
 // ---------------------------------------------------------------------------
+// SQLite codecs (feature `persistence`; docs/persistence.md)
+// ---------------------------------------------------------------------------
+
+/// The canonical stored forms and the named alternatives, for `#[derive(Model)]` fields.
+///
+/// Canonical — what a bare field of the type stores:
+/// [`DayDate`] → `INTEGER` epoch days, [`DayTime`] → `INTEGER` seconds-of-day: the same numeric
+/// interchange forms the pickers already speak across native boundaries, and both sort
+/// chronologically as plain integers.
+///
+/// Named — pick per field with `#[model(with = …)]`:
+/// [`Iso8601`] stores `TEXT` in the form `Display` writes (readable in any sqlite tool, and
+/// lexicographic order IS chronological order — ISO-8601's design goal); [`EpochSeconds`] and
+/// [`EpochMillis`] store the `INTEGER` a server that speaks Unix time expects, midnight-of-day
+/// for a [`DayDate`].
+#[cfg(feature = "persistence")]
+mod codecs {
+    use super::{DayDate, DayTime};
+    use day_persistence::{ColumnValue, DbError, DbErrorKind, SqlType, Value, ValueCodec};
+
+    impl ColumnValue for DayDate {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(&self) -> Value {
+            Value::Int(self.to_epoch_days())
+        }
+        fn from_sqlite_value(v: Value) -> Result<Self, DbError> {
+            Ok(DayDate::from_epoch_days(v.as_int()?))
+        }
+    }
+
+    impl ColumnValue for DayTime {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(&self) -> Value {
+            Value::Int(self.seconds_of_day())
+        }
+        fn from_sqlite_value(v: Value) -> Result<Self, DbError> {
+            Ok(DayTime::from_seconds_of_day(v.as_int()?))
+        }
+    }
+
+    /// `TEXT` in the `Display` form: `YYYY-MM-DD` for a date, `HH:MM[:SS]` for a time.
+    pub struct Iso8601;
+
+    impl ValueCodec<DayDate> for Iso8601 {
+        const SQL_TYPE: SqlType = SqlType::Text;
+        fn to_sqlite_value(v: &DayDate) -> Value {
+            Value::Text(v.to_string())
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayDate, DbError> {
+            let s = v.as_text()?;
+            DayDate::parse_iso(s).ok_or_else(|| {
+                DbError::new(DbErrorKind::Decode, format!("not an ISO-8601 date: {s:?}"))
+            })
+        }
+    }
+
+    impl ValueCodec<DayTime> for Iso8601 {
+        const SQL_TYPE: SqlType = SqlType::Text;
+        fn to_sqlite_value(v: &DayTime) -> Value {
+            Value::Text(v.to_string())
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayTime, DbError> {
+            let s = v.as_text()?;
+            DayTime::parse_iso(s).ok_or_else(|| {
+                DbError::new(DbErrorKind::Decode, format!("not an ISO-8601 time: {s:?}"))
+            })
+        }
+    }
+
+    /// `INTEGER` seconds since 1970-01-01T00:00Z — midnight of the day, for a [`DayDate`].
+    pub struct EpochSeconds;
+
+    impl ValueCodec<DayDate> for EpochSeconds {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(v: &DayDate) -> Value {
+            Value::Int(v.to_epoch_days() * 86_400)
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayDate, DbError> {
+            Ok(DayDate::from_epoch_days(v.as_int()?.div_euclid(86_400)))
+        }
+    }
+
+    /// `INTEGER` milliseconds since the same epoch — for interop that expects it.
+    pub struct EpochMillis;
+
+    impl ValueCodec<DayDate> for EpochMillis {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(v: &DayDate) -> Value {
+            Value::Int(v.to_epoch_days() * 86_400_000)
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayDate, DbError> {
+            Ok(DayDate::from_epoch_days(v.as_int()?.div_euclid(86_400_000)))
+        }
+    }
+}
+
+#[cfg(feature = "persistence")]
+pub use codecs::{EpochMillis, EpochSeconds, Iso8601};
+
+// ---------------------------------------------------------------------------
 // The pieces
 // ---------------------------------------------------------------------------
 
@@ -656,5 +756,79 @@ mod tests {
         let t = DayDate::today();
         assert!(DayDate::new(t.year, t.month, t.day).is_some());
         assert!(t.year >= 2026);
+    }
+
+    /// Round-trip identity for every codec, and order agreement for the ones that sort.
+    #[cfg(feature = "persistence")]
+    #[test]
+    fn sqlite_codecs_round_trip_and_keep_order() {
+        use crate::{EpochMillis, EpochSeconds, Iso8601};
+        use day_persistence::{ColumnValue, Value, ValueCodec};
+
+        let dates = [
+            DayDate::default(),
+            DayDate::new(1969, 12, 31).unwrap(),
+            DayDate::new(2026, 8, 20).unwrap(),
+            DayDate::new(2000, 2, 29).unwrap(),
+            DayDate::new(1, 1, 1).unwrap(),
+        ];
+        for d in dates {
+            assert_eq!(DayDate::from_sqlite_value(d.to_sqlite_value()).unwrap(), d);
+            assert_eq!(
+                <Iso8601 as ValueCodec<DayDate>>::from_sqlite_value(<Iso8601 as ValueCodec<
+                    DayDate,
+                >>::to_sqlite_value(
+                    &d
+                ))
+                .unwrap(),
+                d
+            );
+            assert_eq!(
+                <EpochSeconds as ValueCodec<DayDate>>::from_sqlite_value(
+                    <EpochSeconds as ValueCodec<DayDate>>::to_sqlite_value(&d)
+                )
+                .unwrap(),
+                d
+            );
+            assert_eq!(
+                <EpochMillis as ValueCodec<DayDate>>::from_sqlite_value(
+                    <EpochMillis as ValueCodec<DayDate>>::to_sqlite_value(&d)
+                )
+                .unwrap(),
+                d
+            );
+        }
+        // ISO-8601's design goal: lexicographic == chronological (positive years).
+        let a = <Iso8601 as ValueCodec<DayDate>>::to_sqlite_value(&dates[1]);
+        let b = <Iso8601 as ValueCodec<DayDate>>::to_sqlite_value(&dates[2]);
+        if let (Value::Text(a), Value::Text(b)) = (a, b) {
+            assert!(a < b);
+        } else {
+            panic!("Iso8601 stores TEXT");
+        }
+
+        let times = [
+            DayTime::default(),
+            DayTime::new(9, 30, 15).unwrap(),
+            DayTime::new(23, 59, 59).unwrap(),
+        ];
+        for t in times {
+            assert_eq!(DayTime::from_sqlite_value(t.to_sqlite_value()).unwrap(), t);
+            assert_eq!(
+                <Iso8601 as ValueCodec<DayTime>>::from_sqlite_value(<Iso8601 as ValueCodec<
+                    DayTime,
+                >>::to_sqlite_value(
+                    &t
+                ))
+                .unwrap(),
+                t
+            );
+        }
+
+        // A malformed stored string is a Decode error, not a panic or a silent default.
+        assert!(
+            <Iso8601 as ValueCodec<DayDate>>::from_sqlite_value(Value::Text("08/20/2026".into()))
+                .is_err()
+        );
     }
 }

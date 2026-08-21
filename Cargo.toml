@@ -19,6 +19,7 @@ members = [
     "crates/day-script",
     "crates/day-vector",
     "crates/day-model",
+    "crates/day-persistence",
     "crates/day-macros",
     "crates/day",
     "toolkits/day-appkit",
@@ -117,6 +118,7 @@ day-fluent = { path = "crates/day-fluent", version = "0.2.6" }
 day-script = { path = "crates/day-script", version = "0.2.6" }
 day-vector = { path = "crates/day-vector", version = "0.2.6" }
 day-model = { path = "crates/day-model", version = "0.2.6" }
+day-persistence = { path = "crates/day-persistence", version = "0.2.6" }
 day = { path = "crates/day", version = "0.2.6" }
 day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.2.6" }
 day-piece-webview = { path = "pieces/day-piece-webview", version = "0.2.6" }

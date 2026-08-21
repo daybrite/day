@@ -68,6 +68,14 @@ pub mod model {
     pub use day_model::*;
 }
 
+/// SQLite persistence for the observable model (docs/persistence.md): `ModelContainer`,
+/// `#[derive(Model)]`, drivers and codecs. The engine is a facade feature — bundled by
+/// default, `sqlite-system` or `sqlite-cipher` instead.
+#[cfg(feature = "persistence")]
+pub mod persistence {
+    pub use day_persistence::*;
+}
+
 #[cfg(feature = "prefs")]
 pub mod prefs {
     pub use day_part_prefs::*;
@@ -259,6 +267,14 @@ pub mod prelude {
     pub use ::day_model::{Elem, Field, Keyed, Source, Store};
     #[cfg(feature = "model")]
     pub use day_macros::Observable;
+    // Persistence (docs/persistence.md). Same by-NAME rule: `#[derive(Model)]`'s generated
+    // code says `day_persistence::…`.
+    #[cfg(feature = "persistence")]
+    pub use ::day_persistence;
+    #[cfg(feature = "persistence")]
+    pub use ::day_persistence::{Model, ModelContainer, Recorder, Secret, Sqlite, schema};
+    #[cfg(feature = "persistence")]
+    pub use day_macros::Model;
     pub use day_spec::Point;
     pub use {super::lifecycle_supported, super::on_lifecycle};
     // Bundled-resource random-access API (§18.3): `resource("name")` -> `Resource`.
