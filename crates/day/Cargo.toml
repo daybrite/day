@@ -30,7 +30,7 @@ mock = ["dep:day-mock"]
 model = ["dep:day-model", "day-pieces/model"]
 
 [dependencies]
-day-macros = { path = "../day-macros", version = "=0.2.5" }
+day-macros = { path = "../day-macros", version = "=0.2.6" }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }

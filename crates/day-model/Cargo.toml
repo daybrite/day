@@ -15,7 +15,7 @@ license.workspace = true
 day-reactive = { workspace = true }
 
 [dev-dependencies]
-day-macros = { path = "../day-macros", version = "=0.2.5" }
+day-macros = { path = "../day-macros", version = "=0.2.6" }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-spec = { workspace = true }

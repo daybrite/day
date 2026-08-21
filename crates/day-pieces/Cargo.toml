@@ -32,7 +32,7 @@ model = ["dep:day-model"]
 
 [dev-dependencies]
 day-mock = { workspace = true }
-day-macros = { path = "../day-macros", version = "=0.2.5" }
+day-macros = { path = "../day-macros", version = "=0.2.6" }
 
 # The model-rows suite proves the granularity and reclamation claims docs/list.md makes.
 [[test]]
