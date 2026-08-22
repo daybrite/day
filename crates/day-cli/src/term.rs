@@ -44,7 +44,21 @@ pub const ERROR_BOLD: Style = fg(AnsiColor::Red).effects(Effects::BOLD);
 pub const DIM: Style = Style::new().effects(Effects::DIMMED);
 /// Emphasis without color — bold (group labels).
 pub const BOLD: Style = Style::new().effects(Effects::BOLD);
-/// Forwarded app **stdout** line prefix `[target]` — blue.
+/// Forwarded app **stdout** line prefix `[target]` — blue. Used only for a line that isn't in
+/// Day's `LEVEL target: message` format; anything that is gets colored by level instead.
 pub const LOG_OUT: Style = fg(AnsiColor::Blue);
-/// Forwarded app **stderr** line prefix `[target]` — yellow.
+/// Forwarded app **stderr** line prefix `[target]` — yellow. Same fallback role as [`LOG_OUT`].
 pub const LOG_ERR: Style = fg(AnsiColor::Yellow);
+
+// Forwarded app log lines, colored by level (`ops::format_log`). This is `env_logger`'s palette
+// rather than a new one, so a Day app's terminal reads like any other Rust app's.
+/// A forwarded `ERROR` line — red.
+pub const LOG_ERROR: Style = fg(AnsiColor::Red);
+/// A forwarded `WARN` line — yellow.
+pub const LOG_WARN: Style = fg(AnsiColor::Yellow);
+/// A forwarded `INFO` line — green.
+pub const LOG_INFO: Style = fg(AnsiColor::Green);
+/// A forwarded `DEBUG` line — blue.
+pub const LOG_DEBUG: Style = fg(AnsiColor::Blue);
+/// A forwarded `TRACE` line — cyan.
+pub const LOG_TRACE: Style = fg(AnsiColor::Cyan);

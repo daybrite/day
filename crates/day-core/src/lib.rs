@@ -240,10 +240,48 @@ pub fn set_log_sink(f: fn(log::Level, &str)) {
     let _ = LOG_SINK.set(f);
 }
 
-/// Write one already-formatted line, never panicking. See [`diag`] for why that matters: the
+/// The width the level column is padded to. Shared by the formatter and the coloring below, which
+/// splits the finished line at exactly this offset.
+const LEVEL_WIDTH: usize = 5;
+
+/// The terminal color for a level — `env_logger`'s palette, so a Day app's output reads like any
+/// other Rust app's, and the same one `day-cli` uses when it re-emits these lines under
+/// `day launch` (day-cli `src/term.rs`).
+#[cfg(not(target_arch = "wasm32"))]
+fn level_style(level: log::Level) -> anstyle::Style {
+    let color = match level {
+        log::Level::Error => anstyle::AnsiColor::Red,
+        log::Level::Warn => anstyle::AnsiColor::Yellow,
+        log::Level::Info => anstyle::AnsiColor::Green,
+        log::Level::Debug => anstyle::AnsiColor::Blue,
+        log::Level::Trace => anstyle::AnsiColor::Cyan,
+    };
+    anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(color)))
+}
+
+/// Write one already-formatted line to stderr, never panicking. That matters because the
 /// `*println!` macros panic on a failed write, a closed stderr pipe is routine when `day launch`
 /// tears the app down, and a panic raised inside a native trampoline aborts the process.
-fn write_line(line: &str) {
+///
+/// Only the level column is colored — a fully colored line is noise at `INFO`, and leaving the
+/// message plain keeps it greppable. `anstream` decides whether the escapes survive: they are
+/// stripped when stderr is not a color terminal, which covers the pipe `day launch` gives us
+/// (day-cli re-colors from its own end), logcat, Xcode's console, `NO_COLOR`, and `TERM=dumb`.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_line(level: log::Level, line: &str) {
+    use std::io::Write as _;
+    let style = level_style(level);
+    // The column is ASCII and padded to `LEVEL_WIDTH` by the caller, so this never lands inside a
+    // character; `split_at_checked` keeps even a malformed line from panicking.
+    let (lvl, rest) = line.split_at_checked(LEVEL_WIDTH).unwrap_or((line, ""));
+    let _ = writeln!(anstream::stderr(), "{style}{lvl}{style:#}{rest}");
+}
+
+/// The wasm fallback, used only if no sink was installed — `day::web::start` installs one before
+/// an app's first line. std's stdio on `wasm32-unknown-unknown` accepts these bytes and drops
+/// them, so this writes into nothing; it exists so the logger has a total function.
+#[cfg(target_arch = "wasm32")]
+fn write_line(_level: log::Level, line: &str) {
     use std::io::Write as _;
     let _ = writeln!(std::io::stderr(), "{line}");
 }
@@ -270,15 +308,18 @@ impl log::Log for DayLogger {
         // column finds problems, then the emitting crate, which is what says *which* backend or
         // piece is unhappy. The old hand-written `day: ` prefixes said only that it was us.
         let sink = LOG_SINK.get();
+        // Formatted plain: a sink is a structured destination (the browser console, a test
+        // collector, an app's own transport) and wants the text, not terminal escapes. Color is
+        // `write_line`'s business, applied only on the way to a real stderr.
         let line = format!(
-            "{:<5} {}: {}",
+            "{:<LEVEL_WIDTH$} {}: {}",
             record.level(),
             record.target(),
             record.args()
         );
         match sink {
             Some(f) => f(record.level(), &line),
-            None => write_line(&line),
+            None => write_line(record.level(), &line),
         }
     }
 

@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use crate::cli::Profile;
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
-use crate::term::{HEADER, LOG_ERR, LOG_OUT};
+use crate::term::{HEADER, LOG_DEBUG, LOG_ERR, LOG_ERROR, LOG_INFO, LOG_OUT, LOG_TRACE, LOG_WARN};
 
 pub struct BuildOutcome {
     pub target: &'static str,
@@ -924,22 +924,67 @@ pub fn launch(
     }
 }
 
-/// Which standard stream a forwarded line came from — sets its color and destination.
+/// Which standard stream a forwarded line came from — sets its destination, and its color when
+/// the line carries no level of its own.
 #[derive(Clone, Copy)]
 pub enum LogStream {
-    /// App stdout: blue, forwarded to our stdout.
+    /// App stdout, forwarded to our stdout.
     Out,
-    /// App stderr: yellow, forwarded to our stderr.
+    /// App stderr, forwarded to our stderr.
     Err,
 }
 
-/// Print one already-classified log line with the `[target]` prefix and stream color.
-/// Public so the mobile log pumps (logcat/simctl) can reuse the exact formatting.
+/// The width Day's logger pads its level column to (`docs/logging.md`).
+const LEVEL_WIDTH: usize = 5;
+
+/// The color for one of Day's level words, or `None` if this isn't one.
+fn level_style(word: &str) -> Option<anstyle::Style> {
+    Some(match word {
+        "ERROR" => LOG_ERROR,
+        "WARN" => LOG_WARN,
+        "INFO" => LOG_INFO,
+        "DEBUG" => LOG_DEBUG,
+        "TRACE" => LOG_TRACE,
+        _ => return None,
+    })
+}
+
+/// Render one forwarded line: `[target] LEVEL rest`, colored by level.
+///
+/// Day's logger writes every level to **stderr**, so coloring by stream — the only severity signal
+/// available back when an app had just two file descriptors — painted an entire debug run yellow.
+/// Now that each line arrives as `LEVEL target: message` the level is right there, and it colors
+/// the `[target]` prefix too so a scan down the left column finds the errors.
+///
+/// Anything not in that format keeps the old stream color: a bare `println!`, a Qt warning on
+/// stderr, a raw logcat line. The destination always follows the stream, never the level — an
+/// `ERROR` an app wrote to stdout stays on stdout.
+fn format_log(name: &str, stream: LogStream, line: &str) -> String {
+    let leveled = line
+        .split_once(' ')
+        .and_then(|(word, rest)| Some((word, level_style(word)?, rest.trim_start())));
+    match leveled {
+        // Re-pad the level: splitting on the first space ate the alignment the logger wrote.
+        Some((word, style, rest)) => {
+            format!("{style}[{name}] {word:<LEVEL_WIDTH$}{style:#} {rest}")
+        }
+        None => {
+            let style = match stream {
+                LogStream::Out => LOG_OUT,
+                LogStream::Err => LOG_ERR,
+            };
+            format!("{style}[{name}]{style:#} {line}")
+        }
+    }
+}
+
+/// Print one already-classified log line. Public so the mobile log pumps (logcat/simctl) can reuse
+/// the exact formatting. `anstream` strips the color when our own output isn't a terminal.
 pub fn emit_log(name: &str, stream: LogStream, line: &str) {
+    let out = format_log(name, stream, line);
     match stream {
-        // 34 = blue, 33 = yellow; the whole line is colored so streams read apart at a glance.
-        LogStream::Out => anstream::println!("{LOG_OUT}[{name}]{LOG_OUT:#} {line}"),
-        LogStream::Err => anstream::eprintln!("{LOG_ERR}[{name}]{LOG_ERR:#} {line}"),
+        LogStream::Out => anstream::println!("{out}"),
+        LogStream::Err => anstream::eprintln!("{out}"),
     }
 }
 
@@ -983,6 +1028,56 @@ pub(crate) fn headless_wrap(
         },
         "qt" => HeadlessWrap::QtOffscreen,
         _ => HeadlessWrap::None,
+    }
+}
+
+#[cfg(test)]
+mod log_format_tests {
+    use super::*;
+
+    /// What the terminal actually receives, escapes and all, with ESC made visible.
+    fn rendered(stream: LogStream, line: &str) -> String {
+        format_log("macos-appkit", stream, line).replace('\u{1b}', "^")
+    }
+
+    #[test]
+    fn a_level_line_is_colored_by_level_not_by_stream() {
+        // Day's logger sends every level to stderr, so these all arrive on `Err`. Before, that
+        // made the whole run yellow; each must now carry its own color.
+        let err = rendered(LogStream::Err, "ERROR my_app: the database is unreadable");
+        assert!(err.starts_with("^[31m[macos-appkit] ERROR^[0m "), "{err}");
+        let info = rendered(LogStream::Err, "INFO  my_app: importing 412 rows");
+        assert!(info.starts_with("^[32m[macos-appkit] INFO ^[0m "), "{info}");
+        let debug = rendered(LogStream::Err, "DEBUG day_core::nav: restoring");
+        assert!(
+            debug.starts_with("^[34m[macos-appkit] DEBUG^[0m "),
+            "{debug}"
+        );
+    }
+
+    #[test]
+    fn the_level_column_keeps_its_padding_and_the_message_stays_plain() {
+        // Splitting on the first space eats the logger's alignment; it has to be put back, or
+        // `WARN`/`INFO` lines sit a column left of `ERROR`/`DEBUG`.
+        assert_eq!(
+            rendered(LogStream::Err, "WARN  day_gtk: no bundled font"),
+            "^[33m[macos-appkit] WARN ^[0m day_gtk: no bundled font"
+        );
+    }
+
+    #[test]
+    fn a_line_with_no_level_keeps_the_stream_color() {
+        // A bare `println!`, a Qt warning, a raw logcat line: nothing to read a level from.
+        assert_eq!(
+            rendered(LogStream::Out, "just some output"),
+            "^[34m[macos-appkit]^[0m just some output"
+        );
+        assert_eq!(
+            rendered(LogStream::Err, "QWidget: cannot create"),
+            "^[33m[macos-appkit]^[0m QWidget: cannot create"
+        );
+        // A lone word can't be split into level + rest, and must not panic.
+        assert!(rendered(LogStream::Err, "ERROR").contains("[macos-appkit]^[0m ERROR"));
     }
 }
 

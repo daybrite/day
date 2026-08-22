@@ -18,5 +18,15 @@ day-l10n = { workspace = true }
 log = { workspace = true }
 slotmap = { workspace = true }
 
+# Color for the level column when the default logger falls back to stderr (src/lib.rs). Native
+# only: on wasm the browser console takes a structured sink instead, and neither crate belongs in
+# an app's wasm graph. `anstream` is worth the edge over a hand-rolled escape code because it does
+# the two things that are easy to get wrong — it strips the color when stderr is not a terminal (a
+# pipe under `day launch`, logcat on Android, Xcode's console) and enables VT processing on legacy
+# Windows consoles. It is also already in the tree via day-cli/clap, so it costs no new toolchain.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+anstyle = "1"
+anstream = "1"
+
 [dev-dependencies]
 day-mock = { workspace = true }

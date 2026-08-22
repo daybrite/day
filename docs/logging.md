@@ -71,6 +71,43 @@ WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 The target names the crate and module that emitted the line, which is what tells you whether a
 complaint is yours, a piece's, or a backend's.
 
+## Color
+
+On a terminal the level column is colored — red `ERROR`, yellow `WARN`, green `INFO`, blue
+`DEBUG`, cyan `TRACE`. That is `env_logger`'s palette rather than a new one, so the colors carry
+the meaning they already have elsewhere in Rust. The message stays plain: color across a whole
+line is noise at `INFO`, and an uncolored message stays greppable.
+
+The escapes are written only where they render. Day checks whether the destination is a color
+terminal instead of assuming, so color drops out on its own when output is redirected to a file,
+when `NO_COLOR` or `TERM=dumb` is set, and on the targets where no terminal is involved — logcat,
+Xcode's console, the browser. On Windows it enables the console's VT processing first, so older
+consoles show color rather than raw escapes.
+
+Under `day launch` the app's stderr is a pipe, so the app itself writes none. **`day-cli` colors
+the lines as it re-emits them**, tagged with the target they came from:
+
+```
+[macos-appkit] ERROR my_app: the database is unreadable
+[macos-appkit] INFO  my_app: importing 412 rows
+[macos-appkit] DEBUG day_core::nav: restoring app.section
+```
+
+The prefix takes the level's color too, so scanning the left column finds the errors.
+
+The VS Code extension's **Run** button shows exactly this, and needed no change of its own to get
+it: it runs `day launch` as a VS Code task in an integrated terminal, which is a terminal like any
+other. Its **debug** path (F5) is different — it spawns `day launch` with pipes and forwards the
+text to the Debug Console, so the color is stripped there and the output is plain.
+
+Note that `day.extraEnv` will not change that. Those entries are passed through as `day launch
+--env`, which sets the environment of **the app**, not of the CLI doing the coloring.
+
+A forwarded line with no level keeps the older per-stream color, blue for stdout and yellow for
+stderr: a stray `println!`, a Qt warning, a raw logcat line. Colored output is a presentation
+choice, so it never changes routing — an `ERROR` an app wrote to stdout is still forwarded to
+stdout.
+
 ## Choosing a level
 
 | Level | Use it for | On by default |
@@ -103,7 +140,7 @@ registration wins, so **install yours before `day::launch`** and Day will step a
 ```rust
 fn main() {
     env_logger::init();                       // or tracing_subscriber, or your own log::Log
-    day::launch(day::WindowOptions { .. }, my_app::root);
+    day::launch(day::WindowOptions::default(), my_app::root);
 }
 ```
 
@@ -117,6 +154,41 @@ Two consequences worth knowing:
   level; `env_logger` gives you `RUST_LOG=warn,day_uikit=debug` and the ability to silence one
   noisy backend.
 - **`tracing` users** can bridge with `tracing-log` and receive Day's output as tracing events.
+
+### `env_logger`, worked
+
+`env_logger` is the one to reach for on a desktop-focused app, and it is a two-line change:
+
+```toml
+# Cargo.toml
+[dependencies]
+env_logger = "0.11"
+```
+
+```rust
+fn main() {
+    // Before `day::launch`, or Day's logger wins the race and this call does nothing.
+    env_logger::init();
+    day::launch(day::WindowOptions::default(), my_app::root);
+}
+```
+
+The per-target filter is the real reason to switch — one backend turned up without the rest of the
+app coming with it:
+
+```sh
+RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -p linux-gtk
+```
+
+`RUST_LOG` replaces `DAY_LOG` once you do this. `DAY_LOG` is read by Day's own logger, and that
+logger is no longer installed.
+
+Day does **not** adopt `env_logger` as its default, because it writes ANSI
+text to stderr on every target. On Android that means every line lands in logcat at **ERROR**,
+because day-android maps fd 2 to that level; on web-dom it means the lines are discarded, since
+std's stdio on wasm accepts bytes and drops them; on iOS it means escape codes in the Xcode
+console. Day's default exists to route per platform. `env_logger` is the right choice when your
+app targets desktops, and the wrong one to impose on the other six targets.
 
 ## Writing a logger
 

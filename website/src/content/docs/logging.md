@@ -55,6 +55,26 @@ INFO  my_app: importing 412 rows
 WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 ```
 
+## Color
+
+On a terminal the level column is colored — red `ERROR`, yellow `WARN`, green `INFO`, blue
+`DEBUG`, cyan `TRACE`, which is `env_logger`'s palette rather than a new one. The message stays
+plain, so it stays greppable.
+
+Day checks whether the destination is a color terminal rather than assuming, so the escapes drop
+out on their own when you redirect to a file, when `NO_COLOR` is set, and on the targets with no
+terminal — logcat, Xcode's console, the browser. Under `day launch` the app's stderr is a pipe, so
+`day launch` does the coloring instead, tagging each line with the target it came from:
+
+```
+[macos-appkit] ERROR my_app: the database is unreadable
+[macos-appkit] INFO  my_app: importing 412 rows
+```
+
+The VS Code extension's **Run** button shows exactly this, since it runs `day launch` as a task in
+an integrated terminal. Its F5 debug path forwards the output to the Debug Console through a pipe
+instead, where the color is stripped and the text arrives plain.
+
 ## Levels
 
 `error!` when a feature is gone. `warn!` when Day recovered but not as intended — a missing font, a
@@ -77,7 +97,7 @@ wins, so install yours before `day::launch`:
 ```rust
 fn main() {
     env_logger::init();          // or tracing_subscriber, or your own log::Log
-    day::launch(day::WindowOptions { .. }, my_app::root);
+    day::launch(day::WindowOptions::default(), my_app::root);
 }
 ```
 
@@ -85,5 +105,11 @@ That is the entire opt-out: no feature to set, and every `info!` you have alread
 working, because those are `log`'s macros rather than Day's. You gain whatever that logger offers —
 `env_logger`'s `RUST_LOG=warn,day_uikit=debug` per-target filtering, for instance, or `tracing`'s
 spans via `tracing-log`.
+
+`env_logger` is a good choice for a desktop-focused app and a poor default for Day, which is why
+it is opt-in: it writes ANSI text to stderr on every target, and stderr is logcat's **ERROR** level
+on Android, a discarded buffer on the web, and the Xcode console on iOS. Day's own logger exists to
+route per platform. Note that `RUST_LOG` replaces `DAY_LOG` once you install it — `DAY_LOG` belongs
+to the logger you just displaced.
 
 Full reference: [docs/logging.md](https://github.com/daybrite/day/blob/main/docs/logging.md).
