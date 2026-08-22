@@ -323,7 +323,7 @@ scripts), and `day-cli` (the `day` binary).
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive |
-| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
 | `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), and the statement protocol the main thread speaks over the SharedArrayBuffer channel; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
@@ -337,7 +337,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
-| `day-lite` | dynamic miniapps ([docs/lite.md](docs/lite.md)): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http |
+| `day-lite` | dynamic miniapps ([docs/lite.md](docs/lite.md)): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite (over day-persistence's driver, so a superapp compiles one engine) + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http, day-persistence (driver only) |
 | `day-break` | OPTIONAL consent-first crash reporting ([docs/break.md](docs/break.md), [§8.5](#85-panics-and-crashes)): chained panic hook + POSIX signal handlers + Android UEH, session sentinel, next-launch reconcile into a schema-versioned JSON report, pluggable `Reporter` upload (never automatic) | day-core, day-pieces (`ui`), day-part-http, day-part-deviceinfo |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec (NOT day-core) |
@@ -767,8 +767,10 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 and `.any()`.
 
 Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (`combo_box`,
-`search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`,
-`remote_image`, `swiftui` — hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)) and headless services under
+`search_field`, `rating`, `activity`, `web_view`, `media`, `map`, `lottie`, `remote_image`,
+`color_picker` ([docs/colorpicker.md](docs/colorpicker.md)), `stepper` — a numeric field with
+increment/decrement arrows, [docs/stepper.md](docs/stepper.md) —
+`swiftui` — hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)) and headless services under
 `parts/` (battery, network, sensors,
 clipboard, prefs, haptics, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
@@ -4282,14 +4284,26 @@ the storage readout in the walkthrough.
   `NSUndoManager` subclass answering canUndo/titles from mirrored state and forwarding
   invocations — the appkit window's `windowWillReturnUndoManager` and the uikit root VC's
   `undoManager` both yield it, so a focused text field's own manager keeps precedence (the
-  typing rule, by construction).
+  typing rule, by construction). Transient UI state (a selection) rides the units via
+  `set_transient_context`: captured as each unit seals, restored at the landing point of
+  every undo/redo, never persisted ([docs/model.md](docs/model.md) "Transient UI state") —
+  Day-Sketch wires its canvas selection through it.
 - Also fixed en route: `Mapped` (`field.map(...)`) now carries the mapped field's LABEL into
   the change log — the literal "mapped" it wrote before was invisible to the SQL fold, so a
   converted binding over a container store silently never persisted.
 
-Still deferred: lazy faulting, relations, external storage, cross-connection watching
-(preupdate hook), the wasm driver leg, session-suspend auto-commit and cross-window undo
-focus routing.
+Still deferred: lazy faulting, relations, external storage, session-suspend auto-commit
+and cross-window undo focus routing.
+
+**Outcome (2026-08-22).** Cross-connection watching landed — not via the preupdate hook the
+plan named (it reports only its own connection's writes and cannot see another process's), but
+as `ModelContainer::check_external`: a `PRAGMA data_version` poll (the counter moves only when
+another connection commits) followed by a per-table diff fed through a new
+`Store::merge_row` seam — per-column announcements, authored `"database"`, dispatched to live
+queries, declined by the autosave fold and by undo. The wasm driver leg had already landed via
+day-sqlite-worker when the list above was written. day-lite's storage moved onto the shared
+driver in the same change (`SqliteConnection` grew `execute_batch` and `query_named`), so a
+superapp compiles one SQLite and the app's engine features govern miniapp storage too.
 
 ---
 

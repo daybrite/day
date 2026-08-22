@@ -78,6 +78,7 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | [pullrefresh](/docs/internal/pullrefresh) | `day-piece-pullrefresh` — pull-to-refresh for scrollables |
 | [datepicker](/docs/internal/datepicker) | `day-piece-datetime` — native date & time pickers |
 | [colorpicker](/docs/internal/colorpicker) | `day-piece-colorpicker` — a color well: the platform chooser, or one Day composes |
+| [stepper](/docs/internal/stepper) | `day-piece-stepper` — a numeric field with increment/decrement arrows |
 | [badge](/docs/internal/badge) | app-icon numeric badge (proposed) |
 | [tweaks](/docs/internal/tweaks) | per-toolkit native configuration: accessors, packaged tweaks, recipes |
 

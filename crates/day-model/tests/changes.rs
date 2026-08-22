@@ -89,6 +89,46 @@ fn a_mapped_write_captures_the_stored_type() {
 }
 
 #[test]
+fn merge_row_announces_the_named_fields_with_the_current_author() {
+    let store = store();
+    let (_, changes) = day_model::record_changes(|| {
+        day_model::with_author("database", || {
+            let merged = store.merge_row(
+                1,
+                Item {
+                    id: 1,
+                    name: "external".into(),
+                    count: 9,
+                },
+                &["name", "count"],
+            );
+            assert!(merged);
+        });
+    });
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0].label, "name");
+    assert_eq!(changes[0].op, Op::Set);
+    assert_eq!(changes[0].author, Some("database"));
+    assert_eq!(changes[0].components.len(), 3);
+    assert_eq!(changes[0].components[1], 1, "the element's key");
+    assert_eq!(changes[1].label, "count");
+    store.with_untracked(|k| {
+        let row = k.get(1).expect("the row is present");
+        assert_eq!(row.name, "external");
+        assert_eq!(row.count, 9);
+    });
+}
+
+#[test]
+fn merge_row_of_an_absent_row_announces_nothing() {
+    let store = store();
+    let (_, changes) = day_model::record_changes(|| {
+        assert!(!store.merge_row(404, Item::default(), &["name"]));
+    });
+    assert!(changes.is_empty());
+}
+
+#[test]
 fn a_standing_sink_sees_every_change_until_removed() {
     use std::cell::RefCell;
     use std::rc::Rc;

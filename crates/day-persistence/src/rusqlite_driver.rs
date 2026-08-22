@@ -269,7 +269,10 @@ impl SqliteDriver for Sqlite {
                 // acts on.
                 full_text_search: cfg!(any(feature = "bundled", feature = "cipher")),
                 rtree: cfg!(any(feature = "bundled", feature = "cipher")),
-                external_changes: false,
+                // `PRAGMA data_version` is core SQLite: another connection's committed writes
+                // are detectable on any file database. A memory database has no second
+                // connection to detect.
+                external_changes: matches!(self.opts.location, Location::File(_)),
             }
         }
     }
@@ -504,6 +507,43 @@ impl SqliteConnection for RusqliteConn {
                         .map(|i| r.get_ref(i).map(from_sql).unwrap_or(Value::Null))
                         .collect();
                     row(&vals);
+                }
+                Ok(None) => break,
+                Err(e) => return Err(DbError::driver(e.to_string())),
+            }
+        }
+        Ok(())
+    }
+
+    fn execute_batch(&mut self, sql: &str) -> Result<(), DbError> {
+        self.conn
+            .execute_batch(sql)
+            .map_err(|e| DbError::driver(format!("{e} in batch")))
+    }
+
+    fn query_named(
+        &mut self,
+        sql: &str,
+        params: &[Value],
+        row: &mut dyn FnMut(&[String], &dyn Row),
+    ) -> Result<(), DbError> {
+        let mut stmt = self
+            .conn
+            .prepare(sql)
+            .map_err(|e| DbError::driver(format!("{e} in `{sql}`")))?;
+        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+        let bound = rusqlite::params_from_iter(params.iter().map(to_sql));
+        let mut rows = stmt
+            .query(bound)
+            .map_err(|e| DbError::driver(format!("{e} in `{sql}`")))?;
+        loop {
+            match rows.next() {
+                Ok(Some(r)) => {
+                    let n = r.as_ref().column_count();
+                    let vals: Vec<Value> = (0..n)
+                        .map(|i| r.get_ref(i).map(from_sql).unwrap_or(Value::Null))
+                        .collect();
+                    row(&names, &vals);
                 }
                 Ok(None) => break,
                 Err(e) => return Err(DbError::driver(e.to_string())),

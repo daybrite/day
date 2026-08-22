@@ -129,8 +129,14 @@ custom SQL functions, and PRAGMAs the crate does not model.
 which is what keeps persistence assertable with no database on disk (see Testing below).
 
 `capabilities()` reports what the open driver can actually do — `durable`, `encryption`,
-`full_text_search`, `rtree` — so a settings page can offer only what is real. An external crate
-can implement `SqliteDriver` for an engine the built-ins cannot be (libSQL, SEE, a proxy).
+`full_text_search`, `rtree`, `external_changes` — so a settings page can offer only what is
+real. An external crate can implement `SqliteDriver` for an engine the built-ins cannot be
+(libSQL, SEE, a proxy). Beyond `execute`/`query`, the connection trait carries `execute_batch`
+(a statement script — a migration step) and `query_named` (rows with their column names, for
+callers that surface rows as named objects); the built-ins implement both, defaults keep
+external drivers compiling. [day-lite](lite.md)'s per-miniapp storage rides this same driver,
+so a superapp carrying both crates compiles ONE SQLite and the app's engine features govern
+miniapp storage too.
 
 ## Schema, fingerprints, migrations
 
@@ -316,6 +322,27 @@ verb. `integrity_check()` parses the PRAGMA into findings (empty means sound).
 (device backup). `vacuum()` compacts in place; `size_bytes()` answers the settings-page
 question.
 
+## External changes
+
+Another connection's committed writes — another process, a sync engine, a CLI editing the
+file — do not announce themselves. `check_external()` looks: detection is one
+`PRAGMA data_version` (the counter moves only when another connection commits, never for this
+one's own writes), so it is cheap enough to wire to app foreground, window focus, or a timer.
+When the counter moved, pending local edits flush first, each table is diffed against its
+store, and only the differences feed through: changed fields announce per column, inserts and
+deletes take the structural path, and live queries emit their usual precise deltas — a list
+animates the row another process inserted. The merged changes are tagged
+`ModelContainer::EXTERNAL_AUTHOR` (`"database"`): the autosave fold declines the echo, an undo
+stack skips them (another author's writes are not the user's history), and any change sink can
+tell them from the user's edits. A row another connection rewrote arrives whole, so its
+`#[model(transient)]` fields reset to their defaults, exactly as at load.
+
+`Capabilities::external_changes` says whether detection is real: the built-in driver claims it
+for file databases on native targets; memory databases (no second connection can reach one),
+the Recorder, and the web engine (its OPFS access is exclusive) answer `Ok(false)` honestly.
+Writes made through `with_connection` are this connection's own — the counter does not move
+for them; that recovery stays `rescan()`. `tests/external.rs` is the reference suite.
+
 ## Testing
 
 The `Recorder` makes persistence a unit-test subject:
@@ -338,12 +365,11 @@ assert_eq!(sql, ["UPDATE trips SET name = ? WHERE id = ?"]);
 
 ## Not in this version
 
-Typed queries (predicates over indexed columns, partial loading), lazy row faulting,
-relations (`#[model(relation)]`), external storage (`#[model(external)]`), full-text and
-spatial indexes, and watching other connections' writes are later phases — the plan's design
-for them shapes what exists today (visible schema, `ColumnValue` everywhere, capabilities), but
-none of it is API yet. Row identity is the `#[model(id)]` key stored as `INTEGER`; display
-order is a projection concern and is not persisted.
+Lazy row faulting (a container LOADS each table at open — the document pattern), relations
+(`#[model(relation)]`), and external storage (`#[model(external)]`) are later phases — the
+plan's design for them shapes what exists today (visible schema, `ColumnValue` everywhere,
+capabilities), but none of it is API yet. Row identity is the `#[model(id)]` key stored as
+`INTEGER`; display order is a projection concern and is not persisted.
 
 ## Watching the SQL
 

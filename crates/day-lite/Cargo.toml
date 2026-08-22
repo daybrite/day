@@ -8,6 +8,13 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[features]
+# The bundled SQLite, on by default — the engine every mobile target cross-compiles. A
+# superapp linking the OS's libsqlite3 instead uses default-features = false and picks its
+# engine through day-persistence's own features.
+default = ["bundled"]
+bundled = ["day-persistence/bundled"]
+
 [dependencies]
 log = { workspace = true }
 day-reactive = { workspace = true }
@@ -30,8 +37,11 @@ oxc_transformer = "0.144"
 oxc_codegen = "0.144"
 oxc_span = "0.144"
 
-# Built-in persistence (docs/lite.md §7): bundled so every mobile target has the same sqlite.
-rusqlite = { version = "0.40", features = ["bundled"] }
+# Built-in persistence (docs/lite.md §7) rides day-persistence's driver seam, so a superapp
+# carrying both compiles ONE SQLite and the app's engine features (`sqlite-system`,
+# `sqlite-cipher`) govern miniapp storage too. The `bundled` default keeps the engine every
+# mobile target cross-compiles; a system-engine build turns it off (default-features = false).
+day-persistence = { workspace = true, default-features = false, features = ["driver-rusqlite"] }
 
 # Per-miniapp Fluent bundles (docs/lite.md §7) — same crate/version day-l10n builds on.
 fluent-bundle = "0.16"

@@ -564,6 +564,11 @@ pub trait TreeOps {
     /// visit order, which only coincides with row order when every page is built up front — so
     /// the selector reports the row index here instead. `None` = nothing selected (`-1`).
     fn set_probe_selected(&mut self, node: RNode, selected: Option<usize>);
+    /// Record an EXTERNAL piece's current value in the node's dayscript probe — both the
+    /// numeric form (`assert_value`) and its display text (`assert_text`). The core patch
+    /// inspection only knows the builtin patch types, so a satellite piece (a stepper, a
+    /// rating) reports its own state through this instead (docs/extending.md).
+    fn set_probe_value(&mut self, node: RNode, value: f64, text: String);
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
     /// Install `root`'s window toolbar (docs/toolbars.md). `root` is a window root — the primary
@@ -990,6 +995,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             // `assert_selected` reads `selected`, and a selector answers either.
             n.probe.selected = selected.map(|i| i as i64).unwrap_or(-1);
             n.probe.value = n.probe.selected as f64;
+        }
+    }
+
+    fn set_probe_value(&mut self, node: RNode, value: f64, text: String) {
+        if let Some(n) = self.nodes.get_mut(node) {
+            n.probe.value = value;
+            n.probe.text = text;
         }
     }
 

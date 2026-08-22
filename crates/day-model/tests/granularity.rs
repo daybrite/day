@@ -161,6 +161,45 @@ fn a_sibling_field_does_not_wake_it() {
     assert_eq!(runs.get(), baseline + 1);
 }
 
+/// An external merge (another connection's committed write, fed through `merge_row`) wakes
+/// exactly the readers of the fields it names — the precision a wholesale reload cannot offer.
+#[test]
+fn a_merged_row_wakes_only_the_named_fields_readers() {
+    let store = Store::new(seed());
+    let name_runs = Rc::new(Cell::new(0usize));
+    let count_runs = Rc::new(Cell::new(0usize));
+    let (n, c) = (name_runs.clone(), count_runs.clone());
+    boot(move || {
+        let name = store.elem(5).name();
+        let count = store.elem(5).count();
+        column((
+            label(move || {
+                n.set(n.get() + 1);
+                name.with(|v| v.cloned().unwrap_or_default())
+            }),
+            label(move || {
+                c.set(c.get() + 1);
+                count.with(|v| v.copied().unwrap_or(0).to_string())
+            }),
+        ))
+        .any()
+    });
+    flush_sync();
+    let (name_base, count_base) = (name_runs.get(), count_runs.get());
+
+    let mut row = seed().get(5).cloned().expect("row 5 is seeded");
+    row.name = "merged".into();
+    store.merge_row(5, row, &["name"]);
+    flush_sync();
+
+    assert_eq!(
+        name_runs.get(),
+        name_base + 1,
+        "the named field's reader ran"
+    );
+    assert_eq!(count_runs.get(), count_base, "the sibling's reader did not");
+}
+
 /// A COARSE reader — one that asked for the whole store — still wakes on a field write. Precision
 /// is something a reader opts into by what it reads, not something writes have to know about.
 #[test]

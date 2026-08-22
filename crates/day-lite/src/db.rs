@@ -5,13 +5,17 @@
 //! app id; `user_version` tracks how many migration steps have applied, and a `_day_lite_
 //! migrations` table records each step's content hash so editing history (instead of
 //! appending) is caught rather than silently divergent.
+//!
+//! The engine is day-persistence's driver ([`day_persistence::Sqlite`]): a superapp carrying
+//! both crates compiles ONE SQLite, and the app's engine features (`sqlite-system`,
+//! `sqlite-cipher`) govern miniapp storage too. Journal mode stays SQLite's default, as it
+//! always was for these files.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use rusqlite::Connection;
-use rusqlite::types::Value as SqlValue;
+use day_persistence::{Sqlite, SqliteConnection, SqliteDriver, Value};
 
 #[derive(Debug, Clone)]
 pub struct DbError(pub String);
@@ -38,29 +42,29 @@ pub enum Cell {
 }
 
 impl Cell {
-    fn to_sql(&self) -> SqlValue {
+    fn to_value(&self) -> Value {
         match self {
-            Cell::Null => SqlValue::Null,
-            Cell::Int(i) => SqlValue::Integer(*i),
-            Cell::Real(f) => SqlValue::Real(*f),
-            Cell::Text(t) => SqlValue::Text(t.clone()),
+            Cell::Null => Value::Null,
+            Cell::Int(i) => Value::Int(*i),
+            Cell::Real(f) => Value::Real(*f),
+            Cell::Text(t) => Value::Text(t.clone()),
         }
     }
 
-    fn from_sql(v: SqlValue) -> Cell {
+    fn from_value(v: Value) -> Cell {
         match v {
-            SqlValue::Null => Cell::Null,
-            SqlValue::Integer(i) => Cell::Int(i),
-            SqlValue::Real(f) => Cell::Real(f),
-            SqlValue::Text(t) => Cell::Text(t),
-            SqlValue::Blob(b) => Cell::Text(String::from_utf8_lossy(&b).into_owned()),
+            Value::Null => Cell::Null,
+            Value::Int(i) => Cell::Int(i),
+            Value::Real(f) => Cell::Real(f),
+            Value::Text(t) => Cell::Text(t),
+            Value::Blob(b) => Cell::Text(String::from_utf8_lossy(&b).into_owned()),
         }
     }
 }
 
 /// The app-scoped database handle (main thread only, like everything in the runtime).
 #[derive(Clone)]
-pub struct Db(Rc<RefCell<Connection>>);
+pub struct Db(Rc<RefCell<Box<dyn SqliteConnection>>>);
 
 impl Db {
     /// Open (creating parents) the app's database.
@@ -68,32 +72,33 @@ impl Db {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(err)?;
         }
-        let conn = Connection::open(&path).map_err(err)?;
-        conn.execute_batch("pragma foreign_keys = on;")
-            .map_err(err)?;
+        let conn: Box<dyn SqliteConnection> =
+            Box::new(Sqlite::at(path).wal(false).open().map_err(err)?);
         Ok(Db(Rc::new(RefCell::new(conn))))
     }
 
     /// In-memory database (tests).
     pub fn memory() -> Result<Db, DbError> {
-        let conn = Connection::open_in_memory().map_err(err)?;
-        conn.execute_batch("pragma foreign_keys = on;")
-            .map_err(err)?;
+        let conn: Box<dyn SqliteConnection> = Box::new(Sqlite::memory().open().map_err(err)?);
         Ok(Db(Rc::new(RefCell::new(conn))))
     }
 
     /// Apply the tail of an append-only migration history (docs/lite.md §7.1).
     pub fn migrate(&self, steps: &[String]) -> Result<u64, DbError> {
-        let conn = self.0.borrow_mut();
+        let mut conn = self.0.borrow_mut();
         conn.execute_batch(
             "create table if not exists _day_lite_migrations (
                  step integer primary key, hash text not null
              );",
         )
         .map_err(err)?;
-        let applied: u64 = conn
-            .query_row("pragma user_version", [], |r| r.get::<_, i64>(0))
-            .map_err(err)? as u64;
+        let mut applied: u64 = 0;
+        conn.query("pragma user_version", &[], &mut |row| {
+            if let Ok(v) = row.get(0).as_int() {
+                applied = v as u64;
+            }
+        })
+        .map_err(err)?;
         if (steps.len() as u64) < applied {
             return Err(DbError(format!(
                 "migration history shrank: {applied} applied, {} provided",
@@ -102,13 +107,19 @@ impl Db {
         }
         // Recorded prefix must match verbatim — history is append-only.
         for (i, step) in steps.iter().take(applied as usize).enumerate() {
-            let want: String = conn
-                .query_row(
-                    "select hash from _day_lite_migrations where step = ?1",
-                    [i as i64],
-                    |r| r.get(0),
-                )
-                .map_err(|_| DbError(format!("migration {i} was applied but is unrecorded")))?;
+            let mut want: Option<String> = None;
+            conn.query(
+                "select hash from _day_lite_migrations where step = ?1",
+                &[Value::Int(i as i64)],
+                &mut |row| {
+                    if let Ok(h) = row.get(0).as_text() {
+                        want = Some(h.to_string());
+                    }
+                },
+            )
+            .map_err(err)?;
+            let want = want
+                .ok_or_else(|| DbError(format!("migration {i} was applied but is unrecorded")))?;
             if want != content_hash(step) {
                 return Err(DbError(format!(
                     "migration {i} changed after it was applied — migrations are append-only"
@@ -120,42 +131,41 @@ impl Db {
                 .map_err(|e| DbError(format!("migration {i}: {e}")))?;
             conn.execute(
                 "insert into _day_lite_migrations (step, hash) values (?1, ?2)",
-                rusqlite::params![i as i64, content_hash(step)],
+                &[Value::Int(i as i64), Value::Text(content_hash(step))],
             )
             .map_err(err)?;
-            conn.pragma_update(None, "user_version", (i + 1) as i64)
+            conn.execute(&format!("pragma user_version = {}", i + 1), &[])
                 .map_err(err)?;
         }
         Ok(steps.len() as u64)
     }
 
     pub fn exec(&self, sql: &str, params: &[Cell]) -> Result<(u64, i64), DbError> {
-        let conn = self.0.borrow_mut();
-        let mut stmt = conn.prepare(sql).map_err(err)?;
-        let sql_params: Vec<SqlValue> = params.iter().map(Cell::to_sql).collect();
-        let changes = stmt
-            .execute(rusqlite::params_from_iter(sql_params))
-            .map_err(err)? as u64;
-        Ok((changes, conn.last_insert_rowid()))
+        let mut conn = self.0.borrow_mut();
+        let vals: Vec<Value> = params.iter().map(Cell::to_value).collect();
+        let changes = conn.execute(sql, &vals).map_err(err)?;
+        let mut rowid = 0i64;
+        conn.query("select last_insert_rowid()", &[], &mut |row| {
+            if let Ok(v) = row.get(0).as_int() {
+                rowid = v;
+            }
+        })
+        .map_err(err)?;
+        Ok((changes, rowid))
     }
 
     pub fn query(&self, sql: &str, params: &[Cell]) -> Result<Vec<Vec<(String, Cell)>>, DbError> {
-        let conn = self.0.borrow_mut();
-        let mut stmt = conn.prepare(sql).map_err(err)?;
-        let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-        let sql_params: Vec<SqlValue> = params.iter().map(Cell::to_sql).collect();
-        let mut rows = stmt
-            .query(rusqlite::params_from_iter(sql_params))
-            .map_err(err)?;
+        let mut conn = self.0.borrow_mut();
+        let vals: Vec<Value> = params.iter().map(Cell::to_value).collect();
         let mut out = Vec::new();
-        while let Some(row) = rows.next().map_err(err)? {
+        conn.query_named(sql, &vals, &mut |names, row| {
             let mut obj = Vec::with_capacity(names.len());
             for (i, name) in names.iter().enumerate() {
-                let v: SqlValue = row.get(i).map_err(err)?;
-                obj.push((name.clone(), Cell::from_sql(v)));
+                obj.push((name.clone(), Cell::from_value(row.get(i))));
             }
             out.push(obj);
-        }
+        })
+        .map_err(err)?;
         Ok(out)
     }
 }

@@ -1124,6 +1124,42 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
             None,
         );
     }
+
+    /// Feed one row's new value from OUTSIDE the app's own editing — another connection's
+    /// committed write arriving through a persistence container, an import — replacing the
+    /// stored value and announcing each label in `changed` as that field's `Set`. Precise on
+    /// purpose: readers of the named fields wake, along with everything coarser, where a
+    /// wholesale [`Store::update`] wakes only readers of the store itself. The announcements
+    /// carry no values (a background transaction's shape) and the current author tag —
+    /// wrap the call in [`with_author`] so consumers can tell the merge from the user's own
+    /// edits. Returns false, announcing nothing, when the row is absent: an absent row is an
+    /// insert, which is [`Store::restructure`]'s job.
+    pub fn merge_row(self, key: u64, value: T, changed: &[&'static str]) -> bool
+    where
+        T: Clone,
+    {
+        {
+            let mut g = self.inner.data.write().expect("store poisoned");
+            match g.get_mut(key) {
+                Some(slot) => *slot = value,
+                None => return false,
+            }
+        }
+        self.inner.version.fetch_add(1, Ordering::Relaxed);
+        let elem = intern(Path::under(self.node, key));
+        let root_id = self.root_id;
+        for &label in changed {
+            notify_change(
+                Path::under(elem, field_id(label)),
+                || vec![root_id, key, field_id(label)],
+                label,
+                Op::Set,
+                None,
+                None,
+            );
+        }
+        true
+    }
 }
 
 impl<T: Identified + 'static> Elem<T> {
@@ -1639,10 +1675,13 @@ struct UndoUnit {
     context: Option<Rc<dyn Any>>,
 }
 
+/// A restore closure over one captured snapshot ([`UndoStack::set_transient_context`]).
+type ContextRestore = Rc<dyn Fn(&dyn Any)>;
+
 /// The app's transient-context hook ([`UndoStack::set_transient_context`]).
 struct ContextHook {
     capture: Rc<dyn Fn() -> Rc<dyn Any>>,
-    restore: Rc<dyn Fn(&dyn Any)>,
+    restore: ContextRestore,
     /// The state BEFORE any unit — what undoing the whole history restores.
     base: Rc<dyn Any>,
 }

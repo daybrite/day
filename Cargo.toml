@@ -61,6 +61,7 @@ members = [
     "pieces/day-piece-pullrefresh",
     "pieces/day-piece-datetime",
     "pieces/day-piece-colorpicker",
+    "pieces/day-piece-stepper",
     "pieces/day-piece-texteditor",
     "pieces/day-piece-settings",
     "tweaks/day-tweak-button-bezel",
@@ -119,7 +120,9 @@ day-fluent = { path = "crates/day-fluent", version = "0.2.6" }
 day-script = { path = "crates/day-script", version = "0.2.6" }
 day-vector = { path = "crates/day-vector", version = "0.2.6" }
 day-model = { path = "crates/day-model", version = "0.2.6" }
-day-persistence = { path = "crates/day-persistence", version = "0.2.6" }
+# default-features = false so trait-only and engine-agnostic consumers (day-lite) can inherit
+# without an engine choice; consumers wanting the default engine say `default-features = true`.
+day-persistence = { path = "crates/day-persistence", version = "0.2.6", default-features = false }
 day-sqlite-worker = { path = "crates/day-sqlite-worker", version = "0.2.6" }
 day = { path = "crates/day", version = "0.2.6" }
 day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.2.6" }
@@ -149,6 +152,7 @@ day-piece-settings = { path = "pieces/day-piece-settings", version = "0.2.6" }
 day-piece-pullrefresh = { path = "pieces/day-piece-pullrefresh", version = "0.2.6" }
 day-piece-datetime = { path = "pieces/day-piece-datetime", version = "0.2.6" }
 day-piece-colorpicker = { path = "pieces/day-piece-colorpicker", version = "0.2.6" }
+day-piece-stepper = { path = "pieces/day-piece-stepper", version = "0.2.6" }
 day-piece-texteditor = { path = "pieces/day-piece-texteditor", version = "0.2.6" }
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
 day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.2.6" }

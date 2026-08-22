@@ -206,7 +206,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LIBRARY_SEARCH_PATHS = "$(BUILT_PRODUCTS_DIR)/day";
-				OTHER_LDFLAGS = "-l{{ident}}";
+				OTHER_LDFLAGS = "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/lib{{ident}}.a";
 				PRODUCT_NAME = {{pascal}};
 			};
 			name = Debug;
@@ -220,7 +220,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LIBRARY_SEARCH_PATHS = "$(BUILT_PRODUCTS_DIR)/day";
-				OTHER_LDFLAGS = "-l{{ident}}";
+				OTHER_LDFLAGS = "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/lib{{ident}}.a";
 				PRODUCT_NAME = {{pascal}};
 			};
 			name = Release;

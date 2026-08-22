@@ -46,7 +46,7 @@ day-fluent = { workspace = true }
 log = { workspace = true }
 day-script = { workspace = true }
 day-model = { workspace = true, optional = true }
-day-persistence = { workspace = true, optional = true }
+day-persistence = { workspace = true, default-features = true, optional = true }
 # Persistent settings, promoted into the facade (docs/prefs.md): 5 of 6 sibling apps depend on it
 # and it is the only part that lives in the reactive layer. Optional so it can be declined.
 day-part-prefs = { workspace = true, optional = true }

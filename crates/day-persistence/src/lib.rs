@@ -17,10 +17,11 @@
 //! records every statement, which is what keeps persistence assertable headlessly — a test can
 //! check the SQL a UI action produced without a database on disk.
 //!
-//! What this version deliberately does not do yet: fault rows lazily (a container LOADS each
-//! table at open — the document pattern), run queries (the typed builder is the next phase), or
-//! watch other connections' writes. Row identity is the model's `#[model(id)]` key, stored as
-//! `INTEGER`; display order is a projection concern and is not persisted.
+//! Typed live queries are [`ModelContainer::query`] and friends; another connection's committed
+//! writes arrive through [`ModelContainer::check_external`]. What this version deliberately does
+//! not do yet: fault rows lazily — a container LOADS each table at open, the document pattern.
+//! Row identity is the model's `#[model(id)]` key, stored as `INTEGER`; display order is a
+//! projection concern and is not persisted.
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
@@ -270,7 +271,10 @@ pub struct Capabilities {
     pub wal: bool,
     pub full_text_search: bool,
     pub rtree: bool,
-    /// Reports other connections' writes (a later phase; no built-in driver claims it yet).
+    /// Another connection's committed writes are detectable (SQLite's `PRAGMA data_version`
+    /// counter), so [`ModelContainer::check_external`] can merge them. The built-in driver
+    /// claims it for file databases on native targets; memory databases (no second connection
+    /// can reach one), the Recorder, and the web engine (its OPFS access is exclusive) do not.
     pub external_changes: bool,
 }
 
@@ -294,6 +298,17 @@ impl SqliteConnection for Box<dyn SqliteConnection> {
     ) -> Result<(), DbError> {
         (**self).query(sql, params, row)
     }
+    fn execute_batch(&mut self, sql: &str) -> Result<(), DbError> {
+        (**self).execute_batch(sql)
+    }
+    fn query_named(
+        &mut self,
+        sql: &str,
+        params: &[Value],
+        row: &mut dyn FnMut(&[String], &dyn Row),
+    ) -> Result<(), DbError> {
+        (**self).query_named(sql, params, row)
+    }
 }
 
 /// One open connection. Everything above speaks plain SQL and [`Value`]s through it.
@@ -313,6 +328,27 @@ pub trait SqliteConnection: 'static {
     }
     fn rollback(&mut self) -> Result<(), DbError> {
         self.execute("ROLLBACK", &[]).map(|_| ())
+    }
+    /// Several statements in one string, no parameters — a DDL script, a migration step
+    /// (day-lite's storage speaks this). The default runs the string as ONE statement;
+    /// drivers whose engine executes scripts override it (the built-in native driver does).
+    fn execute_batch(&mut self, sql: &str) -> Result<(), DbError> {
+        self.execute(sql, &[]).map(|_| ())
+    }
+    /// [`SqliteConnection::query`], with the result's column names alongside each row — for
+    /// callers that surface rows as named objects (day-lite's JS bridge). A driver that
+    /// cannot name columns refuses rather than guessing.
+    fn query_named(
+        &mut self,
+        sql: &str,
+        params: &[Value],
+        row: &mut dyn FnMut(&[String], &dyn Row),
+    ) -> Result<(), DbError> {
+        let _ = (sql, params, row);
+        Err(DbError::new(
+            DbErrorKind::Unsupported,
+            "this driver does not report column names",
+        ))
     }
 }
 
@@ -651,6 +687,7 @@ pub struct Schema {
 
 type Installer = Box<dyn FnOnce(&ModelContainer) -> Result<(), DbError>>;
 type ReloadFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>;
+type MergeFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<bool, DbError>>;
 
 impl Schema {
     pub fn new() -> Self {
@@ -796,6 +833,10 @@ struct TableHooks {
     all_rows: Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>,
     /// Replace the store's contents from raw rows — `rescan`'s write-back path.
     reload: ReloadFn,
+    /// Diff raw rows against the store and feed only the differences through — precise
+    /// per-field announcements, authored [`ModelContainer::EXTERNAL_AUTHOR`], never echoed
+    /// back to the file. Returns whether anything differed.
+    merge: MergeFn,
     /// Bring this store under an undo history — captured here because the model TYPE is known
     /// only at attach time.
     watch_undo: Rc<dyn Fn(&day_model::UndoStack)>,
@@ -815,6 +856,10 @@ struct ContainerInner {
     /// True while `rescan` reloads stores from the file — the sink ignores those writes (they
     /// are the database's own contents coming back, not edits to persist).
     quiet: Cell<bool>,
+    /// The engine's cross-connection change counter as of the last look (`PRAGMA
+    /// data_version` — it moves only when ANOTHER connection commits to the file). `None`
+    /// where the driver reports no external-change detection.
+    data_version: Cell<Option<i64>>,
     sink: Cell<Option<day_model::ChangeSinkId>>,
     autosave: Cell<bool>,
     /// The last autosave failure, observable by the UI (`when(container.last_error()…)`).
@@ -861,6 +906,7 @@ impl ModelContainer {
                 dirty: RefCell::new(DirtyState::default()),
                 queries: RefCell::new(Vec::new()),
                 quiet: Cell::new(false),
+                data_version: Cell::new(None),
                 sink: Cell::new(None),
                 autosave: Cell::new(true),
                 error,
@@ -875,8 +921,20 @@ impl ModelContainer {
         }
         container.install_sink();
         container.install_autosave();
+        if caps.external_changes {
+            container
+                .inner
+                .data_version
+                .set(container.file_data_version()?);
+        }
         Ok(container)
     }
+
+    /// The author tag on changes [`ModelContainer::check_external`] merges in — the database's
+    /// own contents arriving, distinguishable by every change consumer and never persisted
+    /// back. Reserved: an app writing stores under this tag would have its writes dropped by
+    /// the autosave fold.
+    pub const EXTERNAL_AUTHOR: &'static str = "database";
 
     /// The loaded store for `M` — an ordinary day-model store; every binding and list source
     /// works on it unchanged. Panics only if `M` was not in the container's `schema!`, which is
@@ -1091,6 +1149,49 @@ impl ModelContainer {
                 Ok(())
             }) as Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>
         };
+        let merge = {
+            Rc::new(move |raw_rows: Vec<Vec<Value>>| -> Result<bool, DbError> {
+                let mut fresh: Vec<M> = Vec::with_capacity(raw_rows.len());
+                for r in raw_rows {
+                    fresh.push(M::from_row(&r)?);
+                }
+                let existing: Vec<u64> = store.with_untracked(|k| k.keys().to_vec());
+                let fresh_keys: std::collections::HashSet<u64> =
+                    fresh.iter().map(|m| m.obs_key()).collect();
+                let mut changed = false;
+                day_model::with_author(ModelContainer::EXTERNAL_AUTHOR, || {
+                    for m in fresh {
+                        let key = m.obs_key();
+                        match store.with_untracked(|k| k.get(key).map(|old| old.to_row())) {
+                            None => {
+                                changed = true;
+                                store.restructure("external", Op::Insert, key, |k| k.push(m));
+                            }
+                            Some(old) => {
+                                let new_row = m.to_row();
+                                let labels: Vec<&'static str> = M::COLUMNS
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(i, _)| Row::get(&old, *i) != Row::get(&new_row, *i))
+                                    .map(|(_, c)| c.field)
+                                    .collect();
+                                if !labels.is_empty() {
+                                    changed = true;
+                                    store.merge_row(key, m, &labels);
+                                }
+                            }
+                        }
+                    }
+                    for gone in existing.into_iter().filter(|k| !fresh_keys.contains(k)) {
+                        changed = true;
+                        store.restructure("external", Op::Delete, gone, |k| {
+                            k.remove(gone);
+                        });
+                    }
+                });
+                Ok(changed)
+            }) as MergeFn
+        };
         let watch_undo = Rc::new(move |stack: &day_model::UndoStack| stack.watch(store))
             as Rc<dyn Fn(&day_model::UndoStack)>;
         self.inner.tables.borrow_mut().insert(
@@ -1103,6 +1204,7 @@ impl ModelContainer {
                 row_for,
                 all_rows,
                 reload,
+                merge,
                 watch_undo,
             },
         );
@@ -1386,7 +1488,9 @@ impl ModelContainer {
                 if inner.quiet.get() {
                     return;
                 }
-                {
+                // An external merge's changes are the database's own contents arriving:
+                // queries dispatch on them like any edit, but nothing goes back to the file.
+                if change.author != Some(ModelContainer::EXTERNAL_AUTHOR) {
                     let tables = inner.tables.borrow();
                     inner
                         .dirty
@@ -1937,7 +2041,117 @@ impl ModelContainer {
                 .version
                 .set(state.version.get_untracked().wrapping_add(1));
         }
+        // The store now equals the file; a later check_external should not re-merge for
+        // whatever external commits this reload already picked up.
+        if self.inner.caps.external_changes {
+            self.inner.data_version.set(self.file_data_version()?);
+        }
         Ok(())
+    }
+
+    /// Look for OTHER connections' committed writes — another process, a sync engine, a CLI —
+    /// and merge what changed into the loaded stores. Detection is one `PRAGMA data_version`
+    /// (the counter moves only when another connection commits, never for this one's own
+    /// writes), so this is cheap enough to wire to app foreground, window focus, or a timer.
+    ///
+    /// When the counter moved, pending local edits flush first and each table is diffed
+    /// against its store; only the differences feed through — changed fields announce per
+    /// column, inserts and deletes take the structural path, live queries emit their usual
+    /// precise deltas, and the autosave fold declines the echo: the changes are the database's
+    /// own contents, tagged [`ModelContainer::EXTERNAL_AUTHOR`], and never write back. An
+    /// installed undo stack skips them too — another author's writes are not the user's
+    /// history. A row another connection rewrote arrives whole, so its `#[model(transient)]`
+    /// fields reset to their defaults, exactly as at load.
+    ///
+    /// Returns whether anything arrived. On a driver without detection
+    /// ([`Capabilities::external_changes`]) this is `Ok(false)`, honestly; writes made through
+    /// [`ModelContainer::with_connection`] are this connection's own and stay
+    /// [`ModelContainer::rescan`]'s job.
+    pub fn check_external(&self) -> Result<bool, DbError> {
+        if !self.inner.caps.external_changes {
+            return Ok(false);
+        }
+        let Some(current) = self.file_data_version()? else {
+            return Ok(false);
+        };
+        if self.inner.data_version.get() == Some(current) {
+            return Ok(false);
+        }
+        self.inner.data_version.set(Some(current));
+        // Local edits flush first, so the diff compares the file against a store with nothing
+        // pending — an unflushed local edit must not read as the other side's deletion.
+        self.save()?;
+        self.merge_from_file()
+    }
+
+    /// `PRAGMA data_version` — `None` where the engine did not answer (the Recorder).
+    fn file_data_version(&self) -> Result<Option<i64>, DbError> {
+        let mut v = None;
+        self.conn().query("PRAGMA data_version", &[], &mut |row| {
+            if let Ok(i) = row.get(0).as_int() {
+                v = Some(i);
+            }
+        })?;
+        Ok(v)
+    }
+
+    /// Diff every table against the file, feeding differences through the stores' merge seam.
+    /// SQL-backed queries (raw, FTS, rank) whose tables moved re-resolve afterward — their
+    /// answers live in the database, so the change log alone cannot carry the merge to them.
+    fn merge_from_file(&self) -> Result<bool, DbError> {
+        let hooks_list: Vec<(u64, &'static str)> = self
+            .inner
+            .tables
+            .borrow()
+            .iter()
+            .map(|(id, h)| (*id, h.table))
+            .collect();
+        let mut changed_tables: Vec<&'static str> = Vec::new();
+        for (store_id, table) in hooks_list {
+            let (columns, merge) = {
+                let tables = self.inner.tables.borrow();
+                let hooks = &tables[&store_id];
+                (hooks.columns.join(", "), hooks.merge.clone())
+            };
+            let mut rows: Vec<Vec<Value>> = Vec::new();
+            self.conn()
+                .query(&format!("SELECT {columns} FROM {table}"), &[], &mut |row| {
+                    let n = Row::len(row);
+                    rows.push((0..n).map(|i| row.get(i)).collect());
+                })?;
+            if merge(rows)? {
+                changed_tables.push(table);
+            }
+        }
+        if !changed_tables.is_empty() {
+            let states: Vec<Rc<QueryState>> = self
+                .inner
+                .queries
+                .borrow()
+                .iter()
+                .filter_map(|w| w.upgrade())
+                .collect();
+            for state in states {
+                let affected = match &state.raw {
+                    Some(raw) => raw
+                        .tables
+                        .iter()
+                        .any(|t| changed_tables.contains(&t.as_str())),
+                    None => {
+                        !state.set.borrow().fetch().evaluable()
+                            && changed_tables.contains(&state.table)
+                    }
+                };
+                if affected {
+                    self.run_sql_backed(&state);
+                    state.pending.borrow_mut().reload();
+                    state
+                        .version
+                        .set(state.version.get_untracked().wrapping_add(1));
+                }
+            }
+        }
+        Ok(!changed_tables.is_empty())
     }
 
     fn install_query<M: Model>(&self, fetch: Fetch, raw: Option<RawQuery>) -> Query<M> {

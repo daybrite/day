@@ -171,6 +171,15 @@ loaded; `store.store_id()` names a store the way a change's first path component
 `observed_paths()` and `interned_nodes()` expose the cost of observation itself, so a test can
 assert that triggers and interner slots are reclaimed when the scopes observing them die.
 
+Changes can also flow the other way. `with_author("name", f)` stamps every change announced
+inside `f` with an author tag (`None` is the user), so consumers can tell an import, a replay
+or a merge from the user's own edits — and decline their own echoes.
+`store.merge_row(key, value, &["field", …])` feeds one row's new value in from OUTSIDE the
+app's editing — another connection's committed write, an import — replacing the stored row and
+announcing exactly the named fields, so their readers wake and nothing else does. An absent
+row announces nothing (an insert is `restructure`'s job); how a persistence container uses the
+pair is [persistence.md](persistence.md)'s external-changes section.
+
 ## Sessions and undo
 
 Two consumers of the change log live here rather than in persistence, because neither needs a

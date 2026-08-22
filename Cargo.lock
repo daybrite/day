@@ -721,6 +721,7 @@ dependencies = [
  "day-mock",
  "day-part-http",
  "day-part-prefs",
+ "day-persistence",
  "day-pieces",
  "day-reactive",
  "day-spec",
@@ -733,7 +734,6 @@ dependencies = [
  "oxc_span",
  "oxc_transformer",
  "rquickjs",
- "rusqlite",
  "serde",
  "serde_json",
 ]
@@ -1201,6 +1201,26 @@ dependencies = [
  "day-pieces",
  "day-reactive",
  "day-spec",
+]
+
+[[package]]
+name = "day-piece-stepper"
+version = "0.2.6"
+dependencies = [
+ "cc",
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-mock",
+ "day-pieces",
+ "day-qt",
+ "day-reactive",
+ "day-spec",
+ "gtk4",
+ "linkme",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
 ]
 
 [[package]]

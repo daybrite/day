@@ -244,7 +244,10 @@ each carry `en`, `fr`, `ar`, and `zh-CN` catalogs.
 `db.migrate(migrations: string[])` is the schema contract: an append-only array of DDL
 scripts. Position *n* runs exactly once, tracked in sqlite's `user_version` pragma; on
 launch the app calls `migrate` with its full history and day-lite applies the tail. Editing
-history instead of appending is an error (a recorded hash per step catches it).
+history instead of appending is an error (a recorded hash per step catches it). The engine is
+day-persistence's driver ([docs/persistence.md](persistence.md)), so a superapp carrying both
+crates compiles ONE SQLite and its engine features (`sqlite-system`, `sqlite-cipher`) govern
+miniapp storage too.
 
 ## 8. Install, update, catalog
 
@@ -372,8 +375,8 @@ Running apps present in a fullscreen cover ([docs/cover.md](cover.md)) with the 
 
 ## 13. Build integration
 
-`rquickjs` (bundled quickjs C) and rusqlite's bundled sqlite3 cross-compile through each
-platform's NDK. The `day` CLI supplies, per target, what their build scripts need, the
+`rquickjs` (bundled quickjs C) and the bundled sqlite3 (day-persistence's driver, rusqlite
+underneath) cross-compile through each platform's NDK. The `day` CLI supplies, per target, what their build scripts need, the
 same env it already curates for `cc`:
 
 - iOS: the `bindgen` feature (rquickjs ships no prebuilt bindings for `aarch64-apple-ios-sim`).
