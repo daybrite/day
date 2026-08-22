@@ -234,7 +234,7 @@ impl<C: Binding<Color>> Piece for ColorPicker<C> {
             PickerIdiom::Automatic => support() == Support::Native,
         };
         if native {
-            build_native(cx, color, alpha, title)
+            build_native(cx, color, alpha, title, key)
         } else {
             composed_well(
                 color,
@@ -254,6 +254,7 @@ fn build_native<C: Binding<Color>>(
     color: C,
     alpha: bool,
     title: String,
+    key: String,
 ) -> RNode {
     let initial = color.peek();
     let node = cx.leaf(
@@ -265,6 +266,9 @@ fn build_native<C: Binding<Color>>(
         },
         Flex::default(),
     );
+    // The leaf's dayscript id — one `.key` serves both idioms (the day-piece-stepper rule:
+    // `Decorate::id` on the piece would tag a wrapper no toolkit realizes).
+    with_tree(|t| t.set_id(node, key));
     // App writes → the native well. Every arm no-ops on an unchanged value, so a pick echoing
     // back through the signal never loops.
     let c2 = color.clone();

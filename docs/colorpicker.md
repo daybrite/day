@@ -38,7 +38,7 @@ row((
     color_picker(tint)
         .title(tr("pick_a_tint"))                // the chooser's heading
         .presets(vec![BRAND, ACCENT, INK])       // the composed panel's swatch row
-        .key("brand-color"),                     // the composed well's dayscript id
+        .key("brand-color"),                     // the well's dayscript id, both idioms
 ))
 ```
 
