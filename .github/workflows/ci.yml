@@ -971,7 +971,8 @@ jobs:
           } >> "$GITHUB_ENV"
       # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh). No xvfb wrapper, same as the walkthrough below: the CLI
-      # supplies the headless plumbing itself (xvfb for gtk, the offscreen platform for qt).
+      # supplies the headless plumbing itself (both toolkits under xvfb — qt on the xcb platform,
+      # falling back to offscreen only where xvfb-run is missing).
       - name: Scaffold check (new + lint + pack + rebuild + launch)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
@@ -988,9 +989,10 @@ jobs:
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
-        # Headless plumbing is the CLI's now: no DISPLAY on this runner, so linux-gtk runs under
-        # an xvfb sized from Day.toml [window] (the root-capture fallback frames exactly the app)
-        # with the WebKit flags, and linux-qt runs on the offscreen platform.
+        # Headless plumbing is the CLI's now: no DISPLAY on this runner, so both toolkits run
+        # under an xvfb sized from Day.toml [window] (the root-capture fallback frames exactly
+        # the app) — linux-gtk with the WebKit flags, linux-qt on the xcb platform (a real
+        # display server, so the system clipboard works).
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"

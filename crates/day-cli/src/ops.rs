@@ -671,11 +671,13 @@ pub fn desktop_launch_plan(
     let mut env: BTreeMap<String, OsString> = BTreeMap::new();
 
     // Headless CI (a linux host with no display server): give the toolkit what the CI shims used
-    // to wrap around the CLI — linux-gtk under xvfb sized to `[window]` (the root-capture
-    // screenshot fallback then frames exactly the app) plus the WebKit flags, linux-qt on the
-    // offscreen platform. This knowledge lived in TWO workflow files (day's ci.yml and
-    // build-day-app.yml) and drifted between them; the CLI knows the target and the window, so it
-    // decides.
+    // to wrap around the CLI — xvfb sized to `[window]` (the root-capture screenshot fallback
+    // then frames exactly the app), the WebKit flags for gtk, the xcb platform for qt. Qt could
+    // render displayless (QT_QPA_PLATFORM=offscreen, the previous plumbing), but X selections
+    // need a display server to broker them, so the system clipboard (day-part-clipboard's xclip)
+    // was a silent no-op there and every copy/paste walkthrough step failed empty-handed. This
+    // knowledge lived in TWO workflow files (day's ci.yml and build-day-app.yml) and drifted
+    // between them; the CLI knows the target and the window, so it decides.
     let wrap = headless_wrap(
         target.toolkit,
         crate::targets::host_os(),
@@ -685,9 +687,9 @@ pub fn desktop_launch_plan(
     );
     let wrapper = match &wrap {
         HeadlessWrap::Xvfb { width, height } => {
-            // Probe rather than assume: without xvfb-run the bare run at least fails with the
-            // toolkit's own display error, which is more actionable than "No such file or
-            // directory" from the wrapper.
+            // Probe rather than assume: without xvfb-run, gtk's bare run at least fails with the
+            // toolkit's own display error (more actionable than "No such file or directory" from
+            // the wrapper), and qt still has a displayless platform to fall back to.
             if Command::new("xvfb-run").arg("--help").output().is_ok() {
                 // …and under a session bus, when one can be had. A headless runner has no D-Bus
                 // session, and GTK's file dialogs are portal-backed: with no bus `g_bus_get`
@@ -711,22 +713,35 @@ pub fn desktop_launch_plan(
                 w.push("-a".to_string());
                 w.push("-s".to_string());
                 w.push(format!("-screen 0 {width}x{height}x24"));
-                env.insert(
-                    "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS".to_string(),
-                    OsString::from("1"),
-                );
-                env.insert(
-                    "WEBKIT_DISABLE_COMPOSITING_MODE".to_string(),
-                    OsString::from("1"),
-                );
+                match target.toolkit {
+                    "gtk" => {
+                        env.insert(
+                            "WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS".to_string(),
+                            OsString::from("1"),
+                        );
+                        env.insert(
+                            "WEBKIT_DISABLE_COMPOSITING_MODE".to_string(),
+                            OsString::from("1"),
+                        );
+                    }
+                    // Pinned, not autodetected: an inherited QT_QPA_PLATFORM (the pre-CLI CI
+                    // shims exported `offscreen`) would defeat the display xvfb just provided.
+                    // A `--env` override still wins — `spec.envs` lands after this.
+                    "qt" => {
+                        env.insert("QT_QPA_PLATFORM".to_string(), OsString::from("xcb"));
+                    }
+                    _ => {}
+                }
                 Some(w)
+            } else if target.toolkit == "qt" {
+                // No xvfb-run to make a display: the offscreen platform still renders and
+                // drives every dayscript step except the system clipboard (X selections need
+                // a display server to broker them).
+                env.insert("QT_QPA_PLATFORM".to_string(), OsString::from("offscreen"));
+                None
             } else {
                 None
             }
-        }
-        HeadlessWrap::QtOffscreen => {
-            env.insert("QT_QPA_PLATFORM".to_string(), OsString::from("offscreen"));
-            None
         }
         HeadlessWrap::None => None,
     };
@@ -861,10 +876,14 @@ pub fn launch(
                     c
                 }
                 None => {
-                    if plan.env.contains_key("QT_QPA_PLATFORM") {
+                    if plan
+                        .env
+                        .get("QT_QPA_PLATFORM")
+                        .is_some_and(|v| v == "offscreen")
+                    {
                         status(
                             "Headless",
-                            "QT_QPA_PLATFORM=offscreen (no DISPLAY on this host)",
+                            "QT_QPA_PLATFORM=offscreen (no DISPLAY and no xvfb-run on this host)",
                         );
                     }
                     let mut c = Command::new(&plan.program);
@@ -1005,7 +1024,6 @@ pub fn stream_logs(
 pub(crate) enum HeadlessWrap {
     None,
     Xvfb { width: u32, height: u32 },
-    QtOffscreen,
 }
 
 /// The decision alone, display-state and host passed in — testable on any machine. Only the
@@ -1022,11 +1040,14 @@ pub(crate) fn headless_wrap(
         return HeadlessWrap::None;
     }
     match toolkit {
-        "gtk" => HeadlessWrap::Xvfb {
+        // Both linux toolkits take a real (virtual) X display. Qt's offscreen platform could
+        // render without one, but X selections need a display server, so the system clipboard
+        // (parts/day-part-clipboard/src/linux.rs) would be a silent no-op; the offscreen
+        // fallback survives in `desktop_launch_plan` for hosts without xvfb-run.
+        "gtk" | "qt" => HeadlessWrap::Xvfb {
             width: width.max(1.0) as u32,
             height: height.max(1.0) as u32,
         },
-        "qt" => HeadlessWrap::QtOffscreen,
         _ => HeadlessWrap::None,
     }
 }
@@ -1086,18 +1107,19 @@ mod headless_tests {
     use super::*;
 
     #[test]
-    fn linux_without_a_display_wraps_gtk_and_offscreens_qt() {
-        assert_eq!(
-            headless_wrap("gtk", "linux", false, 960.0, 640.0),
-            HeadlessWrap::Xvfb {
-                width: 960,
-                height: 640
-            }
-        );
-        assert_eq!(
-            headless_wrap("qt", "linux", false, 960.0, 640.0),
-            HeadlessWrap::QtOffscreen
-        );
+    fn linux_without_a_display_wraps_both_toolkits_in_xvfb() {
+        // qt too, not offscreen: without a display server there is nothing to broker X
+        // selections, so under offscreen the system clipboard read back nothing and every
+        // copy/paste walkthrough step failed.
+        for toolkit in ["gtk", "qt"] {
+            assert_eq!(
+                headless_wrap(toolkit, "linux", false, 960.0, 640.0),
+                HeadlessWrap::Xvfb {
+                    width: 960,
+                    height: 640
+                }
+            );
+        }
     }
 
     #[test]

@@ -44,7 +44,7 @@ section.
 |---|---|---|---|---|---|
 | `macos-appkit` | [Tier 1](/docs/platforms#support-tiers) | ✓ | ✓ | `.dmg` | Runs the full CI walkthrough and a shipping Matrix client |
 | `linux-gtk` | [Tier 2](/docs/platforms#support-tiers) | ✓ | ✓ (headless X) | `.flatpak` + `.appimage` | |
-| `linux-qt` | [Tier 2](/docs/platforms#support-tiers) | ✓ | ✓ (offscreen) | `.flatpak` + `.appimage` | Strongest Linux accessibility bridge |
+| `linux-qt` | [Tier 2](/docs/platforms#support-tiers) | ✓ | ✓ (headless X) | `.flatpak` + `.appimage` | Strongest Linux accessibility bridge |
 | `ios-uikit` | [Tier 1](/docs/platforms#support-tiers) | ✓ | ✓ (Simulator) | `.ipa` | Development is Simulator-first; `day pack` builds a device `.ipa` — signed with `signing.ios` config, otherwise unsigned (`-unsigned.ipa`, for sideloading or your own signing) |
 | `android-mdc` | [Tier 1](/docs/platforms#support-tiers) | ✓ | ✓ (emulator) | `.apk` + `.aab` | Emulator leg tolerates flakes; the build itself gates hard |
 | `macos-gtk` | [Tier 4](/docs/platforms#support-tiers) | ✓ | ✓ | — (dev only) | Development combo; no accessibility tree (GTK a11y is Linux-only) |
