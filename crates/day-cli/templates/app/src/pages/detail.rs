@@ -16,7 +16,7 @@ use day::prelude::*;
 /// `each` over a nought-or-one list rather than a conditional, because the editor has to be
 /// rebuilt when the SELECTION changes, not merely shown and hidden — keying it on the id is what
 /// gives each item its own scope and its own field bindings.
-pub(crate) fn editor_pane() -> AnyPiece {
+pub(crate) fn editor_pane() -> impl Piece {
     column((
         when(
             move || selected().get().is_none_or(|id| model::find(id).is_none()),
@@ -42,7 +42,6 @@ pub(crate) fn editor_pane() -> AnyPiece {
         ),
     ))
     .grow()
-    .any()
 }
 
 /// The editor: every standard two-way binding over one item, in a native form
@@ -51,7 +50,7 @@ pub(crate) fn editor_pane() -> AnyPiece {
 /// there is no draft state to reconcile, no Save button to forget, and no per-field plumbing:
 /// the name is written once, here, instead of once as a signal, once as a write-back, and once
 /// in the control (https://daybrite.dev/docs/model).
-pub(crate) fn editor(id: u32) -> AnyPiece {
+pub(crate) fn editor(id: u32) -> impl Piece {
     let it = model::items().elem(id as u64);
 
     form((
@@ -103,13 +102,12 @@ pub(crate) fn editor(id: u32) -> AnyPiece {
         bottom: 0.0,
         trailing: 16.0,
     })
-    .any()
 }
 
 /// A number field with its own increment/decrement pair. No toolkit in Day's set ships a stepper
 /// as a single widget, so this is what one looks like composed — three pieces over one binding,
 /// which is also the shortest example of how any control you are missing gets built.
-fn stepper(value: impl Binding<i64> + Copy) -> AnyPiece {
+fn stepper(value: impl Binding<i64> + Copy) -> impl Piece {
     row((
         button("−")
             .action(move || value.write((value.peek() - 1).max(0)))
@@ -123,7 +121,6 @@ fn stepper(value: impl Binding<i64> + Copy) -> AnyPiece {
             .id("field-count-inc"),
     ))
     .spacing(8.0)
-    .any()
 }
 
 // --- the field conversions `.map` binds through: plain fns, so the binding stays `Copy` --------

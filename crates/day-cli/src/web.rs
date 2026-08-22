@@ -73,6 +73,14 @@ pub fn build_web(
         cmd.arg("--release");
     }
     cmd.args(["--crate-type", "cdylib"]);
+    // A `persistence` app compiles the bundled SQLite through cc-rs, whose default `clang`
+    // cannot emit wasm on a Mac (Apple's has no wasm32 backend). Resolve a capable compiler
+    // the same way doctor reports it and export it; a set CC variable is cc-rs's to honor,
+    // and a Missing resolution is not an error here — a UI-only app compiles no C at all.
+    if let day_toolchain::WasmCc::Fallback(cc) = day_toolchain::wasm_cc() {
+        status("Using", &format!("{} (wasm32 C compiler)", cc.display()));
+        cmd.env("CC_wasm32_unknown_unknown", &cc);
+    }
     if profile == Profile::Release {
         // Debug symbols are most of a release wasm's bytes and no browser tool reads them
         // from a stripped build; keep the shipped module small.
@@ -87,7 +95,9 @@ pub fn build_web(
     let out = cmd.status().map_err(|e| format!("cargo: {e}"))?;
     if !out.success() {
         return Err(format!(
-            "cargo build failed for {} (is the target installed? `rustup target add wasm32-unknown-unknown`)",
+            "cargo build failed for {} — see the cargo output above; `day doctor --toolkit dom` \
+             checks the toolchain (the wasm32-unknown-unknown rustup target; with `persistence`, \
+             a wasm-capable clang)",
             target.name
         ));
     }

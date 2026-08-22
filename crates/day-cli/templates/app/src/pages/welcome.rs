@@ -14,7 +14,7 @@ use day::prelude::*;
 /// The spacers above and below are what center the column vertically; `.align(TextAlign::Center)`
 /// is what centers the wrapped prose within its own width, which the column alone cannot do —
 /// a container can center a label's BOX without centering the lines inside it.
-pub(crate) fn welcome_page() -> AnyPiece {
+pub(crate) fn welcome_page() -> impl Piece {
     column((
         spacer(),
         // `corner_radius` clips, which is what softens the mark's square corners — the same
@@ -41,5 +41,4 @@ pub(crate) fn welcome_page() -> AnyPiece {
     // edge. Filling the pane first is what gives `HAlign::Center` room to mean anything.
     .grow()
     .padding(24.0)
-    .any()
 }

@@ -59,7 +59,7 @@ pub(crate) fn has_menu_bar() -> bool {
     capability(Cap::AppMenu) != Support::Unsupported
 }
 
-pub fn root() -> AnyPiece {
+pub fn root() -> impl Piece {
     // Logging (docs/logging.md). `info!`/`warn!`/`error!`/`debug!`/`trace!` come from the prelude
     // and need no setup: Day installs a logger at launch, so this line reaches the terminal on the
     // desktop, logcat on Android, the Xcode console on Apple, and the browser's JS console on the
@@ -151,7 +151,6 @@ pub fn root() -> AnyPiece {
         .destination(|_: &Section| settings_page())
         .restore("app.section")
         .id("nav")
-        .any()
 }
 
 /// The desktop menu bar. Mobile toolkits have no menu bar and ignore it, so this is written once

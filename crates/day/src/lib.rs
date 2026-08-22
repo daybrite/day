@@ -824,7 +824,7 @@ pub mod android {
     };
 
     #[allow(clippy::too_many_arguments)]
-    pub fn start(
+    pub fn start<R: crate::Piece>(
         env: &mut jni::Env,
         root: jni::objects::JObject,
         density: f32,
@@ -833,7 +833,7 @@ pub mod android {
         autodrive: Option<String>,
         locale: Option<String>,
         env_blob: Option<String>,
-        root_piece: impl FnOnce() -> crate::AnyPiece + 'static,
+        root_piece: impl FnOnce() -> R + 'static,
     ) {
         // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
         day_android::redirect_stdio_to_logcat();
@@ -974,12 +974,12 @@ pub mod arkui {
 
     /// Mount `root` into the ArkTS `NodeContent` and run the loop. `w_vp`/`h_vp` are the content
     /// size in vp; `density` is px-per-vp (both passed by the ArkTS host).
-    pub fn start(
+    pub fn start<R: crate::Piece>(
         content: *mut c_void,
         w_vp: f64,
         h_vp: f64,
         density: f64,
-        root: impl FnOnce() -> crate::AnyPiece + 'static,
+        root: impl FnOnce() -> R + 'static,
     ) {
         day_arkui::init(content, w_vp, h_vp, density);
         day_script::init();

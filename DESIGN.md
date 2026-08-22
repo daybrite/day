@@ -3431,7 +3431,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    `cargo test`, rides the CLI builds' native-arch legs (phase 2). Two
    backends still lint from their own combo job, because that job already sets up the cross-target
    toolchain and a `toolkit` row would mean a second copy of it: arkui needs the OpenHarmony SDK,
-   dom the wasm32 target.
+   dom the wasm32 target plus a wasm-capable clang for persistence's bundled SQLite
+   ([docs/web.md](docs/web.md)).
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml; plus a
    dedicated `ios-uikit` Simulator job and an Android emulator job): each checks out
    daybrite/Day-Showcase, points its day dependencies at this commit (`day patch --check`,

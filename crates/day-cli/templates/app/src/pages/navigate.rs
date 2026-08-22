@@ -89,27 +89,23 @@ pub(crate) fn done_selected() {
 /// The SHAPE follows the window and the two shapes share everything but their frame: a desktop
 /// shows list and editor side by side, a phone pushes the editor over the list with a native back
 /// button. Both read `SELECTED`, both write through `model`, and neither knows about the other.
-pub(crate) fn navigate_page() -> AnyPiece {
+pub(crate) fn navigate_page() -> impl Piece {
     // TWO `when` arms rather than an `if`: a page's builder runs once, so a plain `if wide()`
     // would freeze this page in whichever shape the window had when the section was first opened.
     // `when` re-derives on the tracked read, which is what makes the layout follow the window
     // (https://daybrite.dev/docs/size-classes).
-    column((when(wide, master_detail), when(|| !wide(), pushed_stack)))
-        .grow()
-        .any()
+    column((when(wide, master_detail), when(|| !wide(), pushed_stack))).grow()
 }
 
 /// Wide: list and editor side by side. A `selector` sidebar cannot carry rows this rich — its
 /// rows are a label and an icon — so the two panes are composed from ordinary pieces, which is
 /// also what lets the same list widget serve both layouts.
-fn master_detail() -> AnyPiece {
-    row((item_list().width(320.0), editor_pane().grow()))
-        .grow()
-        .any()
+fn master_detail() -> impl Piece {
+    row((item_list().width(320.0), editor_pane().grow())).grow()
 }
 
 /// Narrow: the list fills the window and the editor pushes over it with a native back button.
-fn pushed_stack() -> AnyPiece {
+fn pushed_stack() -> impl Piece {
     let path = Signal::new(Vec::<Row>::new());
     stack(path, item_list())
         .destination(|r: &Row| editor(r.id))
@@ -125,12 +121,11 @@ fn pushed_stack() -> AnyPiece {
         })
         .list_action(res::vectors::check, res::str::cmd_done(), done_selected)
         .list_action(res::vectors::add, res::str::cmd_add(), new_item)
-        // No `.id()` here. Where this stack MERGES into an enclosing one — which is what happens
-        // on a phone, so the whole chain is a single native navigation controller — it returns
-        // its ROOT's node rather than a host of its own. An id here would therefore retag the
-        // list, and the list's own id would be the one that vanished
-        // (https://daybrite.dev/docs/navigation).
-        .any()
+    // No `.id()` here. Where this stack MERGES into an enclosing one — which is what happens
+    // on a phone, so the whole chain is a single native navigation controller — it returns
+    // its ROOT's node rather than a host of its own. An id here would therefore retag the
+    // list, and the list's own id would be the one that vanished
+    // (https://daybrite.dev/docs/navigation).
 }
 
 /// The list itself — one widget, both layouts, driven straight by the STORE.
@@ -146,7 +141,7 @@ fn pushed_stack() -> AnyPiece {
 /// answer `Unsupported` for it (https://daybrite.dev/docs/list). That is why the context menu
 /// below carries Delete too — a list that must be editable everywhere pairs the gesture with an
 /// explicit control, rather than assuming the gesture exists.
-fn item_list() -> AnyPiece {
+fn item_list() -> impl Piece {
     list(model::items().rows(model::ordered_keys), row_view)
         .row_height(RowHeight::Uniform(58.0))
         .on_select(move |it: Elem<Item>| {
@@ -179,7 +174,6 @@ fn item_list() -> AnyPiece {
             }
         })
         .id("item-list")
-        .any()
 }
 
 /// One row: the kind's glyph in the item's own color, its name and kind, its rating, and a
@@ -190,7 +184,7 @@ fn item_list() -> AnyPiece {
 /// and when the recycling list rebinds this physical row to a different item, the same closures
 /// follow, because the slot resolves its row on every read
 /// (https://daybrite.dev/docs/list).
-fn row_view(slot: ModelSlot<Item>) -> AnyPiece {
+fn row_view(slot: ModelSlot<Item>) -> impl Piece {
     row((
         // The kind says WHAT it is, the tint says which one it is — two facts in one glyph, and
         // the same color the editor's well sets.
@@ -252,7 +246,6 @@ fn row_view(slot: ModelSlot<Item>) -> AnyPiece {
         menu_separator(),
         menu_item(res::str::cmd_delete().format()).action(move || model::remove(slot.key() as u32)),
     ])
-    .any()
 }
 
 /// The glyph for a kind, by index — the one place the `KINDS` order and the icons are tied

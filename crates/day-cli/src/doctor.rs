@@ -156,6 +156,20 @@ fn have_jdk() -> Option<String> {
     (major >= 17).then(|| text.lines().next().unwrap_or("").trim().to_string())
 }
 
+/// The C compiler the web build's SQLite compile will use — [`day_toolchain::wasm_cc`], the
+/// SAME resolution `day build -p web-dom` applies, so doctor reports what the build will run.
+/// A set cc-rs variable is the one case that still gets probed here: the build honors it
+/// blindly, and doctor's job is to say whether that program can actually emit wasm.
+fn have_wasm_cc() -> Option<String> {
+    match day_toolchain::wasm_cc() {
+        day_toolchain::WasmCc::Env(program) => day_toolchain::emits_wasm32(Path::new(&program))
+            .then(|| format!("{program} (from a CC variable; wasm32 backend)")),
+        day_toolchain::WasmCc::PathClang => Some("clang (wasm32 backend)".to_string()),
+        day_toolchain::WasmCc::Fallback(cc) => Some(format!("{} (auto-selected)", cc.display())),
+        day_toolchain::WasmCc::Missing => None,
+    }
+}
+
 /// Resolve `bin` on PATH (like the shell would); `Some(path)` if found. `bin` may carry `.exe`; on
 /// Windows a bare name also matches `<bin>.exe` (else e.g. `glib-compile-resources.exe` reads as
 /// missing).
@@ -576,14 +590,28 @@ fn dom_group() -> Group {
         id: "dom",
         label: "Web · DOM",
         hosts: &["any"],
-        probes: vec![Probe::new(
-            "rust-wasm",
-            have_rust_target("wasm32-unknown-unknown"),
-            "rustup target add wasm32-unknown-unknown",
-        )],
+        probes: vec![
+            Probe::new(
+                "rust-wasm",
+                have_rust_target("wasm32-unknown-unknown"),
+                "rustup target add wasm32-unknown-unknown",
+            ),
+            Probe::new(
+                "wasm-cc",
+                have_wasm_cc(),
+                "install a clang with the wasm32 backend (`brew install llvm`, or a swift.org \
+                 toolchain — `day build` finds either), or point CC_wasm32_unknown_unknown at \
+                 one; needed only when the app enables `persistence` (docs/web.md)",
+            )
+            .need(Need::BuildOptional),
+        ],
         setup: "web-dom (docs/web.md) compiles the app's lib crate to WebAssembly and pairs it with\n\
-                the host page embedded in the CLI — the only toolchain requirement is the Rust\n\
-                target: `rustup target add wasm32-unknown-unknown`. `day build -p web-dom` writes a\n\
+                the host page embedded in the CLI. The Rust target is the whole toolchain for a\n\
+                UI-only app: `rustup target add wasm32-unknown-unknown`. The `persistence` feature\n\
+                also compiles the bundled SQLite to wasm, which needs a clang with the wasm32\n\
+                backend — Apple's has none. `day build` probes plain `clang`, then Homebrew LLVM\n\
+                and swift.org toolchains, exporting what it finds; a set CC_wasm32_unknown_unknown\n\
+                (or CC) picks the compiler yourself. `day build -p web-dom` writes a\n\
                 self-contained static dist/; `day launch -p web-dom` serves it and opens a browser.",
     }
 }

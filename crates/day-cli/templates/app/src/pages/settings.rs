@@ -20,7 +20,7 @@ pub(crate) fn settings_body() -> AnyPiece {
 /// The same body as a navigable SECTION — what a phone shows, where there is no separate
 /// preferences window to open. On a desktop this page is never reached: `root()` drops the
 /// Settings row and `register_preferences` puts it in the App menu instead.
-pub(crate) fn settings_page() -> AnyPiece {
+pub(crate) fn settings_page() -> impl Piece {
     column((
         label(res::str::nav_settings())
             .font(Font::Title)
@@ -30,5 +30,4 @@ pub(crate) fn settings_page() -> AnyPiece {
     .spacing(12.0)
     .align(HAlign::Leading)
     .padding(16.0)
-    .any()
 }

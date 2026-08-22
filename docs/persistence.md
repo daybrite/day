@@ -33,7 +33,8 @@ generated code resolves against. The full API is `day::persistence::*`.
 The same API works on web-dom: `:memory:` databases run in-process, and a file database
 lives in the browser's origin-private file system, held by the day-sql worker and reached
 synchronously — see [The web](#the-web) below. rusqlite itself is native-only; the wasm build
-compiles the `day-sqlite-worker` engine instead, with FTS5 and R*Tree included.
+compiles the `day-sqlite-worker` engine instead, with FTS5 and R*Tree included. Compiling it
+needs a clang with a wasm32 backend — [docs/web.md](web.md) has the setup.
 
 ## Declaring a model
 

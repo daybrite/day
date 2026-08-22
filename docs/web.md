@@ -24,6 +24,16 @@ day launch -p web-dom     # build, serve dist/ on 127.0.0.1, open the default br
 day launch -p web-dom --locale ar    # locale rides as ?locale= on the URL
 ```
 
+The Rust target is the whole toolchain for a UI-only app. An app with the `persistence` feature
+also needs a C compiler with a wasm32 backend: day-persistence's web driver compiles the bundled
+SQLite to WebAssembly ([docs/persistence.md](persistence.md)). Open-source LLVM clang has the
+backend; Apple's Xcode clang does not, so `day build` probes plain `clang`, then Homebrew LLVM
+(`brew install llvm` is enough — the keg is probed directly, no PATH setup), then
+[swift.org toolchains](https://www.swift.org/install/), and exports the first wasm-capable one
+as `CC_wasm32_unknown_unknown` for the build. Setting that variable (or `CC`) yourself picks
+the compiler, honored as-is. `day doctor --toolkit dom` reports which compiler the build will
+use.
+
 ## Architecture
 
 The same trampoline shape as the Android and HarmonyOS backends, with JavaScript in place of

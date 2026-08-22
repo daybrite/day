@@ -247,6 +247,97 @@ pub fn jdk_home() -> Option<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// wasm32 C compiler (web-dom's bundled-SQLite build)
+// ---------------------------------------------------------------------------
+
+/// How a web-dom build gets the C compiler for its `cc`-built dependencies (day-sqlite-worker's
+/// bundled SQLite), resolved by [`wasm_cc`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WasmCc {
+    /// A cc-rs compiler variable is set. cc-rs will run this program whatever it is, so the
+    /// resolver reports it unprobed and callers must not override it.
+    Env(String),
+    /// Plain `clang` on PATH has the wasm32 backend — cc-rs's default works untouched.
+    PathClang,
+    /// A wasm-capable clang found outside PATH. Callers export it as
+    /// `CC_wasm32_unknown_unknown` on the cargo child process for cc-rs to use it.
+    Fallback(PathBuf),
+    /// No compiler with the backend anywhere; a `persistence` web build will fail in cc-rs.
+    Missing,
+}
+
+/// The C compiler a web-dom build's `cc`-built dependencies will use for
+/// `wasm32-unknown-unknown`.
+///
+/// Overrides: the `cc` crate's own variables, in its order — `CC_wasm32-unknown-unknown`,
+/// `CC_wasm32_unknown_unknown`, `TARGET_CC`, `CC`. With none set, plain `clang` is probed
+/// ([`emits_wasm32`] — Apple's Xcode clang has no wasm32 backend, the usual macOS miss), then
+/// installs that don't put clang on PATH: Homebrew LLVM kegs (keg-only, so `brew install llvm`
+/// alone is enough) and swift.org toolchains — a deliberately installed LLVM before one that
+/// rode in with Swift.
+pub fn wasm_cc() -> WasmCc {
+    for var in [
+        "CC_wasm32-unknown-unknown",
+        "CC_wasm32_unknown_unknown",
+        "TARGET_CC",
+        "CC",
+    ] {
+        if let Ok(v) = std::env::var(var)
+            && let Some(program) = v.split_whitespace().next()
+        {
+            return WasmCc::Env(program.to_string());
+        }
+    }
+    if emits_wasm32(Path::new("clang")) {
+        return WasmCc::PathClang;
+    }
+    let mut candidates: Vec<PathBuf> = ["/opt/homebrew", "/usr/local"]
+        .iter()
+        .map(|prefix| PathBuf::from(prefix).join("opt/llvm/bin/clang"))
+        .collect();
+    // swift.org toolchains each ship a full LLVM clang. `swift-latest` is the installer's
+    // "current" symlink; the directory scan behind it catches layouts without the symlink,
+    // newest release first where names sort by version.
+    let per_user = std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join("Library/Developer/Toolchains"));
+    let system = Some(PathBuf::from("/Library/Developer/Toolchains"));
+    for base in [per_user, system].into_iter().flatten() {
+        candidates.push(base.join("swift-latest.xctoolchain/usr/bin/clang"));
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            let mut toolchains: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|e| e == "xctoolchain"))
+                .collect();
+            toolchains.sort();
+            toolchains.reverse();
+            candidates.extend(toolchains.into_iter().map(|p| p.join("usr/bin/clang")));
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|c| c.is_file() && emits_wasm32(c))
+        .map(WasmCc::Fallback)
+        .unwrap_or(WasmCc::Missing)
+}
+
+/// Whether the clang-style driver at `cc` can emit wasm32 objects (`--print-targets` lists a
+/// `wasm32` row). Apple's Xcode clang is the notable no.
+pub fn emits_wasm32(cc: &Path) -> bool {
+    std::process::Command::new(cc)
+        .arg("--print-targets")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .is_some_and(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .any(|l| l.trim().starts_with("wasm32 "))
+        })
+}
+
+// ---------------------------------------------------------------------------
 // rustup
 // ---------------------------------------------------------------------------
 
@@ -317,6 +408,16 @@ mod tests {
         unsafe { std::env::set_var("ANDROID_HOME", "/custom/android") };
         assert_eq!(android_sdk_dir(), PathBuf::from("/custom/android"));
         unsafe { std::env::remove_var("ANDROID_HOME") };
+    }
+
+    #[test]
+    fn wasm_cc_honors_cc_variables_unprobed() {
+        // SAFETY: test-local env mutation; no other test touches the cc-rs variables.
+        unsafe { std::env::set_var("CC_wasm32-unknown-unknown", "/custom/clang --sysroot=/x") };
+        // Reported as-is (program only, flags dropped) even though the path doesn't exist:
+        // cc-rs will run whatever the variable says, so the resolver must not second-guess it.
+        assert_eq!(wasm_cc(), WasmCc::Env("/custom/clang".to_string()));
+        unsafe { std::env::remove_var("CC_wasm32-unknown-unknown") };
     }
 
     #[test]
