@@ -628,20 +628,38 @@ void day_qt_checkbox_set(void *w, int on) {
 // while the thumb is held, `isSliderDown()` is true and only `sliderReleased` ends it; a keyboard
 // step, a wheel notch, or a click on the groove moves the value with the thumb NOT down, and is
 // therefore already settled when `valueChanged` fires.
+namespace {
+// `valueChanged` fires for PROGRAMMATIC setValue too, and with `isSliderDown()` false it
+// would be reported as a COMMITTED user change — so a day-driven write (a binding following
+// a selection switch) must be suppressed, or it echoes back as a phantom undo unit. A user's
+// keyboard arrow / track click still reports committed, as the Event contract wants.
+class DaySlider : public QSlider {
+public:
+    using QSlider::QSlider;
+    bool suppress = false;
+};
+} // namespace
+
 void *day_qt_slider_new(int value, uint64_t id, void (*cb)(uint64_t, int, int)) {
-    QSlider *s = new QSlider(Qt::Horizontal);
+    DaySlider *s = new DaySlider(Qt::Horizontal);
     s->setMinimum(0);
     s->setMaximum(1000);
     s->setValue(value);
     QObject::connect(s, &QSlider::valueChanged, [s, id, cb](int v) {
+        if (s->suppress)
+            return;
         cb(id, v, s->isSliderDown() ? 0 : 1);
     });
     QObject::connect(s, &QSlider::sliderReleased, [s, id, cb]() { cb(id, s->value(), 1); });
     return s;
 }
 void day_qt_slider_set(void *w, int value) {
-    QSlider *s = static_cast<QSlider *>(w);
-    if (s->value() != value) s->setValue(value);
+    DaySlider *s = static_cast<DaySlider *>(w);
+    if (s->value() != value) {
+        s->suppress = true;
+        s->setValue(value);
+        s->suppress = false;
+    }
 }
 
 // --- line edit ---
