@@ -289,3 +289,56 @@ fn a_wholesale_rewrite_clears_history() {
         "history no longer describes reachable states"
     );
 }
+
+#[test]
+fn transient_context_rides_the_history() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let store = store();
+    let stack = stack_over(store);
+
+    // The app's "selection": a plain value outside the store, snapshotted per unit.
+    let selection: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+    {
+        let cap = selection.clone();
+        let res = selection.clone();
+        stack.set_transient_context(
+            move || Rc::new(cap.borrow().clone()),
+            move |ctx| {
+                if let Some(sel) = ctx.downcast_ref::<Vec<u32>>() {
+                    *res.borrow_mut() = sel.clone();
+                }
+            },
+        );
+    }
+
+    // Select 1, edit it; select 2, edit it — the selection changes themselves are no units.
+    *selection.borrow_mut() = vec![1];
+    store.elem(1).count().write(11);
+    day_reactive::flush_sync();
+    *selection.borrow_mut() = vec![2];
+    store.elem(2).count().write(22);
+    day_reactive::flush_sync();
+
+    // Undo lands on the point after item 1's edit — where 1 was selected, not 2.
+    assert!(stack.undo());
+    assert_eq!(*selection.borrow(), vec![1]);
+    assert_eq!(store.elem(2).count().peek(), 20);
+
+    // Redo lands back on item 2's edit, with its selection.
+    assert!(stack.redo());
+    assert_eq!(*selection.borrow(), vec![2]);
+    assert_eq!(store.elem(2).count().peek(), 22);
+
+    // Transient means transient: a selection change AFTER the last unit is not history —
+    // the sealed snapshot wins on the next undo.
+    *selection.borrow_mut() = vec![1, 2];
+    assert!(stack.undo());
+    assert_eq!(*selection.borrow(), vec![1]);
+
+    // Undoing the whole history lands on the base snapshot taken at install: nothing selected.
+    assert!(stack.undo());
+    assert!(selection.borrow().is_empty());
+    assert!(!stack.can_undo().get_untracked());
+}

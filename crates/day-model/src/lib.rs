@@ -1634,6 +1634,17 @@ struct StoreOps {
 struct UndoUnit {
     label: &'static str,
     changes: Vec<Change>,
+    /// Transient UI state as of this unit's seal ([`UndoStack::set_transient_context`]) —
+    /// `None` for a unit sealed with no hook installed. Never persisted.
+    context: Option<Rc<dyn Any>>,
+}
+
+/// The app's transient-context hook ([`UndoStack::set_transient_context`]).
+struct ContextHook {
+    capture: Rc<dyn Fn() -> Rc<dyn Any>>,
+    restore: Rc<dyn Fn(&dyn Any)>,
+    /// The state BEFORE any unit — what undoing the whole history restores.
+    base: Rc<dyn Any>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1658,6 +1669,7 @@ struct UndoInner {
     redo_label: day_reactive::Signal<String>,
     resolver: RefCell<Rc<dyn Fn(&'static str) -> String>>,
     sink: Cell<Option<ChangeSinkId>>,
+    context: RefCell<Option<ContextHook>>,
 }
 
 /// One undo history over the stores it [`UndoStack::watch`]es: units are turns (everything one
@@ -1702,6 +1714,7 @@ impl UndoStack {
                     s
                 })),
                 sink: Cell::new(None),
+                context: RefCell::new(None),
             }),
         };
         want_values_standing(true);
@@ -1808,8 +1821,16 @@ impl UndoStack {
             .group_label
             .take()
             .unwrap_or_else(|| changes.first().map(|c| c.label).unwrap_or(""));
+        // The unit's transient UI state is the state AT SEAL — the end of the turn (or group),
+        // after any selection writes the same event made. Selection changes between units are
+        // deliberately not captured anywhere: they are not history.
+        let context = self.inner.context.borrow().as_ref().map(|h| (h.capture)());
         let mut undo = self.inner.undo.borrow_mut();
-        undo.push_back(UndoUnit { label, changes });
+        undo.push_back(UndoUnit {
+            label,
+            changes,
+            context,
+        });
         while undo.len() > self.inner.levels {
             undo.pop_front();
         }
@@ -1852,6 +1873,52 @@ impl UndoStack {
         self.refresh();
     }
 
+    /// Ride transient UI state (a selection, a scroll position) along the history — captured,
+    /// never persisted (docs/model.md "Transient UI state").
+    ///
+    /// `capture` runs as each unit SEALS, so a snapshot is the UI state at that point of
+    /// document history, including any selection writes the same turn made. Undo restores the
+    /// snapshot of the unit history lands ON — the previous unit's, or the base snapshot
+    /// (taken here, at install) once the last unit is undone; redo restores the redone unit's
+    /// own. UI changes BETWEEN units restore nowhere: they are not history, which is what
+    /// makes "select A, move it, select B, move it, undo" land on A — the state as it stood
+    /// when A's move sealed — rather than on B.
+    ///
+    /// `restore` must not write a watched store (that would fork history from inside a
+    /// replay); write plain signals. A unit sealed before this call carries no snapshot and
+    /// restores nothing.
+    pub fn set_transient_context(
+        &self,
+        capture: impl Fn() -> Rc<dyn Any> + 'static,
+        restore: impl Fn(&dyn Any) + 'static,
+    ) {
+        let base = capture();
+        *self.inner.context.borrow_mut() = Some(ContextHook {
+            capture: Rc::new(capture),
+            restore: Rc::new(restore),
+            base,
+        });
+    }
+
+    /// Restore the snapshot history just landed on. `landed` is the top unit's snapshot slot —
+    /// `Some(None)` is a unit that recorded nothing (restore nothing), outer `None` the empty
+    /// stack, whose state is the base. Every borrow is released before the restore closure
+    /// runs: it is app code.
+    fn restore_context(&self, landed: Option<Option<Rc<dyn Any>>>) {
+        let (target, restore) = {
+            let hook = self.inner.context.borrow();
+            let Some(h) = hook.as_ref() else { return };
+            let target = match landed {
+                Some(ctx) => ctx,
+                None => Some(h.base.clone()),
+            };
+            (target, h.restore.clone())
+        };
+        if let Some(ctx) = target {
+            restore(&*ctx);
+        }
+    }
+
     pub fn undo(&self) -> bool {
         self.seal();
         let Some(unit) = self.inner.undo.borrow_mut().pop_back() else {
@@ -1867,6 +1934,11 @@ impl UndoStack {
         });
         self.inner.replaying.set(Replay::No);
         self.inner.redo.borrow_mut().push(unit);
+        // History landed on the PREVIOUS unit's point: restore its transient state (base
+        // when the stack just emptied). After the replay flag drops — restores write plain
+        // signals, never watched stores.
+        let landed = self.inner.undo.borrow().back().map(|u| u.context.clone());
+        self.restore_context(landed);
         self.refresh();
         true
     }
@@ -1885,6 +1957,9 @@ impl UndoStack {
         });
         self.inner.replaying.set(Replay::No);
         self.inner.undo.borrow_mut().push_back(unit);
+        // History landed back ON the redone unit: restore its own transient state.
+        let landed = self.inner.undo.borrow().back().map(|u| u.context.clone());
+        self.restore_context(landed);
         self.refresh();
         true
     }

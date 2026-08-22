@@ -185,6 +185,21 @@ its row), replay is tagged `author: "undo"` so consumers can tell it from the us
 writes back through. `day::install_undo(&stack)` fronts the stack natively where the platform
 has an undo system ([docs/persistence.md](persistence.md) has the platform table).
 
+### Transient UI state
+
+`stack.set_transient_context(capture, restore)` rides UI state that is not model data — a
+selection, a scroll position — along the history. `capture` runs as each unit seals and its
+snapshot belongs to that point of history; undo restores the snapshot of the unit history
+lands ON (the previous unit's, or the base snapshot taken at install once the stack empties),
+and redo restores the redone unit's own. Changing the UI state *between* units records
+nothing and restores nowhere: it is not history. That asymmetry is the point — select shape
+A, move it, select shape B, move it, undo, and the selection lands on A, the state as it
+stood when A's move sealed, not on the transient switch to B. Snapshots live only in the
+stack's memory, so nothing persists; and because `capture` runs at seal, a selection write
+made in the same turn as its operation (place-then-select) is part of that unit's snapshot.
+One rule for `restore`: write plain signals, never a watched store — a store write inside a
+restore would fork history from inside a replay.
+
 ## Costs, and where they go
 
 - A trigger exists only where something looked; unobserved paths cost nothing to write.
