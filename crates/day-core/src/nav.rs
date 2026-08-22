@@ -124,9 +124,18 @@ pub fn clear_controllers() {
 /// Dispatch innermost→outermost; the first controller that returns true wins. Controllers are
 /// `Rc`-cloned out of the stack before the call, so their closures (which re-enter the tree and
 /// may register/unregister hosts) never run while the stack is borrowed (§3.3).
+///
+/// "Innermost" is decided by [`NavController::depth`], not by registration order — the mirror of
+/// [`nested_after`]'s outermost-first rule, and for the same reason: a host registers AFTER
+/// building its pages, so the registry places it after the surfaces those pages contain. Asked in
+/// reverse-registration order, a tab bar would answer a back before the stack pushed inside its
+/// page ever heard it (which is how a phone's `nav_back` cleared the tab selection and stranded
+/// the pushed detail in the tree). The sort is stable over the reversed list, so equal depths
+/// keep newest-registration-first, which is what sibling surfaces want.
 fn dispatch(f: impl Fn(&NavController) -> bool) -> bool {
-    let controllers: Vec<Rc<NavController>> =
+    let mut controllers: Vec<Rc<NavController>> =
         NAV_STACK.with(|s| s.borrow().iter().rev().map(|(_, c)| c.clone()).collect());
+    controllers.sort_by_key(|c| std::cmp::Reverse(c.depth));
     for c in controllers {
         if f(&c) {
             return true;

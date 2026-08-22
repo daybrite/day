@@ -65,6 +65,7 @@ the architecture-level view and the rationale.
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
+| inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector` | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -736,6 +737,9 @@ list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
 selector(section)                  // sidebar / tabs / segmented, per SelectorStyle
 stack(path, root)                  // push/pop navigation bound to a Vec<Route> signal
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
+inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
+                                   //   split where Cap::Inspector is Native, composed pane +
+                                   //   compact-width sheet elsewhere (docs/inspector.md)
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
 alert(…)   confirm(…)   prompt(…)   open_file(…)   save_file(…)
 app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator()
@@ -1467,6 +1471,7 @@ pub enum Event {
     ListDelete(usize),                        // committed swipe-delete (docs/list.md)
     CoverHidden,                              // cover hide transition finished (docs/cover.md)
     LinkActivated(String),                    // a styled run's link (docs/text-runs.md)
+    InspectorChanged(bool),                   // native pane show/hide (docs/inspector.md)
     Custom { tag: &'static str, num: f64, text: String },  // open piece-defined channel (§8.2)
 }
 ```

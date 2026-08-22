@@ -840,6 +840,19 @@ void *day_qt_splitter_pane(void *w, int index) {
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
     return s ? static_cast<void *>(s->widget(index)) : nullptr;
 }
+// --- inspector (docs/inspector.md): the same QSplitter family, panel pane TRAILING. Not a
+// QDockWidget: DayWindow is a plain QWidget with hand-managed chrome (see the toolbar note
+// above), and dock areas need QMainWindow. ---
+void *day_qt_inspector_new(double panel_width) {
+    auto *s = new QSplitter(Qt::Horizontal);
+    s->setChildrenCollapsible(false);
+    s->addWidget(new QWidget());
+    s->addWidget(new QWidget());
+    s->setStretchFactor(0, 1);
+    s->setStretchFactor(1, 0);
+    s->setSizes({640, static_cast<int>(panel_width)});
+    return s;
+}
 void day_qt_splitter_on_moved(void *w, void (*cb)(void *)) {
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
     if (s) {

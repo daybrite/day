@@ -140,6 +140,16 @@ builtin_kinds! {
     /// CONTENT container; its frame is native-owned while presented (the backend sizes it to
     /// the safe area and reports it via `Event::FrameChanged`).
     Cover = COVER => "day.cover",
+    /// Content beside a TRAILING inspector pane (docs/inspector.md): the native split whose
+    /// second pane is a show/hidable properties panel. Exactly two `INSPECTOR_PANE` children —
+    /// the content, then the panel (`InspectorPaneProps::panel`). Only realized where
+    /// `Cap::Inspector` answers `Native`; everywhere else the `inspector` piece composes the
+    /// pane from plain containers and this kind never reaches the backend.
+    Inspector = INSPECTOR => "day.inspector",
+    /// One pane's container inside an `INSPECTOR` host — the NAV_PAGE of the inspector split.
+    /// Its frame is native-owned (the splitter/dock sizes it), reported via
+    /// `Event::FrameChanged` on this node; Day lays the pane's content out inside it.
+    InspectorPane = INSPECTOR_PANE => "day.inspector_pane",
 }
 
 /// Whether a kind is worth asking [`Toolkit::first_baseline`] about (docs/baseline.md).
@@ -167,6 +177,8 @@ pub fn kind_has_baseline(kind: PieceKind) -> bool {
                 | Builtin::List
                 | Builtin::ListCell
                 | Builtin::Cover
+                | Builtin::Inspector
+                | Builtin::InspectorPane
         )
     )
 }
@@ -725,6 +737,12 @@ pub enum Event {
     /// backends over-report rather than under-report — consumers gate on their own closing
     /// flag, so duplicates and belated reports are no-ops.
     CoverHidden,
+    /// The user showed or hid an inspector pane through a NATIVE affordance — a dock widget's
+    /// close button, a divider dragged shut — rather than through Day (docs/inspector.md).
+    /// Emitted on the `kinds::INSPECTOR` node, and only when the visibility actually changed;
+    /// the piece writes it back to the bound signal. Applying
+    /// [`props::InspectorPatch::Visible`] must never re-emit it (the from-native echo rule).
+    InspectorChanged(bool),
 }
 
 impl Event {
@@ -1570,6 +1588,13 @@ pub enum Cap {
     /// day does not draw a fake one. Probe it to decide where a command lives: an app puts its
     /// refresh button on the toolbar where there is one and in the content where there is not.
     Toolbar,
+    /// The toolkit realizes `kinds::INSPECTOR` as its own trailing-pane container
+    /// (docs/inspector.md): an `NSSplitView` inspector pane, an `AdwOverlaySplitView` with the
+    /// sidebar at the end, a `QDockWidget`, a XAML `SplitView` right pane. `Unsupported` ⇒ the
+    /// `inspector` piece composes the pane from plain containers instead — same panel, same
+    /// signal, no native divider — so an unimplemented backend degrades to a drawn pane, not
+    /// to a hole. Apps normally have no reason to probe this; the piece does.
+    Inspector,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -3404,6 +3429,36 @@ pub mod props {
         Dismiss,
     }
 
+    /// A `kinds::INSPECTOR` split (docs/inspector.md): content beside a trailing inspector
+    /// pane. The pane's visibility is Day-owned state — the piece's bound signal — so the
+    /// props carry the value to draw and [`InspectorPatch::Visible`] keeps it current;
+    /// a native affordance hiding the pane (a dock close button, a dragged-shut divider)
+    /// reports back with [`crate::Event::InspectorChanged`].
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct InspectorProps {
+        /// Whether the pane is showing now.
+        pub visible: bool,
+        /// The pane's preferred width in points. A backend with a user-draggable divider
+        /// treats it as the initial width; one without draws it at exactly this.
+        pub width: f64,
+    }
+
+    /// Applied to a `kinds::INSPECTOR` node as its bound signal changes.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum InspectorPatch {
+        /// Show or hide the pane (animated where the platform animates panes). The
+        /// programmatic-sync direction: applying it must NOT re-emit
+        /// [`crate::Event::InspectorChanged`], per the from-native echo rule.
+        Visible(bool),
+    }
+
+    /// One pane of a `kinds::INSPECTOR` split (docs/inspector.md).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct InspectorPaneProps {
+        /// `true` for the inspector panel itself, `false` for the content pane.
+        pub panel: bool,
+    }
+
     /// Native navigation item list. `items` are display titles in route order;
     /// `selected` highlights the active route (split presentation; None on mobile roots).
     /// `icons` (parallel to `items`, `None` = no icon) are BUNDLED IMAGE NAMES resolved by each
@@ -5216,8 +5271,10 @@ mod builtin_kind_tests {
         assert_eq!(kinds::LABEL, Builtin::Label.key());
         assert_eq!(kinds::LIST_CELL, Builtin::ListCell.key());
         assert_eq!(kinds::COVER, Builtin::Cover.key());
-        // 19 after `Tabs`/`TabsPage` retired — the tab bar is a NAV presentation, not a kind.
-        assert_eq!(Builtin::ALL.len(), 19);
+        assert_eq!(kinds::INSPECTOR, Builtin::Inspector.key());
+        // 19 after `Tabs`/`TabsPage` retired (the tab bar is a NAV presentation, not a kind),
+        // +2 for the inspector split and its panes (docs/inspector.md).
+        assert_eq!(Builtin::ALL.len(), 21);
     }
 
     /// An extension piece's kind is not a built-in.

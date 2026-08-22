@@ -31,6 +31,8 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.nav_menu` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.list` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.cover` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `day.inspector` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
+| `day.inspector_pane` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
 
 ## External pieces
 
@@ -97,3 +99,4 @@ An app branches on this rather than on the target name.
 | `AppBadgeText` | N | – | – | – | – | – | – | – |
 | `AppBadgeDot` | N | – | – | – | – | – | – | E |
 | `Toolbar` | N | – | N | N | N | – | – | E |
+| `Inspector` | N | – | N | N | N | – | – | – |

@@ -757,6 +757,73 @@ extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
 }
 
 // ---------------------------------------------------------------------------
+// Inspector (docs/inspector.md): the nav QSplitter mirrored — content pane leading with the
+// stretch, a show/hidable panel pane trailing at its preferred width, divider draggable.
+// ---------------------------------------------------------------------------
+
+struct InspectorState {
+    content_pane: *mut std::os::raw::c_void,
+    panel_pane: *mut std::os::raw::c_void,
+    /// `(pane NodeId, is-panel)` in attach order, for frame reports.
+    panes: Vec<(NodeId, bool)>,
+    width: f64,
+    shown: bool,
+}
+
+thread_local! {
+    static INSPECTOR_STATE: RefCell<HashMap<usize, InspectorState>> = RefCell::new(HashMap::new());
+    /// INSPECTOR_PANE widget → `(its NodeId, is-panel)`, recorded at realize because `insert`
+    /// sees only handles — the PAGE_PANE pattern.
+    static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Report both pane sizes so `InspectorLayout` re-lays content (`nav_sync_panes`'s
+/// counterpart). The panel reports its preferred width while hidden, so a reveal re-lays
+/// nothing.
+fn inspector_sync_panes(host: *mut std::os::raw::c_void) {
+    let reports: Vec<(NodeId, Size)> = INSPECTOR_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&(host as usize)) else {
+            return Vec::new();
+        };
+        let (mut cw, mut ch, mut pw, mut ph) = (0.0, 0.0, 0.0, 0.0);
+        unsafe {
+            ffi::day_qt_widget_size(state.content_pane, &mut cw, &mut ch);
+            ffi::day_qt_widget_size(state.panel_pane, &mut pw, &mut ph);
+        }
+        let _ = ph;
+        if ch <= 0.0 {
+            return Vec::new();
+        }
+        state
+            .panes
+            .iter()
+            .map(|(id, panel)| {
+                let size = if *panel {
+                    let w = if state.shown && pw > 0.0 {
+                        pw
+                    } else {
+                        state.width
+                    };
+                    Size::new(w, ch)
+                } else {
+                    Size::new(cw, ch)
+                };
+                (*id, size)
+            })
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
+extern "C" fn inspector_splitter_moved(host: *mut std::os::raw::c_void) {
+    ffi_guard::contain((), || inspector_sync_panes(host));
+}
+
+// ---------------------------------------------------------------------------
 // The navigation suite (docs/navigation.md): a QTabWidget host that owns its page widgets.
 // ---------------------------------------------------------------------------
 
@@ -1228,7 +1295,10 @@ impl Toolkit for Qt {
             | Cap::NavTabs
             // A real QToolBar under the menu bar (docs/toolbars.md).
             | Cap::AppMenu
-            | Cap::Toolbar => Support::Native,
+            | Cap::Toolbar
+            // The nav QSplitter mirrored: panel pane trailing, divider draggable
+            // (docs/inspector.md — not a QDockWidget; DayWindow is no QMainWindow).
+            | Cap::Inspector => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             // Derived from QFontMetrics — Qt publishes no baseline of its own
@@ -1241,6 +1311,39 @@ impl Toolkit for Qt {
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> QtHandle {
         unsafe {
             match Builtin::from_key(kind) {
+                Some(Builtin::Inspector) => {
+                    let (visible, width) = props
+                        .downcast_ref::<InspectorProps>()
+                        .map(|p| (p.visible, p.width))
+                        .unwrap_or((false, 280.0));
+                    let host = ffi::day_qt_inspector_new(width);
+                    let content_pane = ffi::day_qt_splitter_pane(host, 0);
+                    let panel_pane = ffi::day_qt_splitter_pane(host, 1);
+                    ffi::day_qt_splitter_on_moved(host, inspector_splitter_moved);
+                    ffi::day_qt_set_visible(panel_pane, c_int::from(visible));
+                    INSPECTOR_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            host as usize,
+                            InspectorState {
+                                content_pane,
+                                panel_pane,
+                                panes: Vec::new(),
+                                width,
+                                shown: visible,
+                            },
+                        )
+                    });
+                    QtHandle(host)
+                }
+                Some(Builtin::InspectorPane) => {
+                    let w = ffi::day_qt_container_new();
+                    let panel = props
+                        .downcast_ref::<InspectorPaneProps>()
+                        .map(|p| p.panel)
+                        .unwrap_or(false);
+                    INSPECTOR_PANE_IDS.with(|m| m.borrow_mut().insert(w as usize, (id, panel)));
+                    QtHandle(w)
+                }
                 Some(Builtin::Container) => {
                     let w = ffi::day_qt_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>()
@@ -1684,6 +1787,23 @@ impl Toolkit for Qt {
                         }
                     }
                 }
+                kinds::INSPECTOR => {
+                    if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>()
+                    {
+                        INSPECTOR_STATE.with(|m| {
+                            if let Some(state) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                                state.shown = *v;
+                                ffi::day_qt_set_visible(state.panel_pane, c_int::from(*v));
+                            }
+                        });
+                        // Deferred one turn, like the nav pop path: hiding a QSplitter pane
+                        // does not resize its sibling until Qt runs its own layout pass.
+                        let host_addr = h.0 as usize;
+                        <Qt as Platform>::post(Box::new(move || {
+                            inspector_sync_panes(host_addr as *mut std::os::raw::c_void)
+                        }));
+                    }
+                }
                 kinds::NAV => {
                     if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
                         // A rail lands on the sidebar this backend does have: nothing in Qt is a
@@ -1919,6 +2039,13 @@ impl Toolkit for Qt {
         NAV_MENU_ROWS.with(|m| {
             m.borrow_mut().remove(&key);
         });
+        // The same use-after-free rule for a disposed inspector split and its panes.
+        INSPECTOR_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        INSPECTOR_PANE_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         // Same rule for the navigation suite's three tables: a freed QTabWidget whose address is
         // reused would otherwise inherit the old suite's destination pages, and report sizes to
         // node ids that no longer exist.
@@ -2030,6 +2157,28 @@ impl Toolkit for Qt {
         });
         if handled {
             nav_sync_panes(parent.0);
+            return;
+        }
+        // Inspector host: the pane's own record says which side it is (docs/inspector.md).
+        let inspected = INSPECTOR_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
+                return false;
+            };
+            let (pane_id, panel) = INSPECTOR_PANE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or((NodeId(0), index == 1));
+            let pane = if panel {
+                state.panel_pane
+            } else {
+                state.content_pane
+            };
+            unsafe { ffi::day_qt_add_child(pane, child.0) };
+            state.panes.push((pane_id, panel));
+            true
+        });
+        if inspected {
+            inspector_sync_panes(parent.0);
         } else {
             unsafe { ffi::day_qt_add_child(content_of(parent), child.0) };
         }
@@ -2162,6 +2311,10 @@ impl Toolkit for Qt {
         }
         if NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             nav_suite_sync(h.0);
+        }
+        // Same for an inspector split: its pane frames are native-owned too.
+        if INSPECTOR_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            inspector_sync_panes(h.0);
         }
         // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
         // set_frame calls a populate itself makes (on row content) don't schedule another forever.

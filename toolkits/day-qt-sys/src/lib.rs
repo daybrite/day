@@ -274,6 +274,7 @@ unsafe extern "C" {
     );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     pub fn day_qt_splitter_new() -> *mut c_void;
+    pub fn day_qt_inspector_new(panel_width: c_double) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
     pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     pub fn day_qt_widget_size(w: *mut c_void, out_w: *mut c_double, out_h: *mut c_double);

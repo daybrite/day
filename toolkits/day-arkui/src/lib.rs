@@ -1507,7 +1507,10 @@ mod imp {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell) | None => {
+                Some(Builtin::ListCell)
+                | Some(Builtin::Inspector)
+                | Some(Builtin::InspectorPane)
+                | None => {
                     if let Some(r) = self.registry.get(kind) {
                         let make = r.make;
                         return make(self, props, id);

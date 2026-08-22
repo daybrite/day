@@ -2085,6 +2085,45 @@ void* day_xaml_nav_new(unsigned long long id,
     return boxh(nv);
 }
 
+// --- inspector (docs/inspector.md): a SplitView with its pane placed RIGHT — the XAML
+// trailing-pane container. Inline display, so the open pane sits beside the content rather
+// than over it. Two stretched Canvas hosts, one per side; day positions content into each,
+// and each host's SizeChanged reports its region back (0 = content, 1 = panel), the same
+// contract the NavigationView regions use above.
+void* day_xaml_inspector_new(unsigned long long id, double panel_width, int open,
+                             void (*size_cb)(unsigned long long, int, int, int),
+                             void** out_content, void** out_panel) {
+    WUXC::SplitView sv;
+    sv.PanePlacement(WUXC::SplitViewPanePlacement::Right);
+    sv.DisplayMode(WUXC::SplitViewDisplayMode::Inline);
+    sv.OpenPaneLength(panel_width);
+    sv.IsPaneOpen(open != 0);
+    WUXC::Canvas content;
+    content.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+    content.VerticalAlignment(WUX::VerticalAlignment::Stretch);
+    sv.Content(content);
+    content.SizeChanged(
+        [id, size_cb](WF::IInspectable const& s, WUX::SizeChangedEventArgs const&) {
+            auto fe = s.as<FrameworkElement>();
+            size_cb(id, 0, static_cast<int>(fe.ActualWidth()), static_cast<int>(fe.ActualHeight()));
+        });
+    WUXC::Canvas panel;
+    panel.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+    panel.VerticalAlignment(WUX::VerticalAlignment::Stretch);
+    sv.Pane(panel);
+    panel.SizeChanged(
+        [id, size_cb](WF::IInspectable const& s, WUX::SizeChangedEventArgs const&) {
+            auto fe = s.as<FrameworkElement>();
+            size_cb(id, 1, static_cast<int>(fe.ActualWidth()), static_cast<int>(fe.ActualHeight()));
+        });
+    if (out_content) *out_content = boxh(content);
+    if (out_panel) *out_panel = boxh(panel);
+    return boxh(sv);
+}
+void day_xaml_inspector_set_open(void* h, int open) {
+    guard([&] { elem(h).as<WUXC::SplitView>().IsPaneOpen(open != 0); });
+}
+
 static std::vector<std::string> split_lines(const char* joined) {
     std::vector<std::string> out;
     std::string all = joined ? joined : "";

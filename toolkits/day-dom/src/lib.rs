@@ -1446,8 +1446,13 @@ impl Toolkit for Dom {
                 host
             }
             // A recycled list cell is ADOPTED from the native list, never realized through
-            // this path; anything else is an extension piece.
-            Some(Builtin::ListCell) | None => {
+            // this path; the inspector kinds never arrive (`Cap::Inspector` is Unsupported
+            // here, so the piece composes its pane instead — docs/inspector.md); anything
+            // else is an extension piece.
+            Some(Builtin::ListCell)
+            | Some(Builtin::Inspector)
+            | Some(Builtin::InspectorPane)
+            | None => {
                 // An external piece's own dom renderer, if one registered for this kind.
                 if let Some(make) = registered(kind, |r| r.make) {
                     let h = make(self, props, id);

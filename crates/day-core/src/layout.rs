@@ -1649,6 +1649,42 @@ impl Layout for NavLayout {
     }
 }
 
+/// Inspector split (docs/inspector.md): the two pane frames are native-owned (an
+/// `NSSplitView`'s panes, a dock widget), so Day lays each pane's content within the size the
+/// toolkit last reported via `Event::FrameChanged` — the same native-owned-frame contract as
+/// [`NavLayout`] pages. The fallback before the first report splits the host bounds at the
+/// pane width when visible, and gives the content everything when hidden.
+pub struct InspectorLayout {
+    pub sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
+    /// Visibility as last patched — shared with the piece so a toggle changes the fallback
+    /// split without rebuilding the layout object the host was realized with.
+    pub visible: std::rc::Rc<std::cell::Cell<bool>>,
+    /// The pane's preferred width (`InspectorProps::width`), for the fallback split.
+    pub width: f64,
+}
+
+impl Layout for InspectorLayout {
+    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        // Greedy, like a nav host: the split owns whatever its parent proposes.
+        Size::new(p.width.unwrap_or(480.0), p.height.unwrap_or(640.0))
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        // Insertion order is the contract (day-spec `Builtin::Inspector`): 0 content, 1 panel.
+        for (i, &pane) in children.iter().enumerate() {
+            let reported = self.sizes.borrow().get(&pane).copied();
+            let sz = reported.unwrap_or_else(|| {
+                let panel_w = if self.visible.get() { self.width } else { 0.0 };
+                if i == 0 {
+                    Size::new((bounds.size.width - panel_w).max(0.0), bounds.size.height)
+                } else {
+                    Size::new(panel_w, bounds.size.height)
+                }
+            });
+            cx.place_child_native(pane, Rect::from_size(sz));
+        }
+    }
+}
+
 /// Fullscreen cover (docs/cover.md): the COVER node occupies no space where it sits in the
 /// tree (its native surface is presented over the window, outside the parent's bounds), and
 /// its content is laid out at the size the backend reported via `Event::FrameChanged` — the

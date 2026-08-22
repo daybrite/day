@@ -400,6 +400,13 @@ struct FlippedIvars {
     /// SurfaceRole::SectionCard: `(radius,)` — drawn with a DYNAMIC system fill resolved at
     /// draw time, so the card tracks light/dark appearance changes automatically.
     section_card: Cell<Option<f64>>,
+    /// Paint the whole view with the dynamic window background before anything else — the
+    /// inspector panel wrap (docs/inspector.md). The inspector NSSplitViewItem backs its pane
+    /// with a vibrancy material, and the section cards' thin quaternary fill composites over
+    /// it into near-black in dark mode (and the material itself captures black offscreen —
+    /// the sidebar-screenshot rule, docs/navigation.md). An opaque appearance-resolved
+    /// backdrop gives the cards the same ground System Settings draws them on.
+    pane_backdrop: Cell<bool>,
 }
 
 define_class!(
@@ -431,37 +438,73 @@ define_class!(
 
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _dirty: NSRect) {
-            if let Some(radius) = self.ivars().section_card.get() {
-                let bounds = self.bounds();
-                unsafe {
-                    // quaternarySystemFill (macOS 14+) is the grouped-card material System
-                    // Settings uses; older systems fall back to the control background.
-                    let cls = objc2::class!(NSColor);
-                    let has: bool = msg_send![cls, respondsToSelector: objc2::sel!(quaternarySystemFillColor)];
-                    let color: objc2::rc::Retained<NSColor> = if has {
-                        msg_send![cls, quaternarySystemFillColor]
-                    } else {
-                        msg_send![cls, controlBackgroundColor]
-                    };
-                    color.setFill();
-                    let path = objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
-                        bounds, radius, radius,
-                    );
-                    path.fill();
+            let paint = || {
+                if self.ivars().pane_backdrop.get() {
+                    let bounds = self.bounds();
+                    unsafe {
+                        // Resolved at draw time, like the section fill below, so the backdrop
+                        // follows light/dark appearance changes automatically.
+                        NSColor::windowBackgroundColor().setFill();
+                        objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds).fill();
+                    }
                 }
-            }
-            if let Some((r, g, b, a, radius)) = self.ivars().surface.get() {
-                let bounds = self.bounds();
-                unsafe {
-                    NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, a).setFill();
-                    let path = if radius > 0.0 {
-                        objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                if let Some(radius) = self.ivars().section_card.get() {
+                    let bounds = self.bounds();
+                    unsafe {
+                        // quaternarySystemFill (macOS 14+) is the grouped-card material System
+                        // Settings uses; older systems fall back to the control background.
+                        let cls = objc2::class!(NSColor);
+                        let has: bool = msg_send![cls, respondsToSelector: objc2::sel!(quaternarySystemFillColor)];
+                        let color: objc2::rc::Retained<NSColor> = if has {
+                            msg_send![cls, quaternarySystemFillColor]
+                        } else {
+                            msg_send![cls, controlBackgroundColor]
+                        };
+                        color.setFill();
+                        let path = objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
                             bounds, radius, radius,
-                        )
-                    } else {
-                        objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds)
-                    };
-                    path.fill();
+                        );
+                        path.fill();
+                    }
+                }
+                if let Some((r, g, b, a, radius)) = self.ivars().surface.get() {
+                    let bounds = self.bounds();
+                    unsafe {
+                        NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, a).setFill();
+                        let path = if radius > 0.0 {
+                            objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                                bounds, radius, radius,
+                            )
+                        } else {
+                            objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds)
+                        };
+                        path.fill();
+                    }
+                }
+            };
+            // Paint under the STANDARD counterpart of this view's appearance. Inside an
+            // NSVisualEffectView subtree — the inspector pane — the effective appearance is
+            // a VIBRANT one (NSAppearanceNameVibrantDark/-Light), and the system fills'
+            // vibrant variants are opaque blend colors that only composite correctly in an
+            // `allowsVibrancy` view: drawn plainly, dark-mode quaternary fill comes out
+            // near-BLACK instead of lightening. Resolving under aqua/darkAqua gives exactly
+            // the fills System Settings draws with, and re-resolves on every theme change
+            // (this runs per draw, and appearance flips redraw).
+            unsafe {
+                let names = objc2_foundation::NSArray::from_slice(&[
+                    objc2_app_kit::NSAppearanceNameAqua,
+                    objc2_app_kit::NSAppearanceNameDarkAqua,
+                ]);
+                let standard = self
+                    .effectiveAppearance()
+                    .bestMatchFromAppearancesWithNames(&names)
+                    .and_then(|n| objc2_app_kit::NSAppearance::appearanceNamed(&n));
+                match standard {
+                    Some(appearance) => {
+                        let block = block2::StackBlock::new(paint);
+                        appearance.performAsCurrentDrawingAppearance(&block);
+                    }
+                    None => paint(),
                 }
             }
         }
@@ -481,6 +524,14 @@ impl DayFlipped {
     /// SurfaceRole::SectionCard — the fill resolves dynamically in drawRect (theme-adaptive).
     fn set_section_card(&self, corner_radius: f64) {
         self.ivars().section_card.set(Some(corner_radius));
+        unsafe {
+            let _: () = msg_send![self, setNeedsDisplay: true];
+        }
+    }
+
+    /// Opaque window-background backdrop (the inspector panel wrap — see `FlippedIvars`).
+    fn set_pane_backdrop(&self) {
+        self.ivars().pane_backdrop.set(true);
         unsafe {
             let _: () = msg_send![self, setNeedsDisplay: true];
         }
@@ -1075,6 +1126,29 @@ impl DayNavPage {
         let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
         unsafe { msg_send![super(this), init] }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Inspector (docs/inspector.md): an NSSplitViewController whose trailing pane is a REAL
+// inspector item (`inspectorWithViewController:`) — the system treatment for exactly this
+// surface: its own backing material, the standard thickness handling, full-height layout
+// under the titlebar. Day's bound signal is the only visibility driver (the item cannot be
+// user-collapsed), so this backend never emits `Event::InspectorChanged`.
+// ---------------------------------------------------------------------------
+
+struct InspectorState {
+    content_wrap: Handle,
+    panel_wrap: Handle,
+    /// Retained so the controller (the split's delegate) lives as long as its split.
+    _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
+    panel_item: Retained<objc2_app_kit::NSSplitViewItem>,
+}
+
+thread_local! {
+    static INSPECTOR_STATE: RefCell<HashMap<usize, InspectorState>> = RefCell::new(HashMap::new());
+    /// INSPECTOR_PANE ptr → is-panel, recorded at realize because `insert` sees only handles.
+    /// A [`SideTable`]: the release sweep drops it with the view.
+    static INSPECTOR_PANES: SideTable<bool> = SideTable::new();
 }
 
 // ---------------------------------------------------------------------------
@@ -3398,6 +3472,9 @@ impl Toolkit for AppKit {
             | Cap::Appearance
             // firstBaselineOffsetFromTop — the platform's own answer (docs/baseline.md).
             | Cap::BaselineAlignment
+            // A REAL inspector NSSplitViewItem (`inspectorWithViewController:`): the system
+            // trailing-pane material and full-height layout (docs/inspector.md).
+            | Cap::Inspector
             | Cap::TextRuns => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
@@ -3590,6 +3667,82 @@ impl Toolkit for AppKit {
                 view_of(pi)
             }
             Some(Builtin::Canvas) => view_of(DayCanvas::new(mtm)),
+            Some(Builtin::Inspector) => {
+                let (visible, width) = props
+                    .downcast_ref::<InspectorProps>()
+                    .map(|p| (p.visible, p.width))
+                    .unwrap_or((false, 280.0));
+                let content_wrap = view_of(DayFlipped::new(mtm));
+                let panel_flipped = DayFlipped::new(mtm);
+                // The panel draws an opaque window-background backdrop over the item's
+                // vibrancy material — without it the section cards' thin quaternary fill
+                // composites into near-black in dark mode (see `FlippedIvars`).
+                panel_flipped.set_pane_backdrop();
+                let panel_wrap = view_of(panel_flipped);
+                let split_vc = unsafe { objc2_app_kit::NSSplitViewController::new(mtm) };
+                // Force loadView BEFORE the items go in — the same lifecycle rule the nav
+                // host below documents.
+                let _ = unsafe { split_vc.view() };
+                let content_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
+                let panel_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
+                unsafe {
+                    content_vc.setView(&content_wrap);
+                    panel_vc.setView(&panel_wrap);
+                }
+                let content_item = unsafe {
+                    objc2_app_kit::NSSplitViewItem::splitViewItemWithViewController(&content_vc)
+                };
+                let panel_item = unsafe {
+                    objc2_app_kit::NSSplitViewItem::inspectorWithViewController(&panel_vc)
+                };
+                unsafe {
+                    // Day's signal is the ONLY visibility driver: with the pinned width the
+                    // divider has nothing to drag and the pane cannot be user-collapsed, so
+                    // there is no native-initiated change to report back.
+                    panel_item.setCanCollapse(false);
+                    panel_item.setCollapsed(!visible);
+                    panel_item.setMinimumThickness(width);
+                    panel_item.setMaximumThickness(width);
+                    panel_item.setAllowsFullHeightLayout(true);
+                    split_vc.addSplitViewItem(&content_item);
+                    split_vc.addSplitViewItem(&panel_item);
+                }
+                let split = unsafe { split_vc.splitView() };
+                unsafe {
+                    split.setVertical(true);
+                    split.setDividerStyle(objc2_app_kit::NSSplitViewDividerStyle::Thin);
+                    // The same Auto Layout hand-back as the nav host below: Day owns this
+                    // view's frame OUTSIDE the split; the controller's own constraints keep
+                    // doing the pane sizing inside it.
+                    split.setTranslatesAutoresizingMaskIntoConstraints(true);
+                }
+                let view = view_of(split);
+                INSPECTOR_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        ptr_of(&view),
+                        InspectorState {
+                            content_wrap,
+                            panel_wrap,
+                            _split_vc: split_vc,
+                            panel_item,
+                        },
+                    )
+                });
+                view
+            }
+            Some(Builtin::InspectorPane) => {
+                // A DayNavPage for its `setFrameSize:` → `FrameChanged` report: the pane's
+                // frame is native-owned (the split sizes it), exactly like a nav page —
+                // NAV_PAGES membership is what makes `set_frame` skip it.
+                let pane = view_of(DayNavPage::new(mtm, id));
+                NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&pane)));
+                let panel = props
+                    .downcast_ref::<InspectorPaneProps>()
+                    .map(|p| p.panel)
+                    .unwrap_or(false);
+                INSPECTOR_PANES.with(|t| t.insert(ptr_of(&pane), panel));
+                pane
+            }
             Some(Builtin::Nav) => {
                 let presentation = props
                     .downcast_ref::<NavProps>()
@@ -4165,6 +4318,17 @@ impl Toolkit for AppKit {
                     });
                 }
             }
+            kinds::INSPECTOR => {
+                if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>() {
+                    INSPECTOR_STATE.with(|m| {
+                        if let Some(state) = m.borrow().get(&ptr_of(h)) {
+                            // Directly, not through the animator proxy: a screenshot must not
+                            // catch a mid-animation pane (the sidebar-toggle rule).
+                            state.panel_item.setCollapsed(!*v);
+                        }
+                    });
+                }
+            }
             kinds::NAV => {
                 if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
                     nav_present(self.mtm(), h, *next);
@@ -4507,6 +4671,24 @@ impl Toolkit for AppKit {
         NAV_PAGES.with(|set| {
             set.borrow_mut().remove(&ptr_of(&h));
         });
+        INSPECTOR_STATE.with(|m| {
+            if let Some(insp) = m.borrow_mut().remove(&ptr_of(&h)) {
+                // The same dealloc-splice guard as the nav host above: never let the
+                // controller (or its split) dealloc aiming at itself.
+                unsafe {
+                    insp._split_vc.setNextResponder(None);
+                    let split = insp._split_vc.splitView();
+                    if split.nextResponder().is_some_and(|r| {
+                        core::ptr::eq::<objc2::runtime::AnyObject>(
+                            r.as_ref(),
+                            insp._split_vc.as_ref(),
+                        )
+                    }) {
+                        split.setNextResponder(None);
+                    }
+                }
+            }
+        });
         NAV_MENUS.with(|m| {
             if let Some((outline, _)) = m.borrow_mut().remove(&ptr_of(&h)) {
                 // The outline registers under its OWN pointer (`menuForEvent:` resolves by
@@ -4590,7 +4772,35 @@ impl Toolkit for AppKit {
                 });
             }
         }
-        if !handled {
+        if handled {
+            return;
+        }
+        // Inspector host: each pane fills its wrap via autoresizing, the nav-page contract —
+        // the split, not Day, owns the pane frames (docs/inspector.md).
+        let inspected = INSPECTOR_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(state) = m.get(&ptr_of(parent)) else {
+                return false;
+            };
+            let panel = INSPECTOR_PANES
+                .with(|t| t.get(ptr_of(child)))
+                .unwrap_or(false);
+            let wrap = if panel {
+                &state.panel_wrap
+            } else {
+                &state.content_wrap
+            };
+            unsafe {
+                child.setFrame(wrap.bounds());
+                child.setAutoresizingMask(
+                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                wrap.addSubview(child);
+            }
+            true
+        });
+        if !inspected {
             // Absolute positioning: z-order is build order; index is irrelevant for
             // non-overlapping frames (stack_z will need ordered insertion later).
             unsafe { content_of(parent).addSubview(child) };

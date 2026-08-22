@@ -1474,6 +1474,72 @@ fn nav_report(host_key: usize) {
 }
 
 // ---------------------------------------------------------------------------
+// Inspector (docs/inspector.md): AdwOverlaySplitView with the sidebar at the END — the same
+// Adw split family the nav sidebar uses, mirrored to the trailing edge. The panel width is
+// pinned (min == max), per the GNOME no-draggable-sidebars idiom.
+// ---------------------------------------------------------------------------
+
+struct InspectorState {
+    split: adw::OverlaySplitView,
+    width: f64,
+    /// Programmatic `show-sidebar` writes in flight — the notify handler must not echo them
+    /// back as `Event::InspectorChanged`.
+    suppress: Rc<std::cell::Cell<bool>>,
+    /// Each attached pane: `(pane NodeId, is-panel, the pane's own GtkFixed)`, for frame
+    /// reports.
+    panes: Vec<(NodeId, bool, Handle)>,
+}
+
+thread_local! {
+    /// Inspector split key → its state. [`SideTable`]s, so the release sweep drops them.
+    static INSPECTOR_STATE: SideTable<Rc<RefCell<InspectorState>>> = SideTable::new();
+    /// Inspector pane key → `(its NodeId, is-panel)`, recorded at realize and consumed when
+    /// the pane is inserted into its split.
+    static INSPECTOR_PANES: SideTable<(NodeId, bool)> = SideTable::new();
+}
+
+/// Emit each inspector pane's content size so `InspectorLayout` re-lays it (the nav_report
+/// counterpart). The panel reports its PINNED width even while hidden, so revealing it never
+/// re-lays the panel's content from zero.
+fn inspector_report(host_key: usize) {
+    let reports: Vec<(NodeId, Size)> = INSPECTOR_STATE
+        .with(|t| t.get(host_key))
+        .map(|state| {
+            let state = state.borrow();
+            let (hw, hh) = (state.split.width() as f64, state.split.height() as f64);
+            if hw <= 0.0 || hh <= 0.0 {
+                return Vec::new();
+            }
+            // TARGET widths, never live allocations — the nav_report rule. The pinned width
+            // is exact (min == max, in Px), and echoing an allocation feeds Day's own frame
+            // request back as the pane's "size": laid-out content becomes a GTK minimum, the
+            // minimum inflates the next allocation, and the sidebar ends up with no room to
+            // show at all (the issue-#19 class).
+            let shown = if state.split.shows_sidebar() {
+                state.width
+            } else {
+                0.0
+            };
+            state
+                .panes
+                .iter()
+                .map(|(id, panel, _)| {
+                    let size = if *panel {
+                        Size::new(state.width, hh)
+                    } else {
+                        Size::new((hw - shown).max(0.0), hh)
+                    };
+                    (*id, size)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Native recycling list (docs/list.md, §10): GtkListView + GtkSignalListItemFactory. The model
 // (a GtkStringList) supplies only the row COUNT; Day fills each recycled cell's content on bind.
 // ---------------------------------------------------------------------------
@@ -2117,7 +2183,9 @@ impl Toolkit for Gtk {
             | Cap::AppMenu
             | Cap::Appearance
             // gtk_widget_measure reports baselines itself (docs/baseline.md).
-            | Cap::BaselineAlignment => Support::Native,
+            | Cap::BaselineAlignment
+            // AdwOverlaySplitView with the sidebar at the end (docs/inspector.md).
+            | Cap::Inspector => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,
@@ -2137,6 +2205,65 @@ impl Toolkit for Gtk {
                         apply_surface(&w, p.background, p.corner_radius, p.clips);
                     }
                 }
+                w
+            }
+            Some(Builtin::Inspector) => {
+                let (visible, width) = props
+                    .downcast_ref::<InspectorProps>()
+                    .map(|p| (p.visible, p.width))
+                    .unwrap_or((false, 280.0));
+                let sv = adw::OverlaySplitView::new();
+                sv.set_sidebar_position(gtk4::PackType::End);
+                // Pinned, per the GNOME idiom (no draggable sidebars) — same as the nav split.
+                // In PIXELS: the default unit is sp, which rescales with the text size and
+                // would leave Day laying content out for a width the pane doesn't have. The
+                // fraction is Adw's PREFERENCE (default 0.25 of the window) and the min/max
+                // only clamp it — so pinning takes all three: a fraction beyond any window
+                // lets max == min == width decide.
+                sv.set_sidebar_width_unit(adw::LengthUnit::Px);
+                sv.set_sidebar_width_fraction(1.0);
+                sv.set_min_sidebar_width(width);
+                sv.set_max_sidebar_width(width);
+                sv.set_show_sidebar(visible);
+                let handle: Handle = sv.clone().upcast();
+                let key = widget_key(&handle);
+                let suppress = Rc::new(std::cell::Cell::new(false));
+                {
+                    let s = suppress.clone();
+                    sv.connect_show_sidebar_notify(move |sv| {
+                        let shows = sv.shows_sidebar();
+                        ffi_guard::contain((), || {
+                            // A user-driven hide (Escape while collapsed, a future native
+                            // affordance) reports back; a day-driven patch must not echo.
+                            if !s.get() {
+                                emit(id, Event::InspectorChanged(shows));
+                            }
+                            gtk4::glib::idle_add_local_once(move || {
+                                ffi_guard::contain((), || inspector_report(key))
+                            });
+                        });
+                    });
+                }
+                INSPECTOR_STATE.with(|t| {
+                    t.insert(
+                        key,
+                        Rc::new(RefCell::new(InspectorState {
+                            split: sv,
+                            width,
+                            suppress,
+                            panes: Vec::new(),
+                        })),
+                    )
+                });
+                handle
+            }
+            Some(Builtin::InspectorPane) => {
+                let w: Handle = gtk4::Fixed::new().upcast();
+                let panel = props
+                    .downcast_ref::<InspectorPaneProps>()
+                    .map(|p| p.panel)
+                    .unwrap_or(false);
+                INSPECTOR_PANES.with(|t| t.insert(widget_key(&w), (id, panel)));
                 w
             }
             Some(Builtin::Nav) => {
@@ -2740,6 +2867,34 @@ impl Toolkit for Gtk {
         _anim: Option<&AnimSpec>,
     ) {
         match kind {
+            kinds::INSPECTOR => {
+                if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>() {
+                    let key = widget_key(h);
+                    if let Some(state) = INSPECTOR_STATE.with(|t| t.get(key)) {
+                        let state = state.borrow();
+                        // WITHOUT the slide transition: a dayscript screenshot right after a
+                        // toggle must not catch the pane mid-animation (AppKit's no-animator
+                        // rule). Adw samples gtk-enable-animations as the transition starts,
+                        // so restoring right after the call leaves everything else animated.
+                        let settings = gtk4::Settings::default();
+                        let saved = settings.as_ref().map(|s| s.is_gtk_enable_animations());
+                        if let Some(s) = &settings {
+                            s.set_gtk_enable_animations(false);
+                        }
+                        // Suppressed: the notify handler must not echo a day-driven write
+                        // back as `Event::InspectorChanged` (the from-native echo rule).
+                        state.suppress.set(true);
+                        state.split.set_show_sidebar(*v);
+                        state.suppress.set(false);
+                        if let (Some(s), Some(prev)) = (&settings, saved) {
+                            s.set_gtk_enable_animations(prev);
+                        }
+                    }
+                    gtk4::glib::idle_add_local_once(move || {
+                        ffi_guard::contain((), || inspector_report(key))
+                    });
+                }
+            }
             // Emulated cover (docs/cover.md): present = re-home onto the window's root Fixed
             // at the content size, topmost; dismiss = hide + report `CoverHidden` at once (no
             // transition on this tier). No interactive dismissal exists on this backend.
@@ -3274,6 +3429,37 @@ impl Toolkit for Gtk {
             gtk4::glib::idle_add_local_once(move || {
                 ffi_guard::contain((), || nav_report(host_key))
             });
+            return;
+        }
+        // An inspector pane landing in its split (docs/inspector.md). The content pane takes
+        // the same External-policy min-size breaker the nav split's content does — Day frames
+        // it to the full width while the panel is hidden, and without the breaker that frame
+        // becomes a GTK minimum the reveal cannot push against.
+        let inspected = INSPECTOR_STATE.with(|t| t.get(host_key)).map(|state| {
+            let (pane_id, panel) = INSPECTOR_PANES
+                .with(|t| t.get(widget_key(child)))
+                .unwrap_or((NodeId(0), index == 1));
+            let mut state = state.borrow_mut();
+            // BOTH panes take the min-size breaker. Unlike the nav sidebar — whose plain
+            // Fixed is what holds the pane's width — this pane's width is pinned by the
+            // split itself (min == max), so the child's Day-laid frame must never become a
+            // GTK minimum: a 280-wide form inside a pane briefly measured narrower would
+            // otherwise inflate the pane's minimum until the sidebar has no room to show.
+            let breaker = gtk4::ScrolledWindow::new();
+            breaker.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
+            breaker.set_child(Some(child));
+            let page = adw::NavigationPage::new(&breaker, "Day");
+            if panel {
+                state.split.set_sidebar(Some(&page));
+            } else {
+                state.split.set_content(Some(&page));
+            }
+            state.panes.push((pane_id, panel, child.clone()));
+        });
+        if inspected.is_some() {
+            gtk4::glib::idle_add_local_once(move || {
+                ffi_guard::contain((), || inspector_report(host_key))
+            });
         } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
         }
@@ -3304,7 +3490,26 @@ impl Toolkit for Gtk {
             }
             true
         });
-        if !handled && let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
+        if handled {
+            return;
+        }
+        let inspected = INSPECTOR_STATE
+            .with(|t| t.get(widget_key(parent)))
+            .map(|state| {
+                let (pane_id, panel) = INSPECTOR_PANES
+                    .with(|t| t.get(widget_key(child)))
+                    .unwrap_or((NodeId(0), false));
+                let mut state = state.borrow_mut();
+                if panel {
+                    state.split.set_sidebar(None::<&gtk4::Widget>);
+                } else {
+                    state.split.set_content(None::<&gtk4::Widget>);
+                }
+                state.panes.retain(|(id, ..)| *id != pane_id);
+            });
+        if inspected.is_none()
+            && let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>()
+        {
             fixed.remove(child);
         }
     }
@@ -3540,6 +3745,12 @@ impl Toolkit for Gtk {
         let is_nav = NAV_STATE.with(|m| m.borrow().contains_key(&key));
         if is_nav {
             gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || nav_report(key)));
+        }
+        // Same for an inspector split: its pane frames are native-owned too.
+        if INSPECTOR_STATE.with(|t| t.contains(key)) {
+            gtk4::glib::idle_add_local_once(move || {
+                ffi_guard::contain((), || inspector_report(key))
+            });
         }
     }
 

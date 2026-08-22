@@ -185,6 +185,53 @@ extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
     });
 }
 
+// Inspector (docs/inspector.md): a SplitView with its pane placed right — the XAML
+// trailing-pane container, Inline so the open pane sits beside the content. Day's signal is
+// the only visibility driver (Inline panes have no light-dismiss), so this backend never
+// emits `Event::InspectorChanged`.
+struct XamlInspector {
+    content_host: *mut c_void,
+    panel_host: *mut c_void,
+    node: u64,
+}
+
+/// The two pane node ids of one inspector host, for region-size reports.
+#[derive(Default)]
+struct InspectorPaneNodes {
+    content: Option<NodeId>,
+    panel: Option<NodeId>,
+}
+
+thread_local! {
+    /// INSPECTOR host ptr → its SplitView state.
+    static INSPECTOR_STATE: RefCell<HashMap<usize, XamlInspector>> = RefCell::new(HashMap::new());
+    /// INSPECTOR_PANE ptr → `(its NodeId, is-panel)`, recorded at realize.
+    static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
+        RefCell::new(HashMap::new());
+    /// INSPECTOR host node id → its panes' node ids (the shim's size callback carries the
+    /// host node id, the NAV_HOST_BY_ID pattern).
+    static INSPECTOR_PANES_BY_HOST: RefCell<HashMap<u64, InspectorPaneNodes>> =
+        RefCell::new(HashMap::new());
+}
+
+/// An inspector region reflowed (window resize, pane open/close): report the true size so day
+/// re-lays that pane's content. region 0 = content, 1 = panel (the shim contract).
+extern "C" fn inspector_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
+    ffi_guard::contain((), || {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        let id = INSPECTOR_PANES_BY_HOST.with(|m| {
+            m.borrow()
+                .get(&host_id)
+                .and_then(|p| if region == 1 { p.panel } else { p.content })
+        });
+        if let Some(id) = id {
+            emit(id, Event::FrameChanged(Size::new(w as f64, h as f64)));
+        }
+    });
+}
+
 /// The NavigationView back button: pop one level (the stack surface writes it back into its path).
 extern "C" fn nav_back(host_id: u64) {
     ffi_guard::contain((), || {
@@ -1134,6 +1181,9 @@ impl Toolkit for Xaml {
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
+            // A SplitView with PanePlacement=Right — the XAML trailing-pane container
+            // (docs/inspector.md).
+            Cap::Inspector => Support::Native,
             // The SAME NavigationView with a different pane: `Top` is WinUI's tab bar and
             // `LeftCompact` a real icon rail (docs/navigation.md).
             //
@@ -1249,6 +1299,44 @@ impl Toolkit for Xaml {
                     let page = ffi::day_xaml_container_new();
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(page as usize, id));
                     WinHandle(page)
+                }
+                Some(Builtin::Inspector) => {
+                    let (visible, width) = props
+                        .downcast_ref::<InspectorProps>()
+                        .map(|p| (p.visible, p.width))
+                        .unwrap_or((false, 280.0));
+                    let mut content: *mut c_void = std::ptr::null_mut();
+                    let mut panel: *mut c_void = std::ptr::null_mut();
+                    let sv = ffi::day_xaml_inspector_new(
+                        id.0,
+                        width,
+                        visible as c_int,
+                        inspector_region_size,
+                        &mut content,
+                        &mut panel,
+                    );
+                    INSPECTOR_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            sv as usize,
+                            XamlInspector {
+                                content_host: content,
+                                panel_host: panel,
+                                node: id.0,
+                            },
+                        )
+                    });
+                    INSPECTOR_PANES_BY_HOST
+                        .with(|m| m.borrow_mut().insert(id.0, InspectorPaneNodes::default()));
+                    WinHandle(sv)
+                }
+                Some(Builtin::InspectorPane) => {
+                    let pane = ffi::day_xaml_container_new();
+                    let panel = props
+                        .downcast_ref::<InspectorPaneProps>()
+                        .map(|p| p.panel)
+                        .unwrap_or(false);
+                    INSPECTOR_PANE_IDS.with(|m| m.borrow_mut().insert(pane as usize, (id, panel)));
+                    WinHandle(pane)
                 }
                 // Emulated fullscreen cover (docs/cover.md): parked hidden; Present re-homes
                 // it onto the window's content Canvas, appended last (= topmost), at the
@@ -1721,6 +1809,12 @@ impl Toolkit for Xaml {
                         }
                     }
                 }
+                kinds::INSPECTOR => {
+                    if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>()
+                    {
+                        ffi::day_xaml_inspector_set_open(h.0, *v as c_int);
+                    }
+                }
                 kinds::NAV => {
                     if let Some(np) = patch.downcast_ref::<NavPatch>() {
                         let title = match np {
@@ -1834,6 +1928,14 @@ impl Toolkit for Xaml {
         LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
         NAV_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
+        // A disposed inspector host drops its state AND its by-node-id pane map, so a recycled
+        // address (or node id) can't inherit the dead split's panes.
+        if let Some(insp) = INSPECTOR_STATE.with(|m| m.borrow_mut().remove(&key)) {
+            INSPECTOR_PANES_BY_HOST.with(|m| {
+                m.borrow_mut().remove(&insp.node);
+            });
+        }
+        INSPECTOR_PANE_IDS.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_HOST.with(|m| m.borrow_mut().remove(&key));
         SPLIT_SIDEBAR_PAGES.with(|m| m.borrow_mut().remove(&key));
         if let Some(NavState::Split(s)) = NAV_STATE.with(|m| m.borrow_mut().remove(&key)) {
@@ -1939,6 +2041,43 @@ impl Toolkit for Xaml {
                 return;
             }
         }
+        // Inspector host: each pane's content lands in its side's Canvas, and the pane's node
+        // id is recorded so region-size reports can reach it (docs/inspector.md).
+        let inspected = INSPECTOR_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(state) = m.get(&(parent.0 as usize)) else {
+                return None;
+            };
+            let (pane_id, panel) = INSPECTOR_PANE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or((NodeId(0), index == 1));
+            let host = if panel {
+                state.panel_host
+            } else {
+                state.content_host
+            };
+            unsafe { ffi::day_xaml_add_child(host, child.0) };
+            INSPECTOR_PANES_BY_HOST.with(|p| {
+                if let Some(nodes) = p.borrow_mut().get_mut(&state.node) {
+                    if panel {
+                        nodes.panel = Some(pane_id);
+                    } else {
+                        nodes.content = Some(pane_id);
+                    }
+                }
+            });
+            Some((host, pane_id))
+        });
+        if let Some((host, pane_id)) = inspected {
+            // Seed the pane with the host's current bounds — adding a child does not refire
+            // SizeChanged (the nav content-region rule above).
+            let (mut w, mut h) = (0.0, 0.0);
+            unsafe { ffi::day_xaml_widget_size(host, &mut w, &mut h) };
+            if w > 0.0 && h > 0.0 && pane_id.0 != 0 {
+                emit(pane_id, Event::FrameChanged(Size::new(w, h)));
+            }
+            return;
+        }
         // Scroll host: children live in the inner content Canvas, not the ScrollViewer itself.
         let target = SCROLL_STATE
             .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
@@ -1974,6 +2113,23 @@ impl Toolkit for Xaml {
             // as before this pass existed — there is no resident set here to choose among.
             Some((false, false)) => return,
             None => {}
+        }
+        // Inspector pane content: remove from whichever side's Canvas it landed in.
+        let inspected = INSPECTOR_STATE.with(|m| {
+            m.borrow().get(&(parent.0 as usize)).map(|state| {
+                let panel = INSPECTOR_PANE_IDS
+                    .with(|ids| ids.borrow().get(&(child.0 as usize)).map(|(_, p)| *p))
+                    .unwrap_or(false);
+                if panel {
+                    state.panel_host
+                } else {
+                    state.content_host
+                }
+            })
+        });
+        if let Some(host) = inspected {
+            unsafe { ffi::day_xaml_remove_child(host, child.0) };
+            return;
         }
         let target = SCROLL_STATE
             .with(|m| m.borrow().get(&(parent.0 as usize)).copied())

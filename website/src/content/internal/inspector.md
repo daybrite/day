@@ -1,0 +1,1 @@
+../../../../docs/inspector.md

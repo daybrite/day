@@ -35,6 +35,7 @@ export const groups = [
       ['scroll', 'scrolling and programmatic scroll targets'],
       ['search', 'searchable() surfaces per platform'],
       ['cover', 'fullscreen covers and dismissal control'],
+      ['inspector', 'the trailing properties pane: native splits, the compact sheet'],
       ['focus', 'keyboard focus as a signal: bindings, rules, per-backend map'],
       ['list', 'the native recycling list: row protocol, heights, selection'],
       ['canvas', 'the canvas display list and gestures'],

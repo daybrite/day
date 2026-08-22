@@ -157,6 +157,18 @@ unsafe extern "C" {
         badge_tints_joined: *const c_char,
     );
     pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
+    // Inspector (docs/inspector.md): a right-pane SplitView. `out_content`/`out_panel` receive
+    // the two Canvas hosts; size(id, region, w, h) reports a region reflow (0 = content,
+    // 1 = panel), the NavigationView contract.
+    pub fn day_xaml_inspector_new(
+        id: u64,
+        panel_width: c_double,
+        open: c_int,
+        size_cb: extern "C" fn(u64, c_int, c_int, c_int),
+        out_content: *mut *mut c_void,
+        out_panel: *mut *mut c_void,
+    ) -> *mut c_void;
+    pub fn day_xaml_inspector_set_open(h: *mut c_void, open: c_int);
     pub fn day_xaml_nav_set_pane_mode(nav: *mut c_void, mode: c_int);
     pub fn day_xaml_nav_set_header(nav: *mut c_void, title: *const c_char);
     pub fn day_xaml_nav_set_pane_header(nav: *mut c_void, element: *mut c_void);

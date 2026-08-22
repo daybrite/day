@@ -41,6 +41,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [scroll](/docs/internal/scroll) | scrolling and programmatic scroll targets |
 | [search](/docs/internal/search) | searchable() surfaces per platform |
 | [cover](/docs/internal/cover) | fullscreen covers and dismissal control |
+| [inspector](/docs/internal/inspector) | the trailing properties pane: native splits, the compact sheet |
 | [focus](/docs/internal/focus) | keyboard focus as a signal: bindings, rules, per-backend map |
 | [list](/docs/internal/list) | the native recycling list: row protocol, heights, selection |
 | [canvas](/docs/internal/canvas) | the canvas display list and gestures |
