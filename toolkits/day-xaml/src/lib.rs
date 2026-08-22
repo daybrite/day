@@ -2315,6 +2315,8 @@ impl Toolkit for Xaml {
             day_spec::GestureKind::Tap => 0,
             day_spec::GestureKind::LongPress => 1,
             day_spec::GestureKind::Drag => 2,
+            // Not delivered on this backend yet (docs/canvas.md "Zoom and pan").
+            day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan => return,
         };
         // Idempotent per (handle, kind) — day-core may re-enable on rebuild.
         if !GESTURES.with(|g| g.borrow_mut().insert((h.0 as usize, k))) {

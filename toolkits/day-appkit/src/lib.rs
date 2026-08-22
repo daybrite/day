@@ -563,6 +563,9 @@ thread_local! {
     /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
     /// (replay inserted but nothing ever removed).
     static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
+    /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
+    /// SCROLL events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
+    static PAN_NODES: SideTable<NodeId> = SideTable::new();
 }
 
 struct CanvasIvars;
@@ -588,6 +591,42 @@ define_class!(
                 draw_op(op);
             }
         }
+
+        #[unsafe(method(scrollWheel:))]
+        fn scroll_wheel(&self, event: &objc2_app_kit::NSEvent) {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let Some(node) = PAN_NODES.with(|t| t.get(ptr)) else {
+                let _: () = unsafe { msg_send![super(self), scrollWheel: event] };
+                return;
+            };
+            ffi_guard::contain((), || {
+                // Trackpads bracket a pan with phases; a discrete wheel tick has none and
+                // arrives as a lone Changed — exactly the Event::Pan contract.
+                let raw = unsafe { event.phase() };
+                let phase = if raw.contains(objc2_app_kit::NSEventPhase::Began) {
+                    day_spec::DragPhase::Began
+                } else if raw.contains(objc2_app_kit::NSEventPhase::Ended)
+                    || raw.contains(objc2_app_kit::NSEventPhase::Cancelled)
+                {
+                    day_spec::DragPhase::Ended
+                } else {
+                    day_spec::DragPhase::Changed
+                };
+                let delta = Point::new(unsafe { event.scrollingDeltaX() }, unsafe {
+                    event.scrollingDeltaY()
+                });
+                let win = unsafe { event.locationInWindow() };
+                let loc = self.convertPoint_fromView(win, None);
+                emit(
+                    node,
+                    Event::Pan {
+                        phase,
+                        delta,
+                        location: Point::new(loc.x, loc.y),
+                    },
+                );
+            })
+        }
     }
 );
 
@@ -604,7 +643,7 @@ impl DayCanvas {
 
 struct GestureIvars {
     node: NodeId,
-    is_drag: bool,
+    kind: day_spec::GestureKind,
 }
 
 thread_local! {
@@ -630,24 +669,37 @@ define_class!(
                 let view = g.view();
                 let loc = g.locationInView(view.as_deref());
                 let at = Point::new(loc.x, loc.y);
-                if self.ivars().is_drag {
-                    let obj: &objc2::runtime::AnyObject = g.as_ref();
-                    let (translation, phase) = if let Some(pan) = obj.downcast_ref::<NSPanGestureRecognizer>() {
-                        let t = unsafe { pan.translationInView(view.as_deref()) };
-                        let phase = match g.state() {
-                            NSGestureRecognizerState::Began => day_spec::DragPhase::Began,
-                            NSGestureRecognizerState::Ended
-                            | NSGestureRecognizerState::Cancelled
-                            | NSGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
-                            _ => day_spec::DragPhase::Changed,
+                let phase = match g.state() {
+                    NSGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                    NSGestureRecognizerState::Ended
+                    | NSGestureRecognizerState::Cancelled
+                    | NSGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                    _ => day_spec::DragPhase::Changed,
+                };
+                let obj: &objc2::runtime::AnyObject = g.as_ref();
+                match self.ivars().kind {
+                    day_spec::GestureKind::Drag => {
+                        let translation = if let Some(pan) = obj.downcast_ref::<NSPanGestureRecognizer>() {
+                            let t = unsafe { pan.translationInView(view.as_deref()) };
+                            Point::new(t.x, t.y)
+                        } else {
+                            Point::ZERO
                         };
-                        (Point::new(t.x, t.y), phase)
-                    } else {
-                        (Point::ZERO, day_spec::DragPhase::Changed)
-                    };
-                    emit(node, Event::Drag { phase, location: at, translation });
-                } else {
-                    emit(node, Event::Tap(at));
+                        emit(node, Event::Drag { phase, location: at, translation });
+                    }
+                    day_spec::GestureKind::Pinch => {
+                        // Cumulative since Began: `magnification` is the total delta (0 =
+                        // unchanged), and Day's contract wants a factor.
+                        let scale = if let Some(m) =
+                            obj.downcast_ref::<objc2_app_kit::NSMagnificationGestureRecognizer>()
+                        {
+                            1.0 + unsafe { m.magnification() }
+                        } else {
+                            1.0
+                        };
+                        emit(node, Event::Pinch { phase, scale, location: at });
+                    }
+                    _ => emit(node, Event::Tap(at)),
                 }
             })
         }
@@ -655,8 +707,8 @@ define_class!(
 );
 
 impl DayGesture {
-    fn new(mtm: MainThreadMarker, node: NodeId, is_drag: bool) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(GestureIvars { node, is_drag });
+    fn new(mtm: MainThreadMarker, node: NodeId, kind: day_spec::GestureKind) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(GestureIvars { node, kind });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -5233,19 +5285,24 @@ impl Toolkit for AppKit {
 
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
         let key = ptr_of(h);
+        // Pan is not a recognizer on macOS: the two-finger idiom is the trackpad SCROLL, so
+        // the canvas view's own `scrollWheel:` override reports it for registered nodes.
+        // (Only DayCanvas carries that override — a Pan enabled elsewhere emits nothing.)
+        if kind == day_spec::GestureKind::Pan {
+            PAN_NODES.with(|t| t.insert(key, node));
+            return;
+        }
         // Idempotent: attach each kind at most once per view.
         let already = GESTURES.with(|m| {
-            m.borrow().get(&key).is_some_and(|v| {
-                v.iter()
-                    .any(|t| t.ivars().is_drag == matches!(kind, day_spec::GestureKind::Drag))
-            })
+            m.borrow()
+                .get(&key)
+                .is_some_and(|v| v.iter().any(|t| t.ivars().kind == kind))
         });
         if already {
             return;
         }
         let mtm = self.mtm;
-        let is_drag = matches!(kind, day_spec::GestureKind::Drag);
-        let target = DayGesture::new(mtm, node, is_drag);
+        let target = DayGesture::new(mtm, node, kind);
         let recognizer: Retained<NSGestureRecognizer> = unsafe {
             match kind {
                 day_spec::GestureKind::Drag => {
@@ -5255,6 +5312,13 @@ impl Toolkit for AppKit {
                         Some(sel!(fire:)),
                     ))
                 }
+                day_spec::GestureKind::Pinch => Retained::into_super(
+                    objc2_app_kit::NSMagnificationGestureRecognizer::initWithTarget_action(
+                        objc2_app_kit::NSMagnificationGestureRecognizer::alloc(mtm),
+                        Some(&target),
+                        Some(sel!(fire:)),
+                    ),
+                ),
                 _ => Retained::into_super(NSClickGestureRecognizer::initWithTarget_action(
                     NSClickGestureRecognizer::alloc(mtm),
                     Some(&target),

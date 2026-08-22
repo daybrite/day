@@ -760,7 +760,8 @@ with_environment(value, build_fn)   environment::<T>()
 The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.id_keyed()`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
-([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()`, `.focused()`,
+([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
+`.on_pinch()` / `.on_pan()` (the continuous zoom/scroll pair, [docs/canvas.md](docs/canvas.md)), `.focused()`,
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
 `.context_menu()`, `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
 ([docs/cover.md](docs/cover.md)), `.tweak()` / `.native_ref()` ([docs/tweaks.md](docs/tweaks.md)), `.modifier(impl Modifier)`,
@@ -1461,6 +1462,8 @@ pub enum Event {
     FocusChanged(bool),                       // docs/focus.md
     Tap(Point), LongPress(Point), ContextMenu(Point),
     Drag { phase, location, translation },    // docs/shapes.md gestures
+    Pinch { phase, scale, location },         // trackpad/touch zoom (docs/canvas.md)
+    Pan { phase, delta, location },           // two-finger scroll/pan (docs/canvas.md)
     ScrollChanged(Point),                     // §7.6
     FrameChanged(Size),                       // canvas re-record; nav pane size reports
     NavBack { already_popped: bool },         // native back (docs/navigation.md)

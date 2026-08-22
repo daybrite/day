@@ -136,6 +136,7 @@
 			);
 			name = "Build Rust (day)";
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/day/lib{{ident}}.a",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

@@ -138,6 +138,32 @@ The reference use is `day-piece-colorpicker`'s composed panel
 ([docs/colorpicker.md](colorpicker.md)): its saturation/brightness field, hue strip and opacity
 strip are three canvases that read their value straight out of the press location.
 
+### Zoom and pan
+
+Two continuous gestures serve a canvas that is a viewport onto something larger — a drawing, a
+map, a timeline:
+
+```rust
+canvas(draw)
+    .on_pinch(move |g| zoom_about(g.location, g.scale, g.phase))
+    .on_pan(move |g| scroll_by(g.delta))
+```
+
+`Pinch.scale` is CUMULATIVE — the total magnification since the gesture began, `1.0` meaning
+unchanged — so a handler applies it to the zoom it captured at `DragPhase::Began` rather than
+multiplying every event in. `Pan.delta` is INCREMENTAL — each event carries only the movement
+since the previous one, as a content displacement (pan by `+= delta` and content follows the
+fingers) — because desktop wheels produce lone `Changed` events with no began/ended bracket to
+accumulate across. Both carry a `location` in canvas coordinates for anchoring the zoom under
+the fingers; a backend that cannot know it (GTK's scroll controller) reports `Point::ZERO`.
+
+Where they come from: trackpad magnify and two-finger scroll on macOS (a plain mouse wheel also
+pans), `GtkGestureZoom` and the scroll controller on GTK, native zoom gestures and wheel events
+on Qt, and pinch plus a two-finger pan recognizer on iOS — one-finger drags still go to
+`.on_drag`, so selection and panning coexist. The remaining backends do not deliver these
+events yet; apps that offer zoom controls in a toolbar or menu (as Day-Sketch does) lose no
+capability there, only the gesture shortcut.
+
 ## Performance
 
 `CanvasProps` holds the whole op list and a change replaces it, so a canvas is cheapest when its

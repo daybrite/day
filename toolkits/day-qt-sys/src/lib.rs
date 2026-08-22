@@ -186,10 +186,12 @@ unsafe extern "C" {
     pub fn day_qt_register_resource(path: *const c_char);
     pub fn day_qt_resource_data(respath: *const c_char, out_len: *mut usize) -> *const c_void;
     pub fn day_qt_resource_exists(respath: *const c_char) -> c_int;
+    // kind: 0 tap, 1 drag, 2 pinch, 3 pan. Callback phase codes: 0 tap; 1..=3 drag
+    // began/changed/ended; 4..=6 pinch (tx = cumulative scale); 7..=9 pan (tx/ty = delta).
     pub fn day_qt_enable_gesture(
         w: *mut c_void,
         node: u64,
-        is_drag: c_int,
+        kind: c_int,
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
     // Emulated list row selection (docs/list.md): a press on a cell reports

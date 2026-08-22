@@ -45,6 +45,8 @@
 #include <QTextEdit>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QNativeGestureEvent>
+#include <QWheelEvent>
 #include <QDrag>
 #include <QMimeData>
 #include <QDragMoveEvent>
@@ -1683,19 +1685,24 @@ int day_qt_resource_exists(const char *respath) {
     return r.isValid() ? 1 : 0;
 }
 
-// --- gestures (tap / drag) ---
-// phase: 0 = tap, 1 = drag began, 2 = drag changed, 3 = drag ended.
+// --- gestures (tap / drag / pinch / pan) ---
+// kind: 0 = tap, 1 = drag, 2 = pinch, 3 = pan.
+// phase: 0 = tap; 1/2/3 = drag began/changed/ended; 4/5/6 = pinch began/changed/ended
+// (tx = cumulative scale); 7/8/9 = pan began/changed/ended (tx/ty = incremental delta).
 typedef void (*DayGestureCb)(uint64_t node, int phase, double x, double y, double tx, double ty);
 
 class DayGestureFilter : public QObject {
 public:
-    uint64_t node; bool is_drag; DayGestureCb cb;
+    uint64_t node; int kind; DayGestureCb cb;
     bool pressed = false; QPointF start;
-    DayGestureFilter(uint64_t n, bool d, DayGestureCb c) : node(n), is_drag(d), cb(c) {}
+    double pinch_scale = 1.0;
+    DayGestureFilter(uint64_t n, int k, DayGestureCb c) : node(n), kind(k), cb(c) {}
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override {
+        bool is_drag = kind == 1;
         switch (ev->type()) {
             case QEvent::MouseButtonPress: {
+                if (kind > 1) break;
                 QMouseEvent *me = static_cast<QMouseEvent *>(ev);
                 start = me->position();
                 pressed = true;
@@ -1710,6 +1717,7 @@ protected:
                 break;
             }
             case QEvent::MouseButtonRelease: {
+                if (kind > 1) break;
                 QMouseEvent *me = static_cast<QMouseEvent *>(ev);
                 QPointF p = me->position();
                 if (is_drag && pressed) {
@@ -1721,15 +1729,60 @@ protected:
                 pressed = false;
                 break;
             }
+            case QEvent::NativeGesture: {
+                // Trackpad pinch (macOS always; Linux where the platform plugin synthesizes
+                // native gestures). Zoom values are per-event percentage deltas; the callback
+                // contract wants the cumulative scale since Begin.
+                if (kind != 2) break;
+                QNativeGestureEvent *ge = static_cast<QNativeGestureEvent *>(ev);
+                QPointF p = ge->position();
+                switch (ge->gestureType()) {
+                    case Qt::BeginNativeGesture:
+                        pinch_scale = 1.0;
+                        cb(node, 4, p.x(), p.y(), 1.0, 0.0);
+                        return true;
+                    case Qt::ZoomNativeGesture:
+                        pinch_scale *= 1.0 + ge->value();
+                        cb(node, 5, p.x(), p.y(), pinch_scale, 0.0);
+                        return true;
+                    case Qt::EndNativeGesture:
+                        cb(node, 6, p.x(), p.y(), pinch_scale, 0.0);
+                        pinch_scale = 1.0;
+                        return true;
+                    default: break;
+                }
+                break;
+            }
+            case QEvent::Wheel: {
+                // Two-finger trackpad scroll / mouse wheel as a pan. Consumed so an enclosing
+                // scroll area doesn't also move.
+                if (kind != 3) break;
+                QWheelEvent *we = static_cast<QWheelEvent *>(ev);
+                QPointF p = we->position();
+                QPointF d = we->pixelDelta();
+                if (d.isNull()) {
+                    // Classic wheel: notches only. Scale to a usable content step.
+                    d = QPointF(we->angleDelta().x() / 120.0 * 40.0,
+                                we->angleDelta().y() / 120.0 * 40.0);
+                }
+                int phase;
+                switch (we->phase()) {
+                    case Qt::ScrollBegin: phase = 7; break;
+                    case Qt::ScrollEnd: phase = 9; break;
+                    default: phase = 8; break; // updates and phase-less classic wheels
+                }
+                cb(node, phase, p.x(), p.y(), d.x(), d.y());
+                return true;
+            }
             default: break;
         }
         return false; // never consume: let normal widget behavior proceed
     }
 };
 
-void day_qt_enable_gesture(void *w, uint64_t node, int is_drag, DayGestureCb cb) {
+void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     QWidget *widget = static_cast<QWidget *>(w);
-    DayGestureFilter *f = new DayGestureFilter(node, is_drag != 0, cb);
+    DayGestureFilter *f = new DayGestureFilter(node, kind, cb);
     f->setParent(widget); // freed with the widget
     widget->installEventFilter(f);
 }

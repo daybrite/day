@@ -45,8 +45,8 @@ thread_local! {
     /// the release sweep drops a dead canvas's list, so a recycled address can't briefly
     /// draw the previous canvas's ops.
     static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
-    /// (widget_ptr, is_drag) pairs already wired, so enable_gesture is idempotent.
-    static GESTURES: RefCell<std::collections::HashSet<(usize, bool)>> =
+    /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
+    static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
 }
 
@@ -3299,9 +3299,7 @@ impl Toolkit for Gtk {
             m.borrow_mut().remove(&key);
         });
         GESTURES.with(|g| {
-            let mut g = g.borrow_mut();
-            g.remove(&(key, false));
-            g.remove(&(key, true));
+            g.borrow_mut().retain(|(ptr, _)| *ptr != key);
         });
         // A tab page detaches from its AdwViewStack; a nav page is owned by its AdwNavigationPage
         // (already detached in `remove`); everything else lives in a GtkFixed parent.
@@ -3823,8 +3821,7 @@ impl Toolkit for Gtk {
 
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
         use day_spec::{DragPhase, GestureKind, Point};
-        let is_drag = matches!(kind, GestureKind::Drag);
-        let key = (h.as_ptr() as usize, is_drag);
+        let key = (h.as_ptr() as usize, kind);
         if !GESTURES.with(|g| g.borrow_mut().insert(key)) {
             return; // already wired
         }
@@ -3881,6 +3878,105 @@ impl Toolkit for Gtk {
                     }
                 });
                 h.add_controller(drag);
+            }
+            GestureKind::Pinch => {
+                // GtkGestureZoom's scale-changed is CUMULATIVE since the gesture began —
+                // exactly Event::Pinch's contract.
+                let zoom = gtk4::GestureZoom::new();
+                let center = |g: &gtk4::GestureZoom| {
+                    g.bounding_box_center()
+                        .map(|(x, y)| Point::new(x, y))
+                        .unwrap_or(Point::ZERO)
+                };
+                zoom.connect_begin(move |g, _| {
+                    ffi_guard::contain((), || {
+                        emit(
+                            node,
+                            Event::Pinch {
+                                phase: DragPhase::Began,
+                                scale: 1.0,
+                                location: center(g),
+                            },
+                        )
+                    });
+                });
+                zoom.connect_scale_changed(move |g, scale| {
+                    ffi_guard::contain((), || {
+                        emit(
+                            node,
+                            Event::Pinch {
+                                phase: DragPhase::Changed,
+                                scale,
+                                location: center(g),
+                            },
+                        )
+                    });
+                });
+                zoom.connect_end(move |g, _| {
+                    ffi_guard::contain((), || {
+                        emit(
+                            node,
+                            Event::Pinch {
+                                phase: DragPhase::Ended,
+                                scale: g.scale_delta(),
+                                location: center(g),
+                            },
+                        )
+                    });
+                });
+                h.add_controller(zoom);
+            }
+            GestureKind::Pan => {
+                // Trackpad two-finger scroll / wheel. Deltas arrive per event; wheel notches
+                // are scaled to a usable pane step. Sign: Event::Pan's delta is the CONTENT
+                // displacement, and a GTK scroll-down (positive dy) moves content up.
+                use gtk4::EventControllerScrollFlags;
+                let scroll =
+                    gtk4::EventControllerScroll::new(EventControllerScrollFlags::BOTH_AXES);
+                scroll.connect_scroll_begin(move |_| {
+                    ffi_guard::contain((), || {
+                        emit(
+                            node,
+                            Event::Pan {
+                                phase: DragPhase::Began,
+                                delta: Point::ZERO,
+                                location: Point::ZERO,
+                            },
+                        )
+                    });
+                });
+                scroll.connect_scroll(move |c, dx, dy| {
+                    ffi_guard::contain(gtk4::glib::Propagation::Stop, || {
+                        let unit = c.unit();
+                        let step = if unit == gtk4::gdk::ScrollUnit::Wheel {
+                            40.0
+                        } else {
+                            1.0
+                        };
+                        emit(
+                            node,
+                            Event::Pan {
+                                phase: DragPhase::Changed,
+                                delta: Point::new(-dx * step, -dy * step),
+                                location: Point::ZERO,
+                            },
+                        );
+                        gtk4::glib::Propagation::Stop
+                    })
+                });
+                scroll.connect_scroll_end(move |_| {
+                    ffi_guard::contain((), || {
+                        emit(
+                            node,
+                            Event::Pan {
+                                phase: DragPhase::Ended,
+                                delta: Point::ZERO,
+                                location: Point::ZERO,
+                            },
+                        )
+                    });
+                });
+                h.add_controller(scroll);
             }
             _ => {
                 let click = gtk4::GestureClick::new();

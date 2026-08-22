@@ -1965,7 +1965,9 @@ impl Toolkit for Dom {
         let mask = match kind {
             GestureKind::Tap => 128,
             GestureKind::Drag => 256,
-            GestureKind::LongPress => 0,
+            // Long-press, pinch, and pan are not delivered on this backend yet
+            // (docs/canvas.md "Zoom and pan").
+            GestureKind::LongPress | GestureKind::Pinch | GestureKind::Pan => 0,
         };
         if mask != 0 {
             unsafe { day_dom_listen(h.0, mask) };

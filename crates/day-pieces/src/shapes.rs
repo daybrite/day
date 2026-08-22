@@ -149,6 +149,26 @@ pub struct Drag {
     pub translation: Point,
 }
 
+/// One pinch-gesture event, delivered to a `.on_pinch(…)` handler (docs/shapes.md). `scale`
+/// is cumulative since `Began` (1.0 = unchanged); `location` is the centroid — the anchor a
+/// zoom keeps stationary.
+#[derive(Clone, Copy, Debug)]
+pub struct Pinch {
+    pub phase: DragPhase,
+    pub scale: f64,
+    pub location: Point,
+}
+
+/// One pan-gesture event, delivered to a `.on_pan(…)` handler (docs/shapes.md). `delta` is
+/// the movement since the previous event — apply it incrementally; a discrete wheel tick
+/// arrives as a lone `Changed`.
+#[derive(Clone, Copy, Debug)]
+pub struct Pan {
+    pub phase: DragPhase,
+    pub delta: Point,
+    pub location: Point,
+}
+
 /// The drawable description of a shape — everything but gestures. Cloneable so [`shape_group`]
 /// can collect many descriptions into one canvas closure (docs/shapes.md §3.6).
 #[derive(Clone)]

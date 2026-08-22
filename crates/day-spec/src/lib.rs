@@ -636,6 +636,25 @@ pub enum Event {
         location: Point,
         translation: Point,
     },
+    /// A pinch/magnify gesture over the node (docs/shapes.md): `scale` is CUMULATIVE since
+    /// `Began` (1.0 = unchanged), `location` the gesture's centroid in local coordinates —
+    /// the anchor a zoom keeps stationary. Only nodes that enabled
+    /// [`GestureKind::Pinch`] receive it; a backend with no recognizer emits nothing.
+    Pinch {
+        phase: DragPhase,
+        scale: f64,
+        location: Point,
+    },
+    /// A viewport pan over the node (docs/shapes.md): `delta` is the movement SINCE THE
+    /// PREVIOUS event — incremental, not cumulative, because desktop wheels have no gesture
+    /// session to accumulate over (a discrete wheel tick arrives as a lone `Changed`).
+    /// Two-finger touch pans bracket theirs with `Began`/`Ended`. Distinct from
+    /// [`Event::Drag`], the primary pointer's press-drag.
+    Pan {
+        phase: DragPhase,
+        delta: Point,
+        location: Point,
+    },
     ScrollChanged(Point),
     /// A canvas node was re-framed by layout; re-record (§11). Nav pane/page containers
     /// also report their allocated size with this (docs/navigation.md).
@@ -847,11 +866,16 @@ pub enum DragPhase {
 
 /// A gesture a node wants delivered. Backends attach the matching native recognizer when day-core
 /// calls [`Toolkit::enable_gesture`]; the default is no gesture (recognizers cost, so opt-in).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GestureKind {
     Tap,
     LongPress,
     Drag,
+    /// Pinch/magnify (docs/shapes.md): trackpad magnification, two-finger touch pinch.
+    Pinch,
+    /// Viewport pan (docs/shapes.md): trackpad two-finger scroll, two-finger touch pan —
+    /// distinct from [`GestureKind::Drag`], the primary pointer's press-drag.
+    Pan,
 }
 
 // ---------------------------------------------------------------------------

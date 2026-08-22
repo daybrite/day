@@ -80,7 +80,7 @@ mod imp {
     };
     use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
-        UITapGestureRecognizer,
+        UIPinchGestureRecognizer, UITapGestureRecognizer,
     };
     use objc2_ui_kit::{
         UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate,
@@ -693,7 +693,7 @@ mod imp {
 
     struct GestureIvars {
         node: NodeId,
-        is_drag: bool,
+        kind: day_spec::GestureKind,
     }
 
     thread_local! {
@@ -738,33 +738,77 @@ mod imp {
                     let view = unsafe { g.view() };
                     let loc = unsafe { g.locationInView(view.as_deref()) };
                     let at = day_spec::Point::new(loc.x, loc.y);
-                    if self.ivars().is_drag {
-                        let obj: &AnyObject = g.as_ref();
-                        let (translation, phase) = if let Some(pan) =
-                            obj.downcast_ref::<UIPanGestureRecognizer>()
-                        {
-                            let t = unsafe { pan.translationInView(view.as_deref()) };
-                            let phase = match unsafe { g.state() } {
-                                UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
-                                UIGestureRecognizerState::Ended
-                                | UIGestureRecognizerState::Cancelled
-                                | UIGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
-                                _ => day_spec::DragPhase::Changed,
+                    let phase = match unsafe { g.state() } {
+                        UIGestureRecognizerState::Began => day_spec::DragPhase::Began,
+                        UIGestureRecognizerState::Ended
+                        | UIGestureRecognizerState::Cancelled
+                        | UIGestureRecognizerState::Failed => day_spec::DragPhase::Ended,
+                        _ => day_spec::DragPhase::Changed,
+                    };
+                    let obj: &AnyObject = g.as_ref();
+                    match self.ivars().kind {
+                        day_spec::GestureKind::Drag => {
+                            let translation = if let Some(pan) =
+                                obj.downcast_ref::<UIPanGestureRecognizer>()
+                            {
+                                let t = unsafe { pan.translationInView(view.as_deref()) };
+                                day_spec::Point::new(t.x, t.y)
+                            } else {
+                                day_spec::Point::ZERO
                             };
-                            (day_spec::Point::new(t.x, t.y), phase)
-                        } else {
-                            (day_spec::Point::ZERO, day_spec::DragPhase::Changed)
-                        };
-                        emit(
-                            node,
-                            Event::Drag {
-                                phase,
-                                location: at,
-                                translation,
-                            },
-                        );
-                    } else {
-                        emit(node, Event::Tap(at));
+                            emit(
+                                node,
+                                Event::Drag {
+                                    phase,
+                                    location: at,
+                                    translation,
+                                },
+                            );
+                        }
+                        day_spec::GestureKind::Pinch => {
+                            // UIPinchGestureRecognizer's scale is cumulative since Began —
+                            // exactly Event::Pinch's contract.
+                            let scale = obj
+                                .downcast_ref::<UIPinchGestureRecognizer>()
+                                .map(|p| unsafe { p.scale() })
+                                .unwrap_or(1.0);
+                            emit(
+                                node,
+                                Event::Pinch {
+                                    phase,
+                                    scale,
+                                    location: at,
+                                },
+                            );
+                        }
+                        day_spec::GestureKind::Pan => {
+                            // Event::Pan's delta is INCREMENTAL: read the recognizer's
+                            // cumulative translation, then zero it so the next fire reports
+                            // only the movement since this one.
+                            let delta = if let Some(pan) =
+                                obj.downcast_ref::<UIPanGestureRecognizer>()
+                            {
+                                let t = unsafe { pan.translationInView(view.as_deref()) };
+                                unsafe {
+                                    pan.setTranslation_inView(
+                                        CGPoint::new(0.0, 0.0),
+                                        view.as_deref(),
+                                    )
+                                };
+                                day_spec::Point::new(t.x, t.y)
+                            } else {
+                                day_spec::Point::ZERO
+                            };
+                            emit(
+                                node,
+                                Event::Pan {
+                                    phase,
+                                    delta,
+                                    location: at,
+                                },
+                            );
+                        }
+                        _ => emit(node, Event::Tap(at)),
                     }
                 });
             }
@@ -772,8 +816,8 @@ mod imp {
     );
 
     impl DayGesture {
-        fn new(mtm: MainThreadMarker, node: NodeId, is_drag: bool) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(GestureIvars { node, is_drag });
+        fn new(mtm: MainThreadMarker, node: NodeId, kind: day_spec::GestureKind) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(GestureIvars { node, kind });
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -5287,32 +5331,54 @@ mod imp {
 
         fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {
             let key = ptr_of(h);
-            let is_drag = matches!(kind, day_spec::GestureKind::Drag);
             let already = GESTURES.with(|m| {
                 m.borrow()
                     .get(&key)
-                    .is_some_and(|v| v.iter().any(|t| t.ivars().is_drag == is_drag))
+                    .is_some_and(|v| v.iter().any(|t| t.ivars().kind == kind))
             });
             if already {
                 return;
             }
             let mtm = mtm();
-            let target = DayGesture::new(mtm, node, is_drag);
+            let target = DayGesture::new(mtm, node, kind);
             unsafe {
-                let recognizer: Retained<UIGestureRecognizer> = if is_drag {
-                    let pan = UIPanGestureRecognizer::initWithTarget_action(
-                        UIPanGestureRecognizer::alloc(mtm),
-                        Some(&target),
-                        Some(sel!(fire:)),
-                    );
-                    Retained::into_super(pan)
-                } else {
-                    let tap = UITapGestureRecognizer::initWithTarget_action(
-                        UITapGestureRecognizer::alloc(mtm),
-                        Some(&target),
-                        Some(sel!(fire:)),
-                    );
-                    Retained::into_super(tap)
+                let recognizer: Retained<UIGestureRecognizer> = match kind {
+                    day_spec::GestureKind::Drag => {
+                        let pan = UIPanGestureRecognizer::initWithTarget_action(
+                            UIPanGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(pan)
+                    }
+                    day_spec::GestureKind::Pinch => {
+                        let pinch = UIPinchGestureRecognizer::initWithTarget_action(
+                            UIPinchGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(pinch)
+                    }
+                    day_spec::GestureKind::Pan => {
+                        // Two fingers, so single-finger drags still reach a Drag gesture on
+                        // the same view.
+                        let pan = UIPanGestureRecognizer::initWithTarget_action(
+                            UIPanGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        pan.setMinimumNumberOfTouches(2);
+                        pan.setMaximumNumberOfTouches(2);
+                        Retained::into_super(pan)
+                    }
+                    _ => {
+                        let tap = UITapGestureRecognizer::initWithTarget_action(
+                            UITapGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(tap)
+                    }
                 };
                 h.setUserInteractionEnabled(true);
                 h.addGestureRecognizer(&recognizer);

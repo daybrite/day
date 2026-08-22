@@ -64,8 +64,8 @@ thread_local! {
     /// generation-keyed by day-core and never reused, so it cannot mis-hit.)
     static RANGES: SideTable<(f64, f64)> = SideTable::new();
     static RANGES_BY_PTR: SideTable<(f64, f64)> = SideTable::new();
-    /// (widget_ptr, is_drag) pairs already wired, so enable_gesture is idempotent.
-    static GESTURES: RefCell<std::collections::HashSet<(usize, bool)>> =
+    /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
+    static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
 }
 
@@ -386,11 +386,17 @@ extern "C" fn on_focus(id: u64, kind: c_int) {
     });
 }
 
-/// Gesture callback from the C++ event filter. phase: 0=tap, 1=drag began, 2=changed, 3=ended.
+/// Gesture callback from the C++ event filter. phase: 0 tap; 1..=3 drag began/changed/ended;
+/// 4..=6 pinch began/changed/ended (tx = cumulative scale); 7..=9 pan (tx/ty = delta).
 extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64) {
     use day_spec::{DragPhase, Point};
     ffi_guard::contain((), || {
         let at = Point::new(x, y);
+        let seq_phase = |p: c_int| match p {
+            0 => DragPhase::Began,
+            2 => DragPhase::Ended,
+            _ => DragPhase::Changed,
+        };
         let ev = match phase {
             0 => Event::Tap(at),
             1 => Event::Drag {
@@ -402,6 +408,16 @@ extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64
                 phase: DragPhase::Ended,
                 location: at,
                 translation: Point::new(tx, ty),
+            },
+            4..=6 => Event::Pinch {
+                phase: seq_phase(phase - 4),
+                scale: tx,
+                location: at,
+            },
+            7..=9 => Event::Pan {
+                phase: seq_phase(phase - 7),
+                delta: Point::new(tx, ty),
+                location: at,
             },
             _ => Event::Drag {
                 phase: DragPhase::Changed,
@@ -2059,9 +2075,7 @@ impl Toolkit for Qt {
             m.borrow_mut().remove(&key);
         });
         GESTURES.with(|g| {
-            let mut g = g.borrow_mut();
-            g.remove(&(key, false));
-            g.remove(&(key, true));
+            g.borrow_mut().retain(|(ptr, _)| *ptr != key);
         });
         // A cover torn down while presented (no Dismiss patch first) must leave the
         // presented set — `window_resized` writes through every entry's raw pointer, and a
@@ -2426,12 +2440,18 @@ impl Toolkit for Qt {
     }
 
     fn enable_gesture(&mut self, h: &QtHandle, node: NodeId, kind: day_spec::GestureKind) {
-        let is_drag = matches!(kind, day_spec::GestureKind::Drag);
-        let key = (h.0 as usize, is_drag);
+        let key = (h.0 as usize, kind);
         if !GESTURES.with(|g| g.borrow_mut().insert(key)) {
             return; // already wired
         }
-        unsafe { ffi::day_qt_enable_gesture(h.0, node.0, is_drag as c_int, on_gesture) };
+        use day_spec::GestureKind as K;
+        let code: c_int = match kind {
+            K::Tap | K::LongPress => 0,
+            K::Drag => 1,
+            K::Pinch => 2,
+            K::Pan => 3,
+        };
+        unsafe { ffi::day_qt_enable_gesture(h.0, node.0, code, on_gesture) };
     }
 
     fn set_toolbar(&mut self, h: &QtHandle, items: &[day_spec::ToolbarItem]) {

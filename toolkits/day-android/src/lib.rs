@@ -2985,6 +2985,14 @@ mod imp {
         }
 
         fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: day_spec::GestureKind) {
+            // Pinch and pan are not delivered on this backend yet (docs/canvas.md "Zoom and
+            // pan") — and must NOT fall through to the tap wire below.
+            if matches!(
+                kind,
+                day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan
+            ) {
+                return;
+            }
             let is_drag = matches!(kind, day_spec::GestureKind::Drag);
             call_void(
                 "enableGesture",

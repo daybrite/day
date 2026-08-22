@@ -444,6 +444,54 @@ fn op_on_drag(f: impl Fn(Drag) + 'static) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_on_pinch(f: impl Fn(Pinch) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Pinch));
+            cx.on(n, move |ev| {
+                if let Event::Pinch {
+                    phase,
+                    scale,
+                    location,
+                } = ev
+                {
+                    f(Pinch {
+                        phase: *phase,
+                        scale: *scale,
+                        location: *location,
+                    });
+                }
+            });
+            n
+        })
+    }
+}
+
+fn op_on_pan(f: impl Fn(Pan) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Pan));
+            cx.on(n, move |ev| {
+                if let Event::Pan {
+                    phase,
+                    delta,
+                    location,
+                } = ev
+                {
+                    f(Pan {
+                        phase: *phase,
+                        delta: *delta,
+                        location: *location,
+                    });
+                }
+            });
+            n
+        })
+    }
+}
+
 fn op_background(color: Reactive<Color>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -701,6 +749,12 @@ impl<P: Piece> Decorated<P> {
     pub fn on_drag(self, f: impl Fn(Drag) + 'static) -> Self {
         self.push(op_on_drag(f))
     }
+    pub fn on_pinch(self, f: impl Fn(Pinch) + 'static) -> Self {
+        self.push(op_on_pinch(f))
+    }
+    pub fn on_pan(self, f: impl Fn(Pan) + 'static) -> Self {
+        self.push(op_on_pan(f))
+    }
     pub fn background<M>(self, color: impl IntoReactive<Color, M>) -> Self {
         self.push(op_background(color.into_reactive()))
     }
@@ -926,6 +980,20 @@ pub trait Decorate: Piece + Sized {
     /// Fire on each phase of a drag over this piece.
     fn on_drag(self, f: impl Fn(Drag) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_drag(f)
+    }
+
+    /// Fire on each phase of a pinch/magnify over this piece (docs/canvas.md "Zoom and
+    /// pan"). Only backends with a native recognizer wired emit it — pair a zoom with
+    /// visible controls.
+    fn on_pinch(self, f: impl Fn(Pinch) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_pinch(f)
+    }
+
+    /// Fire on each viewport-pan event over this piece (docs/canvas.md "Zoom and pan"):
+    /// trackpad two-finger scroll, two-finger touch pan. `delta` is incremental — apply it
+    /// as it arrives.
+    fn on_pan(self, f: impl Fn(Pan) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_pan(f)
     }
 
     /// Fill the piece's bounds with a solid color painted behind it — a message-bubble / card /
