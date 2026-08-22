@@ -150,8 +150,10 @@ fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
 }
 
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
-    let PickerPatch::Selected(i) = patch;
-    let i = *i;
+    let i = match patch {
+        PickerPatch::Selected(i) => *i,
+        PickerPatch::Options(opts) => return set_options(h, opts),
+    };
     // Range guards throughout: an out-of-range index raises an NSException in AppKit,
     // which Rust cannot catch — the process aborts.
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
@@ -169,6 +171,61 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
             && let Some(b) = v.downcast_ref::<NSButton>()
         {
             b.setState(NSControlStateValueOn);
+        }
+    }
+}
+
+/// New option labels, in place. The selected INDEX is preserved where it still exists —
+/// AppKit resets a rebuilt pop-up to item 0 and drops a segmented control's selection, so
+/// each arm restores it explicitly (clamped, since an NSException here would abort).
+fn set_options(h: &Retained<NSView>, opts: &[String]) {
+    if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
+        let want = popup.indexOfSelectedItem().max(0) as usize;
+        popup.removeAllItems();
+        for o in opts {
+            popup.addItemWithTitle(&NSString::from_str(o));
+        }
+        if !opts.is_empty() {
+            popup.selectItemAtIndex(want.min(opts.len() - 1) as isize);
+        }
+    } else if let Some(seg) = h.downcast_ref::<NSSegmentedControl>() {
+        let want = seg.selectedSegment().max(0) as usize;
+        seg.setSegmentCount(opts.len() as isize);
+        for (i, o) in opts.iter().enumerate() {
+            seg.setLabel_forSegment(&NSString::from_str(o), i as isize);
+        }
+        if !opts.is_empty() {
+            seg.setSelectedSegment(want.min(opts.len() - 1) as isize);
+        }
+    } else if let Some(stack) = h.downcast_ref::<NSStackView>() {
+        // Inline: the radios ARE the options, so relabel in place and add/remove the tail.
+        // Rebuilding every button would drop the group's shared target/action wiring.
+        let subs = stack.arrangedSubviews();
+        let existing: Vec<Retained<NSButton>> = subs
+            .iter()
+            .filter_map(|v| v.downcast_ref::<NSButton>().map(Retained::from))
+            .collect();
+        for (i, o) in opts.iter().enumerate() {
+            match existing.get(i) {
+                Some(b) => b.setTitle(&NSString::from_str(o)),
+                None => {
+                    let Some(first) = existing.first() else { break };
+                    let radio = unsafe {
+                        NSButton::radioButtonWithTitle_target_action(
+                            &NSString::from_str(o),
+                            first.target().as_deref(),
+                            first.action(),
+                            stack.mtm(),
+                        )
+                    };
+                    radio.setTag(i as isize);
+                    stack.addArrangedSubview(<NSButton as AsRef<NSView>>::as_ref(&radio));
+                }
+            }
+        }
+        for b in existing.iter().skip(opts.len()) {
+            stack.removeArrangedSubview(<NSButton as AsRef<NSView>>::as_ref(b));
+            b.removeFromSuperview();
         }
     }
 }

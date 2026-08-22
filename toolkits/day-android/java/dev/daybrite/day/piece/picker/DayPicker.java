@@ -82,6 +82,64 @@ public final class DayPicker {
         }
     }
 
+    // New option labels, in place (PickerPatch::Options). The spinner swaps its adapter; the
+    // button row and the radio group relabel what they have and add or drop the tail, so a
+    // listener that captured its own index keeps working. The selection survives where the
+    // index still exists.
+    public static void setPickerOptions(View v, long id, String joinedItems) {
+        String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\n");
+        if (v instanceof Spinner) {
+            Spinner sp = (Spinner) v;
+            int keep = Math.max(sp.getSelectedItemPosition(), 0);
+            ArrayAdapter<String> ad = new ArrayAdapter<>(
+                    DayBridge.ctx, android.R.layout.simple_spinner_item, items);
+            ad.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            sp.setAdapter(ad);
+            if (items.length > 0) sp.setSelection(Math.min(keep, items.length - 1));
+        } else if (v instanceof RadioGroup) {
+            RadioGroup g = (RadioGroup) v;
+            int keep = Math.max(g.getCheckedRadioButtonId() - 1, 0);
+            for (int i = 0; i < items.length; i++) {
+                if (i < g.getChildCount()) {
+                    ((RadioButton) g.getChildAt(i)).setText(items[i]);
+                } else {
+                    RadioButton rb = new RadioButton(DayBridge.ctx);
+                    rb.setText(items[i]);
+                    rb.setId(i + 1);
+                    g.addView(rb);
+                }
+            }
+            while (g.getChildCount() > items.length) g.removeViewAt(g.getChildCount() - 1);
+            if (items.length > 0) g.check(Math.min(keep, items.length - 1) + 1);
+        } else if (v instanceof LinearLayout) {
+            final LinearLayout row = (LinearLayout) v;
+            int keep = 0;
+            for (int i = 0; i < row.getChildCount(); i++) {
+                if (row.getChildAt(i).isSelected()) keep = i;
+            }
+            for (int i = 0; i < items.length; i++) {
+                if (i < row.getChildCount()) {
+                    ((Button) row.getChildAt(i)).setText(items[i]);
+                } else {
+                    final int idx = i;
+                    final long nid = id;
+                    Button b = new Button(DayBridge.ctx);
+                    b.setText(items[i]);
+                    b.setAllCaps(false);
+                    b.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View x) {
+                            selectSegment(row, idx);
+                            DayBridge.nativeOnEvent(nid, 4, idx, null);
+                        }
+                    });
+                    row.addView(b);
+                }
+            }
+            while (row.getChildCount() > items.length) row.removeViewAt(row.getChildCount() - 1);
+            if (items.length > 0) selectSegment(row, Math.min(keep, items.length - 1));
+        }
+    }
+
     public static void setPickerSelected(View v, int idx) {
         if (v instanceof Spinner) {
             ((Spinner) v).setSelection(idx);

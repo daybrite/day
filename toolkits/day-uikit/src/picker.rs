@@ -72,6 +72,11 @@ struct ViewState {
     /// over these same actions (their handlers stay wired).
     menu_actions: Vec<Retained<UIAction>>,
     options: Vec<String>,
+    /// The picker's node and its live selection — what an option patch needs to rebuild the
+    /// menu style's actions (each handler captures its own index, so relabeling is not an
+    /// option there) and to keep the selection across the swap.
+    node: NodeId,
+    selected: usize,
     _target: Retained<PickerTarget>,
 }
 
@@ -151,8 +156,24 @@ fn make_menu(
     node: NodeId,
 ) -> (Retained<UIButton>, Vec<Retained<UIAction>>) {
     let btn = UIButton::buttonWithType(objc2_ui_kit::UIButtonType::System, mtm);
+    let actions = menu_actions(mtm, &p.options, p.selected, node);
+    attach_menu(mtm, &btn, &actions);
+    btn.setShowsMenuAsPrimaryAction(true);
+    let title = p.options.get(p.selected).cloned().unwrap_or_default();
+    btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
+    (btn, actions)
+}
+
+/// One `UIAction` per option, the `i`-th marked when it is the selection. Each handler
+/// captures its index, so a changed option LIST needs fresh actions rather than new titles.
+fn menu_actions(
+    mtm: MainThreadMarker,
+    options: &[String],
+    selected: usize,
+    node: NodeId,
+) -> Vec<Retained<UIAction>> {
     let mut actions: Vec<Retained<UIAction>> = Vec::new();
-    for (i, opt) in p.options.iter().enumerate() {
+    for (i, opt) in options.iter().enumerate() {
         let handler = RcBlock::new(move |_action: core::ptr::NonNull<UIAction>| {
             crate::emit(node, Event::SelectionChanged(i as i64));
         });
@@ -165,16 +186,12 @@ fn make_menu(
                 mtm,
             )
         };
-        if i == p.selected {
+        if i == selected {
             action.setState(objc2_ui_kit::UIMenuElementState::On);
         }
         actions.push(action);
     }
-    attach_menu(mtm, &btn, &actions);
-    btn.setShowsMenuAsPrimaryAction(true);
-    let title = p.options.get(p.selected).cloned().unwrap_or_default();
-    btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
-    (btn, actions)
+    actions
 }
 
 /// (Re)attach a UIMenu built over `actions` — creation and every selection change go through
@@ -188,6 +205,55 @@ fn attach_menu(mtm: MainThreadMarker, btn: &UIButton, actions: &[Retained<UIActi
     let arr = NSArray::from_retained_slice(&elems);
     let menu = UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm);
     btn.setMenu(Some(&menu));
+}
+
+/// New option labels, in place — the selected index survives where it still exists.
+///
+/// Segmented relabels its segments and adds or drops the tail; the inline rows relabel (each
+/// carries its index as its tag, so its wiring survives) and hide past the new end; the menu
+/// style rebuilds its actions, whose handlers capture the index.
+fn set_options(h: &Retained<UIView>, opts: &[String]) {
+    let mtm = crate::mtm();
+    if let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() {
+        let keep = seg.selectedSegmentIndex().max(0) as usize;
+        for (i, o) in opts.iter().enumerate() {
+            if i < seg.numberOfSegments() {
+                seg.setTitle_forSegmentAtIndex(Some(&NSString::from_str(o)), i);
+            } else {
+                seg.insertSegmentWithTitle_atIndex_animated(Some(&NSString::from_str(o)), i, false);
+            }
+        }
+        while seg.numberOfSegments() > opts.len() {
+            seg.removeSegmentAtIndex_animated(seg.numberOfSegments() - 1, false);
+        }
+        if !opts.is_empty() {
+            seg.setSelectedSegmentIndex(keep.min(opts.len() - 1) as isize);
+        }
+        return;
+    }
+    STATE.with(|t| {
+        t.with((h.as_ref() as *const UIView) as usize, |st| {
+            st.options = opts.to_vec();
+            st.selected = st.selected.min(opts.len().saturating_sub(1));
+            if let Some(btn) = &st.menu_button {
+                st.menu_actions = menu_actions(mtm, opts, st.selected, st.node);
+                attach_menu(mtm, btn, &st.menu_actions);
+                let title = opts.get(st.selected).cloned().unwrap_or_default();
+                btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
+            }
+            for (i, b) in st.buttons.iter().enumerate() {
+                match opts.get(i) {
+                    Some(o) => {
+                        b.setTitle_forState(Some(&NSString::from_str(o)), UIControlState::Normal);
+                        b.setHidden(false);
+                    }
+                    // Rows past the new end hide rather than unwire: the stack owns them, and
+                    // a re-grown list needs their target/action back.
+                    None => b.setHidden(true),
+                }
+            }
+        })
+    });
 }
 
 fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
@@ -217,6 +283,8 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
                 menu_button,
                 menu_actions,
                 options: p.options.clone(),
+                node: id,
+                selected: p.selected,
                 _target: target,
             },
         )
@@ -225,8 +293,10 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
 }
 
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
-    let PickerPatch::Selected(i) = patch;
-    let i = *i;
+    let i = match patch {
+        PickerPatch::Selected(i) => *i,
+        PickerPatch::Options(opts) => return set_options(h, opts),
+    };
     if let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() {
         if seg.selectedSegmentIndex() != i as isize {
             seg.setSelectedSegmentIndex(i as isize);
@@ -235,6 +305,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
     }
     STATE.with(|t| {
         t.with((h.as_ref() as *const UIView) as usize, |st| {
+            st.selected = i;
             if let Some(btn) = &st.menu_button {
                 let title = st.options.get(i).cloned().unwrap_or_default();
                 btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);

@@ -3686,6 +3686,17 @@ static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> 
         } else { // "A" action, "R" role
             WUXC::MenuFlyoutItem item;
             item.Text(hs(label.c_str()));
+            // An 8th field, when present, is the item's Segoe Fluent code point in hex
+            // (docs/menus.md) — the same table the toolbar's icons come from.
+            if (f.size() > 7 && !f[7].empty()) {
+                wchar_t code = static_cast<wchar_t>(std::wcstol(
+                    std::wstring(f[7].begin(), f[7].end()).c_str(), nullptr, 16));
+                if (code) {
+                    WUXC::FontIcon fi;
+                    fi.Glyph(winrt::hstring(std::wstring(1, code)));
+                    item.Icon(fi);
+                }
+            }
             bool enabled = !(f.size() > 5 && f[5] == "0");
             item.IsEnabled(enabled);
             int key = f.size() > 3 ? std::atoi(f[3].c_str()) : 0;
@@ -4530,6 +4541,77 @@ static std::vector<std::string> split_items(const char* joined) {
     return out;
 }
 
+// A picker's identity for later option changes (PickerPatch::Options): which style it is and
+// what its buttons need to report. Kept per handle, like `g_selectable` below, because the
+// segmented/inline children carry per-index handlers that a new option list must re-wire.
+struct XamlPickerState {
+    int style;
+    uint64_t id;
+    void (*cb)(uint64_t, int);
+};
+static std::map<void*, XamlPickerState> g_pickers;
+
+// The segmented row's children, built fresh. Mutual exclusion is manual (ToggleButton has no
+// GroupName): `guard` keeps the programmatic un-checking of siblings from re-entering as a user
+// selection, and re-checking a button the user tried to toggle OFF keeps the group
+// always-one-selected, which is what a segmented control means.
+static void fill_segmented(WUXC::StackPanel const& row, std::vector<std::string> const& items,
+                           int selected, uint64_t id, void (*cb)(uint64_t, int)) {
+    row.Children().Clear();
+    auto buttons = std::make_shared<std::vector<WUXCP::ToggleButton>>();
+    auto guard = std::make_shared<bool>(false);
+    for (size_t i = 0; i < items.size(); i++) {
+        WUXCP::ToggleButton tb;
+        tb.Content(winrt::box_value(hs(items[i].c_str())));
+        tb.Margin(WUX::ThicknessHelper::FromLengths(0, 0, 0, 0)); // flush = reads as one control
+        tb.IsChecked(static_cast<int>(i) == selected);
+        buttons->push_back(tb);
+        row.Children().Append(tb);
+    }
+    for (size_t i = 0; i < buttons->size(); i++) {
+        int idx = static_cast<int>(i);
+        auto tb = (*buttons)[i];
+        tb.Checked([id, cb, idx, buttons, guard](WF::IInspectable const&,
+                                                 WUX::RoutedEventArgs const&) {
+            if (*guard) return;
+            *guard = true;
+            for (size_t j = 0; j < buttons->size(); j++) {
+                if (static_cast<int>(j) != idx) (*buttons)[j].IsChecked(false);
+            }
+            *guard = false;
+            cb(id, idx);
+        });
+        tb.Unchecked([buttons, idx, guard](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+            if (*guard) return;
+            // The user pressed the ALREADY selected segment: keep it on rather than leaving
+            // the group with nothing chosen.
+            *guard = true;
+            (*buttons)[idx].IsChecked(true);
+            *guard = false;
+        });
+    }
+}
+
+// The inline group's children: RadioButtons sharing a per-instance GroupName so they are
+// mutually exclusive. `Checked` fires on user selection AND programmatic IsChecked, but the
+// front-end's bind only re-patches on a real change, so no runaway loop.
+static void fill_inline(WUXC::StackPanel const& panel, std::vector<std::string> const& items,
+                        int selected, uint64_t id, void (*cb)(uint64_t, int)) {
+    panel.Children().Clear();
+    winrt::hstring group{ std::to_wstring(id) }; // per-instance group = mutually exclusive
+    for (size_t i = 0; i < items.size(); i++) {
+        WUXC::RadioButton rb;
+        rb.Content(winrt::box_value(hs(items[i].c_str())));
+        rb.GroupName(group);
+        if (static_cast<int>(i) == selected) rb.IsChecked(true);
+        int idx = static_cast<int>(i);
+        rb.Checked([id, cb, idx](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+            cb(id, idx);
+        });
+        panel.Children().Append(rb);
+    }
+}
+
 extern "C" {
 
 void* day_picker_xaml_new(int style, const char* items_joined, int selected, uint64_t id,
@@ -4547,7 +4629,9 @@ void* day_picker_xaml_new(int style, const char* items_joined, int selected, uin
             [id, cb](WF::IInspectable const& s, WUXC::SelectionChangedEventArgs const&) {
                 cb(id, s.as<WUXC::ComboBox>().SelectedIndex());
             });
-        return day_xaml_box(winrt::get_abi(box));
+        void* h = day_xaml_box(winrt::get_abi(box));
+        g_pickers[h] = XamlPickerState{ style, id, cb };
+        return h;
     }
     if (style == 1) {
         // SEGMENTED: a row of flush ToggleButtons, which is what Windows uses for a small
@@ -4561,59 +4645,55 @@ void* day_picker_xaml_new(int style, const char* items_joined, int selected, uin
         // which is what a segmented control means (and what the picker model promises).
         WUXC::StackPanel row;
         row.Orientation(WUXC::Orientation::Horizontal);
-        auto buttons = std::make_shared<std::vector<WUXCP::ToggleButton>>();
-        auto guard = std::make_shared<bool>(false);
-        for (size_t i = 0; i < items.size(); i++) {
-            WUXCP::ToggleButton tb;
-            tb.Content(winrt::box_value(hs(items[i].c_str())));
-            tb.Margin(WUX::ThicknessHelper::FromLengths(0, 0, 0, 0)); // flush = reads as one control
-            tb.IsChecked(static_cast<int>(i) == selected);
-            buttons->push_back(tb);
-            row.Children().Append(tb);
-        }
-        for (size_t i = 0; i < buttons->size(); i++) {
-            int idx = static_cast<int>(i);
-            auto tb = (*buttons)[i];
-            tb.Checked([id, cb, idx, buttons, guard](WF::IInspectable const&,
-                                                     WUX::RoutedEventArgs const&) {
-                if (*guard) return;
-                *guard = true;
-                for (size_t j = 0; j < buttons->size(); j++) {
-                    if (static_cast<int>(j) != idx) (*buttons)[j].IsChecked(false);
-                }
-                *guard = false;
-                cb(id, idx);
-            });
-            tb.Unchecked([buttons, idx, guard](WF::IInspectable const&,
-                                               WUX::RoutedEventArgs const&) {
-                if (*guard) return;
-                // The user pressed the ALREADY selected segment: keep it on rather than leaving
-                // the group with nothing chosen.
-                *guard = true;
-                (*buttons)[idx].IsChecked(true);
-                *guard = false;
-            });
-        }
-        return day_xaml_box(winrt::get_abi(row));
+        fill_segmented(row, items, selected, id, cb);
+        void* h = day_xaml_box(winrt::get_abi(row));
+        g_pickers[h] = XamlPickerState{ style, id, cb };
+        return h;
     }
-    // Inline (vertical): RadioButtons sharing a per-instance GroupName so they are mutually
-    // exclusive. `Checked` fires on user selection AND programmatic IsChecked, but the front-end's
-    // bind only re-patches on a real change, so no runaway loop.
     WUXC::StackPanel panel;
     panel.Orientation(WUXC::Orientation::Vertical);
-    winrt::hstring group{ std::to_wstring(id) }; // per-instance group = mutually exclusive
-    for (size_t i = 0; i < items.size(); i++) {
-        WUXC::RadioButton rb;
-        rb.Content(winrt::box_value(hs(items[i].c_str())));
-        rb.GroupName(group);
-        if (static_cast<int>(i) == selected) rb.IsChecked(true);
-        int idx = static_cast<int>(i);
-        rb.Checked([id, cb, idx](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
-            cb(id, idx);
-        });
-        panel.Children().Append(rb);
+    fill_inline(panel, items, selected, id, cb);
+    void* h = day_xaml_box(winrt::get_abi(panel));
+    g_pickers[h] = XamlPickerState{ style, id, cb };
+    return h;
+}
+
+// New option labels (PickerPatch::Options). The combo refills its items; the button styles are
+// rebuilt from scratch, because each child carries a handler that captured its own index — the
+// same construction path, so the two can never drift. The selection survives where it still
+// exists.
+void day_picker_xaml_set_options(void* handle, const char* items_joined) {
+    auto items = split_items(items_joined);
+    auto st = g_pickers.find(handle);
+    if (st == g_pickers.end()) return;
+    WUX::UIElement e{ nullptr };
+    winrt::copy_from_abi(e, day_xaml_unbox(handle));
+    int last = static_cast<int>(items.size()) - 1;
+    if (auto box = e.try_as<WUXC::ComboBox>()) {
+        int keep = box.SelectedIndex();
+        box.Items().Clear();
+        for (auto& it : items) {
+            WUXC::ComboBoxItem cbi;
+            cbi.Content(winrt::box_value(hs(it.c_str())));
+            box.Items().Append(cbi);
+        }
+        if (last >= 0) box.SelectedIndex(keep < 0 ? 0 : (keep > last ? last : keep));
+        return;
     }
-    return day_xaml_box(winrt::get_abi(panel));
+    auto panel = e.try_as<WUXC::StackPanel>();
+    if (!panel) return;
+    int keep = 0;
+    auto kids = panel.Children();
+    for (uint32_t i = 0; i < kids.Size(); i++) {
+        if (auto tb = kids.GetAt(i).try_as<WUXCP::ToggleButton>()) {
+            if (tb.IsChecked().GetBoolean()) keep = static_cast<int>(i);
+        } else if (auto rb = kids.GetAt(i).try_as<WUXC::RadioButton>()) {
+            if (rb.IsChecked().GetBoolean()) keep = static_cast<int>(i);
+        }
+    }
+    if (keep > last) keep = last < 0 ? 0 : last;
+    if (st->second.style == 1) fill_segmented(panel, items, keep, st->second.id, st->second.cb);
+    else fill_inline(panel, items, keep, st->second.id, st->second.cb);
 }
 
 void day_picker_xaml_set_selected(void* handle, int idx) {

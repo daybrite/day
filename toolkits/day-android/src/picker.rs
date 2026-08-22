@@ -19,6 +19,13 @@ use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
 const PICKER_CLASS: &str = "dev/daybrite/day/piece/picker/DayPicker";
 
+thread_local! {
+    /// Picker view → its node. An options patch adds Java views that must report clicks for
+    /// this picker, and only Rust knows which node that is. A [`SideTable`], so the backend's
+    /// release sweep drops a dead picker's entry.
+    static NODES: day_spec::sidetable::SideTable<u64> = day_spec::sidetable::SideTable::new();
+}
+
 fn style_code(s: PickerStyle) -> i32 {
     match s {
         PickerStyle::Menu => 0,
@@ -48,25 +55,50 @@ fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
             )
             .ok()
         });
-        AHandle(made.unwrap_or_else(|| {
+        let h = AHandle(made.unwrap_or_else(|| {
             log::warn!("day-android: DayPicker.makePicker failed; substituting a placeholder");
             crate::placeholder_view(env, "picker")
-        }))
+        }));
+        NODES.with(|m| m.insert(h.0.as_obj().as_raw() as usize, id.0));
+        h
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
-    {
-        let PickerPatch::Selected(i) = patch;
-        with_env(|env| {
+    match patch {
+        PickerPatch::Selected(i) => with_env(|env| {
             let _ = env.dcall_static(
                 PICKER_CLASS,
                 "setPickerSelected",
                 "(Landroid/view/View;I)V",
                 &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
             );
-        });
+        }),
+        PickerPatch::Options(opts) => with_env(|env| {
+            let joined = opts.join("\n");
+            let Ok(s) = env.new_string(&joined) else {
+                return;
+            };
+            let _ = env.dcall_static(
+                PICKER_CLASS,
+                "setPickerOptions",
+                "(Landroid/view/View;JLjava/lang/String;)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Long(node_of(h) as i64),
+                    JValue::Object(&s),
+                ],
+            );
+        }),
     }
+}
+
+/// The node a picker view reports for — a button the option patch ADDS needs it to report
+/// its own clicks, and only the Rust side knows it.
+fn node_of(h: &AHandle) -> u64 {
+    NODES
+        .with(|m| m.get(h.0.as_obj().as_raw() as usize))
+        .unwrap_or_default()
 }
 
 // Built-in dispatch adapters: the backend's realize/update matches call these (the downcasts

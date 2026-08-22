@@ -708,6 +708,28 @@ fn accel_string(s: &day_spec::Shortcut) -> String {
     format!("{acc}{key}")
 }
 
+/// A menu item's glyph, as the GMenuModel "icon" attribute GtkPopoverMenu renders
+/// (docs/menus.md). A symbol becomes the theme's own named icon; a bundled image becomes a
+/// file icon on the staged asset. A name the theme lacks is simply left off — a menu item
+/// reads by its label, and a broken-image placeholder would read worse than no icon.
+fn set_menu_icon(mi: &gtk4::gio::MenuItem, icon: Option<&day_spec::Icon>) {
+    use gtk4::gio::prelude::*;
+    let gicon: Option<gtk4::gio::Icon> = match icon {
+        Some(day_spec::Icon::Symbol(s)) => crate::toolbar::icon_name_for(*s)
+            .map(|n| gtk4::gio::ThemedIcon::new(n).upcast::<gtk4::gio::Icon>()),
+        Some(day_spec::Icon::Image(name)) => day_spec::resource::resolve_vector_svg(name)
+            .or_else(|| day_spec::resource::resolve_image_file(name))
+            .map(|path| {
+                gtk4::gio::FileIcon::new(&gtk4::gio::File::for_path(path))
+                    .upcast::<gtk4::gio::Icon>()
+            }),
+        None => None,
+    };
+    if let Some(v) = gicon.and_then(|g| g.serialize()) {
+        mi.set_attribute_value("icon", Some(&v));
+    }
+}
+
 pub(crate) fn build_gio_menu(
     items: &[day_spec::MenuItem],
     group: &gtk4::gio::SimpleActionGroup,
@@ -734,6 +756,7 @@ pub(crate) fn build_gio_menu(
                 shortcut,
                 enabled,
                 role,
+                icon,
             } => {
                 if *id != 0 {
                     let name = format!("a{id}");
@@ -756,6 +779,7 @@ pub(crate) fn build_gio_menu(
                     if let Some(sc) = shortcut {
                         mi.set_attribute_value("accel", Some(&accel_string(sc).to_variant()));
                     }
+                    set_menu_icon(&mi, icon.as_ref());
                     section.append_item(&mi);
                 } else if let Some(r) = role {
                     let lbl = if label.is_empty() {

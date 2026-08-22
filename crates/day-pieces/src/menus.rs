@@ -20,6 +20,7 @@ pub struct MenuEntry {
     shortcut: Option<day_spec::Shortcut>,
     enabled: bool,
     role: Option<day_spec::MenuRole>,
+    icon: Option<day_spec::Icon>,
     action: Option<Rc<dyn Fn()>>,
     children: Option<Vec<MenuEntry>>,
     separator: bool,
@@ -33,11 +34,28 @@ impl MenuEntry {
             shortcut: None,
             enabled: true,
             role: None,
+            icon: None,
             bar_role: None,
             action: None,
             children: None,
             separator: false,
         }
+    }
+
+    /// A standard [`Symbol`](day_spec::Symbol) beside the item's title, drawn with the
+    /// platform's own glyph — the same vocabulary toolbars take. Menus carry icons on macOS,
+    /// Windows, GNOME, KDE and Android; a backend whose menus are text-only ignores it, so an
+    /// icon is always an addition to a menu that already reads correctly without one.
+    pub fn icon(mut self, s: day_spec::Symbol) -> MenuEntry {
+        self.icon = Some(day_spec::Icon::Symbol(s));
+        self
+    }
+
+    /// A bundled image from `resource/images`, for an item the standard set has no glyph for —
+    /// an app's own vocabulary (a shape, a brand). Same rule as [`MenuEntry::icon`].
+    pub fn image(mut self, name: impl Into<String>) -> MenuEntry {
+        self.icon = Some(day_spec::Icon::Image(name.into()));
+        self
     }
     /// Run `f` when the item is chosen.
     pub fn action(mut self, f: impl Fn() + 'static) -> MenuEntry {
@@ -217,6 +235,7 @@ fn lower_menu_with(
                     shortcut,
                     enabled,
                     role: e.role,
+                    icon: e.icon,
                 }
             }
         })

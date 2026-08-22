@@ -1097,6 +1097,7 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                 shortcut,
                 enabled,
                 role,
+                icon,
             } => {
                 let en = *enabled as i32;
                 // Label/shortcut fall back to the role's platform defaults; the DISPATCH
@@ -1115,22 +1116,33 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                 // Preferences item and `MenuRole::NewWindow` arrive exactly this way — routing
                 // them through the role-only path dropped the id, leaving visible-but-DEAD
                 // menu items (the same bug macos-qt had).
+                // An 8th field carries the item's glyph (docs/menus.md). Appended AFTER the
+                // label, so a shim reading only the first seven fields is unaffected — the
+                // parser indexes, and the label's own tabs are already cleaned away. Only
+                // SYMBOLS cross: a MenuFlyoutItem takes a Segoe Fluent glyph, where a bundled
+                // image would need the toolbar's three-field icon channel.
+                let glyph = match icon {
+                    Some(day_spec::Icon::Symbol(s)) => toolbar::glyph_for(*s),
+                    _ => "",
+                };
                 match role {
                     Some(r) if *id == 0 => out.push_str(&format!(
-                        "R\t0\t{}\t{}\t{}\t{}\t{}\n",
+                        "R\t0\t{}\t{}\t{}\t{}\t{}\t{}\n",
                         *r as i32,
                         key,
                         mods,
                         en,
-                        clean(&text)
+                        clean(&text),
+                        glyph
                     )),
                     _ => out.push_str(&format!(
-                        "A\t{}\t-1\t{}\t{}\t{}\t{}\n",
+                        "A\t{}\t-1\t{}\t{}\t{}\t{}\t{}\n",
                         id,
                         key,
                         mods,
                         en,
-                        clean(&text)
+                        clean(&text),
+                        glyph
                     )),
                 }
             }

@@ -559,6 +559,10 @@ thread_local! {
     /// The showcase's `select:`-driven pickers: segmented/radio groups keep their option
     /// count so a programmatic Selected patch can re-style the active option.
     static SEG_COUNT: RefCell<HashMap<u32, usize>> = RefCell::new(HashMap::new());
+    /// Each picker's last programmatic selection, so a change of OPTIONS can keep it: the
+    /// shim's option builder rewrites the element, and the DOM's own selectedIndex goes with
+    /// it.
+    static PICKER_SELECTED: RefCell<HashMap<u32, usize>> = RefCell::new(HashMap::new());
     /// Per-picker intrinsic size, computed from its option strings at realize (the element's
     /// own textContent concatenates every option, so measuring it lies about width — and a
     /// vertical radio group needs a per-row height the one-line measure can't produce).
@@ -1609,13 +1613,33 @@ impl Toolkit for Dom {
                 }
             }
             kinds::PICKER => {
-                if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
-                    // Programmatic DOM value sets fire no events — echo-free by construction.
-                    let seg = SEG_COUNT.with(|m| m.borrow().get(&el).copied());
-                    match seg {
-                        Some(_) => unsafe { day_dom_options_select(el, *i as u32) },
-                        None => unsafe { day_dom_set_value(el, *i as f64) },
+                // Programmatic DOM value sets fire no events — echo-free by construction.
+                match patch.downcast_ref::<PickerPatch>() {
+                    Some(PickerPatch::Selected(i)) => {
+                        PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, *i));
+                        let seg = SEG_COUNT.with(|m| m.borrow().get(&el).copied());
+                        match seg {
+                            Some(_) => unsafe { day_dom_options_select(el, *i as u32) },
+                            None => unsafe { day_dom_set_value(el, *i as f64) },
+                        }
                     }
+                    // New labels: the shim's own builder rewrites the choices, so the same
+                    // call that filled them at build refills them here. The selected index
+                    // rides along, clamped to the new list.
+                    Some(PickerPatch::Options(opts)) => {
+                        let keep = PICKER_SELECTED.with(|m| m.borrow().get(&el).copied());
+                        let selected = keep.unwrap_or(0).min(opts.len().saturating_sub(1));
+                        let json = picker_json(&PickerProps {
+                            options: opts.clone(),
+                            selected,
+                            style: Default::default(),
+                        });
+                        unsafe { day_dom_options(el, json.as_ptr(), json.len()) };
+                        if SEG_COUNT.with(|m| m.borrow().contains_key(&el)) {
+                            SEG_COUNT.with(|m| m.borrow_mut().insert(el, opts.len()));
+                        }
+                    }
+                    None => {}
                 }
             }
             kinds::PROGRESS => {
@@ -2291,6 +2315,7 @@ fn realize_picker(p: &PickerProps) -> u32 {
     match p.style {
         PickerStyle::Menu => {
             let el = unsafe { day_dom_create(EL_SELECT) };
+            PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, p.selected));
             unsafe { day_dom_options(el, json.as_ptr(), json.len()) }; // shim fills <option>s
             unsafe { day_dom_listen(el, 4) };
             PICKER_SIZE.with(|m| m.borrow_mut().insert(el, Size::new(longest + 38.0, 26.0)));
@@ -2299,6 +2324,7 @@ fn realize_picker(p: &PickerProps) -> u32 {
         PickerStyle::Segmented | PickerStyle::Inline => {
             let segmented = p.style == PickerStyle::Segmented;
             let el = unsafe { day_dom_create(if segmented { EL_SEGMENTED } else { EL_RADIOS }) };
+            PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, p.selected));
             unsafe { day_dom_options(el, json.as_ptr(), json.len()) };
             SEG_COUNT.with(|m| m.borrow_mut().insert(el, p.options.len()));
             let size = if segmented {

@@ -912,17 +912,41 @@ mod imp {
     }
 
     /// Build a single UIAction; `handler` runs on the main thread when chosen.
+    /// The item's glyph: an SF Symbol for a standard symbol (the shared Apple table), or a
+    /// bundled image for an app's own vocabulary — the staged vector first, exactly as every
+    /// other image channel resolves (docs/vectors.md).
+    fn menu_image(icon: Option<&day_spec::Icon>) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        match icon? {
+            day_spec::Icon::Symbol(s) => {
+                let name = day_spec::sf_symbol_name(*s);
+                (!name.is_empty())
+                    .then(|| objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str(name)))
+                    .flatten()
+            }
+            day_spec::Icon::Image(name) => {
+                let path = day_spec::resource::resolve_vector_svg(name)
+                    .map(std::path::PathBuf::from)
+                    .or_else(|| day_spec::resource::resolve_image_file(name))?;
+                objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                    &path.to_string_lossy(),
+                ))
+            }
+        }
+    }
+
     fn ui_action(
         mtm: MainThreadMarker,
         title: &str,
         enabled: bool,
+        icon: Option<&day_spec::Icon>,
         handler: impl Fn() + 'static,
     ) -> Retained<UIMenuElement> {
         let block = block2::RcBlock::new(move |_a: NonNull<UIAction>| handler());
+        let image = menu_image(icon);
         let action = unsafe {
             UIAction::actionWithTitle_image_identifier_handler(
                 &NSString::from_str(title),
-                None,
+                image.as_deref(),
                 None,
                 block2::RcBlock::as_ptr(&block),
                 mtm,
@@ -952,6 +976,7 @@ mod imp {
                     shortcut: _,
                     enabled,
                     role,
+                    icon,
                 } => {
                     if let Some(role) = role {
                         let title = if label.is_empty() {
@@ -961,7 +986,7 @@ mod imp {
                         };
                         let sel = ui_role_selector(*role);
                         let id = *id;
-                        out.push(ui_action(mtm, &title, *enabled, move || {
+                        out.push(ui_action(mtm, &title, *enabled, icon.as_ref(), move || {
                             if let Some(sel) = sel {
                                 let app = UIApplication::sharedApplication(mtm);
                                 unsafe {
@@ -976,7 +1001,7 @@ mod imp {
                         }));
                     } else {
                         let id = *id;
-                        out.push(ui_action(mtm, label, *enabled, move || {
+                        out.push(ui_action(mtm, label, *enabled, icon.as_ref(), move || {
                             emit(WINDOW_NODE, Event::MenuAction(id));
                         }));
                     }

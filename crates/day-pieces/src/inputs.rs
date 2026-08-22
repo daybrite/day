@@ -20,6 +20,7 @@ use crate::*;
 /// A native picker bound two-way to `selected`. Style via `.menu()`/`.segmented()`/`.inline()`.
 pub struct Picker<Sel: Binding<usize>> {
     options: Vec<String>,
+    reactive_options: Option<Rc<dyn Fn() -> Vec<String>>>,
     selected: Sel,
     style: day_spec::props::PickerStyle,
 }
@@ -32,6 +33,7 @@ pub fn picker<S: Into<String>, Sel: Binding<usize>>(
 ) -> Picker<Sel> {
     Picker {
         options: options.into_iter().map(Into::into).collect(),
+        reactive_options: None,
         selected,
         style: day_spec::props::PickerStyle::Menu,
     }
@@ -54,12 +56,26 @@ impl<Sel: Binding<usize>> Picker<Sel> {
         self.style = style;
         self
     }
+    /// Recompute the option labels reactively — for choices that come from data (the open
+    /// documents, a live count) rather than from a fixed list. The labels passed to
+    /// [`picker`] seed the control; every later change patches the native items in place,
+    /// keeping the selected index where it still exists.
+    ///
+    /// The COUNT may change too, so a shrinking list can strand the app's `selected`
+    /// binding past the end; the backend clamps its own selection, and the app is expected
+    /// to write a valid index. Reach for this only when the options really do change —
+    /// rebuilding a native menu costs more than moving a mark.
+    pub fn options_reactive(mut self, f: impl Fn() -> Vec<String> + 'static) -> Self {
+        self.reactive_options = Some(Rc::new(f));
+        self
+    }
 }
 
 impl<Sel: Binding<usize>> Piece for Picker<Sel> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Picker {
             options,
+            reactive_options,
             selected,
             style,
         } = self;
@@ -69,6 +85,23 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
             style,
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
+        // Data-driven labels: patch the native items whenever they change. Always a
+        // remeasure — the option strings ARE the control's intrinsic width, in every style.
+        if let Some(f) = reactive_options {
+            bind_seeded(
+                initial.options.clone(),
+                move || f(),
+                move |opts: &Vec<String>| {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::PickerPatch::Options(opts.clone())),
+                            true,
+                        )
+                    });
+                },
+            );
+        }
         // A menu-style picker's intrinsic size follows the SELECTED VALUE (the collapsed
         // control renders it), so its selection patch must remeasure — without that the
         // control keeps the width of the build-time value and ellipsizes anything longer.

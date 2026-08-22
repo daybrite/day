@@ -1467,6 +1467,9 @@ mod imp {
                     shortcut: _,
                     enabled,
                     role,
+                    // Material's overflow menu is text-only by convention (an app-bar ACTION
+                    // carries the icon), so an item's `icon` is deliberately unused here.
+                    icon: _,
                 } => {
                     let text = match role {
                         Some(r) if label.is_empty() => android_role_label(*r).to_string(),

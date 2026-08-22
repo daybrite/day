@@ -91,6 +91,10 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Check => ("dialog-ok", sp::DIALOG_APPLY),
         Symbol::Close => ("window-close", sp::DIALOG_CANCEL),
         Symbol::Warning => ("dialog-warning", sp::MSG_WARNING),
+        // The standard drawing-tool names (Inkscape, LibreOffice, KDE's own apps); a theme
+        // without them falls through to Day's staged outline.
+        Symbol::Rectangle => ("draw-rectangle", sp::NONE),
+        Symbol::Oval => ("draw-ellipse", sp::NONE),
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol shows the label.
         _ => ("", sp::DIALOG_HELP),
     }
@@ -98,7 +102,7 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
 
 /// An item's icon as the (theme name, QStyle fallback) pair the shim takes. A bundled image
 /// has no theme name; Qt loads it by path through the theme lookup's file branch.
-fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
+pub(crate) fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     match icon {
         Some(Icon::Symbol(s)) => {
             // `theme-name|outline.svg` — see `day_qt_toolbar_icon`. The staged outline is Day's

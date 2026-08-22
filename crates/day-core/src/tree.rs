@@ -65,6 +65,9 @@ pub struct NodeProbe {
     pub value: f64,
     pub flag: bool,
     pub selected: i64,
+    /// A picker's option labels, so `text` can follow the selection through either patch —
+    /// the label is what the control SHOWS, and the index alone cannot reconstruct it.
+    pub options: Vec<String>,
     pub enabled: bool,
     /// Native keyboard focus, mirrored from `Event::FocusChanged` (docs/focus.md).
     pub focused: bool,
@@ -822,6 +825,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             } else if let Some(p) = props.downcast_ref::<PickerProps>() {
                 probe.selected = p.selected as i64;
                 probe.value = p.selected as f64;
+                // A picker's TEXT is the option it is showing — what `assert_text` should see
+                // (the index is `assert_value`'s answer). Kept current by both patches below.
+                probe.text = p.options.get(p.selected).cloned().unwrap_or_default();
+                probe.options = p.options.clone();
             } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
                 probe.text = p.text.clone();
             }
@@ -1138,9 +1145,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                         SliderPatch::Value(v) => n.probe.value = *v,
                         SliderPatch::Enabled(e) => n.probe.enabled = *e,
                     }
-                } else if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
-                    n.probe.selected = *i as i64;
-                    n.probe.value = *i as f64;
+                } else if let Some(p) = patch.downcast_ref::<PickerPatch>() {
+                    match p {
+                        PickerPatch::Selected(i) => {
+                            n.probe.selected = *i as i64;
+                            n.probe.value = *i as f64;
+                        }
+                        PickerPatch::Options(opts) => n.probe.options = opts.clone(),
+                    }
+                    let i = n.probe.selected.max(0) as usize;
+                    n.probe.text = n.probe.options.get(i).cloned().unwrap_or_default();
                 } else if let Some(TextAreaPatch::SetText(t)) =
                     patch.downcast_ref::<TextAreaPatch>()
                 {

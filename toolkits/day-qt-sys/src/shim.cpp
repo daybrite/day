@@ -2356,10 +2356,17 @@ void day_qt_menu_add_separator(void *menu) {
 }
 
 void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
-                            const char *shortcut, int enabled) {
+                            const char *shortcut, int enabled, const char *icon,
+                            int icon_fallback) {
     QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
     if (shortcut && *shortcut) a->setShortcut(QKeySequence(QString::fromUtf8(shortcut)));
     a->setEnabled(enabled != 0);
+    // The item's glyph, resolved exactly like a toolbar item's (docs/menus.md): theme name,
+    // Day's own outline, then the QStyle standard set.
+    if ((icon && *icon) || icon_fallback >= 0) {
+        QIcon ic = day_qt_toolbar_icon(icon ? icon : "", icon_fallback);
+        if (!ic.isNull()) a->setIcon(ic);
+    }
     uint64_t aid = id;
     QObject::connect(a, &QAction::triggered, [aid]() {
         if (g_menu_cb) g_menu_cb(aid);

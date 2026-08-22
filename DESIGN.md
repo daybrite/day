@@ -2095,7 +2095,7 @@ screenshot generator with zero per-locale script maintenance.
 
 The shipped step catalog — waiting (`wait_for`, `wait_idle`, `pause`), acting (`tap`, `input`,
 `set_value`, `toggle`, `select`, `focus`), navigation (`navigate`, `deep_link`, `nav_back`, `assert_route`),
-asserting (`assert_visible`, `assert_text`, `assert_value`, `assert_focused`), dialogs
+asserting (`assert_visible`, `assert_missing`, `assert_text`, `assert_value`, `assert_focused`), dialogs
 (`assert_presented`, `respond`), evidence (`screenshot`, `a11y_audit`), and termination
 (`expect_exit` — the one step that tolerates the app dying, for crash-reporting flows,
 [docs/break.md](docs/break.md)) — is specified in
@@ -4543,6 +4543,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `nav_back` | — | pop one level, the native back path |
 | `assert_route` | `route` | current path |
 | `assert_visible` | `id` | realized with a nonzero frame |
+| `assert_missing` | `id` | the id is NOT in the tree — the assertion for a subtree a `when` has not mounted (a property row that does not apply). `assert_visible` cannot express it: a missing id is an error there |
 | `assert_text` | `id`, `text?` \| `key?` + `args?` | FSI/PDI-normalized ([§12.2](#122-api)) |
 | `assert_value` | `id`, `value` | typed per piece kind: toggle = bool, slider = number, field = string |
 | `assert_focused` | `id`, `focused?` | reads the probe's focus mirror; retryable |

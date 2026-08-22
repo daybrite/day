@@ -181,6 +181,14 @@ mod imp {
     }
 
     thread_local! {
+        /// Each picker wheel's live selection, so a change of OPTIONS can keep it — the
+        /// range attribute is set whole, and the selected index goes with it. A
+        /// [`SideTable`], so the backend's release sweep drops a dead picker's entry.
+        static PICKER_SELECTED: day_spec::sidetable::SideTable<usize> =
+            day_spec::sidetable::SideTable::new();
+    }
+
+    thread_local! {
         /// The one live suite. This backend already assumes a single nav host (`NAV_HOST`), and
         /// a suite is a nav host wearing different chrome.
         static NAV_SUITE: RefCell<Option<NavSuite>> = const { RefCell::new(None) };
@@ -1305,6 +1313,7 @@ mod imp {
                     };
                     let n = new_node(K_TEXT_PICKER);
                     let joined = p.options.join(";");
+                    PICKER_SELECTED.with(|m| m.insert(n.0 as usize, p.selected));
                     unsafe {
                         ffi::day_ark_set_picker(n.0, cstr(&joined).as_ptr(), p.selected as u32);
                         ffi::day_ark_register_event(n.0, 8, id.0);
@@ -1767,11 +1776,25 @@ mod imp {
                         unsafe { ffi::day_ark_set_textarea_text(h.0, cstr(text).as_ptr()) };
                     }
                 }
-                kinds::PICKER => {
-                    if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
-                        unsafe { ffi::day_ark_set_picker_selected(h.0, *i as u32) };
+                kinds::PICKER => match patch.downcast_ref::<PickerPatch>() {
+                    Some(PickerPatch::Selected(i)) => {
+                        PICKER_SELECTED.with(|m| m.insert(h.0 as usize, *i));
+                        unsafe { ffi::day_ark_set_picker_selected(h.0, *i as u32) }
                     }
-                }
+                    // The wheel's whole option RANGE, re-set — the same attribute realize
+                    // seeds. The selection rides along, clamped to the new list.
+                    Some(PickerPatch::Options(opts)) => {
+                        let joined = opts.join(";");
+                        let selected = PICKER_SELECTED
+                            .with(|m| m.get(h.0 as usize))
+                            .unwrap_or(0)
+                            .min(opts.len().saturating_sub(1));
+                        unsafe {
+                            ffi::day_ark_set_picker(h.0, cstr(&joined).as_ptr(), selected as u32)
+                        };
+                    }
+                    None => {}
+                },
                 kinds::PROGRESS => {
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()

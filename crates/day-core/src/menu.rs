@@ -252,6 +252,7 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
         shortcut: Some(day_spec::Shortcut::new(",")),
         enabled: true,
         role: Some(day_spec::MenuRole::Preferences),
+        icon: None,
     };
     if let Some(day_spec::MenuItem::Submenu { items: first, .. }) = items
         .iter_mut()
@@ -332,6 +333,7 @@ impl MenuBarStyle {
             shortcut: None,
             enabled: true,
             role: Some(r),
+            icon: None,
         };
         let sub = |key: &str, items: Vec<MI>| {
             Some(MI::Submenu {

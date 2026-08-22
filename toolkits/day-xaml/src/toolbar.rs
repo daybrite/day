@@ -26,6 +26,11 @@ use crate::{WinHandle, Xaml, cstr, emit, icon_file_name, serialize_menu_xaml};
 /// into the `FontIcon` glyph. Windows 10 ships this font's predecessor, Segoe MDL2 Assets, under
 /// the same code points for every glyph here, so one table serves both releases (the shim picks
 /// the family that is installed).
+/// The Segoe Fluent glyph for a symbol — shared with the menu builder (docs/menus.md).
+pub(crate) fn glyph_for(s: Symbol) -> &'static str {
+    glyph(s)
+}
+
 fn glyph(s: Symbol) -> &'static str {
     match s {
         Symbol::Add => "E710",
@@ -76,6 +81,9 @@ fn glyph(s: Symbol) -> &'static str {
         Symbol::Check => "E73E",
         Symbol::Close => "E711",
         Symbol::Warning => "E7BA",
+        // Segoe Fluent's own shape glyphs (the Paint/Whiteboard shape vocabulary).
+        Symbol::Rectangle => "E739",
+        Symbol::Oval => "E91F",
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol gets no glyph rather than an
         // arbitrary wrong one — the item still shows its label.
         _ => "",

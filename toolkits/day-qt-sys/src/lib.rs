@@ -354,6 +354,10 @@ unsafe extern "C" {
         id: u64,
         shortcut: *const c_char,
         enabled: c_int,
+        // `theme-name|outline.svg` (or a bare path) + a QStyle standard-pixmap fallback —
+        // the same icon spec toolbar items take.
+        icon: *const c_char,
+        icon_fallback: c_int,
     );
     pub fn day_qt_menu_add_role(
         menu: *mut c_void,

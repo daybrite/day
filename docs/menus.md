@@ -51,6 +51,31 @@ The pieces, all in the `day_pieces` prelude:
 | `menu_separator()` | A divider between groups. |
 | `menu_role(role)` | A standard system command; see [Standard roles](#standard-roles). |
 
+## Icons
+
+An item can carry the platform's own glyph beside its title:
+
+```rust
+menu_item(tr("rectangle")).icon(Symbol::Rectangle).action(place_rect)
+menu_item(tr("brand")).image("brand-mark").action(insert_brand)
+```
+
+`.icon(Symbol)` takes the same standard vocabulary toolbars take (each backend draws its own
+glyph — an SF Symbol, a freedesktop icon name, a Segoe Fluent code point), and `.image(name)` a
+bundled picture from `resource/images` for something only this app has.
+
+An icon is always an ADDITION to a menu that reads correctly without one, because not every
+platform's menus carry pictures:
+
+| | icons in menus |
+|---|---|
+| **AppKit**, **UIKit** | yes — `NSMenuItem.image` / `UIAction` image, from the shared SF Symbol table |
+| **GTK** | yes — the `GMenuModel` "icon" attribute, drawn by `GtkPopoverMenu` |
+| **Qt** | yes — `QAction::setIcon`, resolved like a toolbar icon (theme name, then Day's own outline, then the QStyle standard set) |
+| **XAML** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
+| **Android** | ignored, deliberately: Material's overflow menu is text-only, and the app-bar ACTION is where an icon belongs |
+| **ArkUI**, **web-dom** | no menus of this kind to put an icon in |
+
 ## Keyboard shortcuts
 
 A [`Shortcut`] is a key plus modifiers. `primary` is the platform's command modifier (⌘ on Apple,

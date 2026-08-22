@@ -31,62 +31,17 @@ use objc2_foundation::{NSArray, NSCopying, NSNotification, NSObject, NSString};
 
 use crate::{AppKit, Handle, emit};
 
-/// The SF Symbol each standard symbol draws as. These are the system's own glyphs, so they
-/// match the user's Mac — weight, optical size, accent color and all.
+/// The SF Symbol each standard symbol draws as — the shared Apple table (day-spec), so the
+/// menu items in day-uikit and the toolbar items here never drift apart.
 fn sf_symbol(s: Symbol) -> &'static str {
-    match s {
-        Symbol::Add => "plus",
-        Symbol::Remove => "minus",
-        Symbol::Delete => "trash",
-        Symbol::Edit => "pencil",
-        Symbol::New => "square.and.pencil",
-        Symbol::Open => "folder",
-        Symbol::Save => "square.and.arrow.down",
-        Symbol::Print => "printer",
-        Symbol::Refresh => "arrow.clockwise",
-        Symbol::Search => "magnifyingglass",
-        Symbol::Share => "square.and.arrow.up",
-        Symbol::Settings => "gearshape",
-        Symbol::Info => "info.circle",
-        Symbol::Star => "star",
-        Symbol::Bookmark => "bookmark",
-        Symbol::Back => "chevron.backward",
-        Symbol::Forward => "chevron.forward",
-        Symbol::Up => "chevron.up",
-        Symbol::Down => "chevron.down",
-        Symbol::Home => "house",
-        Symbol::Sidebar => "sidebar.leading",
-        Symbol::Filter => "line.3.horizontal.decrease",
-        Symbol::Sort => "arrow.up.arrow.down",
-        Symbol::More => "ellipsis",
-        Symbol::Play => "play.fill",
-        Symbol::Pause => "pause.fill",
-        Symbol::Stop => "stop.fill",
-        Symbol::Camera => "camera",
-        Symbol::Code => "chevron.left.forwardslash.chevron.right",
-        Symbol::Light => "sun.max",
-        Symbol::Dark => "moon",
-        Symbol::Auto => "circle.lefthalf.filled",
-        Symbol::ZoomIn => "plus.magnifyingglass",
-        Symbol::ZoomOut => "minus.magnifyingglass",
-        Symbol::Undo => "arrow.uturn.backward",
-        Symbol::Redo => "arrow.uturn.forward",
-        Symbol::Copy => "doc.on.doc",
-        Symbol::Cut => "scissors",
-        Symbol::Paste => "doc.on.clipboard",
-        Symbol::Mail => "envelope",
-        Symbol::Folder => "folder",
-        Symbol::Document => "doc",
-        Symbol::Check => "checkmark",
-        Symbol::Close => "xmark",
-        Symbol::Warning => "exclamationmark.triangle",
-        // The vocabulary is `#[non_exhaustive]`: an unmapped symbol draws no image rather than
-        // an arbitrary wrong one — the item still shows its label.
-        _ => "",
-    }
+    day_spec::sf_symbol_name(s)
 }
 
-fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
+pub(crate) fn image_for(
+    icon: &Icon,
+    label: &str,
+    mtm: MainThreadMarker,
+) -> Option<Retained<NSImage>> {
     match icon {
         Icon::Symbol(s) => {
             let name = sf_symbol(*s);

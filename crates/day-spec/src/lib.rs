@@ -1005,12 +1005,15 @@ pub struct UndoState {
 pub enum MenuItem {
     /// A command. `id` (nonzero) dispatches [`Event::MenuAction`] to the app; a `role`-only item uses
     /// the native standard command instead (id 0). `label`/`shortcut` override the role's defaults.
+    /// `icon` is the platform's own glyph beside the title where menus carry one (macOS,
+    /// Windows, GNOME, KDE, Android); a backend whose menus are text-only ignores it.
     Action {
         id: u64,
         label: String,
         shortcut: Option<Shortcut>,
         enabled: bool,
         role: Option<MenuRole>,
+        icon: Option<Icon>,
     },
     /// A nested submenu. At the TOP level of an app menu a `role` claims one of the platform's
     /// standard menu-bar slots: the backend then uses this menu instead of its stock one, and
@@ -1109,6 +1112,70 @@ pub enum Symbol {
     Check,
     Close,
     Warning,
+    /// A rectangle — the shape vocabulary a drawing surface needs (docs/shapes.md), and the
+    /// two glyphs every drawing, diagram and annotation tool puts in the same place.
+    Rectangle,
+    /// An ellipse.
+    Oval,
+}
+
+/// The SF Symbol each standard symbol draws as — the system's own glyphs, so they match the
+/// user's device: weight, optical size, accent color and all. Shared by both Apple backends
+/// (toolbars on macOS, menus on both).
+///
+/// Exhaustive on purpose: a new [`Symbol`] must name its glyph here rather than silently
+/// drawing nothing on Apple. A name this OS release does not know still resolves to no image,
+/// and the item falls back to its label.
+pub fn sf_symbol_name(s: Symbol) -> &'static str {
+    match s {
+        Symbol::Add => "plus",
+        Symbol::Remove => "minus",
+        Symbol::Delete => "trash",
+        Symbol::Edit => "pencil",
+        Symbol::New => "square.and.pencil",
+        Symbol::Open => "folder",
+        Symbol::Save => "square.and.arrow.down",
+        Symbol::Print => "printer",
+        Symbol::Refresh => "arrow.clockwise",
+        Symbol::Search => "magnifyingglass",
+        Symbol::Share => "square.and.arrow.up",
+        Symbol::Settings => "gearshape",
+        Symbol::Info => "info.circle",
+        Symbol::Star => "star",
+        Symbol::Bookmark => "bookmark",
+        Symbol::Back => "chevron.backward",
+        Symbol::Forward => "chevron.forward",
+        Symbol::Up => "chevron.up",
+        Symbol::Down => "chevron.down",
+        Symbol::Home => "house",
+        Symbol::Sidebar => "sidebar.leading",
+        Symbol::Filter => "line.3.horizontal.decrease",
+        Symbol::Sort => "arrow.up.arrow.down",
+        Symbol::More => "ellipsis",
+        Symbol::Play => "play.fill",
+        Symbol::Pause => "pause.fill",
+        Symbol::Stop => "stop.fill",
+        Symbol::Camera => "camera",
+        Symbol::Code => "chevron.left.forwardslash.chevron.right",
+        Symbol::Light => "sun.max",
+        Symbol::Dark => "moon",
+        Symbol::Auto => "circle.lefthalf.filled",
+        Symbol::ZoomIn => "plus.magnifyingglass",
+        Symbol::ZoomOut => "minus.magnifyingglass",
+        Symbol::Undo => "arrow.uturn.backward",
+        Symbol::Redo => "arrow.uturn.forward",
+        Symbol::Copy => "doc.on.doc",
+        Symbol::Cut => "scissors",
+        Symbol::Paste => "doc.on.clipboard",
+        Symbol::Mail => "envelope",
+        Symbol::Folder => "folder",
+        Symbol::Document => "doc",
+        Symbol::Check => "checkmark",
+        Symbol::Close => "xmark",
+        Symbol::Warning => "exclamationmark.triangle",
+        Symbol::Rectangle => "rectangle",
+        Symbol::Oval => "oval",
+    }
 }
 
 /// A toolbar item's picture: a standard [`Symbol`] (drawn with the platform's own icon set) or
@@ -2656,6 +2723,12 @@ impl Symbol {
                 "M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"
             }
             S::Warning => "M12 2l10 19H2zm-1 7h2v6h-2zm0 8h2v2h-2z",
+            // Shape outlines, stroked as a 2-unit band (an even-odd ring), so they read as
+            // OUTLINES at any size rather than filled blocks.
+            S::Rectangle => "M3 5h18v14H3zm2 2v10h14V7z",
+            S::Oval => {
+                "M12 5c5 0 9 3.1 9 7s-4 7-9 7-9-3.1-9-7 4-7 9-7zm0 2c-3.9 0-7 2.2-7 5s3.1 5 7 5 7-2.2 7-5-3.1-5-7-5z"
+            }
             // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
             // than failing to compile, and its item keeps its label.
             _ => return None,
@@ -3059,8 +3132,8 @@ pub mod props {
         Inline,
     }
 
-    /// Full picker props (realize). `options`/`style` are set once at build; only `selected`
-    /// patches (via [`PickerPatch::Selected`]).
+    /// Full picker props (realize). `style` is set once at build; `options` and `selected`
+    /// patch (via [`PickerPatch`]).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PickerProps {
         pub options: Vec<String>,
@@ -3071,6 +3144,11 @@ pub mod props {
     #[derive(Clone, Debug, PartialEq)]
     pub enum PickerPatch {
         Selected(usize),
+        /// New option labels — a picker whose choices come from data (a document list, a
+        /// live count). The backend rebuilds its items and keeps the selected INDEX where it
+        /// still exists, clamping to the last option otherwise; a fresh
+        /// [`PickerPatch::Selected`] follows whenever the app's own binding disagrees.
+        Options(Vec<String>),
     }
 
     /// Full text-area props (realize, kinds::TEXT_AREA — docs/textarea.md). `text` seeds the

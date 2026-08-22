@@ -5190,6 +5190,7 @@ impl Toolkit for AppKit {
                 shortcut: None,
                 enabled: true,
                 role: Some(day_spec::MenuRole::About),
+                icon: None,
             },
             day_spec::MenuItem::Separator,
         ];
@@ -5203,6 +5204,7 @@ impl Toolkit for AppKit {
             shortcut: None,
             enabled: true,
             role: Some(day_spec::MenuRole::Quit),
+            icon: None,
         });
         let app_menu = build_ns_menu(mtm, &self.app_name, &app_menu_items);
         app_item.setSubmenu(Some(&app_menu));
@@ -6427,6 +6429,7 @@ pub(crate) fn build_ns_menu(
                 shortcut,
                 enabled,
                 role,
+                icon,
             } => {
                 // Resolve label/selector/shortcut, folding in the role's native defaults.
                 let (mut lbl, sel, mut sc) = match role {
@@ -6487,6 +6490,14 @@ pub(crate) fn build_ns_menu(
                     it.setTag(*id as isize);
                 }
                 it.setEnabled(*enabled);
+                // The item's glyph, drawn the way NSMenuItem draws its own (docs/menus.md):
+                // template-tinted, sized to the menu's text.
+                if let Some(icon) = icon
+                    && let Some(img) = crate::toolbar::image_for(icon, &lbl, mtm)
+                {
+                    img.setSize(NSSize::new(16.0, 16.0));
+                    it.setImage(Some(&img));
+                }
                 menu.addItem(&it);
             }
         }

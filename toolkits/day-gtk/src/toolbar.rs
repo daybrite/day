@@ -78,6 +78,10 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
         Symbol::Check => &["object-select-symbolic", "emblem-ok-symbolic"],
         Symbol::Close => &["window-close-symbolic"],
         Symbol::Warning => &["dialog-warning-symbolic"],
+        // Inkscape/LibreOffice ship these under the standard drawing names; a theme without
+        // them falls through to Day's own outline (see `dress_button`).
+        Symbol::Rectangle => &["draw-rectangle-symbolic", "draw-rectangle"],
+        Symbol::Oval => &["draw-ellipse-symbolic", "draw-ellipse"],
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol falls back to the item's
         // label rather than to GTK's broken-image icon.
         _ => &[],
@@ -86,6 +90,10 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
 
 /// The first candidate the running icon theme actually has. Setting a name the theme lacks
 /// paints GTK's broken-image glyph, which is worse than the item's own text.
+pub(crate) fn icon_name_for(s: Symbol) -> Option<&'static str> {
+    icon_name(s)
+}
+
 fn icon_name(s: Symbol) -> Option<&'static str> {
     let theme = gtk4::gdk::Display::default().map(|d| gtk4::IconTheme::for_display(&d));
     icon_candidates(s)

@@ -23,6 +23,7 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, c_int),
     ) -> *mut c_void;
     fn day_picker_set_selected(w: *mut c_void, idx: c_int);
+    fn day_picker_set_options(w: *mut c_void, items_joined: *const c_char);
     // From day-qt-sys (already linked into the binary):
     fn day_qt_size_hint(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
 }
@@ -60,9 +61,9 @@ fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
 }
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
-    {
-        let PickerPatch::Selected(i) = patch;
-        unsafe { day_picker_set_selected(h.0, *i as c_int) };
+    match patch {
+        PickerPatch::Selected(i) => unsafe { day_picker_set_selected(h.0, *i as c_int) },
+        PickerPatch::Options(opts) => unsafe { day_picker_set_options(h.0, joined(opts).as_ptr()) },
     }
 }
 

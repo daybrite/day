@@ -1216,6 +1216,7 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                 shortcut,
                 enabled,
                 role,
+                icon,
             } => {
                 // A nonzero id ALWAYS wins (the appkit precedence, docs/menus.md): the item
                 // dispatches the day action, with the role only supplying label/shortcut
@@ -1232,6 +1233,7 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                         .map(qt_shortcut)
                         .or_else(|| role.and_then(|r| qt_role_shortcut(r).map(str::to_string)))
                         .unwrap_or_default();
+                    let (ic, ic_fallback) = crate::toolbar::icon_args(icon.as_ref());
                     unsafe {
                         ffi::day_qt_menu_add_action(
                             menu,
@@ -1239,6 +1241,8 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                             *id,
                             cstr(&sc).as_ptr(),
                             *enabled as c_int,
+                            cstr(&ic).as_ptr(),
+                            ic_fallback,
                         )
                     };
                 } else if let Some(role) = role {

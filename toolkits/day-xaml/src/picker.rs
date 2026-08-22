@@ -24,6 +24,7 @@ unsafe extern "C" {
         cb: extern "C" fn(u64, c_int),
     ) -> *mut c_void;
     fn day_picker_xaml_set_selected(w: *mut c_void, idx: c_int);
+    fn day_picker_xaml_set_options(w: *mut c_void, items_joined: *const c_char);
     // Generic size hint from day-xaml-sys (already linked) — like the Qt renderer reusing
     // day-qt-sys's `day_qt_size_hint`.
     fn day_xaml_measure(
@@ -65,9 +66,12 @@ fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
 }
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &PickerPatch) {
-    {
-        let PickerPatch::Selected(i) = patch;
-        unsafe { day_picker_xaml_set_selected(h.0, *i as c_int) };
+    match patch {
+        PickerPatch::Selected(i) => unsafe { day_picker_xaml_set_selected(h.0, *i as c_int) },
+        PickerPatch::Options(opts) => {
+            let joined = crate::cstr(&opts.join("\n"));
+            unsafe { day_picker_xaml_set_options(h.0, joined.as_ptr()) };
+        }
     }
 }
 

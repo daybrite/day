@@ -197,6 +197,12 @@ pub enum Step {
     AssertVisible {
         id: String,
     },
+    /// Fail if the id IS in the tree — the assertion for a subtree a `when` has not mounted
+    /// (a property row that does not apply, a page's absent chrome). `assert_visible` cannot
+    /// say this: a missing id is an error there, and an error is not a pass.
+    AssertMissing {
+        id: String,
+    },
     AssertText {
         id: String,
         #[serde(default)]
@@ -1138,6 +1144,10 @@ fn exec(step: Step) -> Reply {
                 visible(&id)?;
                 Ok(Reply::ok())
             }
+            Step::AssertMissing { id } => match with_tree(|t| t.find_by_id(&id)) {
+                Some(_) => Err(Reply::fail(format!("element {id:?} is present"), true)),
+                None => Ok(Reply::ok()),
+            },
             Step::AssertText {
                 id,
                 text,
