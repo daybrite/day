@@ -105,6 +105,8 @@ unsafe extern "C" {
     // recycling list host (docs/list.md): a ScrollViewer + content Canvas
     pub fn day_xaml_list_new(out_content: *mut *mut c_void) -> *mut c_void;
     pub fn day_xaml_list_set_content_size(content: *mut c_void, w: c_int, h: c_int);
+    pub fn day_xaml_list_viewport(sv: *mut c_void, out_offset: *mut f64, out_height: *mut f64);
+    pub fn day_xaml_list_on_scroll(sv: *mut c_void, node: u64, cb: extern "C" fn(u64));
     // Emulated list drag-to-reorder (docs/list.md): the content Canvas accepts day-row drops —
     // every hovered slot is vetted synchronously through `can` (accepted index or -1; the system
     // shows the no-drop cursor on -1), and the drop commits via `mv`.

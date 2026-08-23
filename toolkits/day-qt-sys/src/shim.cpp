@@ -767,6 +767,27 @@ void day_qt_scroll_to_bottom(void *w) {
     if (QScrollBar *sb = sa->verticalScrollBar()) sb->setValue(sb->maximum());
 }
 
+// What the list is actually SHOWING: the scrolled offset and the visible height. The emulated
+// list positions every row itself, so this is the only way it can know which handful of a
+// ten-thousand-row source needs building — the content widget is the full extent either way.
+void day_qt_list_viewport(void *w, double *out_offset, double *out_height) {
+    *out_offset = 0;
+    *out_height = 0;
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    if (QScrollBar *sb = sa->verticalScrollBar()) *out_offset = sb->value();
+    if (sa->viewport()) *out_height = sa->viewport()->height();
+}
+
+// Report scrolling, so rows coming INTO view get built before they are looked at.
+void day_qt_list_on_scroll(void *w, uint64_t node, void (*cb)(uint64_t)) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return;
+    QScrollBar *sb = sa->verticalScrollBar();
+    if (!sb) return;
+    QObject::connect(sb, &QScrollBar::valueChanged, sb, [node, cb](int) { cb(node); });
+}
+
 // Scroll a QScrollArea host to an absolute vertical offset (px, clamped by the bar).
 void day_qt_scroll_to_y(void *w, int y) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));

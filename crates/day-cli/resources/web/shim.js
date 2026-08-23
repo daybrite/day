@@ -299,6 +299,16 @@ const env = {
     el.scrollTo({ top, behavior: animated ? 'smooth' : 'instant' });
   },
   day_dom_scroll_offset(id, out) { const el = E(id); f64(out, 2).set([el.scrollLeft, el.scrollTop]); },
+  // What an emulated list is actually SHOWING (docs/list.md): the scrolled offset and the
+  // visible height. The list positions every row itself, so this is the only way it can know
+  // which handful of a ten-thousand-row source needs building.
+  day_dom_list_viewport(id, out) { const el = E(id); f64(out, 2).set([el.scrollTop, el.clientHeight]); },
+  // Report scrolling, so rows coming INTO view get built before they are looked at. Passive:
+  // this never calls preventDefault, and saying so keeps the scroll off the main thread's
+  // critical path.
+  day_dom_list_on_scroll(id) {
+    E(id).addEventListener('scroll', () => wasm.day_dom_list_scrolled(id), { passive: true });
+  },
   // Pointer-drag reorder for the emulated list (docs/list.md): the browser has no native list
   // reorder, so this fakes the affordance — lift the pressed cell, slide a gap under it (CSS
   // transitions on the other cells), autoscroll near the edges — while the DECISIONS stay

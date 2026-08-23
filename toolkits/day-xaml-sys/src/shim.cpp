@@ -1688,6 +1688,28 @@ void day_xaml_list_set_content_size(void* content, int w, int h) {
     }
 }
 
+// What the list is actually SHOWING: the scrolled offset and the visible height. The emulated
+// list positions every row itself, so this is the only way it can know which handful of a
+// ten-thousand-row source needs building — the content Canvas is the full extent either way.
+void day_xaml_list_viewport(void* sv, double* out_offset, double* out_height) {
+    *out_offset = 0;
+    *out_height = 0;
+    if (auto s = elem(sv).try_as<WUXC::ScrollViewer>()) {
+        *out_offset = s.VerticalOffset();
+        *out_height = s.ViewportHeight();
+    }
+}
+
+// Report scrolling, so rows coming INTO view get built before they are looked at. Fires for
+// intermediate (mid-inertia) states too, which is what keeps a flick from trailing empty rows;
+// Rust coalesces the run to one per loop turn.
+void day_xaml_list_on_scroll(void* sv, uint64_t node, void (*cb)(uint64_t)) {
+    auto s = elem(sv).try_as<WUXC::ScrollViewer>();
+    if (!s) return;
+    s.ViewChanged([node, cb](WF::IInspectable const&,
+                             WUXC::ScrollViewerViewChangedEventArgs const&) { cb(node); });
+}
+
 // --- emulated list drag-to-reorder (docs/list.md) ---
 // The real WinRT drag pipeline (CanDrag / DragOver / Drop — the same visuals every Windows app
 // gets) over the emulated Canvas list. The DECISIONS stay Rust's: every hovered slot is vetted

@@ -89,6 +89,10 @@ unsafe extern "C" {
     /// into `day_dom_list_can_move`/`day_dom_list_move` synchronously.
     fn day_dom_list_reorder(el: u32);
     fn day_dom_scroll_offset(el: u32, out: *mut f64);
+    /// The emulated list's scrolled offset and visible height — which rows have to exist.
+    fn day_dom_list_viewport(el: u32, out: *mut f64);
+    /// Report this list's scrolling into `day_dom_list_scrolled`, so rows coming into view build.
+    fn day_dom_list_on_scroll(el: u32);
     fn day_dom_scroll_content(el: u32, w: f64, h: f64);
     fn day_dom_focus(el: u32, focused: u32);
     fn day_dom_canvas_replay(
@@ -517,7 +521,15 @@ struct ListEntry {
     content: u32,
     row_height: f64,
     source: Option<ListSource>,
+    /// One slot per row, 0 until that row has been shown: cell index == row index, so a slot's
+    /// identity never changes and a realized cell stays that row's for good.
     cells: Vec<u32>,
+    /// Which rows' content is currently built and current. Cleared wholesale when the source
+    /// changes under the cells; individual rows go true as they are bound.
+    bound: Vec<bool>,
+    /// A scroll-driven fill is already posted — a flick emits a stream of scroll events, and
+    /// they would each post a pass that does the same work.
+    fill_pending: bool,
     last_width: f64,
     selectable: bool,
     multi: bool,
@@ -1439,6 +1451,8 @@ impl Toolkit for Dom {
                             row_height,
                             source: None,
                             cells: Vec::new(),
+                            bound: Vec::new(),
+                            fill_pending: false,
                             last_width: -1.0,
                             selectable: p.selectable,
                             multi: p.multi_select,
@@ -1447,6 +1461,8 @@ impl Toolkit for Dom {
                         },
                     )
                 });
+                // Rows are built as they scroll in, so the list has to hear about scrolling.
+                unsafe { day_dom_list_on_scroll(host) };
                 host
             }
             // A recycled list cell is ADOPTED from the native list, never realized through
@@ -2514,57 +2530,142 @@ fn sync_back_bar_at(el: u32, state: &NavState, depth: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Emulated list (docs/list.md): eager cells over the ListSource pull contract, the Qt shape.
+// Emulated list (docs/list.md): cells over the ListSource pull contract, the Qt shape — and,
+// like Qt and XAML, only the rows the viewport SHOWS are realized. That is the promise `list`
+// makes over `each` ("builds only the rows the native widget currently shows"); building all of
+// them is what a ten-thousand-row query cost before: ten thousand elements and ten thousand row
+// layouts, in wasm, before the first paint. Cell index stays == row index for the cell's whole
+// life, so nothing about selection or the click handler's row changes.
 // ---------------------------------------------------------------------------
 
+/// Rows built beyond each edge of the viewport, so a flick has something to show before the
+/// scroll event lands.
+const LIST_OVERSCAN: usize = 8;
+
+/// A source change under the cells: everything realized is now showing the wrong row's data, so
+/// mark it all dirty and refill the window. Reload and splice come through here — the callers
+/// that used to rebind all n rows.
 fn list_populate(host: u32) {
-    let Some((content, rowh, source, mut cells, _node, selectable)) = LISTS.with(|m| {
+    LISTS.with(|m| {
+        let mut m = m.borrow_mut();
+        let Some(st) = m.get_mut(&host) else {
+            return;
+        };
+        st.bound.iter_mut().for_each(|b| *b = false);
+        // A source that SHRANK leaves realized cells past its end. They stay in the pool (index
+        // == row, so a source that grows back reuses each for the row it always held) and are
+        // simply hidden — the same append-only pool, minus the eager building.
+        let n = st.source.as_ref().map_or(0, |src| (src.len)());
+        let stale: Vec<u32> = st.cells.iter().skip(n).copied().filter(|c| *c != 0).collect();
+        drop(m);
+        for cell in stale {
+            s(cell, "display", "none");
+        }
+    });
+    list_fill_window(host);
+}
+
+/// Build the rows the viewport shows and that are not built already. Idempotent and cheap when
+/// nothing moved, which is what lets every scroll event call it.
+fn list_fill_window(host: u32) {
+    let Some((content, rowh, source, work, n, width)) = LISTS.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host)?;
         let source = st.source.clone()?;
-        Some((
-            st.content,
-            st.row_height,
-            source,
-            st.cells.clone(),
-            st.node,
-            st.selectable,
-        ))
+        let (content, rowh, selectable) = (st.content, st.row_height.max(1.0), st.selectable);
+        let n = (source.len)();
+        let width = unsafe { day_dom_width(host) }.max(1.0);
+        // The rows on screen, plus the overscan. A list the browser has not laid out yet reports
+        // no height — build a screen's worth then, and let the scroll that follows extend it.
+        let mut view = [0.0_f64; 2];
+        unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
+        let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
+        let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
+        let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
+        // Slots exist for every row (a Vec of zeros, not of elements): the cell for row i lives
+        // at i for good, which is what keeps the click handler's recorded row honest.
+        if st.cells.len() < n {
+            st.cells.resize(n, 0);
+            st.bound.resize(n, false);
+        }
+        let mut work: Vec<(usize, u32)> = Vec::new();
+        for i in first..last {
+            if st.cells[i] == 0 {
+                let cell = unsafe { day_dom_create(EL_CELL) };
+                // Appended, not inserted at the row index: cells are absolutely framed, so
+                // document order says nothing about where a row appears — and a window filled
+                // out of order (scroll down, then back up) has no meaningful index to insert at.
+                unsafe { day_dom_insert(content, cell, u32::MAX) };
+                if selectable {
+                    unsafe { day_dom_listen(cell, 1) };
+                    CELL_ROWS.with(|m| m.borrow_mut().insert(cell, (host, i)));
+                }
+                st.cells[i] = cell;
+            }
+            if !st.bound[i] {
+                st.bound[i] = true;
+                work.push((i, st.cells[i]));
+            }
+        }
+        st.last_width = width;
+        Some((content, rowh, source, work, n, width))
     }) else {
         return;
     };
-    let n = (source.len)();
-    let width = unsafe { day_dom_width(host) }.max(1.0);
-    while cells.len() < n {
-        let cell = unsafe { day_dom_create(EL_CELL) };
-        unsafe { day_dom_insert(content, cell, cells.len() as u32) };
-        if selectable {
-            unsafe { day_dom_listen(cell, 1) };
-            CELL_ROWS.with(|m| m.borrow_mut().insert(cell, (host, cells.len())));
-        }
-        cells.push(cell);
-    }
-    for (i, &cell) in cells.iter().enumerate().take(n) {
+    for (i, cell) in work {
         unsafe {
             day_dom_set_frame(cell, 0.0, i as f64 * rowh, width, rowh);
         }
         s(cell, "display", "block");
         (source.bind_row)(i, cell as usize as day_spec::RawHandle);
     }
-    for &cell in cells.iter().skip(n) {
-        s(cell, "display", "none");
-    }
     s(content, "position", "relative");
+    // The extent is the WHOLE source, built or not: the scrollbar is how the user reaches rows
+    // that do not exist yet, so it cannot be sized to what happens to be realized.
     s(content, "height", &format!("{}px", n as f64 * rowh));
+    // Rows realized just now start unpainted, and a reload can move which rows are selected
+    // under a selection that never changed — so repaint from the entry's set on every fill.
     LISTS.with(|m| {
-        if let Some(st) = m.borrow_mut().get_mut(&host) {
-            st.cells = cells;
+        if let Some(st) = m.borrow().get(&host) {
+            list_paint_selection(st);
+        }
+    });
+}
+
+/// A list scrolled (the shim's `scroll` listener): build whatever rows just came into view, on
+/// the next turn and at most once per turn however many events arrive.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_list_scrolled(host: u32) {
+    day_spec::ffi_guard::contain((), || {
+        let post = LISTS.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(st) = m.get_mut(&host) else {
+                return false;
+            };
+            let first = !st.fill_pending;
+            st.fill_pending = true;
+            first
+        });
+        if post {
+            post_local(move || {
+                LISTS.with(|m| {
+                    if let Some(st) = m.borrow_mut().get_mut(&host) {
+                        st.fill_pending = false;
+                    }
+                });
+                list_fill_window(host);
+            });
         }
     });
 }
 
 fn list_paint_selection(entry: &ListEntry) {
     for (i, &cell) in entry.cells.iter().enumerate() {
+        // Unrealized rows have no cell to paint; they pick the treatment up when they are built
+        // (this runs at the end of every fill, so a row scrolled into a selection lands painted).
+        if cell == 0 {
+            continue;
+        }
         class(cell, "selected", entry.selected.contains(&i));
     }
 }
