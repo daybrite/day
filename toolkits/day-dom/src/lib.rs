@@ -2556,7 +2556,13 @@ fn list_populate(host: u32) {
         // == row, so a source that grows back reuses each for the row it always held) and are
         // simply hidden — the same append-only pool, minus the eager building.
         let n = st.source.as_ref().map_or(0, |src| (src.len)());
-        let stale: Vec<u32> = st.cells.iter().skip(n).copied().filter(|c| *c != 0).collect();
+        let stale: Vec<u32> = st
+            .cells
+            .iter()
+            .skip(n)
+            .copied()
+            .filter(|c| *c != 0)
+            .collect();
         drop(m);
         for cell in stale {
             s(cell, "display", "none");
