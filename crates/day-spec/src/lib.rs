@@ -1113,10 +1113,12 @@ pub enum Symbol {
     Close,
     Warning,
     /// A rectangle — the shape vocabulary a drawing surface needs (docs/shapes.md), and the
-    /// two glyphs every drawing, diagram and annotation tool puts in the same place.
+    /// glyphs every drawing, diagram and annotation tool puts in the same place.
     Rectangle,
     /// An ellipse.
     Oval,
+    /// A straight line segment.
+    Line,
 }
 
 /// The SF Symbol each standard symbol draws as — the system's own glyphs, so they match the
@@ -1175,6 +1177,7 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Warning => "exclamationmark.triangle",
         Symbol::Rectangle => "rectangle",
         Symbol::Oval => "oval",
+        Symbol::Line => "line.diagonal",
     }
 }
 
@@ -2729,6 +2732,7 @@ impl Symbol {
             S::Oval => {
                 "M12 5c5 0 9 3.1 9 7s-4 7-9 7-9-3.1-9-7 4-7 9-7zm0 2c-3.9 0-7 2.2-7 5s3.1 5 7 5 7-2.2 7-5-3.1-5-7-5z"
             }
+            S::Line => "M4.7 17.9l13.2-13.2 1.4 1.4L6.1 19.3z",
             // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
             // than failing to compile, and its item keeps its label.
             _ => return None,

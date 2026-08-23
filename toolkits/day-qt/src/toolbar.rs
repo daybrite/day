@@ -95,6 +95,7 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         // without them falls through to Day's staged outline.
         Symbol::Rectangle => ("draw-rectangle", sp::NONE),
         Symbol::Oval => ("draw-ellipse", sp::NONE),
+        Symbol::Line => ("draw-line", sp::NONE),
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol shows the label.
         _ => ("", sp::DIALOG_HELP),
     }

@@ -84,6 +84,7 @@ fn glyph(s: Symbol) -> &'static str {
         // Segoe Fluent's own shape glyphs (the Paint/Whiteboard shape vocabulary).
         Symbol::Rectangle => "E739",
         Symbol::Oval => "E91F",
+        Symbol::Line => "E93B",
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol gets no glyph rather than an
         // arbitrary wrong one — the item still shows its label.
         _ => "",

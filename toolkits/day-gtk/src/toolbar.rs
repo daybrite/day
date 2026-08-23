@@ -82,6 +82,7 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
         // them falls through to Day's own outline (see `dress_button`).
         Symbol::Rectangle => &["draw-rectangle-symbolic", "draw-rectangle"],
         Symbol::Oval => &["draw-ellipse-symbolic", "draw-ellipse"],
+        Symbol::Line => &["draw-line-symbolic", "draw-line"],
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol falls back to the item's
         // label rather than to GTK's broken-image icon.
         _ => &[],
