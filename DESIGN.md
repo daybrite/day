@@ -4320,6 +4320,28 @@ day-sqlite-worker when the list above was written. day-lite's storage moved onto
 driver in the same change (`SqliteConnection` grew `execute_batch` and `query_named`), so a
 superapp compiles one SQLite and the app's engine features govern miniapp storage too.
 
+**Predicate vocabulary (2026-08-23).** `is_in`/`not_in` (sets sorted once at construction, so
+membership is a binary search — the shape relation traversal will compile into), `IdIn` (the
+row's own key, no column read at all), `starts_with`/`starts_with_ci` (deliberately not `LIKE`,
+whose SQLite default is case-INsensitive for ASCII), and `is_null`/`is_not_null`/`is_set`/
+`is_unset`/`is`/`is_one_of` as constructors over the existing `Eq(col, Null)` variant rather
+than new arms. Two contracts came with them, both closing latent divergences between the
+in-memory and SQL paths:
+
+- **NULL follows SQL's three-valued logic in both paths.** A comparison against a NULL column is
+  UNKNOWN, not false, and UNKNOWN propagates through `&`/`|`/`!` by Kleene's rules — so
+  `ne`/`lt`/`between`/`contains` no longer select rows the SQL form would exclude.
+  `compare_values` is untouched: NULL still sorts below numbers, because that is `ORDER BY`'s
+  rule and ordering is a different question from comparison.
+- **`Pred::sql_exact()`** says whether a predicate's SQL form would select the same rows its
+  in-memory evaluation does; `to_sql` may only be used when it holds. Case-insensitive
+  predicates answer false, because Rust folds case over all of Unicode while SQLite's `lower()`
+  folds ASCII only — the `ÉCOLE` divergence recorded in the Room comparison, now named and
+  guarded rather than latent.
+
+`tests/predicates.rs` (23) covers the vocabulary, the three-valued table, the exactness flag and
+the Unicode fold. Relation-traversing predicates (`Trip::lodging().any(…)`) are the next phase.
+
 **Keys and relations (2026-08-23).** The two schema-shaping decisions, owner-ratified in
 dialog and landed together:
 

@@ -39,9 +39,23 @@ pub enum Pred {
     Ge(&'static str, Value),
     /// Case-sensitive substring on a TEXT column (SQL: `instr(col, ?) > 0`).
     Contains(&'static str, String),
-    /// Case-insensitive substring — what a search field wants (SQL over `lower()`).
+    /// Case-insensitive substring — what a search field wants. NOT `sql_exact`: see
+    /// [`Pred::sql_exact`].
     ContainsCi(&'static str, String),
+    /// Case-sensitive prefix. Deliberately NOT `LIKE`, whose SQLite default is
+    /// case-INsensitive for ASCII and would quietly answer the wrong question.
+    StartsWith(&'static str, String),
+    /// Case-insensitive prefix. NOT `sql_exact`, for the same reason as [`Pred::ContainsCi`].
+    StartsWithCi(&'static str, String),
     Between(&'static str, Value, Value),
+    /// `column ∈ set`. The set is SORTED and deduped at construction, so evaluation is a
+    /// binary search rather than a scan — relation traversal hands this thousands of ids.
+    In(&'static str, Vec<Value>),
+    /// `column ∉ set`, with SQL's own NULL rule: a NULL column is UNKNOWN, not a match.
+    NotIn(&'static str, Vec<Value>),
+    /// The ROW'S OWN KEY ∈ set — no column read, no decode, no codec, because the maintainer
+    /// already holds the key. Sorted like [`Pred::In`].
+    IdIn(Vec<u64>),
     And(Box<Pred>, Box<Pred>),
     Or(Box<Pred>, Box<Pred>),
     Not(Box<Pred>),
@@ -84,7 +98,14 @@ impl Pred {
             | Pred::Ge(c, _)
             | Pred::Contains(c, _)
             | Pred::ContainsCi(c, _)
+            | Pred::StartsWith(c, _)
+            | Pred::StartsWithCi(c, _)
+            | Pred::In(c, _)
+            | Pred::NotIn(c, _)
             | Pred::Between(c, _, _) => push(c, out),
+            // A row's key never changes: it can only enter or leave an id set by being
+            // inserted or deleted, which is a structural op, not a column write.
+            Pred::IdIn(_) => {}
             Pred::And(a, b) | Pred::Or(a, b) => {
                 a.columns(out);
                 b.columns(out);
@@ -122,37 +143,91 @@ impl Pred {
         }
     }
 
-    pub fn eval(&self, row: &dyn RowView) -> bool {
+    /// Whether [`Pred::to_sql`] selects the SAME rows this predicate's in-memory evaluation
+    /// does — the contract that keeps a two-path query layer honest. `to_sql` may only be
+    /// used when this answers `true`.
+    ///
+    /// Case-insensitive predicates answer `false`: in memory they fold with Rust's
+    /// `to_lowercase`, which is full Unicode, while SQLite's `lower()` folds ASCII only, so
+    /// `ÉCOLE` matches one way and not the other. SQL's form is not even a safe pre-filter
+    /// there, because it *under*-matches — it would drop rows that belong. Such a predicate
+    /// evaluates in memory; the exact fix, when a SQL-filtering path needs one, is a
+    /// `day_lower` function registered through the driver's `with_init` hook.
+    pub fn sql_exact(&self) -> bool {
         match self {
-            Pred::Always => true,
+            Pred::ContainsCi(..) | Pred::StartsWithCi(..) => false,
+            Pred::And(a, b) | Pred::Or(a, b) => a.sql_exact() && b.sql_exact(),
+            Pred::Not(a) => a.sql_exact(),
+            _ => true,
+        }
+    }
+
+    /// Does this row match? The WHERE-clause reading: UNKNOWN is not a match.
+    pub fn eval(&self, key: u64, row: &dyn RowView) -> bool {
+        self.eval3(key, row) == Some(true)
+    }
+
+    /// Three-valued evaluation — SQL's own logic, which is the only way the in-memory path
+    /// and the SQL path can agree about NULL.
+    ///
+    /// A comparison against a NULL column is UNKNOWN (`None`), not false: SQL's `notes <> 'x'`
+    /// does not select rows whose `notes` is NULL, and neither does this. Note that
+    /// [`compare_values`] deliberately keeps ordering NULL below numbers — that is ORDER BY's
+    /// rule and it stays correct for sorting; only comparison *predicates* follow the
+    /// three-valued rule. `Eq`/`Ne` against a `Null` literal keep their `IS NULL` /
+    /// `IS NOT NULL` meaning and are always definite.
+    pub fn eval3(&self, key: u64, row: &dyn RowView) -> Option<bool> {
+        match self {
+            Pred::Always => Some(true),
             // Never reached on the incremental path: an unevaluable predicate re-queries.
-            Pred::Raw(..) | Pred::Matches { .. } => true,
-            Pred::Eq(c, v) => row.col(c).as_ref() == Some(v),
-            Pred::Ne(c, v) => row.col(c).as_ref() != Some(v),
-            Pred::Lt(c, v) => cmp_col(row, c, v) == Some(Ordering::Less),
-            Pred::Le(c, v) => matches!(cmp_col(row, c, v), Some(Ordering::Less | Ordering::Equal)),
-            Pred::Gt(c, v) => cmp_col(row, c, v) == Some(Ordering::Greater),
-            Pred::Ge(c, v) => matches!(
-                cmp_col(row, c, v),
-                Some(Ordering::Greater | Ordering::Equal)
-            ),
-            Pred::Contains(c, needle) => match row.col(c) {
-                Some(Value::Text(t)) => t.contains(needle.as_str()),
-                _ => false,
-            },
-            Pred::ContainsCi(c, needle) => match row.col(c) {
-                Some(Value::Text(t)) => t.to_lowercase().contains(needle.to_lowercase().as_str()),
-                _ => false,
-            },
-            Pred::Between(c, lo, hi) => {
-                matches!(
-                    cmp_col(row, c, lo),
-                    Some(Ordering::Greater | Ordering::Equal)
-                ) && matches!(cmp_col(row, c, hi), Some(Ordering::Less | Ordering::Equal))
+            Pred::Raw(..) | Pred::Matches { .. } => Some(true),
+
+            // IS NULL / IS NOT NULL: definite, even about NULL.
+            Pred::Eq(c, Value::Null) => Some(matches!(row.col(c), Some(Value::Null) | None)),
+            Pred::Ne(c, Value::Null) => Some(!matches!(row.col(c), Some(Value::Null) | None)),
+
+            Pred::Eq(c, v) => defined(row.col(c)).map(|a| a == *v),
+            Pred::Ne(c, v) => defined(row.col(c)).map(|a| a != *v),
+            Pred::Lt(c, v) => defined(row.col(c)).map(|a| compare_values(&a, v) == Ordering::Less),
+            Pred::Le(c, v) => {
+                defined(row.col(c)).map(|a| compare_values(&a, v) != Ordering::Greater)
             }
-            Pred::And(a, b) => a.eval(row) && b.eval(row),
-            Pred::Or(a, b) => a.eval(row) || b.eval(row),
-            Pred::Not(a) => !a.eval(row),
+            Pred::Gt(c, v) => {
+                defined(row.col(c)).map(|a| compare_values(&a, v) == Ordering::Greater)
+            }
+            Pred::Ge(c, v) => defined(row.col(c)).map(|a| compare_values(&a, v) != Ordering::Less),
+            Pred::Between(c, lo, hi) => defined(row.col(c)).map(|a| {
+                compare_values(&a, lo) != Ordering::Less
+                    && compare_values(&a, hi) != Ordering::Greater
+            }),
+
+            Pred::Contains(c, needle) => text(row.col(c)).map(|t| t.contains(needle.as_str())),
+            Pred::ContainsCi(c, needle) => {
+                text(row.col(c)).map(|t| t.to_lowercase().contains(&needle.to_lowercase()))
+            }
+            Pred::StartsWith(c, prefix) => text(row.col(c)).map(|t| t.starts_with(prefix.as_str())),
+            Pred::StartsWithCi(c, prefix) => {
+                text(row.col(c)).map(|t| t.to_lowercase().starts_with(&prefix.to_lowercase()))
+            }
+
+            Pred::In(c, set) => defined(row.col(c)).map(|a| in_set(set, &a)),
+            Pred::NotIn(c, set) => defined(row.col(c)).map(|a| !in_set(set, &a)),
+            // The key is always present and never NULL, so membership is definite.
+            Pred::IdIn(ids) => Some(ids.binary_search(&key).is_ok()),
+
+            // Kleene logic, so UNKNOWN propagates exactly as SQL propagates it.
+            Pred::And(a, b) => match (a.eval3(key, row), b.eval3(key, row)) {
+                (Some(false), _) | (_, Some(false)) => Some(false),
+                (Some(true), Some(true)) => Some(true),
+                _ => None,
+            },
+            Pred::Or(a, b) => match (a.eval3(key, row), b.eval3(key, row)) {
+                (Some(true), _) | (_, Some(true)) => Some(true),
+                (Some(false), Some(false)) => Some(false),
+                _ => None,
+            },
+            Pred::Not(a) => a.eval3(key, row).map(|v| !v),
+
             Pred::Within {
                 lat,
                 lon,
@@ -161,12 +236,20 @@ impl Pred {
                 min_lon,
                 max_lon,
             } => {
-                let in_range = |c: &str, lo: f64, hi: f64| match row.col(c) {
-                    Some(Value::Real(v)) => v >= lo && v <= hi,
-                    Some(Value::Int(v)) => (v as f64) >= lo && (v as f64) <= hi,
-                    _ => false,
+                let in_range = |c: &str, lo: f64, hi: f64| match defined(row.col(c)) {
+                    Some(Value::Real(v)) => Some(v >= lo && v <= hi),
+                    Some(Value::Int(v)) => Some((v as f64) >= lo && (v as f64) <= hi),
+                    Some(_) => Some(false),
+                    None => None,
                 };
-                in_range(lat, *min_lat, *max_lat) && in_range(lon, *min_lon, *max_lon)
+                match (
+                    in_range(lat, *min_lat, *max_lat),
+                    in_range(lon, *min_lon, *max_lon),
+                ) {
+                    (Some(false), _) | (_, Some(false)) => Some(false),
+                    (Some(true), Some(true)) => Some(true),
+                    _ => None,
+                }
             }
         }
     }
@@ -208,6 +291,53 @@ impl Pred {
             Pred::ContainsCi(c, s) => {
                 params.push(Value::Text(s.to_lowercase()));
                 format!("instr(lower({c}), ?) > 0")
+            }
+            Pred::StartsWith(c, prefix) => {
+                // NOT `LIKE`: SQLite's LIKE is case-INsensitive for ASCII by default, which
+                // would quietly answer a different question. `substr` counts characters on
+                // TEXT, which agrees with Rust's `starts_with` on any valid UTF-8.
+                params.push(Value::Int(prefix.chars().count() as i64));
+                params.push(Value::Text(prefix.clone()));
+                format!("substr({c}, 1, ?) = ?")
+            }
+            // Not `sql_exact` — `to_sql` must not be reached for these. The form is written
+            // for the day a SQL-filtering path registers an exact folding function.
+            Pred::StartsWithCi(c, prefix) => {
+                params.push(Value::Int(prefix.chars().count() as i64));
+                params.push(Value::Text(prefix.to_lowercase()));
+                format!("substr(lower({c}), 1, ?) = ?")
+            }
+            Pred::In(c, set) | Pred::NotIn(c, set) => {
+                // `IN ()` is a syntax error in SQLite rather than an empty set, so the empty
+                // case compiles to a constant — false for IN, true for NOT IN.
+                if set.is_empty() {
+                    return if matches!(self, Pred::In(..)) {
+                        "0"
+                    } else {
+                        "1"
+                    }
+                    .into();
+                }
+                let negate = if matches!(self, Pred::NotIn(..)) {
+                    "NOT "
+                } else {
+                    ""
+                };
+                let marks = vec!["?"; set.len()].join(", ");
+                params.extend(set.iter().cloned());
+                format!("{c} {negate}IN ({marks})")
+            }
+            Pred::IdIn(ids) => {
+                // The container substitutes its table's key column for `{key}`, the same way
+                // it substitutes the FTS shadow name for `{fts}`.
+                if ids.is_empty() {
+                    return "0".into();
+                }
+                for id in ids {
+                    params.push(crate::key_param(*id));
+                }
+                let marks = vec!["?"; ids.len()].join(", ");
+                format!("{{key}} IN ({marks})")
             }
             Pred::Between(c, lo, hi) => {
                 params.push(lo.clone());
@@ -266,10 +396,6 @@ impl std::ops::Not for Pred {
     }
 }
 
-fn cmp_col(row: &dyn RowView, c: &str, v: &Value) -> Option<Ordering> {
-    row.col(c).map(|a| compare_values(&a, v))
-}
-
 /// The fetch's total order over two rows: each sort key in turn, then the id as a stable
 /// tie-break — so the order is deterministic and a binary search over it is well defined.
 fn cmp_by(fetch: &Fetch, a: u64, b: u64, rows: &dyn RowsView) -> Ordering {
@@ -288,6 +414,37 @@ fn cmp_by(fetch: &Fetch, a: u64, b: u64, rows: &dyn RowsView) -> Ordering {
         }
     }
     a.cmp(&b)
+}
+
+/// A column's value when it is present and not NULL — otherwise UNKNOWN. A column the row
+/// does not carry at all (a transient field's label) reads as UNKNOWN too, rather than as a
+/// silent non-match.
+fn defined(v: Option<Value>) -> Option<Value> {
+    match v {
+        Some(Value::Null) | None => None,
+        Some(v) => Some(v),
+    }
+}
+
+/// The TEXT of a column, or UNKNOWN. A text predicate can only be built on a `Col<String>`,
+/// so a non-text value here is a schema mismatch rather than a real answer — UNKNOWN keeps it
+/// out of the result instead of guessing at a coercion the two paths might disagree about.
+fn text(v: Option<Value>) -> Option<String> {
+    match defined(v) {
+        Some(Value::Text(t)) => Some(t),
+        _ => None,
+    }
+}
+
+/// Membership in a sorted set, with the SAME equality `eq` uses: find the run that compares
+/// equal under [`compare_values`], then confirm exactly. A mixed `Int`/`Real` set therefore
+/// cannot make `is_in` and `eq` disagree with one another.
+fn in_set(set: &[Value], v: &Value) -> bool {
+    let start = set.partition_point(|x| compare_values(x, v) == Ordering::Less);
+    set[start..]
+        .iter()
+        .take_while(|x| compare_values(x, v) == Ordering::Equal)
+        .any(|x| x == v)
 }
 
 /// SQLite's cross-class ordering (NULL < numbers < text < blob), with one deliberate
@@ -358,6 +515,40 @@ impl<V> Col<V> {
     pub fn ge(self, v: impl std::borrow::Borrow<V>) -> Pred {
         Pred::Ge(self.column, self.enc(v.borrow()))
     }
+    /// `column ∈ values`, each encoded through this column's own codec exactly as `eq` does.
+    /// An EMPTY set matches nothing, in both evaluation paths.
+    pub fn is_in(self, values: impl IntoIterator<Item = impl std::borrow::Borrow<V>>) -> Pred {
+        Pred::In(self.column, self.encode_set(values))
+    }
+
+    /// The complement of [`Col::is_in`], with SQL's NULL rule: a NULL column is UNKNOWN, so
+    /// it is not selected — `not_in` is therefore NOT the same as `!is_in` over nullable
+    /// columns, exactly as in SQL.
+    pub fn not_in(self, values: impl IntoIterator<Item = impl std::borrow::Borrow<V>>) -> Pred {
+        Pred::NotIn(self.column, self.encode_set(values))
+    }
+
+    /// Sorted and deduped once, here, so evaluation can binary-search it.
+    fn encode_set(
+        self,
+        values: impl IntoIterator<Item = impl std::borrow::Borrow<V>>,
+    ) -> Vec<Value> {
+        let mut set: Vec<Value> = values.into_iter().map(|v| self.enc(v.borrow())).collect();
+        set.sort_by(compare_values);
+        set.dedup();
+        set
+    }
+
+    /// `column IS NULL`.
+    pub fn is_null(self) -> Pred {
+        Pred::Eq(self.column, Value::Null)
+    }
+
+    /// `column IS NOT NULL`.
+    pub fn is_not_null(self) -> Pred {
+        Pred::Ne(self.column, Value::Null)
+    }
+
     pub fn between(self, lo: impl std::borrow::Borrow<V>, hi: impl std::borrow::Borrow<V>) -> Pred {
         Pred::Between(self.column, self.enc(lo.borrow()), self.enc(hi.borrow()))
     }
@@ -432,6 +623,16 @@ impl Col<String> {
         Pred::Contains(self.column, needle.into())
     }
     /// Case-insensitive substring — what a search field wants.
+    /// Case-SENSITIVE prefix match.
+    pub fn starts_with(self, prefix: impl Into<String>) -> Pred {
+        Pred::StartsWith(self.column, prefix.into())
+    }
+
+    /// Case-insensitive prefix match — evaluated in memory ([`Pred::sql_exact`]).
+    pub fn starts_with_ci(self, prefix: impl Into<String>) -> Pred {
+        Pred::StartsWithCi(self.column, prefix.into())
+    }
+
     pub fn contains_ci(self, needle: impl Into<String>) -> Pred {
         Pred::ContainsCi(self.column, needle.into())
     }
@@ -503,15 +704,19 @@ impl Fetch {
 
     /// The columns a change must touch for this query's RESULT to be able to move. Everything
     /// else is a row-level change the query ignores entirely.
-    pub fn dependencies(&self) -> Vec<&'static str> {
-        let mut out = Vec::new();
-        self.pred.columns(&mut out);
+    pub fn dependencies(&self) -> Deps {
+        let mut local = Vec::new();
+        self.pred.columns(&mut local);
         for s in &self.sort {
-            if !s.by_rank && !out.contains(&s.column) {
-                out.push(s.column);
+            if !s.by_rank && !local.contains(&s.column) {
+                local.push(s.column);
             }
         }
-        out
+        Deps {
+            local,
+            // Filled by relation-traversing predicates; nothing produces one yet.
+            related: Vec::new(),
+        }
     }
 
     /// Whether the incremental path can maintain this fetch at all.
@@ -538,11 +743,63 @@ pub enum Outcome {
     Requery,
 }
 
+/// What a fetch reads, and therefore what can move a row through it.
+///
+/// Split by table on purpose: a query's own columns are one question, and the columns it reads
+/// across a relation are another — a change to a related row that the predicate never mentions
+/// must stay as free as a change to a local column it never mentions. Relation-traversing
+/// predicates fill `related`; today it is always empty, and a fetch with no relation in it
+/// takes exactly the path it always did.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Deps {
+    /// Columns of the query's own table — its predicate's and its sort's.
+    pub local: Vec<&'static str>,
+    /// One entry per relation the predicate crosses.
+    pub related: Vec<RelatedDep>,
+}
+
+/// One relation's contribution to a fetch's dependencies.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RelatedDep {
+    /// The `Many` field, or the `One` column, the predicate crossed.
+    pub field: &'static str,
+    pub target_table: &'static str,
+    /// Columns of the TARGET table the inner predicate reads. Empty when the predicate asks
+    /// only about membership (`is_empty`, `count_ge`), which no column write can change.
+    pub columns: Vec<&'static str>,
+}
+
+impl Deps {
+    /// Whether a change to this column of the query's OWN table can move a row.
+    pub fn touches_local(&self, column: &str) -> bool {
+        self.local.contains(&column)
+    }
+
+    /// Whether a change to this column of `table`, reached across a relation, can move a row.
+    pub fn touches_related(&self, table: &str, column: &str) -> bool {
+        self.related
+            .iter()
+            .any(|r| r.target_table == table && r.columns.contains(&column))
+    }
+
+    /// The tables this fetch reads across a relation — what a query subscribes to beyond its
+    /// own store.
+    pub fn related_tables(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = Vec::new();
+        for r in &self.related {
+            if !out.contains(&r.target_table) {
+                out.push(r.target_table);
+            }
+        }
+        out
+    }
+}
+
 /// A query's result set, maintained in place against announced changes.
 pub struct LiveSet {
     ids: Vec<u64>,
     fetch: Fetch,
-    deps: Vec<&'static str>,
+    deps: Deps,
     /// How many times a predicate or sort key has been evaluated — the cost this exists to
     /// avoid, counted so tests can assert the zero rows of §15's table.
     evaluations: Cell<usize>,
@@ -582,7 +839,7 @@ impl LiveSet {
             .copied()
             .filter(|k| {
                 rows.row_view(*k)
-                    .map(|r| self.fetch.pred.eval(r.as_ref()))
+                    .map(|r| self.fetch.pred.eval(*k, r.as_ref()))
                     .unwrap_or(false)
             })
             .collect();
@@ -622,7 +879,7 @@ impl LiveSet {
             // it keeps the zero-cost tier even here.
             return match op {
                 _ if self.fetch.pred.contains_raw() => Outcome::Requery,
-                day_model::Op::Set if !column.is_empty() && !self.deps.contains(&column) => {
+                day_model::Op::Set if !column.is_empty() && !self.deps.touches_local(column) => {
                     Outcome::Unaffected
                 }
                 day_model::Op::Move => Outcome::Unaffected,
@@ -632,7 +889,7 @@ impl LiveSet {
         match op {
             // THE TIER THAT MATTERS: a column no part of this query mentions cannot move the
             // set, so nothing is evaluated at all.
-            day_model::Op::Set if !column.is_empty() && !self.deps.contains(&column) => {
+            day_model::Op::Set if !column.is_empty() && !self.deps.touches_local(column) => {
                 Outcome::Unaffected
             }
             day_model::Op::Set | day_model::Op::Insert => self.reposition(key, rows),
@@ -655,7 +912,7 @@ impl LiveSet {
         self.evaluations.set(self.evaluations.get() + 1);
         let belongs = rows
             .row_view(key)
-            .map(|r| self.fetch.pred.eval(r.as_ref()))
+            .map(|r| self.fetch.pred.eval(key, r.as_ref()))
             .unwrap_or(false);
         let at = self.ids.iter().position(|k| *k == key);
 

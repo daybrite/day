@@ -151,6 +151,63 @@ impl<M: Model> ColumnValue for One<M> {
     }
 }
 
+/// Predicates over a to-one reference column. The relation-traversing forms
+/// (`One::any(pred)`) arrive with relation queries; these are the identity and presence
+/// tests, which need nothing but the foreign-key column already stored here.
+impl<M: Model> crate::Col<One<M>> {
+    /// The reference points at exactly this row.
+    pub fn is(self, id: impl Into<ModelId<M>>) -> crate::Pred {
+        self.eq(One::<M>::from_handle(id.into().handle()))
+    }
+
+    /// The reference points at one of these rows — the set form, and what a query feeding
+    /// another query compiles to. (Named apart from the generic [`crate::Col::is_in`], which
+    /// takes `One` values; this one takes ids, which is what a caller actually holds.)
+    pub fn is_one_of(self, ids: impl IntoIterator<Item = impl Into<ModelId<M>>>) -> crate::Pred {
+        self.is_in(
+            ids.into_iter()
+                .map(|i| One::<M>::from_handle(i.into().handle()))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// The reference was never set, or a nullify rule cleared it.
+    pub fn is_unset(self) -> crate::Pred {
+        self.is_null()
+    }
+
+    /// The reference points somewhere.
+    pub fn is_set(self) -> crate::Pred {
+        self.is_not_null()
+    }
+}
+
+/// The same tests over a NULLABLE reference (`Option<One<M>>`), which is what a relation with
+/// a nullify delete rule requires the child to hold.
+impl<M: Model> crate::Col<Option<One<M>>> {
+    pub fn is(self, id: impl Into<ModelId<M>>) -> crate::Pred {
+        self.eq(Some(One::<M>::from_handle(id.into().handle())))
+    }
+
+    pub fn is_one_of(self, ids: impl IntoIterator<Item = impl Into<ModelId<M>>>) -> crate::Pred {
+        self.is_in(
+            ids.into_iter()
+                .map(|i| Some(One::<M>::from_handle(i.into().handle())))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    /// The reference was never set, or a nullify rule cleared it.
+    pub fn is_unset(self) -> crate::Pred {
+        self.is_null()
+    }
+
+    /// The reference points somewhere.
+    pub fn is_set(self) -> crate::Pred {
+        self.is_not_null()
+    }
+}
+
 /// The to-many side: a marker field. It stores NOTHING — membership lives in the children's
 /// foreign keys (or the join table), and the field exists so the relation has an observable
 /// path of its own and a declared home for `#[model(relation(…))]`. Reads go through the

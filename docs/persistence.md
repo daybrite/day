@@ -213,6 +213,47 @@ let results = container.query_fn::<Trip>(move || {
 });
 ```
 
+### The predicate vocabulary
+
+Comparisons (`eq`, `ne`, `lt`, `le`, `gt`, `ge`, `between`), text (`contains`, `contains_ci`,
+`starts_with`, `starts_with_ci`), sets (`is_in`, `not_in`), and presence (`is_null`,
+`is_not_null`). A reference column adds `is(id)`, `is_one_of(ids)`, `is_set` and `is_unset`.
+They compose with `&`, `|` and `!`.
+
+```rust
+container.query::<Paper>().filter(Paper::pages().is_in([12, 45, 96]))
+container.query::<Paper>().filter(Paper::title().starts_with("Quick"))   // case-SENSITIVE
+container.query::<Paper>().filter(Paper::shelf().is_null())
+container.query::<Essay>().filter(Essay::author().is(ada) | Essay::author().is_unset())
+```
+
+A set is sorted once when the predicate is built, so membership is a binary search rather than
+a scan — which is what keeps a large `is_in` cheap. **An empty set matches nothing** (in SQL it
+compiles to a constant, because `IN ()` is a syntax error there rather than an empty set).
+`starts_with` is deliberately not built on `LIKE`, whose SQLite default is case-*insensitive*
+for ASCII and would quietly answer a different question.
+
+### NULL follows SQL's rule, in both paths
+
+A comparison against a NULL column is **UNKNOWN**, not false, and UNKNOWN is not a match — so
+`Paper::shelf().ne(Some("A".into()))` does not select a row whose shelf is NULL, exactly as
+`WHERE shelf <> 'A'` does not. (A nullable column's `Col` is `Col<Option<T>>`, so its
+comparisons take the wrapped value; `is_null`/`is_not_null` need no operand at all.) UNKNOWN propagates through `&`, `|` and `!` by SQL's own
+three-valued logic, which is what lets the in-memory evaluation and the SQL form agree about
+NULL instead of quietly disagreeing. `is_null`/`is_not_null` stay definite, as `IS NULL` does.
+
+Sorting is unaffected and keeps SQLite's `ORDER BY` rule, where NULL sorts below numbers —
+ordering and comparison are different questions and day answers each the way SQL does.
+
+### Two evaluation paths, one answer
+
+A predicate carries `sql_exact()` beside `evaluable()`: whether its SQL form would select the
+same rows its in-memory evaluation does. Case-insensitive predicates answer `false`, because
+Rust folds case over the whole of Unicode while SQLite's `lower()` folds ASCII only — `ÉCOLE`
+would match one way and not the other. Those predicates evaluate in memory, where the Unicode
+answer is the correct one; a SQL-filtering path may only use `to_sql` when `sql_exact()` holds.
+(The exact fix, when one needs it, is a folding function registered through `Sqlite::with_init`.)
+
 The result set is maintained INCREMENTALLY against the change log (`LiveSet`, the
 fetched-results-controller algorithm with one better tier): a change to a column the query
 never mentions costs nothing at all — no predicate evaluation, no waking; a predicate or sort

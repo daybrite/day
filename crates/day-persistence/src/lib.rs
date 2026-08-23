@@ -34,8 +34,8 @@ use day_model::{Identified, Key, Keyed, ModelId, Op, Store};
 
 mod queries;
 pub use queries::{
-    Col, Delta, Fetch, FtsRef, GeoRect, GeoRef, LiveSet, Outcome, Pred, RowView, RowsView, Sort,
-    compare_values, encode_column, rank,
+    Col, Delta, Deps, Fetch, FtsRef, GeoRect, GeoRef, LiveSet, Outcome, Pred, RelatedDep, RowView,
+    RowsView, Sort, compare_values, encode_column, rank,
 };
 
 mod relations;
@@ -2586,7 +2586,7 @@ impl ModelContainer {
         let rows = HooksRows { hooks };
         candidates.retain(|k| {
             rows.row_view(*k)
-                .map(|r| fetch.pred.eval(r.as_ref()))
+                .map(|r| fetch.pred.eval(*k, r.as_ref()))
                 .unwrap_or(false)
         });
         if !by_rank && !fetch.sort.is_empty() {
