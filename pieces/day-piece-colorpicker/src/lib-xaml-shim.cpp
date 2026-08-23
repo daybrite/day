@@ -13,8 +13,9 @@
 // tree is what lets this shim avoid a pointer-keyed side map (and the address-reuse hazard that
 // comes with one) entirely.
 //
-// Windows-only; compiled by build.rs, built in CI, NOT verified locally. docs/colorpicker.md lists
-// what a check on Windows has to confirm.
+// Windows-only; compiled by build.rs, built in CI. Driven by hand on Windows 11 since — the flyout
+// and the pick behind it are what no script can reach; docs/colorpicker.md records what that check
+// covered and what it left open.
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h> // IVector methods — else C3779
@@ -66,6 +67,22 @@ static std::wstring wide(const char *s) {
     return w;
 }
 
+// `ColorPicker::Color` raises `ColorChanged` — a dependency-property callback, so it runs
+// synchronously, inside the assignment below. Day pushing the MODEL's value in (a new selection
+// in an inspector, an undo) would therefore be reported straight back as if the user had picked
+// it, and the app would rewrite the value it just sent: a no-op write that still lands as an undo
+// unit and buries the user's real one. Nothing in XAML sets the value quietly, so the write is
+// bracketed by this flag and the callback reads it — the same echo guard day-piece-colorpicker's
+// GTK backend keeps (src/lib-gtk.rs), for the same reason. The UI thread is the only thread
+// touching either.
+static bool g_pushing = false;
+
+struct Pushing {
+    bool prev;
+    Pushing() : prev(g_pushing) { g_pushing = true; }
+    ~Pushing() { g_pushing = prev; }
+};
+
 static std::wstring hexOf(WU::Color const &c, bool withAlpha) {
     wchar_t buf[16];
     if (withAlpha && c.A != 255) {
@@ -112,7 +129,9 @@ void *day_colorpicker_xaml_new(double r, double g, double b, double a, int with_
     picker.ColorChanged([id, cb, swatch, alpha](WUXC::ColorPicker const &,
                                                 WUXC::ColorChangedEventArgs const &args) {
         const WU::Color c = args.NewColor();
+        // The swatch follows the picker either way; only the report back to day is a PICK.
         paintSwatch(swatch, c, alpha);
+        if (g_pushing) return;
         cb(id, c.R / 255.0, c.G / 255.0, c.B / 255.0, c.A / 255.0);
     });
 
@@ -140,9 +159,12 @@ void day_colorpicker_xaml_set(void *handle, double r, double g, double b, double
     const WU::Color value = toWinColor(r, g, b, a);
     if (auto flyout = button.Flyout().try_as<WUXC::Flyout>()) {
         if (auto picker = flyout.Content().try_as<WUXC::ColorPicker>()) {
-            // Setting `Color` raises `ColorChanged`, so writing back the value that just arrived
-            // FROM the picker would round-trip forever. Comparing first is the whole guard.
+            // Two guards, against two different loops: the comparison drops the flush that
+            // carries a pick back to the picker it came from (day rewrites every bound value,
+            // not just changed ones), and `Pushing` keeps the `ColorChanged` that a real change
+            // does raise from being reported as a pick of its own.
             if (sameColor(picker.Color(), value)) return;
+            Pushing pushing;
             picker.Color(value);
         }
     }

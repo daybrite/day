@@ -202,8 +202,18 @@ every host.
 
 Not yet exercised: **harmony-arkui** (which gets the composed panel, and whose Rust is the same
 code the other eight run — but the OHOS emulator has not run it), and the *interaction* with each
-native chooser, which is an OS panel a script cannot drive. **windows-xaml** is written blind: a
-check on Windows has to confirm four things the shim assumes — that `Button.Flyout` accepts a
-`Flyout` holding a `ColorPicker`, that `ColorChanged` fires while the flyout is open, that
-`IsAlphaEnabled` shows the alpha channel, and that `day_xaml_measure` reports a sane size for the
-swatch button.
+native chooser, which is an OS panel a script cannot drive.
+
+**windows-xaml** was written blind and has since been driven by hand on Windows 11, in Day-Sketch's
+inspector, with synthetic mouse input (nothing below is in CI — opening the flyout is the part no
+script reaches). Three of the four assumptions hold: `Button.Flyout` does carry a `ColorPicker`,
+`ColorChanged` does fire while the flyout is open and the pick reaches the app, and
+`day_xaml_measure` sizes the swatch button sanely. `IsAlphaEnabled` is still unconfirmed — the app
+the check ran in keeps its wells opaque and carries opacity on a slider of its own.
+
+The same check found a fifth thing the shim had assumed and should not have: `ColorPicker::Color`
+raises `ColorChanged`, so day writing a value IN — an inspector following a new selection — came
+straight back as if the user had picked it. The app then rewrote the value it had just sent, and
+that no-op write still sealed an undo unit, which swallowed the user's next Undo (Day-Sketch's
+walkthrough failed there). The shim now brackets the write with an echo guard, the way the GTK arm
+always has; Qt never reports anything but an explicit dialog pick, so it never had the hazard.
