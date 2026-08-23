@@ -1564,7 +1564,29 @@ impl ModelContainer {
     }
 
     fn create_indexes<M: Model>(&self) -> Result<(), DbError> {
-        for c in M::COLUMNS.iter().filter(|c| c.indexed) {
+        // A declared relation's foreign-key column is indexed WITHOUT being asked. The
+        // in-memory relation index answers reads, but the column is still what the engine
+        // scans to enforce `ON DELETE` — for this process on a `rescan`, and for any other
+        // process always. Unindexed, every parent delete is a full scan of the child table.
+        // (Room, facing the same cost, warns the developer to add the index; there is no
+        // reason to make that the app's homework when the relation already declared it.)
+        let fk_cols: Vec<&str> = self
+            .inner
+            .fk_specs
+            .borrow()
+            .iter()
+            .filter(|s| s.child_table == M::TABLE)
+            .filter_map(|s| {
+                M::COLUMNS
+                    .iter()
+                    .find(|c| c.field == s.child_field)
+                    .map(|c| c.name)
+            })
+            .collect();
+        for c in M::COLUMNS
+            .iter()
+            .filter(|c| c.indexed || (fk_cols.contains(&c.name) && c.name != M::KEY))
+        {
             self.conn().execute(
                 &format!(
                     "CREATE INDEX IF NOT EXISTS day_idx_{t}_{c} ON {t}({c})",

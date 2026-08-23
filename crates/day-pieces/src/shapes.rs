@@ -411,7 +411,7 @@ fn shape_flex() -> Flex {
 /// Flatten many shape descriptions into ONE canvas leaf — one native view no matter how many
 /// shapes (docs/shapes.md §3.6). Shapes draw in order; reactive properties re-record the group.
 /// Child gestures are not wired inside a group — put `.on_tap` on the group via [`Decorate`].
-pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> AnyPiece {
+pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> impl Piece {
     let specs: Vec<ShapeSpec> = shapes.into_iter().map(|s| s.spec).collect();
     piece_fn(move |cx| {
         canvas_leaf(cx, shape_flex(), move |d, size| {
@@ -426,7 +426,7 @@ pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> AnyPiece {
 /// Size-aware [`shape_group`]: the closure derives the shapes from the laid-out size and re-runs
 /// on `FrameChanged`, exactly like [`canvas`] — for geometry that depends on the final size
 /// (e.g. data mapped along the width).
-pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> AnyPiece {
+pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> impl Piece {
     piece_fn(move |cx| {
         canvas_leaf(cx, shape_flex(), move |d, size| {
             let bounds = Rect::from_size(size);

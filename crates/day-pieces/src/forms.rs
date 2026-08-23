@@ -42,10 +42,16 @@ const LABELED_GAP: f64 = 12.0;
 ///     section((labeled(tr("name"), text_field(name)),)),
 /// ))
 /// ```
+/// ERASES deliberately, unlike the rest of the deferred constructors (§5.2). A form is the
+/// densest surface an app has — a settings page is dozens of [`labeled`] rows — and its result
+/// is usually collected (`Vec<AnyPiece>`, a page table) rather than consumed inline. Erasing
+/// here keeps a section's children one flat type instead of a tuple of nested closure types,
+/// which bounds both monomorphization and the depth of any error message pointing at a form.
 pub fn form<C: PieceSeq + 'static>(sections: C) -> AnyPiece {
     with_environment(FormLabelColumn(Rc::new(Cell::new(0.0))), move || {
-        column(sections).spacing(16.0).align(HAlign::Leading).any()
+        column(sections).spacing(16.0).align(HAlign::Leading)
     })
+    .any()
 }
 
 /// One grouped form section (created by [`section`]): an optional header above a rounded card
@@ -99,7 +105,7 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
                 .align(HAlign::Leading)
                 .padding(14.0);
             cx.under(node, |cx| {
-                let _ = AnyPiece::new(inner).build(cx);
+                let _ = inner.build(cx);
             });
             node
         });
@@ -151,6 +157,9 @@ impl day_core::Layout for SectionCardLayout {
 /// A form row: `label` sits in the form-wide aligned label column (right-aligned, vertically
 /// centered), `control` beside it. Outside a [`form`] the label column is just this row's own
 /// label width. A control with `.grow()` stretches to the row's remaining width.
+/// Erases for the same reason [`form`] does — rows are collected far more often than they are
+/// consumed inline, and one flat row type keeps a form's children from nesting a closure type
+/// per row.
 pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
     let text = text.into_text();
     piece_fn(move |cx: &mut BuildCx| {
@@ -179,10 +188,11 @@ pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
                 color: None,
             };
             let _ = row_label.build(cx);
-            let _ = AnyPiece::new(control).build(cx);
+            let _ = control.build(cx);
         });
         node
     })
+    .any()
 }
 
 struct LabeledLayout {

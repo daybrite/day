@@ -289,10 +289,10 @@ version had ~30. The composites close that gap:
 
 ```rust
 /// Flatten shape descriptions into ONE canvas leaf, drawn in order.
-pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> AnyPiece;
+pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> impl Piece;
 /// Size-aware variant: children derive from the laid-out size, re-run on FrameChanged —
 /// for geometry that maps data along the final width/height.
-pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> AnyPiece;
+pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> impl Piece;
 
 // A storm glyph — five shapes, one native view:
 shape_group([

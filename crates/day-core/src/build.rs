@@ -147,9 +147,24 @@ impl Piece for AnyPiece {
     }
 }
 
-/// A piece from a closure.
-pub fn piece_fn(f: impl FnOnce(&mut BuildCx) -> RNode + 'static) -> AnyPiece {
-    AnyPiece(Box::new(f))
+/// A closure kept as a CONCRETE piece — the deferral primitive (§5.2).
+///
+/// A piece that must read something only available at BUILD time (an ambient `environment`, a
+/// scope, the laid-out size) defers its body into a closure. Deferring is not erasing: this
+/// newtype carries the closure inline, so the constructors built on [`piece_fn`] can return
+/// `impl Piece` and keep the caller's type concrete. Erase deliberately with `.any()` where a
+/// heterogeneous collection or a stored callback actually needs it.
+pub struct PieceFn<F>(F);
+
+impl<F: FnOnce(&mut BuildCx) -> RNode + 'static> Piece for PieceFn<F> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        (self.0)(cx)
+    }
+}
+
+/// A piece from a closure, built when the tree reaches it.
+pub fn piece_fn<F: FnOnce(&mut BuildCx) -> RNode + 'static>(f: F) -> PieceFn<F> {
+    PieceFn(f)
 }
 
 /// A build-time branch between two piece TYPES, without erasing either (§5.1).
@@ -191,7 +206,7 @@ mod any_piece_tests {
     /// second box, and method resolution silently falls back to the blanket trait without it.
     #[test]
     fn any_on_an_erased_piece_reuses_its_box() {
-        let p = piece_fn(|_| RNode::null());
+        let p = AnyPiece::new(piece_fn(|_| RNode::null()));
         let before = box_addr(&p);
         let p = p.any();
         assert_eq!(before, box_addr(&p));

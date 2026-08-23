@@ -344,7 +344,7 @@ struct EachRow<S: 'static> {
 
 /// Reactive keyed collection (§5.4): keyed diff, per-key child scopes, slot rebinds for
 /// surviving rows, debug key-uniqueness assertion. Takes any [`RowSource`].
-pub fn each<S, P>(source: S, build_row: impl Fn(S::Slot) -> P + 'static) -> AnyPiece
+pub fn each<S, P>(source: S, build_row: impl Fn(S::Slot) -> P + 'static) -> impl Piece
 where
     S: RowSource + 'static,
     P: Piece,
@@ -448,10 +448,10 @@ where
 /// with_environment(Theme { accent: BLUE }, || my_screen())
 /// // deep inside my_screen():  let accent = environment::<Theme>().unwrap().accent;
 /// ```
-pub fn with_environment<T: Clone + 'static>(
+pub fn with_environment<T: Clone + 'static, P: Piece>(
     value: T,
-    content: impl FnOnce() -> AnyPiece + 'static,
-) -> AnyPiece {
+    content: impl FnOnce() -> P + 'static,
+) -> impl Piece {
     piece_fn(move |cx| {
         // A child scope carrying `T`, entered for the whole of `content`'s construction AND build,
         // so both `content`'s own body and every descendant piece's build resolve it via

@@ -270,6 +270,26 @@ fn cmp_col(row: &dyn RowView, c: &str, v: &Value) -> Option<Ordering> {
     row.col(c).map(|a| compare_values(&a, v))
 }
 
+/// The fetch's total order over two rows: each sort key in turn, then the id as a stable
+/// tie-break — so the order is deterministic and a binary search over it is well defined.
+fn cmp_by(fetch: &Fetch, a: u64, b: u64, rows: &dyn RowsView) -> Ordering {
+    for s in &fetch.sort {
+        let va = rows.row_view(a).and_then(|r| r.col(s.column));
+        let vb = rows.row_view(b).and_then(|r| r.col(s.column));
+        let ord = match (&va, &vb) {
+            (Some(x), Some(y)) => compare_values(x, y),
+            (None, None) => Ordering::Equal,
+            (None, _) => Ordering::Less,
+            (_, None) => Ordering::Greater,
+        };
+        let ord = if s.ascending { ord } else { ord.reverse() };
+        if ord != Ordering::Equal {
+            return ord;
+        }
+    }
+    a.cmp(&b)
+}
+
 /// SQLite's cross-class ordering (NULL < numbers < text < blob), with one deliberate
 /// difference: `Real` compares by `total_cmp`, so a NaN that reaches a sort key still orders
 /// deterministically instead of poisoning the sort.
@@ -574,23 +594,17 @@ impl LiveSet {
 
     fn sort_ids(&mut self, rows: &dyn RowsView) {
         let fetch = &self.fetch;
-        self.ids.sort_by(|a, b| {
-            for s in &fetch.sort {
-                let va = rows.row_view(*a).and_then(|r| r.col(s.column));
-                let vb = rows.row_view(*b).and_then(|r| r.col(s.column));
-                let ord = match (&va, &vb) {
-                    (Some(x), Some(y)) => compare_values(x, y),
-                    (None, None) => Ordering::Equal,
-                    (None, _) => Ordering::Less,
-                    (_, None) => Ordering::Greater,
-                };
-                let ord = if s.ascending { ord } else { ord.reverse() };
-                if ord != Ordering::Equal {
-                    return ord;
-                }
-            }
-            a.cmp(b) // a stable tie-break, so the order is deterministic
-        });
+        self.ids.sort_by(|a, b| cmp_by(fetch, *a, *b, rows));
+    }
+
+    /// Where `key` belongs in the ALREADY-SORTED `ids` — O(log n) comparisons, against the
+    /// O(n log n) a re-sort costs. This is what keeps one edit to a sort column one edit's
+    /// worth of work no matter how large the result set is; `ids` is a sorted run at every
+    /// point the maintainer observes it, which is the invariant that makes the search valid.
+    fn sorted_position(&self, key: u64, rows: &dyn RowsView) -> usize {
+        let fetch = &self.fetch;
+        self.ids
+            .partition_point(|other| cmp_by(fetch, *other, key, rows) == Ordering::Less)
     }
 
     /// Apply one announced change: `key` is the row, `column` the changed field's column name
@@ -658,14 +672,16 @@ impl LiveSet {
                 if self.fetch.limit.is_some() {
                     return Outcome::Requery; // an entrant can push the window's tail out
                 }
-                self.ids.push(key);
-                self.sort_ids(rows);
-                let i = self.ids.iter().position(|k| *k == key).unwrap_or(0);
+                let i = self.sorted_position(key, rows);
+                self.ids.insert(i, key);
                 Outcome::Changed(vec![Delta::Insert(i, key)])
             }
             (true, Some(from)) => {
-                self.sort_ids(rows);
-                let to = self.ids.iter().position(|k| *k == key).unwrap_or(from);
+                // Lift the row out, then binary-search where it now belongs among the rest —
+                // one row moved, so the remainder is still sorted.
+                self.ids.remove(from);
+                let to = self.sorted_position(key, rows);
+                self.ids.insert(to, key);
                 if to == from {
                     Outcome::Unaffected // in the set, in place: the row repaints itself
                 } else {

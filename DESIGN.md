@@ -635,6 +635,13 @@ Authoring-surface edges, specified now so they don't accrete ad hoc:
   (`if compact { Either::Left(a) } else { Either::Right(b) }`), which keeps both arms concrete;
   `Decorate::any` erases when a single `AnyPiece` is what's actually needed. `AnyPiece::any` is
   inherent and returns `self`, so re-erasing an erased piece costs nothing.
+- **Deferring is not erasing.** A piece whose body must run at BUILD time (it reads an ambient
+  `environment`, a scope, or the laid-out size) defers into `piece_fn`, which returns the
+  concrete `PieceFn<F>` — so `canvas`, `frame_clock`, `shape_group`, `shape_group_fn`, `each`
+  and `with_environment` all return `impl Piece` and stay unboxed in the caller's type. The two
+  form constructors are the deliberate exception: `form` and `labeled` erase, because their
+  results are collected far more often than consumed inline, and a flat row type keeps a
+  form — the densest surface an app has — from nesting one closure type per row.
 - **Closure capture rules**: the builder closures of `when`/`each` are `Fn` (they may
   run more than once); non-`Copy` captures must be cloned per activation
   (`let items = items.clone();` inside the closure, or capture a `Signal` — signals are `Copy`,
@@ -1873,7 +1880,7 @@ made native nav containers possible without a scaffold migration.
 > glyphs and range bars are the reference consumers).
 
 ```rust
-pub fn gauge(value: Signal<f64>) -> AnyPiece {
+pub fn gauge(value: Signal<f64>) -> impl Piece {
     canvas(move |d, size| {
         let r = Rect::from_size(size).inset(8.0);
         d.stroke(arc_path(r, 135.0, 270.0), Color::rgba(0.5, 0.5, 0.55, 0.35), 6.0);
@@ -1882,7 +1889,6 @@ pub fn gauge(value: Signal<f64>) -> AnyPiece {
     })
     .frame(120.0, 120.0)
     .a11y(|a| a.role(Role::Meter))
-    .any()
 }
 ```
 

@@ -251,7 +251,7 @@ pub(crate) fn canvas_leaf(
 
 /// The drawing closure is a binding: signal reads re-record; layout size changes re-record
 /// (via FrameChanged); replay is equality-gated by DrawOp's PartialEq (§4.2).
-pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> AnyPiece {
+pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> impl Piece {
     piece_fn(move |cx| canvas_leaf(cx, Flex::default(), draw))
 }
 
@@ -270,7 +270,7 @@ pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> AnyPiece {
 ///     frame_clock(move |dt| step(dt, state)),
 /// ))
 /// ```
-pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> AnyPiece {
+pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> impl Piece {
     type TickSlot = Rc<RefCell<Option<Box<dyn FnMut(std::time::Duration)>>>>;
     // Registered on first build (in the mounting scope) and removed when that scope is disposed.
     let slot: TickSlot = Rc::new(RefCell::new(Some(Box::new(tick))));
@@ -281,7 +281,6 @@ pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> AnyPiece 
         }
         label("").frame(0.0, 0.0).build(cx)
     })
-    .any()
 }
 
 // ---------------------------------------------------------------------------

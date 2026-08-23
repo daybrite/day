@@ -2378,7 +2378,7 @@ pub fn stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Stack<S
         title: TextSource::Static(String::new()),
         root: AnyPiece::new(root),
         destination: Rc::new(|_| {
-            piece_fn(|cx| cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No))
+            piece_fn(|cx| cx.layout_only(Rc::new(PassThrough), Flex::default(), Boundary::No)).any()
         }),
         on_back: None,
         restore: None,

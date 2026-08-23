@@ -475,9 +475,12 @@ impl Drop for RusqliteConn {
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 impl SqliteConnection for RusqliteConn {
     fn execute(&mut self, sql: &str, params: &[Value]) -> Result<u64, DbError> {
+        // Cached, not re-prepared: the fold emits RUNS of identical SQL (one INSERT shape per
+        // table, one DELETE, one UPDATE per changed column set), so a bulk flush would
+        // otherwise re-parse the same statement thousands of times.
         let mut stmt = self
             .conn
-            .prepare(sql)
+            .prepare_cached(sql)
             .map_err(|e| DbError::driver(format!("{e} in `{sql}`")))?;
         let bound = rusqlite::params_from_iter(params.iter().map(to_sql));
         stmt.execute(bound)
@@ -493,7 +496,7 @@ impl SqliteConnection for RusqliteConn {
     ) -> Result<(), DbError> {
         let mut stmt = self
             .conn
-            .prepare(sql)
+            .prepare_cached(sql)
             .map_err(|e| DbError::driver(format!("{e} in `{sql}`")))?;
         let bound = rusqlite::params_from_iter(params.iter().map(to_sql));
         let mut rows = stmt

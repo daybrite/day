@@ -1312,6 +1312,10 @@ pub trait Identified {
 pub struct Keyed<T> {
     items: Vec<T>,
     index: HashMap<u64, usize>,
+    /// Set when raw access ([`Keyed::items_mut`]) may have invalidated the map. The mutating
+    /// methods keep it correct themselves, so the O(n) rebuild happens only where a caller
+    /// actually reached past them — which is what keeps a bulk insert O(n) rather than O(n²).
+    stale: bool,
 }
 
 impl<T: Identified> Default for Keyed<T> {
@@ -1319,6 +1323,7 @@ impl<T: Identified> Default for Keyed<T> {
         Keyed {
             items: Vec::new(),
             index: HashMap::new(),
+            stale: false,
         }
     }
 }
@@ -1328,17 +1333,27 @@ impl<T: Identified> Keyed<T> {
         let mut k = Keyed {
             items,
             index: HashMap::new(),
+            stale: false,
         };
         k.reindex();
         k
     }
 
-    /// Rebuild the map. Called after any structural change; O(n) once, not per read. Integer
-    /// keys pay no interner cost here; wide keys pay one read-locked lookup per row.
+    /// Rebuild the map. O(n); integer keys pay no interner cost here, wide keys pay one
+    /// read-locked lookup per row.
     pub fn reindex(&mut self) {
         self.index.clear();
         for (i, item) in self.items.iter().enumerate() {
             self.index.insert(item.handle(), i);
+        }
+        self.stale = false;
+    }
+
+    /// Rebuild only if raw access may have invalidated the map — what [`Store::restructure`]
+    /// calls, so appending a row stays O(1) instead of rebuilding the whole index per insert.
+    pub fn reindex_if_stale(&mut self) {
+        if self.stale {
+            self.reindex();
         }
     }
 
@@ -1393,8 +1408,11 @@ impl<T: Identified> Keyed<T> {
     }
 
     /// The raw list, for a structural edit inside [`Store::restructure`] that the helpers above
-    /// do not cover. The caller's closure runs before the store reindexes.
+    /// do not cover. Taking it marks the key map stale, so the store rebuilds it after the
+    /// caller's closure returns — the helpers above stay index-correct on their own and pay
+    /// nothing for this.
     pub fn items_mut(&mut self) -> &mut Vec<T> {
+        self.stale = true;
         &mut self.items
     }
 }
@@ -1469,7 +1487,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
                 prior = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
             }
             f(&mut g);
-            g.reindex();
+            g.reindex_if_stale();
             if capture && op == Op::Insert {
                 value = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
             }

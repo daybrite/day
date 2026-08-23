@@ -72,6 +72,14 @@ that is already erased (`AnyPiece::any` is inherent and returns `self`). A build
 between two piece types uses `Either<A, B>` rather than erasing both arms; a branch on a
 signal uses `when(…).otherwise(…)`.
 
+**Deferring to build time is not such a boundary.** A constructor whose body must wait for the
+build (it reads an ambient `environment`, a scope, or the laid-out size) defers through
+`piece_fn`, which returns the concrete `PieceFn<F>` — so `canvas`, `frame_clock`, `shape_group`,
+`shape_group_fn`, `each` and `with_environment` return `impl Piece` and cost no box. `form` and
+`labeled` are the deliberate exception: they erase because a form's rows are collected far more
+often than consumed inline, and one flat row type keeps the densest surface in an app from
+nesting a closure type per row.
+
 There is no `From<P> for AnyPiece`, and there cannot be a blanket one: `AnyPiece` implements
 `Piece`, so a blanket impl collides with core's reflexive `impl<T> From<T> for T`. `.any()`
 is the single spelling.
