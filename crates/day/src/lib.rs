@@ -362,7 +362,7 @@ pub mod prelude {
     #[cfg(feature = "model")]
     pub use ::day_model;
     #[cfg(feature = "model")]
-    pub use ::day_model::{Elem, Field, Keyed, Source, Store};
+    pub use ::day_model::{Elem, Field, Key, Keyed, ModelId, Source, Store, Uuid};
     #[cfg(feature = "model")]
     pub use day_macros::Observable;
     // Persistence (docs/persistence.md). Same by-NAME rule: `#[derive(Model)]`'s generated
@@ -370,7 +370,9 @@ pub mod prelude {
     #[cfg(feature = "persistence")]
     pub use ::day_persistence;
     #[cfg(feature = "persistence")]
-    pub use ::day_persistence::{Model, ModelContainer, Recorder, Secret, Sqlite, schema};
+    pub use ::day_persistence::{
+        DeleteRule, Many, Model, ModelContainer, One, Recorder, Secret, Sqlite, schema,
+    };
     #[cfg(feature = "persistence")]
     pub use day_macros::Model;
     pub use day_spec::Point;

@@ -233,7 +233,7 @@ fn a_megabyte_of_text_round_trips_and_indexes() {
     assert_eq!(c.store::<Doc>().elem(1).body().peek().len(), big.len());
 
     let q = c.query::<Doc>().filter(Doc::fts().matches("lorem")).live();
-    assert!(q.ids().contains(&1));
+    assert!(q.contains(1));
 }
 
 #[test]
@@ -252,21 +252,24 @@ fn malformed_fts_syntax_surfaces_instead_of_reading_as_empty() {
 }
 
 #[test]
-fn sentinel_adjacent_keys_work_and_the_sentinel_is_reserved() {
+fn sentinel_adjacent_keys_work_and_the_top_bit_is_reserved() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Doc]).expect("open");
     let store = c.store::<Doc>();
-    let near_max = u64::MAX - 1;
-    store.restructure("add", Op::Insert, near_max, |v| {
+    // The integer keyspace ends below 1 << 63: the top bit is the wide-key handle space
+    // (identity derived from data belongs in a Uuid or String key now), and SQLite's own
+    // INTEGER tops out at i64::MAX anyway — the old contract only "stored" larger keys by
+    // silently wrapping them negative. Debug builds refuse the top bit at the key itself.
+    let near_top = (1u64 << 63) - 2;
+    store.restructure("add", Op::Insert, near_top, |v| {
         v.push(Doc {
-            id: near_max,
+            id: near_top,
             title: "edge of the keyspace".into(),
             ..Default::default()
         });
     });
     let sql = c.record_sql(|| {}).expect("save");
-    assert_eq!(sql.len(), 1, "near-MAX keys persist normally: {sql:?}");
-    // u64::MAX itself is day-model's STRUCTURE sentinel: a row using it as a key would alias
-    // the collection's shape path. Documented reservation, pinned here.
+    assert_eq!(sql.len(), 1, "near-top keys persist normally: {sql:?}");
+    // u64::MAX itself is day-model's STRUCTURE sentinel — inside the reserved half.
     assert_eq!(day_model::STRUCTURE, u64::MAX);
 }
 

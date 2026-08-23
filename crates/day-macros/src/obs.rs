@@ -65,6 +65,18 @@ struct FieldDef {
     transient: bool,
     with: Option<String>,
     json: bool,
+    /// `#[model(relation(…))]` — a `Many<T>` marker field: no column, no plain accessor;
+    /// the Model derive emits a `RelationRef` accessor and the wiring instead.
+    relation: Option<RelationAttr>,
+}
+
+/// The parsed `relation(target = T, inverse = "…", delete = "…", ordered = "…", join = "…")`.
+struct RelationAttr {
+    target: String,
+    inverse: Option<String>,
+    delete: String,
+    ordered: Option<String>,
+    join: Option<String>,
 }
 
 impl FieldDef {
@@ -72,7 +84,7 @@ impl FieldDef {
         self.column.as_deref().unwrap_or(&self.name)
     }
     fn persisted(&self) -> bool {
-        !self.skip && !self.transient
+        !self.skip && !self.transient && self.relation.is_none()
     }
     fn nullable(&self) -> bool {
         self.ty == "Option" || self.ty.starts_with("Option <")
@@ -124,6 +136,15 @@ fn expand_model(input: TokenStream) -> Result<String, String> {
             def.name
         ));
     }
+    if key.with.is_some() || key.json {
+        // The key's stored form must match its `Key` form — the fold's WHERE parameters and
+        // external-merge decoding both derive it from the key kind, not from a codec.
+        return Err(format!(
+            "Model: `{}`'s id field takes no codec — integer, Uuid and String keys store \
+             in their canonical forms",
+            def.name
+        ));
+    }
 
     let mut out = emit_observable(&def);
     out.push_str(&emit_model(&def, key)?);
@@ -136,15 +157,23 @@ fn expand_model(input: TokenStream) -> Result<String, String> {
 
 fn emit_observable(def: &StructDef) -> String {
     let name = &def.name;
-    let observed: Vec<&FieldDef> = def.fields.iter().filter(|f| !f.skip).collect();
+    // Relation marker fields observe through their RelationRef accessor (Model-emitted), not
+    // a plain Field — a `Many` holds nothing a Field could usefully bind.
+    let observed: Vec<&FieldDef> = def
+        .fields
+        .iter()
+        .filter(|f| !f.skip && f.relation.is_none())
+        .collect();
     let mut out = String::new();
 
     // The key, if one was marked. Without one the struct still observes; putting it in a
     // `Keyed` collection is then a compile error naming `Identified` and this attribute.
     if let Some(k) = def.fields.iter().find(|f| f.key) {
+        // `AsKey` picks the key's form by the FIELD TYPE — integers pass through as their own
+        // handle, `Uuid` and `String` intern — so the derive never interprets the type.
         out.push_str(&format!(
             "impl day_model::Identified for {name} {{\n\
-             \x20   fn obs_key(&self) -> u64 {{ self.{} as u64 }}\n\
+             \x20   fn key(&self) -> day_model::Key {{ day_model::AsKey::as_key(&self.{}) }}\n\
              }}\n",
             k.name
         ));
@@ -168,13 +197,20 @@ fn emit_observable(def: &StructDef) -> String {
         "impl<S: day_model::Source<{name}>> {trait_name} for S {{}}\n"
     ));
 
-    // The typed write-back seam an undo stack replays through: one match arm per observed
-    // field, downcasting to the field's own type.
+    // The typed seam an undo stack replays through — and, since `read_field`, the seam
+    // label-addressed writes capture priors through and relation wiring reads foreign keys
+    // through: one match arm per observed field, downcasting to the field's own type.
     out.push_str(&format!(
         "impl day_model::ApplyField for {name} {{\n\
          \x20   fn apply_field(&mut self, label: &str, value: &dyn ::core::any::Any) -> bool {{\n\
          \x20       match label {{\n{}\
          \x20           _ => false,\n\
+         \x20       }}\n\
+         \x20   }}\n\
+         \x20   fn read_field(&self, label: &str) -> \
+         Option<::std::rc::Rc<dyn ::core::any::Any>> {{\n\
+         \x20       match label {{\n{}\
+         \x20           _ => None,\n\
          \x20       }}\n\
          \x20   }}\n\
          }}\n",
@@ -189,6 +225,13 @@ fn emit_observable(def: &StructDef) -> String {
                  \x20               None => false,\n\
                  \x20           }},\n",
                 f.name, f.ty, f.name
+            ))
+            .collect::<String>(),
+        observed
+            .iter()
+            .map(|f| format!(
+                "            \"{}\" => Some(::std::rc::Rc::new(self.{}.clone())),\n",
+                f.name, f.name
             ))
             .collect::<String>()
     ));
@@ -315,6 +358,88 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
     }
     let col_impl = format!("#[allow(dead_code)]\nimpl {name} {{\n{cols}}}\n");
 
+    // Relations: the const table, the wiring, and the RelationRef accessor trait.
+    let rels: Vec<(&FieldDef, &RelationAttr)> = def
+        .fields
+        .iter()
+        .filter_map(|f| f.relation.as_ref().map(|r| (f, r)))
+        .collect();
+    let delete_expr = |d: &str| match d {
+        "cascade" => "day_persistence::DeleteRule::Cascade",
+        "deny" => "day_persistence::DeleteRule::Deny",
+        _ => "day_persistence::DeleteRule::Nullify",
+    };
+    let opt_str = |o: &Option<String>| match o {
+        Some(s) => format!("Some(\"{s}\")"),
+        None => "None".into(),
+    };
+    let relations_const = if rels.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "    const RELATIONS: &'static [day_persistence::RelationDef] = &[\n{}    ];\n",
+            rels.iter()
+                .map(|(f, r)| format!(
+                    "        day_persistence::RelationDef {{ field: \"{}\", target_table: \
+                     <{} as day_persistence::Model>::TABLE, inverse: \"{}\", delete: {}, \
+                     ordered: {}, join: {} }},\n",
+                    f.name,
+                    r.target,
+                    r.inverse.as_deref().unwrap_or(""),
+                    delete_expr(&r.delete),
+                    opt_str(&r.ordered),
+                    opt_str(&r.join),
+                ))
+                .collect::<String>()
+        )
+    };
+    let wire_fn = if rels.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "    fn wire(reg: &mut day_persistence::Registrar<'_>) {{\n{}    }}\n",
+            rels.iter()
+                .map(|(f, r)| match (&r.join, &r.inverse) {
+                    (Some(join), _) => format!(
+                        "        day_persistence::wire_join::<Self, {}>(reg, \"{}\", \
+                         \"{join}\", {}, {});\n",
+                        r.target,
+                        f.name,
+                        opt_str(&r.ordered),
+                        delete_expr(&r.delete),
+                    ),
+                    (None, Some(inverse)) => format!(
+                        "        day_persistence::wire_to_many::<Self, {}>(reg, \"{}\", \
+                         \"{inverse}\", {}, {});\n",
+                        r.target,
+                        f.name,
+                        delete_expr(&r.delete),
+                        opt_str(&r.ordered),
+                    ),
+                    (None, None) => String::new(), // refused at parse time
+                })
+                .collect::<String>()
+        )
+    };
+    let rel_trait = if rels.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "#[allow(non_camel_case_types)]\n\
+             pub trait {name}Relations: day_model::Source<{name}> + Sized {{\n{}}}\n\
+             impl<S: day_model::Source<{name}>> {name}Relations for S {{}}\n",
+            rels.iter()
+                .map(|(f, r)| format!(
+                    "    fn {}(self) -> day_persistence::RelationRef<Self, {name}, {}> {{\n\
+                     \x20       day_persistence::RelationRef::new(day_model::project(\
+                     self, \"{}\", |s| &s.{}, |s| &mut s.{}))\n\
+                     \x20   }}\n",
+                    f.name, r.target, f.name, f.name, f.name
+                ))
+                .collect::<String>()
+        )
+    };
+
     let fts_const = if def.fts.is_empty() {
         String::new()
     } else {
@@ -335,14 +460,17 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
         ),
     };
 
+    let key_sql = sql_type_expr(key);
     Ok(col_impl
+        + &rel_trait
         + &format!(
             "impl day_persistence::Model for {name} {{\n\
          \x20   const TABLE: &'static str = \"{table}\";\n\
          \x20   const KEY: &'static str = \"{key_col}\";\n\
+         \x20   const KEY_SQL: day_persistence::SqlType = {key_sql};\n\
          \x20   const COLUMNS: &'static [day_persistence::ColumnDef] = &[\n{columns}    ];\n\
          \x20   const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[{composites}];\n\
-         {fts_const}{spatial_const}\
+         {fts_const}{spatial_const}{relations_const}\
          \x20   fn to_row(&self) -> Vec<day_persistence::Value> {{\n\
          \x20       vec![\n{to_row}        ]\n\
          \x20   }}\n\
@@ -353,6 +481,7 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
          \x20   fn default_row() -> Vec<day_persistence::Value> {{\n\
          \x20       day_persistence::Model::to_row(&<Self as ::core::default::Default>::default())\n\
          \x20   }}\n\
+         {wire_fn}\
          }}\n",
             key_col = key.column_name(),
         ))
@@ -631,6 +760,11 @@ fn parse_field_options(items: Vec<Vec<TokenTree>>, f: &mut FieldDef) -> Result<(
             {
                 f.with = Some(tokens_text(rest));
             }
+            [TokenTree::Ident(id), TokenTree::Group(g)]
+                if id.to_string() == "relation" && g.delimiter() == Delimiter::Parenthesis =>
+            {
+                f.relation = Some(parse_relation(g, &f.name)?);
+            }
             other => {
                 return Err(format!(
                     "unknown #[model] option on field `{}`: `{}`",
@@ -641,6 +775,87 @@ fn parse_field_options(items: Vec<Vec<TokenTree>>, f: &mut FieldDef) -> Result<(
         }
     }
     Ok(())
+}
+
+/// `relation(target = Type, inverse = "field", delete = "…", ordered = "field", join = "table")`.
+fn parse_relation(g: &proc_macro::Group, field: &str) -> Result<RelationAttr, String> {
+    let mut items = vec![Vec::new()];
+    for tt in g.stream() {
+        match &tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => items.push(Vec::new()),
+            _ => items.last_mut().expect("never empty").push(tt),
+        }
+    }
+    items.retain(|i| !i.is_empty());
+
+    let (mut target, mut inverse, mut delete, mut ordered, mut join) =
+        (None, None, None, None, None);
+    for item in items {
+        match item.as_slice() {
+            [TokenTree::Ident(k), TokenTree::Punct(eq), rest @ ..]
+                if eq.as_char() == '=' && !rest.is_empty() =>
+            {
+                match k.to_string().as_str() {
+                    "target" => target = Some(tokens_text(rest)),
+                    "inverse" => inverse = Some(literal_str(rest, field)?),
+                    "delete" => delete = Some(literal_str(rest, field)?),
+                    "ordered" => ordered = Some(literal_str(rest, field)?),
+                    "join" => join = Some(literal_str(rest, field)?),
+                    other => {
+                        return Err(format!(
+                            "relation(…) on `{field}`: unknown option `{other}` (supported: \
+                             target = Type, inverse = \"field\", delete = \"…\", \
+                             ordered = \"field\", join = \"table\")"
+                        ));
+                    }
+                }
+            }
+            // Bare `ordered`, the join form: the position lives on the membership row, so
+            // there is no child field to name (one child can sit at different positions
+            // under different parents).
+            [TokenTree::Ident(k)] if k.to_string() == "ordered" => {
+                ordered = Some("position".into());
+            }
+            other => {
+                return Err(format!(
+                    "relation(…) on `{field}`: expected `name = …`, found `{}`",
+                    tokens_text(other)
+                ));
+            }
+        }
+    }
+    let Some(target) = target else {
+        return Err(format!("relation(…) on `{field}` needs target = Type"));
+    };
+    let delete = delete.unwrap_or_else(|| "nullify".into());
+    if !["nullify", "cascade", "deny"].contains(&delete.as_str()) {
+        return Err(format!(
+            "relation(…) on `{field}`: delete = {delete:?} — nullify, cascade, or deny"
+        ));
+    }
+    if inverse.is_none() && join.is_none() {
+        return Err(format!(
+            "relation(…) on `{field}` needs inverse = \"field\" (the target's One<…> field) \
+             — or join = \"table\" for a many-to-many"
+        ));
+    }
+    Ok(RelationAttr {
+        target,
+        inverse,
+        delete,
+        ordered,
+        join,
+    })
+}
+
+fn literal_str(rest: &[TokenTree], field: &str) -> Result<String, String> {
+    match rest {
+        [TokenTree::Literal(l)] => string_literal(l),
+        other => Err(format!(
+            "relation(…) on `{field}`: expected a string literal, found `{}`",
+            tokens_text(other)
+        )),
+    }
 }
 
 fn string_literal(lit: &proc_macro::Literal) -> Result<String, String> {

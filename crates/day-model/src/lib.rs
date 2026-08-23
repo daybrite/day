@@ -68,11 +68,17 @@ use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
+use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use day_reactive::{Binding, Scope, Trigger};
+
+/// The Uuid key type, re-exported so a model file needs no direct `uuid` dependency —
+/// `#[obs(key)] id: Uuid` beside `Uuid::now_v7()` (generation is native-target only until the
+/// web pipeline's entropy import is wired; the TYPE works everywhere).
+pub use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Paths and the interner
@@ -290,7 +296,10 @@ pub struct ChangeSinkId(u64);
 /// Install a STANDING consumer of every announced change (main thread). Where
 /// [`record_changes`] is a scoped test seam, a sink lives until removed — it is how a
 /// persistence container watches the stores it loaded. Sinks receive the same [`Change`] the
-/// recorder would; they must not write to any store from inside the callback.
+/// recorder would. A sink MAY write stores re-entrantly — the pipeline nests: a write made
+/// from inside a sink completes its own announcement (sinks included) before the outer one
+/// resumes, which is how relation maintenance cascades a delete — but a sink that writes owns
+/// its own termination: nothing here bounds the recursion.
 pub fn install_change_sink(f: impl Fn(&Change) + 'static) -> ChangeSinkId {
     let id = NEXT_SINK.with(|n| {
         let id = n.get();
@@ -659,10 +668,13 @@ fn wake(p: Path) {
     }
 }
 
-/// Announce a change named by plain components — how a background transaction's writes reach the
-/// triggers on the main thread. Wakes the deepest path whose interior steps are interned;
-/// anything deeper cannot have an observer, because observing is what interns.
-fn announce(parts: &[u64], label: &'static str) {
+/// Announce a change named by plain components — how a background transaction's writes reach
+/// the triggers on the main thread, and the seam a framework layer uses to wake a path it
+/// maintains for a value that lives elsewhere (a relation index announcing a parent's to-many
+/// field). Wakes the deepest path whose interior steps are interned; anything deeper cannot
+/// have an observer, because observing is what interns. The change feeds sinks and the
+/// recorder with the current author tag and op `Set`, carrying no values.
+pub fn announce(parts: &[u64], label: &'static str) {
     announce_op(parts, label, Op::Set);
 }
 
@@ -944,13 +956,355 @@ impl<T: Send + Sync + 'static> Drop for Tx<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Keys and identity
+// ---------------------------------------------------------------------------
+
+/// The floor of the interned-handle space. Plain `u64` keys pass through as their own handle
+/// and stay BELOW it — the top bit is what lets [`Key::of_handle`] tell an identity handle
+/// from an interned one without any lookup. Integer `#[obs(key)]` fields assert the bound in
+/// debug builds rather than silently colliding.
+const WIDE_BASE: u64 = 1 << 63;
+
+/// One element's key: what its paths, its [`Keyed`] slot, and (under persistence) its stored
+/// row are addressed by.
+///
+/// A `u64` key IS its own path handle — no interner, no lock, no allocation: exactly the cost
+/// integer keys always had. The wide forms (`Uuid`, `Str`, `Pair`) intern process-globally to
+/// a `u64` handle on first use, so paths stay 12 bytes and every collection index stays
+/// `u64`-keyed. A handle, once minted, is stable for the process's lifetime — undo records
+/// and long-lived `ModelId`s rely on that — and reverses through [`Key::of_handle`]; the
+/// interner's size is observable via [`interned_keys`].
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum Key {
+    U64(u64),
+    /// A UUID, carried as its raw 128 bits (`uuid::Uuid::as_u128`).
+    Uuid(u128),
+    /// A natural string key — a slug, an external system's id.
+    Str(Arc<str>),
+    /// Two handles as one key — how the persistence layer addresses join rows. Apps rarely
+    /// construct one directly.
+    Pair(u64, u64),
+}
+
+impl Key {
+    /// The key's path handle — identity for `U64`, interned (once, then a read-locked lookup)
+    /// for the wide forms. Callable from any thread; the interner is process-global.
+    pub fn handle(&self) -> u64 {
+        match self {
+            Key::U64(k) => *k,
+            Key::Uuid(u) => intern_wide(WideKey::Uuid(*u)),
+            Key::Str(s) => intern_wide(WideKey::Str(s.clone())),
+            Key::Pair(a, b) => intern_wide(WideKey::Pair(*a, *b)),
+        }
+    }
+
+    /// The key a handle names — identity below the wide floor, the interner's record above
+    /// it. `None` only for a wide handle nothing ever interned (a forged value).
+    pub fn of_handle(handle: u64) -> Option<Key> {
+        if handle < WIDE_BASE {
+            return Some(Key::U64(handle));
+        }
+        let idx = (handle - WIDE_BASE) as usize;
+        wide_keys()
+            .read()
+            .expect("key interner poisoned")
+            .reverse
+            .get(idx)
+            .map(|w| match w {
+                WideKey::Uuid(u) => Key::Uuid(*u),
+                WideKey::Str(s) => Key::Str(s.clone()),
+                WideKey::Pair(a, b) => Key::Pair(*a, *b),
+            })
+    }
+
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Key::U64(k) => Some(*k),
+            _ => None,
+        }
+    }
+
+    pub fn as_uuid(&self) -> Option<uuid::Uuid> {
+        match self {
+            Key::Uuid(u) => Some(uuid::Uuid::from_u128(*u)),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Key::Str(s) => Some(s),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Key {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Key::U64(k) => write!(f, "{k}"),
+            Key::Uuid(u) => write!(f, "{}", uuid::Uuid::from_u128(*u)),
+            Key::Str(s) => f.write_str(s),
+            Key::Pair(a, b) => write!(f, "{a}:{b}"),
+        }
+    }
+}
+
+/// The wide-key interner's stored form (`U64` never enters it).
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum WideKey {
+    Uuid(u128),
+    Str(Arc<str>),
+    Pair(u64, u64),
+}
+
+#[derive(Default)]
+struct WideKeys {
+    lookup: HashMap<WideKey, u64>,
+    reverse: Vec<WideKey>,
+}
+
+/// Process-global, unlike the path interner: handles are embedded in `Keyed` indexes that
+/// background transactions mutate, so a thread-local table would mint divergent handles — the
+/// exact bug the path system's `components` seam exists to prevent.
+static WIDE_KEYS: OnceLock<RwLock<WideKeys>> = OnceLock::new();
+
+fn wide_keys() -> &'static RwLock<WideKeys> {
+    WIDE_KEYS.get_or_init(Default::default)
+}
+
+fn intern_wide(k: WideKey) -> u64 {
+    if let Some(h) = wide_keys()
+        .read()
+        .expect("key interner poisoned")
+        .lookup
+        .get(&k)
+    {
+        return *h;
+    }
+    let mut w = wide_keys().write().expect("key interner poisoned");
+    if let Some(h) = w.lookup.get(&k) {
+        return *h; // another thread won the race between our two locks
+    }
+    let h = WIDE_BASE + w.reverse.len() as u64;
+    w.reverse.push(k.clone());
+    w.lookup.insert(k, h);
+    h
+}
+
+/// How many wide keys the process has interned — the cost of wide-key identity itself,
+/// assertable in a test. Entries are retained for the process's lifetime.
+pub fn interned_keys() -> usize {
+    wide_keys()
+        .read()
+        .expect("key interner poisoned")
+        .reverse
+        .len()
+}
+
+/// A value usable as a key — what an `#[obs(key)]` / `#[model(id)]` field's type implements.
+/// Integer keys reserve the top bit (the interned-handle space); a negative cast or a
+/// hash-derived id at or above `1 << 63` is refused in debug builds rather than silently
+/// colliding with an interned handle.
+pub trait AsKey {
+    fn as_key(&self) -> Key;
+}
+
+macro_rules! int_key {
+    ($($t:ty),*) => {$(
+        impl AsKey for $t {
+            fn as_key(&self) -> Key {
+                let k = *self as u64;
+                debug_assert!(
+                    k < WIDE_BASE,
+                    "u64 keys reserve the top bit for interned handles (got {k:#x})"
+                );
+                Key::U64(k)
+            }
+        }
+    )*};
+}
+int_key!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
+
+impl AsKey for String {
+    fn as_key(&self) -> Key {
+        Key::Str(Arc::from(self.as_str()))
+    }
+}
+impl AsKey for &str {
+    fn as_key(&self) -> Key {
+        Key::Str(Arc::from(*self))
+    }
+}
+impl AsKey for Arc<str> {
+    fn as_key(&self) -> Key {
+        Key::Str(self.clone())
+    }
+}
+impl AsKey for uuid::Uuid {
+    fn as_key(&self) -> Key {
+        Key::Uuid(self.as_u128())
+    }
+}
+impl AsKey for Key {
+    fn as_key(&self) -> Key {
+        self.clone()
+    }
+}
+
+/// A typed, opaque id for one `M` row — `Copy`, 8 bytes, cheap to pass and compare. It wraps
+/// the key's path handle: [`Store::elem`], query results, list slots and destinations all
+/// speak it, and a wrong-model id is a compile error rather than a wrong row. [`ModelId::key`]
+/// recovers the real key for display, deep links, or the persistence edge.
+///
+/// Ordering compares handles — meaningful for integer keys, arbitrary (but stable) for wide
+/// ones; it exists so ids can live in sorted containers.
+pub struct ModelId<M: ?Sized> {
+    handle: u64,
+    _m: PhantomData<fn() -> M>,
+}
+
+impl<M: ?Sized> Clone for ModelId<M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<M: ?Sized> Copy for ModelId<M> {}
+impl<M: ?Sized> PartialEq for ModelId<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handle == other.handle
+    }
+}
+impl<M: ?Sized> Eq for ModelId<M> {}
+impl<M: ?Sized> std::hash::Hash for ModelId<M> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.handle.hash(state);
+    }
+}
+impl<M: ?Sized> PartialOrd for ModelId<M> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl<M: ?Sized> Ord for ModelId<M> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.handle.cmp(&other.handle)
+    }
+}
+impl<M: ?Sized> fmt::Debug for ModelId<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match Key::of_handle(self.handle) {
+            Some(k) => write!(f, "ModelId({k})"),
+            None => write!(f, "ModelId(#{:x})", self.handle),
+        }
+    }
+}
+
+impl<M: ?Sized> ModelId<M> {
+    /// The id for `key` — interning it if wide.
+    pub fn of(key: impl AsKey) -> Self {
+        Self::from_handle(key.as_key().handle())
+    }
+    /// Wrap an existing path handle (from [`Store::keys`], a slot token, a change record).
+    pub const fn from_handle(handle: u64) -> Self {
+        ModelId {
+            handle,
+            _m: PhantomData,
+        }
+    }
+    pub fn handle(self) -> u64 {
+        self.handle
+    }
+    /// The real key — identity for integer handles, the interner's record for wide ones.
+    pub fn key(self) -> Key {
+        Key::of_handle(self.handle).unwrap_or(Key::U64(self.handle))
+    }
+}
+
+/// Integer-keyed ids compare against their key value directly — `assert_eq!(ids, [1, 3])`
+/// reads the way integer-keyed code always has.
+impl<M: ?Sized> PartialEq<u64> for ModelId<M> {
+    fn eq(&self, other: &u64) -> bool {
+        self.handle == *other
+    }
+}
+impl<M: ?Sized> PartialEq<ModelId<M>> for u64 {
+    fn eq(&self, other: &ModelId<M>) -> bool {
+        *self == other.handle
+    }
+}
+
+/// Raw path handles convert directly — this is how `store.elem(k)` keeps taking the values
+/// [`Store::keys`] returns, and how integer keys stay literal-friendly.
+impl<M: ?Sized> From<u64> for ModelId<M> {
+    fn from(handle: u64) -> Self {
+        ModelId::from_handle(handle)
+    }
+}
+impl<M: ?Sized> From<u32> for ModelId<M> {
+    fn from(k: u32) -> Self {
+        ModelId::of(k)
+    }
+}
+impl<M: ?Sized> From<i32> for ModelId<M> {
+    fn from(k: i32) -> Self {
+        ModelId::of(k)
+    }
+}
+impl<M: ?Sized> From<usize> for ModelId<M> {
+    fn from(k: usize) -> Self {
+        ModelId::of(k)
+    }
+}
+impl<M: ?Sized> From<uuid::Uuid> for ModelId<M> {
+    fn from(k: uuid::Uuid) -> Self {
+        ModelId::of(k)
+    }
+}
+impl<M: ?Sized> From<&str> for ModelId<M> {
+    fn from(k: &str) -> Self {
+        ModelId::of(k)
+    }
+}
+impl<M: ?Sized> From<String> for ModelId<M> {
+    fn from(k: String) -> Self {
+        ModelId::of(k)
+    }
+}
+impl<M: ?Sized> From<Key> for ModelId<M> {
+    fn from(k: Key) -> Self {
+        ModelId::from_handle(k.handle())
+    }
+}
+impl<M: ?Sized> From<&Key> for ModelId<M> {
+    fn from(k: &Key) -> Self {
+        ModelId::from_handle(k.handle())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Keyed collections
 // ---------------------------------------------------------------------------
 
 /// Gives an element the stable key its paths are addressed by. Implemented by
 /// `#[derive(Observable)]` from the `#[obs(key)]` field.
 pub trait Identified {
-    fn obs_key(&self) -> u64;
+    /// The element's key, read from the `#[obs(key)]` field.
+    fn key(&self) -> Key;
+
+    /// The key as its path handle — identity for `u64` keys, interned otherwise.
+    fn handle(&self) -> u64 {
+        self.key().handle()
+    }
+
+    /// The typed id over the same handle. (Named to stay clear of the generated accessor for
+    /// an `id` FIELD, which nearly every model has.)
+    fn model_id(&self) -> ModelId<Self>
+    where
+        Self: Sized,
+    {
+        ModelId::from_handle(self.handle())
+    }
 }
 
 /// A keyed collection that keeps its own key→index map, so an element read is O(1) rather than
@@ -979,11 +1333,12 @@ impl<T: Identified> Keyed<T> {
         k
     }
 
-    /// Rebuild the map. Called after any structural change; O(n) once, not per read.
+    /// Rebuild the map. Called after any structural change; O(n) once, not per read. Integer
+    /// keys pay no interner cost here; wide keys pay one read-locked lookup per row.
     pub fn reindex(&mut self) {
         self.index.clear();
         for (i, item) in self.items.iter().enumerate() {
-            self.index.insert(item.obs_key(), i);
+            self.index.insert(item.handle(), i);
         }
     }
 
@@ -999,7 +1354,7 @@ impl<T: Identified> Keyed<T> {
     }
 
     pub fn keys(&self) -> Vec<u64> {
-        self.items.iter().map(|t| t.obs_key()).collect()
+        self.items.iter().map(|t| t.handle()).collect()
     }
 
     pub fn items(&self) -> &[T] {
@@ -1017,7 +1372,7 @@ impl<T: Identified> Keyed<T> {
     // --- structural operations: each leaves the index correct ---------------------------------
 
     pub fn push(&mut self, item: T) {
-        self.index.insert(item.obs_key(), self.items.len());
+        self.index.insert(item.handle(), self.items.len());
         self.items.push(item);
     }
 
@@ -1064,8 +1419,11 @@ impl<T> Clone for Elem<T> {
 impl<T> Copy for Elem<T> {}
 
 impl<T: Identified + 'static> Store<Keyed<T>> {
-    /// One element, addressed by key. O(1) — the collection keeps a key→index map.
-    pub fn elem(self, key: u64) -> Elem<T> {
+    /// One element, addressed by its id — a [`ModelId`], a raw handle from [`Store::keys`],
+    /// an integer key, a `Uuid`, or a string key all convert. O(1) — the collection keeps a
+    /// handle→index map.
+    pub fn elem(self, key: impl Into<ModelId<T>>) -> Elem<T> {
+        let key = key.into().handle();
         Elem {
             store: self,
             key,
@@ -1080,15 +1438,26 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         self.with_untracked(|k| k.keys().to_vec())
     }
 
+    /// [`Store::keys`], typed — the same tracked read, as [`ModelId`]s.
+    pub fn ids(self) -> Vec<ModelId<T>> {
+        self.keys().into_iter().map(ModelId::from_handle).collect()
+    }
+
     /// Structural change: insert, remove, reorder.
     ///
     /// The affected key and the operation are announced alongside the shape path, because a
     /// persistence layer has to choose between an INSERT and a DELETE and cannot infer it from
     /// "the shape changed" — while the UI, which only re-reads `keys()`, ignores both.
-    pub fn restructure(self, label: &'static str, op: Op, key: u64, f: impl FnOnce(&mut Keyed<T>))
-    where
+    pub fn restructure(
+        self,
+        label: &'static str,
+        op: Op,
+        key: impl Into<ModelId<T>>,
+        f: impl FnOnce(&mut Keyed<T>),
+    ) where
         T: Clone,
     {
+        let key = key.into().handle();
         // When a values consumer stands by (an undo stack), a Delete carries the row it
         // removed and an Insert the row it added — the whole of what inversion needs.
         let capture = values_wanted();
@@ -1134,10 +1503,11 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     /// wrap the call in [`with_author`] so consumers can tell the merge from the user's own
     /// edits. Returns false, announcing nothing, when the row is absent: an absent row is an
     /// insert, which is [`Store::restructure`]'s job.
-    pub fn merge_row(self, key: u64, value: T, changed: &[&'static str]) -> bool
+    pub fn merge_row(self, key: impl Into<ModelId<T>>, value: T, changed: &[&'static str]) -> bool
     where
         T: Clone,
     {
+        let key = key.into().handle();
         {
             let mut g = self.inner.data.write().expect("store poisoned");
             match g.get_mut(key) {
@@ -1160,12 +1530,66 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         }
         true
     }
+
+    /// Write ONE field by label — front-door semantics (announced at the field's own path,
+    /// prior/new values captured while a consumer wants them, undoable, persisted) without
+    /// the generated accessor in scope. The relation machinery writes foreign keys and order
+    /// values through this; it is public because any framework-level maintenance faces the
+    /// same need. Returns false, announcing nothing, when the row is absent or when
+    /// `label`/`V` name no field of `T` (the [`ApplyField`] downcast refused).
+    pub fn write_field<V: Clone + 'static>(
+        self,
+        key: impl Into<ModelId<T>>,
+        label: &'static str,
+        value: V,
+    ) -> bool
+    where
+        T: ApplyField,
+    {
+        let key = key.into().handle();
+        let capture = values_wanted() && !previewing();
+        let mut prior: Option<Rc<dyn Any>> = None;
+        let ok = {
+            let mut g = self.inner.data.write().expect("store poisoned");
+            match g.get_mut(key) {
+                Some(t) => {
+                    if capture {
+                        prior = t.read_field(label);
+                    }
+                    t.apply_field(label, &value)
+                }
+                None => false,
+            }
+        };
+        if !ok {
+            return false;
+        }
+        self.inner.version.fetch_add(1, Ordering::Relaxed);
+        let elem = intern(Path::under(self.node, key));
+        let after: Option<Rc<dyn Any>> = if capture { Some(Rc::new(value)) } else { None };
+        let root_id = self.root_id;
+        notify_change(
+            Path::under(elem, field_id(label)),
+            || vec![root_id, key, field_id(label)],
+            label,
+            Op::Set,
+            prior,
+            after,
+        );
+        true
+    }
 }
 
 impl<T: Identified + 'static> Elem<T> {
-    /// The key this handle addresses.
+    /// The path handle this element addresses — the raw form of [`Elem::id`].
     pub fn key(self) -> u64 {
         self.key
+    }
+
+    /// The element's typed id. (Named to stay clear of the `id` FIELD accessor an inherent
+    /// `id()` would shadow on every model that has one.)
+    pub fn model_id(self) -> ModelId<T> {
+        ModelId::from_handle(self.key)
     }
 
     /// Whether the row is (still) present — TRACKED, so a guard re-runs when the row is deleted
@@ -1656,6 +2080,13 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> FieldSession<S, T, 
 /// store it came from.
 pub trait ApplyField {
     fn apply_field(&mut self, label: &str, value: &dyn Any) -> bool;
+
+    /// The field's current value, cloned and type-erased — `None` for an unknown label. The
+    /// derive implements it; [`Store::write_field`] captures priors through it.
+    fn read_field(&self, label: &str) -> Option<Rc<dyn Any>> {
+        let _ = label;
+        None
+    }
 }
 
 type SetFieldFn = Rc<dyn Fn(u64, &'static str, &Rc<dyn Any>) -> bool>;

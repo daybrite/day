@@ -62,7 +62,7 @@ fn the_builder_filters_sorts_and_limits() {
         "not-done, start descending, first three"
     );
     assert_eq!(q.count(), 3);
-    assert_eq!(q.first(), Some(10));
+    assert_eq!(q.first().map(|i| i.handle()), Some(10));
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn a_column_the_query_never_mentions_wakes_nothing() {
     store.elem(1).done().write(true);
     day_reactive::flush_sync();
     assert_eq!(runs.get(), 2, "a predicate column wakes it exactly once");
-    assert!(!q.ids_untracked().contains(&1));
+    assert!(!q.ids_untracked().iter().any(|i| *i == 1));
 }
 
 #[test]

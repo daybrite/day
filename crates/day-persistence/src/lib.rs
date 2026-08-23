@@ -30,12 +30,17 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use day_model::{Identified, Keyed, Op, Store};
+use day_model::{Identified, Key, Keyed, ModelId, Op, Store};
 
 mod queries;
 pub use queries::{
     Col, Delta, Fetch, FtsRef, GeoRect, GeoRef, LiveSet, Outcome, Pred, RowView, RowsView, Sort,
     compare_values, encode_column, rank,
+};
+
+mod relations;
+pub use relations::{
+    DeleteRule, Many, One, Registrar, RelationDef, RelationRef, wire_join, wire_to_many,
 };
 
 #[cfg(feature = "driver-rusqlite")]
@@ -74,6 +79,8 @@ pub enum DbErrorKind {
     Decode,
     /// The driver cannot do this (encryption on a non-cipher build, …).
     Unsupported,
+    /// A `DeleteRule::Deny` relation refused the delete — children still reference the row.
+    Deny,
 }
 
 impl DbError {
@@ -553,6 +560,44 @@ impl ColumnValue for Vec<u8> {
     }
 }
 
+/// A Uuid is a 16-byte `BLOB` — compact, indexable, and readable by any tool that knows the
+/// convention. (`day_model::Uuid` IS `uuid::Uuid`, so no second dependency edge exists.)
+impl ColumnValue for day_model::Uuid {
+    const SQL_TYPE: SqlType = SqlType::Blob;
+    fn to_sqlite_value(&self) -> Value {
+        Value::Blob(self.as_bytes().to_vec())
+    }
+    fn from_sqlite_value(v: Value) -> Result<Self, DbError> {
+        day_model::Uuid::from_slice(v.as_blob()?)
+            .map_err(|e| DbError::new(DbErrorKind::Decode, format!("uuid: {e}")))
+    }
+}
+
+/// A key handle, as the bound parameter its stored form takes: `INTEGER` for integer keys,
+/// a 16-byte `BLOB` for Uuid keys, `TEXT` for string keys. `Pair` keys (join rows) bind
+/// through their own two-column clause, never through this.
+fn key_param(handle: u64) -> Value {
+    match Key::of_handle(handle) {
+        Some(Key::U64(k)) => Value::Int(k as i64),
+        Some(Key::Uuid(u)) => Value::Blob(day_model::Uuid::from_u128(u).as_bytes().to_vec()),
+        Some(Key::Str(s)) => Value::Text(s.to_string()),
+        Some(Key::Pair(..)) | None => Value::Null,
+    }
+}
+
+/// A stored key value, back as its path handle. `None` for shapes no key takes (a negative
+/// integer, a blob that is not 16 bytes) — the caller treats those rows as unaddressable.
+fn value_to_handle(v: &Value) -> Option<u64> {
+    match v {
+        Value::Int(i) if *i >= 0 => Some(Key::U64(*i as u64).handle()),
+        Value::Blob(b) if b.len() == 16 => day_model::Uuid::from_slice(b)
+            .ok()
+            .map(|u| Key::Uuid(u.as_u128()).handle()),
+        Value::Text(t) => Some(Key::Str(t.as_str().into()).handle()),
+        _ => None,
+    }
+}
+
 /// `NULL` belongs to the framework: `Option` wraps any column type, encoding is called only on
 /// present values, and a NULL decodes to `None` — an impl never sees `Null` and cannot
 /// disagree about it.
@@ -633,11 +678,19 @@ pub trait Model: Identified + day_model::ApplyField + Clone + 'static {
     const FTS_COLUMNS: &'static [&'static str] = &[];
     /// The R*Tree pair from struct-level `#[model(spatial(lat = "…", lon = "…"))]`.
     const SPATIAL: Option<SpatialCols> = None;
+    /// The key column's SQL shape — what a `One<Self>` foreign-key column stores.
+    const KEY_SQL: SqlType = SqlType::Integer;
+    /// Relations declared on this model's `Many` fields (`#[model(relation(…))]`).
+    const RELATIONS: &'static [RelationDef] = &[];
     /// One [`Value`] per column, in `COLUMNS` order.
     fn to_row(&self) -> Vec<Value>;
     fn from_row(row: &dyn Row) -> Result<Self, DbError>;
     /// Each column's Rust-default value — what an added column backfills with.
     fn default_row() -> Vec<Value>;
+    /// Wire this model's declared relations — generated; the default declares none.
+    fn wire(reg: &mut Registrar<'_>) {
+        let _ = reg;
+    }
 }
 
 /// The declared schema's fingerprint: table, columns, types, flags, indexes. Equal fingerprints
@@ -683,18 +736,59 @@ pub fn model_fingerprint<M: Model>() -> u64 {
 #[derive(Default)]
 pub struct Schema {
     installers: Vec<Installer>,
+    /// Run after every table is attached — relation wiring needs both ends present.
+    wirers: Vec<Installer>,
+    /// Foreign-key clauses each declared relation contributes to its TARGET's table.
+    fk_specs: Vec<FkSpec>,
 }
 
 type Installer = Box<dyn FnOnce(&ModelContainer) -> Result<(), DbError>>;
 type ReloadFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<(), DbError>>;
 type MergeFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<bool, DbError>>;
+/// A key handle read back out of a key-column-shaped row (one column, or a join's pair).
+type KeyFromRow = Rc<dyn Fn(&dyn Row) -> Option<u64>>;
+/// A WHERE clause plus its parameters, addressing one row by handle.
+type KeyWhere = Rc<dyn Fn(u64) -> (String, Vec<Value>)>;
+
+/// One foreign-key clause, resolved from a `RelationDef` at `Schema::with` time — the child's
+/// column carries `REFERENCES parent(key) ON DELETE …` in its generated DDL.
+#[derive(Clone, Copy, Debug)]
+struct FkSpec {
+    child_table: &'static str,
+    child_field: &'static str,
+    parent_table: &'static str,
+    parent_key: &'static str,
+    rule: DeleteRule,
+}
 
 impl Schema {
     pub fn new() -> Self {
         Self::default()
     }
     pub fn with<M: Model>(mut self) -> Self {
+        for def in M::RELATIONS {
+            if def.join.is_none() {
+                self.fk_specs.push(FkSpec {
+                    child_table: def.target_table,
+                    child_field: def.inverse,
+                    parent_table: M::TABLE,
+                    parent_key: M::KEY,
+                    rule: def.delete,
+                });
+            }
+        }
         self.installers.push(Box::new(|c| c.attach::<M>()));
+        self.wirers.push(Box::new(|c| {
+            let mut reg = Registrar {
+                container: c,
+                error: None,
+            };
+            M::wire(&mut reg);
+            match reg.error {
+                Some(e) => Err(e),
+                None => Ok(()),
+            }
+        }));
         self
     }
 }
@@ -819,13 +913,20 @@ impl DirtyState {
 // ---------------------------------------------------------------------------
 
 /// Everything the container knows how to do for one attached model type, monomorphized at
-/// [`Schema::with`] and stored type-erased.
+/// [`Schema::with`] and stored type-erased. Join tables (relations.rs) hand-build one over
+/// their pair-keyed internal store, which is why keys are plural and clause-shaped here.
 struct TableHooks {
     table: &'static str,
-    key_col: &'static str,
-    columns: Vec<&'static str>,
+    /// The key column(s), in order: the key SELECT list, the upsert's conflict target, and
+    /// what its DO UPDATE leaves alone. One entry everywhere but join tables.
+    key_cols: Vec<String>,
+    /// WHERE clause + params addressing one row by its key handle.
+    key_where: KeyWhere,
+    /// A key handle read back out of a `key_cols`-shaped row.
+    key_from_row: KeyFromRow,
+    columns: Vec<String>,
     /// Same order as `columns`; what a change's label matches against.
-    fields: Vec<&'static str>,
+    fields: Vec<String>,
     /// Current row values by key, read from the store at flush time — the change log carries
     /// WHICH rows and columns moved, never their contents.
     row_for: Rc<dyn Fn(u64) -> Option<Vec<Value>>>,
@@ -860,6 +961,12 @@ struct ContainerInner {
     /// data_version` — it moves only when ANOTHER connection commits to the file). `None`
     /// where the driver reports no external-change detection.
     data_version: Cell<Option<i64>>,
+    /// Foreign-key clauses relations contribute to their targets' tables, set before attach.
+    fk_specs: RefCell<Vec<FkSpec>>,
+    /// The wired relations — maintained from the change sink, read by `RelationRef`s.
+    pub(crate) relations: RefCell<Vec<Rc<relations::ToOneRel>>>,
+    /// The wired many-to-manys, each over its own join store.
+    pub(crate) joins: RefCell<Vec<Rc<relations::JoinRel>>>,
     sink: Cell<Option<day_model::ChangeSinkId>>,
     autosave: Cell<bool>,
     /// The last autosave failure, observable by the UI (`when(container.last_error()…)`).
@@ -907,6 +1014,9 @@ impl ModelContainer {
                 queries: RefCell::new(Vec::new()),
                 quiet: Cell::new(false),
                 data_version: Cell::new(None),
+                fk_specs: RefCell::new(Vec::new()),
+                relations: RefCell::new(Vec::new()),
+                joins: RefCell::new(Vec::new()),
                 sink: Cell::new(None),
                 autosave: Cell::new(true),
                 error,
@@ -916,9 +1026,21 @@ impl ModelContainer {
 
         container.ensure_schema_table()?;
         container.run_stages(plan)?;
-        for install in schema.installers {
+        let Schema {
+            installers,
+            wirers,
+            fk_specs,
+        } = schema;
+        *container.inner.fk_specs.borrow_mut() = fk_specs;
+        for install in installers {
             install(&container)?;
         }
+        // Relations wire once every table is attached — both ends exist, the indexes seed
+        // from the loaded rows, and only then does the sink go live.
+        for wire in wirers {
+            wire(&container)?;
+        }
+        relations::register_container(&container.inner);
         container.install_sink();
         container.install_autosave();
         if caps.external_changes {
@@ -1094,6 +1216,24 @@ impl ModelContainer {
 
     /// CREATE (or lightweight-migrate) `M`'s table, load its rows, register its hooks.
     fn attach<M: Model>(&self) -> Result<(), DbError> {
+        // FTS5's external-content table and the R*Tree address rows by ROWID — an i64 — so
+        // both need the key column to BE the integer rowid. A wide-keyed model declaring one
+        // is refused at open, naming the constraint, rather than silently mis-indexing.
+        let key_sql = M::COLUMNS
+            .iter()
+            .find(|c| c.name == M::KEY)
+            .map(|c| c.sql)
+            .unwrap_or(SqlType::Integer);
+        if key_sql != SqlType::Integer && (!M::FTS_COLUMNS.is_empty() || M::SPATIAL.is_some()) {
+            return Err(DbError::new(
+                DbErrorKind::Unsupported,
+                format!(
+                    "`{}` declares fts(…)/spatial(…), which address rows by ROWID — those \
+                     need an integer `#[model(id)]`, not a Uuid or String key",
+                    M::TABLE
+                ),
+            ));
+        }
         self.ensure_table::<M>()?;
 
         // Load. NULL in a NOT NULL column reads as the field's Default — that is what makes an
@@ -1121,8 +1261,8 @@ impl ModelContainer {
         let store = Store::new(Keyed::new(rows));
         let store_id = store.store_id();
 
-        let columns: Vec<&'static str> = M::COLUMNS.iter().map(|c| c.name).collect();
-        let fields: Vec<&'static str> = M::COLUMNS.iter().map(|c| c.field).collect();
+        let columns: Vec<String> = M::COLUMNS.iter().map(|c| c.name.to_string()).collect();
+        let fields: Vec<String> = M::COLUMNS.iter().map(|c| c.field.to_string()).collect();
         let row_for = {
             Rc::new(move |key: u64| store.with_untracked(|k| k.get(key).map(|m| m.to_row())))
                 as Rc<dyn Fn(u64) -> Option<Vec<Value>>>
@@ -1130,10 +1270,7 @@ impl ModelContainer {
         let all_rows = {
             Rc::new(move || {
                 store.with_untracked(|k| {
-                    k.items()
-                        .iter()
-                        .map(|m| (m.obs_key(), m.to_row()))
-                        .collect()
+                    k.items().iter().map(|m| (m.handle(), m.to_row())).collect()
                 })
             }) as Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>
         };
@@ -1157,11 +1294,11 @@ impl ModelContainer {
                 }
                 let existing: Vec<u64> = store.with_untracked(|k| k.keys().to_vec());
                 let fresh_keys: std::collections::HashSet<u64> =
-                    fresh.iter().map(|m| m.obs_key()).collect();
+                    fresh.iter().map(|m| m.handle()).collect();
                 let mut changed = false;
                 day_model::with_author(ModelContainer::EXTERNAL_AUTHOR, || {
                     for m in fresh {
-                        let key = m.obs_key();
+                        let key = m.handle();
                         match store.with_untracked(|k| k.get(key).map(|old| old.to_row())) {
                             None => {
                                 changed = true;
@@ -1198,7 +1335,9 @@ impl ModelContainer {
             store_id,
             TableHooks {
                 table: M::TABLE,
-                key_col: M::KEY,
+                key_cols: vec![M::KEY.to_string()],
+                key_where: Rc::new(|h| (format!("{} = ?", M::KEY), vec![key_param(h)])),
+                key_from_row: Rc::new(|row| value_to_handle(&row.get(0))),
                 columns,
                 fields,
                 row_for,
@@ -1216,7 +1355,29 @@ impl ModelContainer {
     }
 
     fn ensure_table<M: Model>(&self) -> Result<(), DbError> {
-        let fp = format!("{:016x}", model_fingerprint::<M>());
+        // Relation-contributed clauses fold into the fingerprint: adopting or changing a
+        // delete rule re-runs this path. An EXISTING table cannot gain the SQL-level clause
+        // (SQLite has no ALTER ADD CONSTRAINT) — the in-memory rule still enforces, and a
+        // staged rebuild adopts the clause when the app wants the engine's backstop too.
+        let mut fp_val = model_fingerprint::<M>();
+        for s in self
+            .inner
+            .fk_specs
+            .borrow()
+            .iter()
+            .filter(|s| s.child_table == M::TABLE)
+        {
+            for b in s
+                .child_field
+                .bytes()
+                .chain(s.parent_table.bytes())
+                .chain(s.rule.sql().bytes())
+            {
+                fp_val ^= b as u64;
+                fp_val = fp_val.wrapping_mul(0x1000_0000_01b3);
+            }
+        }
+        let fp = format!("{fp_val:016x}");
         let stored = self.stored_fingerprint(M::TABLE)?;
         if stored.as_deref() == Some(fp.as_str()) {
             return Ok(());
@@ -1363,6 +1524,7 @@ impl ModelContainer {
     }
 
     fn create_table<M: Model>(&self) -> Result<(), DbError> {
+        let specs = self.inner.fk_specs.borrow();
         let cols: Vec<String> = M::COLUMNS
             .iter()
             .map(|c| {
@@ -1374,6 +1536,20 @@ impl ModelContainer {
                 }
                 if c.unique && c.name != M::KEY {
                     s.push_str(" UNIQUE");
+                }
+                // A declared relation's foreign key: enforced by the engine too, so another
+                // process honors the same delete rule. Deferred, so within-transaction
+                // statement order (a cascade's children, an undo's re-inserts) never trips it.
+                if let Some(spec) = specs
+                    .iter()
+                    .find(|f| f.child_table == M::TABLE && f.child_field == c.field)
+                {
+                    s.push_str(&format!(
+                        " REFERENCES {}({}) ON DELETE {} DEFERRABLE INITIALLY DEFERRED",
+                        spec.parent_table,
+                        spec.parent_key,
+                        spec.rule.sql()
+                    ));
                 }
                 s
             })
@@ -1497,7 +1673,9 @@ impl ModelContainer {
                         .borrow_mut()
                         .note(change, |store| tables.contains_key(&store));
                 }
-                ModelContainer { inner }.dispatch_to_queries(change);
+                let container = ModelContainer { inner };
+                container.dispatch_to_queries(change);
+                container.relations_on_change(change);
             }
         });
         self.inner.sink.set(Some(sink));
@@ -1548,27 +1726,37 @@ impl ModelContainer {
                 continue;
             };
             let rows = (hooks.all_rows)();
-            let mut db_keys: Vec<i64> = Vec::new();
+            // Stored key values, with the raw first column kept: a row whose key cannot map
+            // to a handle (foreign shape, corruption) still deletes, by its own raw value.
+            let mut db_keys: Vec<(Option<u64>, Value)> = Vec::new();
             self.conn().query(
-                &format!("SELECT {} FROM {}", hooks.key_col, hooks.table),
+                &format!("SELECT {} FROM {}", hooks.key_cols.join(", "), hooks.table),
                 &[],
-                &mut |row| {
-                    if let Ok(k) = row.get(0).as_int() {
-                        db_keys.push(k);
-                    }
-                },
+                &mut |row| db_keys.push(((hooks.key_from_row)(row), row.get(0))),
             )?;
             for (_, row) in &rows {
                 stmts.push(upsert_stmt(hooks, row));
             }
-            for gone in db_keys
+            for (h, raw) in db_keys
                 .iter()
-                .filter(|k| !rows.iter().any(|(key, _)| *key as i64 == **k))
+                .filter(|(h, _)| !matches!(h, Some(h) if rows.iter().any(|(key, _)| key == h)))
             {
-                stmts.push((
-                    format!("DELETE FROM {} WHERE {} = ?", hooks.table, hooks.key_col),
-                    vec![Value::Int(*gone)],
-                ));
+                match h {
+                    Some(h) => {
+                        let (clause, params) = (hooks.key_where)(*h);
+                        stmts.push((
+                            format!("DELETE FROM {} WHERE {clause}", hooks.table),
+                            params,
+                        ));
+                    }
+                    None => stmts.push((
+                        format!(
+                            "DELETE FROM {} WHERE {} = ?",
+                            hooks.table, hooks.key_cols[0]
+                        ),
+                        vec![raw.clone()],
+                    )),
+                }
             }
         }
 
@@ -1585,9 +1773,10 @@ impl ModelContainer {
             };
             match state {
                 DirtyRow::Delete => {
+                    let (clause, params) = (hooks.key_where)(key);
                     stmts.push((
-                        format!("DELETE FROM {} WHERE {} = ?", hooks.table, hooks.key_col),
-                        vec![Value::Int(key as i64)],
+                        format!("DELETE FROM {} WHERE {clause}", hooks.table),
+                        params,
                     ));
                 }
                 DirtyRow::Insert => {
@@ -1616,13 +1805,13 @@ impl ModelContainer {
                     if params.is_empty() {
                         continue; // only transient fields changed
                     }
-                    params.push(Value::Int(key as i64));
+                    let (clause, mut where_params) = (hooks.key_where)(key);
+                    params.append(&mut where_params);
                     stmts.push((
                         format!(
-                            "UPDATE {} SET {} WHERE {} = ?",
+                            "UPDATE {} SET {} WHERE {clause}",
                             hooks.table,
                             sets.join(", "),
-                            hooks.key_col
                         ),
                         params,
                     ));
@@ -1734,7 +1923,7 @@ fn upsert_stmt(hooks: &TableHooks, row: &[Value]) -> (String, Vec<Value>) {
     let sets = hooks
         .columns
         .iter()
-        .filter(|c| **c != hooks.key_col)
+        .filter(|c| !hooks.key_cols.contains(c))
         .map(|c| format!("{c} = excluded.{c}"))
         .collect::<Vec<_>>()
         .join(", ");
@@ -1746,7 +1935,8 @@ fn upsert_stmt(hooks: &TableHooks, row: &[Value]) -> (String, Vec<Value>) {
     (
         format!(
             "INSERT INTO {} ({cols}) VALUES ({marks}) ON CONFLICT({}) {conflict}",
-            hooks.table, hooks.key_col
+            hooks.table,
+            hooks.key_cols.join(", ")
         ),
         row.to_vec(),
     )
@@ -1825,11 +2015,17 @@ impl<M: Model> Clone for Query<M> {
 }
 
 impl<M: Model> Query<M> {
-    /// The result ids, in query order — a TRACKED read: the caller re-runs when the set
-    /// changes, and only then.
-    pub fn ids(&self) -> Vec<u64> {
+    /// The result ids, typed and in query order — a TRACKED read: the caller re-runs when
+    /// the set changes, and only then.
+    pub fn ids(&self) -> Vec<ModelId<M>> {
         let _ = self.state.version.get();
-        self.state.set.borrow().ids().to_vec()
+        self.state
+            .set
+            .borrow()
+            .ids()
+            .iter()
+            .map(|h| ModelId::from_handle(*h))
+            .collect()
     }
 
     /// The result count, tracked like [`Query::ids`].
@@ -1839,20 +2035,31 @@ impl<M: Model> Query<M> {
     }
 
     /// The first result, tracked.
-    pub fn first(&self) -> Option<u64> {
+    pub fn first(&self) -> Option<ModelId<M>> {
         let _ = self.state.version.get();
-        self.state.set.borrow().ids().first().copied()
+        self.state
+            .set
+            .borrow()
+            .ids()
+            .first()
+            .map(|h| ModelId::from_handle(*h))
     }
 
     /// Tracked membership test.
-    pub fn contains(&self, id: u64) -> bool {
+    pub fn contains(&self, id: impl Into<ModelId<M>>) -> bool {
         let _ = self.state.version.get();
-        self.state.set.borrow().ids().contains(&id)
+        self.state.set.borrow().ids().contains(&id.into().handle())
     }
 
     /// Untracked snapshot.
-    pub fn ids_untracked(&self) -> Vec<u64> {
-        self.state.set.borrow().ids().to_vec()
+    pub fn ids_untracked(&self) -> Vec<ModelId<M>> {
+        self.state
+            .set
+            .borrow()
+            .ids()
+            .iter()
+            .map(|h| ModelId::from_handle(*h))
+            .collect()
     }
 
     /// Predicate/sort evaluations so far — the cost the incremental path avoids, exposed so
@@ -1930,7 +2137,7 @@ struct HooksRows<'a> {
 }
 
 struct ColsRow<'a> {
-    cols: &'a [&'static str],
+    cols: &'a [String],
     values: Vec<Value>,
 }
 
@@ -1938,7 +2145,7 @@ impl RowView for ColsRow<'_> {
     fn col(&self, c: &str) -> Option<Value> {
         self.cols
             .iter()
-            .position(|n| *n == c)
+            .position(|n| n == c)
             .map(|i| Row::get(&self.values, i))
     }
 }
@@ -2233,8 +2440,8 @@ impl ModelContainer {
             hooks
                 .fields
                 .iter()
-                .position(|f| *f == change.label)
-                .map(|i| hooks.columns[i])
+                .position(|f| f == change.label)
+                .map(|i| hooks.columns[i].as_str())
                 .unwrap_or("\u{0}") // a transient field: never a dependency column
         } else {
             ""
@@ -2321,8 +2528,9 @@ impl ModelContainer {
     fn select_ids(&self, sql: &str, params: &[Value]) -> Vec<u64> {
         let mut ids = Vec::new();
         if let Err(e) = self.conn().query(sql, params, &mut |row| {
-            if let Ok(id) = row.get(0).as_int() {
-                ids.push(id as u64);
+            // Any key shape: INTEGER handles pass through, BLOB uuids and TEXT keys intern.
+            if let Some(h) = value_to_handle(&row.get(0)) {
+                ids.push(h);
             }
         }) {
             // A malformed FTS query or raw statement must not read as "no results": surface
@@ -2461,7 +2669,7 @@ mod pieces_glue {
         type Ref = Elem<M>;
 
         fn refresh(&self) -> Vec<u64> {
-            let keys = self.query.ids();
+            let keys: Vec<u64> = self.query.ids().iter().map(|id| id.handle()).collect();
             *self.keys.borrow_mut() = keys.clone();
             keys
         }

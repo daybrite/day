@@ -13,6 +13,13 @@ license.workspace = true
 
 [dependencies]
 day-reactive = { workspace = true }
+# The Uuid key type (decided 2026-08-23): type-only here, so the raw-wasm web pipeline (no
+# getrandom backend yet) still carries wide keys; generation (v7) joins on native targets
+# below, where getrandom has an OS source.
+uuid = { version = "1", default-features = false }
+
+[target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
+uuid = { version = "1", default-features = false, features = ["std", "rng", "v4", "v7"] }
 
 [dev-dependencies]
 day-macros = { path = "../day-macros", version = "=0.2.6" }

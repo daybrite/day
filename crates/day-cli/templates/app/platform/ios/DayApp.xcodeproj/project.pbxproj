@@ -136,7 +136,7 @@
 			);
 			name = "Build Rust (day)";
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/day/lib{{ident}}.a",
+				"$(BUILT_PRODUCTS_DIR)/day/libdayapp.a",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -206,7 +206,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LIBRARY_SEARCH_PATHS = "$(BUILT_PRODUCTS_DIR)/day";
-				OTHER_LDFLAGS = "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/lib{{ident}}.a";
+				OTHER_LDFLAGS = "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/libdayapp.a";
 				PRODUCT_NAME = {{pascal}};
 			};
 			name = Debug;
@@ -219,7 +219,7 @@
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LIBRARY_SEARCH_PATHS = "$(BUILT_PRODUCTS_DIR)/day";
-				OTHER_LDFLAGS = "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/lib{{ident}}.a";
+				OTHER_LDFLAGS = "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/libdayapp.a";
 				PRODUCT_NAME = {{pascal}};
 			};
 			name = Release;

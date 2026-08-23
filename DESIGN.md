@@ -322,8 +322,8 @@ scripts), and `day-cli` (the `day` binary).
 | crate | contents | depends on |
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
-| `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive |
-| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
+| `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, integer/`Uuid`/`String` keys behind `ModelId<M>`, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive, uuid |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
 | `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), and the statement protocol the main thread speaks over the SharedArrayBuffer channel; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
@@ -3142,12 +3142,18 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   mapping by case-insensitive substring with a `DAY_BUILD_MODE` override (miette error listing
   accepted names); the space-separated `ARCHS` list is split, **one cargo build per (arch, sdk),
   `lipo`'d together** (a single `--arch "$ARCHS"` is wrong for universal builds); output is the
-  linked `libfieldnotes.a` (iOS requires the staticlib).
+  linked staticlib (iOS requires one), staged into `$(BUILT_PRODUCTS_DIR)/day/` under the FIXED
+  name `libdayapp.a` — Day owns that directory, so the name is Day's, and the app crate's name
+  never reaches the Xcode project (renaming an app touches no build setting). The crate-named
+  `lib<app>.a` is hard-linked beside it for projects generated before that, which link `-l<app>`.
   **The template pbxproj sets `ENABLE_USER_SCRIPT_SANDBOXING=NO`** on every configuration (Xcode
   15+ defaults it to YES, which blocks the phase from writing `$BUILT_PRODUCTS_DIR` — Flutter's
   templates set exactly this), marks the Day phase `alwaysOutOfDate=1` (cargo's own incrementality
-  is the freshness authority), and declares `$(BUILT_PRODUCTS_DIR)/lib<app>.a` as an `outputPath`
-  for link ordering. The plumbing detects sandboxing at runtime and fails with
+  is the freshness authority), and declares the staged `$(BUILT_PRODUCTS_DIR)/day/libdayapp.a` as
+  an `outputPath`. That declaration is what tells Xcode this phase PRODUCES the archive its
+  `-force_load` names: without it a clean tree fails while planning the link — "Build input file
+  cannot be found" — because the check runs before the phase does, and an incremental tree hides
+  it behind last build's copy. The plumbing detects sandboxing at runtime and fails with
   `day::build::xcode_script_sandboxed` + fix instructions; `day doctor` checks it too.
 - **android/**: `settings.gradle.kts` applies the **committed** `day.gradle.kts`, which registers
   a proper task class (`DayRustBuildTask`) — **configuration-cache compatible** (Gradle 9 enables
@@ -4295,8 +4301,8 @@ the storage readout in the walkthrough.
   the change log — the literal "mapped" it wrote before was invisible to the SQL fold, so a
   converted binding over a container store silently never persisted.
 
-Still deferred: lazy faulting, relations, external storage, session-suspend auto-commit
-and cross-window undo focus routing.
+Still deferred: lazy faulting, external storage, session-suspend auto-commit and
+cross-window undo focus routing.
 
 **Outcome (2026-08-22).** Cross-connection watching landed — not via the preupdate hook the
 plan named (it reports only its own connection's writes and cannot see another process's), but
@@ -4307,6 +4313,38 @@ queries, declined by the autosave fold and by undo. The wasm driver leg had alre
 day-sqlite-worker when the list above was written. day-lite's storage moved onto the shared
 driver in the same change (`SqliteConnection` grew `execute_batch` and `query_named`), so a
 superapp compiles one SQLite and the app's engine features govern miniapp storage too.
+
+**Keys and relations (2026-08-23).** The two schema-shaping decisions, owner-ratified in
+dialog and landed together:
+
+- **Wide keys.** `#[obs(key)]`/`#[model(id)]` now take an integer, a `Uuid` (16-byte `BLOB`)
+  or a `String` (`TEXT`), through a new `AsKey` trait. Integer keys are still their own path
+  handle — no interner, no lock, nothing added to the hot path; wide keys intern
+  process-globally (NOT thread-locally: a background transaction's reindex must mint the
+  handles the main thread resolves) to a handle above a reserved top bit, so paths stay 12
+  bytes and every collection index stays `u64`-keyed. `ModelId<M>` is the typed surface —
+  `Copy`, opaque, 8 bytes — and `elem`/`ids`/query results/list slots all speak it, with
+  `From` conversions so integer literals, `Uuid`s and `&str` keys all just work.
+  `day_model::Uuid` re-exports `uuid::Uuid` and **v7 is the taught default** (time-ordered
+  inserts, cross-device uniqueness — the sync groundwork); generation stays native-target
+  only until the web pipeline's entropy import lands. Refusals rather than mis-service:
+  `fts(…)`/`spatial(…)` need an integer key (both address rows by ROWID), and a key field
+  takes no codec.
+- **Relations, the full SwiftData shape.** `One<M>` is the child's foreign-key column — the
+  single source of truth — and `Many<M>` a marker field whose accessor reads an index the
+  container maintains from the change log, which is how maintained inverses come out of the
+  existing pipeline rather than parallel bookkeeping: writing either side wakes both, and
+  `add` goes through the child's FK so it announces, captures for undo, folds to one
+  statement, and animates live queries. Delete rules default to `nullify` (refused over a
+  required reference, naming the fix), with `cascade` recursing through the same pipeline (one
+  undo unit restores a whole subtree) and `deny` refusing through `container.delete`, the
+  checked door. Generated DDL carries the matching `REFERENCES … ON DELETE …`, deferred, so
+  another process honors the same rules. Ordered to-many keys a visible `f64` child field
+  fractionally — a drag is ONE row, with an O(n) rebalance when a gap bisects away.
+  Many-to-many generates the join table and keys its memberships by the PAIR
+  (`Key::Pair`), so they fold, undo and merge through the same machinery every other row
+  uses; declaring it on both models yields one relation with two views, and a join cascade
+  takes only the rows no other row still holds. `Model::RELATIONS` exposes it all as data.
 
 ---
 

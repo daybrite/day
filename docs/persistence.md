@@ -322,6 +322,81 @@ verb. `integrity_check()` parses the PRAGMA into findings (empty means sound).
 (device backup). `vacuum()` compacts in place; `size_bytes()` answers the settings-page
 question.
 
+## Relations
+
+`One<M>` is a to-one reference — the foreign-key column on the child, stored in the target's
+own key shape. `Many<M>` is the other side: a marker field storing nothing, whose accessor
+reads an index the container maintains from the change log. That is the whole design. There is
+**one source of truth** (the child's foreign key), so the maintained inverses SwiftData
+promises fall out of the pipeline that already exists rather than parallel bookkeeping:
+
+```rust
+#[derive(Model, Clone, Default, PartialEq)]
+#[model(table = "trips")]
+struct Trip {
+    #[model(id)] id: Uuid,
+    name: String,
+    #[model(relation(target = Lodging, inverse = "trip", delete = "cascade"))]
+    lodging: Many<Lodging>,
+}
+
+#[derive(Model, Clone, Default, PartialEq)]
+#[model(table = "lodging")]
+struct Lodging {
+    #[model(id)] id: Uuid,
+    name: String,
+    trip: One<Trip>,            // Option<One<Trip>> for a nullable reference
+}
+
+trip.lodging().ids()            // tracked: the children, in relation order
+trip.lodging().add(lodging_id)  // writes the child's FK — one UPDATE
+lodging.trip().write(One::to(other_trip));   // …and the same thing, from the child
+```
+
+Write either side and both wake: `add` goes through the child's foreign key, so the change
+announces, captures for undo, folds to one statement, and reaches any live query watching
+either table. Reads are tracked through the parent's own field path, so a membership change
+wakes exactly the readers of that parent's relation — not every reader of the table.
+
+**Delete rules** are declared on the `Many` side and default to `nullify` (SwiftData's):
+children survive and their references clear, which requires `Option<One<M>>` — wiring refuses
+`nullify` over a required reference, naming the fix. `cascade` deletes the children with the
+parent, recursively and through the normal pipeline, so a cascade is one undo unit that
+restores the whole subtree and a list animates the rows out. `deny` refuses while children
+remain, through `container.delete::<M>(id)` — the checked door; a raw `restructure` delete
+cannot be refused after the fact, so deny is the one rule that needs it. The generated DDL
+carries the matching `REFERENCES … ON DELETE …` clause, `DEFERRABLE INITIALLY DEFERRED` so
+statement order within a transaction never trips it, which also keeps another process honest
+about the same rules.
+
+**Ordered to-many** (`ordered = "field"`) names a `f64` field of the child that holds its
+position — a real, visible column, not hidden state. Placement is fractional, so a drag writes
+**one row**; when a gap bisects away the siblings rebalance to whole numbers first (O(n), rare,
+still one statement per row). `insert_at(child, i)` and `move_to(child, i)` are the verbs; an
+unordered relation refuses both rather than pretending.
+
+**Many-to-many** declares `join = "table"` instead of an inverse. The derive generates the join
+table — the pair as its primary key, a foreign key per side, an index on the reverse side — and
+memberships are ordinary rows keyed by the *pair*, so they fold to SQL, undo, and merge through
+the same machinery every other row uses. Declare it on both models to read it from both (one
+relation, one store, two views); order lives on the membership, declared with a bare `ordered`
+on the side that owns it, because the same child sits at different positions under different
+parents.
+
+```rust
+#[model(relation(target = Note, join = "note_tags"))]
+notes: Many<Note>,                       // on Tag
+#[model(relation(target = Tag, join = "note_tags"))]
+tags: Many<Tag>,                         // on Note — the same memberships, read the other way
+
+tag.notes().add(note_id);                // one INSERT into note_tags
+note.tags().contains(tag_id)             // true, from the same row
+```
+
+Deleting either side drops its memberships; under `cascade` it also takes the rows across the
+join that no other row still holds, so deleting one album never takes a shared photo with it.
+`Model::RELATIONS` exposes every declaration as data, for tools and tests.
+
 ## External changes
 
 Another connection's committed writes — another process, a sync engine, a CLI editing the
@@ -365,11 +440,17 @@ assert_eq!(sql, ["UPDATE trips SET name = ? WHERE id = ?"]);
 
 ## Not in this version
 
-Lazy row faulting (a container LOADS each table at open — the document pattern), relations
-(`#[model(relation)]`), and external storage (`#[model(external)]`) are later phases — the
-plan's design for them shapes what exists today (visible schema, `ColumnValue` everywhere,
-capabilities), but none of it is API yet. Row identity is the `#[model(id)]` key stored as
-`INTEGER`; display order is a projection concern and is not persisted.
+Lazy row faulting (a container LOADS each table at open — the document pattern) and external
+storage (`#[model(external)]`) are later phases — the plan's design for them shapes what exists
+today (visible schema, `ColumnValue` everywhere, capabilities), but neither is API yet. Row
+identity is the `#[model(id)]` key in its own stored shape (`INTEGER`, a 16-byte `BLOB` for
+`Uuid`, `TEXT` for a string key — [model.md](model.md)); a model's own display order is a
+projection concern and is not persisted, though an ordered relation's position is.
+
+Two shapes the key layer refuses rather than mis-serving: `fts(…)`/`spatial(…)` need an
+integer key (both address rows by SQLite's ROWID), and a key field takes no codec — its stored
+form is the key's own canonical one, because the fold's `WHERE` parameters and the merge's
+decoding derive it from the key kind.
 
 ## Watching the SQL
 

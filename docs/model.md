@@ -53,6 +53,50 @@ that is not its key would make inference a trap, and a keyed collection over a s
 `#[obs(key)]` is a compile error naming `Identified`. And field ids come from field **names**,
 so no hand-assigned index can ever collide.
 
+## Keys and ids
+
+A key field is an integer, a `Uuid`, or a `String` — whatever implements `AsKey`. Integers are
+their own path handle: no interner, no lock, no allocation, exactly what integer keys always
+cost. Wide keys intern process-globally to a handle on first use, so paths stay 12 bytes and
+every collection index stays `u64`-keyed; a handle, once minted, is stable for the process's
+life (undo records and long-lived ids rely on it) and reverses through `Key::of_handle`. The
+interner is global rather than thread-local on purpose: a background transaction's reindex must
+mint the same handles the main thread resolves. `interned_keys()` reports its size.
+
+**`Uuid` is the default to teach**, and `Uuid::now_v7()` the way to mint one: v7 is
+time-ordered, so inserts cluster at the B-tree's edge instead of scattering pages, ids sort by
+creation, and uniqueness holds across devices — which is what makes merge and sync tractable
+later. The one honest cost is that a v7 id carries its creation instant, so do not expose one
+where that matters. `day_model::Uuid` re-exports `uuid::Uuid`, so a model file needs no `uuid`
+dependency of its own. (Generation is native-target only until the web pipeline's entropy
+import lands; the type works everywhere, and a web build receives ids rather than minting
+them.)
+
+`ModelId<M>` is the typed surface: `Copy`, 8 bytes, opaque, and what `elem`, query results,
+list slots and destinations all speak, so a wrong-model id is a compile error rather than a
+wrong row. Everything converts into one — a raw handle from `keys()`, an integer literal, a
+`Uuid`, a `&str` — so `store.elem(5)`, `store.elem(uuid)` and `store.elem(id)` are all just
+`elem`. `ModelId::key()` recovers the real key for display or a deep link; `Debug` prints it.
+
+```rust
+#[derive(Observable, Clone, Default, PartialEq)]
+pub struct Card {
+    #[obs(key)] pub id: Uuid,     // or u32, or String
+    pub title: String,
+}
+
+let id = Uuid::now_v7();
+store.restructure("add", Op::Insert, id, |k| k.push(Card { id, ..Default::default() }));
+store.elem(id).title().write("Draft".into());   // by key
+let ids: Vec<ModelId<Card>> = store.ids();      // typed, tracked
+assert_eq!(ids[0].key().as_uuid(), Some(id));
+```
+
+Integer keys reserve the top bit (`1 << 63` and up is the interned-handle space); a debug build
+refuses a key at or above it rather than letting it alias a wide handle. Two rows sharing a key
+is an app bug the index cannot represent — the documented behavior is that the index resolves to
+the last one, and under persistence the fold's upsert coalesces them to one stored row.
+
 ## The store
 
 ```rust

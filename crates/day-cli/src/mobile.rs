@@ -17,6 +17,15 @@ use crate::ops::{
 };
 use crate::targets::Target;
 
+/// The name the app's Rust staticlib is staged under, inside `$(BUILT_PRODUCTS_DIR)/day`.
+///
+/// A CONSTANT, not the crate's own `lib<name>.a`: the Xcode project has to name this file in
+/// its linker flags and in the build phase's declared outputs, and a name derived from the
+/// crate would put the crate's name in the project file — where renaming the app means editing
+/// Xcode settings, and where a rename that misses one of them fails at link time. Day owns this
+/// directory, so the name is Day's to fix.
+pub(crate) const STAGED_STATICLIB: &str = "libdayapp.a";
+
 pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     // Shared lookup: honors RUSTUP_HOME and prefers a stable-* toolchain (docs/environment.md).
     day_toolchain::rustup_cargo()
@@ -293,7 +302,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
             out_dir.display()
         )));
     }
-    let dest = out_dir.join(format!("lib{ident}.a"));
+    let dest = out_dir.join(STAGED_STATICLIB);
     let staged = if arch_libs.len() == 1 {
         std::fs::copy(&arch_libs[0], &dest)
             .map(|_| ())
@@ -325,6 +334,16 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
             let _ = std::fs::remove_dir_all(&dst);
             copy_tree_flat(&src, &dst)
                 .map_err(|e| CliError::build(format!("day xcode-backend: stage assets: {e}")))?;
+        }
+    }
+    // The crate-named alias, for app projects generated before the staged name became this
+    // constant — they link `-l<crate>` out of the same directory. A hard link, so the archive
+    // (hundreds of MB in a debug build) is not stored twice.
+    let alias = out_dir.join(format!("lib{ident}.a"));
+    if alias != dest {
+        let _ = std::fs::remove_file(&alias);
+        if std::fs::hard_link(&dest, &alias).is_err() {
+            let _ = std::fs::copy(&dest, &alias);
         }
     }
     eprintln!("day xcode-backend: staged {}", dest.display());
