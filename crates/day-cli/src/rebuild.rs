@@ -208,30 +208,105 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
 }
 
 /// Mount a .dmg read-only and copy its contents out, so the caller can treat it like a directory.
+///
+/// `hdiutil` is the only thing on a stock Mac that reads a modern (APFS) disk image, so opening one
+/// means attaching it. Exactly one failure is handled, because it has exactly one cause: `hdiutil`
+/// refuses an image that is ALREADY attached, and macOS records no payload digests to fall back on
+/// (`pack::payload_root`), so an attachment left behind by a killed run turns the payload verdict
+/// Unchecked and `--strict` then fails a build that was fine. That is what reddened macos-appkit.
+/// The second attempt is not a retry against flakiness — it removes that one cause and asks again.
 fn mount_dmg(dmg: &Path, dest: &Path) -> Result<(), String> {
     let mnt = dest.join("_mnt");
     std::fs::create_dir_all(&mnt).map_err(|e| e.to_string())?;
-    let ok = Command::new("hdiutil")
-        .args(["attach", "-nobrowse", "-readonly", "-quiet", "-mountpoint"])
-        .arg(&mnt)
-        .arg(dmg)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !ok {
-        return Err(format!("could not mount {}", dmg.display()));
+    // No `-quiet`: it suppresses the very message a failure needs to explain itself, and `output()`
+    // captures the chatty success case anyway, so nothing reaches the terminal either way.
+    let attach = || {
+        Command::new("hdiutil")
+            .args(["attach", "-nobrowse", "-readonly", "-mountpoint"])
+            .arg(&mnt)
+            .arg(dmg)
+            .output()
+            .map_err(|e| format!("running hdiutil attach: {e}"))
+    };
+    let mut attached = attach()?;
+    if !attached.status.success() {
+        detach_image(dmg);
+        attached = attach()?;
+    }
+    if !attached.status.success() {
+        return Err(format!(
+            "could not mount {}: {}",
+            dmg.display(),
+            String::from_utf8_lossy(&attached.stderr).trim()
+        ));
     }
     let copied = Command::new("ditto")
         .arg(&mnt)
         .arg(dest.join("content"))
         .status();
-    let _ = Command::new("hdiutil")
-        .args(["detach", "-quiet"])
+    // `-force` because the volume can still be busy, and the result is CHECKED: a detach that
+    // quietly fails is what leaves the image attached for the next caller to trip over, so fall
+    // back to letting the image itself go rather than leaking it.
+    let detached = Command::new("hdiutil")
+        .args(["detach", "-force", "-quiet"])
         .arg(&mnt)
-        .status();
-    copied
-        .map(|_| ())
-        .map_err(|e| format!("copying from the mounted image: {e}"))
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !detached {
+        detach_image(dmg);
+    }
+    // A partial copy would surface as missing members, i.e. as "the compiled code differs" — so a
+    // ditto that exits non-zero is an error here, not a silently smaller tree.
+    match copied {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("copying from the mounted image exited with {s}")),
+        Err(e) => Err(format!("copying from the mounted image: {e}")),
+    }
+}
+
+/// Detach `dmg` if it is still attached from an earlier mount, whether this process made it or not.
+fn detach_image(dmg: &Path) {
+    let Ok(out) = Command::new("hdiutil").arg("info").output() else {
+        return;
+    };
+    if !out.status.success() {
+        return;
+    }
+    if let Some(dev) = image_dev_node(&String::from_utf8_lossy(&out.stdout), dmg) {
+        let _ = Command::new("hdiutil")
+            .args(["detach", "-force", "-quiet", &dev])
+            .status();
+    }
+}
+
+/// The `/dev/diskN` node `hdiutil info` reports for an attached `dmg`, if it is attached.
+///
+/// `hdiutil info` prints one block per attached image, separated by a rule: the block names its
+/// `image-path`, and the first `/dev/diskN` under it is the image itself (the volumes beneath are
+/// `…sN` slices), so detaching that one releases the whole attachment. Paths are canonicalized on
+/// both sides because the report mixes the two spellings of a temp dir (`/var/…` on `image-path`,
+/// `/private/var/…` on `image-alias`) — and `image-alias` must NOT match, or a shadowed image
+/// would be detached out from under whoever attached it.
+fn image_dev_node(info: &str, dmg: &Path) -> Option<String> {
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let want = canonical(dmg);
+    info.split("================================================")
+        .find(|block| {
+            block.lines().any(|line| {
+                line.trim_start()
+                    .strip_prefix("image-path")
+                    .and_then(|rest| rest.split_once(':'))
+                    .is_some_and(|(_, path)| canonical(Path::new(path.trim())) == want)
+            })
+        })?
+        .lines()
+        .find_map(|line| {
+            line.split_whitespace()
+                .next()
+                .filter(|t| t.starts_with("/dev/disk"))
+        })
+        .map(str::to_string)
 }
 
 /// Depth-first search for a file by name, without following symlinks.
@@ -591,13 +666,13 @@ fn compare(
 
     let (ua, ub) = (scratch.join("cmp/a"), scratch.join("cmp/b"));
     let _ = std::fs::remove_dir_all(scratch.join("cmp"));
-    if !unpack(original, &ua) || !unpack(rebuilt, &ub) {
+    if let Err(why) = unpack(original, &ua).and_then(|()| unpack(rebuilt, &ub)) {
         // The container could not be opened here — a `.flatpak` is an OSTree bundle whose import
         // wants privileges the runner does not have, and a `.msix` needs a working unzip. The
         // payload tier is still decidable: the original recorded the digest of every staged
         // payload file, so hash what THIS build staged and compare that.
         return (
-            payload_by_digest(recorded_payload, project_dir, target, original),
+            payload_by_digest(recorded_payload, project_dir, target, &why),
             container,
         );
     }
@@ -1128,28 +1203,24 @@ fn payload_by_digest(
     recorded: &[(String, String)],
     project_dir: &Path,
     target: &'static crate::targets::Target,
-    original: &Path,
+    why: &str,
 ) -> Verdict {
-    let fmt = original
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("this format");
     if recorded.is_empty() {
         return Verdict::Unchecked(format!(
-            "no extractor for {fmt} on this host, and the artifact recorded no payload digests \
+            "{why}, and the artifact recorded no payload digests \
              (it was packed by a day-cli too old to write them)"
         ));
     }
     let Some(root) = crate::pack::payload_root(project_dir, target) else {
         return Verdict::Unchecked(format!(
-            "no extractor for {fmt} on this host, and {} stages no payload to compare",
+            "{why}, and {} stages no payload to compare",
             target.name
         ));
     };
     let rebuilt = crate::pack::payload_digests(&root);
     if rebuilt.is_empty() {
         return Verdict::Unchecked(format!(
-            "no extractor for {fmt} on this host, and the rebuild staged no payload under {}",
+            "{why}, and the rebuild staged no payload under {}",
             root.display()
         ));
     }
@@ -1200,22 +1271,39 @@ fn portable(p: &Path) -> String {
     }
 }
 
-fn unpack(container: &Path, dest: &Path) -> bool {
+/// Open a container so its members can be compared. `Err` carries WHY it could not be opened —
+/// "this host has no extractor for that format" and "the extractor ran and failed" send the reader
+/// to different places, and the payload tier quotes this reason when it has to shrug.
+fn unpack(container: &Path, dest: &Path) -> Result<(), String> {
     let _ = std::fs::create_dir_all(dest);
+    let fmt = container
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("this format");
+    let ran = |ok: bool, tool: &str| {
+        if ok {
+            Ok(())
+        } else {
+            Err(format!("{tool} could not open {}", container.display()))
+        }
+    };
     match container.extension().and_then(|e| e.to_str()) {
-        Some("ipa" | "apk" | "aab" | "hap" | "msix" | "zip") => Command::new("unzip")
-            .args(["-q", "-o"])
-            .arg(portable(container))
-            .arg("-d")
-            .arg(portable(dest))
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false),
-        Some("dmg") if cfg!(target_os = "macos") => mount_dmg(container, dest).is_ok(),
+        Some("ipa" | "apk" | "aab" | "hap" | "msix" | "zip") => ran(
+            Command::new("unzip")
+                .args(["-q", "-o"])
+                .arg(portable(container))
+                .arg("-d")
+                .arg(portable(dest))
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false),
+            "unzip",
+        ),
+        Some("dmg") if cfg!(target_os = "macos") => mount_dmg(container, dest),
         // A .flatpak is an OSTree static delta, not an archive: import it into a scratch repo and
         // check the ref out. Needs `flatpak` and `ostree`, which any host that can build one has.
-        Some("flatpak") => unpack_flatpak(container, dest),
-        _ => false,
+        Some("flatpak") => ran(unpack_flatpak(container, dest), "flatpak/ostree"),
+        _ => Err(format!("no extractor for {fmt} on this host")),
     }
 }
 
@@ -1594,6 +1682,49 @@ fn differing_members(a: &Path, b: &Path) -> Result<(Vec<String>, Vec<String>), S
 mod tests {
     use super::*;
 
+    /// Finding the already-attached image is what lets a second attach succeed, and getting it
+    /// wrong is silent: miss the block and the mount stays refused; match an `image-alias` line
+    /// (the same path spelled `/private/var/…`) and an unrelated image gets detached out from
+    /// under whoever attached it. The fixture is real `hdiutil info` output.
+    ///
+    /// Deliberately NOT staged against a live attachment: that version manipulated global
+    /// disk-image state and flaked in a parallel run. `day rebuild` exercises the recovery itself.
+    #[test]
+    fn the_attached_image_is_found_by_its_own_path() {
+        let info = "\
+framework       : 683.160.3
+================================================
+image-path      : /tmp/other/image.dmg
+image-alias     : /private/tmp/other/image.dmg
+/dev/disk9\tGUID_partition_scheme\t
+================================================
+image-path      : /tmp/day-mount/image.dmg
+image-alias     : /private/tmp/day-mount/image.dmg
+shadow-path     : <none>
+image-type      : UDIF read-only [write once]
+/dev/disk4\tGUID_partition_scheme\t
+/dev/disk4s1\t7C3457EF-0000-11AA-AA11-00306543ECAC\t
+/dev/disk63s1\t41504653-0000-11AA-AA11-00306543ECAC\t/private/tmp/day-mount/_mnt
+";
+        // The whole image, not a volume slice under it: detaching `/dev/disk4s1` would leave the
+        // attachment in place and the next attach still refused.
+        assert_eq!(
+            image_dev_node(info, Path::new("/tmp/day-mount/image.dmg")),
+            Some("/dev/disk4".to_string())
+        );
+        // Each block answers for its own image — not "whichever block came first", which would
+        // detach a disk this function was never asked about.
+        assert_eq!(
+            image_dev_node(info, Path::new("/tmp/other/image.dmg")),
+            Some("/dev/disk9".to_string())
+        );
+        // A path nobody has attached gets no dev node at all.
+        assert_eq!(
+            image_dev_node(info, Path::new("/tmp/day-mount/absent.dmg")),
+            None
+        );
+    }
+
     #[test]
     fn a_target_that_cannot_build_here_is_refused_with_the_reason() {
         // windows-xaml never builds on a non-Windows host, and the message must say so rather
@@ -1772,21 +1903,28 @@ mod tests {
         let staged = crate::pack::payload_digests(&root);
         assert_eq!(staged.len(), 1, "one staged payload file");
 
-        let art = Path::new("showcase-gtk-x86_64.flatpak");
+        let why = "no extractor for flatpak on this host";
         // Same digests → identical.
         assert_eq!(
-            payload_by_digest(&staged, &tmp, target, art),
+            payload_by_digest(&staged, &tmp, target, why),
             Verdict::Identical
         );
         // A different digest for the same file → a named difference, not a shrug.
         let tampered = vec![(staged[0].0.clone(), "0".repeat(64))];
-        match payload_by_digest(&tampered, &tmp, target, art) {
+        match payload_by_digest(&tampered, &tmp, target, why) {
             Verdict::Differs(d) => assert!(d.contains("showcase-bin"), "{d}"),
             v => panic!("expected Differs, got {v:?}"),
         }
-        // No recorded digests (an older artifact) → unchecked, and it says why.
-        match payload_by_digest(&[], &tmp, target, art) {
-            Verdict::Unchecked(d) => assert!(d.contains("too old"), "{d}"),
+        // No recorded digests (an older artifact) → unchecked, and it says why — carrying the
+        // reason the container could not be opened, so the two causes are told apart.
+        match payload_by_digest(&[], &tmp, target, why) {
+            Verdict::Unchecked(d) => {
+                assert!(d.contains("too old"), "{d}");
+                assert!(
+                    d.contains(why),
+                    "the open failure must survive into the verdict: {d}"
+                );
+            }
             v => panic!("expected Unchecked, got {v:?}"),
         }
         let _ = std::fs::remove_dir_all(&tmp);
