@@ -349,7 +349,7 @@ fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
     if let Some(n) = name {
         let n = n.trim();
         if !n.is_empty() {
-            return Ok(n.to_string());
+            return Ok(kebab_name(n));
         }
     }
     if p.enabled() {
@@ -358,12 +358,54 @@ fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
             // Empty here means EOF (Ctrl-D) at the prompt — report it like the non-interactive path.
             Err(CliError::usage("a <name> is required."))
         } else {
-            Ok(n)
+            Ok(kebab_name(&n))
         }
     } else {
         Err(CliError::usage(
             "a <name> is required (e.g. `day new app my-app`).",
         ))
+    }
+}
+
+/// The crate name for whatever the user typed: lowercase kebab-case, the Cargo convention.
+///
+/// The name becomes the PACKAGE name, and a package name with a capital in it makes a crate
+/// ident with one (`Day-Rise` ⇒ `Day_Rise`), which trips `non_snake_case`. That lint fires on
+/// the crate ROOT, so the only place to silence it is a crate-level `allow` — and a crate-level
+/// allow covers every function, variable and module in the app, not just its name. Normalizing
+/// here is what keeps a scaffolded app from being born with its naming lints switched off.
+///
+/// Renaming the lib target instead is not open to us: `day build` derives the iOS staticlib and
+/// Android cdylib file names from the PACKAGE name (mobile.rs), so a differently-named lib would
+/// not be found.
+///
+/// `Day-Rise` ⇒ `day-rise`, `MyApp` ⇒ `my-app`, `my_app` ⇒ `my-app`, `day-rise` ⇒ unchanged. The
+/// display title is derived from the RESULT (`day-rise` ⇒ "Day Rise"), so the capitalization the
+/// user typed still reaches the window title even though the crate name is lowered.
+fn kebab_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut prev_lower_or_digit = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            // A capital after a lowercase or a digit starts a new word: `MyApp` ⇒ `my-app`,
+            // `Day2App` ⇒ `day2-app`. A run of capitals (`HTTPServer`) does not split on every
+            // letter — only where the run ends, which `prev_lower_or_digit` already encodes.
+            if ch.is_ascii_uppercase() && prev_lower_or_digit {
+                out.push('-');
+            }
+            out.push(ch.to_ascii_lowercase());
+            prev_lower_or_digit = !ch.is_ascii_uppercase();
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+            prev_lower_or_digit = false;
+        }
+    }
+    let s = out.trim_matches('-').to_string();
+    // Cargo rejects a leading digit; the same guard `snake_ident` applies.
+    if s.is_empty() || s.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("day-{s}")
+    } else {
+        s
     }
 }
 
@@ -832,17 +874,6 @@ fn template_context(
     let mut ctx = std::collections::BTreeMap::new();
     ctx.insert("name", repl.crate_name.clone());
     ctx.insert("ident", repl.crate_ident.clone());
-    // Whether that ident trips rustc's `non_snake_case` lint, which fires on the CRATE NAME and
-    // so cannot be silenced anywhere but the crate root. An app named `Day-Rise` or `MyApp` would
-    // otherwise warn on every single build of a freshly scaffolded project. Renaming the lib
-    // target instead is not open to us: `day build` derives the iOS staticlib and Android cdylib
-    // file names from the PACKAGE name (mobile.rs), so a lib named differently would not be found.
-    // Handlebars has no boolean context here — an empty string is falsy, any other string truthy.
-    let ident_not_snake = repl.crate_ident.chars().any(|c| c.is_uppercase());
-    ctx.insert(
-        "ident_not_snake",
-        if ident_not_snake { "1" } else { "" }.to_string(),
-    );
     ctx.insert("snake", repl.snake.clone());
     ctx.insert("pascal", repl.pascal.clone());
     ctx.insert("title", title);
@@ -2544,7 +2575,34 @@ Java shim (`android/java/…/Day__PASCAL__.java`) that `day build` stages into t
 
 #[cfg(test)]
 mod tests {
-    use super::add_targets_to_day_toml;
+    use super::{add_targets_to_day_toml, default_title, kebab_name};
+
+    /// A scaffolded package name is lowercase kebab-case whatever the user typed, so no app is
+    /// ever born needing a crate-level `allow(non_snake_case)` (see `kebab_name`).
+    #[test]
+    fn scaffold_names_are_lowercase_kebab() {
+        for (typed, want) in [
+            ("day-rise", "day-rise"),
+            ("Day-Rise", "day-rise"),
+            ("Day Rise", "day-rise"),
+            ("MyApp", "my-app"),
+            ("my_app", "my-app"),
+            ("HTTPServer", "httpserver"),
+            ("Day2App", "day2-app"),
+            ("  spaced  ", "spaced"),
+            ("2048", "day-2048"),
+        ] {
+            assert_eq!(kebab_name(typed), want, "kebab_name({typed:?})");
+        }
+    }
+
+    /// …and the display title still comes out capitalized, so lowering the crate name costs the
+    /// app nothing a user sees.
+    #[test]
+    fn titles_survive_the_lowering() {
+        assert_eq!(default_title(&kebab_name("Day-Rise")), "Day Rise");
+        assert_eq!(default_title(&kebab_name("MyApp")), "My App");
+    }
 
     #[test]
     fn day_toml_append_preserves_comments_and_formatting() {

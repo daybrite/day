@@ -273,15 +273,24 @@ fn hdc_bin() -> &'static str {
     })
 }
 
+/// Whether `hdc` can actually be run, so a listing can say "not installed" rather than "nothing
+/// connected" — two very different answers for someone wondering where their device went.
+pub(crate) fn hdc_available() -> bool {
+    Command::new(hdc_bin())
+        .arg("-v")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
 /// A fresh `hdc` command targeting the default connect key (`DAY_OHOS_TARGET`).
 pub fn hdc() -> Command {
     hdc_for(&ohos_target())
 }
 
 /// Forward host `tcp:port` → the app's dayscript engine on the launched target (hdc's
-/// `adb forward`). Pinned to the first DISCOVERED device — the emulator's connect key may have
-/// auto-slid off an occupied default port (see [`emulator_launch`]), so the env/default key can
-/// be stale. The forward intermittently fails with "[Fail]TCP Port listen failed" when the
+/// `adb forward`). Pinned to the device this run launched on, else the first DISCOVERED one — the
+/// emulator's connect key may have auto-slid off an occupied default port (see
+/// [`emulator_launch`]), so the env/default key can be stale. The forward intermittently fails with "[Fail]TCP Port listen failed" when the
 /// host-side hdc server is in a bad state — recycle the server and retry (bounded); a recycled
 /// server has forgotten networked targets, so re-`tconn` before every attempt (harmless for USB
 /// keys, which are auto-discovered).
@@ -356,6 +365,12 @@ pub(crate) fn ohos_devices() -> Vec<OhosDevice> {
                 keys.push(k.to_string());
             }
         }
+    }
+    // Narrowed to what this run selected (`--ohos-device`), when it named one. Doing it here
+    // rather than at each call site is what also pins `fport_engine`'s first-device pick, which
+    // otherwise forwarded the dayscript port to whichever target answered first.
+    if let Some(want) = crate::ops::selected_ohos_key() {
+        keys.retain(|k| k == want);
     }
     keys.into_iter()
         .filter_map(|key| {
@@ -987,13 +1002,27 @@ pub fn launch_ohos(
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle = project.manifest.app.id.clone();
+    // Recorded BEFORE enumerating: `ohos_devices` narrows to it, and so do the dayscript forward
+    // and capture steps that run later with no spec in hand.
+    if let Some(key) = spec.ohos_device.as_deref() {
+        crate::ops::remember_ohos_key(key);
+    }
     let devices = ohos_devices();
     if devices.is_empty() {
-        return Err(format!(
-            "no OpenHarmony target reachable (hdc). Boot an emulator (`day ohos emulator launch`) \
-             or attach a device; the default connect key is {}.",
-            ohos_target()
-        ));
+        return Err(match spec.ohos_device.as_deref() {
+            Some(key) => format!(
+                "--ohos-device {key:?} is not reachable (check `day devices list`, or \
+                 `hdc list targets`)"
+            ),
+            None => format!(
+                "no OpenHarmony target reachable (hdc). Boot an emulator \
+                 (`day ohos emulator launch`) or attach a device; the default connect key is {}.",
+                ohos_target()
+            ),
+        });
+    }
+    if let [only] = devices.as_slice() {
+        crate::ops::remember_ohos_key(only.key.clone());
     }
     // The dayscript runner drives ONE target over the hdc-forwarded port — the default key — so a
     // scripted run stays deterministic even with several targets attached.

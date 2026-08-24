@@ -628,6 +628,9 @@ pub struct LaunchSpec {
     pub ios_device: Option<String>,
     pub ios_simulator: Option<String>,
     pub android_device: Option<String>,
+    /// OpenHarmony connect key (`hdc -t`). Without it every reachable target gets the app, the
+    /// same rule the other two runtimes follow.
+    pub ohos_device: Option<String>,
 }
 
 impl LaunchSpec {
@@ -635,6 +638,54 @@ impl LaunchSpec {
     pub fn wants_ios_device(&self) -> bool {
         self.ios_device.is_some()
     }
+}
+
+/// What this run actually launched onto, remembered for the steps that come AFTER the launch.
+///
+/// A dayscript run forwards a port and takes screenshots long after `LaunchSpec` is out of scope,
+/// and those paths used to pin whichever device enumerated first — so a `--android-device` run
+/// forwarded to a bystander phone, and a `--ios-simulator` run photographed the wrong screen.
+/// Recording the RESOLVED identity (a simulator UDID, an adb serial, an hdc key) once at launch
+/// keeps every later step on the device the user actually named.
+///
+/// Set-once per process: one `day launch` selects at most one device per runtime, and a second
+/// write would mean the selection changed underneath a run in progress.
+mod selected {
+    use std::sync::OnceLock;
+
+    pub(super) static IOS_SIMULATOR: OnceLock<String> = OnceLock::new();
+    pub(super) static ANDROID_SERIAL: OnceLock<String> = OnceLock::new();
+    pub(super) static OHOS_KEY: OnceLock<String> = OnceLock::new();
+}
+
+/// Record the simulator this run launched on, as a resolved UDID.
+pub fn remember_ios_simulator(udid: impl Into<String>) {
+    let _ = selected::IOS_SIMULATOR.set(udid.into());
+}
+
+/// Record the adb serial this run launched on.
+pub fn remember_android_serial(serial: impl Into<String>) {
+    let _ = selected::ANDROID_SERIAL.set(serial.into());
+}
+
+/// Record the hdc connect key this run launched on.
+pub fn remember_ohos_key(key: impl Into<String>) {
+    let _ = selected::OHOS_KEY.set(key.into());
+}
+
+/// The simulator UDID this run launched on, if it named one.
+pub fn selected_ios_simulator() -> Option<&'static str> {
+    selected::IOS_SIMULATOR.get().map(String::as_str)
+}
+
+/// The adb serial this run launched on, if it named one.
+pub fn selected_android_serial() -> Option<&'static str> {
+    selected::ANDROID_SERIAL.get().map(String::as_str)
+}
+
+/// The hdc connect key this run launched on, if it named one.
+pub fn selected_ohos_key() -> Option<&'static str> {
+    selected::OHOS_KEY.get().map(String::as_str)
 }
 
 /// Everything needed to start a desktop target's own binary: the program, its arguments, the

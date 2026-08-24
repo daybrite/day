@@ -8,6 +8,7 @@
 mod bridge;
 mod checkup;
 mod cli;
+mod devices;
 mod diagnose;
 mod doctor;
 mod drive;

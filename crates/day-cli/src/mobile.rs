@@ -1234,28 +1234,7 @@ fn launch_ios_device(
         &format!("{} ({bundle_id}) on device {name}", outcome.target),
     );
     let mut launch = Command::new("xcrun");
-    launch
-        .args([
-            "devicectl",
-            "device",
-            "process",
-            "launch",
-            "--device",
-            &udid,
-        ])
-        .arg(&bundle_id);
-    if spec.attached {
-        // Streams the app's own stdout/stderr back, the way `simctl launch --console` does.
-        launch.arg("--console");
-    }
-    for (k, v) in &spec.envs {
-        launch.arg("--environment-variables");
-        launch.arg(format!("{{\"{k}\":\"{v}\"}}"));
-    }
-    if let Some(loc) = &spec.locale {
-        launch.arg("--environment-variables");
-        launch.arg(format!("{{\"DAY_LOCALE\":\"{loc}\"}}"));
-    }
+    launch.args(devicectl_launch_args(&udid, &bundle_id, spec));
     if !spec.attached {
         run_logged_within(
             &mut launch,
@@ -1294,6 +1273,43 @@ fn launch_ios_device(
 /// terminal is the app's output under the same `[target]` prefix every other platform uses.
 /// devicectl interleaves its progress on the same stream as the app it launched, and those lines
 /// are about devicectl, not about the app.
+/// The argument vector for `xcrun devicectl device process launch`.
+///
+/// Split out so the ORDER is testable: devicectl's grammar ends in a variadic
+/// `[<command-line-arguments> ...]`, so every option MUST precede the bundle id. Placing them
+/// after handed `--console` and the whole environment to the app as argv instead — which is why a
+/// device launch printed nothing while the same app on a simulator streamed its logs fine.
+fn devicectl_launch_args(udid: &str, bundle_id: &str, spec: &LaunchSpec) -> Vec<String> {
+    let mut args: Vec<String> = ["devicectl", "device", "process", "launch", "--device", udid]
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    if spec.attached {
+        // Streams the app's own stdout/stderr back, the way `simctl launch --console` does.
+        args.push("--console".into());
+        // `--console` connects the standard streams only when the app is NOT already running, so
+        // relaunching a live app would come back silent. The simulator path terminates first for
+        // exactly this reason.
+        args.push("--terminate-existing".into());
+    }
+    // ONE dictionary, not one flag per pair: `--environment-variables` takes a single JSON object
+    // and a repeated option keeps only the last, which would drop every variable but one. Built
+    // through serde rather than formatted by hand, so a value containing a quote stays valid JSON.
+    let mut env = serde_json::Map::new();
+    for (k, v) in &spec.envs {
+        env.insert(k.clone(), serde_json::Value::String(v.clone()));
+    }
+    if let Some(loc) = &spec.locale {
+        env.insert("DAY_LOCALE".into(), serde_json::Value::String(loc.clone()));
+    }
+    if !env.is_empty() {
+        args.push("--environment-variables".into());
+        args.push(serde_json::Value::Object(env).to_string());
+    }
+    args.push(bundle_id.to_string());
+    args
+}
+
 fn stream_devicectl(
     label: String,
     stream: LogStream,
@@ -1376,6 +1392,11 @@ pub fn launch_ios(
         Some(want) => select_sim(&sims, want)?,
         None => sims,
     };
+    // Remember the RESOLVED udid while we have it: the screenshot path runs later with no spec in
+    // hand, and used to photograph whichever simulator booted first (crate::ops::selected_*).
+    if let [only] = sims.as_slice() {
+        crate::ops::remember_ios_simulator(only.clone());
+    }
     let multi = sims.len() > 1;
     let mut log_threads = Vec::new();
     for udid in &sims {
@@ -1519,7 +1540,10 @@ fn adb(serial: Option<&str>) -> Command {
 /// list to that one device — so launches, installs, and dayscript sessions target it exclusively
 /// when several are attached (the default remains all connected devices).
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
-    android_devices_for(None)
+    // Narrowed to the device this run launched on, when it named one: the callers that take no
+    // argument are the ones that run AFTER the launch (dayscript forwarding, screenshots), and
+    // an unnarrowed list there is how a forward reached a bystander phone.
+    android_devices_for(crate::ops::selected_android_serial())
 }
 
 pub(crate) fn android_devices_for(want: Option<&str>) -> Vec<AndroidDevice> {
@@ -1796,6 +1820,10 @@ pub fn launch_android(
             None => "no Android device/emulator connected (check `adb devices`)".into(),
         });
     }
+    // Same reason as the iOS arm above: pin what the later dayscript and capture steps address.
+    if let [only] = devices.as_slice() {
+        crate::ops::remember_android_serial(only.serial.clone());
+    }
     // Install + launch on EVERY connected device; the one APK already carries each device's ABI.
     let mut log_threads = Vec::new();
     for dev in &devices {
@@ -2019,8 +2047,91 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
 
 #[cfg(test)]
 mod abi_tests {
-    use super::{android_build_abis, parse_abi_list};
+    use super::{android_build_abis, devicectl_launch_args, parse_abi_list};
+    use crate::ops::LaunchSpec;
     use std::sync::Mutex;
+
+    /// Every devicectl option must precede the bundle id.
+    ///
+    /// devicectl's usage ends in `[<command-line-arguments> ...]`, so the first positional closes
+    /// the option list and everything after it becomes argv for the app. That silently swallowed
+    /// `--console` — the app launched, devicectl returned immediately, and a device run printed
+    /// nothing while the same app on a simulator streamed normally.
+    #[test]
+    fn devicectl_options_precede_the_bundle_id() {
+        let spec = LaunchSpec {
+            locale: Some("fr".into()),
+            envs: vec![
+                ("DAY_LOG".into(), "trace".into()),
+                ("WITH_QUOTE".into(), "a\"b".into()),
+            ],
+            attached: true,
+            ios_device: None,
+            ios_simulator: None,
+            android_device: None,
+            ohos_device: None,
+        };
+        let args = devicectl_launch_args("UDID-1", "dev.daybrite.app", &spec);
+
+        let bundle = args
+            .iter()
+            .position(|a| a == "dev.daybrite.app")
+            .expect("bundle id");
+        assert_eq!(
+            bundle,
+            args.len() - 1,
+            "the bundle id must be LAST: {args:?}"
+        );
+        for opt in [
+            "--console",
+            "--terminate-existing",
+            "--environment-variables",
+        ] {
+            let at = args
+                .iter()
+                .position(|a| a == opt)
+                .unwrap_or_else(|| panic!("{opt} missing"));
+            assert!(at < bundle, "{opt} must precede the bundle id: {args:?}");
+        }
+
+        // One dictionary carrying every variable — a repeated option would keep only the last.
+        assert_eq!(
+            args.iter()
+                .filter(|a| *a == "--environment-variables")
+                .count(),
+            1,
+            "environment must be one JSON object: {args:?}"
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&args[args.len() - 2]).expect("valid JSON");
+        assert_eq!(json["DAY_LOG"], "trace");
+        assert_eq!(json["DAY_LOCALE"], "fr");
+        assert_eq!(
+            json["WITH_QUOTE"], "a\"b",
+            "values are escaped, not hand-formatted"
+        );
+    }
+
+    /// A detached launch has nothing to stream to, so it neither attaches nor kills a live app.
+    #[test]
+    fn a_detached_device_launch_does_not_take_the_console() {
+        let spec = LaunchSpec {
+            locale: None,
+            envs: Vec::new(),
+            attached: false,
+            ios_device: None,
+            ios_simulator: None,
+            android_device: None,
+            ohos_device: None,
+        };
+        let args = devicectl_launch_args("UDID-1", "dev.daybrite.app", &spec);
+        assert!(!args.iter().any(|a| a == "--console"), "{args:?}");
+        assert!(
+            !args.iter().any(|a| a == "--terminate-existing"),
+            "{args:?}"
+        );
+        assert_eq!(args.last().unwrap(), "dev.daybrite.app");
+    }
 
     /// Serialize `DAY_ANDROID_ABI` mutation (`set_var` is unsafe under concurrency in edition 2024).
     static ENV_LOCK: Mutex<()> = Mutex::new(());

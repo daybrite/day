@@ -238,9 +238,14 @@ enum Cmd {
         #[arg(long = "ios-simulator", alias = "device", value_name = "NAME|UDID")]
         ios_simulator: Option<String>,
         /// Android device or emulator to launch on, by adb serial (`adb devices`). Without it
-        /// every connected one gets the app. Equivalent to setting `ANDROID_SERIAL`.
+        /// every connected one gets the app. Takes precedence over `ANDROID_SERIAL`.
         #[arg(long = "android-device", value_name = "SERIAL")]
         android_device: Option<String>,
+        /// OpenHarmony device or emulator to launch on, by hdc connect key
+        /// (`day devices list`, or `hdc list targets`). Without it every reachable target gets
+        /// the app. Takes precedence over `DAY_OHOS_TARGET`.
+        #[arg(long = "ohos-device", value_name = "KEY")]
+        ohos_device: Option<String>,
         /// Build, launch, and exit — leaving the apps running in the background. `day` streams no
         /// logs and owns nothing afterwards, so there is no Ctrl-C to take them down with it;
         /// stop them later with `day stop`. Also accepted as `--detached`.
@@ -480,6 +485,11 @@ enum Cmd {
     },
     /// Serve Day tools to coding agents over the Model Context Protocol (stdio)
     McpServer {},
+    /// Simulators, emulators and phones the mobile targets can launch onto
+    Devices {
+        #[command(subcommand)]
+        cmd: DevicesCmd,
+    },
     /// HarmonyOS / OpenHarmony helpers (emulator, …)
     Ohos {
         #[command(subcommand)]
@@ -704,6 +714,25 @@ pub enum AppCmd {
     /// automatically; this runs the same migration without building.
     #[command(name = "split-xcconfig")]
     SplitXcconfig,
+}
+
+#[derive(clap::Subcommand)]
+pub enum DevicesCmd {
+    /// List what each mobile target can be launched onto right now
+    List {
+        /// Only this target (`ios-uikit`, `android-mdc`, `harmony-arkui`)
+        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        platform: Option<String>,
+    },
+    /// Start a simulator, emulator or AVD so it can be launched onto
+    Boot {
+        /// Which target's device to start
+        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        platform: String,
+        /// The device's id from `day devices list` — a simulator UDID or an AVD name
+        #[arg(value_name = "ID")]
+        id: String,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -992,6 +1021,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 ios_device: None,
                 ios_simulator: None,
                 android_device: None,
+                ohos_device: None,
             };
             for (ti, name) in names.iter().enumerate() {
                 let target =
@@ -1030,6 +1060,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Cmd::McpServer {} => with_project(cli.project.as_deref(), |project| {
             Ok(crate::mcp::run(project))
         }),
+        // No project needed: what is plugged into this machine has nothing to do with which app
+        // is open, and the editor asks before a project is chosen.
+        Cmd::Devices {
+            cmd: DevicesCmd::List { platform },
+        } => crate::devices::list(platform.as_deref(), cli.format == OutputFormat::Json),
+        Cmd::Devices {
+            cmd: DevicesCmd::Boot { platform, id },
+        } => crate::devices::boot(platform.as_str(), id.as_str()),
         Cmd::Ohos {
             cmd:
                 OhosCmd::Emulator {
@@ -1223,6 +1261,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             ios_device,
             ios_simulator,
             android_device,
+            ohos_device,
             detach,
             keep_alive,
             record,
@@ -1248,6 +1287,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 ios_device: ios_device.clone(),
                 ios_simulator: ios_simulator.clone(),
                 android_device: android_device.clone(),
+                ohos_device: ohos_device.clone(),
                 envs: envs
                     .iter()
                     .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
@@ -1631,6 +1671,7 @@ fn print_result_json(
                     ios_device: None,
                     ios_simulator: None,
                     android_device: None,
+                    ohos_device: None,
                 };
                 if let Ok(plan) = ops::desktop_launch_plan(project, target, o, &spec) {
                     let env: serde_json::Map<String, serde_json::Value> = plan

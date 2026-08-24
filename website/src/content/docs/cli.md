@@ -27,6 +27,8 @@ day pack    -p macos-appkit  # build + sign + produce a distributable artifact (
 day sign    --check          # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
 day lint                     # check ids, Fluent coverage, project shape
+day devices list             # simulators, emulators and phones a mobile target can launch onto
+day devices boot -p ios-uikit <id>  # start a simulator/AVD so it can be launched onto
 day doctor                   # check toolchains for every target
 day checkup                  # doctor, then scaffold + build + pack a throwaway app per target
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
@@ -124,9 +126,36 @@ can send each `-p` somewhere different:
 | `--ios-device <name\|udid>` | a physical iPhone or iPad | `xcrun devicectl list devices` |
 | `--ios-simulator <name\|udid>` | one booted simulator | `xcrun simctl list devices booted` |
 | `--android-device <serial>` | one device or emulator | `adb devices` |
+| `--ohos-device <key>` | one OpenHarmony device or emulator | `hdc list targets` |
 
-`--android-device` is the same selection `ANDROID_SERIAL` makes, so an exported serial keeps
-working. `--device` is an accepted alias for `--ios-simulator`.
+Or ask Day, which covers all three in one listing and needs no project:
+
+```bash
+day devices list                      # every mobile target
+day devices list -p ios-uikit         # just one
+day --format json devices list        # for editors and scripts
+
+# start something to launch onto: a simulator, an AVD, or the OpenHarmony emulator
+day devices boot -p ios-uikit  C4C903E3-95E1-40F3-A3F8-45D3EAE035BB
+day devices boot -p android-mdc Pixel_9_API_36
+```
+
+Booted simulators, attached phones, running emulators and reachable hdc targets come back under
+`devices`; simulators and AVDs that exist but are not running come back under `bootable`. A target
+whose toolchain is missing says so — `available: false` with a note — instead of looking like
+nothing is plugged in.
+
+`day devices boot` starts one of the `bootable` entries. That matters most on iOS, where an app
+cannot be installed onto a shut-down simulator: booting one is the step between "none running" and
+being able to launch at all.
+
+`--android-device` and `--ohos-device` take precedence over `ANDROID_SERIAL` and
+`DAY_OHOS_TARGET`, so an exported value keeps working as the default and the flag overrides it for
+one run. `--device` is an accepted alias for `--ios-simulator`.
+
+Whichever device a run names is also the one its dayscript talks to and its screenshots come
+from — the port forward and the capture follow the selection rather than whichever device
+enumerated first.
 
 ```bash
 # every booted simulator — the default, and what a screenshot sweep wants
@@ -140,6 +169,9 @@ day launch -p ios-uikit --ios-device "iPhone 13 mini"
 
 # one Android device or emulator, by adb serial
 day launch -p android-mdc --android-device 19091FDF600BAY
+
+# one OpenHarmony device or emulator, by hdc connect key
+day launch -p harmony-arkui --ohos-device 127.0.0.1:55555
 
 # both phones at once, from one command, with the logs interleaved
 day launch -p ios-uikit    --ios-device "iPhone 13 mini" \
