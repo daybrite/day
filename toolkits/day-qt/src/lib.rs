@@ -481,6 +481,32 @@ extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
 }
 /// Focus callback from the C++ event filter (docs/focus.md).
 /// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).
+/// Arrow-key callback from the C++ key filter (docs/menus.md). Answers whether the app claimed
+/// it: a canvas nobody hung `.on_key` on keeps none of them, so an enclosing scroll area still
+/// scrolls with the keyboard.
+extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
+    ffi_guard::contain(0, || {
+        let key = match code {
+            0 => "ArrowLeft",
+            1 => "ArrowRight",
+            2 => "ArrowUp",
+            _ => "ArrowDown",
+        };
+        let node = NodeId(id);
+        if !day_spec::keys::handled(node) {
+            return 0;
+        }
+        emit(
+            node,
+            Event::Key(day_spec::KeyEvent {
+                key: key.to_string(),
+                modifiers: modifiers as u8,
+            }),
+        );
+        1
+    })
+}
+
 extern "C" fn on_focus(id: u64, kind: c_int) {
     ffi_guard::contain((), || {
         let ev = match kind {
@@ -1713,7 +1739,15 @@ impl Toolkit for Qt {
                         None => QtHandle(ffi::day_qt_progress_new(0, 0)),
                     }
                 }
-                Some(Builtin::Canvas) => QtHandle(ffi::day_qt_canvas_new()),
+                Some(Builtin::Canvas) => {
+                    let w = ffi::day_qt_canvas_new();
+                    // Focus, and with it the keyboard (docs/menus.md, docs/focus.md): a canvas
+                    // is the one built-in piece with no native control under it, so nothing
+                    // else would ever make it the focus widget.
+                    ffi::day_qt_enable_keys(w, id.0, on_key);
+                    ffi::day_qt_enable_focus(w, id.0, on_focus);
+                    QtHandle(w)
+                }
                 Some(Builtin::Image) => {
                     let Some(p) = props_of::<ImageProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);

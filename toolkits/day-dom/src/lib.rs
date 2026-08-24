@@ -93,6 +93,13 @@ unsafe extern "C" {
     fn day_dom_list_viewport(el: u32, out: *mut f64);
     /// Report this list's scrolling into `day_dom_list_scrolled`, so rows coming into view build.
     fn day_dom_list_on_scroll(el: u32);
+    /// Give the emulated list a tab stop, the listbox role, and the arrow/Home/End route back
+    /// into `day_dom_list_key` (docs/list.md). A browser has no native list to inherit keyboard
+    /// selection from, so the one the app sees is the one this builds.
+    fn day_dom_list_keynav(el: u32, multi: u32);
+    /// Give a canvas a tab stop, focus-on-press, and the arrow route back into
+    /// `day_dom_canvas_key` (docs/menus.md) — the web half of "keys follow focus".
+    fn day_dom_canvas_keynav(el: u32);
     fn day_dom_scroll_content(el: u32, w: f64, h: f64);
     fn day_dom_focus(el: u32, focused: u32);
     fn day_dom_canvas_replay(
@@ -534,7 +541,13 @@ struct ListEntry {
     selectable: bool,
     multi: bool,
     selected: BTreeSet<usize>,
+    /// The FIXED end of a shifted range — the row the extension pivots on, set by a plain click
+    /// or a plain arrow and left alone while shift moves the other end.
     anchor: Option<usize>,
+    /// The MOVING end: where the keyboard is, and the row a shifted arrow walks. Separate from
+    /// the anchor because a range has two ends and `shift+↓ ↓ ↑` has to grow twice and shrink
+    /// once — one field cannot both stay put and move.
+    lead: Option<usize>,
 }
 
 /// A pending `request_frame` callback (the timestamp is seconds, from rAF).
@@ -1348,7 +1361,17 @@ impl Toolkit for Dom {
                 apply_image_tint(el, &src, fit, p.tint);
                 el
             }
-            Some(Builtin::Canvas) => unsafe { day_dom_create(EL_CANVAS) },
+            Some(Builtin::Canvas) => {
+                let el = unsafe { day_dom_create(EL_CANVAS) };
+                // A canvas is the one built-in piece with no native control under it, so it
+                // needs a tab stop of its own before focus — and with focus, the keys
+                // (docs/menus.md) — can reach what it draws.
+                unsafe { day_dom_canvas_keynav(el) };
+                // …and reports focus both ways (mask 8), so `.focused(signal)` binds two-way
+                // and dayscript's `assert_focused` can see where the keyboard is.
+                unsafe { day_dom_listen(el, 8) };
+                el
+            }
             Some(Builtin::Scroll) => {
                 let Some(p) = day_spec::props_of::<ScrollProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
@@ -1458,11 +1481,15 @@ impl Toolkit for Dom {
                             multi: p.multi_select,
                             selected: BTreeSet::new(),
                             anchor: None,
+                            lead: None,
                         },
                     )
                 });
                 // Rows are built as they scroll in, so the list has to hear about scrolling.
                 unsafe { day_dom_list_on_scroll(host) };
+                if p.selectable {
+                    unsafe { day_dom_list_keynav(host, u32::from(p.multi_select)) };
+                }
                 host
             }
             // A recycled list cell is ADOPTED from the native list, never realized through
@@ -2604,6 +2631,10 @@ fn list_fill_window(host: u32) {
                 unsafe { day_dom_insert(content, cell, u32::MAX) };
                 if selectable {
                     unsafe { day_dom_listen(cell, 1) };
+                    // The role pairs with the host's `listbox` (day_dom_list_keynav): it is what
+                    // makes the arrow keys below mean something to a screen reader, and what
+                    // gives `aria-selected` somewhere to live.
+                    attr(cell, "role", "option");
                     CELL_ROWS.with(|m| m.borrow_mut().insert(cell, (host, i)));
                 }
                 st.cells[i] = cell;
@@ -2672,8 +2703,98 @@ fn list_paint_selection(entry: &ListEntry) {
         if cell == 0 {
             continue;
         }
-        class(cell, "selected", entry.selected.contains(&i));
+        let on = entry.selected.contains(&i);
+        class(cell, "selected", on);
+        if entry.selectable {
+            attr(cell, "aria-selected", if on { "true" } else { "false" });
+        }
     }
+}
+
+/// Where the keyboard is in the list — the row an arrow moves from. That is the lead, the end a
+/// shifted range last moved; failing that the anchor, and failing that the selection's last row
+/// (a list whose selection the app set without either). With nothing selected there is no
+/// cursor, and the caller decides which end to enter the list from.
+fn list_cursor(entry: &ListEntry) -> Option<usize> {
+    entry
+        .lead
+        .or(entry.anchor)
+        .or_else(|| entry.selected.iter().next_back().copied())
+}
+
+/// Scroll `row` into view if it is not fully there, the way a native list does when the
+/// keyboard walks off the visible edge. Whichever edge it went past is the one it comes back
+/// to, so a held arrow key scrolls a line at a time instead of recentering on every step.
+fn list_reveal_row(host: u32, row: usize, row_height: f64) {
+    let mut view = [0.0_f64; 2];
+    unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
+    let (offset, vh) = (view[0], view[1]);
+    if vh <= 0.0 {
+        return; // not laid out yet; the fill that follows builds from the top anyway
+    }
+    let (top, bottom) = (row as f64 * row_height, (row + 1) as f64 * row_height);
+    let y = if top < offset {
+        top
+    } else if bottom > offset + vh {
+        bottom - vh
+    } else {
+        return;
+    };
+    unsafe { day_dom_scroll_to(host, 0.0, y, 0) };
+}
+
+/// An arrow, Home or End the shim's list keyboard route claims for a focused list
+/// (docs/list.md): `dir` is 0 up, 1 down, 2 home, 3 end, and `mods` is a `KeyEvent` mask. Moves
+/// the selection one row (or to an end), extends the range instead when a multi-select list is
+/// shifted, reveals the row and reports the same event a click on it would.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) {
+    day_spec::ffi_guard::contain((), || {
+        let moved = LISTS.with(|m| {
+            let mut m = m.borrow_mut();
+            let st = m.get_mut(&host)?;
+            let n = st.source.as_ref().map_or(0, |src| (src.len)());
+            if !st.selectable || n == 0 {
+                return None;
+            }
+            // Entering an unselected list picks the row the arrow points AT: down lands on the
+            // first row, up on the last, which is what every desktop list does.
+            let cursor = list_cursor(st);
+            let row = match dir {
+                0 => cursor.map_or(n - 1, |c| c.saturating_sub(1)),
+                1 => cursor.map_or(0, |c| (c + 1).min(n - 1)),
+                2 => 0,
+                3 => n - 1,
+                _ => return None,
+            };
+            let shift = mods as u8 & day_spec::KeyEvent::SHIFT != 0;
+            if st.multi && shift {
+                // Shift extends from the anchor and leaves it where it was, moving only the
+                // lead — so a run of shifted arrows grows and shrinks ONE range instead of
+                // starting a new one from wherever the last one ended.
+                let a = st.anchor.unwrap_or(row);
+                st.selected = (a.min(row)..=a.max(row)).collect();
+                st.anchor = Some(a);
+                st.lead = Some(row);
+            } else {
+                st.selected = std::iter::once(row).collect();
+                st.anchor = Some(row);
+                st.lead = Some(row);
+            }
+            list_paint_selection(st);
+            let ev = if st.multi {
+                Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
+            } else {
+                Event::SelectionChanged(row as i64)
+            };
+            Some((st.node, ev, row, st.row_height.max(1.0)))
+        });
+        let Some((node, ev, row, row_height)) = moved else {
+            return;
+        };
+        list_reveal_row(host, row, row_height);
+        emit(node, ev);
+    });
 }
 
 fn list_patch(el: u32, p: &ListPatch) {
@@ -2693,9 +2814,18 @@ fn list_patch(el: u32, p: &ListPatch) {
         ListPatch::Selected(rows) => {
             LISTS.with(|m| {
                 if let Some(st) = m.borrow_mut().get_mut(&el) {
-                    st.selected = rows.iter().copied().collect();
-                    st.anchor = rows.last().copied();
-                    list_paint_selection(st);
+                    let incoming: BTreeSet<usize> = rows.iter().copied().collect();
+                    // An app-driven selection lands the cursor on its last row. The ECHO of a
+                    // selection this list just made is NOT app-driven — a `selected_rows`
+                    // binding sends the same rows straight back — and taking the cursor from it
+                    // would drag the anchor onto the end of the range the user is extending, so
+                    // the next shifted arrow would restart the range instead of growing it.
+                    if incoming != st.selected {
+                        st.selected = incoming;
+                        st.anchor = rows.last().copied();
+                        st.lead = st.anchor;
+                        list_paint_selection(st);
+                    }
                 }
             });
         }
@@ -2716,12 +2846,18 @@ fn list_cell_click(cell: u32, mods: u32) {
                 st.selected.insert(row);
             }
             st.anchor = Some(row);
+            st.lead = Some(row);
         } else if st.multi && shift {
+            // Shift-click extends from the anchor the same way a shifted arrow does: the pivot
+            // stays, the lead comes to the clicked row.
             let a = st.anchor.unwrap_or(row);
             st.selected = (a.min(row)..=a.max(row)).collect();
+            st.anchor = Some(a);
+            st.lead = Some(row);
         } else {
             st.selected = std::iter::once(row).collect();
             st.anchor = Some(row);
+            st.lead = Some(row);
         }
         list_paint_selection(st);
         Some((
@@ -3231,25 +3367,33 @@ pub extern "C" fn day_dom_edit(op: u32) {
     });
 }
 
-/// A non-text key (the arrows) pressed while no editable element has focus — the shim's
-/// keydown route, delivered as [`Event::Key`] with the day modifier mask (docs/menus.md).
+/// An arrow pressed while THIS canvas has focus (docs/menus.md). Returns whether the app
+/// claimed it — a canvas nobody hung a key handler on keeps none of them, so the browser's own
+/// scrolling still works underneath it.
 #[unsafe(no_mangle)]
-pub extern "C" fn day_dom_key(code: u32, modifiers: u32) {
-    day_spec::ffi_guard::contain((), || {
+pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 {
+    day_spec::ffi_guard::contain(0, || {
         let key = match code {
             0 => "ArrowLeft",
             1 => "ArrowRight",
             2 => "ArrowUp",
             _ => "ArrowDown",
         };
+        let Some(node) = node_of(el) else {
+            return 0;
+        };
+        if !day_spec::keys::handled(node) {
+            return 0;
+        }
         emit(
-            day_spec::WINDOW_NODE,
+            node,
             Event::Key(day_spec::KeyEvent {
                 key: key.to_string(),
                 modifiers: modifiers as u8,
             }),
         );
-    });
+        1
+    })
 }
 
 /// The platform-standard undo shortcut (⌘Z / Ctrl+Z, shift or Ctrl+Y for redo) pressed with

@@ -41,6 +41,24 @@ impl IntoInsets for Insets {
 /// new one. Pure composition — no per-backend work. A plain `FnOnce(AnyPiece) -> AnyPiece` closure
 /// is a `Modifier` too (the blanket impl below), so the common case needs no new type. Apply one
 /// with [`Decorate::modifier`].
+///
+/// **`AnyPiece` here is a trade, not a requirement.** It is not object safety: a `Modifier` is
+/// never stored as `dyn Modifier`, and [`Decorate::modifier`] takes `impl Modifier` and applies
+/// it on the spot. It is the closure impl below. A closure has ONE fixed parameter type, and
+/// Rust has no `for<P> FnOnce(P) -> _` bound — higher-ranked bounds range over lifetimes, not
+/// types — so making `apply` generic over the content (`fn apply<P: Piece>(self, c: P) ->
+/// Self::Out<P>`, which a named modifier CAN satisfy with a GAT) would leave no closure able to
+/// implement the trait at all. Pinning the input to the one piece type that accepts anything is
+/// what keeps `|p| …` a modifier, and the erasure is what that costs — which is why this is the
+/// single `Decorate` method that erases.
+///
+/// If a modifier ever needs to preserve its content's type, parameterize the TRAIT rather than
+/// the method: `trait Modifier<P: Piece> { type Out: Piece; fn apply(self, c: P) -> Self::Out; }`.
+/// Closures survive that (`impl<P: Piece, O: Piece, F: FnOnce(P) -> O> Modifier<P> for F`, and
+/// their parameter still infers unannotated), while a named modifier such as day-piece-rating's
+/// `Card` becomes `impl<P: Piece> Modifier<P> for Card` with `type Out = Decorated<P>`. The bill
+/// is a `Decorate::modifier` whose return type varies per modifier, a generic impl for every
+/// named one, and a breaking change — not worth paying while the tree has two implementors.
 pub trait Modifier {
     fn apply(self, content: AnyPiece) -> AnyPiece;
 }
@@ -360,6 +378,23 @@ fn op_on_tap_at(f: impl Fn(day_spec::Point) + 'static) -> impl FnOnce(Build) -> 
             cx.on(n, move |ev| {
                 if let Event::Tap(p) = ev {
                     f(*p);
+                }
+            });
+            n
+        })
+    }
+}
+
+fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            // Declare the intent as well as listening: a backend whose focused view would have
+            // to CLAIM the key from the platform's own dispatch checks this first.
+            day_spec::keys::mark(day_core::rnode_to_id(n));
+            cx.on(n, move |ev| {
+                if let Event::Key(k) = ev {
+                    f(k);
                 }
             });
             n
@@ -743,6 +778,9 @@ impl<P: Piece> Decorated<P> {
         let (want, on_native) = binding.into_focus_binding();
         self.push(op_focused(want, on_native))
     }
+    pub fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Self {
+        self.push(op_on_key(f))
+    }
     pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
         self.push(op_context_menu(items))
     }
@@ -968,6 +1006,18 @@ pub trait Decorate: Piece + Sized {
     /// and the signal always ends up reflecting what the platform actually did.
     fn focused<M>(self, binding: impl IntoFocusBinding<M>) -> Decorated<Self> {
         Decorated::new(self).focused(binding)
+    }
+
+    /// Handle the non-text keys — the arrows — that reach this piece WHILE IT HAS FOCUS
+    /// (docs/menus.md). Keys follow focus, so pair it with [`Decorate::focused`] or with a
+    /// piece the user can click into: a canvas takes focus on a press, and only the focused
+    /// piece hears the keys, so a nudge handler can never fire while a text field, a list or a
+    /// sidebar is the one being typed into.
+    ///
+    /// Which pieces can hold focus is the platform's own question (docs/focus.md) — a `canvas`
+    /// is focusable on the backends that draw one from a real view (appkit, web-dom today).
+    fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_key(f)
     }
 
     /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)

@@ -85,11 +85,16 @@ pub enum Step {
         #[serde(default)]
         modifiers: Vec<String>,
     },
-    /// A non-text key press at the window level, as a platform key route would deliver it
-    /// while no text widget has focus (`- key: { key: ArrowRight, modifiers: [shift] }`,
+    /// A non-text key press, delivered the way the platform delivers one — to whatever holds
+    /// FOCUS (`- focus: { id: canvas }` then `- key: { key: ArrowRight, modifiers: [shift] }`,
     /// docs/menus.md). Names follow the web `KeyboardEvent.key` vocabulary.
     Key {
         key: String,
+        /// The piece to deliver to. Omit to send it wherever focus is, which is what a real
+        /// key press does (docs/menus.md) — pair it with a `focus:` step to drive the whole
+        /// route. Name an `id` to address one piece's handler regardless of focus.
+        #[serde(default)]
+        id: Option<String>,
         #[serde(default)]
         modifiers: Vec<String>,
     },
@@ -849,7 +854,23 @@ fn exec(step: Step) -> Reply {
                 day_core::set_modifier_override(None);
                 Ok(Reply::ok())
             }
-            Step::Key { key, modifiers } => {
+            Step::Key { key, id, modifiers } => {
+                // Keys follow focus, so a synthetic one lands where the platform would put it:
+                // on the named piece, else on whatever holds focus. With nothing focused there
+                // is no target and the step says so, rather than dropping the key silently the
+                // way delivering it to the window used to.
+                let target = match &id {
+                    Some(id) => rnode_to_id(find(id)?),
+                    None => match day_core::focused_node() {
+                        Some(n) => rnode_to_id(n),
+                        None => {
+                            return Err(Reply::fail(
+                                "nothing has focus — name an `id`, or `focus:` a piece first",
+                                true,
+                            ));
+                        }
+                    },
+                };
                 let m = parse_modifiers(&modifiers);
                 let mut mask = 0u8;
                 if m.shift {
@@ -862,7 +883,7 @@ fn exec(step: Step) -> Reply {
                     mask |= day_spec::KeyEvent::ALT;
                 }
                 day_core::enqueue_event(
-                    day_spec::WINDOW_NODE,
+                    target,
                     Event::Key(day_spec::KeyEvent {
                         key,
                         modifiers: mask,

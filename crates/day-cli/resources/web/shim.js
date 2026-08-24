@@ -107,6 +107,17 @@ function register(el) {
 
 function div(cls) { const d = document.createElement('div'); d.className = cls; return d; }
 
+// Hold the keyboard on a list or sidebar across the rebuild its own key press just caused. The
+// detail that lands can contain an element the browser focuses on sight — a <video>, a web
+// view's iframe — and the sidebar would lose the arrows after a single step. A native outline
+// keeps focus while the detail changes, so this restores it once the rebuild has settled.
+// Only for KEY-driven moves: a click that lands somewhere focusable is the user aiming there.
+function keepFocus(el) {
+  setTimeout(() => {
+    if (el.isConnected && document.activeElement !== el) el.focus({ preventScroll: true });
+  }, 0);
+}
+
 // A nav host's chrome for one presentation: sidebar+detail panes, or a back bar over a single
 // detail region. Shared by the initial realize and by a re-present, so the two can never drift.
 // The four presentations (docs/size-classes.md), keyed by the `mode` lib.rs sends: 0 split,
@@ -309,6 +320,50 @@ const env = {
   day_dom_list_on_scroll(id) {
     E(id).addEventListener('scroll', () => wasm.day_dom_list_scrolled(id), { passive: true });
   },
+  // Keyboard selection for the emulated list (docs/list.md). Every native list gives its rows
+  // arrow keys; a scrolled <div> of cells gives them nothing, so the tab stop, the listbox role
+  // and the key route are all built here. The host takes the focus rather than the rows: the
+  // rows are recycled as the list scrolls, and focus parked on one would evaporate under it.
+  // The web half of "keys follow focus" (docs/menus.md). A <canvas> is not focusable on its
+  // own, so nothing the app draws in one could ever hold the keyboard; this gives it the tab
+  // stop and the arrow route, and takes focus on a press the way a real control does.
+  day_dom_canvas_keynav(id) {
+    const el = E(id);
+    el.tabIndex = 0;
+    el.addEventListener('pointerdown', () => {
+      if (document.activeElement !== el) el.focus({ preventScroll: true });
+    });
+    el.addEventListener('keydown', (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const arrows = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3 };
+      if (!(e.key in arrows)) return;
+      // Claimed only if the app actually took it: an unclaimed arrow stays the browser's, so a
+      // page with a canvas on it still scrolls with the keyboard.
+      if (wasm.day_dom_canvas_key(id, arrows[e.key], e.shiftKey ? 1 : 0)) e.preventDefault();
+    });
+  },
+  day_dom_list_keynav(id, multi) {
+    const host = E(id);
+    host.tabIndex = 0;
+    host.setAttribute('role', 'listbox');
+    if (multi) host.setAttribute('aria-multiselectable', 'true');
+    // Clicking a row is how a list normally comes into focus, and the cells are children, so
+    // the press has to be caught on the way down. `preventScroll` because the browser would
+    // otherwise scroll the freshly focused host into view and undo the list's own position.
+    host.addEventListener('pointerdown', () => {
+      if (document.activeElement !== host) host.focus({ preventScroll: true });
+    });
+    host.addEventListener('keydown', (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const dirs = { ArrowUp: 0, ArrowDown: 1, Home: 2, End: 3 };
+      if (!(e.key in dirs)) return;
+      // Claimed even at the ends of the list, where the row does not move: the alternative is
+      // the page scrolling under a list that plainly has the keyboard.
+      e.preventDefault();
+      wasm.day_dom_list_key(id, dirs[e.key], e.shiftKey ? 1 : 0);
+      keepFocus(host);
+    });
+  },
   // Pointer-drag reorder for the emulated list (docs/list.md): the browser has no native list
   // reorder, so this fakes the affordance — lift the pressed cell, slide a gap under it (CSS
   // transitions on the other cells), autoscroll near the edges — while the DECISIONS stay
@@ -484,9 +539,43 @@ const env = {
 
   day_dom_navmenu(id, json, len) {
     const el = E(id); const spec = JSON.parse(str(json, len));
+    // The keyboard route, armed once and kept across every rebuild below (the rows are thrown
+    // away and remade; the host is not). A sidebar is the web's stand-in for the outline view
+    // the desktops give this piece, and an outline walks with the arrow keys.
+    if (!el.__dayKeynav) {
+      el.__dayKeynav = true;
+      el.tabIndex = 0;
+      el.setAttribute('role', 'listbox');
+      el.addEventListener('pointerdown', () => {
+        if (document.activeElement !== el) el.focus({ preventScroll: true });
+      });
+      el.addEventListener('keydown', (e) => {
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        const rows = [...el.children];
+        const last = rows.length - 1;
+        if (last < 0) return;
+        const cur = rows.findIndex((r) => r.classList.contains('selected'));
+        let next;
+        if (e.key === 'ArrowUp') next = cur < 0 ? last : Math.max(cur - 1, 0);
+        else if (e.key === 'ArrowDown') next = cur < 0 ? 0 : Math.min(cur + 1, last);
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = last;
+        else return;
+        // Claimed even when the selection cannot move, so the page does not scroll instead.
+        e.preventDefault();
+        // Report only, exactly as the click handler does: which row ends up selected is the
+        // app's route to decide, and it comes back through day_dom_navmenu_select.
+        if (next !== cur) {
+          wasm.day_dom_event(id, 6, next, 0, 0, 0);
+          keepFocus(el);
+        }
+      });
+    }
     el.textContent = '';
     spec.items.forEach((item, i) => {
       const row = div('day-navmenu-row');
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', i === spec.selected ? 'true' : 'false');
       if (item.icon) {
         // Template rendering, the iOS model: the icon is a MASK painted with currentColor,
         // so it follows the row's text color — light in dark mode, white when selected.
@@ -665,7 +754,10 @@ const env = {
   },
 
   day_dom_navmenu_select(id, idx) {
-    [...E(id).children].forEach((row, i) => row.classList.toggle('selected', i === idx));
+    [...E(id).children].forEach((row, i) => {
+      row.classList.toggle('selected', i === idx);
+      row.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+    });
   },
 
   day_dom_set_hash(ptr, len, replace) {
@@ -1787,17 +1879,15 @@ async function boot(wasmUrl) {
   }
 
   // The platform-standard keys the browser has no document-level route for: undo (⌘Z /
-  // Ctrl+Z, shifted or Ctrl+Y for redo), select-all (⌘A), and the arrows — all skipped while
-  // an editable element has them (its own text behavior applies).
+  // Ctrl+Z, shifted or Ctrl+Y for redo) and select-all (⌘A) — skipped while an editable
+  // element has them (its own text behavior applies).
+  //
+  // The ARROWS are deliberately not here. They follow focus instead, delivered by whichever
+  // widget holds it (day_dom_list_keynav, day_dom_navmenu, day_dom_canvas_keynav), because a
+  // document-level route cannot tell a nudge the app wants from the keys a focused list needs.
   document.addEventListener('keydown', (e) => {
     const t = e.target;
     if (t && t.closest && t.closest('input, textarea, [contenteditable]')) return;
-    const arrows = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3 };
-    if (e.key in arrows && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      e.preventDefault();
-      wasm.day_dom_key(arrows[e.key], (e.shiftKey ? 1 : 0));
-      return;
-    }
     if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'z') { e.preventDefault(); wasm.day_dom_undo(e.shiftKey ? 1 : 0); }

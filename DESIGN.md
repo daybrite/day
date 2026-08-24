@@ -769,6 +769,7 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
 `.on_pinch()` / `.on_pan()` (the continuous zoom/scroll pair, [docs/canvas.md](docs/canvas.md)), `.focused()`,
+`.on_key()` (the non-text keys, delivered only while THIS piece has focus — [docs/menus.md](docs/menus.md)),
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
 `.context_menu()`, `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
 ([docs/cover.md](docs/cover.md)), `.tweak()` / `.native_ref()` ([docs/tweaks.md](docs/tweaks.md)), `.modifier(impl Modifier)`,
@@ -1290,11 +1291,15 @@ pub trait Toolkit: Sized + 'static {
 
     // ambient modifiers + non-text keys (2026-08, docs/menus.md): `modifiers()` answers the
     // keys held right now (shift-click multi-select; pull-based — NSEvent.modifierFlags, the
-    // web shim's tracked mask; touch backends keep the all-false default), and platform key
-    // routes deliver `Event::Key(KeyEvent)` (the dormant variant, now live: arrows while no
-    // text widget has focus — an NSEvent local monitor on appkit, the shim's keydown on
-    // web-dom) to the app's `day::on_key` handler. `EditOp::SelectAll` joined the edit
-    // bridge with the same responder-first routing as the clipboard trio.
+    // web shim's tracked mask; touch backends keep the all-false default), and `Event::Key`
+    // (the dormant variant, now live) carries the arrows to the FOCUSED node's
+    // `Decorate::on_key`. Keys follow focus, so there is no window-level route and nothing runs
+    // ahead of the platform's dispatch: appkit's canvas answers `acceptsFirstResponder` and
+    // reports from its own `keyDown:`, web-dom's carries a tabindex and its own keydown, and a
+    // key nobody claimed (`day_spec::keys::handled`) keeps walking the chain. This shipped as a
+    // global NSEvent monitor first, which took the arrows away from every focused list and
+    // sidebar in the process. `EditOp::SelectAll` joined the edit bridge with the same
+    // responder-first routing as the clipboard trio.
     fn modifiers(&mut self) -> Modifiers { Modifiers::default() }
 
     // menus (docs/menus.md)
@@ -4592,7 +4597,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
 | `wait_idle` | — | flush the reactive drain |
 | `tap` | `id`, `repeat?`, `at?`, `modifiers?` | delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching |
-| `key` | `key`, `modifiers?` | a window-level non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …), as a platform key route would deliver it |
+| `key` | `key`, `id?`, `modifiers?` | a non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …) delivered the way the platform delivers one: to the named piece, or to whatever holds FOCUS. Pair it with `focus:` to drive the whole route; with nothing focused and no `id` the step fails rather than dropping the key — [docs/menus.md](docs/menus.md) |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |

@@ -150,13 +150,6 @@ pub fn modifiers() -> day_spec::Modifiers {
     day_core::modifiers()
 }
 
-/// The window-level key handler (docs/menus.md): non-text keys delivered while no text
-/// widget has focus — arrow-key nudging and its kin. Key names follow the web
-/// `KeyboardEvent.key` vocabulary ("ArrowLeft", …); check `ev.shift()` for the large step.
-pub fn on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) {
-    day_core::install_key_handler(f);
-}
-
 #[cfg(feature = "prefs")]
 pub mod prefs {
     pub use day_part_prefs::*;

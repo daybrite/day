@@ -148,11 +148,34 @@ Two companions round out the platform's input idioms. `day::modifiers()` answers
 modifiers held right now (`shift`, `primary` — ⌘ on Apple platforms, Ctrl elsewhere — and
 `alt`), for interactions whose meaning they change: shift-click adding to a selection instead
 of replacing it. Touch platforms answer all-false, and a dayscript `tap:` step's declared
-`modifiers:` take precedence while it dispatches. `day::on_key(f)` installs the window-level
-handler for non-text keys — the arrows, delivered (web `KeyboardEvent.key` names) only while
-no text widget has focus, with the held modifiers on the event (`ev.shift()` scales a nudge
-from 1px to 10). On macOS an event monitor routes them; on web the shim's keydown listener;
-text views keep every key of their own either way.
+`modifiers:` take precedence while it dispatches.
+
+`.on_key(f)` handles the non-text keys — the arrows, under the web `KeyboardEvent.key` names,
+with the held modifiers on the event (`ev.shift()` scales a nudge from 1px to 10). **Keys
+follow focus.** The handler hangs off a PIECE and fires only while that piece is the focused
+one, so it is scoped the way every other input is:
+
+```rust
+canvas(draw)
+    .on_key(nudge_selection_by)     // only while the canvas has the keyboard
+    .focused(canvas_focused)        // …which it takes at mount and on every press
+```
+
+That scoping is the whole design, and it is why there is no window-level key handler to pair
+it with. A global route cannot tell a nudge the app wants from the keys a focused widget needs:
+it has to run ahead of the platform's own dispatch, which means guessing whether the first
+responder would have wanted the key — and every guess is wrong for something. Day-Sketch's
+arrow-nudge used to be installed that way, and it took the arrow keys away from every list and
+sidebar in every app that had one. Hanging the handler on the canvas removes the question:
+AppKit's responder chain and the DOM's focus already answer it.
+
+The cost is that a piece must be able to HOLD focus for its keys to arrive
+([docs/focus.md](focus.md)). A `canvas` can, on the backends that draw one from a real view —
+appkit (`acceptsFirstResponder`, focus on `mouseDown:`) and web-dom (a `tabindex` and a
+focus-on-press) — which is what makes it the piece a drawing app hangs its keys on. A piece
+that cannot take focus on a given backend simply never hears a key there, and a canvas nobody
+gave a handler to keeps none of them: an unclaimed arrow keeps walking, so an enclosing scroll
+view still scrolls.
 
 The payload format is the app's own — Day-Sketch uses a standalone SVG document, so shapes
 paste into anything that reads SVG and SVG from other editors pastes back. day places the

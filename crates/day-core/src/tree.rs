@@ -994,6 +994,15 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(n) = self.nodes.get_mut(node) {
             n.probe.focused = focused;
         }
+        // Remember WHICH node has it, not just that each one does: keys follow focus
+        // (docs/menus.md), so dayscript's `key:` step needs the same answer the platform gives.
+        // A loss only clears the record if this node is still the one holding it — gains land
+        // before losses in the pump, so a hand-off has already named the new owner.
+        FOCUSED.with(|f| match focused {
+            true => f.set(Some(node)),
+            false if f.get() == Some(node) => f.set(None),
+            false => {}
+        });
     }
 
     fn set_probe_selected(&mut self, node: RNode, selected: Option<usize>) {
@@ -1968,6 +1977,18 @@ fn pump_events_inner() {
     // the last route) is how the recorder captures navigation regardless of what triggered it
     // (docs/navigation.md, §14.6).
     crate::nav::maybe_notify_route_change();
+}
+
+thread_local! {
+    /// The node that last reported gaining focus, cleared when it reports losing it.
+    static FOCUSED: std::cell::Cell<Option<RNode>> = const { std::cell::Cell::new(None) };
+}
+
+/// The node that currently has the keyboard, as the platform last reported it. Keys follow
+/// focus (docs/menus.md), so this is where a synthetic key has to land for a scripted run to
+/// exercise the same route a real one does. `None` when nothing focusable holds it.
+pub fn focused_node() -> Option<RNode> {
+    FOCUSED.with(|f| f.get())
 }
 
 /// Mirror a focus event into the node's dayscript probe (`assert_focused` reads it).

@@ -262,6 +262,11 @@ body.day-has-toolbar #day-root {
 
 .day-img { object-fit: contain; }
 .day-canvas { display: block; }
+/* A canvas carries a tab stop so the keys can reach what it draws (docs/menus.md), but it draws
+   no focus ring: it is the surface the app is FOR, usually focused from the moment it mounts,
+   and a permanent box around the whole work area says nothing a user needs. The desktops show
+   nothing there either. What has focus stays visible in the drawing itself — a selection. */
+.day-canvas:focus, .day-canvas:focus-visible { outline: none; }
 
 .day-divider { background: var(--day-divider); }
 
@@ -509,6 +514,13 @@ body.day-has-toolbar #day-root {
 .day-scroll.day-list .day-cell { cursor: default; user-select: none; }
 .day-scroll.day-list .day-cell.selected { background: var(--day-selected-row); }
 .day-scroll.day-list .day-cell:not(.selected):hover { background: var(--day-control-bg); }
+/* A list and a sidebar are tab stops that answer the arrow keys, so they say where the keyboard
+   is — `focus-visible`, so a click that lands the focus draws nothing and only keying in does.
+   Inset, because both clip their content at the edge an outline would otherwise straddle. */
+.day-scroll.day-list:focus-visible, .day-navmenu:focus-visible {
+  outline: 2px solid var(--day-accent);
+  outline-offset: -2px;
+}
 /* Drag-to-reorder (docs/list.md): the shim lifts the pressed cell and slides a gap under it;
    the other cells animate their shift, the dragged one tracks the pointer directly. */
 .day-list.day-reorder .day-cell { transition: transform 0.16s ease; touch-action: pan-y; }

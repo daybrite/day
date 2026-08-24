@@ -221,6 +221,13 @@ unsafe extern "C" {
     // Focus (docs/focus.md): observe via event filter (kind: 1 gained, 0 lost, 2 submitted);
     // drive via setFocus/clearFocus.
     pub fn day_qt_enable_focus(w: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int));
+    /// Make `w` focusable and route its arrow keys to `cb`, which answers whether the app
+    /// claimed the key (docs/menus.md). `code`: 0 left, 1 right, 2 up, 3 down.
+    pub fn day_qt_enable_keys(
+        w: *mut c_void,
+        node: u64,
+        cb: extern "C" fn(u64, c_int, c_int) -> c_int,
+    );
     pub fn day_qt_widget_focus(w: *mut c_void, focused: c_int);
     pub fn day_qt_set_present_cb(cb: extern "C" fn(u64, c_int, i64, *const c_char));
     pub fn day_qt_present_dialog(

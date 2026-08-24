@@ -117,6 +117,16 @@ join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't obser
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.
 
+**A `canvas` is focusable on appkit and web-dom**, and observes both ways. It is the one built-in
+piece with no native control underneath, so nothing would otherwise make it the first responder —
+and without that, keys could never reach what an app DRAWS. AppKit answers `acceptsFirstResponder`
+and takes focus in `mouseDown:` before forwarding to the gesture recognizers; web-dom gives the
+`<canvas>` a `tabindex` and focuses it on press. Both report `FocusChanged` from
+`becomeFirstResponder`/`resignFirstResponder` and `focus`/`blur`, so `.focused(signal)` binds
+two-way and `assert_focused` can see it. This is what `Decorate::on_key` is built on
+([docs/menus.md](menus.md)): keys follow focus, so a canvas that has it hears the arrows and a
+text field that takes it gets them back.
+
 ## 5. Testing it
 
 - **Unit (mock):** two-way Bool binding, group moves without a `None` blip, mount-time

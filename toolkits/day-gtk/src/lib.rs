@@ -604,6 +604,33 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+/// The day name for an arrow keyval, or `None` for every other key (docs/menus.md).
+fn arrow_key_name(key: gtk4::gdk::Key) -> Option<&'static str> {
+    use gtk4::gdk::Key;
+    match key {
+        Key::Left | Key::KP_Left => Some("ArrowLeft"),
+        Key::Right | Key::KP_Right => Some("ArrowRight"),
+        Key::Up | Key::KP_Up => Some("ArrowUp"),
+        Key::Down | Key::KP_Down => Some("ArrowDown"),
+        _ => None,
+    }
+}
+
+/// GDK's modifier state as day's mask.
+fn key_modifiers(state: gtk4::gdk::ModifierType) -> u8 {
+    let mut m = 0u8;
+    if state.contains(gtk4::gdk::ModifierType::SHIFT_MASK) {
+        m |= day_spec::KeyEvent::SHIFT;
+    }
+    if state.contains(gtk4::gdk::ModifierType::CONTROL_MASK) {
+        m |= day_spec::KeyEvent::PRIMARY;
+    }
+    if state.contains(gtk4::gdk::ModifierType::ALT_MASK) {
+        m |= day_spec::KeyEvent::ALT;
+    }
+    m
+}
+
 /// Report focus gain/loss into the sink (docs/focus.md). `EventControllerFocus` tracks
 /// focus-within, so a `GtkEntry`'s inner `GtkText` grabbing focus still counts as the entry.
 fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
@@ -2658,6 +2685,43 @@ impl Toolkit for Gtk {
                         cairo_draw(cr, &ops);
                     });
                 });
+                // Focus, and with it the keyboard (docs/menus.md). A DrawingArea is not
+                // focusable by default — nothing would ever make it the focus widget — so
+                // arrow keys aimed at what an app DRAWS need this and the click below.
+                area.set_focusable(true);
+                area.set_can_focus(true);
+                wire_focus(&area, id);
+                let click = gtk4::GestureClick::new();
+                click.connect_pressed(|g, _, _, _| {
+                    ffi_guard::contain((), || {
+                        if let Some(w) = g.widget() {
+                            w.grab_focus();
+                        }
+                    })
+                });
+                area.add_controller(click);
+                let keys = gtk4::EventControllerKey::new();
+                keys.connect_key_pressed(move |_, key, _, state| {
+                    ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                        let Some(name) = arrow_key_name(key) else {
+                            return gtk4::glib::Propagation::Proceed;
+                        };
+                        // An arrow nobody asked for keeps traveling, so a scrolled window
+                        // around the canvas still scrolls with the keyboard.
+                        if !day_spec::keys::handled(id) {
+                            return gtk4::glib::Propagation::Proceed;
+                        }
+                        emit(
+                            id,
+                            Event::Key(day_spec::KeyEvent {
+                                key: name.to_string(),
+                                modifiers: key_modifiers(state),
+                            }),
+                        );
+                        gtk4::glib::Propagation::Stop
+                    })
+                });
+                area.add_controller(keys);
                 area.upcast()
             }
             Some(Builtin::List) => {

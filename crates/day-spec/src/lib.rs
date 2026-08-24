@@ -422,6 +422,34 @@ pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
 /// Reserved id for window-level events (resize, lifecycle): day-core routes it to the root.
 pub const WINDOW_NODE: NodeId = NodeId(u64::MAX);
 
+/// Which nodes handle the non-text keys (docs/menus.md). Keys follow FOCUS — the focused piece
+/// hears them and nobody else — so a backend whose focused view would have to CLAIM a key from
+/// the platform's own dispatch (AppKit's responder chain, the DOM's default action) has to know
+/// whether the app wants it before swallowing it. An unclaimed arrow has to keep traveling, or
+/// a canvas inside a scroll view would silently eat the keys that scroll it.
+///
+/// It lives HERE, at the seam, rather than in day-core: `day-dom` deliberately depends on
+/// day-spec alone, and this is a fact about a node that both sides need.
+pub mod keys {
+    use super::NodeId;
+    use std::cell::RefCell;
+    use std::collections::HashSet;
+
+    thread_local! {
+        static HANDLED: RefCell<HashSet<NodeId>> = RefCell::new(HashSet::new());
+    }
+
+    /// Declare that `node` has a key handler — what `Decorate::on_key` records at build.
+    pub fn mark(node: NodeId) {
+        HANDLED.with(|h| h.borrow_mut().insert(node));
+    }
+
+    /// Whether `node` has one.
+    pub fn handled(node: NodeId) -> bool {
+        HANDLED.with(|h| h.borrow().contains(&node))
+    }
+}
+
 /// Raw foreign native handle for polyglot adoption (§15.3).
 pub type RawHandle = *mut std::ffi::c_void;
 

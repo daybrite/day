@@ -115,6 +115,21 @@ desktop may PIN one with `SelectorStyle::Tabs`, but narrowing hides its sidebar 
 > [!NOTE]
 > **Renamed.** `selector(sel).style(Tabs)` was `tabs()`, and `selector(sel).style(Sidebar)` was `nav()`.
 
+### Keyboard
+
+A sidebar walks with the arrow keys: ↑/↓ move to the next destination, Home and End to the first
+and last, and the selection reports exactly what a click on that row reports. The desktops get
+this from the widget the style maps to — an `NSOutlineView` source list, a `NavigationView` — with
+nothing of Day's in front of it: keys go to whatever has focus and no route sits above them
+([docs/menus.md](menus.md)).
+
+**web-dom** has no such widget, so the backend builds the behavior: `.day-navmenu` carries the tab
+stop and `role="listbox"`, its rows carry `role="option"` and `aria-selected`, and the shim moves
+the selection by reporting the new index the way the click handler does. It also holds the focus
+across the page swap its own key press caused — a detail pane can contain an element the browser
+focuses on sight (a `<video>`, a web view's iframe), and without that the sidebar would answer one
+arrow and then go quiet.
+
 ### Immersive items (`.immersive()`)
 
 `.item(…).immersive()` marks the LAST-added destination as an immersive-chrome page: on

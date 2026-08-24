@@ -453,29 +453,12 @@ fn dispatch_undo_invoke(redo: bool) {
 }
 
 type EditInvoke = std::rc::Rc<dyn Fn(day_spec::EditOp)>;
-type KeyInvoke = std::rc::Rc<dyn Fn(&day_spec::KeyEvent)>;
 
 thread_local! {
-    static KEY_INVOKE: std::cell::RefCell<Option<KeyInvoke>> =
-        const { std::cell::RefCell::new(None) };
     /// The dayscript executor's stand-in for held modifiers (a synthetic tap cannot hold a
     /// real shift key); `None` = ask the toolkit.
     static MODIFIER_OVERRIDE: std::cell::Cell<Option<day_spec::Modifiers>> =
         const { std::cell::Cell::new(None) };
-}
-
-/// The window-level key handler (docs/menus.md): non-text keys a platform route delivers
-/// while no text widget has focus — arrow-key nudging and its kin ([`day_spec::KeyEvent`],
-/// web `KeyboardEvent.key` names). One handler per app; installing again replaces it.
-pub fn install_key_handler(f: impl Fn(&day_spec::KeyEvent) + 'static) {
-    KEY_INVOKE.with(|k| *k.borrow_mut() = Some(std::rc::Rc::new(f)));
-}
-
-fn dispatch_key_invoke(ev: &day_spec::KeyEvent) {
-    let f = KEY_INVOKE.with(|k| k.borrow().clone());
-    if let Some(f) = f {
-        day_reactive::batch(|| f(ev));
-    }
 }
 
 /// The keyboard modifiers held right now — for interactions whose meaning they change
@@ -679,9 +662,6 @@ pub fn launch_with<P: Platform>(
                         // A platform edit-command route (Edit ▸ Cut/Copy/Paste, the
                         // browser's clipboard events) with no text widget claiming it.
                         day_spec::Event::Edit(op) => dispatch_edit_invoke(*op),
-                        // A platform key route's delivery (arrows while no text widget has
-                        // focus): the app's window-level key handler.
-                        day_spec::Event::Key(ev) => dispatch_key_invoke(ev),
                         _ => {}
                     }),
                 );

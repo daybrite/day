@@ -32,7 +32,7 @@ use objc2_app_kit::{
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
     NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
-    NSControlTextEditingDelegate, NSEvent, NSEventMask, NSEventModifierFlags, NSEventType, NSFont,
+    NSControlTextEditingDelegate, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
     NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSText, NSTextField,
     NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey, NSView, NSWindow,
@@ -566,6 +566,10 @@ thread_local! {
     /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
     /// SCROLL events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
     static PAN_NODES: SideTable<NodeId> = SideTable::new();
+    /// Canvas view ptr → its node, so the view's own `keyDown:` knows who to report to. Every
+    /// canvas is registered at realize (unlike [`PAN_NODES`], which only holds the ones that
+    /// asked for a pan) because focus, not a gesture, is what decides who hears a key.
+    static KEY_NODES: SideTable<NodeId> = SideTable::new();
 }
 
 struct CanvasIvars;
@@ -581,6 +585,79 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        // Focus, and with it the keyboard (docs/focus.md, docs/menus.md). A canvas is the one
+        // built-in piece with no native control under it, so nothing else would ever make it
+        // the first responder — and without that, arrow keys aimed at what it draws could only
+        // be caught by watching the whole app.
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            true
+        }
+
+        // Clicking a canvas focuses it, the way clicking a table or a text field does. The
+        // gesture recognizers (tap/drag) still see the press — this runs before `super`, which
+        // is what forwards it to them.
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
+            if let Some(window) = self.window() {
+                window.makeFirstResponder(Some(self));
+            }
+            let _: () = unsafe { msg_send![super(self), mouseDown: event] };
+        }
+
+        // Report focus both ways, so `.focused(signal)` binds two-way and dayscript's
+        // `assert_focused` can see it.
+        #[unsafe(method(becomeFirstResponder))]
+        fn become_first_responder(&self) -> bool {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+            }
+            true
+        }
+
+        #[unsafe(method(resignFirstResponder))]
+        fn resign_first_responder(&self) -> bool {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+            }
+            true
+        }
+
+        /// The arrows, delivered to THIS canvas because it is the first responder. Anything
+        /// else — and every arrow when the app registered no handler for this node — goes to
+        /// `super`, which walks the responder chain exactly as it would have without us.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &objc2_app_kit::NSEvent) {
+            let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+            let handled = ffi_guard::contain(false, || {
+                let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                    return false;
+                };
+                let Some(key) = arrow_key_name(unsafe { event.keyCode() }) else {
+                    return false;
+                };
+                // A canvas nobody asked keys from does not get to keep them: an enclosing
+                // scroll view still scrolls, and an unclaimed key still beeps the way the
+                // platform means it to.
+                if !day_spec::keys::handled(node) {
+                    return false;
+                }
+                emit(
+                    node,
+                    Event::Key(day_spec::KeyEvent {
+                        key: key.to_string(),
+                        modifiers: key_modifiers(event.modifierFlags()),
+                    }),
+                );
+                true
+            });
+            if !handled {
+                let _: () = unsafe { msg_send![super(self), keyDown: event] };
+            }
         }
 
         #[unsafe(method(drawRect:))]
@@ -2837,60 +2914,31 @@ define_class!(
     }
 );
 
-/// Arrow keys reach the app as [`Event::Key`] while no text view has focus (docs/menus.md):
-/// a local NSEvent monitor, because plain content views implement no `keyDown:` and the key
-/// would otherwise die at the window with a beep. Text views keep every key — the monitor
-/// passes events through whenever the first responder is one.
-fn install_arrow_key_monitor(mtm: MainThreadMarker) {
-    let block = block2::RcBlock::new(move |ev: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
-        let event = unsafe { ev.as_ref() };
-        let consumed = ffi_guard::contain(false, || {
-            let app = NSApplication::sharedApplication(mtm);
-            if let Some(win) = app.keyWindow()
-                && let Some(fr) = win.firstResponder()
-                && fr.downcast::<NSText>().is_ok()
-            {
-                return false; // the field editor owns its keys
-            }
-            let key = match unsafe { event.keyCode() } {
-                123 => "ArrowLeft",
-                124 => "ArrowRight",
-                125 => "ArrowDown",
-                126 => "ArrowUp",
-                _ => return false,
-            };
-            let f = event.modifierFlags();
-            let mut modifiers = 0u8;
-            if f.contains(NSEventModifierFlags::Shift) {
-                modifiers |= day_spec::KeyEvent::SHIFT;
-            }
-            if f.contains(NSEventModifierFlags::Command) {
-                modifiers |= day_spec::KeyEvent::PRIMARY;
-            }
-            if f.contains(NSEventModifierFlags::Option) {
-                modifiers |= day_spec::KeyEvent::ALT;
-            }
-            emit(
-                WINDOW_NODE,
-                Event::Key(day_spec::KeyEvent {
-                    key: key.to_string(),
-                    modifiers,
-                }),
-            );
-            true
-        });
-        if consumed {
-            std::ptr::null_mut()
-        } else {
-            ev.as_ptr()
-        }
-    });
-    // The token and the block live as long as the app does.
-    let token = unsafe {
-        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
-    };
-    std::mem::forget(token);
-    std::mem::forget(block);
+/// The day name for an arrow key's virtual key code, or `None` for every other key — the four
+/// [`day_spec::KeyEvent`] names the key route carries (docs/menus.md).
+fn arrow_key_name(code: u16) -> Option<&'static str> {
+    match code {
+        123 => Some("ArrowLeft"),
+        124 => Some("ArrowRight"),
+        125 => Some("ArrowDown"),
+        126 => Some("ArrowUp"),
+        _ => None,
+    }
+}
+
+/// AppKit's modifier flags as day's mask.
+fn key_modifiers(f: NSEventModifierFlags) -> u8 {
+    let mut modifiers = 0u8;
+    if f.contains(NSEventModifierFlags::Shift) {
+        modifiers |= day_spec::KeyEvent::SHIFT;
+    }
+    if f.contains(NSEventModifierFlags::Command) {
+        modifiers |= day_spec::KeyEvent::PRIMARY;
+    }
+    if f.contains(NSEventModifierFlags::Option) {
+        modifiers |= day_spec::KeyEvent::ALT;
+    }
+    modifiers
 }
 
 impl DayWinDelegate {
@@ -3718,7 +3766,11 @@ impl Toolkit for AppKit {
                 }
                 view_of(pi)
             }
-            Some(Builtin::Canvas) => view_of(DayCanvas::new(mtm)),
+            Some(Builtin::Canvas) => {
+                let canvas = DayCanvas::new(mtm);
+                KEY_NODES.with(|t| t.insert(Retained::as_ptr(&canvas) as usize, id));
+                view_of(canvas)
+            }
             Some(Builtin::Inspector) => {
                 let (visible, width) = props
                     .downcast_ref::<InspectorProps>()
@@ -5724,7 +5776,6 @@ impl Platform for AppKit {
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
         let mtm = self.mtm;
-        install_arrow_key_monitor(mtm);
         // The App menu / About use the app's display name. `app_name` overrides the (possibly
         // decorated) window title; setting the process name also makes the standard About panel and
         // the bold App-menu title show it (an unbundled binary otherwise shows the exe name).

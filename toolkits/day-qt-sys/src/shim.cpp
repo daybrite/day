@@ -2011,6 +2011,45 @@ void day_qt_enable_focus(void *w, uint64_t node, DayFocusCb cb) {
         QObject::connect(e, &QLineEdit::returnPressed, [node, cb]() { cb(node, 2); });
 }
 
+// --- the arrow keys, for a widget that can hold focus (docs/menus.md) ---
+// `code`: 0 left, 1 right, 2 up, 3 down; `modifiers` is a day KeyEvent mask (1 shift, 2
+// primary, 4 alt). The callback answers whether the app CLAIMED the key — an unclaimed one
+// falls through, so a scroll area around the widget still scrolls with the keyboard.
+typedef int (*DayKeyCb)(uint64_t node, int code, int modifiers);
+
+class DayKeyFilter : public QObject {
+public:
+    uint64_t node; DayKeyCb cb;
+    DayKeyFilter(uint64_t n, DayKeyCb c) : node(n), cb(c) {}
+protected:
+    bool eventFilter(QObject *, QEvent *ev) override {
+        if (ev->type() != QEvent::KeyPress) return false;
+        QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
+        int code;
+        switch (ke->key()) {
+            case Qt::Key_Left:  code = 0; break;
+            case Qt::Key_Right: code = 1; break;
+            case Qt::Key_Up:    code = 2; break;
+            case Qt::Key_Down:  code = 3; break;
+            default: return false;
+        }
+        int mods = 0;
+        if (ke->modifiers() & Qt::ShiftModifier) mods |= 1;
+        if (ke->modifiers() & Qt::ControlModifier) mods |= 2;
+        if (ke->modifiers() & Qt::AltModifier) mods |= 4;
+        return cb(node, code, mods) != 0;
+    }
+};
+
+// StrongFocus, because a canvas has no other way in: click or tab, the same as a line edit.
+void day_qt_enable_keys(void *w, uint64_t node, DayKeyCb cb) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    widget->setFocusPolicy(Qt::StrongFocus);
+    DayKeyFilter *f = new DayKeyFilter(node, cb);
+    f->setParent(widget); // freed with the widget
+    widget->installEventFilter(f);
+}
+
 // Drive focus: request it, or clear it only while this widget still owns it (a stale
 // release must not blur a sibling).
 void day_qt_widget_focus(void *w, int focused) {

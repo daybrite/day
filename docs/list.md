@@ -175,11 +175,28 @@ toolkit. `.selected_rows(Fn() -> Vec<usize>)` reactively syncs app state back in
 selection (`ListPatch::Selected`; empty clears) without a selection-event echo; drive it from
 the same signal `on_selection` writes to get a two-way binding and a "clear selection" action.
 
-Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt** and **XAML** (the
-emulated lists: a per-cell press hook, a highlight treatment on the cell's background, ctrl/cmd
-toggles, shift extends) honor `multi_select` and `ListPatch::Selected`. The remaining toolkits
-report single selection (`SelectionChanged`) and ignore the multi flag and the programmatic
-sync; the one-element `on_selection` contract still holds there.
+Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt**, **XAML** and
+**web-dom** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's
+background, ctrl/cmd toggles, shift extends) honor `multi_select` and `ListPatch::Selected`. The
+remaining toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
+programmatic sync; the one-element `on_selection` contract still holds there.
+
+### Keyboard
+
+A selectable list is a tab stop, and the arrow keys walk it: ↑/↓ move one row, Home and End jump
+to the first and last, and the row that lands is scrolled into view — by the edge it left, so a
+held arrow scrolls a line at a time rather than recentering on every step. On a `multi_select`
+list, shift moves the far end of a range while the near end stays put, so `shift+↓ ↓ ↑` grows
+twice and shrinks once instead of restarting from wherever the last press ended. A press reports
+exactly what a click on the same row reports, so `on_select`/`on_selection` need no keyboard case.
+
+On the desktops this is simply the native widget's own behavior: nothing in Day sits ahead of the
+responder chain, so a focused table or outline gets its arrow keys the way it always would
+([docs/menus.md](menus.md)). On **web-dom** there is no native list to inherit it from, so the
+backend builds it: the host carries `role="listbox"` and the tab stop, cells carry `role="option"`
+and `aria-selected`, and the shim routes the keys into `day_dom_list_key`. Focus sits on the host
+rather than a row, because rows are recycled as the list scrolls and focus parked on one would
+evaporate under it.
 
 ## Programmatic scrolling
 
