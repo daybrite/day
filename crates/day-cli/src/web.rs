@@ -102,11 +102,13 @@ pub fn build_web(
         ));
     }
 
-    // Assemble dist/. The wasm artifact uses the lib name (hyphens become underscores).
+    // Assemble dist/. The wasm artifact is named after the LIB TARGET — `dayapp.wasm` for a
+    // scaffolded app, whose `[lib] name` is pinned to that constant (DESIGN.md §17.5). Deriving
+    // it from the PACKAGE name is what broke this build when the pin landed.
     let wasm = cargo_dir
         .join("wasm32-unknown-unknown")
         .join(profile.as_str())
-        .join(format!("{}.wasm", name.replace('-', "_")));
+        .join(format!("{}.wasm", project.lib_name()));
     let dist = cargo_dir.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| format!("dist dir: {e}"))?;
     std::fs::write(dist.join("shim.js"), HOST_SHIM).map_err(|e| format!("shim: {e}"))?;

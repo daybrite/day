@@ -3103,6 +3103,10 @@ id = "dev.example.fieldnotes"       # bundle id / application id / app id
 title = "app-title"                 # Fluent key → localized display name (falls back to name)
 artifact = "fieldnotes"             # filename stem for packages: fieldnotes-macos-appkit.dmg
                                     #   (default: a slug of title; see §16.5's `day pack`)
+scheme = "fieldnotes"               # deep-link URI scheme: fieldnotes://<route> (docs/deep-links.md)
+                                    #   (default: the id's last segment. Declared only where an
+                                    #   app must keep a scheme it already published — a scheme is
+                                    #   a contract, so it is never re-derived under a shipped app)
 build = 42                          # CFBundleVersion / versionCode (int, monotonic)
 targets = ["macos-appkit", "macos-gtk", "macos-qt", "ios-uikit", "android-mdc"]
 
@@ -3250,10 +3254,17 @@ removed each copy:
 | `store/app.toml bundle-id` | omitted — `day store` falls back to `Day.toml [app] id` |
 | HarmonyOS `bundleName`, `uris` scheme | rewritten in place on every build (OHOS has no include/properties channel), the way permissions and shortcuts already are |
 
-The scheme is DERIVED from the id's last segment rather than declared, so it cannot drift from the
-identity it belongs to. Two literals survive on purpose, both labeled as such: the Gradle `?:`
-fallbacks and the committed xcconfig identity block, which let Android Studio and Xcode open a
-fresh checkout before `day build` has run.
+The scheme DEFAULTS to the id's last segment, so a new app never states it twice, and
+`Day.toml [app] scheme` overrides that where an app needs a different one. It is declarable
+rather than purely derived because a scheme is a PUBLISHED contract — links already in the world
+stop resolving if it moves. Apps scaffolded before the default existed derived theirs from the
+CRATE name (`Day-Showcase` ⇒ `dayshowcase`, not `showcase`); making the derivation authoritative
+would have rewritten their committed manifests on the next build and changed `dayshowcase://`
+links on every platform at once, which is what the harmony pristine check caught.
+
+Two literals survive on purpose, both labeled as such: the Gradle `?:` fallbacks and the
+committed xcconfig identity block, which let Android Studio and Xcode open a fresh checkout
+before `day build` has run.
 
 An app has TWO names, and they are spelled differently on purpose. `day new app Day-Rise`
 scaffolds a **`Day-Rise/` directory** holding a **`day-rise` package**: the repository keeps the

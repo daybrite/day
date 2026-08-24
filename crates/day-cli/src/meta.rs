@@ -419,6 +419,15 @@ pub struct App {
     /// Slugged on use, so a value with spaces or capitals still yields a safe filename.
     #[serde(default)]
     pub artifact: Option<String>,
+    /// The deep-link URI scheme (`showcase://<route>`, docs/deep-links.md). Default: the last
+    /// segment of [`id`](App::id), which is what a scaffold's is.
+    ///
+    /// Declarable because a scheme is a PUBLISHED contract: links already in the world stop
+    /// resolving if it moves. Apps scaffolded before the default existed derived theirs from the
+    /// crate name instead (`Day-Showcase` ⇒ `dayshowcase`, not `showcase`), so they name it here
+    /// and keep the scheme they shipped with.
+    #[serde(default)]
+    pub scheme: Option<String>,
     /// Monotonic build number (versionCode / CFBundleVersion).
     #[serde(default = "default_build")]
     pub build: u64,
@@ -442,6 +451,8 @@ pub struct AppOverride {
     pub title: Option<String>,
     #[serde(default)]
     pub artifact: Option<String>,
+    #[serde(default)]
+    pub scheme: Option<String>,
     #[serde(default)]
     pub build: Option<u64>,
 }
@@ -470,17 +481,29 @@ pub struct ResolvedApp {
     /// this out of `day metadata --json` to name the web-dom zip, which no `day pack` produces.
     pub artifact: String,
     pub build: u64,
+    /// `Day.toml [app] scheme` as declared for this target, if it was. `None` means "derive it"
+    /// — see [`ResolvedApp::scheme`].
+    pub scheme: Option<String>,
 }
 
 impl ResolvedApp {
-    /// The app's deep-link URI scheme: the last segment of the bundle id, lowercased and
-    /// stripped to what a scheme may contain (ALPHA/DIGIT/`+`/`-`/`.`, RFC 3986).
+    /// The app's deep-link URI scheme: `Day.toml [app] scheme` where declared, else the last
+    /// segment of the bundle id — lowercased and stripped to what a scheme may contain
+    /// (ALPHA/DIGIT/`+`/`-`/`.`, RFC 3986).
     ///
-    /// DERIVED rather than declared, so it cannot drift from the identity it belongs to. Every
-    /// platform gets it through that platform's generated channel — `DAY_URL_SCHEME` in the
-    /// xcconfig, `scheme` in day-app.properties, the `uris` entry in module.json5 — which is why
-    /// no scaffolded file spells it out (docs/deep-links.md).
+    /// Every platform gets it through that platform's generated channel — `DAY_URL_SCHEME` in
+    /// the xcconfig, `scheme` in day-app.properties, the `uris` entry in module.json5 — so no
+    /// scaffolded file spells it out (docs/deep-links.md).
+    ///
+    /// The DEFAULT is derived, so a new app never states it twice; declaring it is how an app
+    /// keeps a scheme it already published when that differs from its id (an app scaffolded
+    /// before this derived theirs from the crate name).
     pub fn scheme(&self) -> String {
+        if let Some(declared) = self.scheme.as_deref().map(str::trim)
+            && !declared.is_empty()
+        {
+            return declared.to_string();
+        }
         let last = self.id.rsplit('.').next().unwrap_or_default();
         let s: String = last
             .chars()
@@ -514,6 +537,7 @@ impl Manifest {
             // loop may itself override.
             artifact: String::new(),
             build: self.app.build,
+            scheme: self.app.scheme.clone(),
         };
         let mut artifact = self.app.artifact.clone();
         // `[app.ohos]` is the platform table for harmony-arkui — for BUILTIN targets the key
@@ -540,6 +564,9 @@ impl Manifest {
                 }
                 if let Some(title) = &o.title {
                     out.title = title.clone();
+                }
+                if let Some(s) = &o.scheme {
+                    out.scheme = Some(s.clone());
                 }
                 if let Some(a) = &o.artifact {
                     artifact = Some(a.clone());
@@ -611,6 +638,34 @@ fn default_h() -> f64 {
 pub struct Project {
     pub root: PathBuf,
     pub manifest: Manifest,
+}
+
+impl Project {
+    /// The app's LIB TARGET name — what cargo names every artifact after: `libdayapp.a`,
+    /// `libdayapp.so`, `dayapp.wasm`, and the `dayapp::` path `src/main.rs` imports.
+    ///
+    /// A scaffolded app pins this to the constant `dayapp` (`[lib] name`, DESIGN.md §17.5) so no
+    /// artifact carries the package name and renaming the app moves nothing. An app from before
+    /// that pin declares no `[lib] name`, and cargo falls back to the package's with `-` → `_`.
+    ///
+    /// Read here rather than guessed at each call site: deriving it from the package name is
+    /// exactly the assumption that broke the web-dom build when the pin landed (it went looking
+    /// for `day_showcase.wasm` beside the `dayapp.wasm` cargo had just written).
+    pub fn lib_name(&self) -> String {
+        let text = std::fs::read_to_string(self.root.join("Cargo.toml")).unwrap_or_default();
+        if let Some(rest) = text.split("[lib]").nth(1) {
+            // Only the `[lib]` table's own keys — stop at the next table header.
+            let table = rest.split("\n[").next().unwrap_or(rest);
+            for line in table.lines() {
+                if let Some(v) = line.trim().strip_prefix("name")
+                    && let Some(v) = v.trim_start().strip_prefix('=')
+                {
+                    return v.trim().trim_matches('"').replace('-', "_");
+                }
+            }
+        }
+        self.manifest.app.name.replace('-', "_")
+    }
 }
 
 /// On Windows `std::fs::canonicalize` returns an extended-length `\\?\` (verbatim) path. That prefix
@@ -1035,5 +1090,103 @@ mod workspace_inheritance {
         let here = Path::new(env!("CARGO_MANIFEST_DIR")); // crates/day-cli
         let found = workspace_package_version(here);
         assert_eq!(found.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+    }
+}
+
+#[cfg(test)]
+mod lib_name_tests {
+    use super::*;
+
+    fn project_with_manifest(day_toml: &str) -> Project {
+        let dir = std::env::temp_dir().join(format!(
+            "day-scheme-{}-{:p}",
+            std::process::id(),
+            day_toml.as_ptr()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(dir.join("Day.toml"), day_toml).expect("Day.toml");
+        find_project(Some(&dir)).expect("project")
+    }
+
+    fn project_with(manifest: &str) -> Project {
+        let dir = std::env::temp_dir().join(format!(
+            "day-libname-{}-{:p}",
+            std::process::id(),
+            manifest.as_ptr()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(dir.join("Cargo.toml"), manifest).expect("Cargo.toml");
+        std::fs::write(
+            dir.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\n",
+        )
+        .expect("Day.toml");
+        find_project(Some(&dir)).expect("project")
+    }
+
+    /// Every artifact is named after the LIB target, so a scaffolded app's pin is what the
+    /// staticlib, the cdylib and the wasm are all called — whatever the package is named.
+    #[test]
+    fn the_pinned_lib_name_wins_over_the_package() {
+        let p = project_with(
+            "[package]\nname = \"day-showcase\"\nversion = \"0.1.0\"\n\
+             [lib]\nname = \"dayapp\"\ncrate-type = [\"rlib\"]\n",
+        );
+        assert_eq!(p.lib_name(), "dayapp");
+    }
+
+    /// An app from before the pin declares no `[lib] name`; cargo falls back to the package's.
+    #[test]
+    fn without_a_pin_the_package_name_is_the_fallback() {
+        let p = project_with(
+            "[package]\nname = \"day-showcase\"\nversion = \"0.1.0\"\n\
+             [lib]\ncrate-type = [\"rlib\"]\n",
+        );
+        assert_eq!(p.lib_name(), "day_showcase");
+        let none = project_with("[package]\nname = \"day-showcase\"\nversion = \"0.1.0\"\n");
+        assert_eq!(none.lib_name(), "day_showcase");
+    }
+
+    /// A declared scheme wins over the derived default, because a scheme already in the world is
+    /// a contract: apps scaffolded before the default existed derived theirs from the CRATE name
+    /// (`Day-Showcase` ⇒ `dayshowcase`), and silently re-deriving it from the id would have
+    /// changed `dayshowcase://` links to `showcase://` on every platform at once.
+    #[test]
+    fn a_declared_scheme_beats_the_derived_default() {
+        let derived = project_with_manifest("schema = 1\n[app]\nid = \"dev.daybrite.showcase\"\n");
+        assert_eq!(
+            derived.manifest.resolve("macos-appkit").scheme(),
+            "showcase"
+        );
+
+        let declared = project_with_manifest(
+            "schema = 1\n[app]\nid = \"dev.daybrite.showcase\"\nscheme = \"dayshowcase\"\n",
+        );
+        assert_eq!(
+            declared.manifest.resolve("macos-appkit").scheme(),
+            "dayshowcase"
+        );
+
+        // An id whose last segment starts with a digit cannot be a scheme (RFC 3986), so the
+        // derivation falls back rather than emitting something a platform would reject.
+        let numeric = project_with_manifest("schema = 1\n[app]\nid = \"dev.example.2048\"\n");
+        assert_eq!(numeric.manifest.resolve("macos-appkit").scheme(), "dayapp");
+    }
+
+    /// A `name` in a LATER table is not the lib's — the scan stops at the next header.
+    #[test]
+    fn a_name_in_a_following_table_is_not_read() {
+        let p = project_with(
+            "[package]\nname = \"day-showcase\"\nversion = \"0.1.0\"\n\
+             [lib]\ncrate-type = [\"rlib\"]\n\n[[bin]]\nname = \"other\"\n",
+        );
+        assert_eq!(p.lib_name(), "day_showcase");
     }
 }
