@@ -117,15 +117,31 @@ join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't obser
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.
 
-**A `canvas` is focusable on appkit and web-dom**, and observes both ways. It is the one built-in
-piece with no native control underneath, so nothing would otherwise make it the first responder —
-and without that, keys could never reach what an app DRAWS. AppKit answers `acceptsFirstResponder`
-and takes focus in `mouseDown:` before forwarding to the gesture recognizers; web-dom gives the
-`<canvas>` a `tabindex` and focuses it on press. Both report `FocusChanged` from
-`becomeFirstResponder`/`resignFirstResponder` and `focus`/`blur`, so `.focused(signal)` binds
-two-way and `assert_focused` can see it. This is what `Decorate::on_key` is built on
-([docs/menus.md](menus.md)): keys follow focus, so a canvas that has it hears the arrows and a
-text field that takes it gets them back.
+**A `canvas` is focusable on every toolkit but android-mdc**, and observes both ways. It is the
+one built-in piece with no native control underneath, so nothing would otherwise make it the
+focused element — and without that, keys could never reach what an app DRAWS. This is what
+`Decorate::on_key` is built on ([docs/menus.md](menus.md)): keys follow focus, so a canvas that
+has it hears the arrows and a text field that takes it gets them back.
+
+| backend | focusable | takes focus on press |
+|---|---|---|
+| AppKit | `acceptsFirstResponder` | `mouseDown:`, before forwarding to the gesture recognizers |
+| UIKit | `canBecomeFirstResponder` | `touchesBegan:`, likewise |
+| GTK 4 | `set_focusable` | a `GestureClick` that calls `grab_focus` |
+| Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
+| web-dom | a `tabindex` | a `pointerdown` listener |
+| XAML | `UIElement::IsTabStop` — a `Canvas` is a Panel, not a Control, so this is what makes one a tab stop | `PointerPressed`; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
+| ArkUI | the `NODE_FOCUSABLE` attribute | ArkUI's own focus handling |
+
+Each reports `FocusChanged` both ways — `becomeFirstResponder`/`resignFirstResponder`,
+`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR` — so `.focused(signal)`
+binds two-way and `assert_focused` can see it.
+
+**A view that is not in a window cannot hold the keyboard**, and that is not a failure to work
+around. On iOS a full-screen modal takes the presenting view out of the window, so a canvas
+behind a compact inspector sheet ([docs/inspector.md](inspector.md)) refuses focus until the
+sheet closes — the request lapses and the signal snaps back, which is rule 2. You cannot nudge
+what is covered.
 
 ## 5. Testing it
 

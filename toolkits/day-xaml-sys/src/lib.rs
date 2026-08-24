@@ -93,7 +93,13 @@ unsafe extern "C" {
     /// Clip whose Rect tracks the element size (SizeChanged). Corner support is limited on a bare
     /// Canvas, so this is best-effort (docs).
     pub fn day_xaml_container_set_corner(w: *mut c_void, radius: c_double);
-    pub fn day_xaml_canvas_new() -> *mut c_void;
+    /// A canvas that can hold keyboard focus (docs/menus.md): `handles` asks whether the app
+    /// claimed a key before the shim consumes it, `cb` delivers `(id, key_name, modifier_mask)`.
+    pub fn day_xaml_canvas_new(
+        id: u64,
+        handles: extern "C" fn(u64) -> c_int,
+        cb: extern "C" fn(u64, *const c_char, c_int),
+    ) -> *mut c_void;
     /// Render a canvas display list (day_spec::encode_ops output) into the Canvas.
     pub fn day_xaml_canvas_set_ops(
         w: *mut c_void,

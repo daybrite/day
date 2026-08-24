@@ -307,6 +307,34 @@ mod imp {
     fn ptr_of(v: &UIView) -> usize {
         (v as *const UIView).cast::<()>() as usize
     }
+
+    /// The day name for an arrow key's HID usage, or `None` for every other key — the four
+    /// [`day_spec::KeyEvent`] names the key route carries (docs/menus.md).
+    fn arrow_key_name(code: objc2_ui_kit::UIKeyboardHIDUsage) -> Option<&'static str> {
+        use objc2_ui_kit::UIKeyboardHIDUsage as U;
+        match code {
+            U::KeyboardLeftArrow => Some("ArrowLeft"),
+            U::KeyboardRightArrow => Some("ArrowRight"),
+            U::KeyboardUpArrow => Some("ArrowUp"),
+            U::KeyboardDownArrow => Some("ArrowDown"),
+            _ => None,
+        }
+    }
+
+    /// UIKit's modifier flags as day's mask.
+    fn key_modifiers(f: objc2_ui_kit::UIKeyModifierFlags) -> u8 {
+        let mut m = 0u8;
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Shift) {
+            m |= day_spec::KeyEvent::SHIFT;
+        }
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Command) {
+            m |= day_spec::KeyEvent::PRIMARY;
+        }
+        if f.contains(objc2_ui_kit::UIKeyModifierFlags::Alternate) {
+            m |= day_spec::KeyEvent::ALT;
+        }
+        m
+    }
     /// Apply row-level deltas as animated table updates. Indexes are sequential (each
     /// delta describes the set as the previous ones left it), so each gets its own batch —
     /// UITableView's combined-batch index rules would re-interpret them.
@@ -2795,6 +2823,11 @@ mod imp {
         /// the old display list until its first `replay`.
         static OPS: day_spec::sidetable::SideTable<Vec<day_spec::DrawOp>> =
             day_spec::sidetable::SideTable::new();
+        /// Canvas view ptr → its node, so the view's own key handling knows who to report to
+        /// (docs/menus.md). Every canvas is registered at realize: focus, not a gesture, is
+        /// what decides who hears a key.
+        static KEY_NODES: day_spec::sidetable::SideTable<NodeId> =
+            day_spec::sidetable::SideTable::new();
     }
 
     struct CanvasIvars;
@@ -2813,6 +2846,96 @@ mod imp {
                 let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
                 for op in &ops {
                     draw_op(op);
+                }
+            }
+
+            // Focus, and with it a hardware keyboard's arrows (docs/menus.md, docs/focus.md).
+            // A plain UIView is never first responder, so nothing an app DRAWS could hear a
+            // key. Focus on iOS is also the software keyboard — but a canvas has no text input
+            // to raise one, so becoming first responder here costs nothing on a touch-only
+            // device and buys the arrows on iPad with a keyboard attached.
+            #[unsafe(method(canBecomeFirstResponder))]
+            fn can_become_first_responder(&self) -> bool {
+                true
+            }
+
+            #[unsafe(method(becomeFirstResponder))]
+            fn become_first_responder(&self) -> bool {
+                let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+                if became {
+                    let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+                    }
+                }
+                became
+            }
+
+            #[unsafe(method(resignFirstResponder))]
+            fn resign_first_responder(&self) -> bool {
+                let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
+                if resigned {
+                    let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+                    }
+                }
+                resigned
+            }
+
+            // A touch focuses the canvas, the way a press does on the desktops. The gesture
+            // recognizers still see it: this runs before `super`, which forwards to them.
+            #[unsafe(method(touchesBegan:withEvent:))]
+            fn touches_began(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: Option<&objc2_ui_kit::UIEvent>,
+            ) {
+                if !self.isFirstResponder() {
+                    let _ = self.becomeFirstResponder();
+                }
+                let _: () = unsafe { msg_send![super(self), touchesBegan: touches, withEvent: event] };
+            }
+
+            /// Hardware-keyboard presses while this canvas is first responder. Anything that is
+            /// not a claimed arrow goes to `super`, which walks the responder chain exactly as
+            /// it would have — so a key nobody wanted still reaches whatever else wants it.
+            #[unsafe(method(pressesBegan:withEvent:))]
+            fn presses_began(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
+                let handled = day_spec::ffi_guard::contain(false, || {
+                    let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                        return false;
+                    };
+                    if !day_spec::keys::handled(node) {
+                        return false;
+                    }
+                    let mut any = false;
+                    for press in presses.iter() {
+                        let Some(key) = (unsafe { press.key(self.mtm()) }) else {
+                            continue;
+                        };
+                        let Some(name) = arrow_key_name(unsafe { key.keyCode() }) else {
+                            continue;
+                        };
+                        emit(
+                            node,
+                            Event::Key(day_spec::KeyEvent {
+                                key: name.to_string(),
+                                modifiers: key_modifiers(unsafe { key.modifierFlags() }),
+                            }),
+                        );
+                        any = true;
+                    }
+                    any
+                });
+                if !handled {
+                    let _: () =
+                        unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
                 }
             }
         }
@@ -4338,7 +4461,11 @@ mod imp {
                         }
                     }
                 }
-                Some(Builtin::Canvas) => view_of(DayCanvasView::new(mtm)),
+                Some(Builtin::Canvas) => {
+                    let canvas = DayCanvasView::new(mtm);
+                    KEY_NODES.with(|t| t.insert(Retained::as_ptr(&canvas) as usize, id));
+                    view_of(canvas)
+                }
                 Some(Builtin::Image) => {
                     let Some(p) = day_spec::props_of::<ImageProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
@@ -5342,12 +5469,40 @@ mod imp {
             // dismisses it. Resign only while this view still owns it, so a stale release
             // can't drop a sibling's keyboard.
             unsafe {
-                if focused {
-                    h.becomeFirstResponder();
-                } else if h.isFirstResponder() {
-                    h.resignFirstResponder();
+                if !focused {
+                    if h.isFirstResponder() {
+                        h.resignFirstResponder();
+                    }
+                    return;
+                }
+                if h.becomeFirstResponder() {
+                    return;
                 }
             }
+            // A refusal can be TRANSIENT — the outgoing responder is still tearing its keyboard
+            // down, and UIKit will not hand focus over mid-transition — so retry once on the
+            // next turn (GTK's un-mapped-widget retry, rule 4 in docs/focus.md).
+            //
+            // It can also be permanent, and correctly so: a view that is not in a WINDOW cannot
+            // hold the keyboard, and a full-screen modal takes the presenting view out of the
+            // window for as long as it covers it. A canvas behind a compact inspector sheet
+            // (docs/inspector.md) refuses focus until the sheet closes — the retry lapses and
+            // the binding's signal snaps back, which is rule 2.
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            let view = dispatch2::MainThreadBound::new(h.clone(), mtm);
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(mtm) = MainThreadMarker::new() else {
+                        return;
+                    };
+                    let view = view.get(mtm);
+                    if !view.isFirstResponder() {
+                        let _ = unsafe { view.becomeFirstResponder() };
+                    }
+                });
+            });
         }
 
         fn set_event_sink(&mut self, sink: EventSink) {

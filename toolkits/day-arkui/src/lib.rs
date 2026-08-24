@@ -800,6 +800,14 @@ mod imp {
         day_spec::ffi_guard::contain((), || on_event_inner(id, kind, num, text));
     }
 
+    /// Whether this node has a `Decorate::on_key` handler (docs/menus.md). The shim asks before
+    /// it consumes a key, so an arrow nobody wanted keeps propagating — ArkUI's own focus
+    /// walking still moves between components.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_node_handles_keys(id: u64) -> c_int {
+        day_spec::ffi_guard::contain(0, || c_int::from(day_spec::keys::handled(NodeId(id))))
+    }
+
     fn on_event_inner(id: u64, kind: c_int, num: f64, text: *const c_char) {
         // A NAV_MENU row click arrives with a synthetic id — translate it to a SelectionChanged
         // against the menu host before the normal per-node dispatch.
@@ -833,6 +841,20 @@ mod imp {
             // Focus pair + text-input submit (docs/focus.md).
             16 => Event::FocusChanged(num != 0.0),
             17 => Event::Submitted,
+            // A non-text key from a focused node (docs/menus.md): `text` is the day key name,
+            // `num` the modifier mask. The shim already asked whether this node claims keys.
+            29 => {
+                if text.is_null() {
+                    return;
+                }
+                let key = unsafe { CStr::from_ptr(text) }
+                    .to_string_lossy()
+                    .into_owned();
+                Event::Key(day_spec::KeyEvent {
+                    key,
+                    modifiers: num as u8,
+                })
+            }
             // Pan/drag gesture (docs/shapes.md): `num` = phase (1 began, 2 changed, 3 ended),
             // `text` = "x,y,tx,ty" in px — converted to vp like the Android bridge.
             11 => {
@@ -1485,7 +1507,7 @@ mod imp {
                 // Canvas: a custom node whose on-draw callback replays the encoded display list.
                 Some(Builtin::Canvas) => {
                     let n = new_node(K_CANVAS);
-                    unsafe { ffi::day_ark_canvas_init(n.0) };
+                    unsafe { ffi::day_ark_canvas_init(n.0, id.0) };
                     n
                 }
                 // Recycling list: an ARKUI_NODE_LIST driven by a NodeAdapter (attach_list injects the

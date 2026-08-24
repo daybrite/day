@@ -49,6 +49,10 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",
     "UIMenu", "UIMenuElement", "UIAction", "UICommand", "UIContextMenuInteraction",
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",
+    # A focusable canvas and its hardware-keyboard arrows (docs/menus.md): the press stream a
+    # first-responder view reads (`pressesBegan:`), the key on each press, and the touch that
+    # makes the canvas first responder in the first place.
+    "UIPress", "UIPressesEvent", "UIKey", "UIKeyConstants", "UITouch", "UIEvent",
     "UIDocumentPickerViewController", "UIViewControllerTransitionCoordinator",
     "UIGeometry",
     # List drag-to-reorder (docs/list.md): the drag-delegate item that lifts a row without

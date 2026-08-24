@@ -24,6 +24,7 @@
 #include <arkui/native_gesture.h>
 #include <arkui/native_interface.h>
 #include <arkui/native_interface_focus.h>
+#include <arkui/native_key_event.h>
 #include <arkui/native_node.h>
 #include <arkui/native_node_napi.h>
 #include <arkui/native_type.h>
@@ -71,6 +72,8 @@ extern "C" void day_arkui_start(void* content, double w_vp, double h_vp, double 
 // buffers or navigates as appropriate.
 extern "C" void day_arkui_deeplink(const char* uri);
 extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const char* text);
+// Whether a node carries a `Decorate::on_key` handler — asked before a key is consumed.
+extern "C" int32_t day_arkui_node_handles_keys(uint64_t id);
 
 // Event kinds — mirror of day_spec::bridge::BridgeKind (the shared wire table; same numbers as
 // the Android bridge). day-arkui-sys's bridge_kinds_parity test reads THIS block and asserts
@@ -86,6 +89,7 @@ extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const 
 #define DAY_K_FOCUS_CHANGED 16
 #define DAY_K_SUBMITTED 17
 #define DAY_K_VALUE_COMMITTED 22
+#define DAY_K_KEY 29
 extern "C" void day_arkui_set_cache_dir(const char* path);
 // Recycling-list callbacks into Rust (docs/list.md): row count, and build/rebind a row's content
 // into the native cell (a plain Stack `cell`) — plus recycle when a cell scrolls out.
@@ -183,6 +187,18 @@ static void day_list_on_drop(ArkUI_NodeEvent* ev);
 static void day_canvas_forget(void* n);
 static void day_list_forget(void* n);
 
+// The day name for an arrow keycode, or null for every other key (docs/menus.md). ArkUI names
+// them for a D-pad, which is the same four keys a keyboard's arrows send.
+static const char* day_ark_arrow_name(int32_t code) {
+    switch (code) {
+        case ARKUI_KEYCODE_DPAD_LEFT:  return "ArrowLeft";
+        case ARKUI_KEYCODE_DPAD_RIGHT: return "ArrowRight";
+        case ARKUI_KEYCODE_DPAD_UP:    return "ArrowUp";
+        case ARKUI_KEYCODE_DPAD_DOWN:  return "ArrowDown";
+        default: return nullptr;
+    }
+}
+
 static void event_receiver(ArkUI_NodeEvent* ev) {
     if (!ev) return;
     uint64_t id = (uint64_t)(uintptr_t)OH_ArkUI_NodeEvent_GetUserData(ev);
@@ -251,6 +267,26 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
         case NODE_TEXT_INPUT_ON_SUBMIT:
             day_arkui_on_event(id, DAY_K_SUBMITTED, 0.0, "");
             break;
+        // The arrows, for a focused node whose app asked for them (docs/menus.md). Consumed
+        // only when claimed: an unclaimed arrow keeps propagating, so ArkUI's own focus walking
+        // still moves between components.
+        case NODE_ON_KEY_EVENT: {
+            auto* input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
+            if (!input) break;
+            if (OH_ArkUI_KeyEvent_GetType(input) != ARKUI_KEY_EVENT_DOWN) break;
+            const char* name = day_ark_arrow_name(OH_ArkUI_KeyEvent_GetKeyCode(input));
+            if (!name) break;
+            if (!day_arkui_node_handles_keys(id)) break;
+            uint64_t held = 0;
+            OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &held);
+            double mods = 0;
+            if (held & ARKUI_MODIFIER_KEY_SHIFT) mods += 1;  // day KeyEvent::SHIFT
+            if (held & ARKUI_MODIFIER_KEY_CTRL) mods += 2;   // PRIMARY
+            if (held & ARKUI_MODIFIER_KEY_ALT) mods += 4;    // ALT
+            day_arkui_on_event(id, DAY_K_KEY, mods, name);
+            OH_ArkUI_KeyEvent_SetConsumed(input, true);
+            break;
+        }
         default:
             break;
     }
@@ -1562,11 +1598,23 @@ static void canvas_custom_receiver(ArkUI_NodeCustomEvent* ev) {
 extern "C" {
 
 // Register the on-draw custom-event receiver for a canvas custom node.
-void day_ark_canvas_init(void* node) {
+void day_ark_canvas_init(void* node, uint64_t id) {
     if (!g_api || !node) return;
-    g_api->addNodeCustomEventReceiver((ArkUI_NodeHandle)node, canvas_custom_receiver);
-    g_api->registerNodeCustomEvent((ArkUI_NodeHandle)node, ARKUI_NODE_CUSTOM_EVENT_ON_DRAW,
-                                   CANVAS_DRAW_TARGET, node);
+    auto h = (ArkUI_NodeHandle)node;
+    g_api->addNodeCustomEventReceiver(h, canvas_custom_receiver);
+    g_api->registerNodeCustomEvent(h, ARKUI_NODE_CUSTOM_EVENT_ON_DRAW, CANVAS_DRAW_TARGET, node);
+    // Focus, and with it the keyboard (docs/menus.md, docs/focus.md). A custom-drawn node is
+    // not focusable by default — nothing an app DRAWS could ever hold the keys — so ask for the
+    // focus flag, the focus pair, and the key event.
+    ArkUI_NumberValue focusable;
+    focusable.i32 = 1;
+    ArkUI_AttributeItem focus_item{};
+    focus_item.value = &focusable;
+    focus_item.size = 1;
+    g_api->setAttribute(h, NODE_FOCUSABLE, &focus_item);
+    g_api->registerNodeEvent(h, NODE_ON_FOCUS, 0, (void*)(uintptr_t)id);
+    g_api->registerNodeEvent(h, NODE_ON_BLUR, 0, (void*)(uintptr_t)id);
+    g_api->registerNodeEvent(h, NODE_ON_KEY_EVENT, 0, (void*)(uintptr_t)id);
 }
 
 // Store the encoded display list for `node` and request a repaint.

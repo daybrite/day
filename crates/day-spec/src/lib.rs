@@ -541,11 +541,15 @@ pub mod bridge {
         /// The platform's own undo affordance fired (⌘Z, a three-finger swipe, the Edit menu
         /// through a native front); `num` != 0 ⇒ redo.
         UndoInvoked = 28,
+        /// A non-text key reached the FOCUSED node (docs/menus.md); `text` = the day key name
+        /// (`"ArrowLeft"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
+        /// [`crate::Event::Key`].
+        Key = 29,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 29] = [
+        pub const ALL: [BridgeKind; 30] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -575,6 +579,7 @@ pub mod bridge {
             BridgeKind::CoverHidden,
             BridgeKind::LinkActivated,
             BridgeKind::UndoInvoked,
+            BridgeKind::Key,
         ];
     }
 

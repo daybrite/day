@@ -826,6 +826,33 @@ extern "C" fn on_slider(id: u64, v: f64, committed: c_int) {
     });
 }
 /// Focus callback from the shim (docs/focus.md). kind: 0 = lost, 1 = gained, 2 = submitted.
+/// Whether this node has a `Decorate::on_key` handler (docs/menus.md). The shim asks before it
+/// marks a key handled, so an arrow nobody wanted stays XAML's — its own directional focus
+/// navigation still moves between controls.
+extern "C" fn on_key_handled(id: u64) -> c_int {
+    ffi_guard::contain(0, || c_int::from(day_spec::keys::handled(NodeId(id))))
+}
+
+/// An arrow that reached a focused canvas (docs/menus.md): `key` is the day name, `modifiers`
+/// the [`day_spec::KeyEvent`] mask.
+extern "C" fn on_key(id: u64, key: *const c_char, modifiers: c_int) {
+    ffi_guard::contain((), || {
+        if key.is_null() {
+            return;
+        }
+        let key = unsafe { CStr::from_ptr(key) }
+            .to_string_lossy()
+            .into_owned();
+        emit(
+            NodeId(id),
+            Event::Key(day_spec::KeyEvent {
+                key,
+                modifiers: modifiers as u8,
+            }),
+        );
+    });
+}
+
 extern "C" fn on_focus(id: u64, kind: c_int) {
     ffi_guard::contain((), || {
         let ev = match kind {
@@ -1360,7 +1387,14 @@ impl Toolkit for Xaml {
                     SCROLL_STATE.with(|m| m.borrow_mut().insert(sv as usize, content));
                     WinHandle(sv)
                 }
-                Some(Builtin::Canvas) => WinHandle(ffi::day_xaml_canvas_new()),
+                Some(Builtin::Canvas) => {
+                    // Focus, and with it the keyboard (docs/menus.md, docs/focus.md): a canvas
+                    // is the one built-in piece with no native control under it, so nothing
+                    // else would ever make it a tab stop.
+                    let h = ffi::day_xaml_canvas_new(id.0, on_key_handled, on_key);
+                    ffi::day_xaml_enable_focus(h, id.0, on_focus);
+                    WinHandle(h)
+                }
                 Some(Builtin::Nav) => {
                     let Some(p) = props_of::<NavProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);

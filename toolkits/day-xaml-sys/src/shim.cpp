@@ -1304,7 +1304,54 @@ void day_xaml_scroll_to(void* sv, int y, int h, int animated) {
     else if (y + h > off + vh) target = y + h - vh;
     if (target != off) s.ChangeView(nullptr, target, nullptr, animated == 0);
 }
-void* day_xaml_canvas_new() { WUXC::Canvas c; return boxh(c); }
+// The day name for an arrow key, or null for every other key (docs/menus.md).
+static const char* day_xaml_arrow_name(winrt::Windows::System::VirtualKey k) {
+    using VK = winrt::Windows::System::VirtualKey;
+    switch (k) {
+        case VK::Left:  return "ArrowLeft";
+        case VK::Right: return "ArrowRight";
+        case VK::Up:    return "ArrowUp";
+        case VK::Down:  return "ArrowDown";
+        default: return nullptr;
+    }
+}
+
+// A canvas that can hold the keyboard (docs/menus.md, docs/focus.md). A XAML Canvas is a Panel,
+// not a Control, so it is not a tab stop and nothing an app DRAWS could ever hear a key —
+// `UIElement::IsTabStop` is what makes one focusable without wrapping it in a Control.
+//
+// `handles` asks Rust whether the app claimed this key: an unclaimed arrow is left unhandled so
+// XAML's own directional focus navigation still moves between controls.
+void* day_xaml_canvas_new(unsigned long long id,
+                          int (*handles)(unsigned long long),
+                          void (*cb)(unsigned long long, const char*, int)) try {
+    WUXC::Canvas c;
+    c.IsTabStop(true);
+    // An UNPAINTED Canvas is not hit-testable, so a press would land only where a drawn shape
+    // happens to be and the empty canvas could never be focused (or tapped). A transparent
+    // Panel BACKGROUND fixes that and, unlike the list cell's background Rectangle, survives
+    // the `Children().Clear()` every redraw does.
+    c.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
+    // A press focuses it, the way clicking a text box does.
+    c.PointerPressed([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
+        if (auto e = s.try_as<UIElement>()) e.Focus(WUX::FocusState::Pointer);
+    });
+    c.KeyDown([id, handles, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
+        const char* name = day_xaml_arrow_name(a.Key());
+        if (!name) return;
+        if (!handles(id)) return;
+        // Win32 key state, not CoreWindow: this is a XAML ISLAND in a desktop window, where
+        // `CoreWindow::GetForCurrentThread()` is null. The OEM-accelerator path above reads the
+        // modifiers the same way. The mask is day's `KeyEvent` one (shift 1, primary 2, alt 4).
+        int mods = 0;
+        if (GetKeyState(VK_SHIFT) & 0x8000) mods |= 1;
+        if (GetKeyState(VK_CONTROL) & 0x8000) mods |= 2;
+        if (GetKeyState(VK_MENU) & 0x8000) mods |= 4;
+        cb(id, name, mods);
+        a.Handled(true);
+    });
+    return boxh(c);
+} catch (...) { WUXC::Canvas c; return boxh(c); }
 
 void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) {
     auto canvas = elem(h).try_as<WUXC::Canvas>();
@@ -2942,11 +2989,13 @@ void day_xaml_tabs_content_size(void* tabs, double* w, double* h) {
 // global focus event, so each control reports its own GotFocus/LostFocus.
 void day_xaml_enable_focus(void* h, unsigned long long id,
                             void (*cb)(unsigned long long, int)) try {
-    auto c = elem(h).try_as<WUXC::Control>();
-    if (!c) return;
-    c.GotFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 1); });
-    c.LostFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 0); });
-    if (auto tb = c.try_as<WUXC::TextBox>()) {
+    // GotFocus/LostFocus are UIElement events, so a focusable NON-control (the canvas, whose
+    // `IsTabStop` makes a Panel a tab stop — docs/menus.md) reports through the same pair.
+    auto e = elem(h);
+    if (!e) return;
+    e.GotFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 1); });
+    e.LostFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 0); });
+    if (auto tb = e.try_as<WUXC::TextBox>()) {
         tb.KeyDown([id, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
             if (a.Key() == winrt::Windows::System::VirtualKey::Enter) cb(id, 2);
         });
@@ -2957,16 +3006,30 @@ void day_xaml_enable_focus(void* h, unsigned long long id,
 // this control still owns focus, so a stale release can't blur a sibling. (Programmatic
 // focus draws no focus visual; that is system-XAML behavior, not a bug.)
 void day_xaml_control_focus(void* h, int focused) try {
-    auto c = elem(h).try_as<WUXC::Control>();
-    if (!c) return;
+    auto e = elem(h);
+    if (!e) return;
     if (focused) {
-        c.Focus(WUX::FocusState::Programmatic);
-    } else if (c.FocusState() != WUX::FocusState::Unfocused && g_app && g_app->focus_sink) {
-        auto sink = g_app->focus_sink;
-        sink.IsTabStop(true);
-        sink.Focus(WUX::FocusState::Programmatic);
-        sink.IsTabStop(false);
+        // UIElement::Focus, not Control's: the canvas is a focusable Panel and has no Control
+        // to ask (docs/menus.md). Every Control is a UIElement, so this one call serves both.
+        e.Focus(WUX::FocusState::Programmatic);
+        return;
     }
+    if (!g_app || !g_app->focus_sink) return;
+    // Resign only while this element still owns focus, so a stale release can't blur a
+    // sibling. A Control answers directly; anything else has to ask the focus manager, which
+    // is the only reader of focus a plain UIElement has.
+    bool owns = false;
+    if (auto c = e.try_as<WUXC::Control>()) {
+        owns = c.FocusState() != WUX::FocusState::Unfocused;
+    } else if (auto focusedNow = WUXIn::FocusManager::GetFocusedElement()) {
+        auto other = focusedNow.try_as<UIElement>();
+        owns = other && winrt::get_abi(other) == winrt::get_abi(e);
+    }
+    if (!owns) return;
+    auto sink = g_app->focus_sink;
+    sink.IsTabStop(true);
+    sink.Focus(WUX::FocusState::Programmatic);
+    sink.IsTabStop(false);
 } catch (...) {}
 
 // ---- textbox ----

@@ -144,7 +144,7 @@ unsafe extern "C" {
     pub fn day_ark_focus(node: *mut c_void, focused: c_int);
 
     /// Canvas (§11): register the custom node's on-draw receiver.
-    pub fn day_ark_canvas_init(node: *mut c_void);
+    pub fn day_ark_canvas_init(node: *mut c_void, id: u64);
     /// Store a canvas node's encoded display list (`nums`/`count` + a 0x1F-joined `texts`) and
     /// request a repaint. The buffers are copied; the caller keeps ownership.
     pub fn day_ark_set_canvas_ops(
@@ -277,6 +277,7 @@ mod bridge_kinds_parity {
             ("DAY_K_FOCUS_CHANGED", BridgeKind::FocusChanged),
             ("DAY_K_SUBMITTED", BridgeKind::Submitted),
             ("DAY_K_VALUE_COMMITTED", BridgeKind::ValueCommitted),
+            ("DAY_K_KEY", BridgeKind::Key),
         ];
         assert_eq!(found.len(), expect.len(), "define count drifted: {found:?}");
         for (name, kind) in expect {

@@ -170,12 +170,12 @@ sidebar in every app that had one. Hanging the handler on the canvas removes the
 AppKit's responder chain and the DOM's focus already answer it.
 
 The cost is that a piece must be able to HOLD focus for its keys to arrive
-([docs/focus.md](focus.md)). A `canvas` can, on the backends that draw one from a real view —
-appkit (`acceptsFirstResponder`, focus on `mouseDown:`) and web-dom (a `tabindex` and a
-focus-on-press) — which is what makes it the piece a drawing app hangs its keys on. A piece
-that cannot take focus on a given backend simply never hears a key there, and a canvas nobody
-gave a handler to keeps none of them: an unclaimed arrow keeps walking, so an enclosing scroll
-view still scrolls.
+([docs/focus.md](focus.md)). A `canvas` can on every toolkit but android-mdc — each backend
+makes its drawing surface a tab stop and reports focus both ways — which is what makes it the
+piece a drawing app hangs its keys on. A piece that cannot take focus on a given backend simply
+never hears a key there, and a canvas nobody gave a handler to keeps none of them: an unclaimed
+arrow keeps walking, so an enclosing scroll view still scrolls and the platform's own focus
+navigation still moves between controls.
 
 The payload format is the app's own — Day-Sketch uses a standalone SVG document, so shapes
 paste into anything that reads SVG and SVG from other editors pastes back. day places the
