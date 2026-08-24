@@ -1317,8 +1317,16 @@ static const char* day_xaml_arrow_name(winrt::Windows::System::VirtualKey k) {
 }
 
 // A canvas that can hold the keyboard (docs/menus.md, docs/focus.md). A XAML Canvas is a Panel,
-// not a Control, so it is not a tab stop and nothing an app DRAWS could ever hear a key —
-// `UIElement::IsTabStop` is what makes one focusable without wrapping it in a Control.
+// and in SYSTEM XAML focus is a Control affair: `IsTabStop` and `Focus` are members of
+// `Windows.UI.Xaml.Controls.Control`, NOT of `UIElement` — that is `Microsoft.UI.Xaml` (WinUI 3),
+// where both moved up to `UIElement`. So nothing an app DRAWS could ever hear a key without a
+// Control around it, and the canvas is handed out as a focusable `ContentControl` HOST whose
+// Content is the Canvas — the same one-line trick the window's focus sink is built from.
+//
+// The handle day holds is the HOST, so `day_xaml_set_geometry` positions and sizes that;
+// `Stretch` on both content alignments passes the size it is given straight through to the
+// Canvas inside, which would otherwise measure to nothing and draw at 0x0. Every drawing entry
+// point unwraps the handle with `canvas_of`.
 //
 // `handles` asks Rust whether the app claimed this key: an unclaimed arrow is left unhandled so
 // XAML's own directional focus navigation still moves between controls.
@@ -1326,17 +1334,22 @@ void* day_xaml_canvas_new(unsigned long long id,
                           int (*handles)(unsigned long long),
                           void (*cb)(unsigned long long, const char*, int)) try {
     WUXC::Canvas c;
-    c.IsTabStop(true);
     // An UNPAINTED Canvas is not hit-testable, so a press would land only where a drawn shape
     // happens to be and the empty canvas could never be focused (or tapped). A transparent
     // Panel BACKGROUND fixes that and, unlike the list cell's background Rectangle, survives
     // the `Children().Clear()` every redraw does.
     c.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
-    // A press focuses it, the way clicking a text box does.
-    c.PointerPressed([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
-        if (auto e = s.try_as<UIElement>()) e.Focus(WUX::FocusState::Pointer);
+    WUXC::ContentControl host;
+    host.IsTabStop(true);
+    host.HorizontalContentAlignment(WUX::HorizontalAlignment::Stretch);
+    host.VerticalContentAlignment(WUX::VerticalAlignment::Stretch);
+    host.Content(c);
+    // A press focuses it, the way clicking a text box does. The press lands on the Canvas and
+    // BUBBLES to the host, which is the element that can actually take focus.
+    host.PointerPressed([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
+        if (auto ctl = s.try_as<WUXC::Control>()) ctl.Focus(WUX::FocusState::Pointer);
     });
-    c.KeyDown([id, handles, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
+    host.KeyDown([id, handles, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
         const char* name = day_xaml_arrow_name(a.Key());
         if (!name) return;
         if (!handles(id)) return;
@@ -1350,11 +1363,23 @@ void* day_xaml_canvas_new(unsigned long long id,
         cb(id, name, mods);
         a.Handled(true);
     });
-    return boxh(c);
-} catch (...) { WUXC::Canvas c; return boxh(c); }
+    return boxh(host);
+} catch (...) { WUXC::ContentControl host; return boxh(host); }
+
+// The Canvas a canvas handle draws into. The handle is the focusable ContentControl host built
+// above; a bare Canvas is still accepted, so a degraded handle (the `catch` fallback, or any
+// element day hands to a canvas entry point by mistake) resolves rather than crashes.
+static WUXC::Canvas canvas_of(void* h) {
+    auto& e = elem(h);
+    if (auto c = e.try_as<WUXC::Canvas>()) return c;
+    if (auto host = e.try_as<WUXC::ContentControl>()) {
+        if (auto content = host.Content()) return content.try_as<WUXC::Canvas>();
+    }
+    return nullptr;
+}
 
 void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) {
-    auto canvas = elem(h).try_as<WUXC::Canvas>();
+    auto canvas = canvas_of(h);
     if (!canvas) return;
     canvas.Children().Clear();
 
@@ -2989,8 +3014,9 @@ void day_xaml_tabs_content_size(void* tabs, double* w, double* h) {
 // global focus event, so each control reports its own GotFocus/LostFocus.
 void day_xaml_enable_focus(void* h, unsigned long long id,
                             void (*cb)(unsigned long long, int)) try {
-    // GotFocus/LostFocus are UIElement events, so a focusable NON-control (the canvas, whose
-    // `IsTabStop` makes a Panel a tab stop — docs/menus.md) reports through the same pair.
+    // GotFocus/LostFocus are UIElement events, so this reads focus off whatever day hands it —
+    // a plain control, or the canvas's ContentControl host (day_xaml_canvas_new) — through the
+    // same pair, with no Control cast to fail on.
     auto e = elem(h);
     if (!e) return;
     e.GotFocus([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) { cb(id, 1); });
@@ -3009,9 +3035,10 @@ void day_xaml_control_focus(void* h, int focused) try {
     auto e = elem(h);
     if (!e) return;
     if (focused) {
-        // UIElement::Focus, not Control's: the canvas is a focusable Panel and has no Control
-        // to ask (docs/menus.md). Every Control is a UIElement, so this one call serves both.
-        e.Focus(WUX::FocusState::Programmatic);
+        // `Control::Focus` — the only Focus system XAML has (`UIElement` grew one in WinUI 3,
+        // not here). The canvas is not the exception it looks like: it is handed out as a
+        // focusable ContentControl host (day_xaml_canvas_new), so this one call serves both.
+        if (auto c = e.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Programmatic);
         return;
     }
     if (!g_app || !g_app->focus_sink) return;

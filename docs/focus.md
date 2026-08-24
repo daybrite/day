@@ -130,7 +130,7 @@ has it hears the arrows and a text field that takes it gets them back.
 | GTK 4 | `set_focusable` | a `GestureClick` that calls `grab_focus` |
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
 | web-dom | a `tabindex` | a `pointerdown` listener |
-| XAML | `UIElement::IsTabStop` — a `Canvas` is a Panel, not a Control, so this is what makes one a tab stop | `PointerPressed`; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
+| XAML | `Control::IsTabStop` on a `ContentControl` HOST wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members (they moved up to `UIElement` only in WinUI 3), and a Panel is not a Control | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
 | ArkUI | the `NODE_FOCUSABLE` attribute | ArkUI's own focus handling |
 
 Each reports `FocusChanged` both ways — `becomeFirstResponder`/`resignFirstResponder`,
