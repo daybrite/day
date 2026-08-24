@@ -68,8 +68,25 @@ pub fn list(only: Option<&str>, json: bool) -> Result<i32, CliError> {
         .filter_map(|n| crate::targets::find(n))
         .collect();
 
-    let reports: Vec<(&'static Target, Report)> =
-        wanted.into_iter().map(|t| (t, enumerate(t))).collect();
+    // Enumerated concurrently: each target shells out to a different tool and they wait on
+    // unrelated things — `devicectl` scanning for paired phones and `hdc` probing a connect key
+    // are about a second each, and running them one after another made the editor's device picker
+    // wait for the sum rather than the slowest.
+    let reports: Vec<(&'static Target, Report)> = std::thread::scope(|scope| {
+        let running: Vec<_> = wanted
+            .iter()
+            .map(|t| (*t, scope.spawn(move || enumerate(t))))
+            .collect();
+        running
+            .into_iter()
+            .map(|(t, h)| {
+                let report = h
+                    .join()
+                    .unwrap_or_else(|_| Report::unavailable("enumerating this target panicked"));
+                (t, report)
+            })
+            .collect()
+    });
 
     if json {
         let targets: Vec<Value> = reports

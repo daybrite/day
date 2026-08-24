@@ -84,25 +84,47 @@ fn day_crates_for(project: &Project, triple: &str, checkout: Option<&Path>) -> V
         .flatten()
     {
         let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-        if !name.starts_with("day") {
-            continue;
-        }
-        let from_git = pkg.get("source").and_then(|s| s.as_str()).is_some_and(|s| {
-            s.trim_start_matches("git+")
-                .starts_with(DAY_GIT.trim_end_matches(".git"))
-        });
-        // Already patched to the checkout: keep it, or a second `day patch` would shrink the
-        // table it wrote the first time.
-        let from_checkout = checkout.is_some_and(|root| {
-            pkg.get("manifest_path")
-                .and_then(|m| m.as_str())
-                .is_some_and(|m| Path::new(m).starts_with(root))
-        });
-        if from_git || from_checkout {
+        let manifest_path = pkg.get("manifest_path").and_then(|m| m.as_str());
+        let source = pkg.get("source").and_then(|s| s.as_str());
+        if needs_patch_entry(name, manifest_path, source, &project.root, checkout) {
             names.push(name.to_string());
         }
     }
     names
+}
+
+/// Whether one resolved package is a day crate this project must patch.
+///
+/// Split out of [`day_crates_for`] so the decision is testable without a resolver — the
+/// `day-showcase` regression below is a three-line predicate that took a CI job to notice.
+fn needs_patch_entry(
+    name: &str,
+    manifest_path: Option<&str>,
+    source: Option<&str>,
+    project_root: &Path,
+    checkout: Option<&Path>,
+) -> bool {
+    if !name.starts_with("day") {
+        return false;
+    }
+    // The project's OWN packages are never crates to patch, whatever they are called. Apps are
+    // named `day-<something>` by convention, so the name filter above does not separate them
+    // from the framework — and CI checks an app out INSIDE the day workspace
+    // (`day/showcase-src`), which puts the app's manifest under the checkout root and made the
+    // `from_checkout` arm below claim it. `day patch` then went looking for `day-showcase`
+    // among day's own crates and failed every toolkit job.
+    if manifest_path.is_some_and(|m| Path::new(m).starts_with(project_root)) {
+        return false;
+    }
+    let from_git = source.is_some_and(|s| {
+        s.trim_start_matches("git+")
+            .starts_with(DAY_GIT.trim_end_matches(".git"))
+    });
+    // Already patched to the checkout: keep it, or a second `day patch` would shrink the table
+    // it wrote the first time.
+    let from_checkout =
+        checkout.is_some_and(|root| manifest_path.is_some_and(|m| Path::new(m).starts_with(root)));
+    from_git || from_checkout
 }
 
 fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
@@ -374,6 +396,57 @@ mod tests {
         )
         .expect("Day.toml");
         crate::meta::find_project(Some(dir)).expect("project")
+    }
+
+    /// An app is named `day-<something>` too, so the `day` prefix cannot tell one from a
+    /// framework crate. CI checks the showcase out INSIDE the day workspace, which put the app's
+    /// own manifest under the checkout root — and `day patch` then demanded `day-showcase` be one
+    /// of day's crates and failed every toolkit job.
+    #[test]
+    fn the_app_is_never_a_crate_to_patch() {
+        let checkout = Path::new("/w/day");
+        let app = Path::new("/w/day/showcase-src");
+
+        // The app itself, nested inside the checkout the way CI arranges it.
+        assert!(!needs_patch_entry(
+            "day-showcase",
+            Some("/w/day/showcase-src/Cargo.toml"),
+            None,
+            app,
+            Some(checkout),
+        ));
+        // …and a local sub-crate of the app (Day-Matrix has one).
+        assert!(!needs_patch_entry(
+            "day-matrix-core",
+            Some("/w/day/showcase-src/core/Cargo.toml"),
+            None,
+            app,
+            Some(checkout),
+        ));
+        // A real framework crate from git still needs its entry.
+        assert!(needs_patch_entry(
+            "day-pieces",
+            Some("/home/u/.cargo/git/checkouts/day-abc/1234/crates/day-pieces/Cargo.toml"),
+            Some("git+https://github.com/daybrite/day.git#1234"),
+            app,
+            Some(checkout),
+        ));
+        // As does one already resolving from the checkout, or a re-run would shrink the table.
+        assert!(needs_patch_entry(
+            "day-core",
+            Some("/w/day/crates/day-core/Cargo.toml"),
+            None,
+            app,
+            Some(checkout),
+        ));
+        // Non-day packages are never in scope.
+        assert!(!needs_patch_entry(
+            "serde",
+            Some("/home/u/.cargo/registry/src/serde/Cargo.toml"),
+            Some("registry+https://github.com/rust-lang/crates.io-index"),
+            app,
+            Some(checkout),
+        ));
     }
 
     /// Which dependencies need a patch entry: the DIRECT ones from the day git repo, including the
