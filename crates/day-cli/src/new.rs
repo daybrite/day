@@ -2597,7 +2597,7 @@ Java shim (`android/java/…/Day__PASCAL__.java`) that `day build` stages into t
 
 #[cfg(test)]
 mod tests {
-    use super::{add_targets_to_day_toml, default_title, kebab_name};
+    use super::{Deps, Repl, add_targets_to_day_toml, default_title, kebab_name, template_context};
 
     /// A scaffolded package name is lowercase kebab-case whatever the user typed, so no app is
     /// ever born needing a crate-level `allow(non_snake_case)` (see `kebab_name`).
@@ -2624,6 +2624,20 @@ mod tests {
     fn titles_survive_the_lowering() {
         assert_eq!(default_title(&kebab_name("Day-Rise")), "Day Rise");
         assert_eq!(default_title(&kebab_name("MyApp")), "My App");
+    }
+
+    /// An app has TWO names and they are spelled differently on purpose: the Cargo package is
+    /// lowered, the repository keeps what was typed. website/site.toml's Pages host uses the
+    /// repository one, because a GitHub Pages URL is case-sensitive in that segment — lowering
+    /// it would point a scaffolded app's canonical URL at a 404.
+    #[test]
+    fn the_repository_name_keeps_its_case() {
+        let mut repl = Repl::new(&kebab_name("Day-Rise"), Some("dev.daybrite.dayrise"));
+        repl.repo = "Day-Rise".to_string();
+        let ctx = template_context(&repl, "Day Rise".to_string(), &Deps::Git(None), &[]);
+        assert_eq!(ctx["name"], "day-rise");
+        assert_eq!(ctx["repo"], "Day-Rise");
+        assert_eq!(ctx["ident"], "day_rise");
     }
 
     #[test]

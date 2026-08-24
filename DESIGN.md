@@ -3255,6 +3255,14 @@ identity it belongs to. Two literals survive on purpose, both labeled as such: t
 fallbacks and the committed xcconfig identity block, which let Android Studio and Xcode open a
 fresh checkout before `day build` has run.
 
+An app has TWO names, and they are spelled differently on purpose. `day new app Day-Rise`
+scaffolds a **`Day-Rise/` directory** holding a **`day-rise` package**: the repository keeps the
+case that was typed, the Cargo package is lowered (`kebab_name`, so no app is born needing a
+crate-level `allow(non_snake_case)`). Only one file uses the repository spelling —
+`website/site.toml`'s Pages host, whose repository segment is case-sensitive, so
+`daybrite.github.io/Day-Rise` and `.../day-rise` are different sites and lowering it would point
+a canonical URL at a 404. Everything else derives from the package name.
+
 Permission declarations ([docs/permissions.md](docs/permissions.md), added 2026-07) follow the same touch-only-when-changed
 rule but two of their three destinations are CHECKED-IN scaffold files rather than generated ones —
 see the exception note in [§15.2](#152-package-layout-and-aggregation), which also records why the

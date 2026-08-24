@@ -225,6 +225,8 @@ mod tests {
     fn ctx() -> BTreeMap<&'static str, String> {
         let mut m = BTreeMap::new();
         m.insert("name", "hello-world".to_string());
+        // The REPOSITORY name, which keeps the case the user typed (new.rs `Repl::repo`).
+        m.insert("repo", "Hello-World".to_string());
         m.insert("ident", "hello_world".to_string());
         m.insert("snake", "hello_world".to_string());
         m.insert("pascal", "HelloWorld".to_string());
