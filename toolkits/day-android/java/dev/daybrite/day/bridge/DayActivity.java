@@ -16,7 +16,10 @@ import android.util.DisplayMetrics;
 public class DayActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        String lib = "app";
+        // The app cdylib's name. A scaffolded app pins its `[lib] name` to this constant, so the
+        // library is `libdayapp.so` whatever the package is called and the manifest need not
+        // name it. The `day.lib` meta-data below still wins where an app predates that pin.
+        String lib = "dayapp";
         try {
             ActivityInfo info = getPackageManager().getActivityInfo(
                     getComponentName(), PackageManager.GET_META_DATA);

@@ -28,11 +28,13 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let resolved = project.manifest.resolve("android-mdc");
     let content = format!(
-        "applicationId={}\nversionCode={}\nversionName={}\ntitle={}\n",
+        "applicationId={}\nnamespace={}\nversionCode={}\nversionName={}\ntitle={}\nscheme={}\n",
+        resolved.id,
         resolved.id,
         resolved.build.min(i32::MAX as u64),
         resolved.version,
-        resolved.title
+        resolved.title,
+        resolved.scheme()
     );
     let path = dir.join("day-app.properties");
     // Content-hashed write: only touch the file when it changed (keeps Gradle up-to-date checks warm).

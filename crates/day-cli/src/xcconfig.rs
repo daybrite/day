@@ -55,8 +55,12 @@ pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> 
          // Cargo.toml [package] instead). platform/{platform}/DayApp.xcconfig includes this last.\n\
          PRODUCT_BUNDLE_IDENTIFIER = {}\n\
          MARKETING_VERSION = {}\n\
-         CURRENT_PROJECT_VERSION = {}\n",
-        resolved.id, resolved.version, resolved.build
+         CURRENT_PROJECT_VERSION = {}\n\
+         DAY_URL_SCHEME = {}\n",
+        resolved.id,
+        resolved.version,
+        resolved.build,
+        resolved.scheme()
     );
     let dir = project.root.join("build/day/xcconfig");
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;

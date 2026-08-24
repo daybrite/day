@@ -221,7 +221,11 @@ fn subpath(crate_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 struct Repl {
-    crate_name: String,  // the crate + directory name, verbatim (e.g. `day-piece-foo`)
+    crate_name: String, // the CARGO PACKAGE name, lowercase kebab (e.g. `day-piece-foo`)
+    /// The REPOSITORY name — what the user typed, case intact. The scaffold directory and the
+    /// GitHub Pages path in website/site.toml, whose repository segment is case-sensitive.
+    /// Defaults to the crate name; `day new app` overrides it with the typed spelling.
+    repo: String,
     crate_ident: String, // the crate's Rust extern name (hyphens → underscores)
     snake: String,       // a snake_case identifier stem (e.g. `foo`)
     pascal: String,      // PascalCase (e.g. `Foo`) for types + the `Day<Name>` factory class
@@ -238,6 +242,7 @@ impl Repl {
         let pkg_slash = id.replace('.', "/");
         Repl {
             crate_name: name.to_string(),
+            repo: name.to_string(),
             crate_ident: name.replace('-', "_"),
             class_slash: format!("{pkg_slash}/Day{pascal}"),
             pkg_slash,
@@ -349,7 +354,7 @@ fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
     if let Some(n) = name {
         let n = n.trim();
         if !n.is_empty() {
-            return Ok(kebab_name(n));
+            return Ok(n.to_string());
         }
     }
     if p.enabled() {
@@ -358,7 +363,7 @@ fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
             // Empty here means EOF (Ctrl-D) at the prompt — report it like the non-interactive path.
             Err(CliError::usage("a <name> is required."))
         } else {
-            Ok(kebab_name(&n))
+            Ok(n)
         }
     } else {
         Err(CliError::usage(
@@ -565,7 +570,7 @@ pub fn piece(
     no_input: bool,
 ) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
-    let name = resolve_name(&p, name)?;
+    let name = kebab_name(&resolve_name(&p, name)?);
     let dir = PathBuf::from(&name);
     if dir.exists() {
         return Err(CliError::failure(format!("{name:?} already exists")));
@@ -638,7 +643,7 @@ pub fn part(
     no_input: bool,
 ) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
-    let name = resolve_name(&p, name)?;
+    let name = kebab_name(&resolve_name(&p, name)?);
     let dir = PathBuf::from(&name);
     if dir.exists() {
         return Err(CliError::failure(format!("{name:?} already exists")));
@@ -695,10 +700,21 @@ pub fn app(
     icon_seed: Option<&str>,
 ) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
-    let name = resolve_name(&p, name)?;
-    let dir = PathBuf::from(&name);
+    // Two names, because an app has two identities and they follow different conventions.
+    //
+    // `repo` is what the user typed, case intact: the DIRECTORY this scaffolds into, and the
+    // GitHub Pages path in website/site.toml. A Pages URL is case-sensitive in its repository
+    // segment, so `daybrite.github.io/Day-Rise` and `.../day-rise` are not the same site —
+    // lowering it would point a scaffolded app's canonical URL at a 404.
+    //
+    // `name` is the Cargo PACKAGE name, always lowercase kebab (see `kebab_name`), which is
+    // what every derived identifier hangs off. `day new app Day-Rise` therefore produces a
+    // `Day-Rise/` directory holding a `day-rise` package — exactly the shape the Day apps have.
+    let repo = resolve_name(&p, name)?;
+    let name = kebab_name(&repo);
+    let dir = PathBuf::from(&repo);
     if dir.exists() {
-        return Err(CliError::failure(format!("{name:?} already exists")));
+        return Err(CliError::failure(format!("{repo:?} already exists")));
     }
     let deps = resolve_deps(local, git, registry, day_version)?;
 
@@ -793,7 +809,8 @@ pub fn app(
         }
     };
 
-    let repl = Repl::new(&name, Some(rid.as_str()));
+    let mut repl = Repl::new(&name, Some(rid.as_str()));
+    repl.repo = repo.clone();
     let ctx = template_context(&repl, title, &deps, &targets);
     let first = ctx["first_target"].clone();
 
@@ -873,6 +890,7 @@ fn template_context(
 ) -> std::collections::BTreeMap<&'static str, String> {
     let mut ctx = std::collections::BTreeMap::new();
     ctx.insert("name", repl.crate_name.clone());
+    ctx.insert("repo", repl.repo.clone());
     ctx.insert("ident", repl.crate_ident.clone());
     ctx.insert("snake", repl.snake.clone());
     ctx.insert("pascal", repl.pascal.clone());
@@ -1004,7 +1022,12 @@ pub fn add_toolkit(
 
     // The SAME context `day new app` renders with, rebuilt from the app's own Day.toml.
     let app = &project.manifest.app;
-    let repl = Repl::new(&app.name, Some(app.id.as_str()));
+    let mut repl = Repl::new(&app.name, Some(app.id.as_str()));
+    // The checkout's own directory name is the repository this app lives in — the same
+    // spelling `day new app` recorded when it scaffolded the tree.
+    if let Some(dir) = project.root.file_name().and_then(|d| d.to_str()) {
+        repl.repo = dir.to_string();
+    }
     let title = app
         .title
         .clone()

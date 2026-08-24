@@ -3232,6 +3232,29 @@ Generated at build time into ignored-by-git locations (like flutter's `Generated
 Regeneration is idempotent and content-hashed (touch only when changed — keeps native incremental
 builds warm).
 
+**Renaming a project (2026-08).** The scaffold reproduced the project's name in six places and its
+bundle id in eight, so renaming an app meant a hunt through five build systems — and a missed site
+failed at link time, at `System.loadLibrary`, or not until a deep link went unanswered. The name
+now appears ONCE, in `Cargo.toml [package] name`; the id once, in `Day.toml [app] id`. What
+removed each copy:
+
+| was | now |
+|---|---|
+| `[[bin]] name` | dropped — cargo auto-names the binary after the package |
+| `src/main.rs` importing `<crate>::root` | `[lib] name = "dayapp"`, a CONSTANT, so the import never moves |
+| iOS/macOS staticlib `lib<crate>.a` | falls out of the same `[lib] name` — already the `libdayapp.a` the pbxproj links |
+| Android `day.lib` meta-data | dropped; the cdylib is `libdayapp.so` and `DayActivity` defaults to it |
+| `rootProject.name` | a constant (Gradle shows it in the IDE; nothing reads it) |
+| Android `namespace`, deep-link scheme | the generated `day-app.properties` + a `${dayScheme}` manifest placeholder |
+| Apple `CFBundleURLName`/`CFBundleURLSchemes` | `$(PRODUCT_BUNDLE_IDENTIFIER)` and a generated `DAY_URL_SCHEME`, the indirection `CFBundleIdentifier` already used |
+| `store/app.toml bundle-id` | omitted — `day store` falls back to `Day.toml [app] id` |
+| HarmonyOS `bundleName`, `uris` scheme | rewritten in place on every build (OHOS has no include/properties channel), the way permissions and shortcuts already are |
+
+The scheme is DERIVED from the id's last segment rather than declared, so it cannot drift from the
+identity it belongs to. Two literals survive on purpose, both labeled as such: the Gradle `?:`
+fallbacks and the committed xcconfig identity block, which let Android Studio and Xcode open a
+fresh checkout before `day build` has run.
+
 Permission declarations ([docs/permissions.md](docs/permissions.md), added 2026-07) follow the same touch-only-when-changed
 rule but two of their three destinations are CHECKED-IN scaffold files rather than generated ones —
 see the exception note in [§15.2](#152-package-layout-and-aggregation), which also records why the

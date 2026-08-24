@@ -16,17 +16,16 @@
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale|keyboardHidden">
-            <meta-data android:name="day.lib" android:value="{{ident}}" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Deep links (docs/navigation.md): {{scheme}}://<route> -->
+            <!-- Deep links (docs/navigation.md): <scheme>://<route>, the scheme from Day.toml [app] id -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="{{scheme}}" />
+                <data android:scheme="${dayScheme}" />
             </intent-filter>
         </activity>
         <!-- Secondary day windows (docs/windows.md): document-style instances, one per

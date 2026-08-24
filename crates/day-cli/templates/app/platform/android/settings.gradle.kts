@@ -20,5 +20,7 @@ dependencyResolutionManagement {
         }
     }
 }
-rootProject.name = "{{name}}"
+// A constant: Gradle shows it in the IDE and nothing else reads it, so it need not
+// carry the package name into a second file (DESIGN.md §17.5 "Renaming a project").
+rootProject.name = "dayapp"
 include(":app")

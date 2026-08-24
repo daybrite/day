@@ -288,12 +288,17 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
             cmd.arg("--release");
         }
         run_logged(&mut cmd, "cargo (xcode)").map_err(CliError::build)?;
-        arch_libs.push(
-            target_dir
-                .join(triple)
-                .join(profile.as_str())
-                .join(format!("lib{ident}.a")),
-        );
+        // Cargo names the archive after the LIB TARGET. A scaffolded app pins that to the
+        // constant `dayapp` (its `[lib] name`), so the artifact is already `libdayapp.a`; an app
+        // from before that pin has no `[lib] name` and gets `lib<package>.a` instead. Prefer the
+        // constant and fall back, so both build without the app having to be regenerated.
+        let dir = target_dir.join(triple).join(profile.as_str());
+        let constant = dir.join(STAGED_STATICLIB);
+        arch_libs.push(if constant.exists() {
+            constant
+        } else {
+            dir.join(format!("lib{ident}.a"))
+        });
     }
     let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
     if std::fs::create_dir_all(&out_dir).is_err() {
@@ -1682,7 +1687,51 @@ fn build_android_so(
         cmd.arg("--release");
     }
     run_logged(&mut cmd, "cargo ndk")?;
+
+    // Drop any OTHER `lib*.so` left in the ABI directories. Gradle packages this tree whole, so
+    // a library from a previous name — the app's, before a rename or before its `[lib] name` was
+    // pinned to `dayapp` — would keep riding along in every APK, ten megabytes of a library
+    // nothing loads. Only same-named files are replaced by the build; the rest need clearing.
+    //
+    // Pruning by NAME rather than emptying the directory: an app built against an arm64 phone
+    // and an x86 emulator accumulates one ABI per run, and those must survive each other.
+    let built = format!("lib{}.so", cargo_lib_name(project));
+    for abi in abis {
+        let Ok(entries) = std::fs::read_dir(out.join(abi)) else {
+            continue;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            let is_other_lib = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("lib") && n.ends_with(".so") && n != built);
+            if is_other_lib {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
     Ok(())
+}
+
+/// The app's LIB target name — what cargo names its artifacts after. A scaffolded app pins this
+/// to the constant `dayapp` so no artifact carries the package name (DESIGN.md §17.5); an app
+/// from before that pin has no `[lib] name` and cargo falls back to the
+/// package's, with `-` → `_`.
+fn cargo_lib_name(project: &Project) -> String {
+    let manifest = project.root.join("Cargo.toml");
+    let text = std::fs::read_to_string(&manifest).unwrap_or_default();
+    if let Some(rest) = text.split("[lib]").nth(1) {
+        // Only the `[lib]` table's own keys — stop at the next table header.
+        let table = rest.split("\n[").next().unwrap_or(rest);
+        for line in table.lines() {
+            if let Some(v) = line.trim().strip_prefix("name")
+                && let Some(v) = v.trim_start().strip_prefix('=')
+            {
+                return v.trim().trim_matches('"').to_string();
+            }
+        }
+    }
+    project.manifest.app.name.replace('-', "_")
 }
 
 /// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the macOS default location.

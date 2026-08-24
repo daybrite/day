@@ -472,6 +472,31 @@ pub struct ResolvedApp {
     pub build: u64,
 }
 
+impl ResolvedApp {
+    /// The app's deep-link URI scheme: the last segment of the bundle id, lowercased and
+    /// stripped to what a scheme may contain (ALPHA/DIGIT/`+`/`-`/`.`, RFC 3986).
+    ///
+    /// DERIVED rather than declared, so it cannot drift from the identity it belongs to. Every
+    /// platform gets it through that platform's generated channel — `DAY_URL_SCHEME` in the
+    /// xcconfig, `scheme` in day-app.properties, the `uris` entry in module.json5 — which is why
+    /// no scaffolded file spells it out (docs/deep-links.md).
+    pub fn scheme(&self) -> String {
+        let last = self.id.rsplit('.').next().unwrap_or_default();
+        let s: String = last
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+            .collect::<String>()
+            .to_lowercase();
+        // A scheme must start with a letter; an id ending in digits (or nothing usable) falls
+        // back to the same constant `day new` used when it could make no scheme from the name.
+        if s.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            s
+        } else {
+            "dayapp".to_string()
+        }
+    }
+}
+
 impl Manifest {
     /// Resolve the app identity for `target` (e.g. `macos-appkit`). Override precedence, most
     /// specific wins: `[app.<target>]` > `[app.<platform>]` > `[app.<toolkit>]` > `[app]`.

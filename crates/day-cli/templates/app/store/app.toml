@@ -3,7 +3,8 @@
 #
 # `day store stage` turns this tree into the layouts App Store Connect and Google Play expect,
 # under build/day/fastlane/<target>/, ready for `fastlane deliver` / `fastlane supply`.
-bundle-id = "{{id}}"
+# bundle-id: omitted on purpose — `day store` falls back to Day.toml [app] id, which is
+# the source of truth. Set it here only to publish under an id the app does not build with.
 
 # apple-category = "DEVELOPER_TOOLS"    # App Store primary category
 # (Google Play's category is set in the Play Console — `supply` cannot write it.)

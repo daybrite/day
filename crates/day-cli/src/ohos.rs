@@ -452,6 +452,78 @@ pub(crate) fn find_ohos_ndk() -> Result<String, String> {
     )
 }
 
+/// Keep the two HarmonyOS files that spell out the app's identity in step with Day.toml: the
+/// bundle id in `AppScope/app.json5`, and the deep-link scheme in the ability's `uris` skill in
+/// `module.json5` (docs/deep-links.md).
+///
+/// iOS reads its identity through a generated xcconfig and Android through a generated
+/// properties file; OHOS's toolchain offers no such indirection, so the committed values are
+/// rewritten in place instead. Idempotent, and it touches only the two fields — a checkout that
+/// already agrees with Day.toml is left byte-identical, so hvigor's up-to-date checks stay warm.
+fn sync_ohos_identity(project: &Project) -> Result<(), String> {
+    let resolved = project.manifest.resolve("harmony-arkui");
+    let dir = harmony_dir(project);
+
+    let app_json = dir.join("AppScope/app.json5");
+    if app_json.exists() {
+        let text = std::fs::read_to_string(&app_json)
+            .map_err(|e| format!("{}: {e}", app_json.display()))?;
+        let out = replace_json5_string(&text, "bundleName", &resolved.id);
+        if out != text {
+            std::fs::write(&app_json, out).map_err(|e| format!("{}: {e}", app_json.display()))?;
+        }
+    }
+
+    let module = dir.join("entry/src/main/module.json5");
+    if module.exists() {
+        let text =
+            std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
+        let out = replace_json5_string(&text, "scheme", &resolved.scheme());
+        if out != text {
+            std::fs::write(&module, out).map_err(|e| format!("{}: {e}", module.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Replace every `"<key>": "<value>"` in a JSON5 document, preserving the file's own spacing.
+/// Deliberately textual: these files are hand-editable JSON5 with comments, and a parse →
+/// re-serialize round trip would reformat everything around the one field being set.
+fn replace_json5_string(text: &str, key: &str, value: &str) -> String {
+    let needle = format!("\"{key}\"");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(&needle) {
+        let (head, tail) = rest.split_at(at + needle.len());
+        out.push_str(head);
+        // `: "…"` — skip the colon and any spacing, then swap the quoted value whole.
+        let after_colon = tail.trim_start();
+        let Some(after_colon) = after_colon.strip_prefix(':') else {
+            rest = tail;
+            continue;
+        };
+        let spacing = &tail[..tail.len() - after_colon.len()];
+        let body = after_colon.trim_start();
+        let gap = &after_colon[..after_colon.len() - body.len()];
+        match body
+            .strip_prefix('"')
+            .and_then(|b| b.find('"').map(|e| &b[e + 1..]))
+        {
+            Some(remainder) => {
+                out.push_str(spacing);
+                out.push_str(gap);
+                out.push('"');
+                out.push_str(value);
+                out.push('"');
+                rest = remainder;
+            }
+            None => rest = tail,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Write the declared permissions into `module.json5`, and their reasons into the module's string
 /// resources.
 ///
@@ -853,6 +925,11 @@ pub fn build_ohos(
         }
     }
 
+    // 1a2) Day.toml identity → the two committed files that spell it out. HarmonyOS has no
+    //      include/properties channel like the xcconfig or day-app.properties, so the values are
+    //      kept in step in place — the same way permissions and shortcuts already are.
+    sync_ohos_identity(project)?;
+
     // 1b) Declared permissions → module.json5 + the $string: reason resources they reference
     //     (docs/permissions.md). HarmonyOS refuses a `reason` that is not a resource reference, so
     //     both files move together or neither does.
@@ -1215,5 +1292,39 @@ fn stream_hilog(key: &str, label: &str) -> i32 {
             emit_log(label, LogStream::Err, &format!("hdc hilog: {e}"));
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::replace_json5_string;
+
+    /// The rewrite touches the one field and leaves the comments, trailing commas and spacing
+    /// a hand-edited JSON5 file carries — the reason this is textual rather than a parse.
+    #[test]
+    fn only_the_named_field_moves() {
+        let src = "{\n  \"app\": {\n    // the app's id\n    \"bundleName\": \"dev.example.old\",\n    \"vendor\": \"example\",\n  }\n}\n";
+        let out = replace_json5_string(src, "bundleName", "dev.daybrite.new");
+        assert!(out.contains("\"bundleName\": \"dev.daybrite.new\""));
+        assert!(out.contains("// the app's id"));
+        assert!(out.contains("\"vendor\": \"example\","));
+        assert_eq!(out.lines().count(), src.lines().count());
+    }
+
+    /// Every occurrence, because the OHOS ability declares its skill `uris` as a list.
+    #[test]
+    fn every_occurrence_is_replaced() {
+        let src = "{ \"uris\": [{ \"scheme\": \"a\" }, { \"scheme\": \"a\" }] }";
+        assert_eq!(
+            replace_json5_string(src, "scheme", "b"),
+            "{ \"uris\": [{ \"scheme\": \"b\" }, { \"scheme\": \"b\" }] }"
+        );
+    }
+
+    /// A non-string value (or a key that is only mentioned) is left exactly as it was.
+    #[test]
+    fn non_string_values_are_untouched() {
+        let src = "{ \"scheme\": 7, \"note\": \"scheme is derived\" }";
+        assert_eq!(replace_json5_string(src, "scheme", "b"), src);
     }
 }

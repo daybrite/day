@@ -33,7 +33,8 @@
             "actions": ["action.system.home"]
           },
           {
-            // Deep links (docs/deep-links.md): {{scheme}}://<route>
+            // Deep links (docs/deep-links.md): <scheme>://<route>. `day build` keeps the
+            // scheme below in step with Day.toml [app] id — HarmonyOS has no generated include.
             "actions": ["ohos.want.action.viewData"],
             "uris": [{ "scheme": "{{scheme}}" }]
           }

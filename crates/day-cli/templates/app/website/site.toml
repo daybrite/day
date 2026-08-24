@@ -15,9 +15,11 @@
 #   node .daysite/scripts/preview.mjs
 
 # Required — the site's canonical URL. For GitHub Pages this is
-# https://<owner>.github.io/<repository>; a custom domain works too. A path component becomes
+# https://<owner>.github.io/<repository> — the REPOSITORY's name, case included: a Pages URL
+# is case-sensitive there, so this is the one place an app spells its name the way GitHub
+# does rather than the way Cargo does. A custom domain works too. A path component becomes
 # the site's base path automatically.
-host = "https://{{org}}.github.io/{{name}}"
+host = "https://{{org}}.github.io/{{repo}}"
 
 # Everything below is optional — these are the defaults, spelled out to edit.
 #

@@ -26,6 +26,11 @@ mock = ["day/mock"]
 # explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
 # export cap).
 [lib]
+# A CONSTANT name, not the package's. Every artifact Day stages is named after the LIB target —
+# `libdayapp.a` for the iOS/macOS staticlib, `libdayapp.so` for the Android cdylib, and the
+# `dayapp::` path `src/main.rs` imports — so none of them move when the package is renamed.
+# Renaming this app is a one-line edit to `[package] name` above (DESIGN.md §17.5).
+name = "dayapp"
 crate-type = ["rlib"]
 
 [dependencies]
@@ -38,8 +43,5 @@ serde_json = "1"
 [build-dependencies]
 {{day_build_dep}}
 
-[[bin]]
-name = "{{name}}"
-path = "src/main.rs"
 
 [workspace]
