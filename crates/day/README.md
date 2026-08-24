@@ -18,7 +18,7 @@ Here is a complete counter:
 ```rust
 use day::prelude::*;
 
-fn counter() -> AnyPiece {
+fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
         label(move || format!("{} clicks", count.get())),
@@ -26,7 +26,6 @@ fn counter() -> AnyPiece {
     ))
     .spacing(12.0)
     .padding(16.0)
-    .any()
 }
 ```
 

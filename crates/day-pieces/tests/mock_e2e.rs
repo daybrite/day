@@ -15,8 +15,10 @@ use day_spec::{Event, NodeId, Size, WindowOptions};
 /// (DAY_DEEPLINK), and tests run on parallel threads.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn boot(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
-    boot_with_env(None, root)
+/// Generic at the seam, erasing internally — the shape `day::launch` has, so a test can boot a
+/// root of any piece type without an `.any()` at every call.
+fn boot<P: Piece>(root: impl FnOnce() -> P + 'static) -> MockProbe {
+    boot_with_env(None, move || root().any())
 }
 
 fn boot_with_env(

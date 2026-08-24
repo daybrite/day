@@ -75,10 +75,18 @@ signal uses `when(…).otherwise(…)`.
 **Deferring to build time is not such a boundary.** A constructor whose body must wait for the
 build (it reads an ambient `environment`, a scope, or the laid-out size) defers through
 `piece_fn`, which returns the concrete `PieceFn<F>` — so `canvas`, `frame_clock`, `shape_group`,
-`shape_group_fn`, `each` and `with_environment` return `impl Piece` and cost no box. `form` and
-`labeled` are the deliberate exception: they erase because a form's rows are collected far more
-often than consumed inline, and one flat row type keeps the densest surface in an app from
-nesting a closure type per row.
+`shape_group_fn`, `each` and `with_environment` return `impl Piece` and cost no box. Where the
+deferred piece is worth a name, it defers inside its own `build` instead and stays a struct:
+`labeled` reads the enclosing form's shared label column at build time and still returns
+`Labeled<P>`. **No constructor in day-pieces returns `AnyPiece`.**
+
+`form` and `labeled` were the last two that did, until 2026-08-24. Both halves of the reasoning
+turned out to be worth less than the exception. The first was that form rows are collected more
+often than consumed inline — across day and eleven app repos, 10 of ~170 `labeled` call sites
+needed a uniform type, because rows go into `section((…))` tuples and `PieceSeq` accepts
+heterogeneous tuples. The second was that erasing bounds monomorphization, which is true but
+cheap to give up: un-erasing both cost +90 KB of machine code on Day-Showcase's macos-appkit
+release binary (+0.81% of `__text`, +0.40% stripped) and +10% on that crate's compile time.
 
 There is no `From<P> for AnyPiece`, and there cannot be a blanket one: `AnyPiece` implements
 `Piece`, so a blanket impl collides with core's reflexive `impl<T> From<T> for T`. `.any()`

@@ -95,7 +95,7 @@ The two files that matter first:
 ```text
 hello/
   Day.toml          # app identity: id, title, targets, window (name/version from Cargo.toml)
-  src/lib.rs        # pub fn root() -> AnyPiece — your UI starts here
+  src/lib.rs        # pub fn root() -> impl Piece — your UI starts here
 ```
 
 ## 4. Run it
@@ -118,14 +118,13 @@ Terminal equivalent: `day launch -p macos-appkit`.
 Open `src/lib.rs`. The scaffold's `root()` returns the whole UI; replace it with:
 
 ```rust
-pub fn root() -> AnyPiece {
+pub fn root() -> impl Piece {
     column((
         label("Hello from my first edit"),
         button("Tap me").action(|| println!("tapped")),
     ))
     .spacing(12.0)
     .padding(16.0)
-    .any()
 }
 ```
 

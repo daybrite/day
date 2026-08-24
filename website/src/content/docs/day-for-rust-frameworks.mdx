@@ -73,7 +73,7 @@ pub fn run() {
 ```rust
 use day::prelude::*;
 
-fn counter() -> AnyPiece {
+fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
         label(move || format!("{} clicks", count.get())),
@@ -81,7 +81,6 @@ fn counter() -> AnyPiece {
     ))
     .spacing(12.0)
     .padding(16.0)
-    .any()
 }
 ```
 
@@ -171,7 +170,7 @@ export component Counter inherits Window {
 ```rust
 use day::prelude::*;
 
-fn counter() -> AnyPiece {
+fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
         label(move || format!("{} clicks", count.get())),
@@ -179,7 +178,6 @@ fn counter() -> AnyPiece {
     ))
     .spacing(12.0)
     .padding(16.0)
-    .any()
 }
 ```
 
@@ -281,7 +279,7 @@ fn view(count: &u64) -> Column<Message> {
 ```rust
 use day::prelude::*;
 
-fn counter() -> AnyPiece {
+fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
         label(move || format!("{} clicks", count.get())),
@@ -289,7 +287,6 @@ fn counter() -> AnyPiece {
     ))
     .spacing(12.0)
     .padding(16.0)
-    .any()
 }
 ```
 
@@ -360,7 +357,7 @@ fn Counter() -> impl IntoView {
 ```
 
 ```rust
-fn counter() -> AnyPiece {
+fn counter() -> impl Piece {
     let count = Signal::new(0i64);
 
     column((
@@ -368,7 +365,6 @@ fn counter() -> AnyPiece {
         button("+").action(move || count.update(|c| *c += 1)),
     ))
     .spacing(12.0)
-    .any()
 }
 ```
 

@@ -9,7 +9,7 @@ use day::prelude::*;
 /// the framework ships and cost this app no keys of its own
 /// (https://daybrite.dev/docs/localization). Picking a language here retitles the navigation rows
 /// in place, with nothing to restart.
-pub(crate) fn settings_body() -> AnyPiece {
+pub(crate) fn settings_body() -> impl Piece {
     form((day_piece_settings::settings_sections(
         crate::THEME_KEY,
         crate::LOCALE_KEY,

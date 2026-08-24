@@ -79,24 +79,37 @@ let stars: Vec<AnyPiece> = (0..5).map(|i| star(i)).collect();
 row(PieceVec(stars)).spacing(4.0)
 ```
 
-`AnyPiece` is the type-erased form: a boxed build closure. You'll use it whenever a function
-returns "some Piece" without naming the concrete builder type, which in practice is every page
-and component function you write:
+`AnyPiece` is the type-erased form: a boxed build closure. Reach for it at a boundary that needs
+one single type — a `PieceVec` like the one above, a stored builder, or a function that branches
+between two different pieces:
 
 ```rust
-fn settings_page() -> AnyPiece {
+fn status_badge(online: bool) -> AnyPiece {
+    if online {
+        label(tr("online")).font(Font::Caption).any()
+    } else {
+        spinner().any()   // a different piece type, so both arms erase
+    }
+}
+```
+
+An ordinary page or component function does **not** erase. It returns its own piece type, or
+`impl Piece` when that type is tedious to write:
+
+```rust
+fn settings_page() -> impl Piece {
     column((
         label(tr("settings_title")).font(Font::Title),
         toggle(dark_mode),
     ))
-    .any()   // Decorate::any() erases the concrete type
 }
 ```
 
-Modifiers (`.id()`, `.padding()`, `.on_tap()` …) do *not* erase: they return `Decorated<P>`, which
-keeps the decorated piece's own type, so `.any()` is what you call at the boundary where a single
-`AnyPiece` is actually required. Calling it on a piece that is already erased is free — `AnyPiece`
-hands itself back rather than boxing a box.
+Nothing in Day's own vocabulary erases either: `column()` hands back a `Column`, `labeled()` a
+`Labeled`, and modifiers (`.id()`, `.padding()`, `.on_tap()` …) return `Decorated<P>`, which keeps
+the decorated piece's own type. So `.any()` is always your call, made where a single `AnyPiece` is
+actually required. Calling it on a piece that is already erased is free — `AnyPiece` hands itself
+back rather than boxing a box.
 
 Keeping the type is what lets a piece's own builders be chained after a generic modifier, in either
 order:

@@ -77,6 +77,9 @@ pub fn apply_startup(theme_key: &'static str, locale_key: &'static str) {
 /// picker, present only where the backend honors a runtime override (`Cap::Appearance`) —
 /// an empty piece otherwise. Selection applies live (`set_appearance`) and persists under
 /// `prefs_key` (`"light"` / `"dark"`; absent = system).
+/// Erases because it BRANCHES between two piece types at build time (docs/api-style.md) —
+/// the empty column or the row — and its sibling [`language_picker`] matches it so the two
+/// stay interchangeable as section rows.
 pub fn appearance_picker(prefs_key: &'static str) -> AnyPiece {
     if day_core::capability(day_spec::Cap::Appearance) == day_spec::Support::Unsupported {
         return column(()).any();
@@ -116,6 +119,7 @@ pub fn appearance_picker(prefs_key: &'static str) -> AnyPiece {
         .segmented()
         .id("theme-picker"),
     )
+    .any()
 }
 
 /// The language row (id `language-picker`): "System" plus every bundled locale under its
@@ -150,6 +154,7 @@ pub fn language_picker(prefs_key: &'static str, locales: LocaleTable) -> AnyPiec
         day_fluent::tr("day-settings-language"),
         picker(options, ix).id("language-picker"),
     )
+    .any()
 }
 
 /// The whole minimal preferences body: one section carrying both labeled rows (each row

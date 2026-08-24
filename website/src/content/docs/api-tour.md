@@ -35,8 +35,8 @@ fn main() {
     );
 }
 
-fn root() -> AnyPiece {
-    label("Hello, native world").padding(24.0).any()
+fn root() -> impl Piece {
+    label("Hello, native world").padding(24.0)
 }
 ```
 

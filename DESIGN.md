@@ -650,6 +650,14 @@ Authoring-surface edges, specified now so they don't accrete ad hoc:
 
 ### §5.2 The `Piece` trait
 
+> [!NOTE]
+> **Status: shipped as written**, with one revision (2026-08-24): `form` and `labeled` were the
+> last built-in constructors returning `AnyPiece`. They now return `Form<C>` and `Labeled<P>`, so
+> no constructor in day-pieces erases and `.any()` is always the caller's explicit choice. That
+> erasure had been justified as bounding monomorphization; measured on Day-Showcase (116 `labeled`
+> rows) for a macos-appkit release build, removing it cost +90 KB of machine code (+0.81% of
+> `__text`, +0.40% of the stripped executable) and +10% on that crate's compile time.
+
 A Piece value is a *description consumed once*:
 
 ```rust
@@ -681,6 +689,16 @@ traits follow the same signature ([docs/tweaks.md](docs/tweaks.md), [docs/api-st
 `Decorate::modifier` is the one erasing modifier, because `Modifier` is defined over `AnyPiece`.
 Annotating ops (`id`, `selectable`, `grid_span`) still target the node built so far, which is why
 grid facts are documented as applying LAST.
+
+**Constructors do not erase either.** A constructor returns its own concrete piece — `label()` →
+`Label`, `column()` → `Column<C>`, `labeled()` → `Labeled<P>` — or, where the body must wait for
+the build to read an ambient `environment` or a laid-out size, an `impl Piece` over `PieceFn<F>`
+(`canvas`, `each`, `with_environment`). A deferred piece worth naming defers inside its own
+`build` instead: `Labeled` reads the enclosing form's shared label column there and stays a plain
+struct. `AnyPiece` appears only where a boundary needs ONE type — a stored `Rc<dyn Fn() ->
+AnyPiece>` (nav destinations, `when` arms, window and preferences builders), a `PieceVec`, or a
+build-time branch between two piece types that does not use `Either<A, B>`. Erasure is the
+caller's `.any()`, never the constructor's.
 
 ### §5.3 Built-in pieces (MVP set)
 

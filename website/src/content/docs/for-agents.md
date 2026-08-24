@@ -115,7 +115,7 @@ fn main() {
     );
 }
 
-fn root() -> AnyPiece {
+fn root() -> impl Piece {
     let count = Signal::new(0i64);
     column((
         label(move || format!("{} clicks", count.get())).font(Font::Title).id("counter"),
@@ -128,7 +128,6 @@ fn root() -> AnyPiece {
     .spacing(12.0)
     .align(HAlign::Leading)
     .padding(16.0)
-    .any()
 }
 ```
 

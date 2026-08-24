@@ -42,16 +42,25 @@ const LABELED_GAP: f64 = 12.0;
 ///     section((labeled(tr("name"), text_field(name)),)),
 /// ))
 /// ```
-/// ERASES deliberately, unlike the rest of the deferred constructors (§5.2). A form is the
-/// densest surface an app has — a settings page is dozens of [`labeled`] rows — and its result
-/// is usually collected (`Vec<AnyPiece>`, a page table) rather than consumed inline. Erasing
-/// here keeps a section's children one flat type instead of a tuple of nested closure types,
-/// which bounds both monomorphization and the depth of any error message pointing at a form.
-pub fn form<C: PieceSeq + 'static>(sections: C) -> AnyPiece {
-    with_environment(FormLabelColumn(Rc::new(Cell::new(0.0))), move || {
-        column(sections).spacing(16.0).align(HAlign::Leading)
-    })
-    .any()
+pub fn form<C: PieceSeq + 'static>(sections: C) -> Form<C> {
+    Form { sections }
+}
+
+/// A whole form, created by [`form`]: the shared label column wrapped around a vertical run
+/// of [`section`]s.
+pub struct Form<C: PieceSeq> {
+    sections: C,
+}
+
+impl<C: PieceSeq + 'static> Piece for Form<C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        // The shared column is created HERE, per form, so two forms on one page align
+        // independently and a form rebuilt by a `when` arm starts from a fresh column.
+        with_environment(FormLabelColumn(Rc::new(Cell::new(0.0))), move || {
+            column(self.sections).spacing(16.0).align(HAlign::Leading)
+        })
+        .build(cx)
+    }
 }
 
 /// One grouped form section (created by [`section`]): an optional header above a rounded card
@@ -157,12 +166,22 @@ impl day_core::Layout for SectionCardLayout {
 /// A form row: `label` sits in the form-wide aligned label column (right-aligned, vertically
 /// centered), `control` beside it. Outside a [`form`] the label column is just this row's own
 /// label width. A control with `.grow()` stretches to the row's remaining width.
-/// Erases for the same reason [`form`] does — rows are collected far more often than they are
-/// consumed inline, and one flat row type keeps a form's children from nesting a closure type
-/// per row.
-pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
-    let text = text.into_text();
-    piece_fn(move |cx: &mut BuildCx| {
+pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> Labeled<P> {
+    Labeled {
+        text: text.into_text(),
+        control,
+    }
+}
+
+/// One form row, created by [`labeled`]: a label in the form-wide column beside its control.
+pub struct Labeled<P: Piece> {
+    text: TextSource,
+    control: P,
+}
+
+impl<P: Piece> Piece for Labeled<P> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let Labeled { text, control } = self;
         // Read the enclosing form's shared column at BUILD time (environment is scoped).
         let col = environment::<FormLabelColumn>();
         let node = cx.layout_only(
@@ -191,8 +210,7 @@ pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> AnyPiece {
             let _ = control.build(cx);
         });
         node
-    })
-    .any()
+    }
 }
 
 struct LabeledLayout {

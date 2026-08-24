@@ -70,7 +70,7 @@ page and hands back a screenshot. The page it lands on will be a normal Day page
 expect, abridged:
 
 ```rust
-pub(crate) fn weather_page() -> AnyPiece {
+pub(crate) fn weather_page() -> impl Piece {
     let city = Signal::new(0usize);
     let cities = ["Lisbon", "Nairobi", "Osaka"]; // res::str keys in the real page
     let temps = ["18 °C", "24 °C", "11 °C"];
@@ -85,7 +85,6 @@ pub(crate) fn weather_page() -> AnyPiece {
     ))
     .spacing(12.0)
     .padding(16.0)
-    .any()
 }
 ```
 

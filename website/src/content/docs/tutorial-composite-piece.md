@@ -265,7 +265,7 @@ Then use it like a built-in piece, bound to your own `Signal`:
 use day::prelude::*;
 use day_piece_rating::rating;
 
-fn review_form() -> AnyPiece {
+fn review_form() -> impl Piece {
     let stars = Signal::new(3usize);
     column((
         label("How was it?").font(Font::Title),
@@ -275,7 +275,6 @@ fn review_form() -> AnyPiece {
     ))
     .spacing(12.0)
     .padding(20.0)
-    .any()
 }
 ```
 

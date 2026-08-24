@@ -1558,14 +1558,13 @@ const CHIP_BG: Color = Color::hex(0x0A_84_FF);
 ///     __SNAKE__("3 new"),
 /// ))
 /// ```
-pub fn __SNAKE__(text: impl Into<String>) -> AnyPiece {
+pub fn __SNAKE__(text: impl Into<String>) -> impl Piece {
     label(text.into())
         .font(Font::Caption)
         .color(Color::WHITE)
         .padding(Insets::symmetric(10.0, 4.0))
         .background(CHIP_BG)
         .corner_radius(10.0)
-        .any()
 }
 "#;
 
@@ -1583,11 +1582,11 @@ Add it as a dependency (versioned, from crates.io by default) and call the build
 use day::prelude::*;
 use __CRATE_IDENT__::__SNAKE__;
 
-fn view() -> AnyPiece {
+fn view() -> impl Piece {
     column((
         label("Downloads"),
         __SNAKE__("3 new"),
-    )).any()
+    ))
 }
 ```
 
@@ -2418,9 +2417,9 @@ build automatically — you never re-list the per-backend features:
 use day::prelude::*;
 use __CRATE_IDENT__::__SNAKE__;
 
-fn view() -> AnyPiece {
+fn view() -> impl Piece {
     let text = Signal::new(String::new());
-    __SNAKE__(text).placeholder("Type here…").any()
+    __SNAKE__(text).placeholder("Type here…")
 }
 ```
 
