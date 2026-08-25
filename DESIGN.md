@@ -2762,7 +2762,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day checkup [-p <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-p` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: checkup installs THAT day-cli and pins the app it scaffolds to the same one — what the scheduled `checkup.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
 | `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `split-xcconfig` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
-| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema — fast, source-level  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::` annotations on stdout and a markdown table into `$GITHUB_STEP_SUMMARY` |
+| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
@@ -2922,6 +2922,37 @@ gates that have to hold a tree to every rule except one known-outstanding class,
 [§20](#20-continuous-integration)'s scaffold check does with `store-placeholder`. The wider designed rule set (a11y labels,
 bare literals, scroll nesting, RTL styling) has not been built; `res::str` ([§18.5](#185-typed-resource-constants-docsresourcesmd)) made the
 missing-key class a compile error instead.
+
+> [!NOTE]
+> **Extended 2026-08** with the three things an editor needs: a **place**, a **severity**, and a
+> **repair**.
+>
+> Every finding that is about something in a file now carries `file:line:column`. Fluent findings
+> get theirs from real spans — `fluent-syntax` attaches none, so day-build recovers each one by
+> comparing the parsed fragment's address against the source it borrows from
+> (`day_build::offset_in` / `ftl_key_offsets` / `FtlCall.offset`). Source-literal rules carry the
+> position of the `tr("…")` or `.id("…")` that produced them; manifest rules find their own value
+> in `Day.toml`'s text, because the parsed manifest keeps no spans. A finding about something
+> ABSENT — a locale with no listing, a key no catalog defines — has no place and reports none.
+>
+> `severity_of(code)` is the one place the error/warning split lives. A finding is an **error**
+> when it names something that does not exist or that will misbehave at runtime (an unknown key,
+> route, target, override, or Fluent function; an undeclared permission; a duplicate id).
+> Everything else stays a warning. Severity is presentational: `--strict` still fails on ANY
+> active finding, so no CI gate changes meaning. GitHub annotations follow it, and now carry the
+> file and line, so a finding lands on its own line in the PR diff.
+>
+> `--json` emits a versioned, grow-only envelope: every finding with its place, its severity, its
+> waived flag, and its fix when it has one, plus `counts`. Waived findings are included and
+> flagged rather than dropped, so a stale `--allow` is visible to a tool too. The global
+> `--format json` selects the same output.
+>
+> `--fix` applies the repairs and says what it did to each file. A rule proposes one only when the
+> repair is **safe** (reversible, inventing no content) and **unambiguous** (exactly one right
+> answer) — today `store-whitespace` and `store-bad-keywords`, both whole-file rewrites. A waived
+> code is never rewritten: `--allow` says the finding may stand. Because two rules can propose a
+> repair for the same file from the same original text, `--fix` applies one per file, re-checks,
+> and repeats until nothing is left.
 
 #### `day drive` (replaces the designed `day script`)
 

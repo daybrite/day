@@ -26,7 +26,7 @@ day launch  -p macos-gtk     # build + run on a target
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign    --check          # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
-day lint                     # check ids, Fluent coverage, project shape
+day lint                     # check ids, Fluent coverage, project shape (--fix applies what it can)
 day devices list             # simulators, emulators and phones a mobile target can launch onto
 day devices boot -p ios-uikit <id>  # start a simulator/AVD so it can be launched onto
 day doctor                   # check toolchains for every target
@@ -338,6 +338,69 @@ In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh s
 rule by design: the listing text it ships is still `TODO`. Pass `--allow store-placeholder` to let
 that one code stand while every other rule still fails the run. An allowed code is still reported,
 as one line carrying its count and a sample, so an `--allow` nobody has revisited stays visible.
+
+## Linting
+
+`day lint` reads the project's sources, catalogs and manifest, and reports what it finds. Each
+finding carries a code you can `--allow`, and the file, line and column it is about:
+
+```
+error   day::lint::unknown-key       tr("greeting") has no message in resource/locales/en (src/lib.rs:88)
+warning day::lint::unused-key        resource/locales/en: history_hint is never referenced (resource/locales/en/app.ftl:434)
+```
+
+A finding is an **error** when it names something that does not exist, or that will misbehave once
+the app runs: a key with no message renders its own key on screen, a route nothing declares
+navigates nowhere, an undeclared permission terminates the app on iOS. Coverage gaps and store copy
+are **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what
+CI does.
+
+Some findings come with a repair. `day lint --fix` applies them and reports each one:
+
+```
+$ day lint --fix
+fixed   day::lint::store-whitespace     store/en/name.txt: Trim the surrounding whitespace
+fixed   day::lint::store-bad-keywords   store/en/keywords.txt: Remove the spaces around commas
+```
+
+A rule proposes a fix only where there is one right answer and applying it cannot lose anything you
+wrote — trimming stray whitespace around a store field, dropping the spaces in a keyword list.
+Anything that would need a decision, or that would put words in your mouth, reports and waits for
+you. A code you passed to `--allow` is never rewritten.
+
+`day lint --json` emits a versioned envelope instead of the report — every finding with its place,
+its severity, and its fix — which is what the
+[VS Code extension](/docs/getting-started#2-install-the-day-extension-for-vs-code) draws its
+squiggles and quick fixes from:
+
+```json
+{
+  "schema": 1,
+  "findings": [
+    {
+      "code": "day::lint::store-whitespace",
+      "severity": "warning",
+      "message": "store/en/name.txt: leading or trailing whitespace",
+      "waived": false,
+      "file": "store/en/name.txt",
+      "line": 1,
+      "column": 1,
+      "fix": {
+        "title": "Trim the surrounding whitespace",
+        "file": "store/en/name.txt",
+        "contents": "Day Rise\n"
+      }
+    }
+  ],
+  "counts": { "errors": 0, "warnings": 1, "waived": 0, "fixable": 1 }
+}
+```
+
+Waived findings appear too, marked `"waived": true`, so a tool can show them greyed instead of
+hiding an `--allow` that has outlived its reason.
+
+Under GitHub Actions, findings also become annotations on the lines they name, plus a summary table
+on the run page.
 
 One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,

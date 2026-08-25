@@ -85,6 +85,18 @@ silently never reached the store.
 The locale checks compare against `resource/locales/`, so the listing and the app cannot drift
 apart: translating the app into a new language makes `day lint` ask for the listing to follow.
 
+The last two are the only listing rules `day lint --fix` will repair, because they are the only
+ones with a single right answer that invents no copy. Both rewrite the file whole:
+
+```
+$ day lint --fix
+fixed   day::lint::store-whitespace     store/en/name.txt: Trim the surrounding whitespace
+fixed   day::lint::store-bad-keywords   store/en/keywords.txt: Remove the spaces around commas
+```
+
+The keyword repair splits on commas and trims each entry, so `a,  b ,c` and `a, b, c` both land on
+`a,b,c` in one pass. Every other code needs someone to write words, and reports instead.
+
 ## Uploading
 
 `day store stage` writes a normal fastlane project per target:

@@ -614,6 +614,69 @@ fn ftl_messages(src: &str) -> Vec<FtlMessage> {
     out
 }
 
+#[cfg(test)]
+mod span_tests {
+    use super::*;
+
+    /// Offsets have to be REAL positions in the source, not a text search: a key named in a
+    /// comment above the message would make a search land a line early, and an editor would then
+    /// squiggle the comment.
+    #[test]
+    fn key_offsets_point_at_the_message_not_a_mention_of_it() {
+        let src = "# greeting is the one below\ngreeting = Hello\nfarewell = Bye\n";
+        let offsets: std::collections::BTreeMap<String, usize> =
+            ftl_key_offsets(src).into_iter().collect();
+
+        let greeting = offsets["greeting"];
+        assert_eq!(&src[greeting..greeting + "greeting".len()], "greeting");
+        assert_eq!(
+            line_col(src, greeting),
+            (2, 1),
+            "the message, not the comment"
+        );
+        let farewell = offsets["farewell"];
+        assert_eq!(line_col(src, farewell), (3, 1));
+    }
+
+    /// Attributes carry their own position, so a shortcut label's finding lands on the attribute.
+    #[test]
+    fn attributes_get_their_own_offset() {
+        let src = "open = Open\n    .key = o\n";
+        let offsets: std::collections::BTreeMap<String, usize> =
+            ftl_key_offsets(src).into_iter().collect();
+        assert_eq!(line_col(src, offsets["open"]), (1, 1));
+        assert_eq!(
+            line_col(src, offsets["open.key"]),
+            (2, 6),
+            "on the attribute's own line"
+        );
+    }
+
+    /// A function call is reported where it is written — the whole point of carrying an offset
+    /// on `FtlCall` rather than anchoring every option finding to line 1.
+    #[test]
+    fn function_calls_carry_their_position() {
+        let src = "count = You have { NUMBER($n, style: \"decimal\") } left\nother = plain\n";
+        let calls = function_calls(src);
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert_eq!(&src[calls[0].offset..calls[0].offset + 6], "NUMBER");
+        let (line, col) = line_col(src, calls[0].offset);
+        assert_eq!(line, 1);
+        assert_eq!(col, 20, "the column the call starts at");
+    }
+
+    /// Columns count characters, because that is what an editor means by a column.
+    #[test]
+    fn columns_count_characters_not_bytes() {
+        let src = "gruss = Grüße\nzweite = x\n";
+        let at = src.find("zweite").expect("key");
+        assert_eq!(line_col(src, at), (2, 1));
+        // A multi-byte char earlier on the SAME line must not inflate the column.
+        let inner = src.find("ße").expect("inner");
+        assert_eq!(line_col(src, inner).1, 12);
+    }
+}
+
 type Vars = std::collections::BTreeSet<String>;
 /// `$variable` name → whether it is used numerically (plural/`select` selector or `NUMBER()` arg).
 type Params = std::collections::BTreeMap<String, bool>;
@@ -684,6 +747,55 @@ fn collect_inline_vars(
 /// One `FUNC(...)` call in a message value — `day lint` validates function names and option
 /// values across every locale file with this (the shared fluent-syntax parse, like
 /// [`message_keys`]).
+/// Byte offset of `part` within `src`, when `part` is a SUBSLICE of it.
+///
+/// `fluent_syntax::parser::parse` is generic over the slice type and, given a `&str`, hands back
+/// an AST whose identifiers and literals borrow straight from the source — so their addresses are
+/// positions in it. That is the whole span story: the 0.12 AST carries no explicit spans, and
+/// re-finding a key by text search would land on the first comment that mentions it.
+/// The byte offset of `part` within `src`, when `part` is a SUBSLICE of it.
+///
+/// Parsers here hand back `&str` views into the source rather than spans, so the only way to say
+/// where a fragment came from is to compare addresses. Returns `None` for a string that merely
+/// looks alike but was allocated elsewhere, which is what makes it safe to call on anything.
+pub fn offset_in(src: &str, part: &str) -> Option<usize> {
+    let (base, at) = (src.as_ptr() as usize, part.as_ptr() as usize);
+    (at >= base && at + part.len() <= base + src.len()).then_some(at - base)
+}
+
+/// The 1-based line and column of a byte offset, for callers that report positions to a human or
+/// an editor. Columns count CHARACTERS rather than bytes, which is what an editor's column means.
+pub fn line_col(src: &str, offset: usize) -> (usize, usize) {
+    let upto = &src[..offset.min(src.len())];
+    let line = upto.matches('\n').count() + 1;
+    let col = upto.rsplit('\n').next().unwrap_or("").chars().count() + 1;
+    (line, col)
+}
+
+/// Every message key in a Fluent resource with the byte offset of its identifier — what turns a
+/// coverage finding into a diagnostic on the right line rather than on line 1.
+pub fn ftl_key_offsets(src: &str) -> Vec<(String, usize)> {
+    use fluent_syntax::ast::Entry;
+    let res = match fluent_syntax::parser::parse(src) {
+        Ok(r) => r,
+        Err((r, _errs)) => r,
+    };
+    let mut out = Vec::new();
+    for entry in &res.body {
+        if let Entry::Message(m) = entry {
+            let at = offset_in(src, m.id.name).unwrap_or(0);
+            out.push((m.id.name.to_string(), at));
+            for attr in &m.attributes {
+                out.push((
+                    format!("{}.{}", m.id.name, attr.id.name),
+                    offset_in(src, attr.id.name).unwrap_or(at),
+                ));
+            }
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FtlCall {
     /// The message key the call appears under.
@@ -693,6 +805,9 @@ pub struct FtlCall {
     /// Named options with their literal values (`style: "percent"` → `("style", "percent")`;
     /// non-literal option values are omitted).
     pub named: Vec<(String, String)>,
+    /// Byte offset of the function name in the source, so a bad option can be reported where it
+    /// is written rather than against the whole file.
+    pub offset: usize,
 }
 
 /// Every function call in every message of a Fluent resource (parse errors tolerated — the
@@ -708,35 +823,46 @@ pub fn function_calls(src: &str) -> Vec<FtlCall> {
         if let Entry::Message(m) = entry
             && let Some(value) = &m.value
         {
-            collect_pattern_calls(value, m.id.name, &mut out);
+            collect_pattern_calls(src, value, m.id.name, &mut out);
         }
     }
     out
 }
 
-fn collect_pattern_calls(p: &fluent_syntax::ast::Pattern<&str>, key: &str, out: &mut Vec<FtlCall>) {
+fn collect_pattern_calls(
+    src: &str,
+    p: &fluent_syntax::ast::Pattern<&str>,
+    key: &str,
+    out: &mut Vec<FtlCall>,
+) {
     use fluent_syntax::ast::PatternElement;
     for el in &p.elements {
         if let PatternElement::Placeable { expression } = el {
-            collect_expr_calls(expression, key, out);
+            collect_expr_calls(src, expression, key, out);
         }
     }
 }
 
-fn collect_expr_calls(e: &fluent_syntax::ast::Expression<&str>, key: &str, out: &mut Vec<FtlCall>) {
+fn collect_expr_calls(
+    src: &str,
+    e: &fluent_syntax::ast::Expression<&str>,
+    key: &str,
+    out: &mut Vec<FtlCall>,
+) {
     use fluent_syntax::ast::Expression;
     match e {
-        Expression::Inline(ie) => collect_inline_calls(ie, key, out),
+        Expression::Inline(ie) => collect_inline_calls(src, ie, key, out),
         Expression::Select { selector, variants } => {
-            collect_inline_calls(selector, key, out);
+            collect_inline_calls(src, selector, key, out);
             for v in variants {
-                collect_pattern_calls(&v.value, key, out);
+                collect_pattern_calls(src, &v.value, key, out);
             }
         }
     }
 }
 
 fn collect_inline_calls(
+    src: &str,
     ie: &fluent_syntax::ast::InlineExpression<&str>,
     key: &str,
     out: &mut Vec<FtlCall>,
@@ -760,12 +886,13 @@ fn collect_inline_calls(
                 key: key.to_string(),
                 name: id.name.to_string(),
                 named,
+                offset: offset_in(src, id.name).unwrap_or(0),
             });
             for a in &arguments.positional {
-                collect_inline_calls(a, key, out);
+                collect_inline_calls(src, a, key, out);
             }
         }
-        X::Placeable { expression } => collect_expr_calls(expression, key, out),
+        X::Placeable { expression } => collect_expr_calls(src, expression, key, out),
         _ => {}
     }
 }

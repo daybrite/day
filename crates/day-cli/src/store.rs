@@ -568,9 +568,29 @@ pub fn is_store_target(target: &'static crate::targets::Target) -> bool {
 // ---------------------------------------------------------------------------
 
 /// One problem with a listing. `code` matches `day lint`'s vocabulary.
+#[derive(Default)]
 pub struct Problem {
     pub code: &'static str,
     pub message: String,
+    /// Project-relative file the problem is IN. `None` when the problem is that a file, a locale
+    /// or the whole listing is missing — there is nothing to point an editor at.
+    pub file: Option<String>,
+    /// A safe, unambiguous repair. Only two listing rules have one: whitespace around a field, and
+    /// spaces in a keyword list. Everything else needs a human to write words.
+    pub fix: Option<crate::lint::Fix>,
+}
+
+/// A keyword list with no space around any comma, which is the only form that does not waste
+/// Apple's 100-character budget.
+///
+/// Splitting and rejoining rather than replacing `", "` with `","`, so that two spaces, or a space
+/// BEFORE a comma, reach the same normal form: `day lint --fix` re-checks after writing, and a
+/// repair that left work behind would report the same finding forever.
+fn tidy_keywords(text: &str) -> String {
+    format!(
+        "{}\n",
+        text.split(',').map(str::trim).collect::<Vec<_>>().join(",")
+    )
 }
 
 /// Check a listing against the stores the app targets.
@@ -601,6 +621,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                         "Google Play"
                     }
                 ),
+                ..Default::default()
             });
         }
         return out;
@@ -615,6 +636,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                     "the app is translated into {tag} but store/{tag}/ has no listing — the store \
                      shows those users the default language"
                 ),
+                ..Default::default()
             });
         }
     }
@@ -626,6 +648,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                     "store/{tag}/ has a listing for a locale the app is not translated into \
                      (resource/locales/{tag}/ does not exist)"
                 ),
+                ..Default::default()
             });
         }
         if !mappable(tag) {
@@ -635,6 +658,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                     "store/{tag}/: no App Store or Play locale is known for {tag:?} — a listing \
                      uploaded under an unknown locale is dropped without an error"
                 ),
+                ..Default::default()
             });
         }
     }
@@ -647,6 +671,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                 "store/{def}/ is missing, and {def} is the app's default locale — both stores \
                  require a complete listing in the primary language"
             ),
+            ..Default::default()
         });
     }
 
@@ -660,6 +685,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                     out.push(Problem {
                         code: "day::lint::store-missing-field",
                         message: format!("store/{tag}/{} is required", f.file()),
+                        ..Default::default()
                     });
                 }
                 continue;
@@ -677,6 +703,8 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                             "store/{tag}/{}: {chars} characters, {store} allows {limit}",
                             f.file()
                         ),
+                        file: Some(format!("store/{tag}/{}", f.file())),
+                        ..Default::default()
                     });
                 }
             }
@@ -688,18 +716,27 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                 out.push(Problem {
                     code: "day::lint::store-bad-url",
                     message: format!("store/{tag}/{}: must be an https:// URL", f.file()),
+                    file: Some(format!("store/{tag}/{}", f.file())),
+                    ..Default::default()
                 });
             }
             if *f == Field::Keywords && to_apple {
                 // Apple counts the whole string including separators, and a space after a comma is
                 // a wasted character rather than a formatting nicety.
                 if text.contains(", ") {
+                    let file = format!("store/{tag}/keywords.txt");
                     out.push(Problem {
                         code: "day::lint::store-bad-keywords",
                         message: format!(
                             "store/{tag}/keywords.txt: drop the spaces after commas — the App \
                              Store counts them against the 100-character budget"
                         ),
+                        file: Some(file.clone()),
+                        fix: Some(crate::lint::Fix {
+                            title: "Remove the spaces around commas".into(),
+                            contents: tidy_keywords(text),
+                            file,
+                        }),
                     });
                 }
             }
@@ -710,12 +747,21 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                         "store/{tag}/{}: still the scaffold's TODO — it would upload verbatim",
                         f.file()
                     ),
+                    file: Some(format!("store/{tag}/{}", f.file())),
+                    ..Default::default()
                 });
             }
             if text.trim() != text {
+                let file = format!("store/{tag}/{}", f.file());
                 out.push(Problem {
                     code: "day::lint::store-whitespace",
                     message: format!("store/{tag}/{}: leading or trailing whitespace", f.file()),
+                    file: Some(file.clone()),
+                    fix: Some(crate::lint::Fix {
+                        title: "Trim the surrounding whitespace".into(),
+                        contents: format!("{}\n", text.trim()),
+                        file,
+                    }),
                 });
             }
         }
@@ -727,6 +773,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                 message: format!(
                     "store/{tag}/short.txt is required by Google Play (short description)"
                 ),
+                ..Default::default()
             });
         }
         if to_apple && !fields.contains_key(&Field::PrivacyUrl) {
@@ -736,6 +783,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                     "store/{tag}/privacy-url.txt is required — the App Store rejects an app \
                      without a privacy policy URL"
                 ),
+                ..Default::default()
             });
         }
     }
@@ -892,6 +940,18 @@ pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> Result<(), CliError
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tidying_keywords_reaches_a_fixed_point() {
+        use super::tidy_keywords;
+        assert_eq!(tidy_keywords("a, b, c"), "a,b,c\n");
+        // Whatever the spacing, ONE pass is enough — `day lint --fix` re-checks after writing,
+        // and a repair that left work behind would report its finding on every run.
+        for messy in ["a,  b ,c", "a , b,  c", "a,b,c"] {
+            assert_eq!(tidy_keywords(messy), "a,b,c\n", "{messy:?}");
+            assert_eq!(tidy_keywords(tidy_keywords(messy).trim()), "a,b,c\n");
+        }
+    }
+
     use super::*;
 
     #[test]

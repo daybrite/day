@@ -277,6 +277,162 @@ printable keys, resets after ~800 ms of silence, and selects the first visible r
 starts with it, wrapping from the cursor. One implementation, one behavior, and the two natives
 that do it themselves still read their strings from the same place.
 
+## Customization: three layers, and what each one owns
+
+Tree views are the most configurable control on every desktop toolkit, and no portable API is
+going to span `NSOutlineView`'s style, row-size, group-row, autosave and disclosure options
+*plus* `GtkColumnView`'s factories *plus* WinUI's node templates. Trying produces the worst of
+both: an API too wide to implement everywhere and still too narrow for anyone who cares. So the
+outline splits its surface deliberately.
+
+| Layer | What belongs there | Reaches |
+|---|---|---|
+| **Portable API** | what every tree has and an app would otherwise fake: expansion, selection, moves, indent, row height, keyboard, type-ahead | all nine targets |
+| **Hooks** | the per-row *decisions* native trees express as delegate callbacks: may this row expand, may it be selected, how tall is it, is it a group row | all nine, mapped to each toolkit's callback or run by the emulation |
+| **Tweaks** | everything else — the platform's own vocabulary, on the real widget | one toolkit at a time, no-op elsewhere |
+
+The dividing rule: **if a knob changes what the outline MEANS, it is portable; if it changes how
+one platform DRAWS it, it is a tweak.** Row height changes meaning (rows overlap or clip if a
+backend ignores it), so it is portable. `NSTableViewStyle::SourceList` changes appearance, so it
+is a tweak, and an app that wants it on Windows asks WinUI for its own equivalent rather than
+Day inventing a lowest common denominator of both.
+
+### Why hooks exist as their own layer
+
+A tweak reaches the widget. It cannot reach the widget's *delegate*, because Day owns that
+object — day-appkit's sidebar already installs a `DayNavMenuData` as both `NSOutlineViewDataSource`
+and `NSOutlineViewDelegate`, and an app that assigned its own would tear the outline's data out
+from under Day. Yet the delegate is exactly where AppKit puts `outlineView(_:heightOfRowByItem:)`,
+`shouldExpandItem:`, `shouldSelectItem:` and `isGroupItem:`.
+
+So the outline names that surface itself, and each backend routes it to its own mechanism:
+
+```rust
+outline(source, row)
+    .row_height_for(|n: RowInfo| if n.expandable { 28.0 } else { 22.0 })
+    .can_expand(|n| n.token != LOCKED_FOLDER)
+    .can_select(|n| !n.expandable)          // folders are containers, not selections
+    .is_group_row(|n| n.depth == 0)
+```
+
+AppKit answers its delegate methods from these; GTK sets the row widget's height request and
+`sensitive`; UIKit's list configuration reads them per item; WinUI applies them to the node's
+container; and the emulation consults them in the flattener. One vocabulary, five native
+implementations, one fallback — and an app that sets none of them gets a plain outline.
+
+### What the tweak system reaches today, and what it does not
+
+[Tweaks](tweaks.md) hand a closure the node's native handle plus its concrete class, per
+toolkit, typed on AppKit/UIKit/GTK/Android and raw on Qt/XAML/ArkUI. For an outline that covers
+most of the interesting surface immediately, because most of `NSOutlineView`'s fiddliness is
+*properties*. Four things it does not cover, all of which the outline makes acute:
+
+1. **A composite backing exposes only its outer handle.** Day's sidebar realizes an
+   `NSOutlineView` inside an `NSScrollView` and returns the scroll view as the node's handle, so
+   `with_native` hands a tweak the scroller, and reaching the tree means guessing
+   `documentView()`. The tweaks doc's own rule — match the class, do not assume it — cannot be
+   followed when the class you want is not the one you are given. This is not new to the outline:
+   `list` and `text_area` are composite on the same backends today.
+2. **No handle for a row.** Rows are native cells the backend creates (`NSTableRowView`,
+   `UICollectionViewListCell`, `GtkListItem`), and Day builds the row's *content* inside them. A
+   tweak inside the row builder reaches the content widgets; nothing reaches the cell.
+3. **No participation in delegate decisions.** Covered by hooks above, but it needs saying in
+   the tweak rules too: a tweak must never install its own data source or delegate on a widget
+   Day drives.
+4. **`.tweak` runs once at mount.** Correct for a widget that lives as long as the node, wrong
+   for anything that must be re-applied per row bind.
+
+### The three additions this plan makes
+
+**Native parts** (`day-spec`, each backend's `ext`). A kind whose backing is composite reports
+its parts, and the accessors take one:
+
+```rust
+day_appkit::with_native_part(node, Part::Content, |view, class, mtm| …)
+button("x").appkit_part(Part::Content, |…| …)      // the Decorate form
+```
+
+`Part::Host` is today's behavior and stays the default; `Part::Content` is the widget inside the
+scroller; `Part::Header` is the header view where one exists. Each kind documents its parts per
+toolkit in the same table that documents its native class, so the mapping is *reported* rather
+than guessed — the property that makes Day's tweaks stronger than introspection libraries in the
+first place. This lands with the outline and retrofits `list` and `text_area` in the same change.
+
+**Row tweaks** (`day-pieces`, `day-core`). The outline and the list gain
+`.row_tweak(|native_row, class, RowInfo|)`, invoked when a cell is bound — after the row's
+content exists, with the cell's own handle and the row's token, depth, expansion and selection
+state. It runs on every bind, which is what makes it correct for recycled cells.
+
+**A tweak rule.** [docs/tweaks.md](tweaks.md) gains one line to its Rules: never set a delegate
+or data source on a Day-driven widget; use the piece's hooks, which exist for exactly that.
+
+### What it looks like
+
+```rust
+use day_appkit::{AppKitExt, Part};
+use day_gtk::GtkExt;
+use objc2_app_kit::{NSOutlineView, NSScrollView, NSTableViewStyle,
+                    NSTableViewSelectionHighlightStyle};
+
+outline(layers(), row_builder)
+    // ---- portable: the same outline everywhere -------------------------------
+    .multi_select(true)
+    .movable(true)
+    .on_move(move |node, parent, index| reparent(node, parent, index))
+    .move_guard(|node, parent, _| Move::deny_if(is_descendant(parent, node)))
+    .type_ahead(|slot| slot.name())
+    // ---- hooks: what native delegates would decide ---------------------------
+    .row_height_for(|n| if n.expandable { 28.0 } else { 22.0 })
+    .can_select(|n| !n.expandable)
+    // ---- tweaks: one toolkit at a time, no-ops elsewhere ---------------------
+    .appkit_part(Part::Content, |view, class, _mtm| {
+        // `class` is "NSOutlineView"; the host part would have handed us NSScrollView.
+        let Some(ov) = view.downcast_ref::<NSOutlineView>() else { return };
+        unsafe {
+            ov.setStyle(NSTableViewStyle::SourceList);
+            ov.setSelectionHighlightStyle(NSTableViewSelectionHighlightStyle::SourceList);
+            ov.setIndentationPerLevel(14.0);
+            ov.setIndentationMarkerFollowsCell(true);
+            ov.setFloatsGroupRows(true);
+            ov.setUsesAutomaticRowHeights(false);
+            // Expansion state persisted by AppKit itself, keyed per window:
+            ov.setAutosaveName(Some(objc2_foundation::ns_string!("layers")));
+            ov.setAutosaveExpandedItems(true);
+        }
+    })
+    .appkit(|view, _class, _mtm| {                      // Part::Host — the scroller
+        if let Some(sv) = view.downcast_ref::<NSScrollView>() {
+            unsafe { sv.setAutomaticallyAdjustsContentInsets(true) };
+        }
+    })
+    .gtk(|w, _class| {
+        if let Some(lv) = w.downcast_ref::<gtk4::ListView>() {
+            lv.set_show_separators(false);
+            lv.set_single_click_activate(false);
+        }
+    })
+    .row_tweak(|row, class, info| {
+        // AppKit: `row` is the NSTableRowView. Tint the group rows Day drew inside it.
+        if class == "NSTableRowView" && info.expandable {
+            day_appkit::row_ext::set_background(row, Color::hex(0xF2F2F7));
+        }
+    })
+    .id("layers")
+```
+
+Two properties of that snippet are the point. The portable and hook lines run on all nine
+targets; delete every tweak line and the outline still works everywhere, just plainer. And each
+tweak line is scoped to one toolkit and compiled behind that toolkit's feature, so the same
+source builds for Android, which has none of them.
+
+### Packaged: `day-tweak-outline-style`
+
+Anything reusable becomes a crate, as the tweaks doc prescribes. `.outline_style(SourceList |
+Plain | Inset)` maps to `NSTableViewStyle` on AppKit, `.navigation-sidebar` on GTK, WinUI's
+`TreeViewItem` template resources on XAML, `QTreeView::setRootIsDecorated` plus a stylesheet on
+Qt, and nothing at all on Android, ArkUI and the web — where "nothing at all" is a documented
+no-op, not a silent surprise.
+
 ## Accessibility
 
 The emulated path has to say what the native trees say for themselves, so this ships with the
@@ -323,7 +479,15 @@ drivers use rather than copied.
 *day-pieces* (`src/outline.rs`): `outline(source, row)`, the `TreeSource` trait with two
 implementations (a closure tree, and a day-model adapter that reads `parent`/order columns), and
 the builder: `.expanded`, `.on_selection`, `.selected`, `.multi_select`, `.movable`, `.on_move`,
-`.move_guard`, `.on_activate`, `.type_ahead`, `.indent`.
+`.move_guard`, `.on_activate`, `.type_ahead`, `.indent`, plus the
+[hooks](#why-hooks-exist-as-their-own-layer) — `.row_height_for`, `.can_expand`, `.can_select`,
+`.is_group_row` — which the flattener consults and each native backend routes to its own
+delegate.
+
+*Tweak surface* (`day-spec` + every backend's `ext`): `Part`, `with_native_part`, and the
+`…_part` decorator on each toolkit's extension trait, with `Part::Host` preserving today's
+behavior. `list` and `text_area` declare their parts in the same change, since they have been
+composite all along. `day-core` gains the row-bind hook that `.row_tweak` rides.
 
 *day-mock*: a simulated viewport plus `MockProbe::{outline_rows, outline_expand,
 outline_can_move, outline_move, outline_type_ahead}`.
@@ -331,7 +495,9 @@ outline_can_move, outline_move, outline_type_ahead}`.
 **Done when** these pass headlessly: only visible rows build; collapsing a row disposes its
 descendants' scopes; recycling rebinds by slot-write rather than rebuilding; a move rewrites the
 snapshot before returning and defers `on_move` to the next drain; a guard denial leaves the tree
-untouched; expansion survives a reload; type-ahead selects the right row and resets on timeout.
+untouched; expansion survives a reload; type-ahead selects the right row and resets on timeout;
+every hook is consulted by the flattener; `.row_tweak` fires on each bind and rebind with the
+right `RowInfo`.
 
 ### M1 — AppKit, the reference native
 
@@ -343,8 +509,14 @@ table's pasteboard pipeline, with `validateDrop(proposedItem:proposedChildIndex:
 from `can_move` — including `NSOutlineViewDropOnItemIndex` for a drop *onto* a row, which is
 what `index: None` means. Type-select answers from `type_select_text`.
 
+This is also where the tweak additions earn their keep: the node's handle is the `NSScrollView`,
+so `Part::Content` is what hands a tweak the `NSOutlineView`, and `.row_tweak` receives the
+`NSTableRowView`. The four delegate hooks land here first, since AppKit is the backend with the
+richest delegate to route them to.
+
 **Done when** the Showcase page (M5) drives expansion, multi-select, keyboard and a drag-reparent
-on macOS, and `a11y_audit` reports outline rows with disclosure levels.
+on macOS; `a11y_audit` reports outline rows with disclosure levels; and the source-list tweak
+from [the example above](#what-it-looks-like) compiles and visibly changes the rendering.
 
 ### M2 — the shared emulation, on web-dom and Qt
 
@@ -405,6 +577,12 @@ it exercise the API rather than decorating it: a multi-select toggle, an "expand
 one particular folder (so the denied affordance is visible on every platform), and a
 scroll-to-row field.
 
+The page also demonstrates the three layers in one place, since that is the part of this design
+an app author has to understand: the portable options drive the controls, one hook (`can_select`
+on folders) is toggleable, and a `day-tweak-outline-style` line sits in the source under a
+comment explaining that it changes the macOS and Windows rendering and no-ops on the rest — the
+Showcase's usual job of being the worked example.
+
 The walkthrough leg — `dayscript/outline.yaml`, joining the per-target list in the Showcase's
 CI — asserts what no screenshot can: expanding a folder reveals exactly its children, collapsing
 hides their ids, `outline_move` reparents and the readout agrees, a guarded move fails the step,
@@ -456,6 +634,10 @@ then undoes it — proving canvas and outline share one model rather than two.
   path can be as live as Day makes it. `move_guard`'s contract must therefore be "consulted as
   early as the platform allows", with the per-backend table saying where that is — the same
   shape `list`'s reorder guard already documents.
+- **Parts widen the contract.** Naming `Part::Content` promises a kind keeps having a content
+  widget. That is a weaker promise than a class name (the tweaks doc already refuses to freeze
+  those), but it is still a promise, so parts are declared per kind in the docs and an unknown
+  part must resolve to `None` rather than to the host.
 - **What v1 leaves out, on purpose.** Dragging a multi-row selection as one unit;
   spring-loading a collapsed row under a hovering drag (native on AppKit, a timer elsewhere);
   columns beside the disclosure, which is where an outline becomes a tree *table* and wants

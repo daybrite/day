@@ -10,74 +10,241 @@ use std::path::Path;
 
 use crate::meta::Project;
 use crate::ops::{gha_escape, github_actions};
-use crate::term::{DIM, SUCCESS, WARN};
+use crate::term::{DIM, ERROR, SUCCESS, WARN};
 use anstream::eprintln;
 
-#[derive(Debug)]
+/// How much a finding matters. A property of the RULE, not of the instance — see
+/// [`severity_of`], which is the single place the policy lives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Severity {
+    /// Names something that does not exist, or that will misbehave at runtime.
+    Error,
+    #[default]
+    Warning,
+}
+
+impl Severity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        }
+    }
+}
+
+/// Where a finding is, when the rule can say. Project-RELATIVE path, 1-based line and column —
+/// the shape an editor wants and the shape a human reads in a terminal.
+#[derive(Debug, Clone, Default)]
+pub struct Location {
+    pub file: String,
+    pub line: usize,
+    pub column: usize,
+}
+
+/// A repair a rule can describe precisely enough to apply unattended.
+///
+/// Only rules whose remedy is both SAFE (reversible, no content invented) and UNAMBIGUOUS (exactly
+/// one right answer) carry one — `day lint --fix` applies these without asking, so a fix that
+/// needed a human decision would be a way to lose work rather than a convenience.
+#[derive(Debug, Clone)]
+pub struct Fix {
+    /// What the fix does, in the imperative — shown by `--fix` and used as the editor's lightbulb
+    /// title.
+    pub title: String,
+    /// Project-relative file to rewrite.
+    pub file: String,
+    /// Its complete new contents. Whole-file rather than a range so applying is a single
+    /// deterministic write, with nothing to reconcile against a file that moved underneath.
+    pub contents: String,
+}
+
+#[derive(Debug, Default)]
 pub struct Finding {
     pub code: &'static str,
     pub message: String,
+    /// Where it is, for rules that know. `None` for findings about something ABSENT — a missing
+    /// directory, a locale that exists on no surface, a package missing from the host.
+    pub location: Option<Location>,
+    /// A safe, unambiguous repair, for the few rules that have one.
+    pub fix: Option<Fix>,
+}
+
+impl Finding {
+    pub fn located(mut self, at: Location) -> Self {
+        self.location = Some(at);
+        self
+    }
+
+    /// Attach a place only when the caller has one — the shape most checks are in, where a
+    /// position exists for a key that was FOUND and not for one that was missing.
+    pub fn maybe_located(mut self, at: Option<Location>) -> Self {
+        self.location = at;
+        self
+    }
+
+    pub fn severity(&self) -> Severity {
+        severity_of(self.code)
+    }
+}
+
+impl Location {
+    /// A place inside a file whose text we have, from a byte offset into it — how the Fluent
+    /// parser and the source scanners both report a match.
+    pub fn in_file(file: impl Into<String>, src: &str, offset: usize) -> Location {
+        let (line, column) = day_build::line_col(src, offset);
+        Location {
+            file: file.into(),
+            line,
+            column,
+        }
+    }
+
+    /// The top of a file, for a finding that is ABOUT the file rather than about a line in it.
+    pub fn head(file: impl Into<String>) -> Location {
+        Location {
+            file: file.into(),
+            line: 1,
+            column: 1,
+        }
+    }
+}
+
+/// Which rules are errors rather than warnings.
+///
+/// The test is whether the finding names something that DOES NOT EXIST, or that will misbehave at
+/// runtime: a `tr("…")` with no message renders its own key, a route nothing declares navigates
+/// nowhere, an unknown target or manifest override is simply not read. Everything else — coverage
+/// gaps, store text, style — stays a warning.
+///
+/// Presentational only: `--strict` still fails on ANY active finding, error or warning, so this
+/// changes what a reader sees and what an editor squiggles red, never whether existing CI passes.
+pub fn severity_of(code: &str) -> Severity {
+    const ERRORS: &[&str] = &[
+        "day::lint::unknown-key",
+        "day::lint::unknown-route",
+        "day::lint::unknown-target",
+        "day::lint::unknown-override",
+        "day::lint::unknown-function",
+        "day::lint::bad-format-option",
+        "day::lint::undeclared-permission",
+        "day::lint::duplicate-id",
+        "day::lint::vector-parse",
+        "day::lint::vector-unreadable",
+        "day::lint::store-unreadable",
+        "day::lint::shortcut-label",
+    ];
+    if ERRORS.contains(&code) {
+        Severity::Error
+    } else {
+        Severity::Warning
+    }
 }
 
 /// Collect keys referenced via the generated `res::str::<key>(…)` functions (§18.5). Unlike
 /// `tr("key")` these aren't quote-delimited: after `res::str::` (possibly through a `crate::`/module
 /// path) read the Rust identifier, stripping a `r#` raw prefix — that identifier is the Fluent key.
-fn scan_res_str(dir: &Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            scan_res_str(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs")
-            && let Ok(src) = std::fs::read_to_string(&p)
-        {
-            let pat = "res::str::";
-            let mut rest = src.as_str();
-            while let Some(i) = rest.find(pat) {
-                rest = &rest[i + pat.len()..];
-                let s = rest.strip_prefix("r#").unwrap_or(rest);
-                let end = s
-                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .unwrap_or(s.len());
-                if end > 0 {
-                    out.push(s[..end].to_string());
-                }
-            }
+/// A literal (or identifier) found in source, with WHERE it was found — so a finding about it can
+/// point at the line rather than at the project as a whole.
+#[derive(Debug, Clone)]
+struct Hit {
+    text: String,
+    file: std::path::PathBuf,
+    line: usize,
+    column: usize,
+}
+
+impl Hit {
+    /// Record `text`, whose position is taken from where it sits inside `src`. `text` must be a
+    /// subslice of `src` — every scan below carves it out of the file it just read.
+    fn found(file: &Path, src: &str, text: &str) -> Hit {
+        let (line, column) = day_build::line_col(src, day_build::offset_in(src, text).unwrap_or(0));
+        Hit {
+            text: text.to_string(),
+            file: file.to_path_buf(),
+            line,
+            column,
+        }
+    }
+
+    fn location(&self, root: &Path) -> Location {
+        Location {
+            file: rel(root, &self.file),
+            line: self.line,
+            column: self.column,
         }
     }
 }
 
-/// Collect portable permissions referenced in code as `Permission::<Variant>` (docs/permissions.md).
-///
-/// Reads an identifier rather than a quoted literal, the same shape as [`scan_res_str`]. The
-/// contract with `day-part-permissions` is that its enum is called `Permission` and its variants are
-/// the table's `variant` spellings — pinned by `tests/permissions_parity.rs`.
-fn scan_permission_uses(dir: &Path, out: &mut Vec<String>) {
+/// A path as a finding reports it: relative to the project, forward slashes on every platform —
+/// which is what an editor resolves against the workspace folder.
+fn rel(root: &Path, file: &Path) -> String {
+    file.strip_prefix(root)
+        .unwrap_or(file)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Just the texts, for the checks that only ask whether something was mentioned.
+fn texts(hits: &[Hit]) -> BTreeSet<String> {
+    hits.iter().map(|h| h.text.clone()).collect()
+}
+
+/// Walk `dir` for Rust sources, handing each one's path and text to `f`. Every scan below shares
+/// this walk and differs only in what it matches.
+fn for_each_rs(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
-            scan_permission_uses(&p, out);
+            for_each_rs(&p, f);
         } else if p.extension().is_some_and(|x| x == "rs")
             && let Ok(src) = std::fs::read_to_string(&p)
         {
-            let pat = "Permission::";
-            let mut rest = src.as_str();
-            while let Some(i) = rest.find(pat) {
-                rest = &rest[i + pat.len()..];
-                let end = rest
-                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .unwrap_or(rest.len());
-                if end > 0 {
-                    out.push(rest[..end].to_string());
-                }
-            }
+            f(&p, &src);
         }
     }
+}
+
+/// Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) — the
+/// symbol IS the key, so a call counts as a reference exactly like `tr("key")`.
+fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
+    for_each_rs(dir, &mut |path, src| {
+        let pat = "res::str::";
+        let mut rest = src;
+        while let Some(i) = rest.find(pat) {
+            rest = &rest[i + pat.len()..];
+            let s = rest.strip_prefix("r#").unwrap_or(rest);
+            let end = s
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(s.len());
+            if end > 0 {
+                out.push(Hit::found(path, src, &s[..end]));
+            }
+        }
+    });
+}
+
+/// Collect portable permissions referenced in code as `Permission::<Variant>` (docs/permissions.md).
+///
+/// Reads an identifier rather than a quoted literal. The contract with `day-part-permissions` is
+/// that its enum is called `Permission` and its variants are the table's `variant` spellings —
+/// pinned by `tests/permissions_parity.rs`.
+fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
+    for_each_rs(dir, &mut |path, src| {
+        let pat = "Permission::";
+        let mut rest = src;
+        while let Some(i) = rest.find(pat) {
+            rest = &rest[i + pat.len()..];
+            let end = rest
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .unwrap_or(rest.len());
+            if end > 0 {
+                out.push(Hit::found(path, src, &rest[..end]));
+            }
+        }
+    });
 }
 
 /// Every Rust source root the lint scans: the project package's `src/` plus each WORKSPACE
@@ -126,53 +293,34 @@ fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
 ///
 /// Consulted ONLY by the unused-key check. It must not feed `unknown-key`, which asks the opposite
 /// question — every literal in the program is not a claim that a message exists.
-fn scan_key_like_literals(dir: &Path, out: &mut std::collections::BTreeSet<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            scan_key_like_literals(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs")
-            && let Ok(src) = std::fs::read_to_string(&p)
-        {
-            for lit in src.split('"').skip(1).step_by(2) {
-                // Fluent key shape: lowercase, digits, `_` and `-`, and never empty.
-                if !lit.is_empty()
-                    && lit.len() <= 64
-                    && lit.chars().all(|c| {
-                        c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-'
-                    })
-                {
-                    out.insert(lit.to_string());
-                }
+fn scan_key_like_literals(dir: &Path, out: &mut BTreeSet<String>) {
+    for_each_rs(dir, &mut |_, src| {
+        for lit in src.split('"').skip(1).step_by(2) {
+            // Fluent key shape: lowercase, digits, `_` and `-`, and never empty.
+            if !lit.is_empty()
+                && lit.len() <= 64
+                && lit
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+            {
+                out.insert(lit.to_string());
             }
         }
-    }
+    });
 }
 
-fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            scan_sources(&p, pat, out);
-        } else if p.extension().is_some_and(|x| x == "rs")
-            && let Ok(src) = std::fs::read_to_string(&p)
-        {
-            let mut rest = src.as_str();
-            while let Some(i) = rest.find(pat) {
-                rest = &rest[i + pat.len()..];
-                if let Some(end) = rest.find('"') {
-                    out.push(rest[..end].to_string());
-                    rest = &rest[end..];
-                }
+/// Every literal that follows `pat` up to the closing quote — `tr("`, `.id("`, `navigate("`.
+fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
+    for_each_rs(dir, &mut |path, src| {
+        let mut rest = src;
+        while let Some(i) = rest.find(pat) {
+            rest = &rest[i + pat.len()..];
+            if let Some(end) = rest.find('"') {
+                out.push(Hit::found(path, src, &rest[..end]));
+                rest = &rest[end..];
             }
         }
-    }
+    });
 }
 
 /// The first path segment of a route string (`"a/b?x=1"` → `"a"`) — the part a lint can check
@@ -184,54 +332,49 @@ fn route_first_segment(route: &str) -> &str {
 
 /// Collect the `Variant => "key"` literals declared inside `routes! { … }` blocks — typed
 /// selectors declare their keys there instead of at `.item("key", …)` call sites.
-fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in entries.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            scan_routes_macro_keys(&p, out);
-        } else if p.extension().is_some_and(|x| x == "rs")
-            && let Ok(src) = std::fs::read_to_string(&p)
-        {
-            let mut rest = src.as_str();
-            while let Some(i) = rest.find("routes!") {
-                rest = &rest[i + "routes!".len()..];
-                // The macro body is the outermost `{ … }` after `routes!` (brace-balanced).
-                let Some(open) = rest.find('{') else { continue };
-                let mut depth = 0usize;
-                let mut end = rest.len();
-                for (j, c) in rest[open..].char_indices() {
-                    match c {
-                        '{' => depth += 1,
-                        '}' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                end = open + j;
-                                break;
-                            }
+fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
+    for_each_rs(dir, &mut |path, src| {
+        let mut rest = src;
+        while let Some(i) = rest.find("routes!") {
+            rest = &rest[i + "routes!".len()..];
+            // The macro body is the outermost `{ … }` after `routes!` (brace-balanced).
+            let Some(open) = rest.find('{') else { continue };
+            let mut depth = 0usize;
+            let mut end = rest.len();
+            for (j, c) in rest[open..].char_indices() {
+                match c {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = open + j;
+                            break;
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
-                let mut body = &rest[open..end];
-                while let Some(k) = body.find("=> \"") {
-                    body = &body[k + 4..];
-                    if let Some(q) = body.find('"') {
-                        out.push(body[..q].to_string());
-                        body = &body[q..];
-                    }
-                }
-                rest = &rest[end..];
             }
+            let mut body = &rest[open..end];
+            while let Some(k) = body.find("=> \"") {
+                body = &body[k + 4..];
+                if let Some(q) = body.find('"') {
+                    out.push(Hit::found(path, src, &body[..q]));
+                    body = &body[q..];
+                }
+            }
+            rest = &rest[end..];
         }
-    }
+    });
 }
 
 /// Cross-reference every dayscript `screenshot:` step's localized `title:`/`caption:` locale
 /// keys against the app's translation locales (see the caller's comment for the rules).
-fn check_screenshot_locales(dir: &Path, app_locales: &[String], findings: &mut Vec<Finding>) {
+fn check_screenshot_locales(
+    root: &Path,
+    dir: &Path,
+    app_locales: &[String],
+    findings: &mut Vec<Finding>,
+) {
     let lang = |t: &str| t.split(['-', '_']).next().unwrap_or(t).to_ascii_lowercase();
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -239,7 +382,7 @@ fn check_screenshot_locales(dir: &Path, app_locales: &[String], findings: &mut V
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
-            check_screenshot_locales(&p, app_locales, findings);
+            check_screenshot_locales(root, &p, app_locales, findings);
             continue;
         }
         if !p.extension().is_some_and(|x| x == "yaml" || x == "yml") {
@@ -247,6 +390,9 @@ fn check_screenshot_locales(dir: &Path, app_locales: &[String], findings: &mut V
         }
         let file = p.file_name().map(|f| f.to_string_lossy().into_owned());
         let file = file.as_deref().unwrap_or("dayscript");
+        // The step's own line is inside a parsed script this check never sees as text; the script
+        // it is in is the place to send the reader.
+        let at = Location::head(rel(root, &p));
         for (shot, meta) in crate::screenshot::script_screenshot_meta(&p) {
             for (kind, text) in [("title", &meta.title), ("caption", &meta.caption)] {
                 let Some(text) = text else { continue };
@@ -256,25 +402,33 @@ fn check_screenshot_locales(dir: &Path, app_locales: &[String], findings: &mut V
                 }
                 for l in app_locales {
                     if !keys.iter().any(|k| lang(k) == lang(l)) {
-                        findings.push(Finding {
-                            code: "day::lint::screenshot-locales",
-                            message: format!(
-                                "{file}: screenshot {shot:?} {kind} has no {l:?} — that \
+                        findings.push(
+                            Finding {
+                                code: "day::lint::screenshot-locales",
+                                message: format!(
+                                    "{file}: screenshot {shot:?} {kind} has no {l:?} — that \
                                  locale's gallery page falls back to English"
-                            ),
-                        });
+                                ),
+                                ..Default::default()
+                            }
+                            .located(at.clone()),
+                        );
                     }
                 }
                 for k in &keys {
                     if !app_locales.iter().any(|l| lang(l) == lang(k)) {
-                        findings.push(Finding {
-                            code: "day::lint::screenshot-locales",
-                            message: format!(
-                                "{file}: screenshot {shot:?} {kind} names {k:?}, which is not \
+                        findings.push(
+                            Finding {
+                                code: "day::lint::screenshot-locales",
+                                message: format!(
+                                    "{file}: screenshot {shot:?} {kind} names {k:?}, which is not \
                                  one of the app's locales ({})",
-                                app_locales.join(", ")
-                            ),
-                        });
+                                    app_locales.join(", ")
+                                ),
+                                ..Default::default()
+                            }
+                            .located(at.clone()),
+                        );
                     }
                 }
             }
@@ -285,7 +439,7 @@ fn check_screenshot_locales(dir: &Path, app_locales: &[String], findings: &mut V
 /// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps — and the
 /// route inside every `deep_link:` step's `url:` (docs/deep-links.md) — in
 /// `dayscript/*.yaml`: the same route namespace `navigate()` uses (docs/navigation.md).
-fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
+fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -315,7 +469,7 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
                             // `day_spec::route_of_url` (day-cli doesn't link day-spec).
                             let route = v.split_once("://").map(|(_, r)| r).unwrap_or(v);
                             let route = route.split('?').next().unwrap_or(route);
-                            out.push(route.to_string());
+                            out.push(Hit::found(&p, &src, route));
                         }
                     }
                     continue;
@@ -339,12 +493,21 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<String>) {
                         .trim()
                         .trim_matches(['"', '\'']);
                     if !v.is_empty() {
-                        out.push(v.to_string());
+                        out.push(Hit::found(&p, &src, v));
                     }
                 }
             }
         }
     }
+}
+
+/// Where `needle` first appears in a file's text, as a place a finding can point at.
+///
+/// For the checks whose subject came out of a PARSER that kept no spans — the manifest, chiefly.
+/// Searching the source for the value is approximate (a string that occurs twice reports the
+/// first), and better than sending the reader to line 1.
+fn locate_in(file: &str, src: &str, needle: &str) -> Option<Location> {
+    src.find(needle).map(|at| Location::in_file(file, src, at))
 }
 
 /// Does `--allow CODE` cover this finding? The `day::lint::` prefix is optional, so
@@ -356,8 +519,67 @@ fn allowed(code: &str, allow: &[String]) -> bool {
     })
 }
 
-pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
+/// Check the project and report. `json` swaps the human report for the editor envelope; `fix`
+/// applies the repairs the rules proposed before either.
+pub fn run(project: &Project, strict: bool, allow: &[String], json: bool, fix: bool) -> i32 {
+    let mut findings = collect(project);
+    if fix {
+        if !findings
+            .iter()
+            .any(|f| f.fix.is_some() && !allowed(f.code, allow))
+        {
+            eprintln!("{DIM}--fix{DIM:#} no finding proposes a fix that can be applied unattended");
+        }
+        // Two rules can propose a repair for the SAME file — a keyword list with both stray
+        // spaces and trailing whitespace — and each was computed against the text as it was, so
+        // only one of them can be applied per pass. Re-check and go again until nothing is left.
+        for _ in 0..8 {
+            if apply_fixes(project, &findings, allow) == 0 {
+                break;
+            }
+            findings = collect(project);
+        }
+    }
+    if json {
+        return report_json(project, &findings, allow, strict);
+    }
+    report(&findings, allow, strict)
+}
+
+/// Write every safe fix that is not waived, one file at a time, saying what happened to each.
+///
+/// Waived codes are skipped on purpose: `--allow` says a finding may stand, and rewriting the file
+/// it named would be the opposite of letting it stand.
+fn apply_fixes(project: &Project, findings: &[Finding], allow: &[String]) -> usize {
+    let mut applied = 0;
+    let mut written: BTreeSet<String> = BTreeSet::new();
+    for f in findings {
+        let Some(fix) = &f.fix else { continue };
+        if allowed(f.code, allow) || !written.insert(fix.file.clone()) {
+            continue;
+        }
+        let path = project.root.join(&fix.file);
+        match std::fs::write(&path, &fix.contents) {
+            Ok(()) => {
+                eprintln!(
+                    "{SUCCESS}fixed{SUCCESS:#}   {:<32} {}: {}",
+                    f.code, fix.file, fix.title
+                );
+                applied += 1;
+            }
+            Err(e) => eprintln!("{ERROR}unfixed{ERROR:#} {:<32} {}: {e}", f.code, fix.file),
+        }
+    }
+    applied
+}
+
+/// Everything the rules found, in no particular order — the reporting below decides what to do
+/// with them. Split out so `--fix` can re-check after writing without re-entering the report.
+fn collect(project: &Project) -> Vec<Finding> {
     let mut findings: Vec<Finding> = Vec::new();
+    // The manifest as TEXT. It parsed to reach here, but the parsed form keeps no spans, so the
+    // checks below find their own value in the source to report a line.
+    let manifest_src = std::fs::read_to_string(project.root.join("Day.toml")).ok();
 
     // --- resource/vectors/ (docs/vectors.md) ---
     // Parse every vector source and surface the problems a device test would otherwise find
@@ -382,6 +604,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
             findings.push(Finding {
                 code: "day::lint::bridge-kotlin-plugin",
                 message: crate::bridge::kotlin_plugin_help(&kotlin_arms),
+                ..Default::default()
             });
         }
     }
@@ -393,6 +616,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         findings.push(Finding {
             code: "day::lint::bridge-link-missing",
             message: crate::bridge::link_help(&missing),
+            ..Default::default()
         });
     }
 
@@ -404,10 +628,18 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         // Combined catalog: a target declared by a dependency crate's
         // [package.metadata.day.toolkit] is as known as a builtin (docs/extending.md).
         if !crate::external::known(project, t) {
-            findings.push(Finding {
-                code: "day::lint::unknown-target",
-                message: format!("Day.toml: targets entry {t:?} is not a known target"),
-            });
+            findings.push(
+                Finding {
+                    code: "day::lint::unknown-target",
+                    message: format!("Day.toml: targets entry {t:?} is not a known target"),
+                    ..Default::default()
+                }
+                .maybe_located(
+                    manifest_src
+                        .as_deref()
+                        .and_then(|src| locate_in("Day.toml", src, &format!("{t:?}"))),
+                ),
+            );
         }
     }
     {
@@ -423,13 +655,21 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         known.insert("ohos");
         for key in project.manifest.app.overrides.keys() {
             if !known.contains(key.as_str()) {
-                findings.push(Finding {
-                    code: "day::lint::unknown-override",
-                    message: format!(
-                        "Day.toml: [app.{key}] does not name a known platform, toolkit, or \
-                         target"
+                findings.push(
+                    Finding {
+                        code: "day::lint::unknown-override",
+                        message: format!(
+                            "Day.toml: [app.{key}] does not name a known platform, toolkit, or \
+                             target"
+                        ),
+                        ..Default::default()
+                    }
+                    .maybe_located(
+                        manifest_src
+                            .as_deref()
+                            .and_then(|src| locate_in("Day.toml", src, &format!("[app.{key}]"))),
                     ),
-                });
+                );
             }
         }
     }
@@ -440,15 +680,20 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     match crate::store::read(project) {
         Ok(listing) => {
             for p in crate::store::lint(project, &listing) {
+                // A listing field is one value in one small file, so the head of that file IS the
+                // finding's place; the rules that carry a repair rewrite the file whole.
                 findings.push(Finding {
                     code: p.code,
                     message: p.message,
+                    location: p.file.map(Location::head),
+                    fix: p.fix,
                 });
             }
         }
         Err(e) => findings.push(Finding {
             code: "day::lint::store-unreadable",
             message: e,
+            ..Default::default()
         }),
     }
 
@@ -462,6 +707,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
             findings.push(Finding {
                 code: "day::lint::locale-sync",
                 message: format!("{message} — {advice}"),
+                ..Default::default()
             });
         }
 
@@ -475,6 +721,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         // app that does not localize its gallery has nothing to keep in sync.
         if !survey.fluent.is_empty() {
             check_screenshot_locales(
+                &project.root,
                 &project.root.join("dayscript"),
                 &survey.fluent,
                 &mut findings,
@@ -491,10 +738,15 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         for root in source_roots(&project.root) {
             scan_permission_uses(&root, &mut used);
         }
-        used.sort();
-        used.dedup();
+        // One finding per VARIANT, reported at its first use: a permission requested from six
+        // call sites is still one missing declaration.
+        let mut seen_variants = BTreeSet::new();
+        used.retain(|h| seen_variants.insert(h.text.clone()));
+        used.sort_by(|a, b| a.text.cmp(&b.text));
         let declared = &project.manifest.permissions.declared;
-        for variant in &used {
+        for hit in &used {
+            let variant = &hit.text;
+            let at = hit.location(&project.root);
             let Some(spec) = day_build::permissions::find_variant(variant) else {
                 continue; // Raw(…) and any non-portable variant have nothing to declare
             };
@@ -507,14 +759,18 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                          usage description",
                         spec.name
                     ),
-                }),
+                    ..Default::default()
+                }
+                .located(at.clone())),
                 Some(decl) if !decl.enabled() => findings.push(Finding {
                     code: "day::lint::undeclared-permission",
                     message: format!(
                         "code requests Permission::{variant}, but Day.toml declares {:?} = false",
                         spec.name
                     ),
-                }),
+                    ..Default::default()
+                }
+                .located(at.clone())),
                 Some(decl) if spec.needs_reason && decl.reason_for("ios").is_none() => findings
                     .push(Finding {
                         code: "day::lint::missing-reason",
@@ -523,7 +779,9 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                              show the user when they prompt",
                             spec.name
                         ),
-                    }),
+                        ..Default::default()
+                    }
+                    .located(at.clone())),
                 Some(_) => {}
             }
         }
@@ -554,6 +812,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
+                    ..Default::default()
                 });
             }
         }
@@ -561,18 +820,32 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
 
     // --- Fluent coverage ---
     let locales_dir = project.root.join("resource/locales");
-    let mut locales: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // locale → message key → where that key is DEFINED. Carrying the definition site is what lets
+    // a finding about a key open the .ftl at its line instead of at the directory.
+    let mut locales: BTreeMap<String, BTreeMap<String, Location>> = BTreeMap::new();
+    // locale → one .ftl to blame for a key the catalog is MISSING, which has no line of its own.
+    let mut locale_files: BTreeMap<String, String> = BTreeMap::new();
     if let Ok(entries) = std::fs::read_dir(&locales_dir) {
         for e in entries.flatten() {
             if e.path().is_dir() {
                 let name = e.file_name().to_string_lossy().to_string();
-                let mut keys = BTreeSet::new();
+                let mut keys: BTreeMap<String, Location> = BTreeMap::new();
                 if let Ok(files) = std::fs::read_dir(e.path()) {
-                    for f in files.flatten() {
-                        if f.path().extension().is_some_and(|x| x == "ftl")
-                            && let Ok(src) = std::fs::read_to_string(f.path())
+                    // read_dir order is arbitrary; sorting keeps the reported file stable across
+                    // runs and machines, which a diagnostic that moves would not be.
+                    let mut paths: Vec<std::path::PathBuf> =
+                        files.flatten().map(|f| f.path()).collect();
+                    paths.sort();
+                    for path in paths {
+                        if path.extension().is_some_and(|x| x == "ftl")
+                            && let Ok(src) = std::fs::read_to_string(&path)
                         {
-                            keys.extend(day_build::message_keys(&src));
+                            let file = rel(&project.root, &path);
+                            locale_files.entry(name.clone()).or_insert(file.clone());
+                            for (key, offset) in day_build::ftl_key_offsets(&src) {
+                                keys.entry(key)
+                                    .or_insert_with(|| Location::in_file(&file, &src, offset));
+                            }
                         }
                     }
                 }
@@ -588,7 +861,14 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         // the symbol IS the key (snake_case), so they count as used like a `tr("key")` literal.
         scan_res_str(r, &mut used_keys);
     }
-    let used: BTreeSet<String> = used_keys.into_iter().collect();
+    let used = texts(&used_keys);
+    // Where each key is first referenced, so `unknown-key` points at the `tr("…")` that will fail.
+    let mut first_use: BTreeMap<String, Location> = BTreeMap::new();
+    for h in &used_keys {
+        first_use
+            .entry(h.text.clone())
+            .or_insert_with(|| h.location(&project.root));
+    }
     // See `scan_key_like_literals`: a key named in a plain string literal and resolved later is
     // still referenced, and only the unused-key check may consider it.
     let mut literals: BTreeSet<String> = BTreeSet::new();
@@ -604,14 +884,20 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     };
     if let Some(default_keys) = locales.get(&default_name).cloned() {
         for k in &used {
-            if !default_keys.contains(k) {
-                findings.push(Finding {
-                    code: "day::lint::unknown-key",
-                    message: format!("tr({k:?}) has no message in resource/locales/{default_name}"),
-                });
+            if !default_keys.contains_key(k) {
+                findings.push(
+                    Finding {
+                        code: "day::lint::unknown-key",
+                        message: format!(
+                            "tr({k:?}) has no message in resource/locales/{default_name}"
+                        ),
+                        ..Default::default()
+                    }
+                    .maybe_located(first_use.get(k).cloned()),
+                );
             }
         }
-        for k in &default_keys {
+        for (k, at) in &default_keys {
             // Convention keys the framework consumes at build time, not from app source:
             // `language_name` is read by day-build's generated `res::locales::ALL` (each catalog
             // naming its own language for pickers — docs/localization.md), so no `res::str::` or
@@ -620,22 +906,34 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                 continue;
             }
             if !used.contains(k) && !literals.contains(k) {
-                findings.push(Finding {
-                    code: "day::lint::unused-key",
-                    message: format!("resource/locales/{default_name}: {k} is never referenced"),
-                });
+                findings.push(
+                    Finding {
+                        code: "day::lint::unused-key",
+                        message: format!(
+                            "resource/locales/{default_name}: {k} is never referenced"
+                        ),
+                        ..Default::default()
+                    }
+                    .located(at.clone()),
+                );
             }
         }
         for (name, keys) in &locales {
             if name == &default_name {
                 continue;
             }
-            for k in &default_keys {
-                if !keys.contains(k) {
-                    findings.push(Finding {
-                        code: "day::lint::missing-translation",
-                        message: format!("resource/locales/{name}: missing {k}"),
-                    });
+            for k in default_keys.keys() {
+                if !keys.contains_key(k) {
+                    findings.push(
+                        Finding {
+                            code: "day::lint::missing-translation",
+                            message: format!("resource/locales/{name}: missing {k}"),
+                            ..Default::default()
+                        }
+                        // The key is ABSENT, so there is no line to point at — the catalog that
+                        // should have it is as close as this gets.
+                        .maybe_located(locale_files.get(name).map(Location::head)),
+                    );
                 }
             }
         }
@@ -661,8 +959,9 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                 let Ok(src) = std::fs::read_to_string(f.path()) else {
                     continue;
                 };
+                let file = rel(&project.root, &f.path());
                 for call in day_build::function_calls(&src) {
-                    findings.extend(lint_ftl_call(&locale, &call));
+                    findings.extend(lint_ftl_call(&locale, &file, &src, &call));
                 }
             }
         }
@@ -680,36 +979,45 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
         scan_routes_macro_keys(r, &mut declared_keys);
     }
     if !declared_keys.is_empty() {
-        let declared: BTreeSet<String> = declared_keys.into_iter().collect();
-        let mut used_routes: Vec<(String, String)> = Vec::new();
+        let declared = texts(&declared_keys);
+        let mut used_routes: Vec<(String, String, Option<Location>)> = Vec::new();
         let mut nav_calls = Vec::new();
         for r in &roots {
             scan_sources(r, "navigate(\"", &mut nav_calls);
         }
-        used_routes.extend(nav_calls.into_iter().map(|r| ("navigate".to_string(), r)));
+        used_routes.extend(nav_calls.into_iter().map(|h| {
+            let at = h.location(&project.root);
+            ("navigate".to_string(), h.text, Some(at))
+        }));
         let mut script_routes = Vec::new();
         scan_script_routes(&project.root.join("dayscript"), &mut script_routes);
-        used_routes.extend(
-            script_routes
-                .into_iter()
-                .map(|r| ("dayscript".to_string(), r)),
-        );
+        used_routes.extend(script_routes.into_iter().map(|h| {
+            let at = h.location(&project.root);
+            ("dayscript".to_string(), h.text, Some(at))
+        }));
         // [[shortcuts]] routes are saved deep links (docs/deep-links.md) — same check,
         // query params stripped the way the route parser will strip them.
         used_routes.extend(project.manifest.shortcuts.iter().map(|s| {
             let route = s.route.split('?').next().unwrap_or(&s.route).to_string();
-            ("Day.toml [[shortcuts]]".to_string(), route)
+            let at = manifest_src
+                .as_deref()
+                .and_then(|src| locate_in("Day.toml", src, &format!("{:?}", s.route)));
+            ("Day.toml [[shortcuts]]".to_string(), route, at)
         }));
-        for (origin, route) in &used_routes {
+        for (origin, route, at) in &used_routes {
             let first = route_first_segment(route);
             if !first.is_empty() && !declared.contains(first) {
-                findings.push(Finding {
-                    code: "day::lint::unknown-route",
-                    message: format!(
-                        "{origin}: route {route:?} starts with {first:?}, which no `.item(…)` \
-                         or `routes! {{ … }}` declares"
-                    ),
-                });
+                findings.push(
+                    Finding {
+                        code: "day::lint::unknown-route",
+                        message: format!(
+                            "{origin}: route {route:?} starts with {first:?}, which no `.item(…)` \
+                             or `routes! {{ … }}` declares"
+                        ),
+                        ..Default::default()
+                    }
+                    .maybe_located(at.clone()),
+                );
             }
         }
     }
@@ -727,11 +1035,13 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
                      may be dropped",
                     list.len()
                 ),
+                ..Default::default()
             }),
             Ok(_) => {}
             Err(e) => findings.push(Finding {
                 code: "day::lint::shortcut-label",
                 message: e,
+                ..Default::default()
             }),
         }
     }
@@ -741,40 +1051,76 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     for r in &roots {
         scan_sources(r, ".id(\"", &mut ids);
     }
-    let mut seen = BTreeSet::new();
-    for id in &ids {
-        if !seen.insert(id.clone()) {
-            findings.push(Finding {
-                code: "day::lint::duplicate-id",
-                message: format!("element id {id:?} used more than once"),
-            });
+    let mut first_id: BTreeMap<String, Location> = BTreeMap::new();
+    for hit in &ids {
+        let at = hit.location(&project.root);
+        match first_id.get(&hit.text) {
+            Some(first) => findings.push(
+                Finding {
+                    code: "day::lint::duplicate-id",
+                    message: format!(
+                        "element id {:?} is already used at {}:{}",
+                        hit.text, first.file, first.line
+                    ),
+                    ..Default::default()
+                }
+                .located(at),
+            ),
+            None => {
+                first_id.insert(hit.text.clone(), at);
+            }
         }
     }
 
+    findings
+}
+
+/// The human report: one line per active finding, one summary line per waived code.
+fn report(findings: &[Finding], allow: &[String], strict: bool) -> i32 {
     // An allowed code still reports, one summary line per code rather than per finding: a
     // scaffold's 84 store placeholders would otherwise bury the warnings that do matter. The
     // count and a sample are enough to see what a stale `--allow` is covering.
     let mut waived: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
     let gha = github_actions();
     let mut active: Vec<&Finding> = Vec::new();
-    for f in &findings {
+    for f in findings {
         if allowed(f.code, allow) {
             let e = waived.entry(f.code).or_insert((0, f.message.as_str()));
             e.0 += 1;
-        } else {
-            eprintln!("{WARN}warning{WARN:#} {:<32} {}", f.code, f.message);
-            if gha {
-                // GitHub reads workflow commands off STDOUT (the human report above is stderr,
-                // which never becomes an annotation). `title` carries the finding code so the
-                // annotation list groups legibly. Newlines must be %0A-escaped per the docs.
-                println!(
-                    "::warning title=day lint {}::{}",
-                    f.code,
-                    gha_escape(&f.message)
-                );
-            }
-            active.push(f);
+            continue;
         }
+        let where_ = match &f.location {
+            Some(at) => format!(" {DIM}({}:{}){DIM:#}", at.file, at.line),
+            None => String::new(),
+        };
+        match f.severity() {
+            Severity::Error => {
+                eprintln!(
+                    "{ERROR}error{ERROR:#}   {:<32} {}{where_}",
+                    f.code, f.message
+                )
+            }
+            Severity::Warning => {
+                eprintln!("{WARN}warning{WARN:#} {:<32} {}{where_}", f.code, f.message)
+            }
+        }
+        if gha {
+            // GitHub reads workflow commands off STDOUT (the human report above is stderr, which
+            // never becomes an annotation). With a file and line the annotation lands ON the
+            // offending line in the PR diff; without one it stays a job-level note. Newlines must
+            // be %0A-escaped per the docs.
+            let place = match &f.location {
+                Some(at) => format!(",file={},line={},col={}", at.file, at.line, at.column),
+                None => String::new(),
+            };
+            println!(
+                "::{} title=day lint {}{place}::{}",
+                f.severity().as_str(),
+                f.code,
+                gha_escape(&f.message)
+            );
+        }
+        active.push(f);
     }
     for (code, (n, sample)) in &waived {
         eprintln!("{DIM}allowed{DIM:#} {code:<32} {n} finding(s), e.g. {sample}");
@@ -784,6 +1130,71 @@ pub fn run(project: &Project, strict: bool, allow: &[String]) -> i32 {
     }
     let waived_n: usize = waived.values().map(|(n, _)| n).sum();
     finish(findings.len() - waived_n, waived_n, strict)
+}
+
+/// The editor envelope: every finding with its place, its severity and its repair, so a tool can
+/// draw squiggles and offer a lightbulb without re-deriving any of it.
+///
+/// Waived findings are INCLUDED, flagged rather than dropped — an editor showing them greyed is a
+/// better way to notice a stale `--allow` than their silent absence. `schema` is grow-only: fields
+/// get added, never removed or repurposed.
+fn report_json(project: &Project, findings: &[Finding], allow: &[String], strict: bool) -> i32 {
+    println!("{}", envelope(&project.root, findings, allow));
+    let waived = findings.iter().filter(|f| allowed(f.code, allow)).count();
+    // Same exit contract as the human report — a tool reading JSON still gets to fail a job.
+    if findings.len() > waived && strict {
+        crate::cli::ErrKind::Lint.exit_code()
+    } else {
+        0
+    }
+}
+
+fn envelope(root: &Path, findings: &[Finding], allow: &[String]) -> serde_json::Value {
+    use serde_json::json;
+    let rows: Vec<serde_json::Value> = findings
+        .iter()
+        .map(|f| {
+            let mut row = json!({
+                "code": f.code,
+                "severity": f.severity().as_str(),
+                "message": f.message,
+                "waived": allowed(f.code, allow),
+            });
+            let map = row.as_object_mut().expect("built as an object just above");
+            if let Some(at) = &f.location {
+                map.insert("file".into(), json!(at.file));
+                map.insert("line".into(), json!(at.line));
+                map.insert("column".into(), json!(at.column));
+            }
+            if let Some(fix) = &f.fix {
+                map.insert(
+                    "fix".into(),
+                    json!({ "title": fix.title, "file": fix.file, "contents": fix.contents }),
+                );
+            }
+            row
+        })
+        .collect();
+    json!({
+        "schema": 1,
+        "project": root.to_string_lossy(),
+        "findings": rows,
+        "counts": {
+            "errors": findings
+                .iter()
+                .filter(|f| !allowed(f.code, allow) && f.severity() == Severity::Error)
+                .count(),
+            "warnings": findings
+                .iter()
+                .filter(|f| !allowed(f.code, allow) && f.severity() == Severity::Warning)
+                .count(),
+            "waived": findings.iter().filter(|f| allowed(f.code, allow)).count(),
+            "fixable": findings
+                .iter()
+                .filter(|f| f.fix.is_some() && !allowed(f.code, allow))
+                .count(),
+        },
+    })
 }
 
 /// Append a markdown findings table to the job's run-summary page.
@@ -832,11 +1243,12 @@ fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)
 /// Validate one Fluent formatting-function call (docs/localization.md "Formatted values"):
 /// day-l10n provides exactly `NUMBER()` and `DATETIME()`; unknown names render as error markers
 /// at runtime, and a misspelled/invalid option silently falls back to defaults.
-fn lint_ftl_call(locale: &str, call: &day_build::FtlCall) -> Vec<Finding> {
+fn lint_ftl_call(locale: &str, file: &str, src: &str, call: &day_build::FtlCall) -> Vec<Finding> {
     let at = format!("resource/locales/{locale}: {}", call.key);
     let bad = |opt: &str, val: &str, expected: &str| Finding {
         code: "day::lint::bad-format-option",
         message: format!("{at}: {}({opt}: {val:?}) — expected {expected}", call.name),
+        ..Default::default()
     };
     let mut out = Vec::new();
     match call.name.as_str() {
@@ -851,6 +1263,7 @@ fn lint_ftl_call(locale: &str, call: &day_build::FtlCall) -> Vec<Finding> {
                                 "{at}: NUMBER(style: \"currency\") is not supported yet — \
                                  it renders as a plain decimal"
                             ),
+                            ..Default::default()
                         }),
                         other => out.push(bad("style", other, "\"decimal\" or \"percent\"")),
                     },
@@ -864,6 +1277,7 @@ fn lint_ftl_call(locale: &str, call: &day_build::FtlCall) -> Vec<Finding> {
                     "currency" | "currencyDisplay" => out.push(Finding {
                         code: "day::lint::unsupported-format-option",
                         message: format!("{at}: NUMBER {opt} is not supported yet"),
+                        ..Default::default()
                     }),
                     "minimumIntegerDigits"
                     | "minimumFractionDigits"
@@ -895,9 +1309,13 @@ fn lint_ftl_call(locale: &str, call: &day_build::FtlCall) -> Vec<Finding> {
             message: format!(
                 "{at}: unknown function {other}() — day provides NUMBER() and DATETIME()"
             ),
+            ..Default::default()
         }),
     }
-    out
+    // Every one of these is about the same call, so the position is attached once here rather than
+    // repeated at each push above.
+    let at = Location::in_file(file, src, call.offset);
+    out.into_iter().map(|f| f.located(at.clone())).collect()
 }
 
 fn finish(n: usize, waived: usize, strict: bool) -> i32 {
@@ -950,6 +1368,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                     findings.push(Finding {
                         code: "day::lint::vector-empty-symbolset",
                         message: format!("resource/vectors/{fname}: no inner .svg in the bundle"),
+                        ..Default::default()
                     });
                     continue;
                 }
@@ -961,6 +1380,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
             findings.push(Finding {
                 code: "day::lint::vector-unreadable",
                 message: format!("resource/vectors/{fname}: unreadable"),
+                ..Default::default()
             });
             continue;
         };
@@ -972,6 +1392,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                     findings.push(Finding {
                         code: "day::lint::vector-template",
                         message: format!("resource/vectors/{fname}: {e}"),
+                        ..Default::default()
                     });
                     continue;
                 }
@@ -985,6 +1406,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                 message: format!(
                     "resource/vectors/{fname}: glyph contains <text> — outline it (docs/vectors.md)"
                 ),
+                ..Default::default()
             });
             continue;
         }
@@ -992,6 +1414,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
             Err(e) => findings.push(Finding {
                 code: "day::lint::vector-parse",
                 message: format!("resource/vectors/{fname}: {e}"),
+                ..Default::default()
             }),
             Ok(tree) => {
                 if project
@@ -1008,6 +1431,7 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                             "resource/vectors/{fname}: {why} is outside the VectorDrawable \
                              subset — Android ships a raster fallback"
                         ),
+                        ..Default::default()
                     });
                 }
             }
@@ -1021,16 +1445,19 @@ mod tests {
 
     #[test]
     fn ftl_function_lint() {
-        let calls = day_build::function_calls(
-            r#"
+        const SRC: &str = r#"
 a = { NUMBER($n, style: "percent", minimumFractionDigits: 2) }
 b = { NUMBER($n, style: "currency", currency: "USD") }
 c = { NUMBER($n, stlye: "percent") }
 d = { DATETIME($d, dateStyle: "extra-long") }
 e = { PLATFORM() }
-"#,
-        );
-        let findings: Vec<Finding> = calls.iter().flat_map(|c| lint_ftl_call("en", c)).collect();
+"#;
+        let calls = day_build::function_calls(SRC);
+        let src = SRC;
+        let findings: Vec<Finding> = calls
+            .iter()
+            .flat_map(|c| lint_ftl_call("en", "resource/locales/en/app.ftl", src, c))
+            .collect();
         let codes: Vec<&str> = findings.iter().map(|f| f.code).collect();
         assert_eq!(
             codes,
@@ -1042,6 +1469,106 @@ e = { PLATFORM() }
                 "day::lint::unknown-function",          // e
             ],
             "{findings:?}"
+        );
+        // Each finding points at the LINE its call is on, not at the top of the catalog: the
+        // source above starts with a newline, so `b` is line 3 and `e` is line 6.
+        let lines: Vec<usize> = findings
+            .iter()
+            .map(|f| f.location.as_ref().expect("every call has a place").line)
+            .collect();
+        assert_eq!(lines, [3, 3, 4, 5, 6], "{findings:?}");
+    }
+
+    #[test]
+    fn the_envelope_carries_place_fix_and_waiver() {
+        let findings = vec![
+            Finding {
+                code: "day::lint::unknown-target",
+                message: "not a target".into(),
+                // `targets` starts at byte 8 of this fixture, which is line 3.
+                location: Some(Location::in_file(
+                    "Day.toml",
+                    "[app]\nid = \"x\"\ntargets = [\"atari-tos\"]",
+                    "[app]\nid = \"x\"\n".len(),
+                )),
+                fix: None,
+            },
+            Finding {
+                code: "day::lint::store-whitespace",
+                message: "trailing space".into(),
+                location: Some(Location::head("store/en/name.txt")),
+                fix: Some(Fix {
+                    title: "Trim the surrounding whitespace".into(),
+                    file: "store/en/name.txt".into(),
+                    contents: "Name\n".into(),
+                }),
+            },
+            Finding {
+                code: "day::lint::store-placeholder",
+                message: "still TODO".into(),
+                ..Default::default()
+            },
+        ];
+        let allow = vec!["store-placeholder".into()];
+        let doc = envelope(Path::new("/app"), &findings, &allow);
+        let rows = doc["findings"].as_array().expect("findings is an array");
+
+        // An unknown target is an ERROR and points at the line the parser could not report.
+        assert_eq!(rows[0]["severity"], "error");
+        assert_eq!(rows[0]["line"], 3);
+        assert_eq!(rows[0]["column"], 1);
+        assert_eq!(rows[0]["waived"], false);
+        assert!(rows[0].get("fix").is_none());
+
+        // A repair travels with the finding, so an editor offers it without re-deriving anything.
+        assert_eq!(rows[1]["fix"]["contents"], "Name\n");
+        assert_eq!(rows[1]["severity"], "warning");
+
+        // A waived finding is REPORTED and flagged, not dropped: a stale `--allow` is easier to
+        // notice as a greyed row than as an absence.
+        assert_eq!(rows[2]["waived"], true);
+        assert!(rows[2].get("file").is_none(), "nothing to point at");
+
+        assert_eq!(doc["counts"]["errors"], 1);
+        assert_eq!(doc["counts"]["warnings"], 1);
+        assert_eq!(doc["counts"]["waived"], 1);
+        assert_eq!(doc["counts"]["fixable"], 1);
+    }
+
+    #[test]
+    fn a_waived_finding_is_never_rewritten() {
+        // `--allow` says the finding may stand. Applying its fix anyway would be the opposite of
+        // standing, and would edit a file the author deliberately left alone.
+        let f = Finding {
+            code: "day::lint::store-whitespace",
+            message: "trailing space".into(),
+            fix: Some(Fix {
+                title: "Trim".into(),
+                file: "store/en/name.txt".into(),
+                contents: "Name\n".into(),
+            }),
+            ..Default::default()
+        };
+        let doc = envelope(Path::new("/app"), &[f], &["store-whitespace".to_string()]);
+        assert_eq!(doc["counts"]["fixable"], 0);
+    }
+
+    #[test]
+    fn severity_is_reserved_for_findings_about_something_that_does_not_exist() {
+        assert_eq!(severity_of("day::lint::unknown-key"), Severity::Error);
+        assert_eq!(severity_of("day::lint::unknown-route"), Severity::Error);
+        // Coverage and store copy are worth reporting and are not broken references.
+        assert_eq!(
+            severity_of("day::lint::missing-translation"),
+            Severity::Warning
+        );
+        assert_eq!(
+            severity_of("day::lint::store-placeholder"),
+            Severity::Warning
+        );
+        assert_eq!(
+            severity_of("day::lint::whatever-comes-next"),
+            Severity::Warning
         );
     }
 
@@ -1079,8 +1606,11 @@ e = { PLATFORM() }
         .unwrap();
         let mut out = Vec::new();
         scan_routes_macro_keys(&dir, &mut out);
-        out.sort();
-        assert_eq!(out, ["home", "stack"]);
+        let mut keys: Vec<String> = out.iter().map(|h| h.text.clone()).collect();
+        keys.sort();
+        assert_eq!(keys, ["home", "stack"]);
+        // Both keys are on the enum's line, which is line 2 of the file written above.
+        assert!(out.iter().all(|h| h.line == 2), "{out:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1095,8 +1625,14 @@ e = { PLATFORM() }
         .unwrap();
         let mut out = Vec::new();
         scan_script_routes(&dir, &mut out);
-        out.sort();
-        assert_eq!(out, ["controls", "stack/1", "tabs"]);
+        let mut routes: Vec<String> = out.iter().map(|h| h.text.clone()).collect();
+        routes.sort();
+        assert_eq!(routes, ["controls", "stack/1", "tabs"]);
+        // The steps are on lines 2, 3 and 5 of the script — a finding about one of them opens
+        // the file there rather than at the top.
+        let mut lines: Vec<usize> = out.iter().map(|h| h.line).collect();
+        lines.sort();
+        assert_eq!(lines, [2, 3, 5], "{out:?}");
         // A step carrying a filter is still a route of "webview": the value ends at the next key
         // in the inline map. Reading to the closing brace made every filtered step a finding.
         let f = dir.join("filtered.yaml");
@@ -1105,9 +1641,10 @@ e = { PLATFORM() }
             "flow:\n  - navigate: { route: webview, skip_on: [harmony-arkui] }\n",
         )
         .expect("write");
-        let mut routes = Vec::new();
-        scan_script_routes(&dir, &mut routes);
-        assert!(routes.contains(&"webview".to_string()), "{routes:?}");
+        let mut hits = Vec::new();
+        scan_script_routes(&dir, &mut hits);
+        let routes: Vec<&str> = hits.iter().map(|h| h.text.as_str()).collect();
+        assert!(routes.contains(&"webview"), "{routes:?}");
         assert!(
             !routes.iter().any(|r| r.contains("skip_on")),
             "the filter is not part of the route: {routes:?}"

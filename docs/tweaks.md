@@ -211,6 +211,11 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
   pokes a widget that gets discarded, and Day warns at runtime.
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
   handle clones past the call; hold a `NativeRef` and re-resolve.
+- **Never set a delegate or data source** on a widget Day drives. Day's own object is what makes
+  the piece work — `list` and the sidebar's `NSOutlineView` both install one — so replacing it
+  tears the data out from under the piece. Pieces whose native widget decides things through a
+  delegate expose those decisions as their own hooks instead (see
+  [docs/outline.md](outline.md) for the worked example).
 - **Managed properties can be clobbered.** Day re-applies what it manages (title, value, enabled,
   frame, a11y) on its next patch of that node. Unmanaged properties (bezel styles, tick marks,
   selectability) are stable. If you must re-assert, do it from an `Effect` or event handler via

@@ -420,6 +420,14 @@ enum Cmd {
         /// `day::lint::store-placeholder`. Still reported; never fails `--strict`. Repeatable.
         #[arg(long = "allow", value_name = "CODE")]
         allow: Vec<String>,
+        /// Emit the versioned JSON envelope — every finding with its file, line and proposed fix
+        /// — instead of the human report. Same as the global `--format json`.
+        #[arg(long)]
+        json: bool,
+        /// Apply the fixes the rules proposed, reporting each one. Only findings whose repair is
+        /// safe and unambiguous carry one, and a waived code is never rewritten.
+        #[arg(long)]
+        fix: bool,
     },
     /// Build a standalone app against a LOCAL day checkout (writes .cargo/config.toml), and
     /// verify no day crate is still resolving from git
@@ -926,8 +934,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 crate::metadata::run(project, json).map(|()| 0)
             })
         }
-        Cmd::Lint { strict, allow } => with_project(cli.project.as_deref(), |project| {
-            Ok(crate::lint::run(project, strict, &allow))
+        Cmd::Lint {
+            strict,
+            allow,
+            json,
+            fix,
+        } => with_project(cli.project.as_deref(), |project| {
+            let json = json || cli.format == OutputFormat::Json;
+            Ok(crate::lint::run(project, strict, &allow, json, fix))
         }),
         Cmd::Patch { local, check } => with_project(cli.project.as_deref(), |project| {
             crate::patch::run(project, local.as_deref(), check).map(|()| 0)
