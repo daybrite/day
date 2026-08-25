@@ -233,6 +233,62 @@ compiles to a constant, because `IN ()` is a syntax error there rather than an e
 `starts_with` is deliberately not built on `LIKE`, whose SQLite default is case-*insensitive*
 for ASCII and would quietly answer a different question.
 
+### Asking about a row's relatives
+
+A predicate can cross a declared relation. The derive emits `Trip::lodging()` (no receiver)
+beside the instance accessor `trip.lodging()` that reads and writes it, and one quantifier
+vocabulary covers both cardinalities — a to-one is a to-many of at most one.
+
+```rust
+// Parent → children.
+container.query::<Trip>().filter(Trip::lodging().any(Lodging::name().contains("Kyoto")))
+container.query::<Trip>().filter(Trip::lodging().is_empty())
+container.query::<Trip>().filter(Trip::lodging().count_ge(3))
+container.query::<Trip>().filter(Trip::lodging().none(Lodging::confirmed().eq(false)))
+
+// Child → the row its reference names.
+container.query::<Lodging>().filter(Lodging::trip().any(Trip::done().eq(true)))
+
+// Many-to-many, either direction, same vocabulary.
+container.query::<Note>().filter(Note::tags().any(Tag::name().eq("rust".to_string())))
+container.query::<Tag>().filter(Tag::notes().any(Note::title().starts_with("Draft")))
+
+// They are ordinary predicates, so they compose.
+container.query::<Trip>().filter(
+    Trip::lodging().any(Lodging::confirmed().eq(true)) & Trip::done().eq(false),
+)
+```
+
+| Form | Reads as | Over an empty relation |
+|---|---|---|
+| `any(p)` | some related row matches | `false` |
+| `none(p)` | no related row matches | `true` |
+| `all(p)` | every related row matches | **`true`** — vacuously, as in SQL |
+| `is_empty()` | no related rows | `true` |
+| `count_ge(n)` | at least `n` related rows | `n == 0` |
+
+`all` over an empty relation being true is the one answer that surprises people, which is why
+`none` sits beside it: "no unconfirmed lodging" and "every lodging confirmed" differ exactly for
+the rows with nothing related, and an app usually means the former.
+
+**Crossing a relation does not leave the incremental tier.** A related column the predicate
+never reads costs zero evaluations, exactly like a local one. A column it does read resolves
+back through the relation index — O(1) to a to-many's parent, the holders of a join membership —
+so one changed related row re-evaluates one local row and emits a row delta, rather than
+re-deriving the set. `is_empty` and `count_ge` read no related row at all; the index knows its
+own length.
+
+Maintenance happens in two phases around relation upkeep, because each half needs a different
+view of the index: WHICH local rows a related change can move is answered before it (a deleted
+child is still filed under its parent), and WHETHER they still match is answered after (a
+reparented child has to be under its new parent for the predicate to find it there).
+
+Two limits, stated rather than hidden. A relation inside a relation evaluates correctly to any
+depth, but back-resolution walks one hop, so a deeper fetch re-derives on a related change
+instead of guessing (`Fetch::dependencies().deep` reports it). And a relation predicate is not
+`sql_exact`: its faithful SQL is a correlated `EXISTS` needing the wiring's column names, which
+belongs with the phase that makes SQL filtering run at all.
+
 ### NULL follows SQL's rule, in both paths
 
 A comparison against a NULL column is **UNKNOWN**, not false, and UNKNOWN is not a match — so

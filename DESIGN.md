@@ -4436,8 +4436,34 @@ in-memory and SQL paths:
   folds ASCII only — the `ÉCOLE` divergence recorded in the Room comparison, now named and
   guarded rather than latent.
 
-`tests/predicates.rs` (23) covers the vocabulary, the three-valued table, the exactness flag and
-the Unicode fold. Relation-traversing predicates (`Trip::lodging().any(…)`) are the next phase.
+`tests/predicates.rs` (26) covers the vocabulary, the three-valued table, the exactness flag and
+the Unicode fold.
+
+**Predicates across relations (2026-08-25).** A query can now ask about a row's relatives:
+`Trip::lodging().any(…)`, `.none(…)`, `.all(…)`, `.is_empty()`, `.count_ge(n)` — one quantifier
+vocabulary over to-one, to-many, self-referential and many-to-many alike, because a to-one is a
+to-many of at most one. The derive emits a receiver-less `Trip::lodging()` beside the instance
+accessor, the same way `Trip::name()` sits beside `trip.name()`.
+
+The point is that crossing a relation does not leave the incremental tier. `Deps` split into
+`local` and `related` halves, so a related column the predicate never reads costs ZERO
+evaluations exactly as a local one does; a column it does read resolves back through the
+relation index — `parent_of` for a to-many, `holders_of` for a join, both O(1) — and
+re-evaluates only the local rows that change could move, emitting row deltas rather than
+re-deriving the set. `is_empty`/`count_ge` read no related row at all.
+
+Maintenance is TWO phases around relation upkeep, because each half needs a different view of
+the index: which local rows a related change can move is answered before it (a deleted child is
+still filed under its parent), and whether they still match is answered after (a reparented
+child must be under its new parent to be found there). Getting this wrong was the bug the
+membership tests caught — single-phase dispatch evaluated against a stale index.
+
+Two limits are declared rather than hidden: a relation inside a relation evaluates to any depth
+but back-resolves only one hop (`Deps::deep` reports it, and such a fetch re-derives), and a
+relation predicate is not `sql_exact` because its faithful SQL is a correlated `EXISTS` needing
+the wiring's column names. `EvalCtx` replaced `RowsView` to carry the relation half of what an
+evaluation can reach. `tests/relation_query.rs` (19) covers every shape and, more importantly,
+the counting claims.
 
 **Keys and relations (2026-08-23).** The two schema-shaping decisions, owner-ratified in
 dialog and landed together:

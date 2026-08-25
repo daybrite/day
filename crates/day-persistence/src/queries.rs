@@ -23,8 +23,62 @@ pub trait RowView {
 }
 
 /// The rows a [`LiveSet`] reads while maintaining itself.
-pub trait RowsView {
-    fn row_view(&self, key: u64) -> Option<Box<dyn RowView + '_>>;
+/// Everything evaluating a predicate can reach: the query's own rows, and — for a predicate
+/// that crosses a relation — the related ids and the rows on the other side.
+///
+/// The two relation methods default to "no relations", so a caller that only has a table
+/// (a unit test, a sort comparator) implements one method and behaves exactly as before.
+pub trait EvalCtx {
+    /// One row of the query's OWN table.
+    fn local(&self, key: u64) -> Option<Box<dyn RowView + '_>>;
+
+    /// The ids related to `key` through `field` — the children of a to-many, the referent of
+    /// a to-one, the members of a join.
+    fn related(&self, owner: &str, field: &str, key: u64) -> Vec<u64> {
+        let _ = (owner, field, key);
+        Vec::new()
+    }
+
+    /// One row of another table, reached across a relation.
+    fn target(&self, table: &str, id: u64) -> Option<Box<dyn RowView + '_>> {
+        let _ = (table, id);
+        None
+    }
+}
+
+/// A single row as a context — what a unit test evaluating one predicate against one row
+/// wants. Answers that row for every key, and knows no relations.
+pub struct OneRow<'a>(pub &'a dyn RowView);
+
+impl EvalCtx for OneRow<'_> {
+    fn local(&self, _key: u64) -> Option<Box<dyn RowView + '_>> {
+        Some(Box::new(Borrowed(self.0)))
+    }
+}
+
+struct Borrowed<'a>(&'a dyn RowView);
+
+impl RowView for Borrowed<'_> {
+    fn col(&self, column: &str) -> Option<Value> {
+        self.0.col(column)
+    }
+}
+
+/// How many related rows have to satisfy the inner predicate.
+///
+/// `All` over an empty relation is TRUE — the vacuous reading, and the one SQL gives for
+/// `NOT EXISTS (… AND NOT p)`. It is the choice that surprises people, which is why `None`
+/// sits beside it: "no unconfirmed lodging" and "every lodging confirmed" differ exactly for
+/// the rows with nothing related, and an app usually means the former.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quant {
+    Any,
+    All,
+    None,
+    /// No related rows at all — answered from the relation index, no row read.
+    Empty,
+    /// At least `n` related rows — likewise O(1).
+    CountGe(usize),
 }
 
 /// A predicate as a value. Compiles to SQL; evaluates in memory.
@@ -56,6 +110,17 @@ pub enum Pred {
     /// The ROW'S OWN KEY ∈ set — no column read, no decode, no codec, because the maintainer
     /// already holds the key. Sorted like [`Pred::In`].
     IdIn(Vec<u64>),
+    /// A question about a row's RELATIVES: "some lodging of this trip is in Kyoto".
+    /// `inner` evaluates against rows of `target`, not of the query's own table.
+    Related {
+        /// The table declaring the relation — what tells two like-named fields apart.
+        owner: &'static str,
+        /// The `Many` field, or the `One` column's FIELD name, that was crossed.
+        field: &'static str,
+        target: &'static str,
+        quant: Quant,
+        inner: Box<Pred>,
+    },
     And(Box<Pred>, Box<Pred>),
     Or(Box<Pred>, Box<Pred>),
     Not(Box<Pred>),
@@ -106,6 +171,10 @@ impl Pred {
             // A row's key never changes: it can only enter or leave an id set by being
             // inserted or deleted, which is a structural op, not a column write.
             Pred::IdIn(_) => {}
+            // The inner predicate reads the TARGET's columns, which are a different table's
+            // dependency — `Fetch::dependencies` collects them into `Deps::related`, and a
+            // local column write can never move a row through them.
+            Pred::Related { .. } => {}
             Pred::And(a, b) | Pred::Or(a, b) => {
                 a.columns(out);
                 b.columns(out);
@@ -120,6 +189,42 @@ impl Pred {
                 push(lat, out);
                 push(lon, out);
             }
+        }
+    }
+
+    /// Collect what this predicate reads ACROSS relations. `deep` records that a relation was
+    /// crossed inside another one: evaluation handles any depth, but resolving a related
+    /// change back to the local rows it can move only walks one hop, so a deeper fetch
+    /// re-queries instead of pretending.
+    fn related_deps(&self, out: &mut Vec<RelatedDep>, deep: &mut bool, depth: usize) {
+        match self {
+            Pred::Related {
+                owner,
+                field,
+                target,
+                inner,
+                ..
+            } => {
+                if depth > 0 {
+                    *deep = true;
+                    return;
+                }
+                let mut columns = Vec::new();
+                inner.columns(&mut columns);
+                out.push(RelatedDep {
+                    owner,
+                    field,
+                    target_table: target,
+                    columns,
+                });
+                inner.related_deps(out, deep, depth + 1);
+            }
+            Pred::And(a, b) | Pred::Or(a, b) => {
+                a.related_deps(out, deep, depth);
+                b.related_deps(out, deep, depth);
+            }
+            Pred::Not(a) => a.related_deps(out, deep, depth),
+            _ => {}
         }
     }
 
@@ -139,6 +244,7 @@ impl Pred {
             Pred::Raw(..) | Pred::Matches { .. } => false,
             Pred::And(a, b) | Pred::Or(a, b) => a.evaluable() && b.evaluable(),
             Pred::Not(a) => a.evaluable(),
+            Pred::Related { inner, .. } => inner.evaluable(),
             _ => true,
         }
     }
@@ -156,6 +262,10 @@ impl Pred {
     pub fn sql_exact(&self) -> bool {
         match self {
             Pred::ContainsCi(..) | Pred::StartsWithCi(..) => false,
+            // The faithful SQL is a correlated `EXISTS`, which needs the wiring's column
+            // names — not something the predicate carries. It belongs with the phase that
+            // makes SQL filtering run at all; until then this says so rather than guessing.
+            Pred::Related { .. } => false,
             Pred::And(a, b) | Pred::Or(a, b) => a.sql_exact() && b.sql_exact(),
             Pred::Not(a) => a.sql_exact(),
             _ => true,
@@ -163,8 +273,18 @@ impl Pred {
     }
 
     /// Does this row match? The WHERE-clause reading: UNKNOWN is not a match.
-    pub fn eval(&self, key: u64, row: &dyn RowView) -> bool {
-        self.eval3(key, row) == Some(true)
+    pub fn eval(&self, key: u64, ctx: &dyn EvalCtx) -> bool {
+        self.eval3(key, ctx) == Some(true)
+    }
+
+    /// [`Pred::eval`], three-valued. Resolves the row ONCE and recurses over it, so a
+    /// compound predicate does not re-materialize the row per branch.
+    pub fn eval3(&self, key: u64, ctx: &dyn EvalCtx) -> Option<bool> {
+        match ctx.local(key) {
+            Some(row) => self.eval_in(key, row.as_ref(), ctx),
+            // A row that is not there matches nothing — definitely, not unknowably.
+            None => Some(false),
+        }
     }
 
     /// Three-valued evaluation — SQL's own logic, which is the only way the in-memory path
@@ -176,7 +296,7 @@ impl Pred {
     /// rule and it stays correct for sorting; only comparison *predicates* follow the
     /// three-valued rule. `Eq`/`Ne` against a `Null` literal keep their `IS NULL` /
     /// `IS NOT NULL` meaning and are always definite.
-    pub fn eval3(&self, key: u64, row: &dyn RowView) -> Option<bool> {
+    fn eval_in(&self, key: u64, row: &dyn RowView, ctx: &dyn EvalCtx) -> Option<bool> {
         match self {
             Pred::Always => Some(true),
             // Never reached on the incremental path: an unevaluable predicate re-queries.
@@ -215,18 +335,59 @@ impl Pred {
             // The key is always present and never NULL, so membership is definite.
             Pred::IdIn(ids) => Some(ids.binary_search(&key).is_ok()),
 
+            Pred::Related {
+                owner,
+                field,
+                target,
+                quant,
+                inner,
+            } => {
+                let ids = ctx.related(owner, field, key);
+                match quant {
+                    // Membership only: the index knows its own length, so no row is read.
+                    Quant::Empty => Some(ids.is_empty()),
+                    Quant::CountGe(n) => Some(ids.len() >= *n),
+                    Quant::Any | Quant::None => {
+                        let mut found = false;
+                        for id in ids {
+                            if let Some(r) = ctx.target(target, id)
+                                && inner.eval_in(id, r.as_ref(), ctx) == Some(true)
+                            {
+                                found = true;
+                                break; // short-circuits: one match settles it
+                            }
+                        }
+                        Some(if *quant == Quant::Any { found } else { !found })
+                    }
+                    Quant::All => {
+                        for id in ids {
+                            let matched = ctx
+                                .target(target, id)
+                                .map(|r| inner.eval_in(id, r.as_ref(), ctx));
+                            // A related row that is missing, or that the predicate cannot
+                            // decide, is not a row that satisfies it.
+                            if matched != Some(Some(true)) {
+                                return Some(false);
+                            }
+                        }
+                        // Vacuously true over an empty relation — see [`Quant`].
+                        Some(true)
+                    }
+                }
+            }
+
             // Kleene logic, so UNKNOWN propagates exactly as SQL propagates it.
-            Pred::And(a, b) => match (a.eval3(key, row), b.eval3(key, row)) {
+            Pred::And(a, b) => match (a.eval_in(key, row, ctx), b.eval_in(key, row, ctx)) {
                 (Some(false), _) | (_, Some(false)) => Some(false),
                 (Some(true), Some(true)) => Some(true),
                 _ => None,
             },
-            Pred::Or(a, b) => match (a.eval3(key, row), b.eval3(key, row)) {
+            Pred::Or(a, b) => match (a.eval_in(key, row, ctx), b.eval_in(key, row, ctx)) {
                 (Some(true), _) | (_, Some(true)) => Some(true),
                 (Some(false), Some(false)) => Some(false),
                 _ => None,
             },
-            Pred::Not(a) => a.eval3(key, row).map(|v| !v),
+            Pred::Not(a) => a.eval_in(key, row, ctx).map(|v| !v),
 
             Pred::Within {
                 lat,
@@ -339,6 +500,10 @@ impl Pred {
                 let marks = vec!["?"; ids.len()].join(", ");
                 format!("{{key}} IN ({marks})")
             }
+            // Never reached: `sql_exact()` is false for a relation predicate, and `to_sql`
+            // may only be used when that holds. A constant keeps the match total without
+            // inventing SQL that would select the wrong rows.
+            Pred::Related { .. } => "1".into(),
             Pred::Between(c, lo, hi) => {
                 params.push(lo.clone());
                 params.push(hi.clone());
@@ -398,10 +563,10 @@ impl std::ops::Not for Pred {
 
 /// The fetch's total order over two rows: each sort key in turn, then the id as a stable
 /// tie-break — so the order is deterministic and a binary search over it is well defined.
-fn cmp_by(fetch: &Fetch, a: u64, b: u64, rows: &dyn RowsView) -> Ordering {
+fn cmp_by(fetch: &Fetch, a: u64, b: u64, rows: &dyn EvalCtx) -> Ordering {
     for s in &fetch.sort {
-        let va = rows.row_view(a).and_then(|r| r.col(s.column));
-        let vb = rows.row_view(b).and_then(|r| r.col(s.column));
+        let va = rows.local(a).and_then(|r| r.col(s.column));
+        let vb = rows.local(b).and_then(|r| r.col(s.column));
         let ord = match (&va, &vb) {
             (Some(x), Some(y)) => compare_values(x, y),
             (None, None) => Ordering::Equal,
@@ -475,6 +640,13 @@ pub fn compare_values(a: &Value, b: &Value) -> Ordering {
 /// built from it compares in the column's stored language whatever codec the field uses.
 pub struct Col<V: 'static> {
     pub column: &'static str,
+    /// The struct FIELD this column stores. The change log speaks field names and the SQL
+    /// speaks column names; they differ under `#[model(column = "…")]`, and a relation is
+    /// wired by field, so a predicate that crosses one needs both.
+    pub field: &'static str,
+    /// The table this column belongs to — what disambiguates a relation when two models
+    /// happen to name a field alike.
+    pub owner: &'static str,
     encode: fn(&V) -> Value,
 }
 
@@ -485,14 +657,88 @@ impl<V> Clone for Col<V> {
 }
 impl<V> Copy for Col<V> {}
 
+/// A relation, as a predicate builder — what `Trip::lodging()` returns. The instance
+/// accessor of the same name (`trip.lodging()`) reads and writes the relation; this one asks
+/// questions about it in a query. They cannot collide: one takes `self`, this one does not.
+pub struct RelationCol<P: 'static, T: 'static> {
+    field: &'static str,
+    owner: &'static str,
+    target: &'static str,
+    _p: std::marker::PhantomData<fn() -> (P, T)>,
+}
+
+impl<P, T> Clone for RelationCol<P, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<P, T> Copy for RelationCol<P, T> {}
+
+impl<P, T> RelationCol<P, T> {
+    pub const fn new(field: &'static str, owner: &'static str, target: &'static str) -> Self {
+        RelationCol {
+            field,
+            owner,
+            target,
+            _p: std::marker::PhantomData,
+        }
+    }
+
+    fn build(self, quant: Quant, inner: Pred) -> Pred {
+        Pred::Related {
+            owner: self.owner,
+            field: self.field,
+            target: self.target,
+            quant,
+            inner: Box::new(inner),
+        }
+    }
+
+    /// Some related row matches. False when there are none.
+    pub fn any(self, inner: Pred) -> Pred {
+        self.build(Quant::Any, inner)
+    }
+
+    /// No related row matches. True when there are none.
+    pub fn none(self, inner: Pred) -> Pred {
+        self.build(Quant::None, inner)
+    }
+
+    /// Every related row matches — VACUOUSLY TRUE when there are none, as in SQL. Reach for
+    /// [`RelationCol::none`] when that is not what you meant.
+    pub fn all(self, inner: Pred) -> Pred {
+        self.build(Quant::All, inner)
+    }
+
+    /// No related rows at all — answered from the index, without reading one.
+    pub fn is_empty(self) -> Pred {
+        self.build(Quant::Empty, Pred::Always)
+    }
+
+    /// At least `n` related rows — likewise O(1).
+    pub fn count_ge(self, n: usize) -> Pred {
+        self.build(Quant::CountGe(n), Pred::Always)
+    }
+}
+
 /// The encoder a plain (codec-less) field's [`Col`] carries.
 pub fn encode_column<T: crate::ColumnValue>(v: &T) -> Value {
     v.to_sqlite_value()
 }
 
 impl<V> Col<V> {
-    pub const fn new(column: &'static str, encode: fn(&V) -> Value) -> Col<V> {
-        Col { column, encode }
+    pub const fn new(
+        column: &'static str,
+        field: &'static str,
+        owner: &'static str,
+        encode: fn(&V) -> Value,
+    ) -> Col<V> {
+        Col {
+            column,
+            field,
+            owner,
+            encode,
+        }
     }
     fn enc(&self, v: &V) -> Value {
         (self.encode)(v)
@@ -712,10 +958,13 @@ impl Fetch {
                 local.push(s.column);
             }
         }
+        let mut related = Vec::new();
+        let mut deep = false;
+        self.pred.related_deps(&mut related, &mut deep, 0);
         Deps {
             local,
-            // Filled by relation-traversing predicates; nothing produces one yet.
-            related: Vec::new(),
+            related,
+            deep,
         }
     }
 
@@ -754,13 +1003,18 @@ pub enum Outcome {
 pub struct Deps {
     /// Columns of the query's own table — its predicate's and its sort's.
     pub local: Vec<&'static str>,
-    /// One entry per relation the predicate crosses.
+    /// One entry per relation the predicate crosses, at the top level.
     pub related: Vec<RelatedDep>,
+    /// A relation was crossed INSIDE another one. Evaluation handles it; incremental
+    /// back-resolution does not, so a related change re-queries rather than guess.
+    pub deep: bool,
 }
 
 /// One relation's contribution to a fetch's dependencies.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RelatedDep {
+    /// The table declaring the relation.
+    pub owner: &'static str,
     /// The `Many` field, or the `One` column, the predicate crossed.
     pub field: &'static str,
     pub target_table: &'static str,
@@ -823,6 +1077,11 @@ impl LiveSet {
         &self.fetch
     }
 
+    /// What this set reads — its own columns, and anything it reaches across a relation.
+    pub fn deps(&self) -> &Deps {
+        &self.deps
+    }
+
     pub fn evaluations(&self) -> usize {
         self.evaluations.get()
     }
@@ -833,15 +1092,11 @@ impl LiveSet {
     }
 
     /// Seed by evaluating over every key — the in-memory fetch a document-pattern store uses.
-    pub fn seed(&mut self, keys: &[u64], rows: &dyn RowsView) {
+    pub fn seed(&mut self, keys: &[u64], rows: &dyn EvalCtx) {
         self.ids = keys
             .iter()
             .copied()
-            .filter(|k| {
-                rows.row_view(*k)
-                    .map(|r| self.fetch.pred.eval(*k, r.as_ref()))
-                    .unwrap_or(false)
-            })
+            .filter(|k| self.fetch.pred.eval(*k, rows))
             .collect();
         self.sort_ids(rows);
         if let Some(n) = self.fetch.limit {
@@ -849,7 +1104,7 @@ impl LiveSet {
         }
     }
 
-    fn sort_ids(&mut self, rows: &dyn RowsView) {
+    fn sort_ids(&mut self, rows: &dyn EvalCtx) {
         let fetch = &self.fetch;
         self.ids.sort_by(|a, b| cmp_by(fetch, *a, *b, rows));
     }
@@ -858,7 +1113,7 @@ impl LiveSet {
     /// O(n log n) a re-sort costs. This is what keeps one edit to a sort column one edit's
     /// worth of work no matter how large the result set is; `ids` is a sorted run at every
     /// point the maintainer observes it, which is the invariant that makes the search valid.
-    fn sorted_position(&self, key: u64, rows: &dyn RowsView) -> usize {
+    fn sorted_position(&self, key: u64, rows: &dyn EvalCtx) -> usize {
         let fetch = &self.fetch;
         self.ids
             .partition_point(|other| cmp_by(fetch, *other, key, rows) == Ordering::Less)
@@ -871,7 +1126,7 @@ impl LiveSet {
         key: u64,
         column: &str,
         op: day_model::Op,
-        rows: &dyn RowsView,
+        rows: &dyn EvalCtx,
     ) -> Outcome {
         if !self.fetch.evaluable() {
             // Raw SQL re-queries for everything — unreadable is unreadable. An FTS/rank fetch
@@ -908,12 +1163,9 @@ impl LiveSet {
         }
     }
 
-    fn reposition(&mut self, key: u64, rows: &dyn RowsView) -> Outcome {
+    fn reposition(&mut self, key: u64, rows: &dyn EvalCtx) -> Outcome {
         self.evaluations.set(self.evaluations.get() + 1);
-        let belongs = rows
-            .row_view(key)
-            .map(|r| self.fetch.pred.eval(key, r.as_ref()))
-            .unwrap_or(false);
+        let belongs = self.fetch.pred.eval(key, rows);
         let at = self.ids.iter().position(|k| *k == key);
 
         match (belongs, at) {

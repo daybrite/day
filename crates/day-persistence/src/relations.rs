@@ -182,6 +182,48 @@ impl<M: Model> crate::Col<One<M>> {
     }
 }
 
+/// Traversing a to-one reference in a predicate: "lodgings whose trip is done". A to-one is
+/// a to-many of at most one, so the quantifier vocabulary is the same one the `Many` side
+/// uses — `any` reads as "its target matches, and there is one".
+impl<M: Model> crate::Col<One<M>> {
+    pub fn any(self, inner: crate::Pred) -> crate::Pred {
+        self.quantified(crate::Quant::Any, inner)
+    }
+    pub fn none(self, inner: crate::Pred) -> crate::Pred {
+        self.quantified(crate::Quant::None, inner)
+    }
+
+    fn quantified(self, quant: crate::Quant, inner: crate::Pred) -> crate::Pred {
+        crate::Pred::Related {
+            owner: self.owner,
+            field: self.field,
+            target: <M as Model>::TABLE,
+            quant,
+            inner: Box::new(inner),
+        }
+    }
+}
+
+/// The same, over a nullable reference.
+impl<M: Model> crate::Col<Option<One<M>>> {
+    pub fn any(self, inner: crate::Pred) -> crate::Pred {
+        self.quantified(crate::Quant::Any, inner)
+    }
+    pub fn none(self, inner: crate::Pred) -> crate::Pred {
+        self.quantified(crate::Quant::None, inner)
+    }
+
+    fn quantified(self, quant: crate::Quant, inner: crate::Pred) -> crate::Pred {
+        crate::Pred::Related {
+            owner: self.owner,
+            field: self.field,
+            target: <M as Model>::TABLE,
+            quant,
+            inner: Box::new(inner),
+        }
+    }
+}
+
 /// The same tests over a NULLABLE reference (`Option<One<M>>`), which is what a relation with
 /// a nullify delete rule requires the child to hold.
 impl<M: Model> crate::Col<Option<One<M>>> {
@@ -332,6 +374,12 @@ impl ToOneRel {
             .get(&parent)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// The parent this child belongs to — O(1), and the back-resolution that keeps a
+    /// related change to one re-evaluated row.
+    pub(crate) fn parent_of(&self, child: u64) -> Option<u64> {
+        self.index.borrow().parent_of.get(&child).copied()
     }
 
     pub(crate) fn read_order(&self, child: u64) -> f64 {
@@ -666,6 +714,12 @@ impl JoinRel {
             &idx.by_child
         };
         map.get(&key).cloned().unwrap_or_default()
+    }
+
+    /// The rows on the OTHER side that hold `key` — the join's back-resolution.
+    pub(crate) fn holders_of(&self, key: u64, forward: bool) -> Vec<u64> {
+        // Looking back from a B row means asking `by_child`, and vice versa.
+        self.members_of(key, !forward)
     }
 
     fn position_of(&self, parent: u64, child: u64) -> f64 {

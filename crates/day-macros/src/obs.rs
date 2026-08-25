@@ -335,11 +335,25 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
         };
         cols.push_str(&format!(
             "    pub fn {}() -> day_persistence::Col<{}> {{\n\
-             \x20       day_persistence::Col::new(\"{}\", {encode})\n\
+             \x20       day_persistence::Col::new(\"{}\", \"{}\", \"{table}\", {encode})\n\
              \x20   }}\n",
             f.name,
             f.ty,
             f.column_name(),
+            f.name,
+        ));
+    }
+    // The STATIC relation reference, for predicates. The instance accessor of the same name
+    // lives on the Relations trait and takes `self`, so path syntax finds this one and
+    // method-call syntax finds that one — the rule `Trip::name()` already relies on.
+    for f in def.fields.iter().filter(|f| f.relation.is_some()) {
+        let r = f.relation.as_ref().expect("filtered");
+        cols.push_str(&format!(
+            "    pub fn {}() -> day_persistence::RelationCol<{name}, {}> {{\n\
+             \x20       day_persistence::RelationCol::new(\"{}\", \"{table}\", \
+             <{} as day_persistence::Model>::TABLE)\n\
+             \x20   }}\n",
+            f.name, r.target, f.name, r.target,
         ));
     }
     if !def.fts.is_empty() {

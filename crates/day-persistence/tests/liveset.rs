@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use day_model::Op;
-use day_persistence::{Delta, Fetch, LiveSet, Outcome, Pred, RowView, RowsView, Sort, Value};
+use day_persistence::{Delta, EvalCtx, Fetch, LiveSet, Outcome, Pred, RowView, Sort, Value};
 
 #[derive(Clone)]
 struct Trip {
@@ -35,8 +35,8 @@ impl RowView for TripView<'_> {
 #[derive(Default)]
 struct Table(BTreeMap<u64, Trip>);
 
-impl RowsView for Table {
-    fn row_view(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
+impl EvalCtx for Table {
+    fn local(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
         self.0
             .get(&key)
             .map(|t| Box::new(TripView(t)) as Box<dyn RowView>)
@@ -261,8 +261,8 @@ fn within_evaluates_in_memory_and_matches_requeries() {
         }
     }
     struct Pins(BTreeMap<u64, Pin>);
-    impl RowsView for Pins {
-        fn row_view(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
+    impl EvalCtx for Pins {
+        fn local(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
             self.0
                 .get(&key)
                 .map(|p| Box::new(PinView(p)) as Box<dyn RowView>)
@@ -320,8 +320,8 @@ fn nan_sort_keys_stay_deterministic() {
         }
     }
     struct Ns(BTreeMap<u64, N>);
-    impl RowsView for Ns {
-        fn row_view(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
+    impl EvalCtx for Ns {
+        fn local(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
             self.0
                 .get(&key)
                 .map(|n| Box::new(NV(n)) as Box<dyn RowView>)

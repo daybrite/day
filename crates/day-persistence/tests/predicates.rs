@@ -9,7 +9,7 @@
 use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
 use day_persistence::{
-    Fetch, ModelContainer, One, Pred, RowView, Sqlite, Value, compare_values, schema,
+    Fetch, ModelContainer, One, OneRow, Pred, RowView, Sqlite, Value, compare_values, schema,
 };
 use day_reactive::Binding;
 
@@ -283,17 +283,17 @@ fn a_comparison_against_null_is_unknown_not_false() {
         Pred::In("shelf", vec![Value::Text("A".into())]),
     ] {
         assert_eq!(
-            pred.eval3(0, &null_row),
+            pred.eval3(0, &OneRow(&null_row)),
             None,
             "{pred:?} against NULL must be UNKNOWN"
         );
         assert!(
-            !pred.eval(0, &null_row),
+            !pred.eval(0, &OneRow(&null_row)),
             "{pred:?} must not select a NULL row"
         );
     }
     // …while the same predicates stay definite over a present value.
-    assert_eq!(Pred::Ne("shelf", b).eval3(0, &a_row), Some(true));
+    assert_eq!(Pred::Ne("shelf", b).eval3(0, &OneRow(&a_row)), Some(true));
 }
 
 #[test]
@@ -305,44 +305,44 @@ fn unknown_propagates_through_and_or_and_not() {
 
     // AND: false dominates, otherwise UNKNOWN survives.
     assert_eq!(
-        Pred::And(Box::new(unknown.clone()), Box::new(no.clone())).eval3(0, &null_row),
+        Pred::And(Box::new(unknown.clone()), Box::new(no.clone())).eval3(0, &OneRow(&null_row)),
         Some(false)
     );
     assert_eq!(
-        Pred::And(Box::new(unknown.clone()), Box::new(yes.clone())).eval3(0, &null_row),
+        Pred::And(Box::new(unknown.clone()), Box::new(yes.clone())).eval3(0, &OneRow(&null_row)),
         None
     );
     // OR: true dominates.
     assert_eq!(
-        Pred::Or(Box::new(unknown.clone()), Box::new(yes)).eval3(0, &null_row),
+        Pred::Or(Box::new(unknown.clone()), Box::new(yes)).eval3(0, &OneRow(&null_row)),
         Some(true)
     );
     assert_eq!(
-        Pred::Or(Box::new(unknown.clone()), Box::new(no)).eval3(0, &null_row),
+        Pred::Or(Box::new(unknown.clone()), Box::new(no)).eval3(0, &OneRow(&null_row)),
         None
     );
     // NOT UNKNOWN is UNKNOWN — so a negated predicate still does not select a NULL row.
     assert_eq!(
-        Pred::Not(Box::new(unknown.clone())).eval3(0, &null_row),
+        Pred::Not(Box::new(unknown.clone())).eval3(0, &OneRow(&null_row)),
         None
     );
-    assert!(!Pred::Not(Box::new(unknown)).eval(0, &null_row));
+    assert!(!Pred::Not(Box::new(unknown)).eval(0, &OneRow(&null_row)));
 }
 
 #[test]
 fn is_null_stays_definite_about_null() {
     let null_row = text_row(None);
     assert_eq!(
-        Pred::Eq("shelf", Value::Null).eval3(0, &null_row),
+        Pred::Eq("shelf", Value::Null).eval3(0, &OneRow(&null_row)),
         Some(true)
     );
     assert_eq!(
-        Pred::Ne("shelf", Value::Null).eval3(0, &null_row),
+        Pred::Ne("shelf", Value::Null).eval3(0, &OneRow(&null_row)),
         Some(false)
     );
     // And a NOT over it is an ordinary negation, because there is no UNKNOWN to propagate.
     assert_eq!(
-        Pred::Not(Box::new(Pred::Eq("shelf", Value::Null))).eval3(0, &null_row),
+        Pred::Not(Box::new(Pred::Eq("shelf", Value::Null))).eval3(0, &OneRow(&null_row)),
         Some(false)
     );
 }
@@ -422,8 +422,8 @@ fn id_membership_reads_no_column_at_all() {
     // the compilation target for relation traversal.
     let empty = Row(Vec::new());
     let pred = Pred::IdIn(vec![7, 9, 11]);
-    assert!(pred.eval(9, &empty));
-    assert!(!pred.eval(8, &empty));
+    assert!(pred.eval(9, &OneRow(&empty)));
+    assert!(!pred.eval(8, &OneRow(&empty)));
     // And it depends on no column, so a column write can never move a row through it.
     let mut cols = Vec::new();
     pred.columns(&mut cols);
@@ -493,9 +493,9 @@ fn membership_uses_the_same_equality_eq_does() {
         std::cmp::Ordering::Equal
     );
     let row = Row(vec![("n", Value::Real(1.0))]);
-    assert!(!Pred::In("n", vec![Value::Int(1)]).eval(0, &row));
-    assert!(!Pred::Eq("n", Value::Int(1)).eval(0, &row));
-    assert!(Pred::In("n", vec![Value::Real(1.0)]).eval(0, &row));
+    assert!(!Pred::In("n", vec![Value::Int(1)]).eval(0, &OneRow(&row)));
+    assert!(!Pred::Eq("n", Value::Int(1)).eval(0, &OneRow(&row)));
+    assert!(Pred::In("n", vec![Value::Real(1.0)]).eval(0, &OneRow(&row)));
 }
 
 // --- the dependency structure -----------------------------------------------------------

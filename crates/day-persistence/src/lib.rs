@@ -34,8 +34,8 @@ use day_model::{Identified, Key, Keyed, ModelId, Op, Store};
 
 mod queries;
 pub use queries::{
-    Col, Delta, Deps, Fetch, FtsRef, GeoRect, GeoRef, LiveSet, Outcome, Pred, RelatedDep, RowView,
-    RowsView, Sort, compare_values, encode_column, rank,
+    Col, Delta, Deps, EvalCtx, Fetch, FtsRef, GeoRect, GeoRef, LiveSet, OneRow, Outcome, Pred,
+    Quant, RelatedDep, RelationCol, RowView, Sort, compare_values, encode_column, rank,
 };
 
 mod relations;
@@ -1696,8 +1696,15 @@ impl ModelContainer {
                         .note(change, |store| tables.contains_key(&store));
                 }
                 let container = ModelContainer { inner };
+                // Relation predicates take two phases around relation maintenance, because
+                // each half needs a different view of the index. WHICH local rows a related
+                // change can move is answered before — a deleted child is still filed under
+                // its parent. WHETHER they still match is answered after — a reparented child
+                // has to be under its new parent for the predicate to see it there.
+                let affected = container.related_affected(change);
                 container.dispatch_to_queries(change);
                 container.relations_on_change(change);
+                container.reevaluate(affected);
             }
         });
         self.inner.sink.set(Some(sink));
@@ -2001,6 +2008,11 @@ impl QueryEvents {
 struct QueryState {
     store_id: u64,
     table: &'static str,
+    /// The stores this query reaches across a relation, so dispatch can route a related
+    /// table's changes here. Empty for a fetch that crosses none, which is what keeps those
+    /// queries on exactly the path they always took. Recomputed when the fetch is swapped —
+    /// a `query_fn` may re-derive into a predicate that crosses a different relation.
+    related_stores: RefCell<Vec<u64>>,
     set: RefCell<LiveSet>,
     /// Bumped whenever the result set changes; `ids()`/`count()` track it.
     version: day_reactive::Signal<u64>,
@@ -2097,6 +2109,7 @@ impl<M: Model> Query<M> {
             return;
         }
         let sql_backed = !fetch.evaluable();
+        *self.state.related_stores.borrow_mut() = self.container.related_stores_of(&fetch);
         {
             let mut set = self.state.set.borrow_mut();
             *set = LiveSet::new(fetch);
@@ -2154,8 +2167,102 @@ impl<M: Model> QueryBuilder<'_, M> {
 }
 
 /// Adapter: a table's rows, as predicates read them (column name → stored value).
+/// What a predicate can reach while a query maintains itself: the query's own rows, and —
+/// when the predicate crosses a relation — the wired relations and the tables on the far side.
+/// `rel` is `None` for the paths that cannot cross one (an FTS candidate filter), which keeps
+/// those exactly as cheap as they were.
 struct HooksRows<'a> {
     hooks: &'a TableHooks,
+    rel: Option<RelCtx<'a>>,
+}
+
+/// A dependency's wired relation, and the direction the predicate crossed it.
+enum DepRel<'a> {
+    /// Parent → its children: a changed CHILD moves its parent.
+    Children(&'a Rc<relations::ToOneRel>),
+    /// Child → the row its foreign key names: a changed PARENT moves its children.
+    Referent(&'a Rc<relations::ToOneRel>),
+    /// A join, with `true` when the querying side is the one that declared the table.
+    Join(&'a Rc<relations::JoinRel>, bool),
+}
+
+/// The relation half of the context, borrowed from the container for one maintenance pass.
+#[derive(Clone, Copy)]
+struct RelCtx<'a> {
+    tables: &'a HashMap<u64, TableHooks>,
+    relations: &'a [Rc<relations::ToOneRel>],
+    joins: &'a [Rc<relations::JoinRel>],
+}
+
+impl<'a> RelCtx<'a> {
+    fn store_of(&self, table: &str) -> Option<u64> {
+        self.tables
+            .iter()
+            .find(|(_, h)| h.table == table)
+            .map(|(id, _)| *id)
+    }
+
+    fn hooks_of(&self, table: &str) -> Option<&'a TableHooks> {
+        self.tables.values().find(|h| h.table == table)
+    }
+
+    /// The wired relation a dependency names, and which way the predicate crossed it.
+    fn resolve(&self, dep: &RelatedDep) -> Option<DepRel<'a>> {
+        let owner_store = self.store_of(dep.owner)?;
+        for r in self.relations {
+            if r.parent_store == owner_store && r.parent_field == dep.field {
+                return Some(DepRel::Children(r));
+            }
+            if r.child_store == owner_store && r.fk_field == dep.field {
+                return Some(DepRel::Referent(r));
+            }
+        }
+        for j in self.joins {
+            if j.a_store == owner_store && j.a_field == dep.field {
+                return Some(DepRel::Join(j, true));
+            }
+            if j.b_store == owner_store && j.b_field.get() == Some(dep.field) {
+                return Some(DepRel::Join(j, false));
+            }
+        }
+        None
+    }
+
+    /// The COLUMN a table stores a field in — they differ under `#[model(column = "…")]`.
+    fn column_for(&self, store: u64, field: &str) -> Option<&'a str> {
+        let hooks = self.tables.get(&store)?;
+        hooks
+            .fields
+            .iter()
+            .position(|f| f == field)
+            .map(|i| hooks.columns[i].as_str())
+    }
+
+    /// The ids `key` relates to through `owner.field`, whichever relation shape declared it.
+    fn related(&self, owner: &str, field: &str, key: u64) -> Vec<u64> {
+        let Some(owner_store) = self.store_of(owner) else {
+            return Vec::new();
+        };
+        for r in self.relations {
+            // The parent's side: its children.
+            if r.parent_store == owner_store && r.parent_field == field {
+                return r.children_of(key);
+            }
+            // The child's side: the one row its foreign key names.
+            if r.child_store == owner_store && r.fk_field == field {
+                return r.parent_of(key).into_iter().collect();
+            }
+        }
+        for j in self.joins {
+            if j.a_store == owner_store && j.a_field == field {
+                return j.members_of(key, true);
+            }
+            if j.b_store == owner_store && j.b_field.get() == Some(field) {
+                return j.members_of(key, false);
+            }
+        }
+        Vec::new()
+    }
 }
 
 struct ColsRow<'a> {
@@ -2172,11 +2279,27 @@ impl RowView for ColsRow<'_> {
     }
 }
 
-impl RowsView for HooksRows<'_> {
-    fn row_view(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
+impl EvalCtx for HooksRows<'_> {
+    fn local(&self, key: u64) -> Option<Box<dyn RowView + '_>> {
         (self.hooks.row_for)(key).map(|values| {
             Box::new(ColsRow {
                 cols: &self.hooks.columns,
+                values,
+            }) as Box<dyn RowView>
+        })
+    }
+
+    fn related(&self, owner: &str, field: &str, key: u64) -> Vec<u64> {
+        self.rel
+            .map(|r| r.related(owner, field, key))
+            .unwrap_or_default()
+    }
+
+    fn target(&self, table: &str, id: u64) -> Option<Box<dyn RowView + '_>> {
+        let hooks = self.rel?.hooks_of(table)?;
+        (hooks.row_for)(id).map(|values| {
+            Box::new(ColsRow {
+                cols: &hooks.columns,
                 values,
             }) as Box<dyn RowView>
         })
@@ -2386,9 +2509,11 @@ impl ModelContainer {
     fn install_query<M: Model>(&self, fetch: Fetch, raw: Option<RawQuery>) -> Query<M> {
         let store = self.store::<M>();
         let sql_backed = raw.is_some() || !fetch.evaluable();
+        let related_stores = self.related_stores_of(&fetch);
         let state = Rc::new(QueryState {
             store_id: store.store_id(),
             table: M::TABLE,
+            related_stores: RefCell::new(related_stores),
             set: RefCell::new(LiveSet::new(fetch)),
             version: day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(0)),
             pending: RefCell::new(QueryEvents::None),
@@ -2415,14 +2540,57 @@ impl ModelContainer {
         q
     }
 
+    /// The stores a fetch reaches across a relation — what dispatch routes on.
+    fn related_stores_of(&self, fetch: &Fetch) -> Vec<u64> {
+        let tables = self.inner.tables.borrow();
+        let relations = self.inner.relations.borrow();
+        let joins = self.inner.joins.borrow();
+        let rel = RelCtx {
+            tables: &tables,
+            relations: &relations,
+            joins: &joins,
+        };
+        let deps = fetch.dependencies();
+        let mut out: Vec<u64> = Vec::new();
+        let push = |id: u64, out: &mut Vec<u64>| {
+            if !out.contains(&id) {
+                out.push(id);
+            }
+        };
+        for t in deps.related_tables() {
+            if let Some(id) = rel.store_of(t) {
+                push(id, &mut out);
+            }
+        }
+        // A many-to-many's membership lives in the JOIN store, and that is where linking and
+        // unlinking announce — without it a query would hear about a tag's rows but never
+        // about a note joining one.
+        for dep in &deps.related {
+            if let Some(DepRel::Join(j, _)) = rel.resolve(dep) {
+                push(j.join_store, &mut out);
+            }
+        }
+        out
+    }
+
     /// In-memory seed over the store — the document pattern's fetch, no SQL at all.
     fn reseed_in_memory(&self, state: &Rc<QueryState>) {
         let tables = self.inner.tables.borrow();
+        let relations = self.inner.relations.borrow();
+        let joins = self.inner.joins.borrow();
         let Some(hooks) = tables.get(&state.store_id) else {
             return;
         };
+        let rel = Some(RelCtx {
+            tables: &tables,
+            relations: &relations,
+            joins: &joins,
+        });
         let keys: Vec<u64> = (hooks.all_rows)().iter().map(|(k, _)| *k).collect();
-        state.set.borrow_mut().seed(&keys, &HooksRows { hooks });
+        state
+            .set
+            .borrow_mut()
+            .seed(&keys, &HooksRows { hooks, rel });
     }
 
     /// One announced change, routed to every query on that store.
@@ -2430,27 +2598,39 @@ impl ModelContainer {
         let Some(&store) = change.components.first() else {
             return;
         };
+        // A query hears about its OWN table, and about any table its predicate reaches across
+        // a relation. A fetch with no relation in it collects an empty list and takes exactly
+        // the path it always did.
         let states: Vec<Rc<QueryState>> = {
             let mut queries = self.inner.queries.borrow_mut();
             queries.retain(|w| w.strong_count() > 0);
             queries
                 .iter()
                 .filter_map(|w| w.upgrade())
-                .filter(|s| s.store_id == store)
+                .filter(|s| s.store_id == store || s.related_stores.borrow().contains(&store))
                 .collect()
         };
         if states.is_empty() {
             return;
         }
         let tables = self.inner.tables.borrow();
-        let Some(hooks) = tables.get(&store) else {
+        let relations = self.inner.relations.borrow();
+        let joins = self.inner.joins.borrow();
+        let rel = Some(RelCtx {
+            tables: &tables,
+            relations: &relations,
+            joins: &joins,
+        });
+        let Some(changed) = tables.get(&store) else {
             return;
         };
 
         // A store-level change (wholesale update): every set may have moved.
         let Some(&key) = change.components.get(1) else {
             for state in &states {
-                self.requery(state, hooks);
+                if let Some(hooks) = tables.get(&state.store_id) {
+                    self.requery(state, hooks, rel);
+                }
             }
             return;
         };
@@ -2459,22 +2639,27 @@ impl ModelContainer {
         }
         // The change log speaks FIELD names; predicates speak COLUMN names.
         let column: &str = if change.components.len() >= 3 {
-            hooks
+            changed
                 .fields
                 .iter()
                 .position(|f| f == change.label)
-                .map(|i| hooks.columns[i].as_str())
+                .map(|i| changed.columns[i].as_str())
                 .unwrap_or("\u{0}") // a transient field: never a dependency column
         } else {
             ""
         };
 
         for state in &states {
-            let outcome =
-                state
-                    .set
-                    .borrow_mut()
-                    .apply(key, column, change.op, &HooksRows { hooks });
+            let Some(hooks) = tables.get(&state.store_id) else {
+                continue;
+            };
+            let ctx = HooksRows { hooks, rel };
+            // Relation crossings are handled around this, in the two-phase pass; here a
+            // query only answers for its OWN table.
+            if state.store_id != store {
+                continue;
+            }
+            let outcome = state.set.borrow_mut().apply(key, column, change.op, &ctx);
             match outcome {
                 Outcome::Unaffected => {}
                 Outcome::Changed(deltas) => {
@@ -2483,18 +2668,239 @@ impl ModelContainer {
                         .version
                         .set(state.version.get_untracked().wrapping_add(1));
                 }
-                Outcome::Requery => self.requery(state, hooks),
+                Outcome::Requery => self.requery(state, hooks, rel),
+            }
+        }
+    }
+
+    /// A related row moved: work out which of THIS query's rows that can move, and
+    /// re-evaluate exactly those.
+    ///
+    /// This is what keeps a relation predicate in the one-row tier. A column the predicate
+    /// never reads costs nothing at all; a column it does read resolves back through the
+    /// relation index — O(1) for a to-many's parent, the holders for a join — so the work is
+    /// one evaluation per affected row rather than a re-seed of the set.
+    fn related_affected(&self, change: &day_model::Change) -> Vec<(Rc<QueryState>, Vec<u64>)> {
+        let Some(&store) = change.components.first() else {
+            return Vec::new();
+        };
+        let Some(&key) = change.components.get(1) else {
+            return Vec::new();
+        };
+        if key == day_model::STRUCTURE {
+            return Vec::new();
+        }
+        let states: Vec<Rc<QueryState>> = {
+            let queries = self.inner.queries.borrow();
+            queries
+                .iter()
+                .filter_map(|w| w.upgrade())
+                .filter(|s| s.related_stores.borrow().contains(&store))
+                .collect()
+        };
+        if states.is_empty() {
+            return Vec::new();
+        }
+        let tables = self.inner.tables.borrow();
+        let relations = self.inner.relations.borrow();
+        let joins = self.inner.joins.borrow();
+        let rel = RelCtx {
+            tables: &tables,
+            relations: &relations,
+            joins: &joins,
+        };
+        let changed_table = tables.get(&store).map(|h| h.table).unwrap_or("");
+        // The change log speaks FIELD names; a dependency speaks COLUMN names.
+        let column: &str = if change.components.len() >= 3 {
+            tables
+                .get(&store)
+                .and_then(|h| {
+                    h.fields
+                        .iter()
+                        .position(|f| f == change.label)
+                        .map(|i| h.columns[i].as_str())
+                })
+                .unwrap_or("\u{0}")
+        } else {
+            ""
+        };
+        let structural = change.components.len() == 2;
+
+        let mut out = Vec::new();
+        for state in states {
+            let Some(local_hooks) = tables.get(&state.store_id) else {
+                continue;
+            };
+            let ctx = HooksRows {
+                hooks: local_hooks,
+                rel: Some(rel),
+            };
+            let deps = state.set.borrow().deps().clone();
+            if deps.deep {
+                // Cannot be walked back; the whole set re-derives instead of guessing.
+                out.push((state, Vec::new()));
+                continue;
+            }
+            let mut affected: Vec<u64> = Vec::new();
+            for dep in &deps.related {
+                let Some(wired) = rel.resolve(dep) else {
+                    continue;
+                };
+                if !Self::dep_hears(&wired, dep, store, changed_table, column, structural, rel) {
+                    continue;
+                }
+                for local in Self::back_resolve(&wired, dep, store, key, &ctx, rel) {
+                    if !affected.contains(&local) {
+                        affected.push(local);
+                    }
+                }
+            }
+            if !affected.is_empty() {
+                out.push((state, affected));
+            }
+        }
+        out
+    }
+
+    /// Phase two: the relation index is current, so re-evaluate the rows phase one named.
+    /// An empty list means the fetch could not be walked back and re-derives instead.
+    fn reevaluate(&self, affected: Vec<(Rc<QueryState>, Vec<u64>)>) {
+        if affected.is_empty() {
+            return;
+        }
+        let tables = self.inner.tables.borrow();
+        let relations = self.inner.relations.borrow();
+        let joins = self.inner.joins.borrow();
+        let rel = Some(RelCtx {
+            tables: &tables,
+            relations: &relations,
+            joins: &joins,
+        });
+        for (state, keys) in affected {
+            let Some(hooks) = tables.get(&state.store_id) else {
+                continue;
+            };
+            let ctx = HooksRows { hooks, rel };
+            if keys.is_empty() {
+                self.requery(&state, hooks, rel);
+                continue;
+            }
+            let mut deltas = Vec::new();
+            let mut requery = false;
+            for key in keys {
+                match state
+                    .set
+                    .borrow_mut()
+                    .apply(key, "", day_model::Op::Set, &ctx)
+                {
+                    Outcome::Changed(d) => deltas.extend(d),
+                    Outcome::Requery => {
+                        requery = true;
+                        break;
+                    }
+                    Outcome::Unaffected => {}
+                }
+            }
+            if requery {
+                self.requery(&state, hooks, rel);
+            } else if !deltas.is_empty() {
+                state.pending.borrow_mut().push(&deltas);
+                state
+                    .version
+                    .set(state.version.get_untracked().wrapping_add(1));
+            }
+        }
+    }
+
+    /// Whether this change can move a row through this dependency at all — the check that
+    /// keeps a related column the predicate never reads costing nothing.
+    fn dep_hears(
+        wired: &DepRel<'_>,
+        dep: &RelatedDep,
+        changed_store: u64,
+        changed_table: &str,
+        column: &str,
+        structural: bool,
+        rel: RelCtx<'_>,
+    ) -> bool {
+        match wired {
+            // Linking or unlinking is a row of the join table: always membership.
+            DepRel::Join(j, _) if changed_store == j.join_store => true,
+            DepRel::Children(r) => {
+                if changed_store != r.child_store {
+                    return false;
+                }
+                // Rewriting the foreign key IS the membership change, even though the column
+                // is not one the predicate reads.
+                let fk_col = rel.column_for(r.child_store, r.fk_field);
+                structural || fk_col == Some(column) || dep_reads(dep, changed_table, column)
+            }
+            DepRel::Referent(r) => {
+                changed_store == r.parent_store
+                    && (structural || dep_reads(dep, changed_table, column))
+            }
+            DepRel::Join(..) => structural || dep_reads(dep, changed_table, column),
+        }
+    }
+
+    /// The local rows a changed row can move, through one declared relation.
+    ///
+    /// This is the step that keeps a relation predicate in the one-row tier: each shape has an
+    /// O(1) way back, so the work is one evaluation per affected row rather than a re-seed.
+    fn back_resolve(
+        wired: &DepRel<'_>,
+        dep: &RelatedDep,
+        changed_store: u64,
+        changed: u64,
+        ctx: &HooksRows<'_>,
+        rel: RelCtx<'_>,
+    ) -> Vec<u64> {
+        match wired {
+            DepRel::Children(r) => {
+                // The index answers where the row WAS. It may not yet know where it is: query
+                // dispatch runs before relation maintenance, so a freshly inserted or
+                // reparented child is still filed under its old parent (or nowhere). Reading
+                // the row's own foreign key supplies the other end, and the union re-evaluates
+                // both — which is also exactly what a reparent needs.
+                let mut out: Vec<u64> = r.parent_of(changed).into_iter().collect();
+                if let Some(fk_col) = rel.column_for(r.child_store, r.fk_field)
+                    && let Some(row) = ctx.target(dep.target_table, changed)
+                    && let Some(v) = row.col(fk_col)
+                    && let Some(now) = value_to_handle(&v)
+                    && !out.contains(&now)
+                {
+                    out.push(now);
+                }
+                out
+            }
+            // A changed PARENT moves every row whose reference names it.
+            DepRel::Referent(r) => r.children_of(changed),
+            DepRel::Join(j, is_a) => {
+                if changed_store == j.join_store {
+                    // The changed "row" is the membership itself, keyed by the pair.
+                    match day_model::Key::of_handle(changed) {
+                        Some(day_model::Key::Pair(a, b)) => {
+                            vec![if *is_a { a } else { b }]
+                        }
+                        _ => Vec::new(),
+                    }
+                } else {
+                    j.holders_of(changed, *is_a)
+                }
             }
         }
     }
 
     /// Resolve a Requery now if memory can answer it; defer to the post-flush hook if only
     /// the database can (raw / FTS / rank — their SQL must see this turn's statements).
-    fn requery(&self, state: &Rc<QueryState>, hooks: &TableHooks) {
+    fn requery(&self, state: &Rc<QueryState>, hooks: &TableHooks, rel: Option<RelCtx<'_>>) {
         if state.raw.is_none() && state.set.borrow().fetch().evaluable() {
             let before = state.set.borrow().ids().to_vec();
             let keys: Vec<u64> = (hooks.all_rows)().iter().map(|(k, _)| *k).collect();
-            state.set.borrow_mut().seed(&keys, &HooksRows { hooks });
+            state
+                .set
+                .borrow_mut()
+                .seed(&keys, &HooksRows { hooks, rel });
             if state.set.borrow().ids() != before.as_slice() {
                 state.pending.borrow_mut().reload();
                 state
@@ -2583,12 +2989,8 @@ impl ModelContainer {
             None => (hooks.all_rows)().iter().map(|(k, _)| *k).collect(),
         };
         // The evaluable remainder (Matches itself answers true in eval).
-        let rows = HooksRows { hooks };
-        candidates.retain(|k| {
-            rows.row_view(*k)
-                .map(|r| fetch.pred.eval(*k, r.as_ref()))
-                .unwrap_or(false)
-        });
+        let rows = HooksRows { hooks, rel: None };
+        candidates.retain(|k| fetch.pred.eval(*k, &rows));
         if !by_rank && !fetch.sort.is_empty() {
             let mut sorter = LiveSet::new(Fetch {
                 pred: Pred::Always,
@@ -2628,6 +3030,11 @@ impl ModelContainer {
         }
         Ok(())
     }
+}
+
+/// Whether a dependency reads this column of this table.
+fn dep_reads(dep: &RelatedDep, table: &str, column: &str) -> bool {
+    dep.target_table == table && dep.columns.contains(&column)
 }
 
 /// Whether a statement's target table is `table` — a plain-text check over the SQL the fold
