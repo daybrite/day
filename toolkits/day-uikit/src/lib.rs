@@ -317,6 +317,8 @@ mod imp {
             U::KeyboardRightArrow => Some("ArrowRight"),
             U::KeyboardUpArrow => Some("ArrowUp"),
             U::KeyboardDownArrow => Some("ArrowDown"),
+            U::KeyboardDeleteForward => Some("Delete"),
+            U::KeyboardDeleteOrBackspace => Some("Backspace"),
             _ => None,
         }
     }

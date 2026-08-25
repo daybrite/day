@@ -236,8 +236,10 @@ fn cascade_deletes_children_with_the_parent_in_one_flush() {
         lodging.with_untracked(|k| k.get(12).is_some()),
         "other trip's"
     );
-    assert_eq!(sql.len(), 3, "one DELETE per row: {sql:?}");
-    assert!(sql.iter().all(|s| s.starts_with("DELETE FROM")));
+    // Two tables, two statements: the parent by key, its two children as one `IN`.
+    assert_eq!(sql.len(), 2, "{sql:?}");
+    assert_eq!(sql[0], "DELETE FROM trips WHERE id = ?");
+    assert_eq!(sql[1], "DELETE FROM lodging WHERE id IN (?, ?)");
 }
 
 #[test]
@@ -771,4 +773,244 @@ fn ordered_edges_place_correctly() {
     // Moving a row to its own current index is a no-op in ORDER, not a corruption.
     assert!(lists.elem(1).tracks().move_to(10u32, 1));
     assert_eq!(lists.elem(1).tracks().ids(), [11, 10, 12]);
+}
+
+#[test]
+fn a_self_referential_cascade_flushes_as_one_statement() {
+    // The shape Day-Sketch has: one table whose rows parent each other. The existing
+    // self-referential test asserts which ROWS survive; this one asserts the STATEMENTS,
+    // which is where a duplicate would hide.
+    let c = ModelContainer::open(Sqlite::memory(), schema![Node]).expect("open");
+    let nodes = c.store::<Node>();
+    let ids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
+    // ids[0] is a group holding the other four.
+    for (i, id) in ids.iter().enumerate() {
+        let parent = (i > 0).then(|| One::to(ids[0]));
+        nodes.restructure("add", Op::Insert, *id, |v| {
+            v.push(Node {
+                id: *id,
+                name: format!("n{i}"),
+                parent,
+                ..Default::default()
+            })
+        });
+    }
+    c.save().expect("seed");
+    assert_eq!(nodes.elem(ids[0]).children().count(), 4);
+
+    let sql = c
+        .record_sql(|| {
+            nodes.restructure("delete", Op::Delete, ids[0], |v| {
+                v.remove(ModelId::<Node>::of(ids[0]).handle());
+            });
+        })
+        .expect("flush");
+
+    assert!(nodes.keys().is_empty(), "the whole subtree went");
+    // One table, one shape: five rows leave in a single statement.
+    assert_eq!(sql.len(), 1, "{sql:?}");
+    assert_eq!(sql[0], "DELETE FROM nodes WHERE id IN (?, ?, ?, ?, ?)");
+}
+
+#[test]
+fn the_engines_own_cascade_re_logs_the_parent_statement() {
+    // Diagnosing a report of "the same DELETE five times" in a trace. Two things are going
+    // on, and only one of them is real work.
+    let path = temp_db("trace-cascade");
+    let seen: std::rc::Rc<std::cell::RefCell<Vec<String>>> = Default::default();
+    let sink = seen.clone();
+    let c = ModelContainer::open(
+        Sqlite::at(&path).trace_sql(move |s| sink.borrow_mut().push(s.to_string())),
+        schema![Node],
+    )
+    .expect("open");
+    let nodes = c.store::<Node>();
+    let ids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
+    for (i, id) in ids.iter().enumerate() {
+        let parent = (i > 0).then(|| One::to(ids[0]));
+        nodes.restructure("add", Op::Insert, *id, |v| {
+            v.push(Node {
+                id: *id,
+                name: format!("n{i}"),
+                parent,
+                ..Default::default()
+            })
+        });
+    }
+    c.save().expect("seed");
+    seen.borrow_mut().clear();
+
+    let folded = c
+        .record_sql(|| {
+            nodes.restructure("delete", Op::Delete, ids[0], |v| {
+                v.remove(ModelId::<Node>::of(ids[0]).handle());
+            });
+        })
+        .expect("flush");
+
+    let traced: Vec<String> = seen
+        .borrow()
+        .iter()
+        .filter(|s| s.starts_with("DELETE"))
+        .cloned()
+        .collect();
+
+    // The FOLD writes ONE statement for the whole subtree — no row is written twice.
+    assert_eq!(folded.len(), 1, "{folded:?}");
+
+    // The TRACE shows more, because SQLite re-enters the trace for each sub-program its own
+    // `ON DELETE CASCADE` runs, and reports the top-level statement's text each time. The
+    // parent's DELETE therefore appears once per cascaded child plus once for itself.
+    assert!(
+        traced.len() > folded.len(),
+        "the engine's cascade re-logs the parent: traced {traced:?}"
+    );
+    // Compare on the EXPANDED text — the fold's statement carries a `?`, the trace carries
+    // the bound value.
+    // …but the TRACE still shows more than one line for it, because SQLite re-enters the
+    // trace for each sub-program its own `ON DELETE CASCADE` runs and reports the top-level
+    // statement's text each time. Reading a trace, that looks like repetition; it is one
+    // statement doing the work the FK clause asked for.
+    assert!(
+        traced.len() > folded.len(),
+        "the engine's cascade re-logs the statement: {traced:?}"
+    );
+    let parent_hex = format!("x'{}'", hex(ids[0].as_bytes()));
+    assert!(
+        traced.iter().all(|s| s.contains(&parent_hex)),
+        "every line is the same batched statement: {traced:?}"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Lowercase hex, for comparing against SQLite's `x'…'` blob literals in a trace.
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[test]
+fn identical_updates_across_rows_flush_as_one_statement() {
+    // What a multi-selection edit produces: the same column set to the same value on many
+    // rows. They merge; rows written DIFFERENT values keep their own statement, because a
+    // single `SET … WHERE id IN (…)` can only carry one value.
+    let c = travel();
+    let lodging = c.store::<Lodging>();
+
+    let sql = c
+        .record_sql(|| {
+            for id in [10u32, 11, 12] {
+                lodging.elem(id).name().write("Renamed".into());
+            }
+        })
+        .expect("flush");
+    assert_eq!(sql.len(), 1, "{sql:?}");
+    assert_eq!(sql[0], "UPDATE lodging SET name = ? WHERE id IN (?, ?, ?)");
+
+    // Different values cannot share a statement.
+    let sql = c
+        .record_sql(|| {
+            lodging.elem(10).name().write("A".into());
+            lodging.elem(11).name().write("B".into());
+        })
+        .expect("flush");
+    assert_eq!(sql.len(), 2, "{sql:?}");
+    assert!(
+        sql.iter()
+            .all(|s| s == "UPDATE lodging SET name = ? WHERE id = ?")
+    );
+
+    // A different column set is a different statement too, and the values still land.
+    let sql = c
+        .record_sql(|| {
+            lodging.elem(10).trip().write(One::to(2u32));
+            lodging.elem(11).name().write("Shared".into());
+            lodging.elem(12).name().write("Shared".into());
+        })
+        .expect("flush");
+    assert_eq!(sql.len(), 2, "{sql:?}");
+    assert_eq!(lodging.elem(11).name().peek(), "Shared");
+    assert_eq!(lodging.elem(12).name().peek(), "Shared");
+}
+
+#[test]
+fn a_batched_update_reaches_the_file_for_every_row() {
+    // The batching is only worth having if it actually writes every row it names.
+    let path = temp_db("batched-update");
+    {
+        let c = ModelContainer::open(Sqlite::at(&path), schema![Trip, Lodging]).expect("open");
+        let trips = c.store::<Trip>();
+        for id in [1u32, 2] {
+            trips.restructure("add", Op::Insert, id, |v| {
+                v.push(Trip {
+                    id,
+                    name: "before".into(),
+                    ..Default::default()
+                })
+            });
+        }
+        c.save().expect("seed");
+        let sql = c
+            .record_sql(|| {
+                trips.elem(1).name().write("after".into());
+                trips.elem(2).name().write("after".into());
+            })
+            .expect("flush");
+        assert_eq!(sql, ["UPDATE trips SET name = ? WHERE id IN (?, ?)"]);
+    }
+    {
+        let c = ModelContainer::open(Sqlite::at(&path), schema![Trip, Lodging]).expect("reopen");
+        assert_eq!(c.store::<Trip>().elem(1).name().peek(), "after");
+        assert_eq!(c.store::<Trip>().elem(2).name().peek(), "after");
+    }
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn a_join_rows_composite_key_keeps_its_own_statement() {
+    // A membership is addressed by a PAIR of columns, which no single-column `IN` expresses,
+    // so those stay one statement each rather than being merged wrongly.
+    let c = ModelContainer::open(Sqlite::memory(), schema![Crate2, Bottle2]).expect("open");
+    c.store::<Crate2>()
+        .restructure("add", Op::Insert, 1u32, |v| {
+            v.push(Crate2 {
+                id: 1,
+                ..Default::default()
+            })
+        });
+    for id in [10u32, 11] {
+        c.store::<Bottle2>()
+            .restructure("add", Op::Insert, id, |v| {
+                v.push(Bottle2 {
+                    id,
+                    label: format!("b{id}"),
+                })
+            });
+        c.store::<Crate2>().elem(1u32).bottles().add(id);
+    }
+    c.save().expect("seed");
+
+    let sql = c
+        .record_sql(|| {
+            c.store::<Crate2>().elem(1u32).bottles().clear();
+        })
+        .expect("flush");
+    assert_eq!(sql.len(), 2, "one per membership: {sql:?}");
+    assert!(sql.iter().all(|s| s.contains(" AND ")), "{sql:?}");
+}
+
+#[derive(Model, Clone, Default, PartialEq, Debug)]
+#[model(table = "crates2")]
+struct Crate2 {
+    #[model(id)]
+    id: u32,
+    #[model(relation(target = Bottle2, join = "crate_bottles"))]
+    bottles: Many<Bottle2>,
+}
+
+#[derive(Model, Clone, Default, PartialEq, Debug)]
+#[model(table = "bottles2")]
+struct Bottle2 {
+    #[model(id)]
+    id: u32,
+    label: String,
 }

@@ -3377,7 +3377,9 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
             0 => "ArrowLeft",
             1 => "ArrowRight",
             2 => "ArrowUp",
-            _ => "ArrowDown",
+            3 => "ArrowDown",
+            4 => "Delete",
+            _ => "Backspace",
         };
         let Some(node) = node_of(el) else {
             return 0;

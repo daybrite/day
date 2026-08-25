@@ -1343,9 +1343,15 @@ pub enum ToolbarPatch {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyEvent {
-    /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto
-    /// ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", …). Backends emit `Event::Key`
-    /// only while no text widget has focus — a field's own editing keys never surface here.
+    /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto:
+    /// the four arrows ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown") everywhere, plus
+    /// "Delete" and "Backspace" on backends with no menu bar ([`Cap::AppMenu`] unsupported),
+    /// where no accelerator can own those keys — a focused piece claims every key the route
+    /// carries, so offering them on a menu-bar platform would let a canvas swallow the Delete
+    /// its own Edit menu was about to act on (docs/menus.md). The two delete keys keep the
+    /// names the platform gives the PHYSICAL keys — a Mac's ⌫ is "Backspace" and its ⌦ is
+    /// "Delete" — so a handler that means "remove this" takes both. Backends emit `Event::Key`
+    /// only while no text widget has focus; a field's own editing keys never surface here.
     pub key: String,
     /// A [`KeyEvent::SHIFT`]/[`KeyEvent::PRIMARY`]/[`KeyEvent::ALT`] mask.
     pub modifiers: u8,

@@ -67,7 +67,10 @@ squeezes its split, the same rule the nav sidebar follows.
 On the native tier the `INSPECTOR` node's two `INSPECTOR_PANE` children have **native-owned
 frames**: the split sizes each pane and reports it via `Event::FrameChanged`, and Day lays the
 pane's content out inside the reported size — the nav-page contract
-([docs/navigation.md](navigation.md)).
+([docs/navigation.md](navigation.md)). A backend has to report on the split's own layout
+passes, not only when content is inserted or the divider is dragged: at insert time the split
+usually has whatever geometry its constructor left it, and content laid out against those
+numbers stays that size until something else happens to resize the host.
 `InspectorPatch::Visible` shows and hides the pane without a rebuild; a native affordance
 hiding it (none of the current four has one) reports back as `Event::InspectorChanged`, which
 must never re-fire for a Day-driven patch (the from-native echo rule).

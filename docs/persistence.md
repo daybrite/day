@@ -112,6 +112,17 @@ order-only and order is not persisted. Row values are read from the store at flu
 change log carries which rows and columns moved, never their contents. A wholesale
 `Store::update` resyncs that whole table: upsert every row, delete the gone ones.
 
+Rows then merge ACROSS each other where one statement can carry them. Deletes from the same
+table become a single `DELETE … WHERE id IN (?, ?, …)`, and updates join when they set the
+same columns to the same values — the shape a multi-selection edit makes, where one field is
+written across every selected row. Updates carrying different values keep their own statements,
+because `SET` holds one value per column. Deleting a group of five shapes is one statement, not
+five; renaming twenty rows to the same name is one, not twenty. Two things stay unbatched: rows
+keyed by more than one column (a join table's membership, which no single-column `IN` names),
+and inserts, which already fold to one multi-row upsert. A batch longer than SQLite's bound
+parameter limit splits into chunks inside the same transaction, so the whole flush still
+commits or rolls back together. `record_sql` shows the batched form, which is what to assert.
+
 ## Drivers and engines
 
 The container speaks to SQLite through the `SqliteDriver` trait; two drivers are built in.

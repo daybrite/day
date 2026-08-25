@@ -410,6 +410,19 @@ fn ftl_files(dir: &Path) -> Vec<PathBuf> {
 /// so the coverage lint must not demand attributes everywhere). Public so the CLI lint
 /// (`day lint` fluent coverage) shares this one `fluent-syntax` parser with the codegen and
 /// the runtime resolver, instead of a hand-rolled line scanner.
+/// The `res::str` function name a localization key generates.
+///
+/// A Fluent ATTRIBUTE entry is `message.attr`, and its generated accessor flattens both halves into
+/// one identifier — `menu_group.key` is reached as `res::str::menu_group_key()`. Anything asking
+/// "is this key referenced?" has to know that, or a key used through its generated function looks
+/// unused and the reference looks like a key that does not exist.
+///
+/// The flattening is injective by construction: [`plan_strings`] fails the build when two keys
+/// generate the same name.
+pub fn res_str_ident(key: &str) -> String {
+    key.replace('.', "_")
+}
+
 pub fn message_keys(ftl_src: &str) -> Vec<String> {
     ftl_messages(ftl_src)
         .into_iter()
@@ -489,7 +502,7 @@ fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
     {
         let mut fn_names: std::collections::BTreeMap<String, &String> = Default::default();
         for key in agreed.keys() {
-            let fn_name = key.replace('.', "_");
+            let fn_name = res_str_ident(key);
             if let Some(prev) = fn_names.insert(fn_name.clone(), key) {
                 return Err(format!(
                     "day-build: localization keys {prev:?} and {key:?} both generate \
@@ -1102,7 +1115,7 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
         };
         s.push_str(&format!(
             "    /// {doc}\n    pub fn {}{generic_list}({}) -> day::LocalizedText {{ {body} }}\n",
-            ident_token(&e.key.replace('.', "_")),
+            ident_token(&res_str_ident(&e.key)),
             sig_params.join(", "),
         ));
     }

@@ -111,6 +111,12 @@ pub enum Step {
         /// Intermediate `Changed` samples between the endpoints (default 4).
         #[serde(default)]
         steps: Option<u32>,
+        /// Modifier keys "held" for the whole drag, named as in [`Step::Tap`] — for gestures
+        /// whose meaning they change (a shift-drag that ADDS to a selection rather than
+        /// replacing it). They stand in for every phase, press through release, because that
+        /// is how a real drag reads them: once, when it starts.
+        #[serde(default)]
+        modifiers: Vec<String>,
     },
     /// Deliver `Event::Submitted` to the element — the scripted stand-in for the platform's
     /// submit gesture (Enter in a `text_area` with `.on_submit`, a field's return key).
@@ -897,6 +903,7 @@ fn exec(step: Step) -> Reply {
                 from,
                 to,
                 steps,
+                modifiers,
             } => {
                 let node = find(&id)?;
                 let (fx, fy) = (from[0], from[1]);
@@ -912,6 +919,12 @@ fn exec(step: Step) -> Reply {
                         },
                     );
                 };
+                // Held for the whole gesture, not just one phase: a drag that reads
+                // modifiers reads them at `Began`, and the override has to still be in place
+                // at `Ended` for a handler that re-reads them there.
+                if !modifiers.is_empty() {
+                    day_core::set_modifier_override(Some(parse_modifiers(&modifiers)));
+                }
                 emit_drag(day_spec::DragPhase::Began, fx, fy);
                 day_reactive::flush_sync();
                 for i in 1..=n {
@@ -925,6 +938,7 @@ fn exec(step: Step) -> Reply {
                 }
                 emit_drag(day_spec::DragPhase::Ended, tx, ty);
                 day_reactive::flush_sync();
+                day_core::set_modifier_override(None);
                 Ok(Reply::ok())
             }
             Step::Submit { id } => emit(&id, Event::Submitted).map(|()| Reply::ok()),

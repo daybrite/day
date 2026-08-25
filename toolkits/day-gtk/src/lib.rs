@@ -612,6 +612,8 @@ fn arrow_key_name(key: gtk4::gdk::Key) -> Option<&'static str> {
         Key::Right | Key::KP_Right => Some("ArrowRight"),
         Key::Up | Key::KP_Up => Some("ArrowUp"),
         Key::Down | Key::KP_Down => Some("ArrowDown"),
+        // Not the delete keys: this backend has a menu bar, whose accelerators own them
+        // (docs/menus.md).
         _ => None,
     }
 }

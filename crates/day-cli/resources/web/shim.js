@@ -335,11 +335,12 @@ const env = {
     });
     el.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const arrows = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3 };
-      if (!(e.key in arrows)) return;
-      // Claimed only if the app actually took it: an unclaimed arrow stays the browser's, so a
-      // page with a canvas on it still scrolls with the keyboard.
-      if (wasm.day_dom_canvas_key(id, arrows[e.key], e.shiftKey ? 1 : 0)) e.preventDefault();
+      const keys = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, Delete: 4, Backspace: 5 };
+      if (!(e.key in keys)) return;
+      // Claimed only if the app actually took it: an unclaimed key stays the browser's, so a
+      // page with a canvas on it still scrolls with the keyboard (and Backspace still means
+      // whatever the browser wants it to mean).
+      if (wasm.day_dom_canvas_key(id, keys[e.key], e.shiftKey ? 1 : 0)) e.preventDefault();
     });
   },
   day_dom_list_keynav(id, multi) {

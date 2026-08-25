@@ -1289,6 +1289,9 @@ fn qt_shortcut(sc: &day_spec::Shortcut) -> String {
         sc.key.clone()
     };
     parts.push(key);
+    // Delete and Backspace end up bound together — the shim pairs them once the sequence is
+    // parsed, where the key CODE is visible and no separator has to survive a shortcut string
+    // that may itself contain a comma or semicolon (⌘, is Preferences).
     parts.join("+")
 }
 
@@ -1471,6 +1474,10 @@ impl Toolkit for Qt {
                     let content_pane = ffi::day_qt_splitter_pane(host, 0);
                     let panel_pane = ffi::day_qt_splitter_pane(host, 1);
                     ffi::day_qt_splitter_on_moved(host, inspector_splitter_moved);
+                    // …and on every layout pass, so the panes stop reporting the placeholder
+                    // geometry they have at insert time (before the window lays the splitter
+                    // out at all).
+                    ffi::day_qt_splitter_on_resized(host, inspector_splitter_moved);
                     ffi::day_qt_set_visible(panel_pane, c_int::from(visible));
                     INSPECTOR_STATE.with(|m| {
                         m.borrow_mut().insert(
@@ -1550,6 +1557,7 @@ impl Toolkit for Qt {
                     let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
                     let mut detail_pane = ffi::day_qt_splitter_pane(host, 1);
                     ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
+                    ffi::day_qt_splitter_on_resized(host, nav_splitter_moved);
                     // The back header goes in for BOTH presentations, hidden until a stack
                     // actually pushes. Installing it lazily would mean restructuring the detail
                     // pane's layout under live, absolutely-positioned pages the first time a
@@ -2652,6 +2660,15 @@ impl Toolkit for Qt {
         // An in-window bar (Linux/Windows) now has its real height: reserve its strip so the
         // content area — and day's layout — sit below it instead of underneath it.
         unsafe { ffi::day_qt_window_menubar_done(self.window) };
+    }
+
+    fn modifiers(&mut self) -> day_spec::Modifiers {
+        let m = unsafe { ffi::day_qt_modifiers() };
+        day_spec::Modifiers {
+            shift: m & i32::from(day_spec::KeyEvent::SHIFT) != 0,
+            primary: m & i32::from(day_spec::KeyEvent::PRIMARY) != 0,
+            alt: m & i32::from(day_spec::KeyEvent::ALT) != 0,
+        }
     }
 
     fn set_context_menu(&mut self, h: &QtHandle, _node: NodeId, items: &[day_spec::MenuItem]) {

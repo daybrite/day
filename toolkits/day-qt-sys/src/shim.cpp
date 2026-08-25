@@ -894,6 +894,51 @@ void *day_qt_inspector_new(double panel_width) {
     s->setSizes({640, static_cast<int>(panel_width)});
     return s;
 }
+/// Reports a splitter's pane geometry every time Qt lays the panes out. Day measures the panes
+/// the moment content is inserted, which is BEFORE the window has laid the splitter out at all —
+/// so what it reads then is the constructor's placeholder geometry (an unshown QWidget answers
+/// 640x480, and `setSizes` divides that rather than the real width). Without this the panes keep
+/// those numbers until something else happens to resize the host, and the content sits in a pane
+/// far smaller than the space it was actually given.
+///
+/// The filter goes on the PANES, not on the splitter. A filter sees an event before its target
+/// handles it, and a QSplitter gives its children their geometry inside its own resize handler —
+/// so filtering the splitter reports the panes' OLD sizes, right only by the next resize. A
+/// pane's own resize event arrives with its geometry already updated, which is the moment worth
+/// reporting.
+class DayPaneResizeFilter : public QObject {
+public:
+    QWidget *host;
+    void (*cb)(void *);
+    DayPaneResizeFilter(QWidget *h, void (*c)(void *)) : host(h), cb(c) {}
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        // Qt sends Resize only when the size actually changed, so this settles rather than
+        // feeding itself: the report re-lays what is INSIDE the pane, which does not resize
+        // the pane that reported it.
+        if (ev->type() == QEvent::Resize)
+            cb(static_cast<void *>(host));
+        return QObject::eventFilter(obj, ev);
+    }
+};
+
+void day_qt_splitter_on_resized(void *w, void (*cb)(void *)) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    if (!s)
+        return;
+    for (int i = 0; i < s->count(); ++i) {
+        QWidget *pane = s->widget(i);
+        if (!pane)
+            continue;
+        auto *f = new DayPaneResizeFilter(s, cb);
+        // Ownership only — the filter is a plain QObject, so parenting it puts no widget in
+        // the pane (contrast day_qt_set_context_menu, where the window flags matter).
+        f->setParent(pane);
+        pane->installEventFilter(f);
+    }
+}
+
 void day_qt_splitter_on_moved(void *w, void (*cb)(void *)) {
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
     if (s) {
@@ -1712,10 +1757,13 @@ int day_qt_resource_exists(const char *respath) {
 // (tx = cumulative scale); 7/8/9 = pan began/changed/ended (tx/ty = incremental delta).
 typedef void (*DayGestureCb)(uint64_t node, int phase, double x, double y, double tx, double ty);
 
+/// How far a press may wander and still count as a tap rather than a drag.
+static constexpr double kTapSlop = 4.0;
+
 class DayGestureFilter : public QObject {
 public:
     uint64_t node; int kind; DayGestureCb cb;
-    bool pressed = false; QPointF start;
+    bool pressed = false; bool engaged = false; QPointF start;
     double pinch_scale = 1.0;
     DayGestureFilter(uint64_t n, int k, DayGestureCb c) : node(n), kind(k), cb(c) {}
 protected:
@@ -1727,13 +1775,25 @@ protected:
                 QMouseEvent *me = static_cast<QMouseEvent *>(ev);
                 start = me->position();
                 pressed = true;
-                if (is_drag) cb(node, 1, start.x(), start.y(), 0.0, 0.0);
+                engaged = false;
+                // No Began here. A press that never travels is a TAP, and announcing a drag
+                // for it would hand the app both gestures for one press — which is how a
+                // shift-click used to lose a selection: the press replaced it, then the tap
+                // toggled the pressed item straight back out.
                 break;
             }
             case QEvent::MouseMove: {
                 if (is_drag && pressed) {
                     QPointF p = static_cast<QMouseEvent *>(ev)->position();
-                    cb(node, 2, p.x(), p.y(), p.x() - start.x(), p.y() - start.y());
+                    QPointF d = p - start;
+                    if (!engaged) {
+                        if (d.x() * d.x() + d.y() * d.y() <= kTapSlop * kTapSlop) break;
+                        // Began carries the ORIGINAL press point, not the point that crossed
+                        // the slop, so the app's drag starts where the finger went down.
+                        engaged = true;
+                        cb(node, 1, start.x(), start.y(), 0.0, 0.0);
+                    }
+                    cb(node, 2, p.x(), p.y(), d.x(), d.y());
                 }
                 break;
             }
@@ -1741,13 +1801,22 @@ protected:
                 if (kind > 1) break;
                 QMouseEvent *me = static_cast<QMouseEvent *>(ev);
                 QPointF p = me->position();
-                if (is_drag && pressed) {
+                if (is_drag && engaged) {
                     cb(node, 3, p.x(), p.y(), p.x() - start.x(), p.y() - start.y());
                 } else if (!is_drag && pressed) {
+                    // Past a few pixels the press was a DRAG, and reporting a tap for it too
+                    // would hand the app two gestures for one press — the second of them
+                    // undoing what the first did (a canvas band sweeps a selection, then the
+                    // stray tap on empty space clears it). The same 4px slop the web shim
+                    // uses, so tap and drag are mutually exclusive on every backend.
+                    QPointF d = p - start;
+                    bool moved = d.x() * d.x() + d.y() * d.y() > kTapSlop * kTapSlop;
                     QWidget *w = qobject_cast<QWidget *>(obj);
-                    if (!w || w->rect().contains(p.toPoint())) cb(node, 0, p.x(), p.y(), 0.0, 0.0);
+                    if (!moved && (!w || w->rect().contains(p.toPoint())))
+                        cb(node, 0, p.x(), p.y(), 0.0, 0.0);
                 }
                 pressed = false;
+                engaged = false;
                 break;
             }
             case QEvent::NativeGesture: {
@@ -2027,10 +2096,11 @@ protected:
         QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
         int code;
         switch (ke->key()) {
-            case Qt::Key_Left:  code = 0; break;
-            case Qt::Key_Right: code = 1; break;
-            case Qt::Key_Up:    code = 2; break;
-            case Qt::Key_Down:  code = 3; break;
+            case Qt::Key_Left:      code = 0; break;
+            case Qt::Key_Right:     code = 1; break;
+            case Qt::Key_Up:        code = 2; break;
+            case Qt::Key_Down:      code = 3; break;
+            // Not the delete keys: Qt draws a menu bar, whose shortcuts own them.
             default: return false;
         }
         int mods = 0;
@@ -2415,11 +2485,37 @@ void day_qt_menu_add_separator(void *menu) {
     static_cast<QMenu *>(menu)->addSeparator();
 }
 
+/// Bind a shortcut string to an action, pairing the two delete keys.
+///
+/// Qt::Key_Delete is the FORWARD delete (⌦), a key most Mac keyboards do not have — while the
+/// key macOS itself labels "delete" is ⌫, which Qt calls Backspace. So a plain `Delete`
+/// shortcut, correct on Windows and Linux, reaches nothing a Mac user is likely to press.
+/// Binding both makes it fire on whichever key the platform means by Delete, and matches
+/// appkit, which folds the two names onto one key equivalent.
+///
+/// Done here rather than by shipping two sequences through the FFI: the pairing needs the KEY,
+/// and any separator that encodes a list of sequences in one string can also appear inside one
+/// (⌘, is Preferences, ⌘; is a real binding too).
+static void day_qt_apply_shortcut(QAction *a, const char *shortcut) {
+    if (!shortcut || !*shortcut)
+        return;
+    QKeySequence seq(QString::fromUtf8(shortcut));
+    QList<QKeySequence> seqs{seq};
+    if (seq.count() == 1) {
+        QKeyCombination kc = seq[0];
+        if (kc.key() == Qt::Key_Delete)
+            seqs.append(QKeySequence(kc.keyboardModifiers() | Qt::Key_Backspace));
+        else if (kc.key() == Qt::Key_Backspace)
+            seqs.append(QKeySequence(kc.keyboardModifiers() | Qt::Key_Delete));
+    }
+    a->setShortcuts(seqs);
+}
+
 void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
                             const char *shortcut, int enabled, const char *icon,
                             int icon_fallback) {
     QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
-    if (shortcut && *shortcut) a->setShortcut(QKeySequence(QString::fromUtf8(shortcut)));
+    day_qt_apply_shortcut(a, shortcut);
     a->setEnabled(enabled != 0);
     // The item's glyph, resolved exactly like a toolbar item's (docs/menus.md): theme name,
     // Day's own outline, then the QStyle standard set.
@@ -2466,7 +2562,7 @@ static QWidget *day_qt_role_target() {
 // role codes match day_spec::MenuRole order.
 void day_qt_menu_add_role(void *menu, const char *label, int role, const char *shortcut) {
     QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
-    if (shortcut && *shortcut) a->setShortcut(QKeySequence(QString::fromUtf8(shortcut)));
+    day_qt_apply_shortcut(a, shortcut);
     switch (role) {
         case 0: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("cut"); }); break;
         case 1: QObject::connect(a, &QAction::triggered, []() { day_qt_edit_dispatch("copy"); }); break;
@@ -2547,6 +2643,20 @@ void day_qt_navlist_set_row_menus(void *w, void *const *menus, int32_t n) {
     QObject::connect(l, &QObject::destroyed, [rows]() { delete rows; });
 }
 
+/// The modifier keys held RIGHT NOW (docs/menus.md): shift 1, primary 2, alt 4 — the
+/// `KeyEvent::SHIFT`/`PRIMARY`/`ALT` bits. Qt::ControlModifier is the platform's command key
+/// (⌘ on macOS, where Qt swaps it with Meta; Ctrl elsewhere), which is what "primary" means.
+/// queryKeyboardModifiers() asks the window system rather than reading the last event's
+/// cached state, so it is right even when no event is in flight.
+int day_qt_modifiers() {
+    Qt::KeyboardModifiers k = QGuiApplication::queryKeyboardModifiers();
+    int mods = 0;
+    if (k & Qt::ShiftModifier) mods |= 1;
+    if (k & Qt::ControlModifier) mods |= 2;
+    if (k & Qt::AltModifier) mods |= 4;
+    return mods;
+}
+
 void day_qt_set_context_menu(void *w, void *menu) {
     QWidget *widget = static_cast<QWidget *>(w);
     // Drop any previously attached context menu + its connection (tracked by object name).
@@ -2562,7 +2672,11 @@ void day_qt_set_context_menu(void *w, void *menu) {
     }
     QMenu *m = static_cast<QMenu *>(menu);
     m->setObjectName(QStringLiteral("day_ctx_menu"));
-    m->setParent(widget); // freed with the widget
+    // Freed with the widget — but keep the menu's own window flags. The one-argument
+    // setParent() clears them, which turns a Qt::Popup into a plain child widget: the menu
+    // then lays out inside its parent and shows on screen permanently instead of popping up
+    // on secondary-click.
+    m->setParent(widget, m->windowFlags());
     widget->setContextMenuPolicy(Qt::CustomContextMenu);
     QObject::connect(widget, &QWidget::customContextMenuRequested,
                      [widget, m](const QPoint &pos) { m->popup(widget->mapToGlobal(pos)); });

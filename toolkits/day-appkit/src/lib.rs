@@ -2914,7 +2914,7 @@ define_class!(
     }
 );
 
-/// The day name for an arrow key's virtual key code, or `None` for every other key — the four
+/// The day name for a virtual key code, or `None` for every other key — the
 /// [`day_spec::KeyEvent`] names the key route carries (docs/menus.md).
 fn arrow_key_name(code: u16) -> Option<&'static str> {
     match code {
@@ -2922,6 +2922,10 @@ fn arrow_key_name(code: u16) -> Option<&'static str> {
         124 => Some("ArrowRight"),
         125 => Some("ArrowDown"),
         126 => Some("ArrowUp"),
+        // Not the delete keys. This backend draws a menu bar, so a Delete accelerator on a
+        // menu item owns them (docs/menus.md) — and a focused piece that CLAIMS a key stops
+        // that accelerator from ever seeing it, which is how a canvas ends up swallowing the
+        // Delete its own Edit menu was going to act on.
         _ => None,
     }
 }

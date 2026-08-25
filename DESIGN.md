@@ -1309,8 +1309,11 @@ pub trait Toolkit: Sized + 'static {
 
     // ambient modifiers + non-text keys (2026-08, docs/menus.md): `modifiers()` answers the
     // keys held right now (shift-click multi-select; pull-based — NSEvent.modifierFlags, the
-    // web shim's tracked mask; touch backends keep the all-false default), and `Event::Key`
-    // (the dormant variant, now live) carries the arrows to the FOCUSED node's
+    // web shim's tracked mask, Qt's queryKeyboardModifiers; a backend with no live query keeps
+    // the all-false default, which is right for touch and wrong for a desktop toolkit — see
+    // the `modifiers` row of docs/duty-matrix.md for who answers), and `Event::Key`
+    // (the dormant variant, now live) carries the arrows — plus Delete/Backspace where no menu
+    // bar owns them — to the FOCUSED node's
     // `Decorate::on_key`. Keys follow focus, so there is no window-level route and nothing runs
     // ahead of the platform's dispatch: appkit's canvas answers `acceptsFirstResponder` and
     // reports from its own `keyDown:`, web-dom's carries a tabindex and its own keydown, and a
@@ -2936,9 +2939,12 @@ missing-key class a compile error instead.
 > ABSENT — a locale with no listing, a key no catalog defines — has no place and reports none.
 >
 > `severity_of(code)` is the one place the error/warning split lives. A finding is an **error**
-> when it names something that does not exist or that will misbehave at runtime (an unknown key,
+> when it names something that does not exist or that will misbehave at runtime (an unknown
 > route, target, override, or Fluent function; an undeclared permission; a duplicate id).
-> Everything else stays a warning. Severity is presentational: `--strict` still fails on ANY
+> Everything else stays a warning. `unknown-key` is the deliberate exception: it meets the test
+> but its evidence is a scan for `tr("`, a two-character name that occurs inside other
+> identifiers (`push_str("` reported every SVG tag a file writes), so it reports as a warning —
+> an error is held to the standard of the evidence for it. Severity is presentational: `--strict` still fails on ANY
 > active finding, so no CI gate changes meaning. GitHub annotations follow it, and now carry the
 > file and line, so a finding lands on its own line in the PR diff.
 >
@@ -4329,9 +4335,13 @@ What shipped, and where:
   change sink (day-model grew `install_change_sink`/`store_id` for it) marks rows dirty as
   changes announce; a turn's end flushes the fold in one transaction. Merge rules: same-row
   changes coalesce onto one `UPDATE`, an insert absorbs the edits that fill it, a delete absorbs
-  everything, a wholesale `Store::update` resyncs its table. Row values are read from the store
-  at flush time; the change log never carries contents. `record_sql` returns one flush's SQL —
-  the headless assert ("twenty keystrokes, one `UPDATE`" is a test, not a slogan).
+  everything, a wholesale `Store::update` resyncs its table. Rows then merge across each other
+  where one statement carries them: same-table deletes become one `… WHERE id IN (?, …)`, and
+  updates join when they set the same columns to the same values (the multi-selection edit).
+  Different values, and multi-column keys like a join row's, keep their own statements; a batch
+  past the bound-parameter limit chunks inside the same transaction. Row values are read from
+  the store at flush time; the change log never carries contents. `record_sql` returns one
+  flush's SQL — the headless assert ("twenty keystrokes, one `UPDATE`" is a test, not a slogan).
 - **Drivers** — the object-safe `SqliteConnection` seam under a `SqliteDriver` trait. Built-ins:
   `Sqlite` (rusqlite on native targets; on web-dom the same type proxies statements to the
   day-sql worker's OPFS-backed engine, `crates/day-sqlite-worker` — [docs/persistence.md](docs/persistence.md) §The
@@ -4715,6 +4725,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
 | `wait_idle` | — | flush the reactive drain |
 | `tap` | `id`, `repeat?`, `at?`, `modifiers?` | delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching |
+| `drag` | `id`, `from`, `to`, `steps?`, `modifiers?` | a whole gesture in the element's own coordinates: `Began` at `from`, `steps` (default 4) `Changed` samples along the way, `Ended` at `to`. `modifiers` are held for every phase — a drag reads them once, when it starts |
 | `key` | `key`, `id?`, `modifiers?` | a non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …) delivered the way the platform delivers one: to the named piece, or to whatever holds FOCUS. Pair it with `focus:` to drive the whole route; with nothing focused and no `id` the step fails rather than dropping the key — [docs/menus.md](docs/menus.md) |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |

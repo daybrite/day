@@ -1789,6 +1789,13 @@ impl ModelContainer {
             }
         }
 
+        // Per-row work first, into batches that can merge. Deletes of one table merge into
+        // one `IN`; updates merge when they write the SAME columns to the SAME values, which
+        // is what a multi-selection edit produces ("set fill on twelve shapes").
+        let mut batches: Vec<Batch> = Vec::new();
+        // (store, statement shape, a fingerprint of the SET values) → the batch it joins.
+        let mut open: HashMap<(u64, String, u64), usize> = HashMap::new();
+
         for id in &dirty.order {
             let Some(state) = dirty.rows.get(id) else {
                 continue;
@@ -1800,17 +1807,25 @@ impl ModelContainer {
             let Some(hooks) = tables.get(&store_id) else {
                 continue;
             };
+            // A join row is addressed by a PAIR of columns, which no single-column `IN` can
+            // express, so those keep one statement each.
+            let batchable = hooks.key_cols.len() == 1;
             match state {
                 DirtyRow::Delete => {
-                    let (clause, params) = (hooks.key_where)(key);
-                    stmts.push((
-                        format!("DELETE FROM {} WHERE {clause}", hooks.table),
-                        params,
-                    ));
+                    if !batchable {
+                        let (clause, params) = (hooks.key_where)(key);
+                        batches.push(Batch::Single(
+                            format!("DELETE FROM {} WHERE {clause}", hooks.table),
+                            params,
+                        ));
+                        continue;
+                    }
+                    join_batch(&mut batches, &mut open, store_id, None, key);
                 }
                 DirtyRow::Insert => {
                     if let Some(row) = (hooks.row_for)(key) {
-                        stmts.push(upsert_stmt(hooks, &row));
+                        let (sql, params) = upsert_stmt(hooks, &row);
+                        batches.push(Batch::Single(sql, params));
                     }
                 }
                 DirtyRow::Update(cols) => {
@@ -1819,31 +1834,52 @@ impl ModelContainer {
                     };
                     if cols.is_empty() {
                         // A row-level replacement named no columns — write them all.
-                        stmts.push(upsert_stmt(hooks, &row));
+                        let (sql, params) = upsert_stmt(hooks, &row);
+                        batches.push(Batch::Single(sql, params));
                         continue;
                     }
                     let mut sets: Vec<String> = Vec::with_capacity(cols.len());
-                    let mut params: Vec<Value> = Vec::with_capacity(cols.len() + 1);
+                    let mut set_params: Vec<Value> = Vec::with_capacity(cols.len());
                     for c in cols {
                         let Some(i) = hooks.fields.iter().position(|n| n == c) else {
                             continue; // a transient field's label — never a column
                         };
                         sets.push(format!("{} = ?", hooks.columns[i]));
-                        params.push(row.get(i));
+                        set_params.push(row.get(i));
                     }
-                    if params.is_empty() {
+                    if set_params.is_empty() {
                         continue; // only transient fields changed
                     }
-                    let (clause, mut where_params) = (hooks.key_where)(key);
-                    params.append(&mut where_params);
-                    stmts.push((
-                        format!(
-                            "UPDATE {} SET {} WHERE {clause}",
-                            hooks.table,
-                            sets.join(", "),
-                        ),
-                        params,
-                    ));
+                    let clause = sets.join(", ");
+                    if !batchable {
+                        let (where_clause, mut where_params) = (hooks.key_where)(key);
+                        let mut params = set_params;
+                        params.append(&mut where_params);
+                        batches.push(Batch::Single(
+                            format!("UPDATE {} SET {clause} WHERE {where_clause}", hooks.table),
+                            params,
+                        ));
+                        continue;
+                    }
+                    join_batch(
+                        &mut batches,
+                        &mut open,
+                        store_id,
+                        Some((clause, set_params)),
+                        key,
+                    );
+                }
+            }
+        }
+
+        for batch in batches {
+            match batch {
+                Batch::Single(sql, params) => stmts.push((sql, params)),
+                Batch::Keyed { store, set, keys } => {
+                    let Some(hooks) = tables.get(&store) else {
+                        continue;
+                    };
+                    materialize(hooks, set, &keys, &mut stmts);
                 }
             }
         }
@@ -1940,6 +1976,143 @@ impl ModelContainer {
             page_size = row.get(0).as_int().unwrap_or(0);
         })?;
         Ok((pages * page_size).max(0) as u64)
+    }
+}
+
+/// One statement the fold will write, before the mergeable ones have merged.
+enum Batch {
+    /// Stands alone: an upsert (its values are the row's own), or a row addressed by a
+    /// composite key, which no single-column `IN` can express.
+    Single(String, Vec<Value>),
+    /// Same table, same operation, same values — one statement per chunk of keys.
+    Keyed {
+        store: u64,
+        /// The `SET` clause and its parameters for an update; `None` for a delete.
+        set: Option<(String, Vec<Value>)>,
+        keys: Vec<u64>,
+    },
+}
+
+/// SQLite's conservative bound-parameter ceiling. Modern builds allow far more, but a
+/// `system` engine may be an older one, and chunking costs nothing to write.
+const MAX_BOUND_PARAMS: usize = 900;
+
+/// Add `key` to the batch sharing this table, clause and values — or open a new one.
+///
+/// The slot key separates a delete from an update (their clauses differ), and separates
+/// updates writing DIFFERENT values, which must stay different statements. Grouping is by
+/// hash so a large flush stays linear; the values are compared before merging, so a hash
+/// collision costs a second statement rather than a wrong one.
+fn join_batch(
+    batches: &mut Vec<Batch>,
+    open: &mut HashMap<(u64, String, u64), usize>,
+    store: u64,
+    set: Option<(String, Vec<Value>)>,
+    key: u64,
+) {
+    let clause = set.as_ref().map(|(c, _)| c.clone()).unwrap_or_default();
+    let print = set.as_ref().map(|(_, p)| fingerprint(p)).unwrap_or(0);
+    let slot = (store, clause, print);
+    if let Some(&i) = open.get(&slot)
+        && let Batch::Keyed {
+            set: existing,
+            keys,
+            ..
+        } = &mut batches[i]
+        && existing.as_ref().map(|(_, p)| p.as_slice()) == set.as_ref().map(|(_, p)| p.as_slice())
+    {
+        keys.push(key);
+        return;
+    }
+    open.insert(slot, batches.len());
+    batches.push(Batch::Keyed {
+        store,
+        set,
+        keys: vec![key],
+    });
+}
+
+/// A cheap order-sensitive hash of bound values, for grouping identical updates. Equality is
+/// still checked before two rows share a statement — this only decides who to compare with.
+fn fingerprint(values: &[Value]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for b in bytes {
+            h ^= *b as u64;
+            h = h.wrapping_mul(0x1000_0000_01b3);
+        }
+    };
+    for v in values {
+        match v {
+            Value::Null => eat(&[0]),
+            Value::Int(i) => {
+                eat(&[1]);
+                eat(&i.to_le_bytes());
+            }
+            // Bit pattern, not numeric value: two values that hash apart are only compared
+            // separately, never merged wrongly.
+            Value::Real(r) => {
+                eat(&[2]);
+                eat(&r.to_bits().to_le_bytes());
+            }
+            Value::Text(t) => {
+                eat(&[3]);
+                eat(t.as_bytes());
+            }
+            Value::Blob(b) => {
+                eat(&[4]);
+                eat(b);
+            }
+        }
+    }
+    h
+}
+
+/// Write a batch out: the familiar `= ?` form for one key, chunked `IN` statements for more.
+fn materialize(
+    hooks: &TableHooks,
+    set: Option<(String, Vec<Value>)>,
+    keys: &[u64],
+    out: &mut Vec<(String, Vec<Value>)>,
+) {
+    // One key keeps the `= ?` form: it is the common case by far, it reads plainly in a
+    // trace, and it is one more statement shape the cache can hold.
+    if keys.len() == 1 {
+        let (where_clause, where_params) = (hooks.key_where)(keys[0]);
+        match set {
+            Some((clause, mut params)) => {
+                params.extend(where_params);
+                out.push((
+                    format!("UPDATE {} SET {clause} WHERE {where_clause}", hooks.table),
+                    params,
+                ));
+            }
+            None => out.push((
+                format!("DELETE FROM {} WHERE {where_clause}", hooks.table),
+                where_params,
+            )),
+        }
+        return;
+    }
+
+    let key_col = &hooks.key_cols[0];
+    let set_len = set.as_ref().map(|(_, p)| p.len()).unwrap_or(0);
+    let cap = MAX_BOUND_PARAMS.saturating_sub(set_len).max(1);
+    for chunk in keys.chunks(cap) {
+        let mut params: Vec<Value> = Vec::with_capacity(set_len + chunk.len());
+        if let Some((_, set_params)) = &set {
+            params.extend(set_params.iter().cloned());
+        }
+        params.extend(chunk.iter().map(|k| key_param(*k)));
+        let marks = vec!["?"; chunk.len()].join(", ");
+        let sql = match &set {
+            Some((clause, _)) => format!(
+                "UPDATE {} SET {clause} WHERE {key_col} IN ({marks})",
+                hooks.table
+            ),
+            None => format!("DELETE FROM {} WHERE {key_col} IN ({marks})", hooks.table),
+        };
+        out.push((sql, params));
     }
 }
 

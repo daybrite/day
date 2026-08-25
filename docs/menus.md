@@ -93,9 +93,11 @@ macOS). Named keys (`"Return"`, `"Delete"`, `"Space"`, `"F5"`, arrows) are recog
 single characters. The shortcut is drawn in the native accelerator position and is live whenever the
 menu (or its window) is in the responder/focus chain.
 
-Shortcuts render on every platform that has a hardware-keyboard convention: all three desktops, plus
-iPad/Catalyst. On iPhone and Android touch, items appear without accelerators (there is no keyboard),
-which is the correct platform behavior.
+Shortcuts render on the platforms that draw a menu bar — the three desktops, which is
+[`Cap::AppMenu`](duty-matrix.md). The UIKit and Android menu builders take the item and drop
+its accelerator, so an app that wants a key to work there routes it through `.on_key` on the
+focused piece instead; probe `Cap::AppMenu` to decide which, or the key fires twice where both
+apply. Day-Sketch's `canvas_key` is the worked example.
 
 ## Standard roles
 
@@ -147,12 +149,28 @@ day::install_edit_commands(
 Two companions round out the platform's input idioms. `day::modifiers()` answers the keyboard
 modifiers held right now (`shift`, `primary` — ⌘ on Apple platforms, Ctrl elsewhere — and
 `alt`), for interactions whose meaning they change: shift-click adding to a selection instead
-of replacing it. Touch platforms answer all-false, and a dayscript `tap:` step's declared
-`modifiers:` take precedence while it dispatches.
+of replacing it. It is a live query, not an event field, so it is right wherever it is asked. A
+backend that cannot answer reports all-false — correct for touch platforms, and something to
+check before relying on it elsewhere ([the `modifiers` row of the duty
+matrix](duty-matrix.md)). A dayscript `tap:` or `drag:` step's declared `modifiers:` take
+precedence while it dispatches.
 
-`.on_key(f)` handles the non-text keys — the arrows, under the web `KeyboardEvent.key` names,
-with the held modifiers on the event (`ev.shift()` scales a nudge from 1px to 10). **Keys
-follow focus.** The handler hangs off a PIECE and fires only while that piece is the focused
+`.on_key(f)` handles the non-text keys, under the web `KeyboardEvent.key` names and with the
+held modifiers on the event (`ev.shift()` scales a nudge from 1px to 10). The four arrows
+arrive everywhere. `Delete` and `Backspace` arrive only where [`Cap::AppMenu`](duty-matrix.md)
+is unsupported — where there is no menu bar, and so no accelerator that could own them.
+
+That split is not a gap, it is the rule that keeps one key to one owner. **A focused piece
+that claims a key stops any accelerator from ever seeing it**: the platform offers the key to
+the focus chain, and a piece with an `.on_key` handler claims every key the route carries, not
+just the ones its handler acts on. So a canvas that received `Delete` on a menu-bar platform
+would swallow the very `Delete` its own Edit menu was about to act on. Route a key through the
+menu OR through `.on_key`, never both, and probe `Cap::AppMenu` to decide which — Day-Sketch's
+`canvas_key` is the worked example, and the delete keys are routed to match it.
+
+The two delete keys keep the names the platform gives the PHYSICAL key, so a handler meaning
+"remove this" takes both: a Mac's ⌫ reports `Backspace`, a full-size keyboard's Del reports
+`Delete`. **Keys follow focus.** The handler hangs off a PIECE and fires only while that piece is the focused
 one, so it is scoped the way every other input is:
 
 ```rust

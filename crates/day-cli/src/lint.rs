@@ -112,15 +112,20 @@ impl Location {
 /// Which rules are errors rather than warnings.
 ///
 /// The test is whether the finding names something that DOES NOT EXIST, or that will misbehave at
-/// runtime: a `tr("…")` with no message renders its own key, a route nothing declares navigates
-/// nowhere, an unknown target or manifest override is simply not read. Everything else — coverage
-/// gaps, store text, style — stays a warning.
+/// runtime: a route nothing declares navigates nowhere, an unknown target or manifest override is
+/// simply not read. Everything else — coverage gaps, store text, style — stays a warning.
+///
+/// `unknown-key` passes that test and is still a WARNING, because of how it is detected. Its
+/// evidence is the literal after `tr("`, and `tr(` is a two-character name: it occurs inside
+/// other identifiers (`push_str("` cost us every SVG tag in a file), and the literal after it is
+/// not always a key at all. The longer patterns behind the other codes — `navigate("`, `.id("`,
+/// `Permission::` — do not collide that way, and the manifest and Fluent rules come from a parse
+/// rather than a scan. An error is a claim worth holding to the standard of the evidence for it.
 ///
 /// Presentational only: `--strict` still fails on ANY active finding, error or warning, so this
 /// changes what a reader sees and what an editor squiggles red, never whether existing CI passes.
 pub fn severity_of(code: &str) -> Severity {
     const ERRORS: &[&str] = &[
-        "day::lint::unknown-key",
         "day::lint::unknown-route",
         "day::lint::unknown-target",
         "day::lint::unknown-override",
@@ -207,14 +212,43 @@ fn for_each_rs(dir: &Path, f: &mut impl FnMut(&Path, &str)) {
     }
 }
 
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Does a match at `at` begin in the MIDDLE of a longer identifier?
+///
+/// `tr("` also occurs inside `push_str("`, and matching there reported every SVG tag in a file as
+/// a missing message. A call cannot start mid-identifier, so when the pattern itself begins with
+/// an identifier character, a match preceded by one is part of a longer name. Patterns that begin
+/// with punctuation (`.item("`) are exempt — there the preceding character is the receiver.
+fn mid_identifier(src: &str, at: usize, pat: &str) -> bool {
+    pat.chars().next().is_some_and(is_ident_char)
+        && src[..at].chars().next_back().is_some_and(is_ident_char)
+}
+
+/// Every match of `pat`, by byte offset, skipping the ones inside a longer identifier.
+fn matches_of<'a>(src: &'a str, pat: &'a str) -> impl Iterator<Item = usize> + 'a {
+    let mut from = 0usize;
+    std::iter::from_fn(move || {
+        while let Some(i) = src[from..].find(pat) {
+            let at = from + i;
+            from = at + pat.len();
+            if !mid_identifier(src, at, pat) {
+                return Some(at);
+            }
+        }
+        None
+    })
+}
+
 /// Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) — the
 /// symbol IS the key, so a call counts as a reference exactly like `tr("key")`.
 fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
-        let pat = "res::str::";
-        let mut rest = src;
-        while let Some(i) = rest.find(pat) {
-            rest = &rest[i + pat.len()..];
+        const PAT: &str = "res::str::";
+        for at in matches_of(src, PAT) {
+            let rest = &src[at + PAT.len()..];
             let s = rest.strip_prefix("r#").unwrap_or(rest);
             let end = s
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
@@ -233,10 +267,9 @@ fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
 /// pinned by `tests/permissions_parity.rs`.
 fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
-        let pat = "Permission::";
-        let mut rest = src;
-        while let Some(i) = rest.find(pat) {
-            rest = &rest[i + pat.len()..];
+        const PAT: &str = "Permission::";
+        for at in matches_of(src, PAT) {
+            let rest = &src[at + PAT.len()..];
             let end = rest
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                 .unwrap_or(rest.len());
@@ -312,12 +345,10 @@ fn scan_key_like_literals(dir: &Path, out: &mut BTreeSet<String>) {
 /// Every literal that follows `pat` up to the closing quote — `tr("`, `.id("`, `navigate("`.
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
-        let mut rest = src;
-        while let Some(i) = rest.find(pat) {
-            rest = &rest[i + pat.len()..];
+        for at in matches_of(src, pat) {
+            let rest = &src[at + pat.len()..];
             if let Some(end) = rest.find('"') {
                 out.push(Hit::found(path, src, &rest[..end]));
-                rest = &rest[end..];
             }
         }
     });
@@ -499,6 +530,26 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
             }
         }
     }
+}
+
+/// Every spelling a catalog key can be referenced by.
+///
+/// A Fluent ATTRIBUTE entry is `menu_group.key` in the `.ftl`, but its generated accessor flattens
+/// to `res::str::menu_group_key()` — so the source says one thing, the catalog says another, and
+/// comparing the two literally reports the key as unknown AND unused at the same time. The
+/// flattening comes from day-build rather than being restated here, so the two cannot drift.
+fn spellings<'a>(keys: impl Iterator<Item = &'a String>) -> BTreeSet<String> {
+    keys.flat_map(|k| [k.clone(), day_build::res_str_ident(k)])
+        .collect()
+}
+
+/// Is this catalog key referenced by the app, under EITHER spelling?
+fn is_referenced(key: &str, used: &BTreeSet<String>, literals: &BTreeSet<String>) -> bool {
+    let ident = day_build::res_str_ident(key);
+    used.contains(key)
+        || literals.contains(key)
+        || used.contains(&ident)
+        || literals.contains(&ident)
 }
 
 /// Where `needle` first appears in a file's text, as a place a finding can point at.
@@ -883,8 +934,9 @@ fn collect(project: &Project) -> Vec<Finding> {
         locales.keys().next().cloned().unwrap_or_default()
     };
     if let Some(default_keys) = locales.get(&default_name).cloned() {
+        let spelled = spellings(default_keys.keys());
         for k in &used {
-            if !default_keys.contains_key(k) {
+            if !spelled.contains(k) {
                 findings.push(
                     Finding {
                         code: "day::lint::unknown-key",
@@ -905,7 +957,7 @@ fn collect(project: &Project) -> Vec<Finding> {
             if k == "language_name" {
                 continue;
             }
-            if !used.contains(k) && !literals.contains(k) {
+            if !is_referenced(k, &used, &literals) {
                 findings.push(
                     Finding {
                         code: "day::lint::unused-key",
@@ -923,6 +975,14 @@ fn collect(project: &Project) -> Vec<Finding> {
                 continue;
             }
             for k in default_keys.keys() {
+                // An ATTRIBUTE is deliberately not demanded of every locale. A locale that omits
+                // `.key` inherits the default's through the ordinary fallback chain, which is the
+                // point — a shortcut stays stable across languages unless a locale overrides it
+                // on purpose (docs/localization.md, "Shortcut keys"). Only messages must be
+                // translated everywhere.
+                if k.contains('.') {
+                    continue;
+                }
                 if !keys.contains_key(k) {
                     findings.push(
                         Finding {
@@ -1555,8 +1615,11 @@ e = { PLATFORM() }
 
     #[test]
     fn severity_is_reserved_for_findings_about_something_that_does_not_exist() {
-        assert_eq!(severity_of("day::lint::unknown-key"), Severity::Error);
         assert_eq!(severity_of("day::lint::unknown-route"), Severity::Error);
+        assert_eq!(severity_of("day::lint::unknown-target"), Severity::Error);
+        // `unknown-key` names something that does not exist and is still a warning: its evidence
+        // is a scan for `tr("`, a two-character name that occurs inside other identifiers.
+        assert_eq!(severity_of("day::lint::unknown-key"), Severity::Warning);
         // Coverage and store copy are worth reporting and are not broken references.
         assert_eq!(
             severity_of("day::lint::missing-translation"),
@@ -1570,6 +1633,157 @@ e = { PLATFORM() }
             severity_of("day::lint::whatever-comes-next"),
             Severity::Warning
         );
+    }
+
+    #[test]
+    fn an_attribute_is_the_same_key_under_either_spelling() {
+        // `menu_group.key` in the catalog is reached as `res::str::menu_group_key()` in Rust.
+        // Comparing the two literally reported it as unknown AND unused at once, on Day-Sketch's
+        // whole menu — every shortcut key it defines.
+        let catalog: Vec<String> = ["menu_group".into(), "menu_group.key".into()].into();
+        let spelled = spellings(catalog.iter());
+        assert!(
+            spelled.contains("menu_group.key"),
+            "the Fluent spelling stays valid"
+        );
+        assert!(
+            spelled.contains("menu_group_key"),
+            "so does the generated function's name"
+        );
+        assert!(!spelled.contains("menu_group_missing"));
+
+        let used: BTreeSet<String> = ["menu_group_key".to_string()].into_iter().collect();
+        let none = BTreeSet::new();
+        assert!(
+            is_referenced("menu_group.key", &used, &none),
+            "used via res::str"
+        );
+        assert!(!is_referenced("menu_undo.key", &used, &none));
+        // `tr("menu_group.key")` is the other way to reach it, and counts just as much.
+        let dotted: BTreeSet<String> = ["menu_group.key".to_string()].into_iter().collect();
+        assert!(is_referenced("menu_group.key", &dotted, &none));
+        // A key resolved indirectly is seen only as a bare literal — still a reference.
+        assert!(is_referenced("menu_group.key", &none, &used));
+    }
+
+    #[test]
+    fn a_pattern_never_matches_inside_a_longer_identifier() {
+        // `tr("` occurs inside `push_str("`, which reported every SVG tag Day-Sketch writes as a
+        // message with no translation, on every file that writes markup.
+        let src = r#"
+            out.push_str("<g>");
+            label(tr("real_key"));
+            renavigate("not-a-route");
+            page.navigate("home");
+        "#;
+        let literals = |pat: &str| -> Vec<&str> {
+            matches_of(src, pat)
+                .map(|at| {
+                    let rest = &src[at + pat.len()..];
+                    &rest[..rest.find('"').unwrap_or(0)]
+                })
+                .collect()
+        };
+        assert_eq!(
+            literals("tr(\""),
+            ["real_key"],
+            "`push_str(` is not a `tr(` call"
+        );
+        assert_eq!(
+            literals("navigate(\""),
+            ["home"],
+            "`renavigate(` is a different function"
+        );
+        // A pattern starting with punctuation must NOT be guarded — the character before `.item("`
+        // is the receiver, and skipping on it would find nothing at all.
+        let dotted = r#"sidebar.item("home", …).item("stack", …)"#;
+        assert_eq!(matches_of(dotted, ".item(\"").count(), 2);
+    }
+
+    /// A throwaway project on disk, so the coverage checks can be exercised end to end — the
+    /// catalog/source interplay is the whole behavior and it lives inside `collect`.
+    fn app(name: &str, files: &[(&str, &str)]) -> (std::path::PathBuf, Project) {
+        let dir = std::env::temp_dir().join(format!("day-lint-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"a\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            dir.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.a\"\ntargets = [\"macos-appkit\"]\n",
+        )
+        .expect("Day.toml");
+        for (rel, text) in files {
+            let path = dir.join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, text).expect("write");
+        }
+        let project = crate::meta::find_project(Some(&dir)).expect("project");
+        (dir, project)
+    }
+
+    fn codes(project: &Project) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> = collect(project).iter().map(|f| f.code).collect();
+        out.sort_unstable();
+        out
+    }
+
+    #[test]
+    fn a_shortcut_attribute_is_neither_unknown_nor_unused_nor_demanded_of_every_locale() {
+        // Day-Sketch's whole menu: `menu_group.key` in the catalog, `res::str::menu_group_key()`
+        // in Rust. Comparing the spellings literally reported each shortcut as an unknown key AND
+        // an unused one at the same time.
+        let (dir, project) = app(
+            "attr",
+            &[
+                (
+                    "resource/locales/en/app.ftl",
+                    "menu_group = Group\n    .key = g\nmenu_solo = Solo\n",
+                ),
+                // fr omits `.key` on purpose — it inherits en's through the fallback chain, and
+                // the coverage lint must not demand it (docs/localization.md).
+                (
+                    "resource/locales/fr/app.ftl",
+                    "menu_group = Grouper\nmenu_solo = Solo\n",
+                ),
+                (
+                    "src/lib.rs",
+                    "pub fn f() { res::str::menu_group(); res::str::menu_group_key(); \
+                     res::str::menu_solo(); }\n",
+                ),
+            ],
+        );
+        assert_eq!(
+            codes(&project),
+            Vec::<&str>::new(),
+            "nothing is wrong with this app"
+        );
+
+        // The exemption is for attributes only — a missing MESSAGE is still a finding.
+        std::fs::write(
+            dir.join("resource/locales/fr/app.ftl"),
+            "menu_group = Grouper\n",
+        )
+        .expect("write");
+        assert_eq!(codes(&project), ["day::lint::missing-translation"]);
+
+        // And an attribute nobody reaches is still dead weight worth reporting.
+        std::fs::write(
+            dir.join("resource/locales/fr/app.ftl"),
+            "menu_group = Grouper\nmenu_solo = Solo\n",
+        )
+        .expect("write");
+        std::fs::write(
+            dir.join("resource/locales/en/app.ftl"),
+            "menu_group = Group\n    .key = g\n    .hint = nobody reads this\nmenu_solo = Solo\n",
+        )
+        .expect("write");
+        assert_eq!(codes(&project), ["day::lint::unused-key"]);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

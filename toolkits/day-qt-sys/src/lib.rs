@@ -288,6 +288,9 @@ unsafe extern "C" {
     pub fn day_qt_inspector_new(panel_width: c_double) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
     pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));
+    /// Report a splitter's pane geometry on every layout pass Qt runs on it — the first of
+    /// which is what turns the constructor's placeholder sizes into real ones.
+    pub fn day_qt_splitter_on_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     pub fn day_qt_widget_size(w: *mut c_void, out_w: *mut c_double, out_h: *mut c_double);
     pub fn day_qt_set_visible(w: *mut c_void, visible: c_int);
     pub fn day_qt_toolbar_set_suggestions(id: *const c_char, joined: *const c_char);
@@ -375,6 +378,9 @@ unsafe extern "C" {
         shortcut: *const c_char,
     );
     pub fn day_qt_set_context_menu(widget: *mut c_void, menu: *mut c_void);
+    /// The modifier keys held right now (docs/menus.md): shift 1, primary 2, alt 4. A query,
+    /// not a callback — Qt exposes the live keyboard state directly.
+    pub fn day_qt_modifiers() -> c_int;
     /// Per-row context menus for the nav list (docs/menus.md): a parallel array of QMenu*
     /// (null = no menu for that row); the shim maps a custom-context request to its row.
     pub fn day_qt_navlist_set_row_menus(w: *mut c_void, menus: *const *mut c_void, n: i32);

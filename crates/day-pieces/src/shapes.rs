@@ -142,6 +142,15 @@ impl ShapeKind {
 }
 
 /// Drag info delivered to a shape's `.on_drag` handler.
+///
+/// `translation` is cumulative from the point the pointer went DOWN; `location` is where it is
+/// now, in the piece's own coordinates. The two are not redundant, because `Began` does not
+/// always arrive at the press: a backend whose recognizer has to watch a few events before it
+/// calls the gesture a drag (appkit raises `Began` on the first drag event) reports the point
+/// it recognized AT, with the translation from the press already applied. So the press is
+/// `location - translation`, on every backend and in every phase — take the anchor that way
+/// rather than from `Began`'s `location`, or a gesture measured from the anchor trails the
+/// pointer by however far it moved before the recognizer engaged.
 #[derive(Clone, Copy, Debug)]
 pub struct Drag {
     pub phase: DragPhase,

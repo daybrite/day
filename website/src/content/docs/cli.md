@@ -345,15 +345,21 @@ as one line carrying its count and a sample, so an `--allow` nobody has revisite
 finding carries a code you can `--allow`, and the file, line and column it is about:
 
 ```
-error   day::lint::unknown-key       tr("greeting") has no message in resource/locales/en (src/lib.rs:88)
+error   day::lint::unknown-route     navigate: route "setings" starts with "setings", which no `.item(…)` declares (src/lib.rs:88)
 warning day::lint::unused-key        resource/locales/en: history_hint is never referenced (resource/locales/en/app.ftl:434)
 ```
 
 A finding is an **error** when it names something that does not exist, or that will misbehave once
-the app runs: a key with no message renders its own key on screen, a route nothing declares
-navigates nowhere, an undeclared permission terminates the app on iOS. Coverage gaps and store copy
-are **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what
-CI does.
+the app runs: a route nothing declares navigates nowhere, an undeclared permission terminates the
+app on iOS, an unknown target in `Day.toml` is simply not read. Coverage gaps and store copy are
+**warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what CI
+does.
+
+One rule that would pass that test stays a warning anyway. `unknown-key` — a `tr("…")` with no
+message, which renders the key itself on screen — is found by scanning for the literal after
+`tr("`, and that is a two-character name: it turns up inside other identifiers, and what follows
+it is not always a key. An error is a claim held to the standard of the evidence behind it, and a
+text scan is weaker evidence than a parse.
 
 Some findings come with a repair. `day lint --fix` applies them and reports each one:
 
