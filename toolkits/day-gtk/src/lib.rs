@@ -724,23 +724,6 @@ fn key_modifiers(state: gtk4::gdk::ModifierType) -> u8 {
 
 /// Report focus gain/loss into the sink (docs/focus.md). `EventControllerFocus` tracks
 /// focus-within, so a `GtkEntry`'s inner `GtkText` grabbing focus still counts as the entry.
-/// Is `w` its root's focus widget on a window nothing ever activated?
-///
-/// GTK ties `has-focus` — and with it [`gtk4::EventControllerFocus`]'s `enter`/`leave`, which is
-/// how [`wire_focus`] reports a focus change back — to the ACTIVE toplevel. A display server
-/// with no window manager activates nothing, so under a bare `Xvfb` (which is how CI runs this
-/// backend) `grab_focus` correctly lands the widget as its root's focus widget and nothing ever
-/// says so: the app never learns it holds the keyboard, and an `assert_focused` reads false
-/// against a canvas that is focused in every sense that matters to it.
-///
-/// Where this is true the controller stays silent and the caller reports the change itself.
-/// Where the window IS active it is false, the controller has already spoken, and no state is
-/// ever announced twice.
-fn focus_without_activation(w: &impl IsA<gtk4::Widget>) -> bool {
-    let w = w.as_ref();
-    w.is_focus() && !w.has_focus()
-}
-
 fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
     let focus = gtk4::EventControllerFocus::new();
     focus.connect_enter(move |_| ffi_guard::contain((), || emit(id, Event::FocusChanged(true))));
@@ -3895,51 +3878,30 @@ impl Toolkit for Gtk {
         );
     }
 
-    fn focus(&mut self, h: &Handle, node: NodeId, focused: bool) {
+    fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
         if focused {
             // grab_focus only lands on a mapped widget; a request racing the first map
             // (mount reconciliation, docs/focus.md rule 4) retries once at map time.
             if h.is_mapped() {
-                // `was`: re-focusing what already held focus is not news, and announcing it
-                // would echo back through the app's two-way `.focused(…)` binding as another
-                // focus request.
-                let was = h.is_focus();
                 h.grab_focus();
-                if !was && focus_without_activation(h) {
-                    emit(node, Event::FocusChanged(true));
-                }
             } else {
                 let handler = Rc::new(RefCell::new(None));
                 let handler2 = handler.clone();
                 *handler.borrow_mut() = Some(h.connect_map(move |w| {
-                    let was = w.is_focus();
                     w.grab_focus();
-                    if !was && focus_without_activation(w) {
-                        emit(node, Event::FocusChanged(true));
-                    }
                     if let Some(sig) = handler2.borrow_mut().take() {
                         w.disconnect(sig);
                     }
                 }));
             }
-        } else {
-            // Read BEFORE the release: afterwards an unactivated window and an active one look
-            // exactly alike, and the active one's controller is about to report by itself.
-            let unactivated = focus_without_activation(h);
-            // On an unactivated window the state flags are never set — focus there is a fact
-            // about the root, not about the display — so being its focus widget releases too.
-            if (unactivated
-                || h.state_flags()
-                    .intersects(gtk4::StateFlags::FOCUSED | gtk4::StateFlags::FOCUS_WITHIN))
-                && let Some(root) = h.root()
-            {
-                // Resign only while this widget (or its inner text) holds focus, so a stale
-                // release can't blur a sibling.
-                root.set_focus(None::<&gtk4::Widget>);
-                if unactivated {
-                    emit(node, Event::FocusChanged(false));
-                }
-            }
+        } else if h
+            .state_flags()
+            .intersects(gtk4::StateFlags::FOCUSED | gtk4::StateFlags::FOCUS_WITHIN)
+            && let Some(root) = h.root()
+        {
+            // Resign only while this widget (or its inner text) holds focus, so a stale
+            // release can't blur a sibling.
+            root.set_focus(None::<&gtk4::Widget>);
         }
     }
 

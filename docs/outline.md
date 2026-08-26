@@ -344,19 +344,24 @@ most of the interesting surface immediately, because most of `NSOutlineView`'s f
 
 ### The three additions this plan makes
 
-**Native parts** (`day-spec`, each backend's `ext`). A kind whose backing is composite reports
-its parts, and the accessors take one:
+**Native subcontrols** (`day-spec`, each backend's `ext`). A *subcontrol* is one addressable
+widget within a composite backing — Qt's own name for exactly this concept
+(`QStyle::SubControl`), and chosen here because the natural word, "part", already means a
+headless platform-service package in Day (`parts/day-part-*`, DESIGN.md §15) and must not be
+overloaded. A kind whose backing is composite reports its subcontrols, and the accessors take
+one:
 
 ```rust
-day_appkit::with_native_part(node, Part::Content, |view, class, mtm| …)
-button("x").appkit_part(Part::Content, |…| …)      // the Decorate form
+day_appkit::with_native_subcontrol(node, Subcontrol::Content, |view, class, mtm| …)
+button("x").appkit_subcontrol(Subcontrol::Content, |…| …)    // the Decorate form
 ```
 
-`Part::Host` is today's behavior and stays the default; `Part::Content` is the widget inside the
-scroller; `Part::Header` is the header view where one exists. Each kind documents its parts per
-toolkit in the same table that documents its native class, so the mapping is *reported* rather
-than guessed — the property that makes Day's tweaks stronger than introspection libraries in the
-first place. This lands with the outline and retrofits `list` and `text_area` in the same change.
+`Subcontrol::Host` is today's behavior and stays the default; `Subcontrol::Content` is the
+widget inside the scroller; `Subcontrol::Header` is the header view where one exists. Each kind
+documents its subcontrols per toolkit in the same table that documents its native class, so the
+mapping is *reported* rather than guessed — the property that makes Day's tweaks stronger than
+introspection libraries in the first place. This lands with the outline and retrofits `list`
+and `text_area` in the same change.
 
 **Row tweaks** (`day-pieces`, `day-core`). The outline and the list gain
 `.row_tweak(|native_row, class, RowInfo|)`, invoked when a cell is bound — after the row's
@@ -385,8 +390,8 @@ outline(layers(), row_builder)
     .row_height_for(|n| if n.expandable { 28.0 } else { 22.0 })
     .can_select(|n| !n.expandable)
     // ---- tweaks: one toolkit at a time, no-ops elsewhere ---------------------
-    .appkit_part(Part::Content, |view, class, _mtm| {
-        // `class` is "NSOutlineView"; the host part would have handed us NSScrollView.
+    .appkit_subcontrol(Subcontrol::Content, |view, class, _mtm| {
+        // `class` is "NSOutlineView"; the Host subcontrol would have handed us NSScrollView.
         let Some(ov) = view.downcast_ref::<NSOutlineView>() else { return };
         unsafe {
             ov.setStyle(NSTableViewStyle::SourceList);
@@ -400,7 +405,7 @@ outline(layers(), row_builder)
             ov.setAutosaveExpandedItems(true);
         }
     })
-    .appkit(|view, _class, _mtm| {                      // Part::Host — the scroller
+    .appkit(|view, _class, _mtm| {                      // Subcontrol::Host — the scroller
         if let Some(sv) = view.downcast_ref::<NSScrollView>() {
             unsafe { sv.setAutomaticallyAdjustsContentInsets(true) };
         }
@@ -474,7 +479,9 @@ so the workspace keeps compiling.
 The **flattener** lives here: a walk from the root that descends only into open rows, memoised
 per (reload, expansion) generation, yielding `(token, depth)`. The cell-anchor half of
 `list.rs` — `BoundCell`, `CellStep`, scope ownership — is lifted into a shared module both
-drivers use rather than copied.
+drivers use rather than copied, and the flattener is written kind-agnostic (rows-with-depth
+over any token tree), because it is the seed of the shared composed tier described in
+[Stepping back](#stepping-back-what-the-outline-stresses-in-days-architecture).
 
 *day-pieces* (`src/outline.rs`): `outline(source, row)`, the `TreeSource` trait with two
 implementations (a closure tree, and a day-model adapter that reads `parent`/order columns), and
@@ -484,10 +491,10 @@ the builder: `.expanded`, `.on_selection`, `.selected`, `.multi_select`, `.movab
 `.is_group_row` — which the flattener consults and each native backend routes to its own
 delegate.
 
-*Tweak surface* (`day-spec` + every backend's `ext`): `Part`, `with_native_part`, and the
-`…_part` decorator on each toolkit's extension trait, with `Part::Host` preserving today's
-behavior. `list` and `text_area` declare their parts in the same change, since they have been
-composite all along. `day-core` gains the row-bind hook that `.row_tweak` rides.
+*Tweak surface* (`day-spec` + every backend's `ext`): `Subcontrol`, `with_native_subcontrol`,
+and the `…_subcontrol` decorator on each toolkit's extension trait, with `Subcontrol::Host`
+preserving today's behavior. `list` and `text_area` declare their subcontrols in the same
+change, since they have been composite all along. `day-core` gains the row-bind hook that `.row_tweak` rides.
 
 *day-mock*: a simulated viewport plus `MockProbe::{outline_rows, outline_expand,
 outline_can_move, outline_move, outline_type_ahead}`.
@@ -510,7 +517,8 @@ from `can_move` — including `NSOutlineViewDropOnItemIndex` for a drop *onto* a
 what `index: None` means. Type-select answers from `type_select_text`.
 
 This is also where the tweak additions earn their keep: the node's handle is the `NSScrollView`,
-so `Part::Content` is what hands a tweak the `NSOutlineView`, and `.row_tweak` receives the
+so `Subcontrol::Content` is what hands a tweak the `NSOutlineView`, and `.row_tweak` receives
+the
 `NSTableRowView`. The four delegate hooks land here first, since AppKit is the backend with the
 richest delegate to route them to.
 
@@ -619,6 +627,49 @@ asserts its two children appear, selects a row and asserts the canvas frame read
 drags a shape into the group with `outline_move` and asserts the count and the group's bounds,
 then undoes it — proving canvas and outline share one model rather than two.
 
+## Stepping back: what the outline stresses in Day's architecture
+
+Designing this piece is also a test of the framework, and it is worth recording what the test
+found, because the conclusions outlive the piece.
+
+**Tweaks are constitutionally shallow, and that is their virtue.** The tweak model assumes one
+node ↔ one widget, behavior-in-properties, and mount-once lifetime. A tree breaks all three,
+and each addition above patches exactly one: subcontrols address the composite backing, row
+tweaks
+address cells Day does not own, hooks address behavior that lives in a delegate rather than in
+properties. The first two are still tweak-shaped. The hooks are not tweaks at all — and calling
+them "deep customization via tweaks" would misfile them. Depth comes from the seam and the
+hooks; the hatch stays shallow so it stays safe.
+
+**The policy rung already existed, unnamed.** `list` grew `reorder_guard` and `delete_guard`;
+`nav` grew `on_back`; this piece needs `can_expand`, `can_select`, `row_height_for`,
+`move_guard`. All the same shape: pure, synchronous, called inside a native callback, Day
+answering the platform's question by asking the app. The extension ladder in
+[docs/tweaks.md](tweaks.md) documents styling / tweaks / native pieces; the fourth rung —
+policy — has been growing piecemeal since `list` shipped. When the outline lands, the ladder
+should name it.
+
+**Tokens are the corrected identity contract.** `ListSource` addresses rows by index
+(`bind_row(usize, …)`, guards over `(from, to)`); the outline cannot, and every native tree API
+agrees with the outline. That leaves two contracts in the codebase. This plan does not migrate
+`list`, but the mismatch is a known debt, and new collection kinds should follow the token
+seam.
+
+**The emulations are converging on one composed tier.** web-dom and Qt each carry their own
+emulated list; the flattener here is deliberately kind-agnostic so it becomes shared substrate
+rather than a third copy. The composed colorpicker and stepper prove the wider pattern: for
+complex kinds, one Rust reference implementation as the guaranteed floor, native upgrades where
+a platform genuinely offers more. That inversion — a working composed fallback instead of a
+`⟨kind⟩` placeholder — is right for containers and wrong for buttons, and the boundary between
+those is a decision Day should make once, on purpose.
+
+None of this reopens the macro-architecture. The retained tree, capability honesty, mock-first
+drivers and the per-toolkit asset pipeline all held under this design's weight — and the
+platforms' independent agreement on the `(parent, index)` drop vocabulary is direct evidence
+the portable semantic core is real. The corrections are all one level down, in the collection
+middle layer — subcontrols, hooks, row tweaks, the shared flattener — and this piece is the
+deliberate first step through them rather than another accretion.
+
 ## Risks worth deciding early
 
 - **Token stability becomes a requirement.** `list` tolerates index churn; a tree does not.
@@ -634,10 +685,14 @@ then undoes it — proving canvas and outline share one model rather than two.
   path can be as live as Day makes it. `move_guard`'s contract must therefore be "consulted as
   early as the platform allows", with the per-backend table saying where that is — the same
   shape `list`'s reorder guard already documents.
-- **Parts widen the contract.** Naming `Part::Content` promises a kind keeps having a content
-  widget. That is a weaker promise than a class name (the tweaks doc already refuses to freeze
-  those), but it is still a promise, so parts are declared per kind in the docs and an unknown
-  part must resolve to `None` rather than to the host.
+- **Two identity contracts until `list` migrates.** The outline is token-addressed; `list` is
+  index-addressed. Both are correct alone, and the pair is a wart: shared machinery has to
+  speak both, and apps that use both pieces learn two vocabularies. The migration is out of
+  scope here and should not be forgotten.
+- **Subcontrols widen the contract.** Naming `Subcontrol::Content` promises a kind keeps
+  having a content widget. That is a weaker promise than a class name (the tweaks doc already
+  refuses to freeze those), but it is still a promise, so subcontrols are declared per kind in
+  the docs and an unknown subcontrol must resolve to `None` rather than to the host.
 - **What v1 leaves out, on purpose.** Dragging a multi-row selection as one unit;
   spring-loading a collapsed row under a hovering drag (native on AppKit, a timer elsewhere);
   columns beside the disclosure, which is where an outline becomes a tree *table* and wants

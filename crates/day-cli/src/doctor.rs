@@ -291,20 +291,69 @@ fn uikit_group() -> Group {
     }
 }
 
+/// The GTK stack day-gtk compiles against. `toolkits/day-gtk/Cargo.toml` enables the `gtk4`
+/// crate's `v4_10` feature and libadwaita's `v1_5`, and those features are exactly what the `-sys`
+/// crates hand to pkg-config as a minimum. Kept in step with that manifest by
+/// `gtk_minimums_match_day_gtk` below.
+const GTK4_MIN: (u32, u32) = (4, 10);
+const LIBADWAITA_MIN: (u32, u32) = (1, 5);
+
+/// Is `found` — a pkg-config `--modversion` string like `4.8.3` — at least `min`?
+///
+/// Major and minor only: every minimum day states is a feature level, and those land on minor
+/// releases. A trailing packaging suffix (`4.8.3-1`) is ignored, and a version too malformed to
+/// read counts as too old rather than as good enough.
+fn version_at_least(found: &str, min: (u32, u32)) -> bool {
+    let mut parts = found.trim().split(['.', '-', '~', '+']);
+    let Some(major) = parts.next().and_then(|p| p.parse::<u32>().ok()) else {
+        return false;
+    };
+    let minor = parts
+        .next()
+        .and_then(|p| p.parse::<u32>().ok())
+        .unwrap_or(0);
+    (major, minor) >= min
+}
+
+/// A pkg-config module held to a minimum version.
+///
+/// Present-but-too-old is the case worth separating out: "install GTK 4" is useless advice for
+/// someone who has GTK 4 and needs a newer one. Debian 12 ships gtk4 4.8.3, and without this the
+/// first sign of trouble is a pkg-config wall from inside `gdk4-sys`, minutes into a build that
+/// `day doctor` had already called healthy.
+fn pkg_probe(name: &'static str, module: &str, min: (u32, u32), install: &str) -> Probe {
+    match run_line("pkg-config", &["--modversion", module]) {
+        Some(found) if version_at_least(&found, min) => {
+            Probe::new(name, Some(found), install.to_string())
+        }
+        Some(found) => Probe::new(
+            name,
+            None,
+            format!(
+                "{module} is {found}; day needs {}.{} or newer — {install}",
+                min.0, min.1
+            ),
+        ),
+        None => Probe::new(name, None, install.to_string()),
+    }
+}
+
 fn gtk_group() -> Group {
     Group {
         id: "gtk",
         label: "GTK 4 · libadwaita",
         hosts: &["macos", "linux", "windows"],
         probes: vec![
-            Probe::new(
+            pkg_probe(
                 "gtk4",
-                run_line("pkg-config", &["--modversion", "gtk4"]),
+                "gtk4",
+                GTK4_MIN,
                 "install GTK 4 (`brew install gtk4` · `apt install libgtk-4-dev` · MSYS2 mingw-w64-gtk4)",
             ),
-            Probe::new(
+            pkg_probe(
                 "libadwaita",
-                run_line("pkg-config", &["--modversion", "libadwaita-1"]),
+                "libadwaita-1",
+                LIBADWAITA_MIN,
                 "install libadwaita (`brew install libadwaita` · `apt install libadwaita-1-dev`)",
             ),
             // Optional: resource staging (§18.3) is best-effort — a missing `glib-compile-resources`
@@ -339,7 +388,12 @@ fn gtk_group() -> Group {
             )
             .need(Need::PackOptional),
         ],
-        setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Install the dev libraries:\n\
+        setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Day needs gtk4 4.10 or\n\
+                newer and libadwaita 1.5 or newer — it builds navigation on AdwNavigationView and\n\
+                AdwOverlaySplitView and dialogs on GtkFileDialog/GtkAlertDialog, none of which\n\
+                exist below those versions. A distribution that ships an older GTK (Debian 12 has\n\
+                gtk4 4.8) cannot build this target; use `-p linux-qt` there, or a newer runtime.\n\
+                Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
                 • Linux  — `apt install libgtk-4-dev libadwaita-1-dev pkg-config`\n\
                 • Windows— MSYS2: `pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita`\n\
@@ -920,5 +974,56 @@ mod tests {
     #[test]
     fn unknown_group_has_no_readiness() {
         assert!(readiness("not-a-toolkit").is_none());
+    }
+
+    #[test]
+    fn versions_compare_by_feature_level() {
+        // The case that started this: Debian 12's GTK against what day-gtk compiles for.
+        assert!(!version_at_least("4.8.3", (4, 10)));
+        assert!(version_at_least("4.10.0", (4, 10)));
+        assert!(version_at_least("4.22.4", (4, 10)));
+        // 10 is not "less than 8" — a string compare would say it is.
+        assert!(version_at_least("4.10", (4, 8)));
+        assert!(version_at_least("5.0.0", (4, 10)));
+        // A packaging suffix is not part of the version.
+        assert!(version_at_least("1.5.0-2ubuntu1", (1, 5)));
+        // Unreadable counts as too old: a probe that cannot tell must not report ready.
+        assert!(!version_at_least("", (4, 10)));
+        assert!(!version_at_least("unknown", (4, 10)));
+    }
+
+    /// The minimums doctor reports are the ones the BUILD will enforce, so they have to track
+    /// `toolkits/day-gtk/Cargo.toml`. Bumping the crate feature without this constant would leave
+    /// doctor calling a machine ready for a build that then fails in `gdk4-sys`.
+    #[test]
+    fn gtk_minimums_match_day_gtk() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../toolkits/day-gtk/Cargo.toml");
+        let text = std::fs::read_to_string(&manifest)
+            .unwrap_or_else(|e| panic!("{}: {e}", manifest.display()));
+        let feature = |crate_name: &str| -> String {
+            let line = text
+                .lines()
+                .find(|l| l.trim_start().starts_with(crate_name))
+                .unwrap_or_else(|| panic!("no {crate_name} dependency in {}", manifest.display()));
+            let at = line
+                .find("\"v")
+                .unwrap_or_else(|| panic!("no version feature in {line:?}"));
+            line[at + 2..]
+                .split('"')
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(
+            feature("gtk4"),
+            format!("{}_{}", GTK4_MIN.0, GTK4_MIN.1),
+            "GTK4_MIN and day-gtk's gtk4 feature disagree",
+        );
+        assert_eq!(
+            feature("libadwaita"),
+            format!("{}_{}", LIBADWAITA_MIN.0, LIBADWAITA_MIN.1),
+            "LIBADWAITA_MIN and day-gtk's libadwaita feature disagree",
+        );
     }
 }

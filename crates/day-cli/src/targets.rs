@@ -183,6 +183,32 @@ pub fn host_default() -> &'static str {
     }
 }
 
+/// The target to SUGGEST running, out of the ones an app declares.
+///
+/// The first declared target used to be the answer, and the scaffold's default list opens with
+/// `ios-uikit` — so a fresh `day new app` on a Linux desktop finished by advising a build that
+/// needs Xcode, on a machine that has none.
+///
+/// Preference order: the [`host_default`] when the app declares it, which is the common case and
+/// the one that follows the Linux desktop's own toolkit; failing that, the first declared target
+/// this host can build at all, so an app scaffolded `--toolkit ios-uikit --toolkit linux-qt` on a
+/// GNOME box is still pointed at the Qt build rather than at Xcode; failing that, the first
+/// declared, which is the only honest answer left when nothing here can build any of them.
+pub fn suggested(targets: &[String]) -> &str {
+    let default = host_default();
+    if targets.iter().any(|t| t == default) {
+        return default;
+    }
+    let host = host_os();
+    let buildable_here = targets
+        .iter()
+        .find(|t| find(t).is_some_and(|t| t.host == "any" || t.host == host));
+    buildable_here
+        .or_else(|| targets.first())
+        .map(String::as_str)
+        .unwrap_or(default)
+}
+
 /// Qt or GTK for the running Linux desktop.
 ///
 /// `XDG_CURRENT_DESKTOP` is the freedesktop-specified answer and is colon-separated for
@@ -244,6 +270,61 @@ mod tests {
         );
         // Nothing set at all (a CI shell, a bare TTY) is GTK, not a panic.
         assert_eq!(desktop_toolkit(&[]), "linux-gtk");
+    }
+
+    #[test]
+    fn the_suggested_target_is_one_this_machine_can_run() {
+        let list =
+            |names: &[&str]| -> Vec<String> { names.iter().map(|s| s.to_string()).collect() };
+
+        // The scaffold's own list, which opens with `ios-uikit`. Whatever this host is, the
+        // suggestion is its native target — advising an Xcode build on a Linux desktop is the
+        // bug this exists to prevent.
+        let scaffold = list(&[
+            "ios-uikit",
+            "android-mdc",
+            "macos-appkit",
+            "macos-gtk",
+            "linux-gtk",
+            "linux-qt",
+            "windows-xaml",
+            "web-dom",
+        ]);
+        assert_eq!(suggested(&scaffold), host_default());
+
+        // The host default is not declared, so fall to the first target this host can build —
+        // NOT to `ios-uikit` just because it is written first.
+        let host = host_os();
+        let elsewhere: Vec<String> = TARGETS
+            .iter()
+            .filter(|t| t.host != "any" && t.host != host)
+            .map(|t| t.name.to_string())
+            .collect();
+        if let Some(native) = TARGETS
+            .iter()
+            .find(|t| t.host == host && t.name != host_default())
+        {
+            let mut mixed = elsewhere.clone();
+            mixed.push(native.name.to_string());
+            assert_eq!(suggested(&mixed), native.name, "{mixed:?}");
+        }
+
+        // Nothing here can build any of them: naming the first is the only honest answer left,
+        // and it must not invent a target the app does not declare.
+        if !elsewhere.is_empty() {
+            assert_eq!(suggested(&elsewhere), elsewhere[0]);
+        }
+
+        // `web-dom` declares `host: "any"`, so it counts as runnable everywhere. Put a target
+        // this host cannot build in FRONT of it, so passing means the host check chose it rather
+        // than the first-declared fallback landing on it by accident.
+        if let Some(foreign) = elsewhere.first() {
+            let pair = list(&[foreign, "web-dom"]);
+            assert_eq!(suggested(&pair), "web-dom", "{pair:?}");
+        }
+
+        // No targets at all still answers something usable rather than an empty string.
+        assert_eq!(suggested(&[]), host_default());
     }
 
     #[test]

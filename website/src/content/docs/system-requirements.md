@@ -132,8 +132,8 @@ On ARM64 hosts, use the CLANGARM64 environment's `mingw-w64-clang-aarch64-` pack
 
 ## Linux
 
-Day requires library versions rather than distro versions: **GTK 4 with libadwaita 1**, and **Qt
-6**. Any distribution whose repositories carry those development packages works. Continuous
+Day requires library versions rather than distro versions: **GTK 4.10 with libadwaita 1.5**, and
+**Qt 6**. Any distribution whose repositories carry those development packages works. Continuous
 integration builds on Ubuntu 24.04.
 
 ```bash
@@ -141,6 +141,13 @@ integration builds on Ubuntu 24.04.
 sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
 sudo apt install qt6-base-dev pkg-config                      # linux-qt
 ```
+
+The GTK minimums are real rather than cautious. Day builds navigation on `AdwNavigationView` and
+`AdwOverlaySplitView`, and its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`;
+none of those exist in earlier releases. **Debian 12 ships GTK 4.8 and cannot build `linux-gtk`** —
+run `-p linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor`
+reports the installed versions against these minimums, so check it before a build rather than
+after one fails inside `gdk4-sys`.
 
 Fedora, Arch, and openSUSE ship the same libraries under their own names; check
 [GTK's installation page](https://www.gtk.org/docs/installations/linux) and
@@ -299,5 +306,5 @@ project's platform configuration. They are unrelated to what your development ma
 | `android-mdc` | API level 24 (Android 7.0), compiled against API 35 |
 | `harmony-arkui` | API level 18 |
 | `windows-xaml` | Windows 10 or 11 |
-| `linux-gtk` / `linux-qt` | GTK 4 with libadwaita 1 / Qt 6 |
+| `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |
 | `web-dom` | a current browser, served as static files |

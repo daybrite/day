@@ -521,12 +521,11 @@ fn platform_label(pl: &str) -> String {
 }
 
 /// The TOOLKITS index of the host's own desktop toolkit — the sensible preselection for a native piece.
+///
+/// Taken from the host default rather than matched by OS a second time: this used to answer `gtk`
+/// for every Linux host, which preselected the wrong toolkit for anyone on a Qt desktop.
 fn host_toolkit_index() -> usize {
-    let want = match targets::host_os() {
-        "linux" => "gtk",
-        "windows" => "xaml",
-        _ => "appkit",
-    };
+    let want = targets::find(targets::host_default()).map_or("appkit", |t| t.toolkit);
     TOOLKITS.iter().position(|&t| t == want).unwrap_or(0)
 }
 
@@ -812,7 +811,9 @@ pub fn app(
     let mut repl = Repl::new(&name, Some(rid.as_str()));
     repl.repo = repo.clone();
     let ctx = template_context(&repl, title, &deps, &targets);
-    let first = ctx["first_target"].clone();
+    // Computed here rather than taken from the template context: this is advice for the person
+    // standing at THIS terminal, and nothing rendered into the project may depend on the host.
+    let run_target = targets::suggested(&targets).to_string();
 
     let files = load_template(template).map_err(CliError::failure)?;
     // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
@@ -876,7 +877,10 @@ pub fn app(
         },
         Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
     }
-    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {first}\n");
+    // The suggested target is what THIS machine can run, not the first one declared — see
+    // `targets::suggested`. `day doctor` stays unscoped: the app declares several targets and a
+    // first run is the moment to learn which of them this machine is missing tools for.
+    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {run_target}\n");
     Ok(())
 }
 
@@ -953,6 +957,11 @@ fn template_context(
             .collect::<Vec<_>>()
             .join(", "),
     );
+    // Deliberately NOT the host's own target (`targets::suggested`): a template renders into
+    // files that get committed and read on other machines, and the scaffold is diffed against a
+    // fresh `day new` on a Linux runner. A placeholder whose value depended on the desktop that
+    // generated it would report drift forever. Host-specific advice belongs on the terminal,
+    // where it is addressed to the person standing there.
     ctx.insert(
         "first_target",
         targets
