@@ -1497,6 +1497,7 @@ impl Toolkit for Dom {
             // here, so the piece composes its pane instead — docs/inspector.md); anything
             // else is an extension piece.
             Some(Builtin::ListCell)
+            | Some(Builtin::Tree)
             | Some(Builtin::Inspector)
             | Some(Builtin::InspectorPane)
             | None => {

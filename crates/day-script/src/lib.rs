@@ -156,6 +156,35 @@ pub enum Step {
         from: usize,
         to: usize,
     },
+    /// Undo one unit of the app's history, through the installed undo bridge — the same
+    /// handler ⌘Z and the Edit menu reach (docs/model.md). Portable: it needs no undo
+    /// button and no scriptable menu item on the target. Fails (non-retryably) when the
+    /// app never installed an undo stack.
+    Undo,
+    /// Redo one unit, [`Step::Undo`]'s mirror.
+    Redo,
+    /// Disclose or collapse a tree row programmatically (docs/tree.md). The row is resolved
+    /// by its `.row_id` string; the step emits the same `Event::TreeExpanded` a native
+    /// disclosure does, so the piece's expansion signal — and through it the native row —
+    /// follows. Retryable while the row id is unknown (a pending reload may still produce it).
+    Expand {
+        id: String,
+        row: String,
+        #[serde(default = "default_true")]
+        expanded: bool,
+    },
+    /// Move a tree row programmatically: `row` lands under `parent` (absent = the root) at
+    /// `index` (absent = dropped ONTO the parent — append), through the same guard → commit
+    /// path a native drag takes (docs/tree.md). Fails (non-retryably) when the tree isn't
+    /// `.movable()` or a guard — structural or the app's — denies the move.
+    TreeMove {
+        id: String,
+        row: String,
+        #[serde(default)]
+        parent: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
     /// Delete a list row programmatically: row `row` goes through the same guard → commit path
     /// a native swipe takes (docs/list.md) — the app's `delete_guard` may refuse it. Fails
     /// (non-retryably) when the list isn't `.deletable()` or the guard refuses.
@@ -398,6 +427,17 @@ impl Step {
 
 /// `#[serde(default)]` for a bool is `false`; these fields default to ON so a step that
 /// predates them behaves exactly as it did before.
+/// The `undo:`/`redo:` steps' shared body: through the installed bridge, or a non-retryable
+/// failure when the app has no undo stack.
+fn drive_undo(redo: bool) -> Result<Reply, Reply> {
+    if day_core::invoke_undo(redo) {
+        day_reactive::flush_sync();
+        Ok(Reply::ok())
+    } else {
+        Err(Reply::fail("no undo stack installed".to_string(), false))
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -989,6 +1029,46 @@ fn exec(step: Step) -> Reply {
                         format!("reorder {id:?} {from}->{to}: {e}"),
                         false,
                     )),
+                }
+            }
+            Step::Undo => drive_undo(false),
+            Step::Redo => drive_undo(true),
+            Step::Expand { id, row, expanded } => {
+                let node = find(&id)?;
+                let driver = day_core::tree_driver(node).ok_or_else(|| {
+                    Reply::fail(format!("expand {id:?}: no tree at this node"), false)
+                })?;
+                let token = (driver.resolve_row)(&row).ok_or_else(|| {
+                    // Retryable: the row may appear after a pending reload (or the tree may
+                    // not carry `.row_id`s at all, which the timeout will surface).
+                    Reply::fail(format!("expand {id:?}: no row {row:?}"), true)
+                })?;
+                emit(&id, Event::TreeExpanded { token, expanded })?;
+                Ok(Reply::ok())
+            }
+            Step::TreeMove {
+                id,
+                row,
+                parent,
+                index,
+            } => {
+                let node = find(&id)?;
+                let driver = day_core::tree_driver(node).ok_or_else(|| {
+                    Reply::fail(format!("tree_move {id:?}: no tree at this node"), false)
+                })?;
+                let token = (driver.resolve_row)(&row).ok_or_else(|| {
+                    Reply::fail(format!("tree_move {id:?}: no row {row:?}"), true)
+                })?;
+                let parent_tok = match &parent {
+                    Some(p) => Some((driver.resolve_row)(p).ok_or_else(|| {
+                        Reply::fail(format!("tree_move {id:?}: no parent row {p:?}"), true)
+                    })?),
+                    None => None,
+                };
+                match day_core::tree_try_move(node, token, parent_tok, index) {
+                    Ok(()) => Ok(Reply::ok()),
+                    // Not retryable: a guard denial or an immovable tree won't change by waiting.
+                    Err(e) => Err(Reply::fail(format!("tree_move {id:?} {row:?}: {e}"), false)),
                 }
             }
             Step::DeleteRow { id, row } => {

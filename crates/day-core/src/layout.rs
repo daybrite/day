@@ -359,6 +359,31 @@ impl Layout for PassThrough {
             cx.place_child(c, Rect::from_size(s));
         }
     }
+}
+
+/// A recycled TREE cell's anchor layout (docs/tree.md): row content HUGS its own height, so
+/// center it in the cell's fixed row height — [`PassThrough`] pins it to the top, which
+/// reads as a misaligned row whenever the content is shorter than the row (a 16pt label in
+/// a 28pt row sat 6pt high). Width still fills; a content taller than the row clamps to it.
+pub struct CellCenter;
+
+impl Layout for CellCenter {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        match children.first() {
+            Some(&c) => cx.measure_child(c, p),
+            None => Size::ZERO,
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let s = cx.measure_child(c, Proposal::exact(bounds.size));
+            let y = ((bounds.size.height - s.height) / 2.0).max(0.0);
+            cx.place_child(
+                c,
+                Rect::new(0.0, y, s.width, s.height.min(bounds.size.height)),
+            );
+        }
+    }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         PassThrough::forward(cx, children, size)
     }

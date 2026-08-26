@@ -83,6 +83,10 @@ pub mod prelude {
         toolbar_separator, toolbar_sidebar_toggle, toolbar_space, toolbar_toggle, vector, when,
         with_environment, zstack,
     };
+    // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
+    pub use crate::{
+        Branches, MoveVerdict, NodeSource, TreeBuilder, TreeConn, TreePiece, branches, tree,
+    };
     // Typed builder traits (docs/api-style.md "Typed builders and erasure"): each piece's own
     // builders, forwarded through `Decorated` so they still chain after a generic modifier. A
     // piece implements exactly one, so the names they share (`title`, `style`, `align`, …) never
@@ -95,7 +99,7 @@ pub mod prelude {
         ToggleBuilder, VectorBuilder, WhenBuilder, ZStackBuilder,
     };
     #[cfg(feature = "model")]
-    pub use crate::{ModelSlot, Rows, StoreRows};
+    pub use crate::{ModelSlot, Rows, StoreRows, StoreTree, StoreTrees};
     pub use crate::{Picker, TextArea};
     pub use day_core::{
         Alignment, AnyPiece, BuildCx, Either, Piece, PieceFn, PieceSeq, PieceVec, RNode,
@@ -108,6 +112,7 @@ pub mod prelude {
     // `Selector::presentation` takes one (docs/size-classes.md); apps that leave the
     // presentation automatic never name it.
     pub use day_spec::props::NavPresentation;
+    pub use day_spec::props::PaneEdge;
     pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
     pub use day_spec::props::TextAlign;

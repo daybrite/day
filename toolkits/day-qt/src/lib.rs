@@ -1822,7 +1822,7 @@ impl Toolkit for Qt {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell) | None => {
+                Some(Builtin::ListCell) | Some(Builtin::Tree) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }

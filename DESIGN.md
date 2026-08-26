@@ -65,7 +65,8 @@ the architecture-level view and the rationale.
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
-| inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector` | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| tree — `tree(source, row)` hierarchical rows over each platform's native tree view: token identity, app-owned expansion, drag-to-reparent, `Cap::Tree` | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -757,6 +758,10 @@ when(cond_fn, build_fn)            // reactive conditional subtree
     .otherwise(build_fn)           //   optional else arm; without it, false builds nothing
 each(items_fn, key_fn, build_fn)   // reactive keyed collection (§5.4)
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
+tree(source, row_fn)               // NATIVE hierarchical tree (docs/tree.md): token-addressed
+                                   //   rows, app-owned expansion, drag-to-reparent; sources are
+                                   //   branches(items, key, parent) or store.tree(children_of);
+                                   //   gate on Cap::Tree (macos-appkit first)
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
 selector(section)                  // sidebar / tabs / segmented, per SelectorStyle
@@ -764,7 +769,9 @@ stack(path, root)                  // push/pop navigation bound to a Vec<Route> 
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
                                    //   split where Cap::Inspector is Native, composed pane +
-                                   //   compact-width sheet elsewhere (docs/inspector.md)
+                                   //   compact-width sheet elsewhere (docs/inspector.md);
+                                   //   .edge(PaneEdge::Leading) makes it a leading utility
+                                   //   pane (a layer panel, docs/tree.md)
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
 alert(…)   confirm(…)   prompt(…)   open_file(…)   save_file(…)
 app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator()
@@ -1288,6 +1295,9 @@ pub trait Toolkit: Sized + 'static {
     // native recycling lists (§10, docs/list.md)
     fn attach_list(&mut self, host, source: ListSource) {}
 
+    // native hierarchical trees (docs/tree.md): the same row-pull seam, token-addressed
+    fn attach_tree(&mut self, host, source: TreeSource) {}
+
     // routes (docs/navigation.md): the current route, mirrored to a backend with a native
     // notion of location (web-dom: the URL hash); the reverse direction arrives as
     // Event::RouteRequested
@@ -1507,6 +1517,9 @@ pub enum Event {
     Lifecycle(Lifecycle),                     // docs/lifecycle.md
     ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
     ListDelete(usize),                        // committed swipe-delete (docs/list.md)
+    TreeExpanded { token, expanded },         // native disclosure (docs/tree.md)
+    TreeMove { token, parent, index },        // committed native tree drag (docs/tree.md)
+    TreeSelection(Vec<u64>),                  // tree selection, full token set (docs/tree.md)
     CoverHidden,                              // cover hide transition finished (docs/cover.md)
     LinkActivated(String),                    // a styled run's link (docs/text-runs.md)
     InspectorChanged(bool),                   // native pane show/hide (docs/inspector.md)
@@ -2755,7 +2768,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | command | what it does |
 |---|---|
 | `day version` | version, build profile, git ref |
-| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
+| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>…` | build for one or more targets, in parallel |
 | `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
@@ -2799,6 +2812,27 @@ release becomes the crates.io version instead; a branch has no version to ask fo
 refused rather than silently ignored, as is `--day-version` alongside `--local`. Without the flag
 the scaffold takes the remote's default branch, exactly as before. This is what lets one CLI check
 several days — `day checkup --day-version` drives both halves through it.
+
+> [!NOTE]
+> **`day new --describe` added 2026-08.** The prompts are a terminal conversation, and an editor
+> cannot join one — so day-vscode hand-copied the question set and came to offer a
+> `windows-winui` target, which does not exist. `--describe` prints that set instead: a
+> versioned, grow-only JSON document of every kind's fields — id, label, help, type, options,
+> default, validation pattern, and **the flag each one fills** — plus the host's own
+> `default_target`. Output is JSON by definition, so it takes no `--format`, the same way
+> `day metadata --schema` does.
+>
+> A caller renders it however it likes and then runs an ordinary
+> `day new <kind> <name> --flag …`. A field left blank is omitted rather than passed empty, so
+> the CLI applies the default it would have applied anyway — which is what keeps
+> `dev.example.<name>` and the title-cased name from being recomputed by every GUI. Branching is
+> declarative: the piece's toolkit field carries
+> `"visible_when": {"field": "native", "equals": "native"}`.
+>
+> The fields are generated from the same constants the prompts read and the same target catalog
+> `day metadata` publishes — which cannot serve here, since it needs a `Day.toml` and this is the
+> one moment before there is one. A test checks every described flag against clap's own
+> definition of that subcommand, so a typo fails the build rather than someone's editor.
 
 #### `day build`
 
@@ -4733,6 +4767,8 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index` | pickers/tabs |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam ([docs/list.md](docs/list.md)); a guard denial fails the step, non-retryably |
+| `expand` | `id`, `row`, `expanded?` | disclose/collapse a tree row by its `.row_id` string — emits the same `TreeExpanded` a native disclosure does ([docs/tree.md](docs/tree.md)); omitted `expanded` = true |
+| `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `item` \| `key`, `path?` | invoke an app-menu action by label or Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
 | `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?` | drive a window-toolbar item by its id: bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one), `on` sets a toggle. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |

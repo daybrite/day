@@ -39,6 +39,12 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
   user-draggable divider this is the initial width, not a limit.
 - `.sheet_done(label)` names the compact sheet's dismiss button (default `✕` — day carries no
   "Done" of its own, so pass a localized one).
+- `.edge(PaneEdge::Leading)` puts the pane on the LEADING side of the content instead — a
+  utility pane like a layer panel ([docs/tree.md](tree.md)) rather than a properties
+  inspector. Default `PaneEdge::Trailing`. On AppKit the leading pane is a plain pinned
+  split item (not the system inspector item, whose treatment is trailing-specific); the
+  composed form mounts the pane before the content. Two inspectors nest — Day Sketch wraps
+  its trailing-inspector editor in a leading layers pane.
 
 ## Wide and compact
 

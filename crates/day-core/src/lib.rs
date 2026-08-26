@@ -38,6 +38,7 @@ mod present;
 pub mod shield;
 pub mod toolbar;
 mod tree;
+pub mod tree_driver;
 pub mod windows;
 
 pub use ambient::{
@@ -66,6 +67,10 @@ pub use present::*;
 pub use toolbar::{
     current_window, dispatch_toolbar_value, patch_toolbar, patch_window_toolbar,
     register_toolbar_value, set_toolbar, set_window_search, set_window_toolbar,
+};
+pub use tree_driver::{
+    TreeBuiltRow, TreeDriver, TreeMovesDriver, install_tree, tree_driver, tree_reload, tree_reveal,
+    tree_set_expanded, tree_set_selected, tree_try_move, tree_visible_rows,
 };
 // The resource seam lives in day-spec (backends depend only on day-spec); re-export for the facade.
 pub use day_spec::resource::{
@@ -480,9 +485,21 @@ pub fn edit_action_id(op: day_spec::EditOp) -> u64 {
 }
 
 fn dispatch_undo_invoke(redo: bool) {
+    let _ = invoke_undo(redo);
+}
+
+/// Invoke the installed undo bridge — the SAME handler a native front (⌘Z, the Edit menu,
+/// a three-finger swipe) reaches — returning whether one is installed. The dayscript
+/// `undo:`/`redo:` steps drive history through this, so a walkthrough needs no app-provided
+/// undo button on any target.
+pub fn invoke_undo(redo: bool) -> bool {
     let f = UNDO_INVOKE.with(|u| u.borrow().clone());
-    if let Some(f) = f {
-        day_reactive::batch(|| f(redo));
+    match f {
+        Some(f) => {
+            day_reactive::batch(|| f(redo));
+            true
+        }
+        None => false,
     }
 }
 

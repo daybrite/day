@@ -152,6 +152,7 @@ pub struct Tree<B: Toolkit> {
     release_queue: Vec<(day_spec::PieceKind, B::Handle)>,
     /// Recycling-list state keyed by LIST node (docs/list.md, §10).
     lists: HashMap<RNode, crate::list::ListState>,
+    trees: HashMap<RNode, crate::tree_driver::TreeState>,
     /// Count of nodes carrying an implicit `.animation` (§8.4). Gates the `resolve_anim` ancestor
     /// walk: zero ⇒ non-`with_animation` patches skip it entirely (the common, O(1) path).
     implicit_anim_count: usize,
@@ -191,19 +192,25 @@ impl<B: Toolkit> Tree<B> {
             handlers: HashMap::new(),
             release_queue: Vec::new(),
             lists: HashMap::new(),
+            trees: HashMap::new(),
             implicit_anim_count: 0,
         }
     }
 
     /// Create a node whose native handle is a foreign cell adopted from a recycling list host —
     /// the same "wrap an externally-owned handle" trick the window root uses (docs/list.md).
-    pub(crate) fn create_cell_anchor(&mut self, handle: B::Handle, scope: Scope) -> RNode {
+    pub(crate) fn create_cell_anchor(
+        &mut self,
+        handle: B::Handle,
+        scope: Scope,
+        layout: Rc<dyn Layout>,
+    ) -> RNode {
         self.nodes.insert(NodeData {
             kind: kinds::LIST_CELL,
             handle: Some(handle),
             parent: RNode::null(),
             children: Vec::new(),
-            layout: Rc::new(PassThrough),
+            layout,
             flex: Flex::default(),
             scope,
             id: None,
@@ -431,6 +438,13 @@ impl<B: Toolkit> Tree<B> {
                     stack.push(cell.anchor);
                 }
             }
+            // TREE cells follow the identical rule (docs/tree.md).
+            if let Some(tree) = self.trees.remove(&n) {
+                for (_, cell) in tree.cells {
+                    cell.scope.dispose();
+                    stack.push(cell.anchor);
+                }
+            }
             let Some(data) = self.nodes.remove(n) else {
                 continue;
             };
@@ -491,6 +505,21 @@ impl<B: Toolkit> Tree<B> {
                 })
             })
             .collect();
+        let dirty_tree_cells: Vec<(RNode, usize)> = self
+            .trees
+            .iter()
+            .flat_map(|(tree, state)| {
+                state.cells.iter().filter_map(|(key, cell)| {
+                    self.nodes
+                        .get(cell.anchor)
+                        .filter(|n| n.needs_measure)
+                        .map(|_| (*tree, *key))
+                })
+            })
+            .collect();
+        for (tree, key) in dirty_tree_cells {
+            self.tree_layout_cell(tree, key);
+        }
         for (list, key) in dirty_cells {
             self.list_layout_cell(list, key);
         }
@@ -754,6 +783,46 @@ pub trait TreeOps {
     /// The list's driver, for the guard → commit path `list_try_reorder` runs outside the
     /// borrow (`None` when `node` hosts no list).
     fn list_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::list::ListDriver>>;
+
+    // Hierarchical tree seam (docs/tree.md) — the list seam's shape, token-addressed. Called
+    // by day-core's own `TreeSource` closures (via `with_tree`) when the native tree pulls
+    // rows; never nested inside another borrow.
+    fn install_tree(&mut self, node: RNode, driver: crate::tree_driver::TreeDriver);
+    /// Decide whether the cell for `key` must be built (fresh anchor) or rebound.
+    fn tree_prepare_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        cell: RawHandle,
+    ) -> crate::tree_driver::TreeCellStep;
+    /// Record a freshly built row for a cell.
+    fn tree_store_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        anchor: RNode,
+        built: crate::tree_driver::TreeBuiltRow,
+    );
+    /// Lay the row out inside its cell bounds (row content width × the RowHeight).
+    fn tree_layout_cell(&mut self, node: RNode, key: usize);
+    /// Re-lay the row at the cell's ACTUAL width (indentation makes tree cells per-row wide).
+    fn tree_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
+    /// The cell went back to the host's reuse pool: clear the row subtree's element ids, so
+    /// a collapsed-away row stops answering `find_by_id` (dayscript `assert_missing`) and a
+    /// stale id can never hijack a lookup. The next bind re-sets the live row's id.
+    fn tree_recycle_cell(&mut self, node: RNode, key: usize);
+    /// Apply a data change: the native host re-queries the source (expansion and selection
+    /// survive by token).
+    fn tree_reload(&mut self, node: RNode);
+    /// Programmatically disclose/collapse one row (no `TreeExpanded` echo).
+    fn tree_set_expanded(&mut self, node: RNode, token: u64, expanded: bool);
+    /// Programmatically sync the tree's selected rows (no selection-event echo).
+    fn tree_set_selected(&mut self, node: RNode, tokens: Vec<u64>);
+    /// Scroll this row into view, realizing it if needed (ancestors already expanded).
+    fn tree_reveal(&mut self, node: RNode, token: u64);
+    /// The tree's driver, for the guard → commit path `tree_try_move` runs outside the
+    /// borrow (`None` when `node` hosts no tree).
+    fn tree_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::tree_driver::TreeDriver>>;
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -1557,7 +1626,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
         // First use of this cell: adopt the native cell and anchor a fresh subtree under it.
         let handle = self.toolkit.adopt(cell);
-        let anchor = self.create_cell_anchor(handle, Scope::child());
+        let anchor = self.create_cell_anchor(handle, Scope::child(), Rc::new(PassThrough));
         crate::list::CellStep::Build { anchor }
     }
 
@@ -1697,6 +1766,166 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn list_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::list::ListDriver>> {
         self.lists.get(&node).map(|s| s.driver.clone())
+    }
+
+    fn install_tree(&mut self, node: RNode, driver: crate::tree_driver::TreeDriver) {
+        let driver = Rc::new(driver);
+        self.trees.insert(
+            node,
+            crate::tree_driver::TreeState {
+                driver: driver.clone(),
+                cells: HashMap::new(),
+            },
+        );
+        let source = crate::tree_driver::make_tree_source(node, driver);
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.attach_tree(&handle, source);
+        }
+    }
+
+    fn tree_prepare_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        cell: RawHandle,
+    ) -> crate::tree_driver::TreeCellStep {
+        if let Some(state) = self.trees.get(&node)
+            && let Some(bound) = state.cells.get(&key)
+        {
+            return crate::tree_driver::TreeCellStep::Rebind {
+                rebind: bound.rebind.clone(),
+                anchor: bound.anchor,
+            };
+        }
+        // First use of this cell: adopt the native cell and anchor a fresh subtree under it.
+        // The CENTERING anchor layout, not the list's PassThrough: tree rows have a fixed
+        // Uniform height and content that hugs, so the content centers in the cell.
+        let handle = self.toolkit.adopt(cell);
+        let anchor =
+            self.create_cell_anchor(handle, Scope::child(), Rc::new(crate::layout::CellCenter));
+        crate::tree_driver::TreeCellStep::Build { anchor }
+    }
+
+    fn tree_store_cell(
+        &mut self,
+        node: RNode,
+        key: usize,
+        anchor: RNode,
+        built: crate::tree_driver::TreeBuiltRow,
+    ) {
+        if let Some(state) = self.trees.get_mut(&node) {
+            state.cells.insert(
+                key,
+                crate::tree_driver::TreeBoundCell {
+                    anchor,
+                    scope: built.scope,
+                    rebind: built.rebind,
+                },
+            );
+        }
+    }
+
+    fn tree_layout_cell(&mut self, node: RNode, key: usize) {
+        // First approximation: the tree's own content width. The cell's native layout pass
+        // corrects it per row through `TreeSource::layout_cell` (indentation).
+        let width = self
+            .nodes
+            .get(node)
+            .and_then(|n| n.last_native_frame)
+            .map(|f| f.size.width)
+            .unwrap_or(self.windows[0].size.width);
+        self.tree_layout_cell_width(node, key, width);
+    }
+
+    fn tree_layout_cell_width(&mut self, node: RNode, key: usize, width: f64) {
+        let Some(state) = self.trees.get(&node) else {
+            return;
+        };
+        let anchor = match state.cells.get(&key) {
+            Some(b) => b.anchor,
+            None => return,
+        };
+        let row_height = state.driver.row_height;
+        let height = match row_height {
+            day_spec::props::RowHeight::Uniform(h) => h,
+            day_spec::props::RowHeight::Automatic => {
+                crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
+            }
+        };
+        self.nodes[anchor].needs_measure = true;
+        crate::layout::place_node(
+            self,
+            anchor,
+            Rect::new(0.0, 0.0, width, height),
+            Point::ZERO,
+            true,
+        );
+    }
+
+    fn tree_recycle_cell(&mut self, node: RNode, key: usize) {
+        let Some(anchor) = self
+            .trees
+            .get(&node)
+            .and_then(|s| s.cells.get(&key))
+            .map(|b| b.anchor)
+        else {
+            return;
+        };
+        let mut stack = vec![anchor];
+        while let Some(n) = stack.pop() {
+            if let Some(d) = self.nodes.get_mut(n) {
+                d.id = None;
+                stack.extend(d.children.iter().copied());
+            }
+        }
+    }
+
+    fn tree_reload(&mut self, node: RNode) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::TREE,
+                &day_spec::props::TreePatch::Reload as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn tree_set_expanded(&mut self, node: RNode, token: u64, expanded: bool) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::TREE,
+                &day_spec::props::TreePatch::Expand(token, expanded) as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn tree_set_selected(&mut self, node: RNode, tokens: Vec<u64>) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::TREE,
+                &day_spec::props::TreePatch::Selected(tokens) as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn tree_reveal(&mut self, node: RNode, token: u64) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::TREE,
+                &day_spec::props::TreePatch::Reveal(token) as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn tree_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::tree_driver::TreeDriver>> {
+        self.trees.get(&node).map(|s| s.driver.clone())
     }
 }
 

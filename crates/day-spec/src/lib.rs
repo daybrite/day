@@ -135,6 +135,11 @@ builtin_kinds! {
     /// ADOPTED, never realized — `Toolkit::adopt` wraps the native cell, so backends' `realize`
     /// never sees this kind.
     ListCell = LIST_CELL => "day.list_cell",
+    /// Native hierarchical tree (docs/tree.md): NSOutlineView / sidebar collection list /
+    /// GtkListView+TreeListModel / WinUI TreeView / ArkTS TreeView. Rows nest, disclose, and
+    /// drag-to-reparent; Day binds row content on demand through `Toolkit::attach_tree`.
+    /// Row cells are ADOPTED (the same `LIST_CELL` anchor path as `List`).
+    Tree = TREE => "day.tree",
     /// A fullscreen cover (docs/cover.md): a modal surface presented over the whole window,
     /// edge-to-edge, driven by `CoverPatch::{Present,Dismiss}`. The handle is the cover's
     /// CONTENT container; its frame is native-owned while presented (the backend sizes it to
@@ -795,6 +800,27 @@ pub enum Event {
     /// the piece writes it back to the bound signal. Applying
     /// [`props::InspectorPatch::Visible`] must never re-emit it (the from-native echo rule).
     InspectorChanged(bool),
+    /// The user disclosed or collapsed a tree row through the NATIVE affordance (docs/tree.md).
+    /// Emitted on the `kinds::TREE` node; the piece writes it back to the app's expansion
+    /// signal. Applying [`props::TreePatch::Expand`] must never re-emit it (the from-native
+    /// echo rule).
+    TreeExpanded {
+        token: u64,
+        expanded: bool,
+    },
+    /// A native tree committed a drag move (docs/tree.md): `token` now sits under `parent`
+    /// (`None` = the root) at `index` (`None` = dropped ONTO the parent — append). Deferred
+    /// through the event queue exactly as [`Event::ListReorder`] is; the app's `on_move`
+    /// writes its own data, whose refresh reloads the tree.
+    TreeMove {
+        token: u64,
+        parent: Option<u64>,
+        index: Option<usize>,
+    },
+    /// A tree's selection changed: the FULL set of selected row TOKENS (empty = cleared).
+    /// Token-addressed — a tree cannot speak row indices, because expanding a row renumbers
+    /// everything below it (docs/tree.md).
+    TreeSelection(Vec<u64>),
 }
 
 impl Event {
@@ -1442,6 +1468,76 @@ pub struct ListDelete {
     pub delete_row: std::rc::Rc<dyn Fn(usize)>,
 }
 
+/// The synchronous row-pull seam for hierarchical trees (docs/tree.md) — [`ListSource`]'s
+/// shape, addressed by TOKEN instead of row index, because expanding a row renumbers every
+/// index below it while tokens hold still. day-core injects one per `TREE` host via
+/// [`Toolkit::attach_tree`]; the backend answers its native data-source from it. The same
+/// synchronous discipline as [`ListSource`]: UI thread, outside any day-core borrow;
+/// `bind_row` flushes and lays the row out before returning.
+#[derive(Clone)]
+pub struct TreeSource {
+    /// How many children `parent` has (`None` = the root level).
+    pub children_len: std::rc::Rc<dyn Fn(Option<u64>) -> usize>,
+    /// The i-th child of `parent` — the stable token every backend keys its rows by.
+    pub child_token: std::rc::Rc<dyn Fn(Option<u64>, usize) -> u64>,
+    /// Whether this token can hold children at all — what draws (or omits) the disclosure.
+    pub expandable: std::rc::Rc<dyn Fn(u64) -> bool>,
+    /// Build (first use of this cell) or rebind (recycled cell) the row for `token` into the
+    /// native cell.
+    pub bind_row: std::rc::Rc<dyn Fn(u64, RawHandle)>,
+    /// The native cell left the viewport — Day may drop per-cell bookkeeping (optional).
+    pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
+    /// Re-lay the row bound to this cell at `width` — called from the cell's own native
+    /// layout pass. Trees need this where lists don't: indentation makes every cell's
+    /// content width per-row, so the host-width layout `bind_row` did is only a first
+    /// approximation. Skips quietly when called inside a day-core borrow (a snapshot pass).
+    pub layout_cell: std::rc::Rc<dyn Fn(RawHandle, f64)>,
+    /// The row's type-ahead string (docs/tree.md) — what native type-select matches against.
+    pub type_select_text: std::rc::Rc<dyn Fn(u64) -> String>,
+    /// Drag-to-move seam, present when `TreeProps::movable` (docs/tree.md). `None` on
+    /// immovable trees — backends must not enable their drag machinery without it.
+    pub moves: Option<TreeMoves>,
+}
+
+/// The synchronous drag half of [`TreeSource`] (docs/tree.md). Both closures follow
+/// `bind_row`'s discipline: called on the UI thread from inside native drag callbacks.
+#[derive(Clone)]
+pub struct TreeMoves {
+    /// The live verdict, consulted while the drag is over a target: may `token` land under
+    /// `parent` at `index`? `index: None` means "dropped ONTO the parent" (append). Pure —
+    /// it runs inside the platform's drag-validate callback.
+    #[allow(clippy::type_complexity)]
+    pub can_move: std::rc::Rc<dyn Fn(u64, Option<u64>, Option<usize>) -> MoveVerdict>,
+    /// Commit an accepted drop. Defers the app's `on_move` through the event queue
+    /// ([`Event::TreeMove`]); the app's own data write drives the reload.
+    #[allow(clippy::type_complexity)]
+    pub move_node: std::rc::Rc<dyn Fn(u64, Option<u64>, Option<usize>)>,
+}
+
+/// A tree move guard's verdict (docs/tree.md). No `Retarget` yet — the drop vocabulary is
+/// already positional, so a guard that wants a different target denies and the user drops
+/// where it is allowed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveVerdict {
+    Allow,
+    Deny,
+}
+
+/// One addressable widget within a COMPOSITE native backing (docs/tree.md,
+/// docs/tweaks.md) — Qt's own name for the concept (`QStyle::SubControl`). A `list`'s or
+/// `tree`'s node handle is its scroller; `Subcontrol::Content` is the widget inside it.
+/// Backends resolve an unknown subcontrol to `None`, never to the host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Subcontrol {
+    /// The node's own handle — what every tweak accessor reached before subcontrols existed.
+    Host,
+    /// The content widget inside the scroller (`NSOutlineView`, `NSTableView`, …).
+    Content,
+    /// The header view, where the widget has one. Day's lists and trees ship headerless, so
+    /// this answers `None` until a kind grows a header.
+    Header,
+}
+
 // ---------------------------------------------------------------------------
 // Capabilities, animation, a11y
 // ---------------------------------------------------------------------------
@@ -1575,6 +1671,16 @@ pub enum Cap {
     /// whose lists have no swipe idiom and where deletion belongs to a menu or a button
     /// (docs/list.md).
     ListDelete,
+    /// The toolkit realizes `kinds::TREE` as a hierarchical tree view (docs/tree.md) —
+    /// `Native` where a platform tree widget hosts Day-built rows (NSOutlineView, the UIKit
+    /// sidebar list, GtkListView+TreeListModel, WinUI TreeView, ArkTS TreeView), `Emulated`
+    /// where Day flattens the tree onto its list machinery, `Unsupported` where neither
+    /// exists yet — an app gates its tree UI on this answer rather than showing a placeholder.
+    Tree,
+    /// The toolkit realizes `TreeProps::movable` as drag-to-reparent/restack rows
+    /// (docs/tree.md). A strictly smaller set than [`Cap::Tree`]: a backend can render a
+    /// tree it cannot yet drag within.
+    TreeMove,
     /// The toolkit answers [`Toolkit::first_baseline`], so rows can align text on its baseline
     /// rather than on the middle of its box (docs/baseline.md). `Native` where the platform
     /// reports the baseline itself (`NSView.firstBaselineOffsetFromTop`, `View.getBaseline`,
@@ -1958,6 +2064,11 @@ pub enum Role {
     Image,
     Meter,
     Group,
+    /// A hierarchical tree container (docs/tree.md): `role="tree"`, `AXOutline`.
+    Tree,
+    /// One row of a tree: `role="treeitem"`, with level/expanded state where the platform
+    /// carries them (docs/tree.md).
+    TreeItem,
 }
 
 impl Role {
@@ -1973,6 +2084,7 @@ impl Role {
             kinds::TEXT_FIELD => Role::TextInput,
             kinds::IMAGE => Role::Image,
             kinds::PROGRESS => Role::Meter,
+            kinds::TREE => Role::Tree,
             _ => Role::None,
         }
     }
@@ -3586,6 +3698,17 @@ pub mod props {
         /// The pane's preferred width in points. A backend with a user-draggable divider
         /// treats it as the initial width; one without draws it at exactly this.
         pub width: f64,
+        /// Which side of the content the pane sits on. `Trailing` is the classic inspector;
+        /// `Leading` is a utility pane like a layer panel (docs/tree.md).
+        pub edge: PaneEdge,
+    }
+
+    /// Which side an inspector pane occupies (docs/inspector.md).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum PaneEdge {
+        #[default]
+        Trailing,
+        Leading,
     }
 
     /// Applied to a `kinds::INSPECTOR` node as its bound signal changes.
@@ -3708,6 +3831,40 @@ pub mod props {
         Insert(usize),
         Remove(usize),
         Move(usize, usize),
+    }
+
+    /// Immutable-at-realize props of a `kinds::TREE` host (docs/tree.md). Everything that
+    /// changes after realize flows through [`TreePatch`] or the injected `TreeSource`.
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct TreeProps {
+        pub row_height: RowHeight,
+        /// Rows highlight and report selection ([`crate::Event::TreeSelection`]).
+        pub selectable: bool,
+        /// Several rows may be selected at once; every change reports the FULL token set.
+        pub multi_select: bool,
+        /// Rows drag to a new parent/position through the platform's own mechanism, driving
+        /// the `TreeSource::moves` seam. Probe [`crate::Cap::TreeMove`] for support.
+        pub movable: bool,
+        /// Indentation per depth level, in points. `None` = the platform's default step.
+        pub indent: Option<f64>,
+    }
+
+    /// Post-realize changes to a `kinds::TREE` host (docs/tree.md). Token-addressed
+    /// throughout — see [`crate::TreeSource`] for why indices cannot address tree rows.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum TreePatch {
+        /// The node set changed (count/order/parentage/content): the host re-queries its
+        /// `TreeSource`. Expansion and selection survive by token (docs/tree.md).
+        Reload,
+        /// Programmatically disclose (`true`) or collapse (`false`) one row. Applied WITHOUT
+        /// re-emitting [`crate::Event::TreeExpanded`] (the from-native echo rule).
+        Expand(u64, bool),
+        /// Programmatic selection sync (tokens; empty = clear) — applied WITHOUT re-emitting
+        /// [`crate::Event::TreeSelection`].
+        Selected(Vec<u64>),
+        /// Scroll this row into view, realizing it if needed. The piece has already expanded
+        /// the row's ancestors (through the app's expansion signal) before issuing this.
+        Reveal(u64),
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -4094,6 +4251,12 @@ pub trait Toolkit: Sized + 'static {
     // once, right after realize. A recycling backend stores it and calls it from its native
     // data-source; the default no-op means a backend without list support simply renders nothing.
     fn attach_list(&mut self, _host: &Self::Handle, _source: ListSource) {}
+
+    // hierarchical tree (docs/tree.md): day-core hands the `TREE` host its token-addressed
+    // row-pull `source` once, right after realize. A backend with a native tree stores it and
+    // answers its data-source from it; the default no-op means a backend without tree support
+    // renders nothing (`Cap::Tree` answers `Unsupported`, and apps gate on that).
+    fn attach_tree(&mut self, _host: &Self::Handle, _source: TreeSource) {}
 
     // routes (docs/navigation.md): day-core reports the app's CURRENT route path here whenever
     // it changes ("" = everything at its root), so a backend with a native notion of location
@@ -5417,9 +5580,11 @@ mod builtin_kind_tests {
         assert_eq!(kinds::LIST_CELL, Builtin::ListCell.key());
         assert_eq!(kinds::COVER, Builtin::Cover.key());
         assert_eq!(kinds::INSPECTOR, Builtin::Inspector.key());
+        assert_eq!(kinds::TREE, Builtin::Tree.key());
         // 19 after `Tabs`/`TabsPage` retired (the tab bar is a NAV presentation, not a kind),
-        // +2 for the inspector split and its panes (docs/inspector.md).
-        assert_eq!(Builtin::ALL.len(), 21);
+        // +2 for the inspector split and its panes (docs/inspector.md), +1 for the tree
+        // (docs/tree.md).
+        assert_eq!(Builtin::ALL.len(), 22);
     }
 
     /// An extension piece's kind is not a built-in.

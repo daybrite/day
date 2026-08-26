@@ -309,6 +309,190 @@ fn pascalize(snake: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// `day new` with no subcommand: ask what to build, then run that kind's resolver with no flags set.
+/// The questions a GUI must ask to scaffold something, as a versioned JSON document.
+///
+/// `day new`'s interactive path is a terminal conversation, and an editor cannot join it — so it
+/// used to hand-copy the question set, which is how day-vscode came to offer a `windows-winui`
+/// target that does not exist. This is the same set, described once, generated from the same
+/// constants the prompts read (so the two cannot disagree) and from the same target catalog
+/// `day metadata` publishes — which that command cannot serve here, because it needs a Day.toml
+/// and this is the one moment before there is one.
+///
+/// Every field names the flag it fills, so a caller composes an ordinary
+/// `day new <kind> <name> --flag …` and gets exactly what the prompts would have produced. A field
+/// left blank is simply omitted, and the CLI applies the default it would have applied anyway —
+/// which is why nothing here has to recompute `dev.example.<name>` or a title-cased name.
+///
+/// Grow-only, like the other envelopes: fields get added, never removed or repurposed.
+pub fn describe() -> serde_json::Value {
+    use serde_json::json;
+
+    let name_field = |help: &str| {
+        json!({
+            "id": "name",
+            "label": "Project name",
+            "help": help,
+            "type": "text",
+            "positional": true,
+            "required": true,
+            // What `kebab_name` accepts without changing it. A name outside this still works —
+            // it is normalized — but a caller can offer the normalized form before committing.
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "placeholder": "my-thing",
+        })
+    };
+    let id_field = |label: &str, flag: &str, help: &str| {
+        json!({
+            "id": "id",
+            "label": label,
+            "help": help,
+            "type": "text",
+            "flag": flag,
+            "required": false,
+            "placeholder": default_id("<name>"),
+        })
+    };
+
+    let target_options: Vec<serde_json::Value> = targets::TARGETS
+        .iter()
+        .map(|t| {
+            json!({
+                "value": t.name,
+                "label": t.label,
+                "detail": format!("{} · {}", t.os, t.toolkit),
+                "buildable_here": t.host == "any" || t.host == targets::host_os(),
+                "experimental": t.experimental,
+            })
+        })
+        .collect();
+    let toolkit_options: Vec<serde_json::Value> = TOOLKITS
+        .iter()
+        .map(|tk| json!({ "value": tk, "label": toolkit_label(tk) }))
+        .collect();
+    let platform_options: Vec<serde_json::Value> = PLATFORMS
+        .iter()
+        .map(|pl| json!({ "value": pl, "label": platform_label(pl) }))
+        .collect();
+
+    json!({
+        "schema": 1,
+        "host": {
+            "os": targets::host_os(),
+            // The target this machine should be told to run — on a Linux desktop that follows the
+            // desktop's own toolkit, so a caller never needs to detect GNOME or KDE itself.
+            "default_target": targets::host_default(),
+        },
+        "kinds": [
+            {
+                "id": "app",
+                "label": "App",
+                "detail": "A complete Day app",
+                "command": ["new", "app"],
+                "fields": [
+                    name_field("Becomes the crate name. `MyApp` is normalized to `my-app`."),
+                    id_field(
+                        "Application id",
+                        "--appid",
+                        "Reverse-DNS bundle id — the Apple bundle id and Android application id.",
+                    ),
+                    {
+                        "id": "targets",
+                        "label": "Platform-toolkits",
+                        "help": "Each one is a platform and the native toolkit to draw with. More can be added later with `day app add-toolkit`.",
+                        "type": "multi-select",
+                        "flag": "--toolkit",
+                        "list": "repeat",
+                        "required": true,
+                        "default": [targets::host_default()],
+                        "options": target_options,
+                    },
+                    {
+                        "id": "title",
+                        "label": "Window title",
+                        "help": "Shown in the window and as the store display name.",
+                        "type": "text",
+                        "flag": "--title",
+                        "required": false,
+                        "placeholder": "the name, title-cased",
+                    },
+                ],
+            },
+            {
+                "id": "piece",
+                "label": "Piece",
+                "detail": "A custom user-interface component (a widget)",
+                "command": ["new", "piece"],
+                "fields": [
+                    name_field("Becomes the crate name for the piece."),
+                    {
+                        "id": "native",
+                        "label": "What kind of piece?",
+                        "type": "select",
+                        // Composite is the default and needs no flag; native is expressed by
+                        // naming toolkits, so this field selects which of the two paths runs
+                        // rather than emitting a flag of its own.
+                        "flag": null,
+                        "required": true,
+                        "default": "composite",
+                        "options": [
+                            {
+                                "value": "composite",
+                                "label": "Composite",
+                                "detail": "Pure composition; every backend for free, no per-backend code",
+                            },
+                            {
+                                "value": "native",
+                                "label": "Native",
+                                "detail": "A distinct native control, one implementation per toolkit",
+                            },
+                        ],
+                    },
+                    {
+                        "id": "toolkits",
+                        "label": "Which toolkits should it support?",
+                        "type": "multi-select",
+                        "flag": "--toolkits",
+                        "list": "comma",
+                        "required": true,
+                        "visible_when": { "field": "native", "equals": "native" },
+                        "default": [TOOLKITS[host_toolkit_index()]],
+                        "options": toolkit_options,
+                    },
+                    id_field(
+                        "Package id",
+                        "--id",
+                        "Reverse-DNS id — also the piece KIND and the Java package.",
+                    ),
+                ],
+            },
+            {
+                "id": "part",
+                "label": "Part",
+                "detail": "A custom platform-integration component (headless)",
+                "command": ["new", "part"],
+                "fields": [
+                    name_field("Becomes the crate name for the part."),
+                    {
+                        "id": "platforms",
+                        "label": "Which platforms should it support?",
+                        "type": "multi-select",
+                        "flag": "--platforms",
+                        "list": "comma",
+                        "required": true,
+                        "default": PLATFORMS,
+                        "options": platform_options,
+                    },
+                    id_field(
+                        "Package id",
+                        "--id",
+                        "Reverse-DNS id — also the Java package.",
+                    ),
+                ],
+            },
+        ],
+    })
+}
+
 pub fn interactive() -> Result<(), CliError> {
     let p = Prompt::new(false);
     if !p.enabled() {
@@ -2606,7 +2790,113 @@ Java shim (`android/java/…/Day__PASCAL__.java`) that `day build` stages into t
 
 #[cfg(test)]
 mod tests {
-    use super::{Deps, Repl, add_targets_to_day_toml, default_title, kebab_name, template_context};
+
+    /// Every flag the form spec names has to be one `day new <kind>` actually accepts, or a GUI
+    /// composes a command line the CLI rejects. Checked against clap's own definition rather than
+    /// a second list, so adding a field with a typo'd flag fails here instead of in someone's
+    /// editor.
+    #[test]
+    fn every_described_flag_exists_on_its_command() {
+        use clap::CommandFactory;
+        let cli = crate::cli::Cli::command();
+        let new = cli
+            .get_subcommands()
+            .find(|c| c.get_name() == "new")
+            .expect("`new` subcommand");
+        let doc = describe();
+
+        for kind in doc["kinds"].as_array().expect("kinds is an array") {
+            let id = kind["id"].as_str().expect("kind id");
+            let sub = new
+                .get_subcommands()
+                .find(|c| c.get_name() == id)
+                .unwrap_or_else(|| panic!("`day new {id}` does not exist"));
+            let flags: Vec<String> = sub
+                .get_arguments()
+                .filter_map(|a| a.get_long().map(|l| format!("--{l}")))
+                .collect();
+            // The command the caller is told to run must be the one that exists.
+            assert_eq!(
+                kind["command"].as_array().expect("command"),
+                &[serde_json::json!("new"), serde_json::json!(id)],
+                "{id}",
+            );
+            for field in kind["fields"].as_array().expect("fields") {
+                let fid = field["id"].as_str().expect("field id");
+                match field.get("flag").and_then(|f| f.as_str()) {
+                    Some(flag) => assert!(
+                        flags.contains(&flag.to_string()),
+                        "`day new {id}` has no {flag} (field {fid}); it has {flags:?}",
+                    ),
+                    // A field with no flag is either the positional name or a selector between
+                    // two code paths — both must say so rather than just omitting `flag`.
+                    None => assert!(
+                        field["positional"].as_bool().unwrap_or(false) || fid == "native",
+                        "field {id}.{fid} names no flag and is not positional",
+                    ),
+                }
+            }
+        }
+    }
+
+    /// The options a caller shows come from the same catalogs the prompts read. A hand-copied
+    /// list is what put a `windows-winui` target in day-vscode's own picker.
+    #[test]
+    fn described_options_come_from_the_real_catalogs() {
+        let doc = describe();
+        let field = |kind: &str, id: &str| -> serde_json::Value {
+            doc["kinds"]
+                .as_array()
+                .expect("kinds")
+                .iter()
+                .find(|k| k["id"] == kind)
+                .unwrap_or_else(|| panic!("no {kind}"))["fields"]
+                .as_array()
+                .expect("fields")
+                .iter()
+                .find(|f| f["id"] == id)
+                .unwrap_or_else(|| panic!("no {kind}.{id}"))
+                .clone()
+        };
+        let values = |f: &serde_json::Value| -> Vec<String> {
+            f["options"]
+                .as_array()
+                .expect("options")
+                .iter()
+                .map(|o| o["value"].as_str().expect("value").to_string())
+                .collect()
+        };
+
+        let targets = values(&field("app", "targets"));
+        assert_eq!(targets.len(), crate::targets::TARGETS.len());
+        for t in crate::targets::TARGETS {
+            assert!(targets.contains(&t.name.to_string()), "{}", t.name);
+        }
+        assert_eq!(values(&field("piece", "toolkits")), TOOLKITS);
+        assert_eq!(values(&field("part", "platforms")), PLATFORMS);
+
+        // The default target is the host's own, so a caller never re-derives it — that detection
+        // is `targets::host_default()`'s, including which toolkit a Linux desktop prefers.
+        assert_eq!(
+            doc["host"]["default_target"],
+            crate::targets::host_default()
+        );
+        assert_eq!(
+            field("app", "targets")["default"],
+            serde_json::json!([crate::targets::host_default()]),
+        );
+
+        // The toolkit list only applies to a native piece, and says so rather than relying on the
+        // caller knowing.
+        assert_eq!(
+            field("piece", "toolkits")["visible_when"],
+            serde_json::json!({ "field": "native", "equals": "native" }),
+        );
+    }
+    use super::{
+        Deps, PLATFORMS, Repl, TOOLKITS, add_targets_to_day_toml, default_title, describe,
+        kebab_name, template_context,
+    };
 
     /// A scaffolded package name is lowercase kebab-case whatever the user typed, so no app is
     /// ever born needing a crate-level `allow(non_snake_case)` (see `kebab_name`).

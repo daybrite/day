@@ -61,9 +61,9 @@ use day_spec::present;
 use day_spec::props::*;
 use day_spec::sidetable::SideTable;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource, NodeId,
-    PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size, Support,
-    Toolkit, Transform, WINDOW_NODE, WindowOptions, kinds, props_of,
+    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource,
+    MoveVerdict, NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer,
+    Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE, WindowOptions, kinds, props_of,
 };
 
 pub type Handle = Retained<NSView>;
@@ -136,6 +136,8 @@ day_core::tls_group! {
     static NAV_OUTLINE_MENUS: SideTable<Retained<DayNavMenuData>> = SideTable::new();
 
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// TREE host scroll-view ptr → (outline, data source) — docs/tree.md.
+    static TREE_STATE: RefCell<HashMap<usize, TreeEntry>> = RefCell::new(HashMap::new());
 
     /// NAV_MENU scroll-view ptr → (outline, data source) for patches and measure.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuEntry>> = RefCell::new(HashMap::new());
@@ -182,8 +184,9 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
     use day_spec::Role;
     use objc2_app_kit::{
         NSAccessibilityButtonRole, NSAccessibilityCheckBoxRole, NSAccessibilityGroupRole,
-        NSAccessibilityImageRole, NSAccessibilityLevelIndicatorRole, NSAccessibilitySliderRole,
-        NSAccessibilityStaticTextRole, NSAccessibilityTextFieldRole,
+        NSAccessibilityImageRole, NSAccessibilityLevelIndicatorRole, NSAccessibilityOutlineRole,
+        NSAccessibilityRowRole, NSAccessibilitySliderRole, NSAccessibilityStaticTextRole,
+        NSAccessibilityTextFieldRole,
     };
     unsafe {
         Some(match role {
@@ -195,6 +198,10 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
             Role::Image => NSAccessibilityImageRole,
             Role::Meter => NSAccessibilityLevelIndicatorRole,
             Role::Group => NSAccessibilityGroupRole,
+            // NSOutlineView already reports these itself; the mapping is for the audit's
+            // expectation and for any composed stand-in (docs/tree.md).
+            Role::Tree => NSAccessibilityOutlineRole,
+            Role::TreeItem => NSAccessibilityRowRole,
             Role::None => return None,
         })
     }
@@ -209,6 +216,7 @@ fn day_role_from_ns(ax: &str) -> day_spec::Role {
         "AXSlider" => Role::Slider,
         "AXTextField" => Role::TextInput,
         "AXStaticText" => Role::Heading(0), // ambiguous with plain text; audit ignores heading level
+        "AXOutline" => Role::Tree,
         "AXImage" => Role::Image,
         "AXLevelIndicator" | "AXProgressIndicator" => Role::Meter,
         "AXGroup" => Role::Group,
@@ -2235,6 +2243,597 @@ fn list_entry(key: usize) -> Option<ListEntry> {
     LIST_STATE.with(|m| m.borrow().get(&key).cloned())
 }
 
+// ---------------------------------------------------------------------------
+// DayTreeData — NSOutlineView data-source + delegate for the hierarchical tree (docs/tree.md)
+// ---------------------------------------------------------------------------
+
+struct TreeIvars {
+    node: NodeId,
+    /// Injected by `attach_tree` once day-core wires the driver.
+    source: RefCell<Option<TreeSource>>,
+    selectable: std::cell::Cell<bool>,
+    /// Programmatic selection/disclosure in flight: don't re-emit the event (echo rule).
+    suppress: std::cell::Cell<bool>,
+    /// token → its interned NSNumber. NSOutlineView tracks items (selection, expansion,
+    /// rowForItem) by object identity/equality, so every query for a token must answer with
+    /// the SAME object — which is also what preserves expansion across reloadData.
+    items: RefCell<HashMap<u64, Retained<NSNumber>>>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayTreeData"]
+    #[ivars = TreeIvars]
+    struct DayTreeData;
+
+    unsafe impl NSObjectProtocol for DayTreeData {}
+
+    unsafe impl NSOutlineViewDataSource for DayTreeData {
+        #[unsafe(method(outlineView:numberOfChildrenOfItem:))]
+        fn number_of_children(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: Option<&objc2::runtime::AnyObject>,
+        ) -> isize {
+            // Reads the piece's snapshot only (no tree access) — safe even when called
+            // synchronously from reloadData inside a with_tree borrow. Guarded because
+            // the closures are day-core's.
+            ffi_guard::contain(0, || {
+                let parent = item.and_then(Self::token_of_item);
+                if item.is_some() && parent.is_none() {
+                    return 0; // not one of ours (stale query racing a reload)
+                }
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map(|s| (s.children_len)(parent) as isize)
+                    .unwrap_or(0)
+            })
+        }
+
+        #[unsafe(method_id(outlineView:child:ofItem:))]
+        fn child_of_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            index: isize,
+            item: Option<&objc2::runtime::AnyObject>,
+        ) -> Retained<objc2::runtime::AnyObject> {
+            // AppKit only asks for children it was told exist, but a stale query racing a
+            // reload must degrade (token 0, an unmatched identity) rather than panic — an
+            // unwind here crosses an ObjC frame and aborts.
+            let token = ffi_guard::contain(0, || {
+                let parent = item.and_then(Self::token_of_item);
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map(|s| (s.child_token)(parent, index.max(0) as usize))
+                    .unwrap_or(0)
+            });
+            let ns = self.intern(token);
+            unsafe { objc2::rc::Retained::cast_unchecked(ns) }
+        }
+
+        #[unsafe(method(outlineView:isItemExpandable:))]
+        fn is_expandable(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> bool {
+            ffi_guard::contain(false, || {
+                let Some(token) = Self::token_of_item(item) else {
+                    return false;
+                };
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map(|s| (s.expandable)(token))
+                    .unwrap_or(false)
+            })
+        }
+
+        // --- drag-to-move (docs/tree.md): the dragged node rides the pasteboard as a
+        // private-typed token string; `validateDrop` consults the guard live (forbidden
+        // cursor where it denies, including ONTO-a-row drops via childIndex -1), and
+        // `acceptDrop` commits through the sync seam — the app's own data write reloads.
+
+        #[unsafe(method_id(outlineView:pasteboardWriterForItem:))]
+        fn pasteboard_writer_for_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> Option<Retained<ProtocolObject<dyn objc2_app_kit::NSPasteboardWriting>>> {
+            let make = || {
+                let movable = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|s| s.moves.is_some());
+                let token = Self::token_of_item(item)?;
+                if !movable {
+                    return None;
+                }
+                let pbitem = objc2_app_kit::NSPasteboardItem::new();
+                unsafe {
+                    pbitem.setString_forType(
+                        &NSString::from_str(&token.to_string()),
+                        &NSString::from_str(DAY_TREE_PASTEBOARD_TYPE),
+                    );
+                }
+                Some(ProtocolObject::from_retained(pbitem))
+            };
+            ffi_guard::contain(None, make)
+        }
+
+        #[unsafe(method(outlineView:validateDrop:proposedItem:proposedChildIndex:))]
+        fn validate_drop(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+            item: Option<&objc2::runtime::AnyObject>,
+            child_index: isize,
+        ) -> objc2_app_kit::NSDragOperation {
+            ffi_guard::contain(objc2_app_kit::NSDragOperation::None, || {
+                match self.drop_proposal(ov, info, item, child_index) {
+                    Some((token, parent, index)) if self.can_move(token, parent, index) => {
+                        objc2_app_kit::NSDragOperation::Move
+                    }
+                    _ => objc2_app_kit::NSDragOperation::None,
+                }
+            })
+        }
+
+        #[unsafe(method(outlineView:acceptDrop:item:childIndex:))]
+        fn accept_drop(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+            item: Option<&objc2::runtime::AnyObject>,
+            child_index: isize,
+        ) -> bool {
+            let drop = || {
+                let Some((token, parent, index)) = self.drop_proposal(ov, info, item, child_index)
+                else {
+                    return false;
+                };
+                if !self.can_move(token, parent, index) {
+                    return false;
+                }
+                // Commit through the sync seam: defers the app's `on_move`; the app's own
+                // data write drives the Reload (no native row animation on this path).
+                let mv = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.moves.as_ref().map(|m| m.move_node.clone()));
+                let Some(mv) = mv else { return false };
+                mv(token, parent, index);
+                true
+            };
+            ffi_guard::contain(false, drop)
+        }
+    }
+
+    unsafe impl NSControlTextEditingDelegate for DayTreeData {}
+
+    unsafe impl NSOutlineViewDelegate for DayTreeData {
+        #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
+        fn view_for_item(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            _col: Option<&NSTableColumn>,
+            item: &objc2::runtime::AnyObject,
+        ) -> Option<Retained<NSView>> {
+            // Guarded: `bind_row` builds the app's row content.
+            ffi_guard::contain(None, || {
+                let mtm = self.mtm();
+                let token = Self::token_of_item(item)?;
+                let ident = NSString::from_str("day.tree.cell");
+                // Recycle a cell view if one is free; else make a fresh flipped container
+                // (DayTreeCell re-lays its Day row at its own width — indentation makes
+                // every tree cell's width per-row).
+                let cell: Retained<NSView> =
+                    unsafe { ov.makeViewWithIdentifier_owner(&ident, None) }.unwrap_or_else(|| {
+                        let v: Retained<NSView> = Retained::into_super(DayTreeCell::new(mtm));
+                        unsafe { v.setIdentifier(Some(&ident)) };
+                        v
+                    });
+                if let Some(source) = self.ivars().source.borrow().as_ref() {
+                    let raw = Retained::as_ptr(&cell) as RawHandle;
+                    (source.bind_row)(token, raw);
+                }
+                Some(cell)
+            })
+        }
+
+        #[unsafe(method_id(outlineView:typeSelectStringForTableColumn:item:))]
+        fn type_select_string(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            _col: Option<&NSTableColumn>,
+            item: &objc2::runtime::AnyObject,
+        ) -> Option<Retained<NSString>> {
+            ffi_guard::contain(None, || {
+                let token = Self::token_of_item(item)?;
+                let text = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .map(|s| (s.type_select_text)(token))
+                    .unwrap_or_default();
+                // Empty = this row doesn't participate in type-select.
+                (!text.is_empty()).then(|| NSString::from_str(&text))
+            })
+        }
+
+        #[unsafe(method_id(outlineView:rowViewForItem:))]
+        fn row_view_for_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            _item: &objc2::runtime::AnyObject,
+        ) -> Retained<objc2_app_kit::NSTableRowView> {
+            // The rounded-selection row (see DayTreeRowView).
+            let rv: Retained<DayTreeRowView> =
+                unsafe { msg_send![DayTreeRowView::alloc(self.mtm()), init] };
+            Retained::into_super(rv)
+        }
+
+        #[unsafe(method(outlineViewSelectionDidChange:))]
+        fn selection_did_change(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || {
+                if self.ivars().suppress.get() || !self.ivars().selectable.get() {
+                    return;
+                }
+                let Some(obj) = (unsafe { notification.object() }) else {
+                    return;
+                };
+                let Ok(ov) = obj.downcast::<objc2_app_kit::NSOutlineView>() else {
+                    return;
+                };
+                // Always the FULL token set (docs/tree.md): a tree cannot speak row indices.
+                let idx = unsafe { ov.selectedRowIndexes() };
+                let mut tokens = Vec::with_capacity(idx.count());
+                let mut i = idx.firstIndex();
+                while i != objc2_foundation::NSNotFound as usize {
+                    if let Some(item) = unsafe { ov.itemAtRow(i as isize) }
+                        && let Some(tok) = Self::token_of_item(&item)
+                    {
+                        tokens.push(tok);
+                    }
+                    i = unsafe { idx.indexGreaterThanIndex(i) };
+                }
+                emit(self.ivars().node, Event::TreeSelection(tokens));
+            })
+        }
+
+        #[unsafe(method(outlineView:didRemoveRowView:forRow:))]
+        fn did_remove_row_view(
+            &self,
+            ov: &objc2_app_kit::NSOutlineView,
+            row_view: &objc2_app_kit::NSTableRowView,
+            _row: isize,
+        ) {
+            // The row went back to the reuse pool (a collapse, a reload dropping it): clear
+            // its day element ids so it stops answering `find_by_id`. DEFERRED — this fires
+            // inside collapse/reload stacks that hold the day-core borrow — and re-checked:
+            // a cell already reused by the same turn's reload has a window again, and its
+            // fresh ids must survive.
+            ffi_guard::contain((), || {
+                let mut cell_ptr: Option<usize> = None;
+                for sub in row_view.subviews().iter() {
+                    let is_cell = sub
+                        .identifier()
+                        .map(|i| i.to_string() == "day.tree.cell")
+                        .unwrap_or(false);
+                    if is_cell {
+                        cell_ptr = Some(Retained::as_ptr(&sub) as usize);
+                    }
+                }
+                let Some(cell) = cell_ptr else { return };
+                let Some(scroll) = (unsafe { ov.enclosingScrollView() }) else {
+                    return;
+                };
+                let key = Retained::as_ptr(&scroll) as usize;
+                // Carry a RETAIN across the post as a raw +1 pointer (the boxed closure must
+                // be Send, which Retained is not; we stay on the main thread throughout).
+                // AppKit is free to dealloc removed row views — a bare pointer died here once.
+                let retained =
+                    unsafe { Retained::into_raw(Retained::retain(cell as *mut NSView).unwrap()) }
+                        as usize;
+                <AppKit as Platform>::post(Box::new(move || {
+                    // Reclaim the +1 FIRST, unconditionally — every early return below must
+                    // still balance the retain.
+                    let cell_view: Retained<NSView> =
+                        match unsafe { Retained::from_raw(retained as *mut NSView) } {
+                            Some(v) => v,
+                            None => return,
+                        };
+                    let recycle = tree_entry(key).and_then(|(_, data)| {
+                        data.ivars()
+                            .source
+                            .borrow()
+                            .as_ref()
+                            .map(|s| s.recycle.clone())
+                    });
+                    let Some(recycle) = recycle else { return };
+                    if cell_view.window().is_some() {
+                        return; // reused already — its ids are the live row's
+                    }
+                    recycle(cell as RawHandle);
+                }));
+            })
+        }
+
+        #[unsafe(method(outlineViewItemDidExpand:))]
+        fn item_did_expand(&self, notification: &NSNotification) {
+            self.report_disclosure(notification, true);
+        }
+
+        #[unsafe(method(outlineViewItemDidCollapse:))]
+        fn item_did_collapse(&self, notification: &NSNotification) {
+            self.report_disclosure(notification, false);
+        }
+    }
+);
+
+impl DayTreeData {
+    fn new(mtm: MainThreadMarker, node: NodeId, selectable: bool) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(TreeIvars {
+            node,
+            source: RefCell::new(None),
+            selectable: std::cell::Cell::new(selectable),
+            suppress: std::cell::Cell::new(false),
+            items: RefCell::new(HashMap::new()),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+
+    /// The SAME NSNumber for a token, every time — NSOutlineView's item identity.
+    fn intern(&self, token: u64) -> Retained<NSNumber> {
+        self.ivars()
+            .items
+            .borrow_mut()
+            .entry(token)
+            .or_insert_with(|| NSNumber::new_u64(token))
+            .clone()
+    }
+
+    fn token_of_item(item: &objc2::runtime::AnyObject) -> Option<u64> {
+        item.downcast_ref::<NSNumber>().map(|n| n.as_u64())
+    }
+
+    /// A native disclosure (user click, keyboard left/right) → `Event::TreeExpanded`.
+    /// Programmatic `TreePatch::Expand` applications are suppressed (the echo rule).
+    fn report_disclosure(&self, notification: &NSNotification, expanded: bool) {
+        ffi_guard::contain((), || {
+            if self.ivars().suppress.get() {
+                return;
+            }
+            let token = unsafe { notification.userInfo() }
+                .and_then(|ui| ui.objectForKey(&*NSString::from_str("NSObject")))
+                .and_then(|item| Self::token_of_item(&item));
+            if let Some(token) = token {
+                emit(self.ivars().node, Event::TreeExpanded { token, expanded });
+            }
+        })
+    }
+
+    /// The full drop proposal — `(dragged token, parent token, index)` — for a LOCAL drag
+    /// from this outline; `None` for a foreign drag or an unparseable one. `index: None`
+    /// means "ONTO the parent" (NSOutlineView's childIndex -1, `NSOutlineViewDropOnItemIndex`).
+    fn drop_proposal(
+        &self,
+        ov: &objc2_app_kit::NSOutlineView,
+        info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>,
+        item: Option<&objc2::runtime::AnyObject>,
+        child_index: isize,
+    ) -> Option<(u64, Option<u64>, Option<usize>)> {
+        let src = unsafe { info.draggingSource() }?;
+        if Retained::as_ptr(&src) as *const std::ffi::c_void
+            != ov as *const objc2_app_kit::NSOutlineView as *const std::ffi::c_void
+        {
+            return None;
+        }
+        let pb = unsafe { info.draggingPasteboard() };
+        let token = unsafe { pb.stringForType(&NSString::from_str(DAY_TREE_PASTEBOARD_TYPE)) }?
+            .to_string()
+            .parse::<u64>()
+            .ok()?;
+        let parent = match item {
+            Some(i) => Some(Self::token_of_item(i)?), // a non-token item is not ours
+            None => None,
+        };
+        let index = (child_index >= 0).then_some(child_index as usize);
+        Some((token, parent, index))
+    }
+
+    /// The guard's live verdict through the sync seam.
+    fn can_move(&self, token: u64, parent: Option<u64>, index: Option<usize>) -> bool {
+        self.ivars()
+            .source
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.moves.as_ref().map(|m| (m.can_move)(token, parent, index)))
+            .map(|v| v == MoveVerdict::Allow)
+            .unwrap_or(false)
+    }
+}
+
+// DayOutlineView — an NSOutlineView that PINS its width to its clip on every layout pass.
+// A table sizes itself from its COLUMNS, and the autoresizing mask only tracks deltas, so
+// any early pass at a different pane width leaves a permanent offset (a 233pt table in a
+// 220pt pane, whose selection pill then clips mid-corner). Enforcing it in `layout` — not
+// in occasional deferred posts — closes every window where a stale width could draw.
+define_class!(
+    #[unsafe(super(objc2_app_kit::NSOutlineView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayOutlineView"]
+    struct DayOutlineView;
+
+    impl DayOutlineView {
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            sync_tree_width(self);
+            let _: () = unsafe { msg_send![super(self), layout] };
+        }
+    }
+);
+
+// DayTreeRowView — a tree row with the MODERN selection: a rounded pill, inset from the
+// pane's edges, in the system's semantic selection colors (accent when the tree has focus,
+// the quiet gray otherwise). Drawn by hand rather than through `NSTableViewStyle::Inset`,
+// whose machinery pads the table wider than its clip and fights day's fixed-frame layout —
+// and a hand-drawn plain color also captures correctly offscreen, where materials go black
+// (docs/navigation.md's sidebar-screenshot rule).
+define_class!(
+    #[unsafe(super(objc2_app_kit::NSTableRowView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayTreeRowView"]
+    struct DayTreeRowView;
+
+    impl DayTreeRowView {
+        #[unsafe(method(drawSelectionInRect:))]
+        fn draw_selection_in_rect(&self, _dirty: NSRect) {
+            if !unsafe { self.isSelected() } {
+                return;
+            }
+            let color = if unsafe { self.isEmphasized() } {
+                unsafe { objc2_app_kit::NSColor::selectedContentBackgroundColor() }
+            } else {
+                unsafe { objc2_app_kit::NSColor::unemphasizedSelectedContentBackgroundColor() }
+            };
+            let b = self.bounds();
+            let pill = NSRect::new(
+                NSPoint::new(b.origin.x + 5.0, b.origin.y + 1.0),
+                NSSize::new(
+                    (b.size.width - 10.0).max(0.0),
+                    (b.size.height - 2.0).max(0.0),
+                ),
+            );
+            unsafe {
+                color.setFill();
+                objc2_app_kit::NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                    pill, 5.0, 5.0,
+                )
+                .fill();
+            }
+        }
+    }
+);
+
+// DayTreeCell — a tree row's flipped cell container. NSOutlineView frames it at the row's
+// INDENTED position, so its width is per-row; every native layout pass re-lays the Day row
+// content inside it at that width through the seam's `layout_cell`.
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayTreeCell"]
+    struct DayTreeCell;
+
+    impl DayTreeCell {
+        #[unsafe(method(isFlipped))]
+        fn is_flipped(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(layout))]
+        fn layout(&self) {
+            let _: () = unsafe { msg_send![super(self), layout] };
+            ffi_guard::contain((), || {
+                let width = self.bounds().size.width;
+                if width <= 0.0 {
+                    return;
+                }
+                // This cell's tree: walk up to the outline, then to its scroll host, which
+                // keys TREE_STATE. (The cell may be in the reuse pool — no outline — or the
+                // tree may be mid-teardown; both just skip.)
+                let mut cur = unsafe { self.superview() };
+                let mut outline: Option<Retained<objc2_app_kit::NSOutlineView>> = None;
+                while let Some(v) = cur {
+                    cur = unsafe { v.superview() };
+                    if let Ok(ov) = v.downcast::<objc2_app_kit::NSOutlineView>() {
+                        outline = Some(ov);
+                        break;
+                    }
+                }
+                let Some(ov) = outline else { return };
+                let Some(scroll) = (unsafe { ov.enclosingScrollView() }) else {
+                    return;
+                };
+                let f = tree_entry(Retained::as_ptr(&scroll) as usize)
+                    .and_then(|(_, data)| {
+                        data.ivars()
+                            .source
+                            .borrow()
+                            .as_ref()
+                            .map(|s| s.layout_cell.clone())
+                    });
+                if let Some(f) = f {
+                    f(self as *const Self as RawHandle, width);
+                }
+            })
+        }
+    }
+);
+
+impl DayTreeCell {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        unsafe { msg_send![Self::alloc(mtm), init] }
+    }
+}
+
+/// The private pasteboard type carrying a dragged day tree node's token (local moves only).
+const DAY_TREE_PASTEBOARD_TYPE: &str = "dev.daybrite.day.tree.node";
+
+/// A realized TREE's scroll view ptr → (outline, data source).
+type TreeEntry = (
+    Retained<objc2_app_kit::NSOutlineView>,
+    Retained<DayTreeData>,
+);
+
+/// Clone a tree's (outline, data) out of `TREE_STATE` under a SHORT borrow — the same
+/// re-entrancy rule as `list_entry` (its comment has the war story).
+fn tree_entry(key: usize) -> Option<TreeEntry> {
+    TREE_STATE.with(|m| m.borrow().get(&key).cloned())
+}
+
+/// Keep the outline exactly as wide as its clip — DayOutlineView calls this on every layout
+/// pass (its comment has the why). The list never noticed the width drift because it lays
+/// row content at the HOST's width; tree rows lay out at the CELL's, which exposes it.
+fn sync_tree_width(outline: &objc2_app_kit::NSOutlineView) {
+    let Some(scroll) = (unsafe { outline.enclosingScrollView() }) else {
+        return;
+    };
+    let clip_w = unsafe { scroll.contentView() }.bounds().size.width;
+    let f = outline.frame();
+    if clip_w > 0.0 && (f.size.width - clip_w).abs() > 0.5 {
+        unsafe {
+            outline.setFrameSize(NSSize::new(clip_w, f.size.height));
+            outline.sizeLastColumnToFit();
+        }
+    }
+}
+
+/// Realize the tree's visible rows on the next main-loop turn, outside any borrow — the
+/// tree twin of `post_realize_visible_rows` (its comment explains the occluded-window trap).
+fn post_realize_visible_tree_rows(key: usize) {
+    <AppKit as Platform>::post(Box::new(move || {
+        if let Some((outline, _)) = tree_entry(key) {
+            let range = unsafe { outline.rowsInRect(outline.visibleRect()) };
+            for row in range.location..range.location + range.length {
+                let _ = unsafe { outline.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
+            }
+        }
+        day_core::pump_events();
+    }));
+}
+
 /// A realized NAV_MENU's native outline view paired with its data-source object.
 type NavMenuEntry = (
     Retained<objc2_app_kit::NSOutlineView>,
@@ -3558,6 +4157,10 @@ impl Toolkit for AppKit {
             | Cap::TextSpellCheck
             // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
             | Cap::ListReorder
+            // NSOutlineView hosts Day-built rows natively, drag-reparent included
+            // (docs/tree.md).
+            | Cap::Tree
+            | Cap::TreeMove
             // Real NSWindows with native tabbing + the Windows menu (docs/windows.md).
             | Cap::MultiWindow
             // A real NSToolbar in the title bar (docs/toolbars.md).
@@ -3775,10 +4378,16 @@ impl Toolkit for AppKit {
                 view_of(canvas)
             }
             Some(Builtin::Inspector) => {
-                let (visible, width) = props
+                let (visible, width, leading) = props
                     .downcast_ref::<InspectorProps>()
-                    .map(|p| (p.visible, p.width))
-                    .unwrap_or((false, 280.0));
+                    .map(|p| {
+                        (
+                            p.visible,
+                            p.width,
+                            p.edge == day_spec::props::PaneEdge::Leading,
+                        )
+                    })
+                    .unwrap_or((false, 280.0, false));
                 let content_wrap = view_of(DayFlipped::new(mtm));
                 let panel_flipped = DayFlipped::new(mtm);
                 // The panel draws an opaque window-background backdrop over the item's
@@ -3799,8 +4408,16 @@ impl Toolkit for AppKit {
                 let content_item = unsafe {
                     objc2_app_kit::NSSplitViewItem::splitViewItemWithViewController(&content_vc)
                 };
+                // A TRAILING pane is a real inspector item (the system treatment). A LEADING
+                // one is a plain item placed first: `sidebarWithViewController:` would bring
+                // sidebar material, which captures black offscreen (docs/navigation.md), and
+                // the panel wrap already paints its own backdrop.
                 let panel_item = unsafe {
-                    objc2_app_kit::NSSplitViewItem::inspectorWithViewController(&panel_vc)
+                    if leading {
+                        objc2_app_kit::NSSplitViewItem::splitViewItemWithViewController(&panel_vc)
+                    } else {
+                        objc2_app_kit::NSSplitViewItem::inspectorWithViewController(&panel_vc)
+                    }
                 };
                 unsafe {
                     // Day's signal is the ONLY visibility driver: with the pinned width the
@@ -3811,8 +4428,13 @@ impl Toolkit for AppKit {
                     panel_item.setMinimumThickness(width);
                     panel_item.setMaximumThickness(width);
                     panel_item.setAllowsFullHeightLayout(true);
-                    split_vc.addSplitViewItem(&content_item);
-                    split_vc.addSplitViewItem(&panel_item);
+                    if leading {
+                        split_vc.addSplitViewItem(&panel_item);
+                        split_vc.addSplitViewItem(&content_item);
+                    } else {
+                        split_vc.addSplitViewItem(&content_item);
+                        split_vc.addSplitViewItem(&panel_item);
+                    }
                 }
                 let split = unsafe { split_vc.splitView() };
                 unsafe {
@@ -4169,6 +4791,93 @@ impl Toolkit for AppKit {
                 }
                 let view = view_of(scroll);
                 LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));
+                view
+            }
+            Some(Builtin::Tree) => {
+                let Some(p) = props_of::<TreeProps>(kind, "appkit", props) else {
+                    return placeholder_view(mtm, kind);
+                };
+                // The width-pinning subclass (see DayOutlineView).
+                let outline: Retained<objc2_app_kit::NSOutlineView> = {
+                    let o: Retained<DayOutlineView> =
+                        unsafe { msg_send![DayOutlineView::alloc(mtm), init] };
+                    unsafe { msg_send![&*o, self] }
+                };
+                let col = unsafe {
+                    NSTableColumn::initWithIdentifier(
+                        NSTableColumn::alloc(mtm),
+                        &NSString::from_str("day.tree.col"),
+                    )
+                };
+                let data = DayTreeData::new(mtm, id, p.selectable);
+                unsafe {
+                    if p.multi_select {
+                        outline.setAllowsMultipleSelection(true);
+                    }
+                    outline.addTableColumn(&col);
+                    outline.setOutlineTableColumn(Some(&col));
+                    outline.setHeaderView(None);
+                    // Full-width CELLS, rounded SELECTION: the style stays FullWidth (the
+                    // Inset style pads by making the table wider than its clip, which
+                    // fights day's fixed-frame layout — the pill's insets land outside the
+                    // visible pane), and DayTreeRowView below draws the modern rounded
+                    // selection itself, deterministically — including in offscreen captures.
+                    // A sidebar treatment is still a tweak (`setStyle(SourceList)` on
+                    // `Subcontrol::Content`), not the default.
+                    outline.setStyle(objc2_app_kit::NSTableViewStyle::FullWidth);
+                    outline.setIntercellSpacing(NSSize::new(0.0, 0.0));
+                    outline.setColumnAutoresizingStyle(
+                        objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
+                    );
+                    outline.setAutoresizesOutlineColumn(true);
+                    if let Some(indent) = p.indent {
+                        outline.setIndentationPerLevel(indent);
+                    }
+                    match p.row_height {
+                        RowHeight::Uniform(h) => outline.setRowHeight(h),
+                        RowHeight::Automatic => outline.setRowHeight(24.0),
+                    }
+                    if !p.selectable {
+                        outline.setSelectionHighlightStyle(
+                            objc2_app_kit::NSTableViewSelectionHighlightStyle::None,
+                        );
+                    }
+                    outline.setBackgroundColor(&objc2_app_kit::NSColor::clearColor());
+                    outline.setDataSource(Some(ProtocolObject::from_ref(&*data)));
+                    outline.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    if p.movable {
+                        // Native drag-to-move (docs/tree.md): nodes drag within this outline
+                        // only. The REGULAR feedback style (not the list's Gap): a tree drop
+                        // must distinguish "between rows" (insertion line) from "ONTO a row"
+                        // (the highlighted-parent drop), and Gap has no onto affordance.
+                        outline.registerForDraggedTypes(
+                            &objc2_foundation::NSArray::from_retained_slice(&[NSString::from_str(
+                                DAY_TREE_PASTEBOARD_TYPE,
+                            )]),
+                        );
+                        outline.setDraggingSourceOperationMask_forLocal(
+                            objc2_app_kit::NSDragOperation::Move,
+                            true,
+                        );
+                        outline.setDraggingSourceOperationMask_forLocal(
+                            objc2_app_kit::NSDragOperation::None,
+                            false,
+                        );
+                    }
+                }
+                let scroll = unsafe { NSScrollView::new(mtm) };
+                unsafe {
+                    scroll.setDrawsBackground(false);
+                    scroll.setHasVerticalScroller(true);
+                    scroll.setHasHorizontalScroller(false);
+                    scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
+                    outline.setAutoresizingMask(
+                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable,
+                    );
+                    scroll.setDocumentView(Some(&outline));
+                }
+                let view = view_of(scroll);
+                TREE_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (outline, data)));
                 view
             }
             Some(Builtin::Image) => {
@@ -4710,6 +5419,80 @@ impl Toolkit for AppKit {
                 // until the next Reload. `None` = a patch for another kind's enum.
                 Some(ListPatch::RowSizeInvalidated(_)) | None => {}
             },
+            kinds::TREE => match patch.downcast_ref::<TreePatch>() {
+                Some(TreePatch::Reload) => {
+                    // Interned items keep their identity across reloadData, so NSOutlineView
+                    // itself preserves expansion; the piece re-asserts it (and the selection)
+                    // by token right after, belt and braces. reloadData queries the child
+                    // counts synchronously (snapshot only, no tree) and defers viewForItem.
+                    if let Some((outline, _)) = tree_entry(ptr_of(h)) {
+                        unsafe { outline.reloadData() };
+                    }
+                    post_realize_visible_tree_rows(ptr_of(h));
+                }
+                Some(TreePatch::Expand(token, on)) => {
+                    // Deferred: expandItem/collapseItem realize (or remove) the disclosed
+                    // rows SYNCHRONOUSLY, and this patch arrives inside a `with_tree` borrow
+                    // where `bind_row` must skip — the outline would cache permanently blank,
+                    // id-less rows (the ScrollToEnd rule, one seam over).
+                    let (key, token, on) = (ptr_of(h), *token, *on);
+                    <AppKit as Platform>::post(Box::new(move || {
+                        if let Some((outline, data)) = tree_entry(key) {
+                            let item = data.intern(token);
+                            // Suppressed: a programmatic disclosure must not echo back as
+                            // `Event::TreeExpanded`. Redundant applications are AppKit no-ops.
+                            data.ivars().suppress.set(true);
+                            unsafe {
+                                if on {
+                                    outline.expandItem(Some(&item));
+                                } else {
+                                    outline.collapseItem(Some(&item));
+                                }
+                            }
+                            data.ivars().suppress.set(false);
+                        }
+                        day_core::pump_events();
+                    }));
+                    post_realize_visible_tree_rows(ptr_of(h));
+                }
+                Some(TreePatch::Selected(tokens)) => {
+                    if let Some((outline, data)) = tree_entry(ptr_of(h)) {
+                        data.ivars().suppress.set(true);
+                        unsafe {
+                            if tokens.is_empty() {
+                                outline.deselectAll(None);
+                            } else {
+                                let set = objc2_foundation::NSMutableIndexSet::new();
+                                for t in tokens {
+                                    // A token under a collapsed ancestor has no row —
+                                    // skipped; the piece re-applies after expansion changes.
+                                    let row = outline.rowForItem(Some(&data.intern(*t)));
+                                    if row >= 0 {
+                                        set.addIndex(row as usize);
+                                    }
+                                }
+                                outline.selectRowIndexes_byExtendingSelection(&set, false);
+                            }
+                        }
+                        data.ivars().suppress.set(false);
+                    }
+                }
+                Some(TreePatch::Reveal(token)) => {
+                    // Deferred: the scroll tiles target rows synchronously, which must
+                    // happen outside this `with_tree` borrow (the ScrollToRow rule).
+                    let (key, token) = (ptr_of(h), *token);
+                    <AppKit as Platform>::post(Box::new(move || {
+                        if let Some((outline, data)) = tree_entry(key) {
+                            let row = unsafe { outline.rowForItem(Some(&data.intern(token))) };
+                            if row >= 0 {
+                                unsafe { outline.scrollRowToVisible(row) };
+                            }
+                        }
+                    }));
+                    post_realize_visible_tree_rows(ptr_of(h));
+                }
+                None => {}
+            },
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                     update(self, h, patch);
@@ -4747,6 +5530,9 @@ impl Toolkit for AppKit {
             m.borrow_mut().remove(&ptr_of(&h));
         });
         LIST_STATE.with(|m| {
+            m.borrow_mut().remove(&ptr_of(&h));
+        });
+        TREE_STATE.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
         GESTURES.with(|m| {
@@ -4992,7 +5778,7 @@ impl Toolkit for AppKit {
                 )
             }
             // The recycling list fills the space it is offered (its native scroll owns overflow).
-            kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
+            kinds::LIST | kinds::TREE => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     measure(self, h, p)
@@ -5206,6 +5992,22 @@ impl Toolkit for AppKit {
         <AppKit as Platform>::post(Box::new(move || {
             if let Some((table, _)) = list_entry(key) {
                 unsafe { table.layoutSubtreeIfNeeded() };
+            }
+        }));
+    }
+
+    fn attach_tree(&mut self, host: &Handle, source: TreeSource) {
+        let key = ptr_of(host);
+        if let Some((outline, data)) = tree_entry(key) {
+            data.ivars().source.replace(Some(source));
+            // Initial fill: child counts read the snapshot only; viewForItem is deferred.
+            unsafe { outline.reloadData() };
+        }
+        // Realize visible rows on the NEXT main-loop turn, outside any borrow (the
+        // attach_list comment has the occluded-window story).
+        <AppKit as Platform>::post(Box::new(move || {
+            if let Some((outline, _)) = tree_entry(key) {
+                unsafe { outline.layoutSubtreeIfNeeded() };
             }
         }));
     }

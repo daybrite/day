@@ -46,6 +46,37 @@ pub fn with_native<R>(
     Some(f(&h, class, mtm))
 }
 
+/// Run `f` with one named SUBCONTROL of `node`'s composite backing (docs/tree.md,
+/// docs/tweaks.md): `Host` is the node's own handle (what [`with_native`] reaches),
+/// `Content` the widget inside its scroller (`NSOutlineView`, `NSTableView`, `NSTextView`),
+/// `Header` its header view where one exists. An unknown subcontrol resolves to `None`,
+/// never to the host.
+pub fn with_native_subcontrol<R>(
+    node: RNode,
+    sub: day_spec::Subcontrol,
+    f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) -> R,
+) -> Option<R> {
+    with_native(node, |host, _class, mtm| {
+        let target: Option<Retained<NSView>> = match sub {
+            day_spec::Subcontrol::Host => Some(host.clone()),
+            day_spec::Subcontrol::Content => host
+                .downcast_ref::<objc2_app_kit::NSScrollView>()
+                .and_then(|sv| unsafe { sv.documentView() }),
+            day_spec::Subcontrol::Header => host
+                .downcast_ref::<objc2_app_kit::NSScrollView>()
+                .and_then(|sv| unsafe { sv.documentView() })
+                .and_then(|dv| dv.downcast::<objc2_app_kit::NSTableView>().ok())
+                .and_then(|tv| unsafe { tv.headerView() })
+                .map(|hv| unsafe { objc2::rc::Retained::cast_unchecked::<NSView>(hv) }),
+        };
+        target.map(|view| {
+            let class = view.class().name().to_str().unwrap_or("").to_owned();
+            f(&view, &class, mtm)
+        })
+    })
+    .flatten()
+}
+
 /// The AppKit tweak modifier: runs once at mount, after the widget exists (docs/tweaks.md).
 pub trait AppKitExt: Decorate + Sized {
     fn appkit(
@@ -54,6 +85,19 @@ pub trait AppKitExt: Decorate + Sized {
     ) -> day_pieces::Decorated<Self> {
         self.tweak(move |n| {
             let _ = with_native(n, f);
+        })
+    }
+
+    /// The subcontrol form: tweak one named widget of a composite backing —
+    /// `.appkit_subcontrol(Subcontrol::Content, |view, class, mtm| …)` reaches a tree's
+    /// `NSOutlineView` where `.appkit` reaches its scroller (docs/tree.md).
+    fn appkit_subcontrol(
+        self,
+        sub: day_spec::Subcontrol,
+        f: impl FnOnce(&Retained<NSView>, &str, MainThreadMarker) + 'static,
+    ) -> day_pieces::Decorated<Self> {
+        self.tweak(move |n| {
+            let _ = with_native_subcontrol(n, sub, f);
         })
     }
 }

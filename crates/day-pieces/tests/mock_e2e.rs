@@ -5023,3 +5023,412 @@ fn a_preferences_window_fits_its_content() {
     );
     assert_eq!(fitted.width, 520.0, "the width is still the caller's");
 }
+
+// ---------------------------------------------------------------------------
+// Tree (docs/tree.md): the probe drives the token-addressed seam a native tree backend does —
+// hierarchy queries, bind/rebind recycling, the guard → commit move path, expansion and
+// selection surviving a reload, and reveal.
+// ---------------------------------------------------------------------------
+
+/// The fixture: A(branch){ A1, A2(branch){ A2a }, A3 }, B — flat items with parent keys.
+#[derive(Clone, PartialEq)]
+struct TEntry {
+    id: &'static str,
+    parent: Option<&'static str>,
+}
+
+fn tree_seed() -> Vec<TEntry> {
+    [
+        ("A", None),
+        ("A1", Some("A")),
+        ("A2", Some("A")),
+        ("A2a", Some("A2")),
+        ("A3", Some("A")),
+        ("B", None),
+    ]
+    .iter()
+    .map(|(id, parent)| TEntry {
+        id,
+        parent: *parent,
+    })
+    .collect()
+}
+
+/// A movable tree over `entries`, branches = ids without a digit ("A", "A2" hold children;
+/// "B" is a childless BRANCH — the expandable rule, not child count). Committed moves land in
+/// `moves` and are applied to the data, so the shape refreshes exactly as an app would.
+type MoveLog = std::rc::Rc<std::cell::RefCell<Vec<(String, Option<String>, Option<usize>)>>>;
+fn movable_tree(
+    entries: Signal<Vec<TEntry>>,
+    moves: MoveLog,
+    sel: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    expanded: Signal<std::collections::HashSet<String>>,
+    reveal: Signal<Option<String>>,
+) -> AnyPiece {
+    tree(
+        day_pieces::branches(
+            move || entries.get(),
+            |e: &TEntry| e.id.to_string(),
+            |e: &TEntry| e.parent.map(|p| p.to_string()),
+        ),
+        |row: ItemSlot<TEntry, String>| label(move || row.field(|e| e.id.to_string())),
+    )
+    .row_height(RowHeight::Uniform(20.0))
+    .expanded(expanded)
+    .expandable(|k| {
+        !k.chars()
+            .any(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            || k == "A2"
+    })
+    .movable(true)
+    .move_guard(|_k, parent, _i| {
+        // The app's own rule for the tests: nothing may move under "A2".
+        if parent.map(|p| p == "A2").unwrap_or(false) {
+            MoveVerdict::Deny
+        } else {
+            MoveVerdict::Allow
+        }
+    })
+    .on_move(move |k, parent, index| {
+        moves.borrow_mut().push((k.clone(), parent.clone(), index));
+        entries.update(|v| {
+            let pos = v.iter().position(|e| e.id == k).unwrap();
+            let mut it = v.remove(pos);
+            it.parent = parent
+                .as_deref()
+                .map(|p| v.iter().find(|e| e.id == p).unwrap().id);
+            // Test simplification: the moved item re-appends in flat order — an indexed
+            // drop's ORDER is not exercised through the data here (order within a parent
+            // is item order).
+            v.push(it);
+        });
+    })
+    .on_selection(move |keys| *sel.borrow_mut() = keys)
+    .type_ahead(|k| k.to_string())
+    .reveal(reveal)
+    .any()
+}
+
+struct TreeRig {
+    probe: MockProbe,
+    host: MockHandle,
+    entries: Signal<Vec<TEntry>>,
+    moves: MoveLog,
+    sel: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    expanded: Signal<std::collections::HashSet<String>>,
+    reveal: Signal<Option<String>>,
+}
+
+fn boot_tree(open: &[&str]) -> TreeRig {
+    let entries = Signal::new(tree_seed());
+    let moves: MoveLog = Default::default();
+    let sel = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let expanded = Signal::new(
+        open.iter()
+            .map(|s| s.to_string())
+            .collect::<std::collections::HashSet<String>>(),
+    );
+    let reveal = Signal::new(None);
+    let (m, s2, e2, r2) = (moves.clone(), sel.clone(), expanded, reveal);
+    let probe = boot(move || movable_tree(entries, m, s2, e2, r2));
+    let host = probe.find_by_kind("day.tree")[0].0;
+    TreeRig {
+        probe,
+        host,
+        entries,
+        moves,
+        sel,
+        expanded,
+        reveal,
+    }
+}
+
+fn tok(_rig: &TreeRig, id: &str) -> u64 {
+    // The same token derivation the connection uses: hash of the String key.
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    id.to_string().hash(&mut h);
+    h.finish()
+}
+
+#[test]
+fn tree_answers_hierarchy_queries_from_the_seam() {
+    let rig = boot_tree(&[]);
+    let roots = rig.probe.tree_children(rig.host, None);
+    assert_eq!(roots, vec![tok(&rig, "A"), tok(&rig, "B")]);
+    let a_kids = rig.probe.tree_children(rig.host, Some(tok(&rig, "A")));
+    assert_eq!(
+        a_kids,
+        vec![tok(&rig, "A1"), tok(&rig, "A2"), tok(&rig, "A3")]
+    );
+    // Expandability is the app's branch rule, not child count: "B" is a childless branch,
+    // "A1" a leaf.
+    assert!(rig.probe.tree_expandable(rig.host, tok(&rig, "B")));
+    assert!(!rig.probe.tree_expandable(rig.host, tok(&rig, "A1")));
+    // Type-ahead text comes from the piece's closure.
+    assert_eq!(rig.probe.tree_type_text(rig.host, tok(&rig, "A2a")), "A2a");
+}
+
+#[test]
+fn tree_builds_only_bound_rows_and_recycles_by_slot_write() {
+    let rig = boot_tree(&[]);
+    assert_eq!(rig.probe.find_by_kind("day.label").len(), 0);
+
+    let (cell_a, cell_b) = (MockHandle(9301), MockHandle(9302));
+    rig.probe.tree_bind(rig.host, tok(&rig, "A"), cell_a);
+    rig.probe.tree_bind(rig.host, tok(&rig, "B"), cell_b);
+    let labels = rig.probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2, "only the bound rows are built");
+    assert_eq!(labels[0].1.text, "A");
+    assert_eq!(labels[1].1.text, "B");
+
+    // "Scroll": cell_a recycles to show A2a — a rebind, not a rebuild.
+    rig.probe.tree_bind(rig.host, tok(&rig, "A2a"), cell_a);
+    let labels = rig.probe.find_by_kind("day.label");
+    assert_eq!(labels.len(), 2, "recycling rebinds the existing cell");
+    assert_eq!(labels[0].1.text, "A2a");
+}
+
+#[test]
+fn tree_teardown_releases_row_content_but_never_the_adopted_cells() {
+    let shown = Signal::new(true);
+    let entries = Signal::new(tree_seed());
+    let probe = boot(move || {
+        when(
+            move || shown.get(),
+            move || {
+                tree(
+                    day_pieces::branches(
+                        move || entries.get(),
+                        |e: &TEntry| e.id.to_string(),
+                        |e: &TEntry| e.parent.map(|p| p.to_string()),
+                    ),
+                    |row: ItemSlot<TEntry, String>| label(move || row.field(|e| e.id.to_string())),
+                )
+            },
+        )
+        .any()
+    });
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let (cell_a, cell_b) = (MockHandle(9311), MockHandle(9312));
+    let roots = probe.tree_children(host, None);
+    probe.tree_bind(host, roots[0], cell_a);
+    probe.tree_bind(host, roots[1], cell_b);
+    let rows: Vec<MockHandle> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(h, _)| *h)
+        .collect();
+    assert_eq!(rows.len(), 2);
+
+    probe.clear_log();
+    batch(|| shown.set(false));
+    flush_sync();
+    let log = probe.log();
+    assert_eq!(
+        probe.find_by_kind("day.label").len(),
+        0,
+        "rows went with the tree: {log:?}"
+    );
+    for r in rows {
+        assert!(
+            log.contains(&format!("release #{}", r.0)),
+            "row content released: {log:?}"
+        );
+    }
+    for cell in [cell_a, cell_b] {
+        assert!(
+            !log.contains(&format!("release #{}", cell.0)),
+            "adopted cell #{} must be left to the tree host: {log:?}",
+            cell.0
+        );
+    }
+}
+
+#[test]
+fn tree_reports_selection_by_key_and_syncs_expansion() {
+    let rig = boot_tree(&["A"]);
+    // The initial prime disclosed "A".
+    assert!(
+        rig.probe.log().contains(&format!(
+            "update day.tree #{} tree expand {} true",
+            rig.host.0,
+            tok(&rig, "A")
+        )),
+        "initial expansion applied: {:?}",
+        rig.probe.log()
+    );
+
+    // Native selection → app keys.
+    let node = node_id(&rig.probe, "day.tree", 0);
+    rig.probe.emit(
+        node,
+        Event::TreeSelection(vec![tok(&rig, "A2"), tok(&rig, "B")]),
+    );
+    flush_sync();
+    assert_eq!(rig.sel.borrow().as_slice(), ["A2".to_string(), "B".into()]);
+
+    // Native disclosure → the app's expansion signal.
+    rig.probe.emit(
+        node,
+        Event::TreeExpanded {
+            token: tok(&rig, "A2"),
+            expanded: true,
+        },
+    );
+    flush_sync();
+    assert!(rig.expanded.get_untracked().contains("A2"));
+
+    // App writes → native patches (collapse "A").
+    rig.probe.clear_log();
+    batch(|| {
+        rig.expanded.update(|s| {
+            s.remove("A");
+        })
+    });
+    flush_sync();
+    assert!(
+        rig.probe.log().contains(&format!(
+            "update day.tree #{} tree expand {} false",
+            rig.host.0,
+            tok(&rig, "A")
+        )),
+        "signal collapse reached the native host: {:?}",
+        rig.probe.log()
+    );
+}
+
+#[test]
+fn tree_move_guards_structurally_and_by_app_rule_then_commits() {
+    let rig = boot_tree(&["A", "A2"]);
+    let (a, a2, a2a, a1, b) = (
+        tok(&rig, "A"),
+        tok(&rig, "A2"),
+        tok(&rig, "A2a"),
+        tok(&rig, "A1"),
+        tok(&rig, "B"),
+    );
+
+    // Structural refusals: into itself, into its own descendant, into a leaf.
+    assert_eq!(
+        rig.probe.tree_can_move(rig.host, a, Some(a), None),
+        Some(MoveVerdict::Deny)
+    );
+    assert_eq!(
+        rig.probe.tree_can_move(rig.host, a, Some(a2a), None),
+        Some(MoveVerdict::Deny),
+        "a row cannot move into its own subtree"
+    );
+    assert_eq!(
+        rig.probe.tree_can_move(rig.host, b, Some(a1), None),
+        Some(MoveVerdict::Deny),
+        "a leaf takes no children"
+    );
+    // The app guard: nothing under "A2".
+    assert_eq!(
+        rig.probe.tree_can_move(rig.host, b, Some(a2), None),
+        Some(MoveVerdict::Deny)
+    );
+    // Allowed: A2a out to the root.
+    assert_eq!(
+        rig.probe.tree_can_move(rig.host, a2a, None, None),
+        Some(MoveVerdict::Allow)
+    );
+
+    // Commit it: the app callback arrives through the event queue (a fresh batch, never
+    // inside the native drop callstack), and by the flush the data write reshaped the tree.
+    assert!(rig.probe.tree_move(rig.host, a2a, None, None));
+    flush_sync();
+    assert_eq!(
+        rig.moves.borrow().as_slice(),
+        [("A2a".to_string(), None, None)]
+    );
+    // …and the app's data write reshaped the tree: A2a is a root now.
+    let roots = rig.probe.tree_children(rig.host, None);
+    assert_eq!(roots, vec![a, b, a2a]);
+    assert_eq!(
+        rig.probe.tree_children(rig.host, Some(a2)),
+        Vec::<u64>::new()
+    );
+
+    // Expansion survived the reload by token: "A" was re-disclosed after the data change.
+    assert!(
+        rig.probe
+            .log()
+            .iter()
+            .filter(|l| **l == format!("update day.tree #{} tree expand {} true", rig.host.0, a))
+            .count()
+            >= 2,
+        "expansion re-applied after reload: {:?}",
+        rig.probe.log()
+    );
+
+    // A denied commit is a no-op.
+    assert!(!rig.probe.tree_move(rig.host, b, Some(a2), None));
+    flush_sync();
+    assert_eq!(rig.moves.borrow().len(), 1);
+}
+
+#[test]
+fn tree_reveal_expands_ancestors_then_scrolls() {
+    let rig = boot_tree(&[]);
+    rig.probe.clear_log();
+    batch(|| rig.reveal.set(Some("A2a".to_string())));
+    flush_sync();
+    let log = rig.probe.log();
+    let (a, a2, a2a) = (tok(&rig, "A"), tok(&rig, "A2"), tok(&rig, "A2a"));
+    let pos = |needle: String| log.iter().position(|l| **l == needle);
+    let ea = pos(format!(
+        "update day.tree #{} tree expand {} true",
+        rig.host.0, a
+    ));
+    let ea2 = pos(format!(
+        "update day.tree #{} tree expand {} true",
+        rig.host.0, a2
+    ));
+    let rv = pos(format!(
+        "update day.tree #{} tree reveal {}",
+        rig.host.0, a2a
+    ));
+    assert!(
+        ea.is_some() && ea2.is_some() && rv.is_some(),
+        "reveal path complete: {log:?}"
+    );
+    assert!(
+        ea < ea2 && ea2 < rv,
+        "outermost ancestor first, scroll last: {log:?}"
+    );
+    // The app's expansion signal saw the change too.
+    assert!(rig.expanded.get_untracked().contains("A"));
+    assert!(rig.expanded.get_untracked().contains("A2"));
+}
+
+#[test]
+fn tree_data_edits_reload_and_flattener_walks_expanded_rows() {
+    let rig = boot_tree(&["A"]);
+    let reloads = |p: &MockProbe| p.log().iter().filter(|l| l.contains("tree reload")).count();
+    let before = reloads(&rig.probe);
+
+    // An added node under A: one reload, expansion intact.
+    batch(|| {
+        rig.entries.update(|v| {
+            v.push(TEntry {
+                id: "A4",
+                parent: Some("A"),
+            })
+        })
+    });
+    flush_sync();
+    assert_eq!(
+        reloads(&rig.probe),
+        before + 1,
+        "one reload per data change"
+    );
+    assert_eq!(
+        rig.probe
+            .tree_children(rig.host, Some(tok(&rig, "A")))
+            .len(),
+        4
+    );
+    let _ = rig.sel;
+}

@@ -14,7 +14,7 @@ use std::rc::Rc;
 use day_core::*;
 use day_geometry::Insets;
 use day_reactive::{bind_seeded, untrack};
-use day_spec::props::{InspectorPaneProps, InspectorPatch, InspectorProps};
+use day_spec::props::{InspectorPaneProps, InspectorPatch, InspectorProps, PaneEdge};
 use day_spec::{Cap, Event, Size, Support, kinds};
 
 use crate::*;
@@ -36,6 +36,7 @@ pub const INSPECTOR_WIDTH: f64 = 280.0;
 pub struct Inspector<V: Binding<bool>> {
     visible: V,
     width: f64,
+    edge: PaneEdge,
     sheet_done: TextSource,
     content: AnyPiece,
     panel: Rc<dyn Fn() -> AnyPiece>,
@@ -50,6 +51,7 @@ pub fn inspector<V: Binding<bool>, C: Piece, P: Piece>(
     Inspector {
         visible,
         width: INSPECTOR_WIDTH,
+        edge: PaneEdge::Trailing,
         // A language-neutral glyph, because day carries no "Done" in its own catalog; apps
         // localize with `.sheet_done(…)`.
         sheet_done: "✕".into_text(),
@@ -72,12 +74,20 @@ impl<V: Binding<bool>> Inspector<V> {
         self.sheet_done = t.into_text();
         self
     }
+
+    /// Put the pane on the LEADING side of the content — a layer panel rather than a
+    /// properties inspector (docs/tree.md). Default [`PaneEdge::Trailing`].
+    pub fn edge(mut self, edge: PaneEdge) -> Self {
+        self.edge = edge;
+        self
+    }
 }
 
 /// [`Inspector`]'s builders, forwarded through `Decorated` (docs/api-style.md).
 pub trait InspectorBuilder: Sized {
     fn width(self, width: f64) -> Self;
     fn sheet_done<M>(self, t: impl IntoText<M>) -> Self;
+    fn edge(self, edge: PaneEdge) -> Self;
 }
 
 impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
@@ -87,6 +97,9 @@ impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
     fn sheet_done<M>(self, t: impl IntoText<M>) -> Self {
         Inspector::sheet_done(self, t)
     }
+    fn edge(self, edge: PaneEdge) -> Self {
+        Inspector::edge(self, edge)
+    }
 }
 
 impl<Inner: InspectorBuilder + Piece> InspectorBuilder for Decorated<Inner> {
@@ -95,6 +108,9 @@ impl<Inner: InspectorBuilder + Piece> InspectorBuilder for Decorated<Inner> {
     }
     fn sheet_done<M>(self, t: impl IntoText<M>) -> Self {
         self.map_inner(|inner| inner.sheet_done(t))
+    }
+    fn edge(self, edge: PaneEdge) -> Self {
+        self.map_inner(|inner| inner.edge(edge))
     }
 }
 
@@ -123,6 +139,7 @@ fn build_native<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -> 
     let Inspector {
         visible,
         width,
+        edge,
         content,
         panel,
         ..
@@ -135,6 +152,7 @@ fn build_native<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -> 
         &InspectorProps {
             visible: initial,
             width,
+            edge,
         },
         Rc::new(InspectorLayout {
             sizes: sizes.clone(),
@@ -261,22 +279,32 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
     let Inspector {
         visible,
         width,
+        edge: inspector_edge,
         sheet_done,
         content,
         panel,
     } = inspector;
     let window = day_core::toolbar::current_window();
     let side_visible = visible.clone();
+    let lead_visible = visible.clone();
     let side_panel = panel.clone();
+    let lead_panel = panel.clone();
     let sheet_panel = panel;
     let sheet_close = visible.clone();
     let done = sheet_done.initial();
+    let edge = inspector_edge;
     row((
+        // A LEADING pane sits before the content (docs/tree.md) — same mount rule as the
+        // trailing one below.
+        when(
+            move || edge == PaneEdge::Leading && lead_visible.read() && !compact(window),
+            move || row((scroll(lead_panel()).width(width), divider())),
+        ),
         content.grow(),
         // The side pane: mounted only while visible on a non-compact window, so the compact
         // home (the sheet below) is never doubled.
         when(
-            move || side_visible.read() && !compact(window),
+            move || edge == PaneEdge::Trailing && side_visible.read() && !compact(window),
             move || row((divider(), scroll(side_panel()).width(width))),
         ),
         // The compact home: a fullscreen sheet. Unrouted — the inspector is chrome, not a

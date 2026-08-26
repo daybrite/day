@@ -31,6 +31,7 @@ implement them, and this table proves it.
 | `enable_gesture` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `attach_tree` | · | ✓ | · | · | · | · | · | · | · | ✓ |
 | `set_route` | · | · | · | · | · | · | · | · | ✓ | · |
 | `set_undo_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `set_edit_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |

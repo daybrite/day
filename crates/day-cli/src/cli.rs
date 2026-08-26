@@ -153,7 +153,7 @@ pub enum OutputFormat {
     version = env!("DAY_VERSION_LONG"),
     about = "Day — cross-platform apps in Rust with native toolkits"
 )]
-struct Cli {
+pub(crate) struct Cli {
     /// Project directory (default: nearest ancestor with Day.toml)
     #[arg(long, global = true)]
     project: Option<PathBuf>,
@@ -178,6 +178,11 @@ enum Cmd {
     New {
         #[command(subcommand)]
         what: Option<NewKind>,
+        /// Print the questions a GUI must ask — every field, its options and the flag it fills —
+        /// as a versioned JSON document, and exit. Output is JSON by definition, so no
+        /// `--format` is needed. Nothing is scaffolded.
+        #[arg(long)]
+        describe: bool,
     },
     /// Build the app for one or more targets
     Build {
@@ -1099,7 +1104,19 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             ))),
         },
         Cmd::GradleBackend { .. } => crate::mobile::gradle_backend_build().map(|()| 0),
-        Cmd::New { what } => match what {
+        // clap cannot express `conflicts_with` against a SUBCOMMAND, so the combination is
+        // rejected here rather than silently ignoring one half of what was asked for.
+        Cmd::New { what, describe } if describe => {
+            if what.is_some() {
+                Err(CliError::usage(
+                    "`day new --describe` describes every kind — drop the subcommand.",
+                ))
+            } else {
+                println!("{}", crate::new::describe());
+                Ok(0)
+            }
+        }
+        Cmd::New { what, .. } => match what {
             None => crate::new::interactive().map(|()| 0),
             Some(NewKind::Piece {
                 name,

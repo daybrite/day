@@ -103,6 +103,9 @@ pub struct MockState {
     /// Recycling-list row-pull sources, keyed by LIST host handle (docs/list.md). A test drives
     /// the "viewport" through [`MockProbe::list_bind`], simulating what a native list would do.
     pub list_sources: HashMap<u64, ListSource>,
+    /// Hierarchical-tree row-pull sources, keyed by TREE host handle (docs/tree.md). A test
+    /// drives the "native tree" through the `MockProbe::tree_*` probes.
+    pub tree_sources: HashMap<u64, day_spec::TreeSource>,
     /// The app menu as last applied (docs/menus.md) — item titles, probe-visible.
     pub app_menu: Vec<String>,
     /// Context menus by widget handle (docs/menus.md) — item titles per handle.
@@ -331,6 +334,110 @@ impl MockProbe {
         true
     }
 
+    /// The tree's direct children of `parent` (`None` = the root level), as tokens — read
+    /// straight from the injected `TreeSource` (docs/tree.md).
+    pub fn tree_children(&self, host: MockHandle, parent: Option<u64>) -> Vec<u64> {
+        let fns = self
+            .state
+            .borrow()
+            .tree_sources
+            .get(&host.0)
+            .map(|s| (s.children_len.clone(), s.child_token.clone()));
+        let Some((len, tok)) = fns else {
+            return Vec::new();
+        };
+        (0..len(parent)).map(|i| tok(parent, i)).collect()
+    }
+
+    /// Whether this token can hold children (draws a disclosure), per the injected source.
+    pub fn tree_expandable(&self, host: MockHandle, token: u64) -> bool {
+        let f = self
+            .state
+            .borrow()
+            .tree_sources
+            .get(&host.0)
+            .map(|s| s.expandable.clone());
+        f.map(|f| f(token)).unwrap_or(false)
+    }
+
+    /// The row's type-ahead string, per the injected source.
+    pub fn tree_type_text(&self, host: MockHandle, token: u64) -> String {
+        let f = self
+            .state
+            .borrow()
+            .tree_sources
+            .get(&host.0)
+            .map(|s| s.type_select_text.clone());
+        f.map(|f| f(token)).unwrap_or_default()
+    }
+
+    /// Simulate the native tree binding `token`'s row into a physical `cell` — build on first
+    /// use, rebind (slot-write) on recycle, exactly like [`Self::list_bind`]. (The source Rc
+    /// is cloned out before the call so the re-entrant work holds no MockState borrow.)
+    pub fn tree_bind(&self, host: MockHandle, token: u64, cell: MockHandle) {
+        let f = self
+            .state
+            .borrow()
+            .tree_sources
+            .get(&host.0)
+            .map(|s| s.bind_row.clone());
+        if let Some(f) = f {
+            f(token, cell.0 as RawHandle);
+        }
+    }
+
+    /// Consult the tree's move guard the way a native drag-validate hook would. `None` when
+    /// the tree has no move seam (not `.movable()`).
+    pub fn tree_can_move(
+        &self,
+        host: MockHandle,
+        token: u64,
+        parent: Option<u64>,
+        index: Option<usize>,
+    ) -> Option<day_spec::MoveVerdict> {
+        let f = self
+            .state
+            .borrow()
+            .tree_sources
+            .get(&host.0)
+            .and_then(|s| s.moves.as_ref().map(|m| m.can_move.clone()));
+        f.map(|f| f(token, parent, index))
+    }
+
+    /// Simulate a native tree drop: consult the guard, commit on accept (deferring the app's
+    /// `on_move`, exactly as a native backend would). Returns whether the move committed.
+    pub fn tree_move(
+        &self,
+        host: MockHandle,
+        token: u64,
+        parent: Option<u64>,
+        index: Option<usize>,
+    ) -> bool {
+        let m = self
+            .state
+            .borrow()
+            .tree_sources
+            .get(&host.0)
+            .and_then(|s| s.moves.clone());
+        let Some(m) = m else {
+            self.state
+                .borrow_mut()
+                .log(format!("tree move unsupported {token}"));
+            return false;
+        };
+        if (m.can_move)(token, parent, index) == day_spec::MoveVerdict::Deny {
+            self.state
+                .borrow_mut()
+                .log(format!("tree move denied {token}"));
+            return false;
+        }
+        (m.move_node)(token, parent, index);
+        self.state
+            .borrow_mut()
+            .log(format!("tree move {token} -> {parent:?}@{index:?}"));
+        true
+    }
+
     /// Inject a native event through the real sink (as the toolkit trampoline would).
     pub fn emit(&self, node: NodeId, event: Event) {
         let sink = self.state.borrow_mut().sink.take();
@@ -497,6 +604,8 @@ impl Toolkit for MockToolkit {
             Cap::Cover => Support::Native,
             // The probe drives the whole guard → commit reorder seam (`list_can_move`/`list_move`).
             Cap::ListReorder => Support::Native,
+            // The probe drives the whole tree seam (`tree_children`/`tree_bind`/`tree_move`).
+            Cap::Tree | Cap::TreeMove => Support::Native,
             // Off by default: the mock models a phone, so a selector stacks unless a test opts in.
             // A mock that can split can also re-present — it records the patch, which is exactly
             // what the morph tests assert against.
@@ -814,6 +923,13 @@ impl Toolkit for MockToolkit {
                     ListPatch::ScrollToRow(row) => format!("list scroll-to-row {row}"),
                     ListPatch::Selected(rows) => format!("list selected {rows:?}"),
                 }
+            } else if let Some(p) = patch.downcast_ref::<TreePatch>() {
+                match p {
+                    TreePatch::Reload => "tree reload".into(),
+                    TreePatch::Expand(tok, on) => format!("tree expand {tok} {on}"),
+                    TreePatch::Selected(toks) => format!("tree selected {toks:?}"),
+                    TreePatch::Reveal(tok) => format!("tree reveal {tok}"),
+                }
             } else {
                 described.unwrap_or_else(|| "?".into())
             };
@@ -1040,6 +1156,12 @@ impl Toolkit for MockToolkit {
 
     fn set_event_sink(&mut self, sink: EventSink) {
         self.state.borrow_mut().sink = Some(sink);
+    }
+
+    fn attach_tree(&mut self, host: &MockHandle, source: day_spec::TreeSource) {
+        let mut s = self.state.borrow_mut();
+        s.tree_sources.insert(host.0, source);
+        s.log(format!("attach_tree #{}", host.0));
     }
 
     fn attach_list(&mut self, host: &MockHandle, source: ListSource) {

@@ -38,7 +38,7 @@ export const groups = [
       ['inspector', 'the trailing properties pane: native splits, the compact sheet'],
       ['focus', 'keyboard focus as a signal: bindings, rules, per-backend map'],
       ['list', 'the native recycling list: row protocol, heights, selection'],
-      ['outline', 'the hierarchical outline: nesting, expansion, drag-to-reparent (design)'],
+      ['tree', 'the hierarchical tree: nesting, expansion, drag-to-reparent (plan)'],
       ['canvas', 'the canvas display list and gestures'],
       ['shapes', 'canvas drawing, shape pieces, gestures'],
       ['progress', 'determinate bars and spinners'],

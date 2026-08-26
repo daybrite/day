@@ -2261,6 +2261,7 @@ mod imp {
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
+                | Some(Builtin::Tree)
                 | Some(Builtin::Inspector)
                 | Some(Builtin::InspectorPane)
                 | None => {

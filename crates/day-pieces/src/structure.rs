@@ -1112,10 +1112,130 @@ mod model_rows {
             keys.remove(index);
         }
     }
+
+    /// A hierarchy over a store: `store.tree(children_of)` (docs/tree.md). The projection
+    /// maps a parent KEY (`None` = the root) to its ordered child keys — a TRACKED read, so
+    /// re-parenting or re-ordering writes re-run it; tokens ARE the store's keys.
+    pub struct StoreTree<T: 'static> {
+        store: Store<Keyed<T>>,
+        children: Rc<dyn Fn(Option<u64>) -> Vec<u64>>,
+    }
+
+    /// `store.tree(children_of)` — the hierarchical source for [`super::tree`].
+    pub trait StoreTrees<T: 'static> {
+        fn tree(self, children: impl Fn(Option<u64>) -> Vec<u64> + 'static) -> StoreTree<T>;
+    }
+
+    impl<T: Identified + Clone + 'static> StoreTrees<T> for Store<Keyed<T>> {
+        fn tree(self, children: impl Fn(Option<u64>) -> Vec<u64> + 'static) -> StoreTree<T> {
+            StoreTree {
+                store: self,
+                children: Rc::new(children),
+            }
+        }
+    }
+
+    impl<T: Identified + Clone + 'static> super::NodeSource for StoreTree<T> {
+        type Slot = ModelSlot<T>;
+        type Key = u64;
+        type Conn = StoreTreeConn<T>;
+        fn connect(self) -> StoreTreeConn<T> {
+            StoreTreeConn {
+                store: self.store,
+                children: self.children,
+                shape: RefCell::new(super::TreeShape::default()),
+            }
+        }
+    }
+
+    /// [`StoreTree`]'s connection: the derived shape; values flow through the store's own
+    /// per-field notifications, so an unchanged shape skips the native reload entirely.
+    pub struct StoreTreeConn<T: 'static> {
+        store: Store<Keyed<T>>,
+        children: Rc<dyn Fn(Option<u64>) -> Vec<u64>>,
+        shape: RefCell<super::TreeShape>,
+    }
+
+    impl<T: Identified + Clone + 'static> super::TreeConn for StoreTreeConn<T> {
+        type Slot = ModelSlot<T>;
+        type Key = u64;
+
+        fn refresh(&self) -> Vec<(u64, Option<u64>)> {
+            let mut shape = super::TreeShape::default();
+            let mut seen = HashSet::new();
+            // Depth-first from the root, children pushed in reverse so walk order is
+            // display order. `seen` guards a malformed parent graph from looping.
+            let mut stack: Vec<(Option<u64>, u64)> = (self.children)(None)
+                .into_iter()
+                .rev()
+                .map(|k| (None, k))
+                .collect();
+            while let Some((parent, key)) = stack.pop() {
+                if !seen.insert(key) {
+                    debug_assert!(false, "day: cycle or duplicate key in store tree");
+                    continue;
+                }
+                shape.tokens.push(key);
+                shape.parents.insert(key, parent);
+                shape.children.entry(parent).or_default().push(key);
+                for child in (self.children)(Some(key)).into_iter().rev() {
+                    stack.push((Some(key), child));
+                }
+            }
+            let fp = shape.fingerprint();
+            *self.shape.borrow_mut() = shape;
+            fp
+        }
+        fn tokens_now(&self) -> Vec<u64> {
+            self.shape.borrow().tokens.clone()
+        }
+        fn children_len(&self, parent: Option<u64>) -> usize {
+            self.shape
+                .borrow()
+                .children
+                .get(&parent)
+                .map(|v| v.len())
+                .unwrap_or(0)
+        }
+        fn child_token(&self, parent: Option<u64>, index: usize) -> u64 {
+            self.shape
+                .borrow()
+                .children
+                .get(&parent)
+                .and_then(|v| v.get(index).copied())
+                .unwrap_or(0)
+        }
+        fn parent_of(&self, token: u64) -> Option<Option<u64>> {
+            self.shape.borrow().parents.get(&token).copied()
+        }
+        fn key_of(&self, token: u64) -> Option<u64> {
+            self.shape
+                .borrow()
+                .parents
+                .contains_key(&token)
+                .then_some(token)
+        }
+        fn token_of(&self, key: &u64) -> u64 {
+            *key
+        }
+        fn slot_for(&self, token: u64) -> Option<ModelSlot<T>> {
+            self.shape
+                .borrow()
+                .parents
+                .contains_key(&token)
+                .then(|| ModelSlot::for_key(self.store, token))
+        }
+        fn rebind(&self, slot: &ModelSlot<T>, token: u64) {
+            slot.rebind_key(token);
+        }
+        fn values_flow_by_reload(&self) -> bool {
+            false
+        }
+    }
 }
 
 #[cfg(feature = "model")]
-pub use model_rows::{ModelSlot, Rows, StoreRows};
+pub use model_rows::{ModelSlot, Rows, StoreRows, StoreTree, StoreTreeConn, StoreTrees};
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
@@ -1250,5 +1370,828 @@ impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for D
     }
     fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.delete_guard(g))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tree` — native hierarchical tree (docs/tree.md)
+// ---------------------------------------------------------------------------
+
+pub use day_spec::MoveVerdict;
+
+/// A hierarchical row source for [`tree`]: the [`RowSource`] idea grown a parent per row.
+/// Two implementations: [`branches`] (plain data) and a day-model store's
+/// `store.tree(children_of)` (feature `model`).
+pub trait NodeSource {
+    /// What a row builder receives.
+    type Slot: Copy + 'static;
+    /// The app's identity currency — what selection, moves and expansion speak.
+    type Key: Clone + Hash + Eq + 'static;
+    type Conn: TreeConn<Slot = Self::Slot, Key = Self::Key>;
+    fn connect(self) -> Self::Conn;
+}
+
+/// One tree's live connection to its data, held for the life of the [`tree`] that connected
+/// it. All hierarchy queries are TOKEN-addressed (docs/tree.md): `None` = the root level.
+pub trait TreeConn: 'static {
+    type Slot: Copy + 'static;
+    type Key: Clone + Hash + Eq + 'static;
+
+    /// Refresh the snapshot and return the tree's SHAPE — `(token, parent)` pairs in walk
+    /// order. TRACKED: the enclosing watch re-runs exactly when something this read depends
+    /// on changes.
+    fn refresh(&self) -> Vec<(u64, Option<u64>)>;
+    /// Every token in the current snapshot, walk order, no refresh and no tracking.
+    fn tokens_now(&self) -> Vec<u64>;
+    fn children_len(&self, parent: Option<u64>) -> usize;
+    fn child_token(&self, parent: Option<u64>, index: usize) -> u64;
+    /// `Some(parent)` for a known token (`Some(None)` = a root row), `None` for an unknown one.
+    fn parent_of(&self, token: u64) -> Option<Option<u64>>;
+    fn key_of(&self, token: u64) -> Option<Self::Key>;
+    /// The token a key maps to (pure — no snapshot lookup).
+    fn token_of(&self, key: &Self::Key) -> u64;
+    /// A fresh slot for `token` (`None` on a stale mid-animation pull). Call inside the
+    /// row's scope: plain-data slots allocate their signals here.
+    fn slot_for(&self, token: u64) -> Option<Self::Slot>;
+    /// Point an existing slot at `token` — the recycle write.
+    fn rebind(&self, slot: &Self::Slot, token: u64);
+    /// Whether row VALUES reach existing rows only through reload→rebind (see
+    /// [`RowConn::values_flow_by_reload`]).
+    fn values_flow_by_reload(&self) -> bool;
+}
+
+/// Plain-data tree rows: a flat items closure, a key per item, and a PARENT key per item
+/// (`None` = a root row) — `tree(branches(model::all, |n| n.id, |n| n.parent), row_view)`.
+/// Children keep the items' own relative order; an item whose parent key is absent from the
+/// set is treated as a root row rather than dropped.
+pub fn branches<T, K>(
+    f: impl Fn() -> Vec<T> + 'static,
+    key_of: impl Fn(&T) -> K + 'static,
+    parent_of: impl Fn(&T) -> Option<K> + 'static,
+) -> Branches<T, K>
+where
+    T: Clone + 'static,
+    K: Clone + Hash + Eq + 'static,
+{
+    Branches {
+        f: Rc::new(f),
+        key_of: Rc::new(key_of),
+        parent_of: Rc::new(parent_of),
+    }
+}
+
+/// A parent-key extractor (aliased for the fields below; clippy's type-complexity bound).
+type ParentOf<T, K> = Rc<dyn Fn(&T) -> Option<K>>;
+
+/// The plain-data [`NodeSource`] built by [`branches`].
+pub struct Branches<T: 'static, K: 'static> {
+    f: Rc<dyn Fn() -> Vec<T>>,
+    key_of: Rc<dyn Fn(&T) -> K>,
+    parent_of: ParentOf<T, K>,
+}
+
+impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> NodeSource for Branches<T, K> {
+    type Slot = ItemSlot<T, K>;
+    type Key = K;
+    type Conn = BranchesConn<T, K>;
+    fn connect(self) -> BranchesConn<T, K> {
+        BranchesConn {
+            f: self.f,
+            key_of: self.key_of,
+            parent_of: self.parent_of,
+            snapshot: RefCell::new(Vec::new()),
+            shape: RefCell::new(TreeShape::default()),
+        }
+    }
+}
+
+/// The derived children/parent indexes both connections maintain per refresh.
+#[derive(Default)]
+struct TreeShape {
+    /// Walk-order tokens (parents before their children for a well-formed set).
+    tokens: Vec<u64>,
+    children: std::collections::HashMap<Option<u64>, Vec<u64>>,
+    parents: std::collections::HashMap<u64, Option<u64>>,
+    /// token → index into the flat snapshot (plain-data sources only).
+    index_of: std::collections::HashMap<u64, usize>,
+}
+
+impl TreeShape {
+    fn fingerprint(&self) -> Vec<(u64, Option<u64>)> {
+        self.tokens
+            .iter()
+            .map(|t| (*t, self.parents.get(t).copied().flatten()))
+            .collect()
+    }
+}
+
+/// [`Branches`]' connection: the current data snapshot plus its derived shape.
+pub struct BranchesConn<T: 'static, K: 'static> {
+    f: Rc<dyn Fn() -> Vec<T>>,
+    key_of: Rc<dyn Fn(&T) -> K>,
+    parent_of: ParentOf<T, K>,
+    snapshot: RefCell<Vec<T>>,
+    shape: RefCell<TreeShape>,
+}
+
+impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesConn<T, K> {
+    type Slot = ItemSlot<T, K>;
+    type Key = K;
+
+    fn refresh(&self) -> Vec<(u64, Option<u64>)> {
+        let its = (self.f)();
+        let mut shape = TreeShape::default();
+        let toks: Vec<u64> = its.iter().map(|t| key_token(&(self.key_of)(t))).collect();
+        let present: HashSet<u64> = toks.iter().copied().collect();
+        for (i, item) in its.iter().enumerate() {
+            let tok = toks[i];
+            // A parent key outside the set roots the row rather than dropping it.
+            let parent = (self.parent_of)(item)
+                .map(|k| key_token(&k))
+                .filter(|p| present.contains(p));
+            shape.tokens.push(tok);
+            shape.parents.insert(tok, parent);
+            shape.children.entry(parent).or_default().push(tok);
+            shape.index_of.insert(tok, i);
+        }
+        *self.snapshot.borrow_mut() = its;
+        let fp = shape.fingerprint();
+        *self.shape.borrow_mut() = shape;
+        fp
+    }
+    fn tokens_now(&self) -> Vec<u64> {
+        self.shape.borrow().tokens.clone()
+    }
+    fn children_len(&self, parent: Option<u64>) -> usize {
+        self.shape
+            .borrow()
+            .children
+            .get(&parent)
+            .map(|v| v.len())
+            .unwrap_or(0)
+    }
+    fn child_token(&self, parent: Option<u64>, index: usize) -> u64 {
+        self.shape
+            .borrow()
+            .children
+            .get(&parent)
+            .and_then(|v| v.get(index).copied())
+            .unwrap_or(0)
+    }
+    fn parent_of(&self, token: u64) -> Option<Option<u64>> {
+        self.shape.borrow().parents.get(&token).copied()
+    }
+    fn key_of(&self, token: u64) -> Option<K> {
+        let idx = self.shape.borrow().index_of.get(&token).copied()?;
+        self.snapshot.borrow().get(idx).map(|t| (self.key_of)(t))
+    }
+    fn token_of(&self, key: &K) -> u64 {
+        key_token(key)
+    }
+    fn slot_for(&self, token: u64) -> Option<ItemSlot<T, K>> {
+        let idx = self.shape.borrow().index_of.get(&token).copied()?;
+        let item = self.snapshot.borrow().get(idx).cloned()?;
+        let key = (self.key_of)(&item);
+        Some(ItemSlot {
+            sig: Signal::new(item),
+            key: Signal::new(key),
+        })
+    }
+    fn rebind(&self, slot: &ItemSlot<T, K>, token: u64) {
+        let Some(idx) = self.shape.borrow().index_of.get(&token).copied() else {
+            return; // stale recycle token — skip, the next bind corrects it
+        };
+        let Some(item) = self.snapshot.borrow().get(idx).cloned() else {
+            return;
+        };
+        slot.key.set((self.key_of)(&item));
+        slot.sig.set(item);
+    }
+    fn values_flow_by_reload(&self) -> bool {
+        true
+    }
+}
+
+/// A native hierarchical tree (docs/tree.md): rows nest, disclose, and drag to a new parent.
+/// The platform widget owns scrolling, disclosure and cell reuse; Day builds each visible row
+/// once and *rebinds* it as cells recycle — [`list`]'s contract, token-addressed. Gate its UI
+/// on `Cap::Tree`: a backend without tree support renders nothing.
+pub struct TreePiece<S: NodeSource> {
+    source: Option<S>,
+    build_row: Rc<dyn Fn(S::Slot) -> AnyPiece>,
+    row_height: RowHeight,
+    indent: Option<f64>,
+    expanded: Option<Signal<HashSet<S::Key>>>,
+    expandable: Option<KeyPredicate<S::Key>>,
+    selected: Option<Rc<dyn Fn() -> Vec<S::Key>>>,
+    on_selection: Option<SelectionKeysFn<S::Key>>,
+    multi_select: bool,
+    movable: bool,
+    on_move: Option<TreeMoveFn<S::Key>>,
+    move_guard: Option<TreeGuardFn<S::Key>>,
+    type_ahead: Option<KeyTextFn<S::Key>>,
+    reveal: Option<Signal<Option<S::Key>>>,
+    row_id: Option<KeyTextFn<S::Key>>,
+}
+
+/// The committed-move callback, aliased for the field above.
+type TreeMoveFn<K> = Rc<dyn Fn(K, Option<K>, Option<usize>)>;
+/// The live move guard, aliased for the field above.
+type TreeGuardFn<K> = Rc<dyn Fn(&K, Option<&K>, Option<usize>) -> MoveVerdict>;
+/// A per-key yes/no rule (`.expandable`), aliased for the field above.
+type KeyPredicate<K> = Rc<dyn Fn(&K) -> bool>;
+/// The full-selection callback (`.on_selection`), aliased for the field above.
+type SelectionKeysFn<K> = Rc<dyn Fn(Vec<K>)>;
+/// A per-key string (`.type_ahead`, `.row_id`), aliased for the fields above.
+type KeyTextFn<K> = Rc<dyn Fn(&K) -> String>;
+
+/// Build a hierarchical tree from a [`NodeSource`] and a row builder:
+/// `tree(branches(items_fn, key_of, parent_of), row_view)` for plain data,
+/// `tree(store.tree(children_of), row_view)` for a day-model store.
+pub fn tree<S, P>(source: S, build_row: impl Fn(S::Slot) -> P + 'static) -> TreePiece<S>
+where
+    S: NodeSource + 'static,
+    P: Piece,
+{
+    TreePiece {
+        source: Some(source),
+        build_row: Rc::new(move |slot| AnyPiece::new(build_row(slot))),
+        row_height: RowHeight::Automatic,
+        indent: None,
+        expanded: None,
+        expandable: None,
+        selected: None,
+        on_selection: None,
+        multi_select: false,
+        movable: false,
+        on_move: None,
+        move_guard: None,
+        type_ahead: None,
+        reveal: None,
+        row_id: None,
+    }
+}
+
+impl<S: NodeSource + 'static> TreePiece<S> {
+    /// Row sizing: `Uniform(h)` (fastest) or `Automatic` (self-sizing).
+    pub fn row_height(mut self, h: RowHeight) -> Self {
+        self.row_height = h;
+        self
+    }
+    /// Indentation per depth level, in points (unset = the platform's default step).
+    pub fn indent(mut self, pts: f64) -> Self {
+        self.indent = Some(pts);
+        self
+    }
+    /// The app-owned expansion set (docs/tree.md): the user's disclosure clicks update it,
+    /// and the app writing it discloses/collapses the native rows. Persist it (or don't) —
+    /// it is plain state.
+    pub fn expanded(mut self, sig: Signal<HashSet<S::Key>>) -> Self {
+        self.expanded = Some(sig);
+        self
+    }
+    /// Which rows can hold children at all — what draws (or omits) the disclosure, and which
+    /// rows a drop may land ON. Defaults to "has children right now", which draws no
+    /// disclosure on an EMPTY group; a source with real branch/leaf kinds should say so.
+    pub fn expandable(mut self, f: impl Fn(&S::Key) -> bool + 'static) -> Self {
+        self.expandable = Some(Rc::new(f));
+        self
+    }
+    /// Reactively sync the native selection to these keys (empty clears). Point it and
+    /// [`Self::on_selection`] at one signal and selection is two-way, shared with anything
+    /// else reading the same state.
+    pub fn selected(mut self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self {
+        self.selected = Some(Rc::new(f));
+        self
+    }
+    /// Called with the FULL selected key set (empty = cleared) whenever the user changes the
+    /// selection.
+    pub fn on_selection(mut self, f: impl Fn(Vec<S::Key>) + 'static) -> Self {
+        self.on_selection = Some(Rc::new(f));
+        self
+    }
+    /// Allow selecting several rows at once, where the toolkit supports it.
+    pub fn multi_select(mut self, on: bool) -> Self {
+        self.multi_select = on;
+        self
+    }
+    /// Let the user drag rows to a new parent/position with the platform's native mechanism,
+    /// where the backend supports it (probe `Cap::TreeMove`). Pair with
+    /// [`Self::on_move`] so the app's data follows, and optionally [`Self::move_guard`].
+    pub fn movable(mut self, on: bool) -> Self {
+        self.movable = on;
+        self
+    }
+    /// A committed move: `key` now sits under `parent` (`None` = the root) at `index`
+    /// (`None` = dropped ONTO the parent — append). Apply the same re-parent to the backing
+    /// data; its refresh reloads the tree. Runs at the next event drain, never inside the
+    /// native drop callback.
+    pub fn on_move(mut self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
+        self.on_move = Some(Rc::new(f));
+        self
+    }
+    /// Veto drops while the drag is live. The structural refusals — a row into itself, into
+    /// its own descendant, into a leaf — are built in; this guard adds the app's own. Keep it
+    /// pure: it runs inside the platform's drag callback.
+    pub fn move_guard(
+        mut self,
+        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
+    ) -> Self {
+        self.move_guard = Some(Rc::new(g));
+        self
+    }
+    /// The row's type-ahead string (docs/tree.md) — what native type-select matches against.
+    /// Unset rows don't participate.
+    pub fn type_ahead(mut self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+        self.type_ahead = Some(Rc::new(f));
+        self
+    }
+    /// Programmatic reveal: set the signal to `Some(key)` and the row scrolls into view with
+    /// every ancestor expanded (through [`Self::expanded`], so the app sees the change).
+    pub fn reveal(mut self, sig: Signal<Option<S::Key>>) -> Self {
+        self.reveal = Some(sig);
+        self
+    }
+    /// A dayscript element id per row, from its key (docs/tree.md): re-applied on every
+    /// recycle, so `tap`/`assert_text` address the row wherever its cell currently sits —
+    /// and what the `expand:`/`tree_move:` steps resolve rows by.
+    pub fn row_id(mut self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+        self.row_id = Some(Rc::new(f));
+        self
+    }
+}
+
+impl<S: NodeSource + 'static> Piece for TreePiece<S> {
+    fn build(mut self, cx: &mut BuildCx) -> RNode {
+        let props = TreeProps {
+            row_height: self.row_height,
+            selectable: self.selected.is_some() || self.on_selection.is_some(),
+            multi_select: self.multi_select,
+            movable: self.movable,
+            indent: self.indent,
+        };
+        let node = cx.leaf(
+            kinds::TREE,
+            &props,
+            Flex {
+                grow_w: true,
+                grow_h: true,
+                ..Default::default()
+            },
+        );
+
+        let conn = Rc::new(self.source.take().expect("TreePiece built once").connect());
+
+        // The driver's (and flattener's) view of expansion: TOKEN-keyed, updated from native
+        // disclosure events and from every programmatic patch this piece issues — so it is
+        // right whether or not the app owns an expansion signal.
+        let open_tokens: Rc<RefCell<HashSet<u64>>> = Rc::new(RefCell::new(HashSet::new()));
+
+        // Native events → app state.
+        {
+            let (on_selection, expanded_sig) = (self.on_selection.clone(), self.expanded);
+            let (on_move, conn_ev, open) =
+                (self.on_move.clone(), conn.clone(), open_tokens.clone());
+            cx.on(node, move |ev| match ev {
+                Event::TreeSelection(tokens) => {
+                    if let Some(f) = &on_selection {
+                        f(tokens.iter().filter_map(|t| conn_ev.key_of(*t)).collect());
+                    }
+                }
+                Event::TreeExpanded { token, expanded } => {
+                    match &expanded_sig {
+                        // The app's set follows the disclosure, and the expansion watch
+                        // derives the patch. The record deliberately does NOT move here:
+                        // for a native click the patch is a redundant no-op, and for a
+                        // synthetic event (the dayscript `expand:` step) it is the very
+                        // thing that discloses the row — pre-moving the record swallowed it.
+                        Some(sig) => {
+                            if let Some(key) = conn_ev.key_of(*token) {
+                                sig.update(|set| {
+                                    if *expanded {
+                                        set.insert(key.clone());
+                                    } else {
+                                        set.remove(&key);
+                                    }
+                                });
+                            }
+                        }
+                        // No app signal: this record IS the expansion state.
+                        None => {
+                            if *expanded {
+                                open.borrow_mut().insert(*token);
+                            } else {
+                                open.borrow_mut().remove(token);
+                            }
+                        }
+                    }
+                }
+                Event::TreeMove {
+                    token,
+                    parent,
+                    index,
+                } => {
+                    if let Some(f) = &on_move
+                        && let Some(key) = conn_ev.key_of(*token)
+                    {
+                        f(key, parent.and_then(|p| conn_ev.key_of(p)), *index);
+                    }
+                }
+                _ => {}
+            });
+        }
+
+        // "Can hold children": the app's branch/leaf rule, or "has children right now".
+        let expandable_of: Rc<dyn Fn(u64) -> bool> = {
+            let (conn, f) = (conn.clone(), self.expandable.clone());
+            Rc::new(move |tok| match &f {
+                Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or(false),
+                None => conn.children_len(Some(tok)) > 0,
+            })
+        };
+
+        // The type-erased driver day-core drives on cell pulls (docs/tree.md).
+        let driver = TreeDriver {
+            row_height: self.row_height,
+            children_len: {
+                let conn = conn.clone();
+                Box::new(move |p| conn.children_len(p))
+            },
+            child_token: {
+                let conn = conn.clone();
+                Box::new(move |p, i| conn.child_token(p, i))
+            },
+            expandable: {
+                let f = expandable_of.clone();
+                Box::new(move |t| f(t))
+            },
+            expanded: {
+                let open = open_tokens.clone();
+                Box::new(move |t| open.borrow().contains(&t))
+            },
+            build: {
+                let (conn, build_row, row_id) =
+                    (conn.clone(), self.build_row.clone(), self.row_id.clone());
+                Box::new(move |token, anchor| {
+                    let scope = Scope::child();
+                    let (conn, build_row, row_id) =
+                        (conn.clone(), build_row.clone(), row_id.clone());
+                    let rebind = scope.enter(move || {
+                        // Native callbacks can deliver a stale token mid-animation; an
+                        // unknown pull yields an empty row instead of panicking.
+                        let Some(slot) = conn.slot_for(token) else {
+                            return Rc::new(|_: u64| {}) as Rc<dyn Fn(u64)>;
+                        };
+                        let mut rowcx = BuildCx::new(anchor);
+                        let root = build_row(slot).build(&mut rowcx);
+                        if let Some(rid) = &row_id
+                            && let Some(k) = conn.key_of(token)
+                        {
+                            with_tree(|t| t.set_id(root, rid(&k)));
+                        }
+                        // Rebind on recycle: point the slot (and the row's element id) at
+                        // the cell's new row.
+                        Rc::new(move |tok: u64| {
+                            conn.rebind(&slot, tok);
+                            if let Some(rid) = &row_id
+                                && let Some(k) = conn.key_of(tok)
+                            {
+                                with_tree(|t| t.set_id(root, rid(&k)));
+                            }
+                        }) as Rc<dyn Fn(u64)>
+                    });
+                    TreeBuiltRow { scope, rebind }
+                })
+            },
+            type_select_text: {
+                let (conn, f) = (conn.clone(), self.type_ahead.clone());
+                Box::new(move |tok| match &f {
+                    Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or_default(),
+                    None => String::new(),
+                })
+            },
+            resolve_row: {
+                let (conn, row_id) = (conn.clone(), self.row_id.clone());
+                Box::new(move |id| {
+                    let rid = row_id.as_ref()?;
+                    conn.tokens_now()
+                        .into_iter()
+                        .find(|t| conn.key_of(*t).map(|k| rid(&k) == id).unwrap_or(false))
+                })
+            },
+            moves: self.movable.then(|| {
+                // The live verdict: structural refusals first (a row into itself, into its
+                // own descendant, into a leaf, or addressing anything unknown), then the
+                // app's guard.
+                let can = {
+                    let (conn, expandable_of, guard) =
+                        (conn.clone(), expandable_of.clone(), self.move_guard.clone());
+                    move |tok: u64, parent: Option<u64>, index: Option<usize>| {
+                        let Some(key) = conn.key_of(tok) else {
+                            return MoveVerdict::Deny;
+                        };
+                        let parent_key = match parent {
+                            Some(p) => {
+                                if p == tok || !expandable_of(p) {
+                                    return MoveVerdict::Deny;
+                                }
+                                // Walk p's ancestors: dropping into one's own subtree.
+                                let mut cur = Some(p);
+                                while let Some(c) = cur {
+                                    if c == tok {
+                                        return MoveVerdict::Deny;
+                                    }
+                                    cur = conn.parent_of(c).flatten();
+                                }
+                                match conn.key_of(p) {
+                                    Some(k) => Some(k),
+                                    None => return MoveVerdict::Deny,
+                                }
+                            }
+                            None => None,
+                        };
+                        match &guard {
+                            Some(g) => g(&key, parent_key.as_ref(), index),
+                            None => MoveVerdict::Allow,
+                        }
+                    }
+                };
+                let can_commit = can.clone();
+                TreeMovesDriver {
+                    can_move: Box::new(can),
+                    // Commit: defer the app's callback through the event queue; its own data
+                    // write drives the reload (docs/tree.md).
+                    moved: Box::new(move |t, p, i| {
+                        if can_commit(t, p, i) == MoveVerdict::Deny {
+                            return;
+                        }
+                        enqueue_event(
+                            rnode_to_id(node),
+                            Event::TreeMove {
+                                token: t,
+                                parent: p,
+                                index: i,
+                            },
+                        );
+                    }),
+                }
+            }),
+        };
+        install_tree(node, driver);
+
+        // Prime the snapshot, tell the native host, and re-assert expansion + selection by
+        // token after every shape change (docs/tree.md: a reload must not silently collapse
+        // the tree or drop its selection).
+        let apply_expansion = {
+            let (conn, open) = (conn.clone(), open_tokens.clone());
+            let expanded_sig = self.expanded;
+            move || {
+                let desired: HashSet<u64> = match &expanded_sig {
+                    Some(sig) => {
+                        let conn = &conn;
+                        sig.get_untracked()
+                            .iter()
+                            .map(|k| conn.token_of(k))
+                            .collect()
+                    }
+                    None => open.borrow().clone(),
+                };
+                let present: HashSet<u64> = conn.tokens_now().into_iter().collect();
+                // Parents before children: a backend may not record a disclosure for a row
+                // whose ancestor is still collapsed.
+                let mut ordered: Vec<u64> = desired
+                    .iter()
+                    .filter(|t| present.contains(t))
+                    .copied()
+                    .collect();
+                let depth_of = |mut t: u64| {
+                    let mut d = 0usize;
+                    while let Some(Some(p)) = conn.parent_of(t) {
+                        d += 1;
+                        t = p;
+                    }
+                    d
+                };
+                ordered.sort_by_key(|t| depth_of(*t));
+                for t in ordered {
+                    tree_set_expanded(node, t, true);
+                }
+                open.borrow_mut().clone_from(&desired);
+            }
+        };
+        let apply_selection = {
+            let (conn, selected) = (conn.clone(), self.selected.clone());
+            move || {
+                if let Some(sel) = &selected {
+                    let keys = day_reactive::untrack(|| sel());
+                    let toks: Vec<u64> = keys.iter().map(|k| conn.token_of(k)).collect();
+                    tree_set_selected(node, toks);
+                }
+            }
+        };
+        {
+            let conn2 = conn.clone();
+            let initial = {
+                let conn = conn.clone();
+                day_reactive::untrack(move || conn.refresh())
+            };
+            // The native host attached against an EMPTY snapshot: tell it the real node set
+            // now, then disclose the initially-expanded rows (see the list's prime for why
+            // skipping this renders blank while the synthetic rail keeps passing).
+            tree_reload(node);
+            apply_expansion();
+            apply_selection();
+            let last: RefCell<Vec<(u64, Option<u64>)>> = RefCell::new(initial);
+            let (apply_expansion, apply_selection) =
+                (apply_expansion.clone(), apply_selection.clone());
+            let conn3 = conn.clone();
+            watch(
+                move || conn2.refresh(),
+                move |shape: &Vec<(u64, Option<u64>)>, _| {
+                    let unchanged = !conn3.values_flow_by_reload() && *last.borrow() == *shape;
+                    *last.borrow_mut() = shape.clone();
+                    if unchanged {
+                        return;
+                    }
+                    tree_reload(node);
+                    apply_expansion();
+                    apply_selection();
+                },
+            );
+        }
+
+        // App expansion signal → native disclosure (delta patches; redundant ones no-op).
+        if let Some(sig) = self.expanded {
+            let (conn, open) = (conn.clone(), open_tokens.clone());
+            watch(
+                move || sig.get(),
+                move |set: &HashSet<S::Key>, _| {
+                    let desired: HashSet<u64> = set.iter().map(|k| conn.token_of(k)).collect();
+                    let current = open.borrow().clone();
+                    for t in desired.difference(&current) {
+                        tree_set_expanded(node, *t, true);
+                    }
+                    for t in current.difference(&desired) {
+                        tree_set_expanded(node, *t, false);
+                    }
+                    open.borrow_mut().clone_from(&desired);
+                },
+            );
+        }
+
+        // Programmatic selection sync (`watch`, so the initial build doesn't clobber a
+        // toolkit-default selection — the prime above already applied it once).
+        if let Some(sel) = self.selected.clone() {
+            let conn = conn.clone();
+            watch(
+                move || sel(),
+                move |keys: &Vec<S::Key>, _| {
+                    let toks: Vec<u64> = keys.iter().map(|k| conn.token_of(k)).collect();
+                    tree_set_selected(node, toks);
+                },
+            );
+        }
+
+        // Reveal: expand every ancestor (native + the app's signal), then scroll.
+        if let Some(sig) = self.reveal {
+            let (conn, open, expanded_sig) = (conn.clone(), open_tokens.clone(), self.expanded);
+            watch(
+                move || sig.get(),
+                move |key: &Option<S::Key>, _| {
+                    let Some(key) = key else { return };
+                    let tok = conn.token_of(key);
+                    let mut ancestors = Vec::new();
+                    let mut cur = conn.parent_of(tok).flatten();
+                    while let Some(p) = cur {
+                        ancestors.push(p);
+                        cur = conn.parent_of(p).flatten();
+                    }
+                    for p in ancestors.iter().rev() {
+                        tree_set_expanded(node, *p, true);
+                        open.borrow_mut().insert(*p);
+                        if let Some(sig) = &expanded_sig
+                            && let Some(k) = conn.key_of(*p)
+                        {
+                            sig.update(|set| {
+                                set.insert(k.clone());
+                            });
+                        }
+                    }
+                    tree_reveal(node, tok);
+                },
+            );
+        }
+
+        node
+    }
+}
+
+/// [`TreePiece`]'s own builders, reachable THROUGH a decoration (§5.2), like [`ListBuilder`].
+pub trait TreeBuilder<S: NodeSource + 'static>: Sized {
+    fn row_height(self, h: RowHeight) -> Self;
+    fn indent(self, pts: f64) -> Self;
+    fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self;
+    fn expandable(self, f: impl Fn(&S::Key) -> bool + 'static) -> Self;
+    fn selected(self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self;
+    fn on_selection(self, f: impl Fn(Vec<S::Key>) + 'static) -> Self;
+    fn multi_select(self, on: bool) -> Self;
+    fn movable(self, on: bool) -> Self;
+    fn on_move(self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self;
+    fn move_guard(
+        self,
+        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
+    ) -> Self;
+    fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self;
+    fn reveal(self, sig: Signal<Option<S::Key>>) -> Self;
+    fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self;
+}
+
+impl<S: NodeSource + 'static> TreeBuilder<S> for TreePiece<S> {
+    fn row_height(self, h: RowHeight) -> Self {
+        TreePiece::row_height(self, h)
+    }
+    fn indent(self, pts: f64) -> Self {
+        TreePiece::indent(self, pts)
+    }
+    fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self {
+        TreePiece::expanded(self, sig)
+    }
+    fn expandable(self, f: impl Fn(&S::Key) -> bool + 'static) -> Self {
+        TreePiece::expandable(self, f)
+    }
+    fn selected(self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self {
+        TreePiece::selected(self, f)
+    }
+    fn on_selection(self, f: impl Fn(Vec<S::Key>) + 'static) -> Self {
+        TreePiece::on_selection(self, f)
+    }
+    fn multi_select(self, on: bool) -> Self {
+        TreePiece::multi_select(self, on)
+    }
+    fn movable(self, on: bool) -> Self {
+        TreePiece::movable(self, on)
+    }
+    fn on_move(self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
+        TreePiece::on_move(self, f)
+    }
+    fn move_guard(
+        self,
+        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
+    ) -> Self {
+        TreePiece::move_guard(self, g)
+    }
+    fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+        TreePiece::type_ahead(self, f)
+    }
+    fn reveal(self, sig: Signal<Option<S::Key>>) -> Self {
+        TreePiece::reveal(self, sig)
+    }
+    fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+        TreePiece::row_id(self, f)
+    }
+}
+
+impl<S: NodeSource + 'static, Inner: TreeBuilder<S> + Piece> TreeBuilder<S> for Decorated<Inner> {
+    fn row_height(self, h: RowHeight) -> Self {
+        self.map_inner(|inner_piece| inner_piece.row_height(h))
+    }
+    fn indent(self, pts: f64) -> Self {
+        self.map_inner(|inner_piece| inner_piece.indent(pts))
+    }
+    fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.expanded(sig))
+    }
+    fn expandable(self, f: impl Fn(&S::Key) -> bool + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.expandable(f))
+    }
+    fn selected(self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.selected(f))
+    }
+    fn on_selection(self, f: impl Fn(Vec<S::Key>) + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_selection(f))
+    }
+    fn multi_select(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.multi_select(on))
+    }
+    fn movable(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.movable(on))
+    }
+    fn on_move(self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_move(f))
+    }
+    fn move_guard(
+        self,
+        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
+    ) -> Self {
+        self.map_inner(|inner_piece| inner_piece.move_guard(g))
+    }
+    fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.type_ahead(f))
+    }
+    fn reveal(self, sig: Signal<Option<S::Key>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.reveal(sig))
+    }
+    fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.row_id(f))
     }
 }

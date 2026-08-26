@@ -77,6 +77,15 @@ day new app my-app --template ./my-template          # a local directory
 day new app my-app --template https://github.com/you/tpl#v1   # a git repo (optional #ref)
 ```
 
+`day new --describe` prints the questions themselves — every kind's fields, their options, and the
+flag each one fills — as a versioned JSON document. It takes no project, which is the point: it is
+what an editor reads to build its own New Project dialog without copying the target list into a
+second place. The VS Code extension's wizard is rendered entirely from it.
+
+```bash
+day new --describe | jq '.kinds[] | {id, fields: [.fields[].id]}'
+```
+
 Template conventions: a trailing `.hbs` on a filename is stripped after rendering (use
 `Cargo.toml.hbs` so tooling doesn't mistake the template for a Rust package), `_gitignore`
 becomes `.gitignore`, non-UTF-8 files (icons) copy verbatim, and an unknown `{{placeholder}}`
