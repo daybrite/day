@@ -39,7 +39,7 @@ pub use ext::*;
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-thread_local! {
+day_core::tls_group! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Canvas ptr → its display list (`replay` writes, the draw func reads). A [`SideTable`]:
     /// the release sweep drops a dead canvas's list, so a recycled address can't briefly
@@ -48,14 +48,107 @@ thread_local! {
     /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
-}
 
-thread_local! {
     /// Screenshot settle-gating state (`ui_idle`): whether the after-paint hook is installed,
     /// the number of frames painted, and the paint count a pending settle cycle waits for.
     static SNAP_PAINT_HOOKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static SNAP_PAINT_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static SNAP_WAIT_TARGET: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+
+    static TINT_PROVIDERS: RefCell<std::collections::HashSet<String>> =
+        RefCell::new(std::collections::HashSet::new());
+
+    /// Keep each context-menu popover alive + parented to its widget (widget ptr → popover).
+    static MENU_POPOVERS: RefCell<HashMap<usize, gtk4::PopoverMenu>> = RefCell::new(HashMap::new());
+
+    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    /// NAV_PAGE widget → its Day node id (recorded at realize, joined at insert).
+    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// NAV_PAGE widget → its title (for the AdwNavigationPage).
+    static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// NAV_MENU widget → its list box + suppression flag.
+    static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
+
+    static GTK_ANIMS: RefCell<HashMap<usize, GtkAnim>> = RefCell::new(HashMap::new());
+    // Day's laid-out top-left origin per GtkFixed child. GTK positions a Fixed child *via* its
+    // child transform, which is the same slot the animation transform uses — so the two must be
+    // composed (see apply_gtk_transform) rather than overwrite each other.
+    static NODE_ORIGIN: RefCell<HashMap<usize, (f32, f32)>> = RefCell::new(HashMap::new());
+
+    /// Each realized image's bundled source NAME, so a tint patch can re-render it. The widget
+    /// holds a texture, not a path, and re-reading the file is what a recolor needs. A
+    /// [`SideTable`], so the entry goes with the widget in `release`'s sweep.
+    static IMAGE_SOURCE: SideTable<String> = SideTable::new();
+
+    /// Per-listbox context popovers for the nav rows (docs/menus.md), keyed by listbox ptr —
+    /// unparented before every row rebuild so popovers never outlive their rows.
+    static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
+        RefCell::new(HashMap::new());
+
+    /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
+    /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
+    /// Each provider is registered on the DISPLAY (`apply_surface`), so the teardown — run by
+    /// `release`'s sweep — must take it back off, or display-global providers pile up for the
+    /// life of the process, one per decorated widget that ever existed.
+    static SURFACE: SideTable<gtk4::CssProvider> = SideTable::with_teardown(|p| {
+        if let Some(display) = gtk4::gdk::Display::default() {
+            gtk4::style_context_remove_provider_for_display(&display, &p);
+        }
+    });
+
+        static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+
+    /// Inspector split key → its state. [`SideTable`]s, so the release sweep drops them.
+    static INSPECTOR_STATE: SideTable<Rc<RefCell<InspectorState>>> = SideTable::new();
+    /// Inspector pane key → `(its NodeId, is-panel)`, recorded at realize and consumed when
+    /// the pane is inserted into its split.
+    static INSPECTOR_PANES: SideTable<(NodeId, bool)> = SideTable::new();
+
+    /// LIST scrolled-window key → its model + source holder.
+    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// Physical cell (GtkFixed ptr) → the row it is currently bound to, for drag-to-reorder:
+    /// a cell's row changes on every recycle, so the DragSource reads it at drag time. A
+    /// [`SideTable`]: recycling overwrites live entries, but only the release sweep drops a
+    /// destroyed cell's — an address GTK reuses must not inherit a stale row.
+    static LIST_CELL_ROWS: SideTable<usize> = SideTable::new();
+    /// The in-flight reorder drag: (list scrolled-window key, source row). One drag exists at a
+    /// time and day lists only accept their OWN rows, so a thread-local carries what GTK's
+    /// value-based content would only hand back asynchronously.
+    static DRAG_FROM: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+    /// A realized NAV_MENU's rows, by widget key: `(node, titles, icon names)`.
+    ///
+    /// Recorded at realize, where the props are, and handed to a navigation suite at INSERT — the
+    /// first moment the menu has ancestors to walk. Where there is no suite above it (every
+    /// presentation but `Tabs`) the handover finds nothing and the rows stay a list.
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
+
+    /// Per-label style state, keyed by widget ptr. Font and color render through ONE Pango
+    /// attribute list (set_attributes replaces the whole list), but a `LabelPatch` carries only
+    /// the half that changed — so each patch updates its half here and re-applies the whole.
+    /// Entries drop in `release`.
+    static LABEL_STYLE: RefCell<HashMap<usize, LabelStyle>> = RefCell::new(HashMap::new());
+
+    /// Live modals keyed by request id (for programmatic dismissal).
+    static NAV_DIALOGS: RefCell<HashMap<u64, DialogHandle>> = RefCell::new(HashMap::new());
+    /// In-flight GtkFileDialog requests. Membership IS the state: a request in the set is one
+    /// day is still waiting on, and `end_file_dialog` drops it rather than cancelling anything
+    /// (see there for why cancelling crashes GTK 4.14).
+    static FILE_DIALOGS: RefCell<std::collections::HashSet<u64>> =
+        RefCell::new(std::collections::HashSet::new());
+
+    /// Presented emulated covers: (cover widget, its NodeId). `report_content_size` re-sizes
+    /// each on window resize and re-reports FrameChanged (the frame is native-owned while
+    /// presented — docs/cover.md).
+    static COVERS: RefCell<Vec<(gtk4::Fixed, NodeId)>> = const { RefCell::new(Vec::new()) };
+    /// Cover widget key → NodeId (set at realize; consumed by the CoverPatch arms). A
+    /// [`SideTable`], so the release sweep drops it with the cover widget.
+    static COVER_IDS: SideTable<NodeId> = SideTable::new();
+
+    /// Whether ANY Day window was active at the last activation check — the app-level
+    /// lifecycle debounce (docs/windows.md): focus moving BETWEEN Day windows must not
+    /// emit a resign/become pair.
+    static ANY_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+
 }
 
 /// Render a label's runs as Pango markup (docs/text-runs.md).
@@ -91,10 +184,6 @@ fn set_label_runs(label: &gtk4::Label, text: &str, runs: &[day_spec::TextRun]) {
 // GTK 4.10 deprecated per-widget providers, and the replacement is DISPLAY-wide — so the rule
 // has to be selective rather than the widget. Each color gets its own class and its own
 // provider, installed once; a second button in the same color reuses it.
-thread_local! {
-    static TINT_PROVIDERS: RefCell<std::collections::HashSet<String>> =
-        RefCell::new(std::collections::HashSet::new());
-}
 
 /// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a GtkButton.
 ///
@@ -648,11 +737,6 @@ fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
 // emit Event::MenuAction; role items → the widget's stock action (clipboard.copy, …).
 // ---------------------------------------------------------------------------
 
-thread_local! {
-    /// Keep each context-menu popover alive + parented to its widget (widget ptr → popover).
-    static MENU_POPOVERS: RefCell<HashMap<usize, gtk4::PopoverMenu>> = RefCell::new(HashMap::new());
-}
-
 /// A day `MenuRole` → a GTK stock action targeting the focused widget's built-in behavior. `None` =
 /// GTK has no widget action for it (the role item is then omitted from a context menu).
 fn gtk_role_action(role: day_spec::MenuRole) -> Option<&'static str> {
@@ -978,16 +1062,6 @@ struct NavMenuState {
     suppress: Rc<std::cell::Cell<bool>>,
 }
 
-thread_local! {
-    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
-    /// NAV_PAGE widget → its Day node id (recorded at realize, joined at insert).
-    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
-    /// NAV_PAGE widget → its title (for the AdwNavigationPage).
-    static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
-    /// NAV_MENU widget → its list box + suppression flag.
-    static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
-}
-
 fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
 }
@@ -1000,14 +1074,6 @@ struct GtkAnim {
     opacity: Option<adw::Animation>,
     transform: Option<adw::Animation>,
     cur_transform: Transform,
-}
-
-thread_local! {
-    static GTK_ANIMS: RefCell<HashMap<usize, GtkAnim>> = RefCell::new(HashMap::new());
-    // Day's laid-out top-left origin per GtkFixed child. GTK positions a Fixed child *via* its
-    // child transform, which is the same slot the animation transform uses — so the two must be
-    // composed (see apply_gtk_transform) rather than overwrite each other.
-    static NODE_ORIGIN: RefCell<HashMap<usize, (f32, f32)>> = RefCell::new(HashMap::new());
 }
 
 /// Apply Day's layout origin AND the animation transform `t` to `widget` as its `GtkFixed` child
@@ -1186,13 +1252,6 @@ fn fill_nav_menu(
     }
 }
 
-thread_local! {
-    /// Each realized image's bundled source NAME, so a tint patch can re-render it. The widget
-    /// holds a texture, not a path, and re-reading the file is what a recolor needs. A
-    /// [`SideTable`], so the entry goes with the widget in `release`'s sweep.
-    static IMAGE_SOURCE: SideTable<String> = SideTable::new();
-}
-
 /// The bundled glyph `source`, recolored to `t` with its alpha kept as the mask — the recolor
 /// both the image piece and the sidebar template icons use (docs/vectors.md "Tint").
 fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::Texture> {
@@ -1210,13 +1269,6 @@ fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::T
         (t.b * 255.0) as u8,
     );
     Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
-}
-
-thread_local! {
-    /// Per-listbox context popovers for the nav rows (docs/menus.md), keyed by listbox ptr —
-    /// unparented before every row rebuild so popovers never outlive their rows.
-    static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
-        RefCell::new(HashMap::new());
 }
 
 /// Release this listbox's row popovers, and do it BEFORE the rows themselves go.
@@ -1389,25 +1441,9 @@ fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk
     Some(image)
 }
 
-thread_local! {
-    /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
-    /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
-    /// Each provider is registered on the DISPLAY (`apply_surface`), so the teardown — run by
-    /// `release`'s sweep — must take it back off, or display-global providers pile up for the
-    /// life of the process, one per decorated widget that ever existed.
-    static SURFACE: SideTable<gtk4::CssProvider> = SideTable::with_teardown(|p| {
-        if let Some(display) = gtk4::gdk::Display::default() {
-            gtk4::style_context_remove_provider_for_display(&display, &p);
-        }
-    });
-}
-
 /// Install (once) the CSS that makes Day scroll viewports transparent, so a backdrop layered
 /// behind a scroll (zstack) shows through — matching AppKit's `setDrawsBackground(false)`.
 fn scroll_transparent_css() {
-    thread_local! {
-        static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    }
     if DONE.with(|c| c.replace(true)) {
         return;
     }
@@ -1543,14 +1579,6 @@ struct InspectorState {
     panes: Vec<(NodeId, bool, Handle)>,
 }
 
-thread_local! {
-    /// Inspector split key → its state. [`SideTable`]s, so the release sweep drops them.
-    static INSPECTOR_STATE: SideTable<Rc<RefCell<InspectorState>>> = SideTable::new();
-    /// Inspector pane key → `(its NodeId, is-panel)`, recorded at realize and consumed when
-    /// the pane is inserted into its split.
-    static INSPECTOR_PANES: SideTable<(NodeId, bool)> = SideTable::new();
-}
-
 /// Emit each inspector pane's content size so `InspectorLayout` re-lays it (the nav_report
 /// counterpart). The panel reports its PINNED width even while hidden, so revealing it never
 /// re-lays the panel's content from zero.
@@ -1606,26 +1634,6 @@ struct ListEntry {
 
 /// A realized nav menu's rows: `(node, titles, icon names)`.
 type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
-
-thread_local! {
-    /// LIST scrolled-window key → its model + source holder.
-    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
-    /// Physical cell (GtkFixed ptr) → the row it is currently bound to, for drag-to-reorder:
-    /// a cell's row changes on every recycle, so the DragSource reads it at drag time. A
-    /// [`SideTable`]: recycling overwrites live entries, but only the release sweep drops a
-    /// destroyed cell's — an address GTK reuses must not inherit a stale row.
-    static LIST_CELL_ROWS: SideTable<usize> = SideTable::new();
-    /// The in-flight reorder drag: (list scrolled-window key, source row). One drag exists at a
-    /// time and day lists only accept their OWN rows, so a thread-local carries what GTK's
-    /// value-based content would only hand back asynchronously.
-    static DRAG_FROM: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
-    /// A realized NAV_MENU's rows, by widget key: `(node, titles, icon names)`.
-    ///
-    /// Recorded at realize, where the props are, and handed to a navigation suite at INSERT — the
-    /// first moment the menu has ancestors to walk. Where there is no suite above it (every
-    /// presentation but `Tabs`) the handover finds nothing and the rows stay a list.
-    static NAV_MENU_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
-}
 
 /// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).
 fn list_resize(model: &gtk4::StringList, n: usize) {
@@ -1885,14 +1893,6 @@ struct LabelStyle {
     /// `Some` once `.runs()` has put styled runs on this label; the pair rebuilds the markup
     /// whenever the base font or color is patched.
     rich: Option<(String, Vec<day_spec::TextRun>)>,
-}
-
-thread_local! {
-    /// Per-label style state, keyed by widget ptr. Font and color render through ONE Pango
-    /// attribute list (set_attributes replaces the whole list), but a `LabelPatch` carries only
-    /// the half that changed — so each patch updates its half here and re-applies the whole.
-    /// Entries drop in `release`.
-    static LABEL_STYLE: RefCell<HashMap<usize, LabelStyle>> = RefCell::new(HashMap::new());
 }
 
 /// The base font and color as a Pango markup span that WRAPS a label's run markup.
@@ -4646,29 +4646,9 @@ fn dialog_finisher(
     })
 }
 
-thread_local! {
-    /// Live modals keyed by request id (for programmatic dismissal).
-    static NAV_DIALOGS: RefCell<HashMap<u64, DialogHandle>> = RefCell::new(HashMap::new());
-    /// In-flight GtkFileDialog requests. Membership IS the state: a request in the set is one
-    /// day is still waiting on, and `end_file_dialog` drops it rather than cancelling anything
-    /// (see there for why cancelling crashes GTK 4.14).
-    static FILE_DIALOGS: RefCell<std::collections::HashSet<u64>> =
-        RefCell::new(std::collections::HashSet::new());
-}
-
 /// Adwaita's default header-bar height, used to size Day's content area before the header is
 /// first allocated (`report_content_size` reads the real height thereafter).
 const HEADER_H: f64 = 47.0;
-
-thread_local! {
-    /// Presented emulated covers: (cover widget, its NodeId). `report_content_size` re-sizes
-    /// each on window resize and re-reports FrameChanged (the frame is native-owned while
-    /// presented — docs/cover.md).
-    static COVERS: RefCell<Vec<(gtk4::Fixed, NodeId)>> = const { RefCell::new(Vec::new()) };
-    /// Cover widget key → NodeId (set at realize; consumed by the CoverPatch arms). A
-    /// [`SideTable`], so the release sweep drops it with the cover widget.
-    static COVER_IDS: SideTable<NodeId> = SideTable::new();
-}
 
 /// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
 /// `target`: `None` = the primary window (`WINDOW_NODE` + the cover follow-along);
@@ -4775,13 +4755,6 @@ fn build_day_window(
         });
     }
     (window, fixed, header)
-}
-
-thread_local! {
-    /// Whether ANY Day window was active at the last activation check — the app-level
-    /// lifecycle debounce (docs/windows.md): focus moving BETWEEN Day windows must not
-    /// emit a resign/become pair.
-    static ANY_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Recompute "is any Day window active" on an idle (letting a focus handoff between two

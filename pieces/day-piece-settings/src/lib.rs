@@ -32,11 +32,12 @@ use day_reactive::{Signal, watch};
 /// A `(tag, autonym)` locale table — the shape of a generated `res::locales::ALL`.
 pub type LocaleTable = &'static [(&'static str, &'static str)];
 
-thread_local! {
+day_core::tls_group! {
     /// The locale the app STARTED in (system or `--locale`), captured by [`apply_startup`]
     /// before any stored override applies — what the language picker's "System" entry
     /// restores.
     static SYSTEM_LOCALE: OnceCell<String> = const { OnceCell::new() };
+
 }
 
 fn system_locale() -> String {

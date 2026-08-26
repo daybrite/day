@@ -47,7 +47,7 @@ mod imp {
 
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-    thread_local! {
+    day_core::tls_group! {
         /// Navigation state (docs/navigation.md): the single app nav host (its day NodeId +
         /// ArkUI node pointer), the host's attached page children in order (page ptr → day
         /// NodeId, so a Pushed patch can re-home the just-attached last page), and pages
@@ -146,6 +146,21 @@ mod imp {
         static SCROLL_CONTENT: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
         /// Monotonic base for frame-clock timestamps (§8.4).
         static FRAME_EPOCH: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
+
+        /// Each picker wheel's live selection, so a change of OPTIONS can keep it — the
+        /// range attribute is set whole, and the selected index goes with it. A
+        /// [`SideTable`], so the backend's release sweep drops a dead picker's entry.
+        static PICKER_SELECTED: day_spec::sidetable::SideTable<usize> =
+            day_spec::sidetable::SideTable::new();
+
+        /// The one live suite. This backend already assumes a single nav host (`NAV_HOST`), and
+        /// a suite is a nav host wearing different chrome.
+        static NAV_SUITE: RefCell<Option<NavSuite>> = const { RefCell::new(None) };
+
+        /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
+        /// pointer) — the multiton DayWindowAbility instances' content.
+        static SECONDARY: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
+
     }
 
     /// Build a NAV_MENU: a scrollable column of CONVENTIONAL navigation rows — an optional
@@ -178,20 +193,6 @@ mod imp {
         selected: usize,
         /// The pages area, so a page joining later can be sized without waiting for a resize.
         page_size: Size,
-    }
-
-    thread_local! {
-        /// Each picker wheel's live selection, so a change of OPTIONS can keep it — the
-        /// range attribute is set whole, and the selected index goes with it. A
-        /// [`SideTable`], so the backend's release sweep drops a dead picker's entry.
-        static PICKER_SELECTED: day_spec::sidetable::SideTable<usize> =
-            day_spec::sidetable::SideTable::new();
-    }
-
-    thread_local! {
-        /// The one live suite. This backend already assumes a single nav host (`NAV_HOST`), and
-        /// a suite is a nav host wearing different chrome.
-        static NAV_SUITE: RefCell<Option<NavSuite>> = const { RefCell::new(None) };
     }
 
     /// Build the bar's items from the host's rows: an icon over a label per destination, each
@@ -718,12 +719,6 @@ mod imp {
             ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
             ROOT_KEEP.with(|r| r.set(Some((root.0 as usize, w_vp, h_vp))));
         });
-    }
-
-    thread_local! {
-        /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
-        /// pointer) — the multiton DayWindowAbility instances' content.
-        static SECONDARY: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
     }
 
     /// A secondary DayWindowAbility's page connected (the shim's `windowStart` export):

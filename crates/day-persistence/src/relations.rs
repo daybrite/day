@@ -1059,10 +1059,11 @@ fn singular(table: &str) -> String {
 // The accessor surface
 // ---------------------------------------------------------------------------
 
-thread_local! {
+day_reactive::tls_group! {
     /// Every open container, so a `RelationRef` (which holds only a Field) can find the
     /// relation its parent store belongs to. Weak: dropping the container is the removal.
     static CONTAINERS: RefCell<Vec<Weak<ContainerInner>>> = const { RefCell::new(Vec::new()) };
+
 }
 
 pub(crate) fn register_container(inner: &Rc<ContainerInner>) {

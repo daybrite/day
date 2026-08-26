@@ -22,7 +22,8 @@ use crate::with_tree;
 
 type LocalFuture = Pin<Box<dyn Future<Output = ()> + 'static>>;
 
-thread_local! {
+day_reactive::tls_slots! {
+    present;
     /// Live async flows. `None` = currently being polled (taken out to avoid re-entrant borrow).
     static TASKS: RefCell<HashMap<u64, Option<LocalFuture>>> = RefCell::new(HashMap::new());
     static NEXT_TASK: Cell<u64> = const { Cell::new(1) };

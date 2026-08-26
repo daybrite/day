@@ -52,8 +52,9 @@ struct EdState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::new();
+
 }
 
 fn key(w: &gtk4::Widget) -> usize {

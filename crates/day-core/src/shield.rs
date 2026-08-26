@@ -17,7 +17,8 @@ use day_spec::Edges;
 
 use crate::tree::{has_tree, with_tree};
 
-thread_local! {
+day_reactive::tls_slots! {
+    shield;
     static DEFERRALS: RefCell<Vec<(u64, Edges)>> = const { RefCell::new(Vec::new()) };
     static DISMISS_DISABLED: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
     static NEXT: Cell<u64> = const { Cell::new(1) };

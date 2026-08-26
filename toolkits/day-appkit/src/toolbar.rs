@@ -242,7 +242,7 @@ struct WinToolbar {
     targets: HashMap<String, Retained<ItemTarget>>,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// WINDOW ptr → its live toolbar. A [`SideTable`]: the release path sweeps a closing
     /// secondary window's key, so the WinToolbar (items, targets, retained NSToolbar and
     /// delegate) goes with the window — installing an empty bar used to be the only removal.
@@ -252,6 +252,7 @@ thread_local! {
     });
     /// Monotonic, so a replaced toolbar never reuses an autosave slot from the old one.
     static NEXT_BAR: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
+
 }
 
 /// The identifier each model item occupies, in bar order. Spacers use the system identifiers —

@@ -32,9 +32,10 @@ struct TimeState {
     suppress: Rc<Cell<bool>>,
 }
 
-thread_local! {
+day_core::tls_group! {
     static DATES: RefCell<HashMap<usize, DateState>> = RefCell::new(HashMap::new());
     static TIMES: RefCell<HashMap<usize, TimeState>> = RefCell::new(HashMap::new());
+
 }
 
 fn key(w: &gtk4::Widget) -> usize {

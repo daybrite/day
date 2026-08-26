@@ -96,10 +96,11 @@ type MediaRefs = (
     Option<Retained<MediaLoop>>,
 );
 
-thread_local! {
+day_core::tls_group! {
     // Keep each (controller, loop observer) alive as long as its view — the update path finds the
     // controller (and through it the player) by the leaf view's pointer.
     static CONTROLLERS: RefCell<HashMap<usize, MediaRefs>> = RefCell::new(HashMap::new());
+
 }
 
 /// `NSURL` from the one source string: an explicit scheme parses as a URL, anything else is a

@@ -237,7 +237,7 @@ impl Interner {
     }
 }
 
-thread_local! {
+day_reactive::tls_group! {
     static NODES: RefCell<Interner> = RefCell::new(Interner {
         slots: vec![Slot {
             path: Path { parent: ROOT, part: 0 },

@@ -22,7 +22,8 @@ use crate::tree::{RNode, with_tree};
 /// A toolbar item's value callback — what a search field's text or a toggle's state runs.
 type ValueAction = Rc<dyn Fn(&ToolbarValue)>;
 
-thread_local! {
+day_reactive::tls_slots! {
+    toolbar;
     /// Value callbacks (search text, toggle state) by dispatch id. Plain buttons don't appear
     /// here — they register with [`crate::menu::register_menu_action`] and arrive as
     /// `Event::MenuAction`.
@@ -63,10 +64,10 @@ pub(crate) fn with_window<R>(root: RNode, f: impl FnOnce() -> R) -> R {
     struct Restore(Option<RNode>);
     impl Drop for Restore {
         fn drop(&mut self) {
-            BUILDING.set(self.0);
+            BUILDING.with(|b| b.set(self.0));
         }
     }
-    let _restore = Restore(BUILDING.replace(Some(root)));
+    let _restore = Restore(BUILDING.with(|b| b.replace(Some(root))));
     f()
 }
 
@@ -82,7 +83,7 @@ pub fn current_window() -> RNode {
 
 fn target_window() -> RNode {
     BUILDING
-        .get()
+        .with(|b| b.get())
         .unwrap_or_else(|| with_tree(|t| t.root_node()))
 }
 
@@ -427,5 +428,5 @@ fn drop_values(prev: &[ToolbarItem], next: &[ToolbarItem]) {
 pub fn reset_toolbars() {
     MODELS.with(|m| m.borrow_mut().clear());
     VALUE_ACTIONS.with(|m| m.borrow_mut().clear());
-    BUILDING.set(None);
+    BUILDING.with(|b| b.set(None));
 }

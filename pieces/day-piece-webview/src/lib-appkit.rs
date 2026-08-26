@@ -105,13 +105,14 @@ impl WebNav {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     // Keep each navigation delegate alive as long as its web view (delegate ref is weak).
     static DELEGATES: RefCell<HashMap<usize, Retained<WebNav>>> = RefCell::new(HashMap::new());
     // Session id -> the retained web view. Day releases its own reference when the page is
     // navigated away from, which on AppKit only detaches (`removeFromSuperview`); this reference
     // is what keeps the engine — and therefore the loaded page — alive until the app returns.
     static SESSIONS: RefCell<HashMap<u64, Retained<NSView>>> = RefCell::new(HashMap::new());
+
 }
 
 /// The node a realized view belongs to. `update` is handed only the native handle, so the id is

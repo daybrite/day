@@ -77,9 +77,10 @@ impl ComboTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     // Keep each combo's delegate alive for the view's lifetime (the control holds it weakly).
     static TARGETS: RefCell<HashMap<usize, Retained<ComboTarget>>> = RefCell::new(HashMap::new());
+
 }
 
 fn apply_items(combo: &NSComboBox, items: &[String]) {

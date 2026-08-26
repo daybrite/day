@@ -56,7 +56,7 @@ pub use ext::*;
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-thread_local! {
+day_core::tls_group! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Slider f64 range, keyed by node id (event callbacks) AND widget ptr (patch application).
     /// SideTables: `release`'s sweep retires the widget-ptr entry with the widget, so a later
@@ -67,6 +67,53 @@ thread_local! {
     /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
+
+    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// List NODE id → host key, so the cell-click callback (which carries the node) can
+    /// find its entry.
+    static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
+
+    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// Each nav page's pane, recorded at realize because `insert` sees only handles
+    /// (docs/size-classes.md).
+    static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
+
+    static INSPECTOR_STATE: RefCell<HashMap<usize, InspectorState>> = RefCell::new(HashMap::new());
+    /// INSPECTOR_PANE widget → `(its NodeId, is-panel)`, recorded at realize because `insert`
+    /// sees only handles — the PAGE_PANE pattern.
+    static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
+        RefCell::new(HashMap::new());
+
+    /// Each label's own resolved point size, so a RELATIVE-size run can be written as the
+    /// absolute `pt` Qt's rich-text CSS understands (a percentage is silently ignored there).
+    ///
+    /// A side table because the patch that carries runs does not carry the font: `LabelPatch`
+    /// splits them, and by the time `Runs` arrives the `Font` it should scale against is
+    /// whatever the last `Font` patch set. Swept with the widget in `release`.
+    static LABEL_PT: SideTable<f64> = SideTable::new();
+
+    static NAV_SUITES: RefCell<HashMap<usize, NavSuite>> = RefCell::new(HashMap::new());
+    /// Suite page widgets, so a released one drops out of its suite. Unlike the `tabs()` piece's
+    /// pages these ARE framed by Day: NavLayout computes exactly the content rect the tab widget
+    /// would give them, and letting Qt's stacked layout do it instead left them at zero size.
+    static NAV_SUITE_PAGES: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
+    /// A realized NAV_MENU's rows by widget: `(node, titles, icon names)`, kept until the menu is
+    /// inserted and a suite above it can be found and handed them.
+    static NAV_SUITE_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
+
+    /// The last reported window content size (seeds cover frames at Present).
+    static LAST_WINDOW_SIZE: std::cell::Cell<Size> =
+        const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
+    /// Presented emulated covers: (widget, NodeId).
+    static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
+    /// Cover widget → NodeId (set at realize).
+    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+
+    /// NAV_MENU widget → row count (for measure).
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+
 }
 
 pub fn emit(id: NodeId, ev: Event) {
@@ -153,13 +200,6 @@ struct ListEntry {
     reorderable: bool,
     selected: std::collections::BTreeSet<usize>,
     anchor: Option<usize>,
-}
-
-thread_local! {
-    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
-    /// List NODE id → host key, so the cell-click callback (which carries the node) can
-    /// find its entry.
-    static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
 }
 
 /// Repaint every cell's selected treatment from the entry's selection set.
@@ -798,14 +838,6 @@ fn nav_sync_header(host: *mut std::os::raw::c_void) {
     nav_sync_panes(host);
 }
 
-thread_local! {
-    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
-    static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
-    /// Each nav page's pane, recorded at realize because `insert` sees only handles
-    /// (docs/size-classes.md).
-    static PAGE_PANE: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
-}
-
 /// Is this page the host's sidebar pane?
 fn is_sidebar_page(page: *mut std::os::raw::c_void) -> bool {
     PAGE_PANE
@@ -917,14 +949,6 @@ struct InspectorState {
     shown: bool,
 }
 
-thread_local! {
-    static INSPECTOR_STATE: RefCell<HashMap<usize, InspectorState>> = RefCell::new(HashMap::new());
-    /// INSPECTOR_PANE widget → `(its NodeId, is-panel)`, recorded at realize because `insert`
-    /// sees only handles — the PAGE_PANE pattern.
-    static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
-        RefCell::new(HashMap::new());
-}
-
 /// Report both pane sizes so `InspectorLayout` re-lays content (`nav_sync_panes`'s
 /// counterpart). The panel reports its preferred width while hidden, so a reveal re-lays
 /// nothing.
@@ -973,16 +997,6 @@ extern "C" fn inspector_splitter_moved(host: *mut std::os::raw::c_void) {
 // ---------------------------------------------------------------------------
 // The navigation suite (docs/navigation.md): a QTabWidget host that owns its page widgets.
 // ---------------------------------------------------------------------------
-
-thread_local! {
-    /// Each label's own resolved point size, so a RELATIVE-size run can be written as the
-    /// absolute `pt` Qt's rich-text CSS understands (a percentage is silently ignored there).
-    ///
-    /// A side table because the patch that carries runs does not carry the font: `LabelPatch`
-    /// splits them, and by the time `Runs` arrives the `Font` it should scale against is
-    /// whatever the last `Font` patch set. Swept with the widget in `release`.
-    static LABEL_PT: SideTable<f64> = SideTable::new();
-}
 
 /// The navigation suite (`NavPresentation::Tabs`): a QTabWidget whose bar IS the host's row list.
 struct NavSuite {
@@ -1059,18 +1073,6 @@ fn nav_suite_sync(host: *mut std::os::raw::c_void) {
 
 /// A realized nav menu's rows: `(node, titles, icon names)`.
 type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
-
-thread_local! {
-    static NAV_SUITES: RefCell<HashMap<usize, NavSuite>> = RefCell::new(HashMap::new());
-    /// Suite page widgets, so a released one drops out of its suite. Unlike the `tabs()` piece's
-    /// pages these ARE framed by Day: NavLayout computes exactly the content rect the tab widget
-    /// would give them, and letting Qt's stacked layout do it instead left them at zero size.
-    static NAV_SUITE_PAGES: RefCell<std::collections::HashSet<usize>> =
-        RefCell::new(std::collections::HashSet::new());
-    /// A realized NAV_MENU's rows by widget: `(node, titles, icon names)`, kept until the menu is
-    /// inserted and a suite above it can be found and handed them.
-    static NAV_SUITE_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
-}
 
 /// A tab click. Reported against the MENU, not the host, so one handler serves every presentation.
 extern "C" fn nav_suite_changed(id: u64, index: c_int) {
@@ -1150,21 +1152,6 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
             }
         });
     });
-}
-
-thread_local! {
-    /// The last reported window content size (seeds cover frames at Present).
-    static LAST_WINDOW_SIZE: std::cell::Cell<Size> =
-        const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
-    /// Presented emulated covers: (widget, NodeId).
-    static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
-    /// Cover widget → NodeId (set at realize).
-    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
-}
-
-thread_local! {
-    /// NAV_MENU widget → row count (for measure).
-    static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
 }
 
 extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {

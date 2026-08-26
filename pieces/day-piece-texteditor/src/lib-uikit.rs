@@ -102,12 +102,13 @@ struct EdState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::with_teardown(|st: EdState| {
         // The delegate is held weakly by the text view: detach it so a view outliving this state
         // can never message the dropped target.
         unsafe { st.tv.setDelegate(None) };
     });
+
 }
 
 fn key(v: &Retained<UIView>) -> usize {

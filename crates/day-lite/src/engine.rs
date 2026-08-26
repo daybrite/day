@@ -22,7 +22,7 @@ use crate::store::{Manifest, Store};
 use crate::value::from_js;
 use crate::{Bridge, PermissionSet};
 
-thread_local! {
+day_core::tls_group! {
     /// Piece handles held by JS (`__p` markers). Cleared when the app tears down.
     pub(crate) static PIECES: RefCell<Vec<dynreg::DynPiece>> = const { RefCell::new(Vec::new()) };
     /// Signal handles held by JS (`__s` markers).
@@ -30,6 +30,7 @@ thread_local! {
     /// The running app's services. One miniapp runs at a time (the superapp presents one
     /// cover); nesting is prevented at launch.
     static SERVICES: RefCell<Option<Rc<Services>>> = const { RefCell::new(None) };
+
 }
 
 /// One pushed page: its route and the JSON-encoded params `navigateTo` supplied.

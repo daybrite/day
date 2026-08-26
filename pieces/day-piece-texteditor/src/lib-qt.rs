@@ -92,7 +92,7 @@ struct EdState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::new();
     /// The text each editor currently holds, by node.
     ///
@@ -100,6 +100,7 @@ thread_local! {
     /// callback, so the conversion back to bytes needs the string — and the C callback has only
     /// the node id to find it by. `on_text` keeps this current, which is exactly when it changes.
     static TEXT: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
+
 }
 
 fn text_of(node: u64) -> String {

@@ -22,10 +22,11 @@ use day_gtk::Gtk;
 use day_spec::{NodeId, Proposal, Size};
 use gtk4::prelude::*;
 
-thread_local! {
+day_core::tls_group! {
     /// Per-button echo guard: `true` while day is writing the value in, so the resulting
     /// `rgba` notification is not reported back as a user pick.
     static SUPPRESS: RefCell<HashMap<usize, Rc<Cell<bool>>>> = RefCell::new(HashMap::new());
+
 }
 
 fn key(w: &gtk4::Widget) -> usize {

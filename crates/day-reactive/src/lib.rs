@@ -15,6 +15,112 @@
 //! assert_send(s); // must not compile
 //! ```
 
+// ---------------------------------------------------------------------------------------------
+// `tls_group!` — one pthread key for a module's whole set of thread-locals.
+//
+// On Android, Rust's `thread_local!` has no native-TLS path (`rustc --print cfg
+// --target aarch64-linux-android` emits no `target_thread_local`), so EVERY `thread_local!`
+// static takes one of bionic's 128 `pthread_key_create` slots, allocated on first touch and
+// never released. day plus its dependencies declares far more than that, so a long-running app
+// exhausts the table as more of its code runs first — and the next library to ask for a key
+// fails. Android's WebView is the usual casualty: its browser startup takes several keys, gets
+// none, and traps with no message at all.
+//
+// This macro takes `thread_local!`'s syntax and gives back the same names with the same `.with`,
+// but backs all of them with ONE key: the slots become fields of a single per-module struct and
+// each name becomes a zero-sized handle that borrows its field. Call sites do not change.
+// Cell/RefCell conveniences (`set`/`get`/`replace`) are deliberately absent — go through `.with`,
+// which is what the field itself offers.
+#[macro_export]
+macro_rules! tls_group {
+    ($( $(#[$attr:meta])* $vis:vis static $name:ident : $ty:ty = $init:expr ; )+) => {
+        #[allow(non_snake_case)]
+        struct TlsGroupSlots { $( $name: $ty, )+ }
+        ::std::thread_local! {
+            static TLS_GROUP: TlsGroupSlots = TlsGroupSlots { $( $name: $init, )+ };
+        }
+        $(
+            $(#[$attr])*
+            #[allow(non_camel_case_types, dead_code)]
+            #[derive(Clone, Copy)]
+            $vis struct $name;
+            impl $name {
+                #[inline]
+                #[allow(dead_code)]
+                $vis fn with<R>(self, f: impl ::core::ops::FnOnce(&$ty) -> R) -> R {
+                    TLS_GROUP.with(|g| f(&g.$name))
+                }
+                #[inline]
+                #[allow(dead_code)]
+                $vis fn try_with<R>(
+                    self,
+                    f: impl ::core::ops::FnOnce(&$ty) -> R,
+                ) -> ::core::result::Result<R, ::std::thread::AccessError> {
+                    TLS_GROUP.try_with(|g| f(&g.$name))
+                }
+            }
+        )+
+    };
+}
+
+// ---------------------------------------------------------------------------------------------
+// `tls_root!` / `tls_slots!` — ONE pthread key for a whole crate.
+//
+// `tls_group!` above already collapses a module's statics to one key. These two go the last step:
+// each module declares its slots as a plain struct (`tls_slots!`) and the crate root gathers them
+// into a single thread-local (`tls_root!`). A crate then costs ONE key no matter how many modules
+// keep state, and the root is also the natural place to hang teardown.
+//
+// Call sites are unchanged — the names still answer `.with`. The cost is one line per module
+// naming its field in the root, and `tls_root!` listing the modules. `crate::tls_root` resolves
+// in the EXPANDING crate, so each crate keeps its own root.
+#[macro_export]
+macro_rules! tls_root {
+    ($( $(#[$attr:meta])* $field:ident : $ty:ty ),+ $(,)?) => {
+        #[allow(non_snake_case)]
+        pub(crate) struct TlsRoot { $( $(#[$attr])* pub(crate) $field: $ty, )+ }
+        ::std::thread_local! {
+            static TLS_ROOT: TlsRoot =
+                TlsRoot { $( $(#[$attr])* $field: ::core::default::Default::default(), )+ };
+        }
+        /// Borrow the crate's single thread-local root. Reentrant: the root itself holds no
+        /// lock, so a slot's closure may reach another slot.
+        #[inline]
+        pub(crate) fn tls_root<R>(f: impl ::core::ops::FnOnce(&TlsRoot) -> R) -> R {
+            TLS_ROOT.with(f)
+        }
+    };
+}
+
+/// One module's slots, stored as `$field` of the crate's [`tls_root!`].
+// `crate::tls_root` is deliberate, and `$crate` would be wrong: the root belongs to the crate
+// EXPANDING this macro, not to day-reactive. That resolution is the whole point — each crate
+// keeps its own root — so the lint is describing the intent rather than a mistake.
+#[allow(clippy::crate_in_macro_def)]
+#[macro_export]
+macro_rules! tls_slots {
+    ($field:ident; $( $(#[$attr:meta])* $vis:vis static $name:ident : $ty:ty = $init:expr ; )+) => {
+        #[allow(non_snake_case)]
+        pub(crate) struct TlsGroupSlots { $( $name: $ty, )+ }
+        impl ::core::default::Default for TlsGroupSlots {
+            fn default() -> Self { Self { $( $name: $init, )+ } }
+        }
+        $(
+            $(#[$attr])*
+            #[allow(non_camel_case_types, dead_code)]
+            #[derive(Clone, Copy)]
+            $vis struct $name;
+            impl $name {
+                #[inline]
+                #[allow(dead_code)]
+                $vis fn with<R>(self, f: impl ::core::ops::FnOnce(&$ty) -> R) -> R {
+                    crate::tls_root(|r| f(&r.$field.$name))
+                }
+            }
+        )+
+    };
+}
+
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -152,8 +258,9 @@ impl Runtime {
     }
 }
 
-thread_local! {
+crate::tls_group! {
     static RT: RefCell<Runtime> = RefCell::new(Runtime::new());
+
 }
 
 /// Per-drain re-run cap (§4.2): panic in debug, warn-and-defer in release.

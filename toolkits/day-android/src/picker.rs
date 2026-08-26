@@ -19,11 +19,12 @@ use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 /// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
 const PICKER_CLASS: &str = "dev/daybrite/day/piece/picker/DayPicker";
 
-thread_local! {
+day_core::tls_group! {
     /// Picker view → its node. An options patch adds Java views that must report clicks for
     /// this picker, and only Rust knows which node that is. A [`SideTable`], so the backend's
     /// release sweep drops a dead picker's entry.
     static NODES: day_spec::sidetable::SideTable<u64> = day_spec::sidetable::SideTable::new();
+
 }
 
 fn style_code(s: PickerStyle) -> i32 {

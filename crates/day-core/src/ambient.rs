@@ -34,7 +34,8 @@ struct WindowAmbient {
     safe_area: Signal<day_geometry::Insets>,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    ambient;
     static AMBIENT: RefCell<Vec<(RNode, WindowAmbient)>> = const { RefCell::new(Vec::new()) };
 }
 

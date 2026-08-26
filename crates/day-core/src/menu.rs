@@ -10,7 +10,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-thread_local! {
+day_reactive::tls_slots! {
+    menu;
     static ACTIONS: RefCell<HashMap<u64, Rc<dyn Fn()>>> = RefCell::new(HashMap::new());
     static NEXT_ID: Cell<u64> = const { Cell::new(1) };
     /// The app menu as last installed (post-injection) — the dayscript `menu:` step

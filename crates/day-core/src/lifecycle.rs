@@ -20,7 +20,8 @@ use day_spec::Lifecycle;
 /// The registered handlers for one phase.
 type Handlers = Vec<Rc<dyn Fn()>>;
 
-thread_local! {
+day_reactive::tls_slots! {
+    lifecycle;
     static HANDLERS: RefCell<HashMap<Lifecycle, Handlers>> =
         RefCell::new(HashMap::new());
     /// Phases we've already warned about being unsupported (warn once, not per-handler).

@@ -80,11 +80,12 @@ struct ViewState {
     _target: Retained<PickerTarget>,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// Per-view picker state, keyed by view ptr — swept by the backend's `release` through
     /// `day_spec::sidetable` (a plain map here leaked every released picker's retains).
     static STATE: day_spec::sidetable::SideTable<ViewState> =
         day_spec::sidetable::SideTable::new();
+
 }
 
 fn make_segmented(

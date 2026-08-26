@@ -399,7 +399,7 @@ impl Recorder {
     }
 }
 
-thread_local! {
+day_reactive::tls_group! {
     static REC: RefCell<Recorder> = RefCell::new(Recorder::default());
     /// The reactive on/off flag a UI binds to (label/style). Lazily created in the ROOT scope so it
     /// survives the page that first reads it (Signal::global, docs/reactivity.md).

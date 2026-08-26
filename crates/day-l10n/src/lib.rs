@@ -16,6 +16,11 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+day_reactive::tls_root! {
+    collate: crate::collate::TlsGroupSlots,
+    root: crate::TlsGroupSlots,
+}
+
 use day_reactive::Signal;
 use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
@@ -48,8 +53,16 @@ struct State {
     locale: Signal<String>,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    root;
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
+
+    /// The host's ordered locale preference, set by the platform entry before `install` runs —
+    /// the seam for hosts with no process environment (web-dom seeds it from the page's
+    /// `?locale=`, native backends from the OS). The `DAY_LOCALE` environment variable, where one
+    /// exists, still wins.
+    static LAUNCH_LOCALES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+
 }
 
 fn build_bundles(locales: &[(&str, &str)]) -> HashMap<String, FluentBundle<FluentResource>> {
@@ -98,14 +111,6 @@ fn ensure_state() {
             locale: Signal::global(initial),
         });
     });
-}
-
-thread_local! {
-    /// The host's ordered locale preference, set by the platform entry before `install` runs —
-    /// the seam for hosts with no process environment (web-dom seeds it from the page's
-    /// `?locale=`, native backends from the OS). The `DAY_LOCALE` environment variable, where one
-    /// exists, still wins.
-    static LAUNCH_LOCALES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Record the host's launch locale before [`install`] runs. Platform glue only — apps pick

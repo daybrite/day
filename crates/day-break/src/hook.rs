@@ -16,10 +16,12 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-thread_local! {
+day_reactive::tls_slots! {
+    hook;
     /// The `pending-*` file this thread's most recent panic wrote, so a same-thread containment
     /// can downgrade exactly that record.
     static LAST_PENDING: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+
 }
 
 static INSTALLED: AtomicBool = AtomicBool::new(false);

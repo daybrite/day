@@ -23,9 +23,9 @@ use webkit6::prelude::*;
 /// path; moving large-site extraction to a thread is the noted upgrade.
 pub(crate) fn extract_site(root: &str) -> Result<std::path::PathBuf, String> {
     use std::cell::RefCell;
-    thread_local! {
-        static DONE: RefCell<std::collections::HashMap<String, std::path::PathBuf>> =
-            RefCell::new(std::collections::HashMap::new());
+    day_core::tls_group! {
+    static DONE: RefCell<std::collections::HashMap<String, std::path::PathBuf>> =
+        RefCell::new(std::collections::HashMap::new());
     }
     if let Some(dir) = DONE.with(|m| m.borrow().get(root).cloned()) {
         return Ok(dir);

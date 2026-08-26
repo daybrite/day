@@ -442,7 +442,7 @@ mod imp {
         Support, Toolkit, Transform, WindowOptions, kinds,
     };
 
-    thread_local! {
+    day_core::tls_group! {
         /// Recycling list (docs/list.md): row-pull sources keyed by LIST node id (Java passes it
         /// back in nativeListBind), and a stable GlobalRef per physical cell so day-core's cell
         /// map keys consistently across ListView recycling. Cells are grouped BY LIST so that
@@ -477,6 +477,15 @@ mod imp {
         static LIST_CELLS: std::cell::RefCell<
             std::collections::HashMap<i64, std::collections::HashMap<i32, Gref>>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
+
+        static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
+        static DENSITY: Cell<f64> = const { Cell::new(1.0) };
+        static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
+
+        /// Secondary DayWindowActivity roots (docs/windows.md): (day node, the root's
+        /// global ref — kept alive alongside the tree's own adopted ref).
+        static SECONDARY: RefCell<Vec<(u64, Gref)>> = const { RefCell::new(Vec::new()) };
+
     }
 
     /// Row count, pulled by the Java adapter's getCount (reads the snapshot only; no tree).
@@ -712,12 +721,6 @@ mod imp {
 
     /// The day-core event sink (node-id keyed).
     type Sink = Rc<dyn Fn(NodeId, Event)>;
-
-    thread_local! {
-        static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
-        static DENSITY: Cell<f64> = const { Cell::new(1.0) };
-        static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
-    }
 
     pub fn emit(id: NodeId, ev: Event) {
         let sink = SINK.with(|s| s.borrow().clone());
@@ -1076,12 +1079,6 @@ mod imp {
                 }
             }
         });
-    }
-
-    thread_local! {
-        /// Secondary DayWindowActivity roots (docs/windows.md): (day node, the root's
-        /// global ref — kept alive alongside the tree's own adopted ref).
-        static SECONDARY: RefCell<Vec<(u64, Gref)>> = const { RefCell::new(Vec::new()) };
     }
 
     /// A secondary DayWindowActivity's first laid-out root (the `nativeStartWindow` JNI

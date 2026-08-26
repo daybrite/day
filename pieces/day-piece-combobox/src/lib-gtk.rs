@@ -29,8 +29,9 @@ struct ComboState {
     suppress: Rc<Cell<bool>>,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: RefCell<HashMap<usize, ComboState>> = RefCell::new(HashMap::new());
+
 }
 
 fn key(w: &gtk4::Widget) -> usize {

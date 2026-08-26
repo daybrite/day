@@ -61,7 +61,7 @@ pub use ext::*;
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-thread_local! {
+day_core::tls_group! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Tabs host ptr → (Pivot ptr, pages, initial). Pages reuse day.container.
     /// Recycling-list host ptr → its ScrollViewer/content + cell pool (docs/list.md).
@@ -88,6 +88,32 @@ thread_local! {
     static SCROLL_STATE: RefCell<HashMap<usize, *mut c_void>> = RefCell::new(HashMap::new());
     /// Handles with a native gesture recognizer wired, keyed by (handle ptr, kind) — idempotent.
     static GESTURES: RefCell<HashSet<(usize, c_int)>> = RefCell::new(HashSet::new());
+
+    /// INSPECTOR host ptr → its SplitView state.
+    static INSPECTOR_STATE: RefCell<HashMap<usize, XamlInspector>> = RefCell::new(HashMap::new());
+    /// INSPECTOR_PANE ptr → `(its NodeId, is-panel)`, recorded at realize.
+    static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
+        RefCell::new(HashMap::new());
+    /// INSPECTOR host node id → its panes' node ids (the shim's size callback carries the
+    /// host node id, the NAV_HOST_BY_ID pattern).
+    static INSPECTOR_PANES_BY_HOST: RefCell<HashMap<u64, InspectorPaneNodes>> =
+        RefCell::new(HashMap::new());
+
+    /// List NODE id → host key, so the reorder + row-click callbacks (which carry the node) find
+    /// their entry.
+    static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
+
+        static RESOLVED: RefCell<HashMap<&'static str, Option<CString>>> =
+            RefCell::new(HashMap::new());
+
+    /// Last reported window content size (seeds cover frames at Present).
+    static LAST_WINDOW_SIZE: std::cell::Cell<Size> =
+        const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
+    /// Presented emulated covers: (element, NodeId).
+    static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
+    /// Cover element → NodeId (set at realize).
+    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+
 }
 
 // Navigation host — always a native `NavigationView` (docs/navigation.md), in one of two modes
@@ -200,18 +226,6 @@ struct XamlInspector {
 struct InspectorPaneNodes {
     content: Option<NodeId>,
     panel: Option<NodeId>,
-}
-
-thread_local! {
-    /// INSPECTOR host ptr → its SplitView state.
-    static INSPECTOR_STATE: RefCell<HashMap<usize, XamlInspector>> = RefCell::new(HashMap::new());
-    /// INSPECTOR_PANE ptr → `(its NodeId, is-panel)`, recorded at realize.
-    static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
-        RefCell::new(HashMap::new());
-    /// INSPECTOR host node id → its panes' node ids (the shim's size callback carries the
-    /// host node id, the NAV_HOST_BY_ID pattern).
-    static INSPECTOR_PANES_BY_HOST: RefCell<HashMap<u64, InspectorPaneNodes>> =
-        RefCell::new(HashMap::new());
 }
 
 /// An inspector region reflowed (window resize, pane open/close): report the true size so day
@@ -353,12 +367,6 @@ struct ListEntry {
     multi: bool,
     selected: BTreeSet<usize>,
     anchor: Option<usize>,
-}
-
-thread_local! {
-    /// List NODE id → host key, so the reorder + row-click callbacks (which carry the node) find
-    /// their entry.
-    static LIST_BY_NODE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
 }
 
 /// Repaint every cell's selected treatment from the entry's selection set.
@@ -971,10 +979,7 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
     let Font::Custom(family, _) = spec.style else {
         return;
     };
-    thread_local! {
-        static RESOLVED: RefCell<HashMap<&'static str, Option<CString>>> =
-            RefCell::new(HashMap::new());
-    }
+
     RESOLVED.with(|cache| {
         let mut cache = cache.borrow_mut();
         let entry =
@@ -2897,16 +2902,6 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
             }
         });
     });
-}
-
-thread_local! {
-    /// Last reported window content size (seeds cover frames at Present).
-    static LAST_WINDOW_SIZE: std::cell::Cell<Size> =
-        const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
-    /// Presented emulated covers: (element, NodeId).
-    static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
-    /// Cover element → NodeId (set at realize).
-    static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
 }
 
 extern "C" fn run_posted(data: *mut c_void) {

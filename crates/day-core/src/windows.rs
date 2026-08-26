@@ -56,8 +56,19 @@ struct WindowRecord {
     on_close: OnCloseList,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    windows;
     static WINDOWS: RefCell<Vec<WindowRecord>> = const { RefCell::new(Vec::new()) };
+
+    /// The app's first window, so [`initial_window`] can name it. Nothing about the close
+    /// policy consults this: that window is an ordinary registry record and counts exactly
+    /// like the ones opened after it.
+    static INITIAL_WINDOW: Cell<Option<RNode>> = const { Cell::new(None) };
+
+    static PREFS: RefCell<Option<PrefsRegistration>> = const { RefCell::new(None) };
+    static PREFS_ACTION: Cell<u64> = const { Cell::new(0) };
+    static NEW_WINDOW: RefCell<Option<Rc<dyn Fn() -> AnyPiece>>> = const { RefCell::new(None) };
+    static NEW_WINDOW_ACTION: Cell<u64> = const { Cell::new(0) };
 }
 
 /// A live secondary window (docs/windows.md). Cheap to clone; inert after close.
@@ -396,13 +407,6 @@ pub fn primary_window_count() -> usize {
     })
 }
 
-thread_local! {
-    /// The app's first window, so [`initial_window`] can name it. Nothing about the close
-    /// policy consults this: that window is an ordinary registry record and counts exactly
-    /// like the ones opened after it.
-    static INITIAL_WINDOW: Cell<Option<RNode>> = const { Cell::new(None) };
-}
-
 /// Whether any window is still holding the app open.
 fn app_has_primary_window() -> bool {
     primary_window_count() > 0
@@ -580,13 +584,6 @@ fn open_as_cover(
 /// The registered preferences piece: its builder plus the window options it opens with.
 type PrefsRegistration = (Rc<dyn Fn() -> AnyPiece>, WindowOptions);
 
-thread_local! {
-    static PREFS: RefCell<Option<PrefsRegistration>> = const { RefCell::new(None) };
-    static PREFS_ACTION: Cell<u64> = const { Cell::new(0) };
-    static NEW_WINDOW: RefCell<Option<Rc<dyn Fn() -> AnyPiece>>> = const { RefCell::new(None) };
-    static NEW_WINDOW_ACTION: Cell<u64> = const { Cell::new(0) };
-}
-
 /// The singleton key every preferences window opens under.
 pub const PREFERENCES_KEY: &str = "day.preferences";
 
@@ -619,10 +616,12 @@ pub fn register_preferences_with<P: Piece>(
     build: impl Fn() -> P + 'static,
 ) {
     PREFS.with(|p| *p.borrow_mut() = Some((Rc::new(move || AnyPiece::new(build())), options)));
-    if PREFS_ACTION.get() == 0 {
-        PREFS_ACTION.set(crate::menu::register_menu_action(Rc::new(|| {
-            open_preferences();
-        })));
+    if PREFS_ACTION.with(|c| c.get()) == 0 {
+        PREFS_ACTION.with(|c| {
+            c.set(crate::menu::register_menu_action(Rc::new(|| {
+                open_preferences();
+            })))
+        });
     }
     // Self-heal for registration AFTER `app_menu`: re-forward the retained model so the
     // injection pass sees the now-registered action.
@@ -651,10 +650,12 @@ pub fn open_preferences() -> bool {
 /// item lowers to this action; without a registration it lowers disabled.
 pub fn register_new_window<P: Piece>(build: impl Fn() -> P + 'static) {
     NEW_WINDOW.with(|p| *p.borrow_mut() = Some(Rc::new(move || AnyPiece::new(build()))));
-    if NEW_WINDOW_ACTION.get() == 0 {
-        NEW_WINDOW_ACTION.set(crate::menu::register_menu_action(Rc::new(|| {
-            open_new_window();
-        })));
+    if NEW_WINDOW_ACTION.with(|c| c.get()) == 0 {
+        NEW_WINDOW_ACTION.with(|c| {
+            c.set(crate::menu::register_menu_action(Rc::new(|| {
+                open_new_window();
+            })))
+        });
     }
     crate::menu::reinstall_app_menu();
 }
@@ -688,13 +689,13 @@ pub fn open_new_window() -> Option<WindowHandle> {
 /// The dispatch id of the auto Preferences menu action (0 = unregistered). Backends use it
 /// to wire their default-menu Settings item; the injection pass uses it for `app_menu`.
 pub fn preferences_action_id() -> u64 {
-    PREFS_ACTION.get()
+    PREFS_ACTION.with(|c| c.get())
 }
 
 /// The dispatch id of the New Window action (0 = unregistered) — `MenuRole::NewWindow`
 /// lowering and the backends' tab-bar "+" wiring.
 pub fn new_window_action_id() -> u64 {
-    NEW_WINDOW_ACTION.get()
+    NEW_WINDOW_ACTION.with(|c| c.get())
 }
 
 /// Test/diagnostic surface: the number of open secondary windows.

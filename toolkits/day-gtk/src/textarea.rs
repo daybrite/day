@@ -35,10 +35,11 @@ struct TAState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// Overlay widget ptr → text-area state. A [`SideTable`]: no local release path exists
     /// here, so the backend's release sweep is what drops a dead editor's entry.
     static STATE: SideTable<TAState> = SideTable::new();
+
 }
 
 fn key(w: &gtk4::Widget) -> usize {

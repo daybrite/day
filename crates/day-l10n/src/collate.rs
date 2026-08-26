@@ -14,10 +14,12 @@ use std::collections::HashMap;
 use icu_collator::options::CollatorOptions;
 use icu_collator::{Collator, CollatorBorrowed};
 
-thread_local! {
+day_reactive::tls_slots! {
+    collate;
     /// `None` = construction failed for that locale (negative-cached to avoid re-trying per call).
     static COLLATORS: RefCell<HashMap<String, Option<CollatorBorrowed<'static>>>> =
         RefCell::new(HashMap::new());
+
 }
 
 fn with_collator<R>(locale: &str, f: impl FnOnce(Option<&CollatorBorrowed<'static>>) -> R) -> R {

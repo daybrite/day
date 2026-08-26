@@ -40,10 +40,11 @@ unsafe extern "C" {
     );
 }
 
-thread_local! {
+day_core::tls_group! {
     // The line band per handle — `measure` gets no props, so remember min/max lines from `make`.
     // A SideTable, so the backend's release sweep retires the entry with the widget.
     static DIMS: SideTable<(u32, u32)> = SideTable::new();
+
 }
 
 extern "C" fn on_submit(id: u64) {

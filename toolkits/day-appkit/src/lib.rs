@@ -83,7 +83,7 @@ pub use ext::*;
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 
-thread_local! {
+day_core::tls_group! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Keeps each control's `DayTarget` alive (target/action holds it weakly).
     static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
@@ -93,6 +93,75 @@ thread_local! {
     /// `ButtonPatch::Title` would otherwise replace it with a plain one and lose the color.
     static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
         RefCell::new(HashMap::new());
+
+    /// A link label's delegate, kept alive for the label's lifetime (a delegate is a WEAK
+    /// reference, so nothing else retains it). Swept in `release`.
+    static LINK_DELEGATES: RefCell<HashMap<usize, Retained<DayTextLink>>> =
+        RefCell::new(HashMap::new());
+
+    /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
+    /// (replay inserted but nothing ever removed).
+    static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
+    /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
+    /// SCROLL events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
+    static PAN_NODES: SideTable<NodeId> = SideTable::new();
+    /// Canvas view ptr → its node, so the view's own `keyDown:` knows who to report to. Every
+    /// canvas is registered at realize (unlike [`PAN_NODES`], which only holds the ones that
+    /// asked for a pan) because focus, not a gesture, is what decides who hears a key.
+    static KEY_NODES: SideTable<NodeId> = SideTable::new();
+
+    /// Keeps each view's gesture targets alive + records which gestures are attached (idempotent).
+    static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
+        RefCell::new(HashMap::new());
+
+    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+    /// Handles whose frames are native-owned (nav pages): set_frame skips them.
+    static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
+    /// Each nav page's pane, recorded at realize because `insert` sees only handles
+    /// (docs/size-classes.md). Identity rather than position: a re-present re-homes the pages
+    /// without changing their order, so "index 0 is the sidebar" stops being true the moment a
+    /// host can morph. A [`SideTable`]: `remove` clears it on the normal path, and the release
+    /// sweep catches a page released without one (a stale entry could mis-pane a recycled ptr).
+    static PAGE_PANE: SideTable<day_spec::props::Pane> = SideTable::new();
+
+    static INSPECTOR_STATE: RefCell<HashMap<usize, InspectorState>> = RefCell::new(HashMap::new());
+    /// INSPECTOR_PANE ptr → is-panel, recorded at realize because `insert` sees only handles.
+    /// A [`SideTable`]: the release sweep drops it with the view.
+    static INSPECTOR_PANES: SideTable<bool> = SideTable::new();
+
+    /// Outline ptr → its data source, for [`DayNavOutlineView::menu_for_event`]'s row lookup.
+    /// A [`SideTable`], reclaimed by the outline-keyed auxiliary sweep in `release` — the entry
+    /// used to outlive its host, so a recycled outline address served the dead menu's rows.
+    static NAV_OUTLINE_MENUS: SideTable<Retained<DayNavMenuData>> = SideTable::new();
+
+    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+
+    /// NAV_MENU scroll-view ptr → (outline, data source) for patches and measure.
+    static NAV_MENUS: RefCell<HashMap<usize, NavMenuEntry>> = RefCell::new(HashMap::new());
+
+    /// The app's edit-bridge state (`set_edit_state`) — what validateMenuItem consults.
+    static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
+        const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
+    static UNDO_FRONT: std::cell::RefCell<Option<Retained<DayUndoManager>>> =
+        const { std::cell::RefCell::new(None) };
+
+    /// Live modal sheets keyed by request id (for programmatic dismissal).
+    static PRESENT_ALERTS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSAlert>>> =
+        RefCell::new(HashMap::new());
+    /// Live file-picker sheets (NSOpenPanel is stored via its NSSavePanel supertype).
+    static PRESENT_PANELS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSSavePanel>>> =
+        RefCell::new(HashMap::new());
+
+    // NSMenuItem does NOT retain its target — keep one shared target alive for the app's lifetime.
+    static MENU_TARGET: std::cell::RefCell<Option<Retained<DayMenuTarget>>> =
+        const { std::cell::RefCell::new(None) };
+    /// The PRIMARY window's content view, for call sites without backend access that must
+    /// address the main window specifically (cover re-homing, DAY_DUMP). With secondary
+    /// windows open, `app.windows().firstObject()` is arbitrary (docs/windows.md).
+    static PRIMARY_CONTENT: std::cell::RefCell<Option<Retained<NSView>>> =
+        const { std::cell::RefCell::new(None) };
+
 }
 
 /// Emit an event into day-core's queue (public: external Day Piece renderers use this too).
@@ -380,13 +449,6 @@ impl DayTextLink {
     }
 }
 
-thread_local! {
-    /// A link label's delegate, kept alive for the label's lifetime (a delegate is a WEAK
-    /// reference, so nothing else retains it). Swept in `release`.
-    static LINK_DELEGATES: RefCell<HashMap<usize, Retained<DayTextLink>>> =
-        RefCell::new(HashMap::new());
-}
-
 // ---------------------------------------------------------------------------
 // DayFlipped — top-left-origin container view
 // ---------------------------------------------------------------------------
@@ -559,19 +621,6 @@ impl DayFlipped {
 // DayCanvas — a flipped view replaying the Day display list in drawRect (§11)
 // ---------------------------------------------------------------------------
 
-thread_local! {
-    /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
-    /// (replay inserted but nothing ever removed).
-    static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
-    /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
-    /// SCROLL events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
-    static PAN_NODES: SideTable<NodeId> = SideTable::new();
-    /// Canvas view ptr → its node, so the view's own `keyDown:` knows who to report to. Every
-    /// canvas is registered at realize (unlike [`PAN_NODES`], which only holds the ones that
-    /// asked for a pan) because focus, not a gesture, is what decides who hears a key.
-    static KEY_NODES: SideTable<NodeId> = SideTable::new();
-}
-
 struct CanvasIvars;
 
 define_class!(
@@ -721,12 +770,6 @@ impl DayCanvas {
 struct GestureIvars {
     node: NodeId,
     kind: day_spec::GestureKind,
-}
-
-thread_local! {
-    /// Keeps each view's gesture targets alive + records which gestures are attached (idempotent).
-    static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
-        RefCell::new(HashMap::new());
 }
 
 define_class!(
@@ -1197,19 +1240,6 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
     });
 }
 
-thread_local! {
-    static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
-    /// Handles whose frames are native-owned (nav pages): set_frame skips them.
-    static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
-        RefCell::new(std::collections::HashSet::new());
-    /// Each nav page's pane, recorded at realize because `insert` sees only handles
-    /// (docs/size-classes.md). Identity rather than position: a re-present re-homes the pages
-    /// without changing their order, so "index 0 is the sidebar" stops being true the moment a
-    /// host can morph. A [`SideTable`]: `remove` clears it on the normal path, and the release
-    /// sweep catches a page released without one (a stale entry could mis-pane a recycled ptr).
-    static PAGE_PANE: SideTable<day_spec::props::Pane> = SideTable::new();
-}
-
 // ---------------------------------------------------------------------------
 // The sidebar pane holds its width through NSSplitViewController's own holding priorities
 // (docs/navigation.md) — a sidebar NSSplitViewItem pins its thickness and lets the detail
@@ -1271,13 +1301,6 @@ struct InspectorState {
     /// Retained so the controller (the split's delegate) lives as long as its split.
     _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
     panel_item: Retained<objc2_app_kit::NSSplitViewItem>,
-}
-
-thread_local! {
-    static INSPECTOR_STATE: RefCell<HashMap<usize, InspectorState>> = RefCell::new(HashMap::new());
-    /// INSPECTOR_PANE ptr → is-panel, recorded at realize because `insert` sees only handles.
-    /// A [`SideTable`]: the release sweep drops it with the view.
-    static INSPECTOR_PANES: SideTable<bool> = SideTable::new();
 }
 
 // ---------------------------------------------------------------------------
@@ -1377,13 +1400,6 @@ define_class!(
         }
     }
 );
-
-thread_local! {
-    /// Outline ptr → its data source, for [`DayNavOutlineView::menu_for_event`]'s row lookup.
-    /// A [`SideTable`], reclaimed by the outline-keyed auxiliary sweep in `release` — the entry
-    /// used to outlive its host, so a recycled outline address served the dead menu's rows.
-    static NAV_OUTLINE_MENUS: SideTable<Retained<DayNavMenuData>> = SideTable::new();
-}
 
 define_class!(
     #[unsafe(super(NSObject))]
@@ -2209,10 +2225,6 @@ fn target_to_insertion(from: usize, to: usize) -> usize {
 /// A realized LIST's scroll view ptr → (table, data source) for attach_list / update / measure.
 type ListEntry = (Retained<NSTableView>, Retained<DayListData>);
 
-thread_local! {
-    static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
-}
-
 /// Clone a list's (table, data) out of `LIST_STATE` under a SHORT borrow. Every caller then
 /// talks to AppKit with the map free: table calls that look innocuous (`endUpdates`, a scroll's
 /// tiling, `viewAtColumn:row:makeIfNecessary:`, even `layoutSubtreeIfNeeded`) can synchronously
@@ -2228,11 +2240,6 @@ type NavMenuEntry = (
     Retained<objc2_app_kit::NSOutlineView>,
     Retained<DayNavMenuData>,
 );
-
-thread_local! {
-    /// NAV_MENU scroll-view ptr → (outline, data source) for patches and measure.
-    static NAV_MENUS: RefCell<HashMap<usize, NavMenuEntry>> = RefCell::new(HashMap::new());
-}
 
 fn ns_rect(r: day_spec::Rect) -> NSRect {
     NSRect::new(
@@ -2701,14 +2708,6 @@ define_class!(
         }
     }
 );
-
-thread_local! {
-    /// The app's edit-bridge state (`set_edit_state`) — what validateMenuItem consults.
-    static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
-        const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
-    static UNDO_FRONT: std::cell::RefCell<Option<Retained<DayUndoManager>>> =
-        const { std::cell::RefCell::new(None) };
-}
 
 fn undo_front(mtm: MainThreadMarker) -> Retained<DayUndoManager> {
     UNDO_FRONT.with(|u| {
@@ -5730,15 +5729,6 @@ impl Toolkit for AppKit {
     }
 }
 
-thread_local! {
-    /// Live modal sheets keyed by request id (for programmatic dismissal).
-    static PRESENT_ALERTS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSAlert>>> =
-        RefCell::new(HashMap::new());
-    /// Live file-picker sheets (NSOpenPanel is stored via its NSSavePanel supertype).
-    static PRESENT_PANELS: RefCell<HashMap<u64, Retained<objc2_app_kit::NSSavePanel>>> =
-        RefCell::new(HashMap::new());
-}
-
 /// Apply a file dialog's extension filters (`allowedFileTypes` — deprecated but still the simplest
 /// extension-based API; `UTType` would pull in another framework crate for no benefit here).
 #[allow(deprecated)]
@@ -6360,17 +6350,6 @@ define_class!(
         }
     }
 );
-
-thread_local! {
-    // NSMenuItem does NOT retain its target — keep one shared target alive for the app's lifetime.
-    static MENU_TARGET: std::cell::RefCell<Option<Retained<DayMenuTarget>>> =
-        const { std::cell::RefCell::new(None) };
-    /// The PRIMARY window's content view, for call sites without backend access that must
-    /// address the main window specifically (cover re-homing, DAY_DUMP). With secondary
-    /// windows open, `app.windows().firstObject()` is arbitrary (docs/windows.md).
-    static PRIMARY_CONTENT: std::cell::RefCell<Option<Retained<NSView>>> =
-        const { std::cell::RefCell::new(None) };
-}
 
 /// The primary window's content view (set once in `run`).
 fn primary_content() -> Option<Retained<NSView>> {

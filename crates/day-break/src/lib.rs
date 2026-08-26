@@ -22,6 +22,14 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+day_reactive::tls_root! {
+    // `hook` is not compiled on wasm32 (see the module below), so its slot is not either.
+    #[cfg(not(target_arch = "wasm32"))]
+    hook: crate::hook::TlsGroupSlots,
+    i18n: crate::i18n::TlsGroupSlots,
+    root: crate::TlsGroupSlots,
+}
+
 use day_reactive::Signal;
 
 // The panic hook records pending artifacts through the store — capture machinery that is never
@@ -397,11 +405,13 @@ fn load_pending() -> Vec<ReportMeta> {
     report_paths().iter().filter_map(|p| load_meta(p)).collect()
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    root;
     /// The pending-list signal. Held in a thread-local because a `Signal` is main-thread-affine
     /// (`!Send`/`!Sync`) and cannot live in a `static` — the same reason day-l10n keeps its global
     /// locale signal thread-locally.
     static PENDING: std::cell::RefCell<Option<Signal<Vec<ReportMeta>>>> = const { std::cell::RefCell::new(None) };
+
 }
 
 /// A reactive list of the pending reports awaiting the user's decision. Newest-first; updated by

@@ -73,9 +73,10 @@ impl MediaLoop {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     // Keep each loop observer alive as long as its player view (the center holds it weakly).
     static OBSERVERS: RefCell<HashMap<usize, Retained<MediaLoop>>> = RefCell::new(HashMap::new());
+
 }
 
 /// `NSURL` from the one source string: an explicit scheme parses as a URL, anything else is a

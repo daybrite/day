@@ -33,8 +33,9 @@ struct EdState {
     lines: usize,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::new();
+
 }
 
 /// The base point size the web editor draws at, matching day-dom's own body text.

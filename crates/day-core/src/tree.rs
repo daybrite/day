@@ -1704,7 +1704,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 // Thread-local tree + event pump
 // ---------------------------------------------------------------------------
 
-thread_local! {
+day_reactive::tls_slots! {
+    tree;
     static TREE: RefCell<Option<Box<dyn TreeOps>>> = const { RefCell::new(None) };
     static EVENTS: RefCell<VecDeque<(NodeId, Event)>> = const { RefCell::new(VecDeque::new()) };
     static PUMP_PENDING: Cell<bool> = const { Cell::new(false) };
@@ -1717,6 +1718,9 @@ thread_local! {
     /// pump (a signal-bound sidebar remount settles one pump late), but never a later, unrelated
     /// navigation.
     static PUMP_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+
+    /// The node that last reported gaining focus, cleared when it reports losing it.
+    static FOCUSED: std::cell::Cell<Option<RNode>> = const { std::cell::Cell::new(None) };
 }
 
 pub fn install_tree(tree: Box<dyn TreeOps>) {
@@ -1734,7 +1738,7 @@ pub fn uninstall_tree() {
     crate::reset_ambient();
     TREE.with(|t| *t.borrow_mut() = None);
     EVENTS.with(|e| e.borrow_mut().clear());
-    PUMP_PENDING.set(false);
+    PUMP_PENDING.with(|c| c.set(false));
     // The event observer (§14.6) is thread-local state too — a test that installed one must not
     // leak it into the next tree on this thread.
     EVENT_OBSERVER.with(|o| *o.borrow_mut() = None);
@@ -1749,7 +1753,7 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
         let ops = opt.as_mut().expect("day: no tree installed on this thread");
         f(ops.as_mut())
     });
-    if PUMP_PENDING.replace(false) {
+    if PUMP_PENDING.with(|c| c.replace(false)) {
         pump_events();
     }
     r
@@ -1796,7 +1800,7 @@ pub fn try_with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
         let ops = opt.as_mut()?;
         Some(f(ops.as_mut()))
     });
-    if r.is_some() && PUMP_PENDING.replace(false) {
+    if r.is_some() && PUMP_PENDING.with(|c| c.replace(false)) {
         pump_events();
     }
     r
@@ -1840,7 +1844,7 @@ pub fn enqueue_events(evs: impl IntoIterator<Item = (NodeId, Event)>) {
     if tree_free {
         pump_events();
     } else {
-        PUMP_PENDING.set(true);
+        PUMP_PENDING.with(|c| c.set(true));
     }
 }
 
@@ -1910,7 +1914,7 @@ pub fn pump_events() {
         );
         // Drop the in-flight event batch and reset drain state so the runtime isn't wedged.
         EVENTS.with(|e| e.borrow_mut().clear());
-        PUMP_PENDING.set(false);
+        PUMP_PENDING.with(|c| c.set(false));
         day_reactive::recover_from_panic();
         crate::notify_contained_panic();
     }
@@ -1977,11 +1981,6 @@ fn pump_events_inner() {
     // the last route) is how the recorder captures navigation regardless of what triggered it
     // (docs/navigation.md, §14.6).
     crate::nav::maybe_notify_route_change();
-}
-
-thread_local! {
-    /// The node that last reported gaining focus, cleared when it reports losing it.
-    static FOCUSED: std::cell::Cell<Option<RNode>> = const { std::cell::Cell::new(None) };
 }
 
 /// The node that currently has the keyboard, as the platform last reported it. Keys follow

@@ -115,12 +115,13 @@ struct EdState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::with_teardown(|st: EdState| {
         // The text view outlives this state until its scroll view deallocs: detach the delegate
         // so the dropped target is never reached through a stale reference.
         st.tv.setDelegate(None);
     });
+
 }
 
 fn key(v: &Retained<NSView>) -> usize {

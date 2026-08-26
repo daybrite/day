@@ -52,9 +52,10 @@ impl SearchTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     // Keep each field's target alive for the view's lifetime (the control retains it weakly).
     static TARGETS: RefCell<HashMap<usize, Retained<SearchTarget>>> = RefCell::new(HashMap::new());
+
 }
 
 fn make(_backend: &mut Uikit, p: &SearchProps, id: NodeId) -> Retained<UIView> {

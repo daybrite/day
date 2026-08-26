@@ -64,10 +64,11 @@ impl PickerTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     /// Keeps each picker's target alive (the control holds it weakly). A [`SideTable`], so
     /// the backend's release sweep drops it with its view — this map had no release path.
     static TARGETS: SideTable<Retained<PickerTarget>> = SideTable::new();
+
 }
 
 fn zero_rect() -> NSRect {

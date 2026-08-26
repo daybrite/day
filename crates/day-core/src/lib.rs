@@ -5,6 +5,26 @@
 //! (DESIGN.md §5, §7). Build-once: pieces are constructed exactly once; all dynamism flows
 //! through reactive bindings (day-reactive) writing to the thread-local tree.
 
+day_reactive::tls_root! {
+    layout: crate::layout::TlsGroupSlots,
+    ambient: crate::ambient::TlsGroupSlots,
+    anim: crate::anim::TlsGroupSlots,
+    frame: crate::frame::TlsGroupSlots,
+    lifecycle: crate::lifecycle::TlsGroupSlots,
+    menu: crate::menu::TlsGroupSlots,
+    nav: crate::nav::TlsGroupSlots,
+    present: crate::present::TlsGroupSlots,
+    root: crate::TlsGroupSlots,
+    shield: crate::shield::TlsGroupSlots,
+    toolbar: crate::toolbar::TlsGroupSlots,
+    tree: crate::tree::TlsGroupSlots,
+    windows: crate::windows::TlsGroupSlots,
+}
+
+/// Re-exported so every crate above day-core can reach it without taking a direct
+/// day-reactive dependency (see day-reactive for what it does and why Android needs it).
+pub use day_reactive::tls_group;
+
 mod ambient;
 mod anim;
 mod build;
@@ -107,9 +127,28 @@ pub fn direction_of_locale(locale: &str) -> day_geometry::LayoutDirection {
     }
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    root;
     static DIRECTION: std::cell::Cell<Option<day_geometry::LayoutDirection>> =
         const { std::cell::Cell::new(None) };
+
+    static UNDO_INVOKE: std::cell::RefCell<Option<UndoInvoke>> =
+        const { std::cell::RefCell::new(None) };
+
+    /// The dayscript executor's stand-in for held modifiers (a synthetic tap cannot hold a
+    /// real shift key); `None` = ask the toolkit.
+    static MODIFIER_OVERRIDE: std::cell::Cell<Option<day_spec::Modifiers>> =
+        const { std::cell::Cell::new(None) };
+
+    static EDIT_INVOKE: std::cell::RefCell<Option<EditInvoke>> =
+        const { std::cell::RefCell::new(None) };
+
+    static UNDO_ACTION_IDS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    static EDIT_ACTION_IDS: std::cell::Cell<(u64, u64, u64, u64)> =
+        const { std::cell::Cell::new((0, 0, 0, 0)) };
+
+    static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
+        const { std::cell::OnceCell::new() };
 }
 
 use day_spec::{Platform, WindowOptions};
@@ -384,11 +423,6 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
 /// released before app code (which may install a new bridge) gets control.
 type UndoInvoke = std::rc::Rc<dyn Fn(bool)>;
 
-thread_local! {
-    static UNDO_INVOKE: std::cell::RefCell<Option<UndoInvoke>> =
-        const { std::cell::RefCell::new(None) };
-}
-
 /// Wire an undo history to the platform (docs/model.md): the four signals mirror into the
 /// toolkit's native front where one exists (`Cap::UndoBridge` — the stock Edit menu retitles
 /// and enables itself, the platform's gestures land), and every invocation the platform
@@ -454,13 +488,6 @@ fn dispatch_undo_invoke(redo: bool) {
 
 type EditInvoke = std::rc::Rc<dyn Fn(day_spec::EditOp)>;
 
-thread_local! {
-    /// The dayscript executor's stand-in for held modifiers (a synthetic tap cannot hold a
-    /// real shift key); `None` = ask the toolkit.
-    static MODIFIER_OVERRIDE: std::cell::Cell<Option<day_spec::Modifiers>> =
-        const { std::cell::Cell::new(None) };
-}
-
 /// The keyboard modifiers held right now — for interactions whose meaning they change
 /// (shift-click adds to a selection). Touch backends answer all-false; a dayscript step's
 /// declared modifiers take precedence while it dispatches.
@@ -475,11 +502,6 @@ pub fn modifiers() -> day_spec::Modifiers {
 /// modifiers dispatches, back to `None` after.
 pub fn set_modifier_override(m: Option<day_spec::Modifiers>) {
     MODIFIER_OVERRIDE.with(|o| o.set(m));
-}
-
-thread_local! {
-    static EDIT_INVOKE: std::cell::RefCell<Option<EditInvoke>> =
-        const { std::cell::RefCell::new(None) };
 }
 
 /// Wire the app's standard-edit handlers to the platform (docs/menus.md): `state` is a
@@ -506,12 +528,6 @@ fn dispatch_edit_invoke(op: day_spec::EditOp) {
     if let Some(f) = f {
         day_reactive::batch(|| f(op));
     }
-}
-
-thread_local! {
-    static UNDO_ACTION_IDS: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
-    static EDIT_ACTION_IDS: std::cell::Cell<(u64, u64, u64, u64)> =
-        const { std::cell::Cell::new((0, 0, 0, 0)) };
 }
 
 /// The standing dispatch id behind a `MenuRole::Undo`/`Redo` item on a toolkit with no native
@@ -825,11 +841,6 @@ fn autodrive(spec: &str) {
 /// default text colors already follow.
 pub fn dark_mode() -> bool {
     dark_signal().get()
-}
-
-thread_local! {
-    static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
-        const { std::cell::OnceCell::new() };
 }
 
 /// The reactive backing for [`dark_mode`], lazily seeded from the toolkit's answer.

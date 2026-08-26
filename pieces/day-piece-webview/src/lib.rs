@@ -68,7 +68,7 @@ impl WebSession {
     /// The session named `key`, created on first use. Calling this repeatedly with the same key
     /// returns the same session.
     pub fn global(key: &'static str) -> WebSession {
-        thread_local! {
+        day_core::tls_group! {
             static KEYS: RefCell<HashMap<&'static str, u64>> = RefCell::new(HashMap::new());
             static NEXT: Cell<u64> = const { Cell::new(1) };
         }

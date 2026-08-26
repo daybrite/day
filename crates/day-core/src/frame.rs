@@ -34,7 +34,8 @@ struct Driver {
     last_ts: Option<f64>,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    frame;
     static DRIVER: RefCell<Driver> = RefCell::new(Driver::default());
 }
 

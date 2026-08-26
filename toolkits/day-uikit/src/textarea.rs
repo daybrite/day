@@ -106,11 +106,12 @@ struct TAState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// Per-view editor state, keyed by view ptr — swept by the backend's `release` through
     /// `day_spec::sidetable` (a plain map here leaked every released editor's retains).
     static STATE: day_spec::sidetable::SideTable<TAState> =
         day_spec::sidetable::SideTable::new();
+
 }
 
 fn key(v: &Retained<UIView>) -> usize {

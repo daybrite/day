@@ -63,9 +63,10 @@ impl DateTimeTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     static TARGETS: RefCell<HashMap<usize, Retained<DateTimeTarget>>> =
         RefCell::new(HashMap::new());
+
 }
 
 fn date_at_epoch_seconds(secs: i64) -> Retained<NSDate> {

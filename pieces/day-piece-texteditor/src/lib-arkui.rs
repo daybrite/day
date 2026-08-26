@@ -124,10 +124,11 @@ fn push_attributes(h: &AHandle, doc_text: &str, runs: &[TextRun], paragraphs: &[
     piece::update(h, "paragraphs", &encode_paragraphs(doc_text, paragraphs));
 }
 
-thread_local! {
+day_core::tls_group! {
     /// The text each editor holds, keyed by its ArkTS frame node — what an attribute or selection
     /// patch converts its byte ranges against, with no round trip into ArkTS.
     static TEXT: SideTable<String> = SideTable::new();
+
 }
 
 fn key(h: &AHandle) -> usize {

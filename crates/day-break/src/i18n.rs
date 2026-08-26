@@ -17,9 +17,11 @@ const CATALOGS: &[(&str, &str)] = &[
     ("zh-CN", include_str!("i18n/zh-CN.ftl")),
 ];
 
-thread_local! {
+day_reactive::tls_slots! {
+    i18n;
     /// The bundle chain for the current locale (primary first, `en` last), rebuilt on locale change.
     static STATE: RefCell<Option<Loaded>> = const { RefCell::new(None) };
+
 }
 
 struct Loaded {

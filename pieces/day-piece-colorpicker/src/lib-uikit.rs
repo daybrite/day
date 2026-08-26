@@ -64,8 +64,9 @@ impl WellTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     static TARGETS: RefCell<HashMap<usize, Retained<WellTarget>>> = RefCell::new(HashMap::new());
+
 }
 
 fn to_day_color(c: &UIColor) -> Option<Color> {

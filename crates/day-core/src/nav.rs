@@ -62,7 +62,8 @@ pub struct NavController {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct NavToken(u64);
 
-thread_local! {
+day_reactive::tls_slots! {
+    nav;
     static NAV_STACK: RefCell<Vec<(NavToken, Rc<NavController>)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
@@ -79,6 +80,12 @@ thread_local! {
     /// The app-installed persistence sink a nav surface's `.restore` reads and writes through
     /// ([`set_nav_store`]). `None` = no store installed, so `.restore` is a no-op.
     static NAV_STORE: RefCell<Option<Rc<dyn NavStore>>> = const { RefCell::new(None) };
+
+    static NAV_OBSERVER: RefCell<Option<Rc<NavObserver>>> = const { RefCell::new(None) };
+    /// The last route the observer was told about — dedups the several call sites below (a single
+    /// user navigation reaches `maybe_notify_route_change` from both the event-pump tail and the
+    /// imperative `navigate` tail; only the first, changing, call fires).
+    static LAST_ROUTE: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// Install a controller (innermost = last). Returns its token. The root `nav()` registers once
@@ -488,14 +495,6 @@ pub fn nav_back() -> bool {
 /// event handler, bypassing the event observer), a stack push, or a native back gesture. `""` is
 /// the root. Installed by the recorder in day-script; day-core only fires it.
 pub type NavObserver = dyn Fn(&str, Option<&str>);
-
-thread_local! {
-    static NAV_OBSERVER: RefCell<Option<Rc<NavObserver>>> = const { RefCell::new(None) };
-    /// The last route the observer was told about — dedups the several call sites below (a single
-    /// user navigation reaches `maybe_notify_route_change` from both the event-pump tail and the
-    /// imperative `navigate` tail; only the first, changing, call fires).
-    static LAST_ROUTE: RefCell<String> = const { RefCell::new(String::new()) };
-}
 
 /// Install (or clear, with `None`) the navigation observer. Resets the dedup baseline so the next
 /// change fires regardless of where recording started.

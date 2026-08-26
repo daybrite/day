@@ -69,8 +69,9 @@ impl WellTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     static TARGETS: RefCell<HashMap<usize, Retained<WellTarget>>> = RefCell::new(HashMap::new());
+
 }
 
 /// An `NSColor` in whatever space the user picked in, read as sRGB. `None` for a color with no

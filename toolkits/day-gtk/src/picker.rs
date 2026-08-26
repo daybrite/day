@@ -23,13 +23,14 @@ struct PickerState {
     suppress: Rc<Cell<bool>>,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// Root widget ptr → picker state. A [`SideTable`]: no local release path exists here, so
     /// the backend's release sweep is what drops a dead picker's entry.
     static STATE: SideTable<PickerState> = SideTable::new();
     /// Root widget ptr → the picker's node, so an option patch can wire the handlers of the
     /// buttons it adds (they emit for this node).
     static NODES: SideTable<NodeId> = SideTable::new();
+
 }
 
 fn key(w: &gtk4::Widget) -> usize {

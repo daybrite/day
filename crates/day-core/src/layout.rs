@@ -7,6 +7,14 @@
 
 use std::rc::Rc;
 
+day_reactive::tls_slots! {
+    layout;
+    /// Nodes already warned about (see the report site below): once per node, not per
+    /// frame. A rebuilt page gets a fresh node and may report again — fine.
+    static REPORTED: std::cell::RefCell<std::collections::HashSet<RNode>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
 use day_spec::*;
 
 use crate::tree::{Flex, RNode, Tree, TreeOps};
@@ -123,13 +131,8 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
 
     #[cfg(debug_assertions)]
     fn report_overflow(&mut self, needed: f64, available: f64) {
-        use std::cell::RefCell;
-        use std::collections::HashSet;
         // Once per node, not per frame: layout re-runs constantly, and the point is a greppable
         // hint, not a firehose. A rebuilt page gets a fresh node and may report again — fine.
-        thread_local! {
-            static REPORTED: RefCell<HashSet<RNode>> = RefCell::new(HashSet::new());
-        }
         if REPORTED.with(|r| !r.borrow_mut().insert(self.current)) {
             return;
         }

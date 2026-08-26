@@ -109,7 +109,7 @@ mod imp {
     static DIAG_NAV: std::sync::LazyLock<bool> =
         std::sync::LazyLock::new(|| std::env::var("DAY_DIAG_NAV").is_ok());
 
-    thread_local! {
+    day_core::tls_group! {
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
         static WINDOW: RefCell<Option<Retained<UIWindow>>> = const { RefCell::new(None) };
@@ -148,6 +148,118 @@ mod imp {
         /// foreground-active / any scene was foregrounded at the last recompute.
         static ANY_SCENE_ACTIVE: Cell<bool> = const { Cell::new(false) };
         static ANY_SCENE_FOREGROUND: Cell<bool> = const { Cell::new(false) };
+
+        /// Each link-carrying text view's delegate, kept alive for the view's lifetime (a
+        /// `UITextView` holds its delegate weakly). Swept on release.
+        static TEXT_LINKS: day_spec::sidetable::SideTable<Retained<DayTextLink>> =
+            day_spec::sidetable::SideTable::new();
+
+        /// Keeps each view's gesture targets alive + records which are attached (idempotent).
+        static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
+            RefCell::new(HashMap::new());
+        /// Per-view context-menu interaction + its delegate (kept alive; replaced on
+        /// reconfigure, swept on release via `day_spec::sidetable`). The teardown detaches
+        /// the interaction from its view first, so a recycled address can never serve a dead
+        /// view's menu, then drops both retains.
+        static CTX_MENUS: day_spec::sidetable::SideTable<(
+            Retained<UIContextMenuInteraction>,
+            Retained<DayContextMenu>,
+        )> = day_spec::sidetable::SideTable::with_teardown(
+            |(interaction, _delegate): (
+                Retained<UIContextMenuInteraction>,
+                Retained<DayContextMenu>,
+            )| {
+                // `view` is the interaction's weak back-pointer — present exactly while it
+                // is still attached, which is when the detach matters.
+                if let Some(v) = interaction.view() {
+                    v.removeInteraction(ProtocolObject::from_ref(&*interaction));
+                }
+            },
+        );
+
+        /// Keyed by the nav host view ptr (the UINavigationController's view).
+        static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
+        /// Page CONTENT view ptr → its UIViewController.
+        static PAGE_VCS: RefCell<HashMap<usize, Retained<UIViewController>>> =
+            RefCell::new(HashMap::new());
+        /// Handles whose frames are native-owned (page content views).
+        static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+        /// Each nav page's pane, recorded at realize because `insert` sees only handles
+        /// (docs/size-classes.md). The SIDEBAR page is the split host's primary column; every
+        /// other page is a detail, pushed on the secondary's stack. Swept on release via
+        /// `day_spec::sidetable`.
+        static PAGE_PANE: day_spec::sidetable::SideTable<day_spec::props::Pane> =
+            day_spec::sidetable::SideTable::new();
+
+        /// Cover content view ptr → its presentation state.
+        static COVER_STATE: RefCell<HashMap<usize, CoverState>> = RefCell::new(HashMap::new());
+        /// The current `defers_system_gestures` union (day `Edges` bits) — read by the root
+        /// and cover VCs' `preferredScreenEdgesDeferringSystemGestures` overrides.
+        static DEFER_EDGES: Cell<u8> = const { Cell::new(0) };
+
+        pub(super) static UNDO_FRONT: RefCell<Option<Retained<DayUndoManager>>> =
+            const { RefCell::new(None) };
+
+        /// The app's edit-bridge state (`set_edit_state`) — what canPerformAction consults.
+        static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
+            const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
+
+        static NAV_TABS: RefCell<HashMap<usize, NavTabsState>> = RefCell::new(HashMap::new());
+        /// A realized NAV_MENU's rows, by its own view ptr. Recorded at realize because that is
+        /// where the props are, and consumed at INSERT, which is the first moment the menu is in
+        /// a view hierarchy and its enclosing host can be found.
+        /// A tabs host's page content views → the host, so a nav menu inside a page that is not
+        /// in the controller's hierarchy can still find it.
+        static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+        static NAV_MENU_ROWS: RefCell<
+            HashMap<usize, (i64, Vec<String>, Vec<Option<Retained<objc2_ui_kit::UIImage>>>)>,
+        > = RefCell::new(HashMap::new());
+
+        /// NAV_MENU table ptr → (data source, row count).
+        static NAV_MENUS: RefCell<HashMap<usize, (Retained<DayNavTableData>, usize)>> =
+            RefCell::new(HashMap::new());
+
+        /// LIST table ptr → (table, data source).
+        static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+
+        /// Canvas view ptr → its display list. Swept on release via `day_spec::sidetable` —
+        /// a stale entry made a NEW DayCanvasView at a dead canvas's recycled address replay
+        /// the old display list until its first `replay`.
+        static OPS: day_spec::sidetable::SideTable<Vec<day_spec::DrawOp>> =
+            day_spec::sidetable::SideTable::new();
+        /// Canvas view ptr → its node, so the view's own key handling knows who to report to
+        /// (docs/menus.md). Every canvas is registered at realize: focus, not a gesture, is
+        /// what decides who hears a key.
+        static KEY_NODES: day_spec::sidetable::SideTable<NodeId> =
+            day_spec::sidetable::SideTable::new();
+
+        /// Live alert controllers keyed by request id (for programmatic dismissal).
+        static PRESENT_VCS: RefCell<HashMap<u64, Retained<objc2_ui_kit::UIAlertController>>> =
+            RefCell::new(HashMap::new());
+        /// Live document pickers + their retained delegates, keyed by request id.
+        #[allow(clippy::type_complexity)]
+        static PRESENT_PICKERS: RefCell<
+            HashMap<
+                u64,
+                (
+                    Retained<UIDocumentPickerViewController>,
+                    Retained<DayDocPicker>,
+                ),
+            >,
+        > = RefCell::new(HashMap::new());
+        /// FIFO of modal transitions (see [`ModalOp`]) — ops run one at a time, pumped from
+        /// each transition's completion.
+        static MODAL_QUEUE: RefCell<std::collections::VecDeque<ModalOp>> =
+            const { RefCell::new(std::collections::VecDeque::new()) };
+        /// Whether a present/dismiss transition is currently in flight.
+        static MODAL_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// Transition generation — invalidates the watchdog of a normally-completed transition.
+        static MODAL_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+        /// When a transition was last seen in flight (`ui_idle`'s settle margin).
+        static UI_LAST_ACTIVE: std::cell::Cell<Option<std::time::Instant>> =
+            const { std::cell::Cell::new(None) };
+
     }
 
     /// One connected scene's windowing state.
@@ -627,13 +739,6 @@ mod imp {
     // DayTextLink — a text view's link delegate (docs/text-runs.md)
     // -----------------------------------------------------------------------
 
-    thread_local! {
-        /// Each link-carrying text view's delegate, kept alive for the view's lifetime (a
-        /// `UITextView` holds its delegate weakly). Swept on release.
-        static TEXT_LINKS: day_spec::sidetable::SideTable<Retained<DayTextLink>> =
-            day_spec::sidetable::SideTable::new();
-    }
-
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
@@ -724,31 +829,6 @@ mod imp {
     struct GestureIvars {
         node: NodeId,
         kind: day_spec::GestureKind,
-    }
-
-    thread_local! {
-        /// Keeps each view's gesture targets alive + records which are attached (idempotent).
-        static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
-            RefCell::new(HashMap::new());
-        /// Per-view context-menu interaction + its delegate (kept alive; replaced on
-        /// reconfigure, swept on release via `day_spec::sidetable`). The teardown detaches
-        /// the interaction from its view first, so a recycled address can never serve a dead
-        /// view's menu, then drops both retains.
-        static CTX_MENUS: day_spec::sidetable::SideTable<(
-            Retained<UIContextMenuInteraction>,
-            Retained<DayContextMenu>,
-        )> = day_spec::sidetable::SideTable::with_teardown(
-            |(interaction, _delegate): (
-                Retained<UIContextMenuInteraction>,
-                Retained<DayContextMenu>,
-            )| {
-                // `view` is the interaction's weak back-pointer — present exactly while it
-                // is still attached, which is when the detach matters.
-                if let Some(v) = interaction.view() {
-                    v.removeInteraction(ProtocolObject::from_ref(&*interaction));
-                }
-            },
-        );
     }
 
     define_class!(
@@ -1157,23 +1237,6 @@ mod imp {
                 _ => self.nav.clone(),
             }
         }
-    }
-
-    thread_local! {
-        /// Keyed by the nav host view ptr (the UINavigationController's view).
-        static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
-        /// Page CONTENT view ptr → its UIViewController.
-        static PAGE_VCS: RefCell<HashMap<usize, Retained<UIViewController>>> =
-            RefCell::new(HashMap::new());
-        /// Handles whose frames are native-owned (page content views).
-        static NAV_PAGES: RefCell<std::collections::HashSet<usize>> =
-            RefCell::new(std::collections::HashSet::new());
-        /// Each nav page's pane, recorded at realize because `insert` sees only handles
-        /// (docs/size-classes.md). The SIDEBAR page is the split host's primary column; every
-        /// other page is a detail, pushed on the secondary's stack. Swept on release via
-        /// `day_spec::sidetable`.
-        static PAGE_PANE: day_spec::sidetable::SideTable<day_spec::props::Pane> =
-            day_spec::sidetable::SideTable::new();
     }
 
     struct NavPageIvars {
@@ -1707,14 +1770,6 @@ mod imp {
         node: NodeId,
     }
 
-    thread_local! {
-        /// Cover content view ptr → its presentation state.
-        static COVER_STATE: RefCell<HashMap<usize, CoverState>> = RefCell::new(HashMap::new());
-        /// The current `defers_system_gestures` union (day `Edges` bits) — read by the root
-        /// and cover VCs' `preferredScreenEdgesDeferringSystemGestures` overrides.
-        static DEFER_EDGES: Cell<u8> = const { Cell::new(0) };
-    }
-
     /// Day `Edges` bits → `UIRectEdge` (leading/trailing map to left/right).
     fn rect_edges() -> UIRectEdge {
         let bits = DEFER_EDGES.with(|e| e.get());
@@ -1812,11 +1867,6 @@ mod imp {
         }
     );
 
-    thread_local! {
-        pub(super) static UNDO_FRONT: RefCell<Option<Retained<DayUndoManager>>> =
-            const { RefCell::new(None) };
-    }
-
     pub(super) fn undo_front(mtm: MainThreadMarker) -> Retained<DayUndoManager> {
         UNDO_FRONT.with(|u| {
             u.borrow_mut()
@@ -1828,12 +1878,6 @@ mod imp {
                 })
                 .clone()
         })
-    }
-
-    thread_local! {
-        /// The app's edit-bridge state (`set_edit_state`) — what canPerformAction consults.
-        static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
-            const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
     }
 
     define_class!(
@@ -2022,19 +2066,6 @@ mod imp {
         /// so the two are one event to everything above this backend.
         menu_node: std::cell::Cell<i64>,
         _delegate: Retained<DayNavTabsDelegate>,
-    }
-
-    thread_local! {
-        static NAV_TABS: RefCell<HashMap<usize, NavTabsState>> = RefCell::new(HashMap::new());
-        /// A realized NAV_MENU's rows, by its own view ptr. Recorded at realize because that is
-        /// where the props are, and consumed at INSERT, which is the first moment the menu is in
-        /// a view hierarchy and its enclosing host can be found.
-        /// A tabs host's page content views → the host, so a nav menu inside a page that is not
-        /// in the controller's hierarchy can still find it.
-        static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-        static NAV_MENU_ROWS: RefCell<
-            HashMap<usize, (i64, Vec<String>, Vec<Option<Retained<objc2_ui_kit::UIImage>>>)>,
-        > = RefCell::new(HashMap::new());
     }
 
     /// Walk up from `v` for a `.tabSidebar` host — either the host's own view, or a PAGE known
@@ -2489,12 +2520,6 @@ mod imp {
         }
     }
 
-    thread_local! {
-        /// NAV_MENU table ptr → (data source, row count).
-        static NAV_MENUS: RefCell<HashMap<usize, (Retained<DayNavTableData>, usize)>> =
-            RefCell::new(HashMap::new());
-    }
-
     // -----------------------------------------------------------------------
     // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
     // -----------------------------------------------------------------------
@@ -2810,27 +2835,9 @@ mod imp {
     /// A realized LIST's (table view, its data source), keyed by table ptr.
     type ListEntry = (Retained<objc2_ui_kit::UITableView>, Retained<DayListData>);
 
-    thread_local! {
-        /// LIST table ptr → (table, data source).
-        static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
-    }
-
     // -----------------------------------------------------------------------
     // DayCanvasView — replay in drawRect (§11)
     // -----------------------------------------------------------------------
-
-    thread_local! {
-        /// Canvas view ptr → its display list. Swept on release via `day_spec::sidetable` —
-        /// a stale entry made a NEW DayCanvasView at a dead canvas's recycled address replay
-        /// the old display list until its first `replay`.
-        static OPS: day_spec::sidetable::SideTable<Vec<day_spec::DrawOp>> =
-            day_spec::sidetable::SideTable::new();
-        /// Canvas view ptr → its node, so the view's own key handling knows who to report to
-        /// (docs/menus.md). Every canvas is registered at realize: focus, not a gesture, is
-        /// what decides who hears a key.
-        static KEY_NODES: day_spec::sidetable::SideTable<NodeId> =
-            day_spec::sidetable::SideTable::new();
-    }
 
     struct CanvasIvars;
 
@@ -6052,7 +6059,7 @@ mod imp {
         }
 
         fn ui_idle(&mut self) -> bool {
-            let active = MODAL_BUSY.get()
+            let active = MODAL_BUSY.with(|c| c.get())
                 || MODAL_QUEUE.with(|q| !q.borrow().is_empty())
                 || topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some())
                 // A nav push/pop animates on its UINavigationController, which topmost_vc()
@@ -6121,15 +6128,15 @@ mod imp {
     /// would jam forever behind the stuck busy flag — after 2s the watchdog clears it and
     /// pumps, so one lost completion can't freeze every later dialog and deferred nav op.
     fn modal_begin_transition() {
-        MODAL_BUSY.set(true);
-        let generation = MODAL_GEN.get().wrapping_add(1);
-        MODAL_GEN.set(generation);
+        MODAL_BUSY.with(|c| c.set(true));
+        let generation = MODAL_GEN.with(|c| c.get()).wrapping_add(1);
+        MODAL_GEN.with(|c| c.set(generation));
         let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_secs(4))
             .unwrap_or(dispatch2::DispatchTime::NOW);
         let _ = dispatch2::DispatchQueue::main().after(when, move || {
-            if MODAL_BUSY.get() && MODAL_GEN.get() == generation {
+            if MODAL_BUSY.with(|c| c.get()) && MODAL_GEN.with(|c| c.get()) == generation {
                 log::warn!("modal transition completion lost — unjamming the queue");
-                MODAL_BUSY.set(false);
+                MODAL_BUSY.with(|c| c.set(false));
                 modal_pump();
             }
         });
@@ -6137,8 +6144,8 @@ mod imp {
 
     /// Normal end of a transition: clear busy, invalidate the watchdog, run the next op.
     fn modal_end_transition() {
-        MODAL_GEN.set(MODAL_GEN.get().wrapping_add(1));
-        MODAL_BUSY.set(false);
+        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(|c| c.get()).wrapping_add(1)));
+        MODAL_BUSY.with(|c| c.set(false));
         modal_pump();
     }
 
@@ -6146,12 +6153,12 @@ mod imp {
     /// nav push/pop) is animating, and modal work issued across it is silently dropped.
     fn modal_defer_retry(op: ModalOp) {
         MODAL_QUEUE.with(|q| q.borrow_mut().push_front(op));
-        MODAL_BUSY.set(true); // hold the queue while we wait
-        MODAL_GEN.set(MODAL_GEN.get().wrapping_add(1));
+        MODAL_BUSY.with(|c| c.set(true)); // hold the queue while we wait
+        MODAL_GEN.with(|c| c.set(MODAL_GEN.with(|c| c.get()).wrapping_add(1)));
         let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
             .unwrap_or(dispatch2::DispatchTime::NOW);
         let _ = dispatch2::DispatchQueue::main().after(when, || {
-            MODAL_BUSY.set(false);
+            MODAL_BUSY.with(|c| c.set(false));
             modal_pump();
         });
     }
@@ -6167,7 +6174,7 @@ mod imp {
     }
 
     fn modal_after_idle(f: impl FnOnce() + 'static) {
-        let idle = !MODAL_BUSY.get() && MODAL_QUEUE.with(|q| q.borrow().is_empty());
+        let idle = !MODAL_BUSY.with(|c| c.get()) && MODAL_QUEUE.with(|q| q.borrow().is_empty());
         if idle {
             f();
         } else {
@@ -6178,7 +6185,7 @@ mod imp {
     /// Run the next queued modal op if no transition is in flight. Each op's completion clears
     /// the busy flag and pumps again.
     fn modal_pump() {
-        if MODAL_BUSY.get() {
+        if MODAL_BUSY.with(|c| c.get()) {
             return;
         }
         let Some(op) = MODAL_QUEUE.with(|q| q.borrow_mut().pop_front()) else {
@@ -6342,34 +6349,6 @@ mod imp {
         unsafe { picker.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
         PRESENT_PICKERS.with(|p| p.borrow_mut().insert(req, (picker.clone(), delegate)));
         modal_enqueue(ModalOp::Present(req, picker.into_super()));
-    }
-
-    thread_local! {
-        /// Live alert controllers keyed by request id (for programmatic dismissal).
-        static PRESENT_VCS: RefCell<HashMap<u64, Retained<objc2_ui_kit::UIAlertController>>> =
-            RefCell::new(HashMap::new());
-        /// Live document pickers + their retained delegates, keyed by request id.
-        #[allow(clippy::type_complexity)]
-        static PRESENT_PICKERS: RefCell<
-            HashMap<
-                u64,
-                (
-                    Retained<UIDocumentPickerViewController>,
-                    Retained<DayDocPicker>,
-                ),
-            >,
-        > = RefCell::new(HashMap::new());
-        /// FIFO of modal transitions (see [`ModalOp`]) — ops run one at a time, pumped from
-        /// each transition's completion.
-        static MODAL_QUEUE: RefCell<std::collections::VecDeque<ModalOp>> =
-            const { RefCell::new(std::collections::VecDeque::new()) };
-        /// Whether a present/dismiss transition is currently in flight.
-        static MODAL_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-        /// Transition generation — invalidates the watchdog of a normally-completed transition.
-        static MODAL_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-        /// When a transition was last seen in flight (`ui_idle`'s settle margin).
-        static UI_LAST_ACTIVE: std::cell::Cell<Option<std::time::Instant>> =
-            const { std::cell::Cell::new(None) };
     }
 
     /// The frontmost view controller (walk past any already-presented modal, but stop short of

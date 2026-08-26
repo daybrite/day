@@ -93,11 +93,12 @@ struct EdState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::new();
     /// The text each editor holds, by node — the selection callback has only the node id, and
     /// UTF-16 offsets cannot be turned back into bytes without the string.
     static TEXT: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
+
 }
 
 fn text_of(node: u64) -> String {

@@ -56,9 +56,10 @@ impl SearchTarget {
     }
 }
 
-thread_local! {
+day_core::tls_group! {
     // Keep each field's delegate alive for the view's lifetime (the control holds it weakly).
     static TARGETS: RefCell<HashMap<usize, Retained<SearchTarget>>> = RefCell::new(HashMap::new());
+
 }
 
 fn make(backend: &mut AppKit, p: &SearchProps, id: NodeId) -> Retained<NSView> {

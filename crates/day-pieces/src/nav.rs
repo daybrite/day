@@ -237,7 +237,7 @@ struct NavHostCx {
     split: Rc<Cell<bool>>,
 }
 
-thread_local! {
+day_reactive::tls_group! {
     /// Build-time stack of enclosing nav hosts. `None` is a barrier (a resident container such as
     /// tabs) that a nested stack must not merge through.
     static NAV_HOST_CX: RefCell<Vec<Option<NavHostCx>>> = const { RefCell::new(Vec::new()) };
@@ -247,6 +247,12 @@ thread_local! {
     /// one on screen. A surface captures the whole stack at registration and is on screen only
     /// when every gate above it answers true.
     static NAV_PAGE_ACTIVE: RefCell<Vec<Rc<dyn Fn() -> bool>>> = const { RefCell::new(Vec::new()) };
+
+    /// How many routed one-of-N surfaces (`selector`/tabs) are live at each nesting depth. Two at
+    /// the same depth are siblings whose keys both flow into `current_route()` — the case that
+    /// wants `.local()` (docs/navigation.md). Used only to warn; never changes behavior.
+    static ROUTED_ONE_OF_N: RefCell<std::collections::HashMap<usize, usize>> =
+        RefCell::new(std::collections::HashMap::new());
 }
 
 /// Build `f` with `gate` deciding whether what it builds counts as on screen (`NAV_PAGE_ACTIVE`).
@@ -337,14 +343,6 @@ fn register_route_surface(
         active: Box::new(move || gates.iter().all(|g| g())),
     });
     Scope::current().on_cleanup(move || day_core::unregister_nav(token));
-}
-
-thread_local! {
-    /// How many routed one-of-N surfaces (`selector`/tabs) are live at each nesting depth. Two at
-    /// the same depth are siblings whose keys both flow into `current_route()` — the case that
-    /// wants `.local()` (docs/navigation.md). Used only to warn; never changes behavior.
-    static ROUTED_ONE_OF_N: RefCell<std::collections::HashMap<usize, usize>> =
-        RefCell::new(std::collections::HashMap::new());
 }
 
 /// Note a routed selector/tabs at the current nav depth and, in debug builds, warn if it is a

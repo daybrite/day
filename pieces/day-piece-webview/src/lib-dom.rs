@@ -35,12 +35,13 @@ use day_spec::{NodeId, Proposal, Size};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-thread_local! {
+day_core::tls_group! {
     /// The last URL day assigned per frame, so `Reload` has something to re-assign. day-dom is
     /// write-only (`set_attr` with no getter) and `WebPatch::Reload` carries no URL, so without
     /// this the command would have nothing to act on. Keyed by the shim element id; web-dom is
     /// single-threaded and handles are never reused, so a plain map is enough.
     static LAST_SRC: RefCell<HashMap<DomHandle, String>> = RefCell::new(HashMap::new());
+
 }
 
 /// Point the frame at `url` and remember it for `Reload`. Assigning `src` navigates, and assigning

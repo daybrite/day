@@ -120,7 +120,7 @@ struct TAState {
     max_lines: u32,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// Scroll ptr → the editor's live state. A [`SideTable`], so the backend's release sweep
     /// reclaims the text view, delegate target and placeholder — this map had no release path.
     static STATE: SideTable<TAState> = SideTable::with_teardown(|st: TAState| {
@@ -128,6 +128,7 @@ thread_local! {
         // delegate so the dropped target is never reached through a stale reference.
         st.tv.setDelegate(None);
     });
+
 }
 
 fn key(v: &Retained<NSView>) -> usize {

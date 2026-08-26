@@ -11,7 +11,8 @@ use std::cell::Cell;
 
 use day_spec::AnimSpec;
 
-thread_local! {
+day_reactive::tls_slots! {
+    anim;
     static CURRENT_ANIM: Cell<Option<AnimSpec>> = const { Cell::new(None) };
 }
 

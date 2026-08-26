@@ -163,7 +163,7 @@ struct WinToolbar {
     seeded: std::rc::Rc<RefCell<String>>,
 }
 
-thread_local! {
+day_core::tls_group! {
     /// One live toolbar install per window (window ptr → its packed widgets). The teardown
     /// takes day's widgets back out of the header bar — it runs on a re-install's remove AND
     /// on the release sweep when a secondary window closes, so a recycled window address can
@@ -192,6 +192,7 @@ thread_local! {
     /// the only way back from a content handle to the chrome, since AdwToolbarView does not
     /// enumerate its bars. Swept by window pointer when a secondary window closes.
     static HEADERS: SideTable<adw::HeaderBar> = SideTable::new();
+
 }
 
 /// Remember a window's header bar (called for every window `build_day_window` makes).
