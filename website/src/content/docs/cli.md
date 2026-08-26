@@ -345,7 +345,7 @@ as one line carrying its count and a sample, so an `--allow` nobody has revisite
 finding carries a code you can `--allow`, and the file, line and column it is about:
 
 ```
-error   day::lint::unknown-route     navigate: route "setings" starts with "setings", which no `.item(…)` declares (src/lib.rs:88)
+error   day::lint::unknown-route     navigate: route "settings/theme" starts with "settings", which no `.item(…)` or `routes! { … }` declares (src/lib.rs:88)
 warning day::lint::unused-key        resource/locales/en: history_hint is never referenced (resource/locales/en/app.ftl:434)
 ```
 
