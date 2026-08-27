@@ -566,6 +566,7 @@ dependencies = [
  "day-pieces",
  "day-spec",
  "linkme",
+ "log",
 ]
 
 [[package]]

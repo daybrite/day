@@ -11,16 +11,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Tree (plan)
 
 > [!IMPORTANT]
-> **Status: M0 + M1 + M2 + M3 shipped (2026-08), M5's Android half shipped (2026-08), M6
-> partially.** The seam, driver, flattener, `tree()` piece, mock probes, THREE native
-> backends — AppKit `NSOutlineView`, GTK `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`,
-> and UIKit's list-layout `UICollectionView` over one diffable SECTION snapshot — and the
-> COMPOSED tree (M2, on web-dom, the qt toolkit and Android) are implemented and proven by
-> the mock e2e suite and Day Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim
-> on macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt and android-mdc (89/89), and the
-> leading pane rides the `.edge(PaneEdge::Leading)` inspector on all six. The remaining
-> milestones — XAML/ArkUI (M4), the Showcase page + `day-tweak-tree-style` (M5's other
-> half) — are still the build order. M3's as-built notes:
+> **Status: M0 + M1 + M2 + M3 shipped (2026-08), M4's ArkUI half + M5's Android half
+> shipped (2026-08), M6 partially.** The seam, driver, flattener, `tree()` piece, mock
+> probes, THREE native backends — AppKit `NSOutlineView`, GTK
+> `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, and UIKit's list-layout
+> `UICollectionView` over one diffable SECTION snapshot — and the COMPOSED tree (M2, on
+> web-dom, the qt toolkit, Android and ArkUI) are implemented and proven by the mock e2e
+> suite and Day Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim on
+> macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
+> (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
+> seven. The remaining milestones — XAML (M4's other half), the Showcase page +
+> `day-tweak-tree-style` (M5's other half) — are still the build order. M3's as-built notes:
 >
 > - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
 >   but not yet `Cap::TreeMove` — the dayscript `tree_move:` step drives the seam on every
@@ -957,7 +958,7 @@ and `sectionSnapshotHandlers.willExpandItem`/`willCollapseItem` for the expansio
 Reorder rides the collection's drag and drop delegates. The list-configuration knobs are
 build-time on this backend — `TreeProps` hints, per the customization note.
 
-### M4 — XAML and ArkUI
+### M4 — XAML and ArkUI (ArkUI SHIPPED 2026-08 as COMPOSED — see the as-built notes)
 
 XAML: WinUI `TreeView` with `TreeViewNode`s mirrored from the seam, `CanReorderItems` for the
 drag, native type-ahead, the raw subcontrol/row tweak channel from the examples above.
@@ -967,6 +968,41 @@ ArkUI: the ArkTS `TreeView` driven through the bridge described
 node with a per-node `NodeContent` in `NodeParam.container`, `TreeListener` for `NODE_CLICK`
 and `NODE_MOVE`, and `tree_ext::node_params` for the per-node extras. This lands last of the
 natives because it is the most unusual and wants the seam settled.
+
+**As built (2026-08, the ArkUI half).** ArkUI joined through the COMPOSED tree instead of
+the ArkTS `TreeView` — `Cap::Tree` answers `Emulated` and the M2 piece runs unchanged; the
+ArkTS-native form above stays open work. What the NodeAdapter list machinery had to gain
+(each found by the walkthrough, each a general list fix):
+
+- **Reloads re-bind for real.** `SetTotalNodeCount` alone diffs by item id (the index), so
+  a list that changed ABOVE its tail kept every untouched cell's old binding — and one that
+  shrank to empty stopped firing ADD at all. `day_ark_list_reload` now bumps a per-list
+  GENERATION salted into `GET_NODE_ID` and calls `ReloadAllItems`: every reload renames the
+  rows, the adapter re-adds them, and the pool + day-core's cell cache make that cheap
+  rebinds. The reload is POSTED out of the day-core borrow (the M1 deferred-mutation rule —
+  a bind pulled under the borrow skips and never retries) and coalesced per drain.
+- **Selection**: cells report taps as `SelectionChanged` (resolved through the adapter's
+  row map — cells carry no day node id) and `ListPatch::Selected` paints the accent at 20%
+  alpha, at bind and on sync, echo-free.
+- **Recycle**: `REMOVE_NODE_FROM_ADAPTER` clears the pooled cell's dayscript ids.
+- **Programmatic-set echo cells (§4.4)**: ArkUI fires onChange for PROGRAMMATIC text/slider
+  sets, and the echoes were re-writing app state — on Day Sketch, every selection change
+  sealed phantom "style" undo units, so the SECOND undo of any pair popped junk instead of
+  history. Text/slider sets now record the value; a matching event is swallowed as the echo.
+- day-arkui also gained a **hilog sink** (`day::arkui::start` installs it) — the `log`
+  facade previously went nowhere on OHOS.
+
+Verified on the local OHOS emulator: tree.yaml 89/89, real `uitest uiInput` row taps moving
+the selection tree→canvas with the painted highlight following. demo.yaml runs 315/321
+there: the six failures are all the Edit ▸ Paste chain — this image denies
+`ohos.permission.READ_PASTEBOARD` (USER_GRANT, SYSTEM_BASIC), a day-part-clipboard platform
+matter unrelated to trees. **Known issue, open**: the disclosure chevron's LABEL never
+renders on ArkUI (its reserved 18vp box lays out, siblings in the same cell bind and update
+correctly, the closure computes the right glyph — but this one label's text never reaches
+the native node after pooled-cell rebinds), so disclosure is currently reachable through
+selection-driven reveals and the seam but not by a finger on the chevron; it needs its own
+session. The chevron glyphs are now `▶`/`▼` everywhere — HarmonyOS Sans ships no glyph for
+the small `▸`/`▾` forms.
 
 ### M5 — Android, the Showcase page, and the style crate (Android SHIPPED 2026-08)
 

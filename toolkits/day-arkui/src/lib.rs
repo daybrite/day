@@ -102,6 +102,26 @@ mod imp {
         /// key the source by the id the native adapter callbacks report.
         static LIST_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// LIST host NodeId → its injected row-pull source (docs/list.md).
+        /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the shim
+        /// paints from this — at bind and on a sync (`day_ark_list_paint_selection`).
+        static LIST_SELECTED: RefCell<HashMap<u64, std::collections::BTreeSet<usize>>> =
+            RefCell::new(HashMap::new());
+        /// Lists with a posted reload not yet run (see the Reload arm): one data change often
+        /// fires several watches (shape + expansion + selection), and back-to-back
+        /// ReloadAllItems bursts dropped adapter ADDs — coalesce to one per drain.
+        static LIST_RELOAD_PENDING: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
+        /// Control handle → day node, for the echo cells below (a patch sees only the handle;
+        /// the echoed event carries only the node).
+        static CTRL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// Programmatic-set echo cells (§4.4): ArkUI fires onChange for PROGRAMMATIC sets
+        /// too, so a value day just wrote comes straight back as a change event — and a
+        /// two-way binding then re-writes the app state (on Day-Sketch, phantom "style"
+        /// undo units on every selection change). The cell holds the LAST programmatic
+        /// value; a matching event is the echo and is swallowed, a differing one is the
+        /// user and clears the cell.
+        static TEXT_ECHO: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
+        static SLIDER_ECHO: RefCell<HashMap<u64, f64>> = RefCell::new(HashMap::new());
         static LIST_SOURCES: RefCell<HashMap<u64, day_spec::ListSource>> =
             RefCell::new(HashMap::new());
         /// Node ids with a Tap gesture (docs/shapes.md): a NODE_ON_CLICK on these emits `Event::Tap`
@@ -787,6 +807,13 @@ mod imp {
     /// The native event callback the shim invokes. Kind numbers are
     /// `day_spec::bridge::BridgeKind` — the same wire table as the Android bridge (the shim's
     /// DAY_K_* defines mirror it; day-arkui-sys's parity test holds them together). `id` is the
+    /// The hilog sink for Day's logger (docs/logging.md): std's stderr goes nowhere in an
+    /// OHOS ability, so the facade installs this at start — one already-formatted line per
+    /// call, routed through the shim's OH_LOG_Print.
+    pub fn hilog_sink(_level: log::Level, line: &str) {
+        unsafe { ffi::day_ark_log(cstr(line).as_ptr()) };
+    }
+
     /// day NodeId delivered back as the ArkUI event userData.
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string from the ArkUI event
@@ -830,6 +857,14 @@ mod imp {
                         .to_string_lossy()
                         .into_owned()
                 };
+                // The programmatic-set echo (see TEXT_ECHO): a change carrying exactly what
+                // day just wrote is ArkUI reporting the set back, not the user typing.
+                let is_echo =
+                    TEXT_ECHO.with(|m| m.borrow().get(&id).is_some_and(|last| *last == s));
+                if is_echo {
+                    return;
+                }
+                TEXT_ECHO.with(|m| m.borrow_mut().remove(&id));
                 Event::TextChanged(s)
             }
             2 => Event::ToggleChanged(num != 0.0),
@@ -892,6 +927,16 @@ mod imp {
                     .with(|m| m.borrow().get(&(id as usize)).copied())
                     .unwrap_or((0.0, 1.0));
                 let value = min + (num / 100.0) * (max - min);
+                // The programmatic-set echo (see SLIDER_ECHO), compared with the slack the
+                // percent round-trip costs.
+                let eps = ((max - min).abs()).max(1e-9) * 1e-4;
+                let is_echo = SLIDER_ECHO
+                    .with(|m| m.borrow().get(&id).copied())
+                    .is_some_and(|last| (last - value).abs() <= eps);
+                if is_echo {
+                    return;
+                }
+                SLIDER_ECHO.with(|m| m.borrow_mut().remove(&id));
                 if kind == 22 {
                     Event::ValueCommitted(value)
                 } else {
@@ -959,6 +1004,33 @@ mod imp {
                 (source.bind_row)(index as usize, cell as day_spec::RawHandle);
             }
         });
+    }
+
+    /// A pooled cell left the adapter's visible set: clear the cell subtree's dayscript ids
+    /// so hidden rows stop answering lookups (day-core's `list_recycle_cell`) — keyed by the
+    /// SAME inner-Stack pointer `day_arkui_list_bind` binds with.
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `cell` is the adapter's live inner Stack
+    pub extern "C" fn day_arkui_list_recycle(host_id: u64, cell: *mut c_void) {
+        day_spec::ffi_guard::contain((), || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            if let Some(source) = source {
+                (source.recycle)(cell as day_spec::RawHandle);
+            }
+        });
+    }
+
+    /// Whether row `index` is in the list's programmatic selection — the shim paints newly
+    /// bound cells from this (docs/list.md `ListPatch::Selected`).
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_list_is_selected(host_id: u64, index: u32) -> u32 {
+        day_spec::ffi_guard::contain(0, || {
+            LIST_SELECTED.with(|m| {
+                m.borrow()
+                    .get(&host_id)
+                    .is_some_and(|set| set.contains(&(index as usize))) as u32
+            })
+        })
     }
 
     /// The reorder guard's verdict for a hovered drop (docs/list.md): the accepted target index,
@@ -1294,6 +1366,8 @@ mod imp {
                         return new_node(K_STACK);
                     };
                     let n = new_node(K_TEXT_INPUT);
+                    CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    TEXT_ECHO.with(|m| m.borrow_mut().insert(id.0, p.text.clone()));
                     unsafe {
                         ffi::day_ark_set_input_text(n.0, cstr(&p.text).as_ptr());
                         ffi::day_ark_set_placeholder(n.0, cstr(&p.placeholder).as_ptr());
@@ -1310,6 +1384,7 @@ mod imp {
                         return new_node(K_STACK);
                     };
                     let n = new_node(K_TEXT_AREA);
+                    CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     TEXTAREA_LINES.with(|m| {
                         m.borrow_mut()
                             .insert(n.0 as usize, (p.min_lines, p.max_lines))
@@ -1355,6 +1430,8 @@ mod imp {
                         return new_node(K_STACK);
                     };
                     let n = new_node(K_SLIDER);
+                    CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    SLIDER_ECHO.with(|m| m.borrow_mut().insert(id.0, p.value));
                     SLIDER_RANGE.with(|m| m.borrow_mut().insert(n.0 as usize, (p.min, p.max)));
                     let pct = normalize(p.value, p.min, p.max);
                     unsafe {
@@ -1524,6 +1601,7 @@ mod imp {
                             n.0,
                             id.0,
                             row_h,
+                            p.selectable as u32,
                             p.reorderable as u32,
                             p.deletable as u32,
                             del_label.as_ptr(),
@@ -1774,6 +1852,13 @@ mod imp {
                         let (min, max) = SLIDER_RANGE
                             .with(|m| m.borrow().get(&(h.0 as usize)).copied())
                             .unwrap_or((0.0, 1.0));
+                        // The echo cell (see SLIDER_ECHO): the set below comes back as an
+                        // onChange, which must not reach the app as the user's change.
+                        if let Some(nid) =
+                            CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        {
+                            SLIDER_ECHO.with(|m| m.borrow_mut().insert(nid, *v));
+                        }
                         unsafe { ffi::day_ark_set_slider(h.0, normalize(*v, min, max)) };
                     }
                 }
@@ -1783,6 +1868,11 @@ mod imp {
                     {
                         // A from_native echo would fight the user's caret — skip it (§4.4).
                         if !from_native {
+                            if let Some(nid) =
+                                CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                            {
+                                TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
+                            }
                             unsafe { ffi::day_ark_set_input_text(h.0, cstr(text).as_ptr()) };
                         }
                     }
@@ -1791,6 +1881,11 @@ mod imp {
                     if let Some(TextAreaPatch::SetText(text)) =
                         patch.downcast_ref::<TextAreaPatch>()
                     {
+                        if let Some(nid) =
+                            CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        {
+                            TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
+                        }
                         unsafe { ffi::day_ark_set_textarea_text(h.0, cstr(text).as_ptr()) };
                     }
                 }
@@ -1821,18 +1916,40 @@ mod imp {
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
-                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => unsafe {
-                        ffi::day_ark_list_reload(h.0)
-                    },
+                    Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
+                        // Deferred out of the day-core borrow: ReloadAllItems fires the
+                        // adapter's ADD/REMOVE synchronously, and a bind pulled while the
+                        // borrow is held SKIPS (try_with_tree) and never retries — the
+                        // deferred-native-mutation rule (docs/tree.md M1). Coalesced: one
+                        // change fires several watches, and adapter reload bursts drop ADDs.
+                        let node = h.0 as usize;
+                        let fresh = LIST_RELOAD_PENDING.with(|p| p.borrow_mut().insert(node));
+                        if fresh {
+                            <Self as day_spec::Platform>::post(Box::new(move || {
+                                LIST_RELOAD_PENDING.with(|p| p.borrow_mut().remove(&node));
+                                unsafe { ffi::day_ark_list_reload(node as *mut c_void) };
+                            }));
+                        }
+                    }
                     Some(ListPatch::ScrollToEnd) => unsafe { ffi::day_ark_list_scroll_to_end(h.0) },
                     Some(ListPatch::ScrollToRow(row)) => unsafe {
                         ffi::day_ark_list_scroll_to_row(h.0, *row as u32)
                     },
                     // RowSizeInvalidated / Selected: the node adapter re-measures rows itself and
                     // ArkUI's list exposes no programmatic selection — nothing to forward.
-                    Some(ListPatch::RowSizeInvalidated(_))
-                    | Some(ListPatch::Selected(_))
-                    | None => {}
+                    Some(ListPatch::Selected(rows)) => {
+                        // Record, then repaint the live cells; newly bound cells pick the
+                        // state up in the adapter's add path. Paint only — no echo.
+                        if let Some(nid) =
+                            LIST_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        {
+                            LIST_SELECTED.with(|m| {
+                                m.borrow_mut().insert(nid, rows.iter().copied().collect());
+                            });
+                            unsafe { ffi::day_ark_list_paint_selection(h.0) };
+                        }
+                    }
+                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
                 },
                 // An external piece's own arkui renderer, if one registered for this kind. Without
                 // this, every registered piece realized correctly and then ignored every patch —
@@ -1860,6 +1977,11 @@ mod imp {
             // and future — before the manual purges below (day_spec::sidetable; the existing
             // maps predate it and keep their explicit lines).
             day_spec::sidetable::sweep(key);
+            // The control's echo cells go with it (a recycled address must not alias them).
+            if let Some(nid) = CTRL_NODE.with(|m| m.borrow_mut().remove(&key)) {
+                TEXT_ECHO.with(|m| m.borrow_mut().remove(&nid));
+                SLIDER_ECHO.with(|m| m.borrow_mut().remove(&nid));
+            }
             // A pushed page released WITHOUT a Remove patch (whole-host teardown) must not
             // leave its re-home bookkeeping behind: a recycled node address would alias it.
             // The ArkTS side still holds the destination slot's keep-alive ref — drop that
@@ -1903,6 +2025,9 @@ mod imp {
                 });
             }
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
+                LIST_SELECTED.with(|m| {
+                    m.borrow_mut().remove(&nid);
+                });
                 LIST_SOURCES.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
@@ -2268,6 +2393,11 @@ mod imp {
                 Cap::ListDelete => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
+                // The COMPOSED tree (docs/tree.md M2/M4): the piece flattens onto this
+                // backend's NodeAdapter list; disclosure, indentation and row content are
+                // day pieces. No native drag wiring, so `Cap::TreeMove` stays Unsupported
+                // (`tree_move:` drives the seam synthetically).
+                Cap::Tree => Support::Emulated,
                 // Derived from NODE_FONT_SIZE — ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
                 Cap::TextRuns => Support::Native,

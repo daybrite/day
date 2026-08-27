@@ -162,10 +162,14 @@ unsafe extern "C" {
         node: *mut c_void,
         host_id: u64,
         row_h_vp: f64,
+        selectable: u32,
         reorderable: u32,
         deletable: u32,
         delete_label: *const std::os::raw::c_char,
     );
+    /// Repaint the list's live cells from day's selection record (docs/list.md
+    /// `ListPatch::Selected`); newly bound cells take theirs in the adapter's add path.
+    pub fn day_ark_list_paint_selection(node: *mut c_void);
     /// Re-query the list's row count (the adapter re-fetches its visible cells).
     pub fn day_ark_list_reload(node: *mut c_void);
     /// Scroll the list so its last row is fully visible (docs/list.md).

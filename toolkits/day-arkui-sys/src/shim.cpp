@@ -95,6 +95,8 @@ extern "C" void day_arkui_set_cache_dir(const char* path);
 // into the native cell (a plain Stack `cell`) — plus recycle when a cell scrolls out.
 extern "C" uint32_t day_arkui_list_count(uint64_t host_id);
 extern "C" void day_arkui_list_bind(uint64_t host_id, uint32_t index, void* cell);
+extern "C" void day_arkui_list_recycle(uint64_t host_id, void* cell);
+extern "C" uint32_t day_arkui_list_is_selected(uint64_t host_id, uint32_t index);
 // Drag-to-reorder (docs/list.md): the guard's verdict (accepted index or -1) and the commit,
 // both synchronous Rust exports like day_arkui_list_count.
 extern "C" int32_t day_arkui_list_can_move(uint64_t host_id, uint32_t from, uint32_t to);
@@ -180,6 +182,7 @@ static void drain_async(uv_async_t*) {
 // List drag-to-reorder handlers (docs/list.md), defined with the list state below.
 static void day_list_on_drag_start(ArkUI_NodeEvent* ev);
 static void day_list_on_drop(ArkUI_NodeEvent* ev);
+extern "C" bool day_list_cell_click(ArkUI_NodeHandle n); // defined in the extern block below
 // Per-node side-state erasure on dispose (defined with the canvas/list state below):
 // disposeNode frees the node, and a later createNode can RECYCLE its address — a stale
 // g_canvas/g_lists entry would then alias the new node, and the list's adapter, cell pool,
@@ -204,9 +207,13 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
     uint64_t id = (uint64_t)(uintptr_t)OH_ArkUI_NodeEvent_GetUserData(ev);
     ArkUI_NodeEventType t = OH_ArkUI_NodeEvent_GetEventType(ev);
     switch (t) {
-        case NODE_ON_CLICK:
-            day_arkui_on_event(id, DAY_K_PRESSED, 0.0, "");
+        case NODE_ON_CLICK: {
+            // A selectable list CELL's click is a row selection, not a press — resolved
+            // through the adapter's row map (cells carry no day node id).
+            ArkUI_NodeHandle n = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
+            if (!day_list_cell_click(n)) day_arkui_on_event(id, DAY_K_PRESSED, 0.0, "");
             break;
+        }
         // Drag-to-reorder (docs/list.md) — the list state lives later in this file, so the
         // arms defer to forward-declared handlers.
         case NODE_ON_DRAG_START:
@@ -1634,6 +1641,12 @@ struct DayList {
     ArkUI_NodeAdapterHandle adapter;
     uint64_t host_id;
     float row_h; // px; 0 = content-sized
+    // Rows report taps as selection and paint the programmatic set (docs/list.md).
+    bool selectable;
+    // Bumped per reload so every row gets a FRESH adapter item id (see GET_NODE_ID): the
+    // adapter diffs by id, and ids that stay put keep their old bindings — a reload after a
+    // reparent/insert above the tail left every untouched cell showing the wrong row.
+    uint32_t generation;
     std::vector<ArkUI_NodeHandle> pool;
     // Drag-to-reorder (docs/list.md): whether rows drag, the list node (for geometry), and each
     // live cell's currently-bound row (cells recycle, so the row is re-recorded on every bind).
@@ -1649,6 +1662,7 @@ struct DayList {
     std::map<ArkUI_NodeHandle, ArkUI_ListItemSwipeActionOption*> swipe_opts;
 };
 static std::map<void*, DayList*> g_lists; // list node → its adapter binding
+static void day_list_paint_cell(DayList* dl, ArkUI_NodeHandle cell, int row);
 
 /// Userdata for a cell's swipe action. The row is NOT captured here: cells recycle, so the
 /// bound row is read from `dl->rows` when the action actually fires.
@@ -1775,7 +1789,12 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
     if (!dl) return;
     switch (OH_ArkUI_NodeAdapterEvent_GetType(ev)) {
         case NODE_ADAPTER_EVENT_ON_GET_NODE_ID:
-            OH_ArkUI_NodeAdapterEvent_SetNodeId(ev, OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev));
+            // Generation-salted (kept positive in the int32 id): a reload renames every row,
+            // which is what makes ReloadAllItems REMOVE + re-ADD them all — the full-rebind
+            // reload the other emulated lists do — instead of keeping stale binds.
+            OH_ArkUI_NodeAdapterEvent_SetNodeId(
+                ev, (int32_t)(((dl->generation % 21474u) * 100000u)
+                              + OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev)));
             break;
         case NODE_ADAPTER_EVENT_ON_ADD_NODE_TO_ADAPTER: {
             uint32_t idx = OH_ArkUI_NodeAdapterEvent_GetItemIndex(ev);
@@ -1797,6 +1816,11 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
                     OH_ArkUI_SetNodeDraggable(cell, true);
                     g_api->registerNodeEvent(cell, NODE_ON_DRAG_START, 0, nullptr);
                 }
+                if (dl->selectable) {
+                    // A tap selects the bound row (docs/list.md); the shared receiver resolves
+                    // the cell through day_list_cell_click (no day node id to carry).
+                    g_api->registerNodeEvent(cell, NODE_ON_CLICK, 0, nullptr);
+                }
                 day_list_attach_swipe(dl, cell);
             }
             // Unconditional: the swipe action resolves its row through this map too, and a
@@ -1804,13 +1828,21 @@ static void list_adapter_receiver(ArkUI_NodeAdapterEvent* ev) {
             dl->rows[cell] = (int)idx;
             ArkUI_NodeHandle inner = g_api->getChildAt(cell, 0);
             day_arkui_list_bind(dl->host_id, idx, inner); // build (fresh) or rebind (recycled)
+            // A rebound cell inherits its row's programmatic selection state.
+            day_list_paint_cell(dl, cell, (int)idx);
             OH_ArkUI_NodeAdapterEvent_SetItem(ev, cell);
             break;
         }
         case NODE_ADAPTER_EVENT_ON_REMOVE_NODE_FROM_ADAPTER: {
-            // Return the cell to the pool for reuse; keep the inner Stack + day's cache intact.
+            // Return the cell to the pool for reuse; keep the inner Stack + day's cache intact —
+            // but clear the row subtree's dayscript ids (day-core's recycle rule): a pooled
+            // cell must stop answering lookups until its next bind.
             ArkUI_NodeHandle removed = OH_ArkUI_NodeAdapterEvent_GetRemovedNode(ev);
-            if (removed) dl->pool.push_back(removed);
+            if (removed) {
+                ArkUI_NodeHandle inner = g_api->getChildAt(removed, 0);
+                if (inner) day_arkui_list_recycle(dl->host_id, inner);
+                dl->pool.push_back(removed);
+            }
             break;
         }
         default:
@@ -1860,12 +1892,52 @@ static void day_list_forget(void* n) {
     delete dl;
 }
 
-void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t reorderable,
-                       uint32_t deletable, const char* delete_label) {
+/// One cell's selection fill (docs/list.md `ListPatch::Selected`): the HarmonyOS accent at
+/// 20% alpha as the LIST_ITEM's background — day's row content paints above it.
+static void day_list_paint_cell(DayList* dl, ArkUI_NodeHandle cell, int row) {
+    if (!g_api || !dl->selectable) return;
+    bool sel = day_arkui_list_is_selected(dl->host_id, (uint32_t)row) != 0;
+    ArkUI_NumberValue bg{};
+    bg.u32 = sel ? 0x330A59F7u : 0x00000000u;
+    ArkUI_AttributeItem bgi{};
+    bgi.value = &bg;
+    bgi.size = 1;
+    g_api->setAttribute(cell, NODE_BACKGROUND_COLOR, &bgi);
+}
+
+/// Repaint the live cells from day's selection record; newly bound cells take theirs in the
+/// adapter's add path. Pooled cells are detached — painting them is harmless and skipped by
+/// the rows map only when the list itself is gone.
+void day_ark_list_paint_selection(void* node) {
+    auto it = g_lists.find(node);
+    if (it == g_lists.end()) return;
+    DayList* dl = it->second;
+    for (auto& row : dl->rows) day_list_paint_cell(dl, row.first, row.second);
+}
+
+/// A tap landed on a selectable list cell: report the BOUND row as a selection — cells carry
+/// no day node id, so the shared click receiver resolves them through the row maps here.
+bool day_list_cell_click(ArkUI_NodeHandle n) {
+    for (auto& entry : g_lists) {
+        DayList* dl = entry.second;
+        if (!dl->selectable) continue;
+        auto it = dl->rows.find(n);
+        if (it != dl->rows.end()) {
+            day_arkui_on_event(dl->host_id, DAY_K_SELECTION_CHANGED, (double)it->second, "");
+            return true;
+        }
+    }
+    return false;
+}
+
+void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t selectable,
+                       uint32_t reorderable, uint32_t deletable, const char* delete_label) {
     if (!g_api || !node) return;
     DayList* dl = new DayList{OH_ArkUI_NodeAdapter_Create(),
                               host_id,
                               (float)(row_h_vp * g_density),
+                              selectable != 0,
+                              0,
                               {},
                               reorderable != 0,
                               (ArkUI_NodeHandle)node,
@@ -1886,12 +1958,19 @@ void day_ark_list_init(void* node, uint64_t host_id, double row_h_vp, uint32_t r
     }
 }
 
-// Re-query the row count (the adapter re-fetches its visible cells).
+// Re-query the row count and re-bind the visible cells. ReloadAllItems, not just the count:
+// SetTotalNodeCount alone diffs by item id (= the index), so a list that shrank and grew
+// back keeps stale bindings — and after shrinking to EMPTY the adapter stopped firing ADD
+// for the regrown rows at all (the composed tree's collapse/File-New path found it). The
+// pool + day-core's cell cache make the re-adds cheap rebinds, the same full-rebind reload
+// the other emulated lists do.
 void day_ark_list_reload(void* node) {
     auto it = g_lists.find(node);
     if (it == g_lists.end()) return;
+    it->second->generation++;
     uint32_t count = day_arkui_list_count(it->second->host_id);
     OH_ArkUI_NodeAdapter_SetTotalNodeCount(it->second->adapter, count);
+    OH_ArkUI_NodeAdapter_ReloadAllItems(it->second->adapter);
 }
 
 // Scroll the list so its last row is fully visible (docs/list.md, chat "stick to bottom").

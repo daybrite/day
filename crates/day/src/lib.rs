@@ -1008,6 +1008,10 @@ pub mod arkui {
         root: impl FnOnce() -> R + 'static,
     ) {
         day_arkui::init(content, w_vp, h_vp, density);
+        // Point the logger at hilog BEFORE anything can log (docs/logging.md): std's stdio
+        // goes nowhere in an OHOS ability, so without this every `log::` line is dropped —
+        // the same facade-installed sink rule as web.
+        day_core::set_log_sink(day_arkui::hilog_sink);
         day_script::init();
         // `crate::start` seeds the device's language preference before the root builds
         // (docs/localization.md); ArkUI's own hint list arrives once day-arkui implements

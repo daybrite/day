@@ -1848,8 +1848,11 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                     let expandable_tap = expandable_of.clone();
                     crate::label(move || {
                         let t = slot.get().0;
+                        // The FULL-size triangles (U+25BC/25B6), not the small ▾/▸ forms:
+                        // HarmonyOS Sans ships no glyph for the small ones — they rendered
+                        // as nothing at all on harmony-arkui.
                         if expandable_of(t) {
-                            if is_open(t) { "▾" } else { "▸" }
+                            if is_open(t) { "▼" } else { "▶" }
                         } else {
                             ""
                         }
