@@ -1428,6 +1428,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-tweak-tree-style"
+version = "0.3.0"
+dependencies = [
+ "day-appkit",
+ "day-core",
+ "day-gtk",
+ "day-pieces",
+ "day-spec",
+ "gtk4",
+ "objc2-app-kit",
+]
+
+[[package]]
 name = "day-uikit"
 version = "0.3.0"
 dependencies = [

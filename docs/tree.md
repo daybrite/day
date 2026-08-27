@@ -11,8 +11,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Tree (plan)
 
 > [!IMPORTANT]
-> **Status: M0 + M1 + M2 + M3 shipped (2026-08), M4's ArkUI half + M5's Android half
-> shipped (2026-08), M6 partially.** The seam, driver, flattener, `tree()` piece, mock
+> **Status: M0 + M1 + M2 + M3 + M5 shipped (2026-08), M4's ArkUI half shipped
+> (2026-08), M6 shipped.** The seam, driver, flattener, `tree()` piece, mock
 > probes, THREE native backends — AppKit `NSOutlineView`, GTK
 > `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, and UIKit's list-layout
 > `UICollectionView` over one diffable SECTION snapshot — and the COMPOSED tree (M2, on
@@ -20,9 +20,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > suite and Day Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim on
 > macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
 > (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
-> seven. XAML's composed flip is CODE-COMPLETE but awaits CI (nothing on this
-> development Mac can compile or run it — see M4's as-built notes); the remaining
-> milestone is the Showcase page + `day-tweak-tree-style` (M5's other half). M3's as-built notes:
+> seven. The Showcase's `Section::Tree` demo + `day-tweak-tree-style` shipped as M5's
+> other half: its own `dayscript/tree.yaml` (53 steps) passes verbatim on the same seven
+> targets, with per-row context menus proven by real browser right-clicks on web-dom.
+> XAML's composed flip is CODE-COMPLETE but awaits CI (nothing on this development Mac
+> can compile or run it — see M4's as-built notes). M3's as-built notes:
 >
 > - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
 >   but not yet `Cap::TreeMove` — the dayscript `tree_move:` step drives the seam on every
@@ -1015,9 +1017,12 @@ correctly, the closure computes the right glyph — but this one label's text ne
 the native node after pooled-cell rebinds), so disclosure is currently reachable through
 selection-driven reveals and the seam but not by a finger on the chevron; it needs its own
 session. The chevron glyphs are now `▶`/`▼` everywhere — HarmonyOS Sans ships no glyph for
-the small `▸`/`▾` forms.
+the small `▸`/`▾` forms. The Showcase tree demo (M5) surfaced a second symptom of the same
+pooled-rebind defect: a recycled cell's NAME label keeps a stale narrow measure, wrapping
+short file names mid-word after expand/collapse cycles — freshly bound rows are fine. Both
+belong to the one rebind-apply investigation.
 
-### M5 — Android, the Showcase page, and the style crate (Android SHIPPED 2026-08)
+### M5 — Android, the Showcase page, and the style crate (SHIPPED 2026-08)
 
 Android joins the emulation (the flattener over the existing `RecyclerView` list machinery,
 `ItemTouchHelper` for the drag, `AccessibilityNodeInfo` collection-item info plus
@@ -1050,7 +1055,7 @@ iOS get this right where the web's bubbling cannot). Still open on Android: the
 `set_context_menu_fn` wiring — a long-press summon would need the composed presenter's
 `Event::ContextMenu`).
 
-### M6 — Day Sketch (leading pane, layer panel and walkthrough SHIPPED 2026-08; the Showcase page waits for M5)
+### M6 — Day Sketch (leading pane, layer panel and walkthrough SHIPPED 2026-08)
 
 The leading pane and the layer panel, covered below.
 
@@ -1079,6 +1084,34 @@ CI — asserts what no screenshot can: expanding a folder reveals exactly its ch
 collapsing hides their ids, `tree_move` reparents and the readout agrees, a guarded move fails
 the step, type-ahead lands on the expected row, and `assert_no_placeholders` holds on every
 target.
+
+**As built (2026-08).** `src/pages/tree.rs`: a nine-node mock project behind one
+`Signal<Vec<FileNode>>`, `branches(items, key, parent)` deriving the hierarchy, and every
+portable option driven from real controls — Expand/Collapse All writing the app-owned
+expansion set, a Reveal button (`.reveal` targeting a leaf under two collapsed ancestors),
+Add File into the selected folder, a Multi-select toggle that REBUILDS the tree with the
+other flag (a build-time option, swapped through `when(...).otherwise(...)`), a Lock toggle
+arming the `move_guard` (docs/ refuses drops while locked — the native no-drop cursor on
+macOS), `.type_ahead` from the names, and summon-time `.row_context_menu` menus (folders:
+New File; files: Duplicate; both: Move Up/Down through sibling swaps, Delete of the
+subtree). Readouts mirror `on_selection`, the node count, and exactly what `on_move` was
+handed. Deltas from the plan above: the toggleable hook shipped as the Lock/`move_guard`
+switch (`can_select` does not exist yet — see M1's notes); the reveal "field" is a button
+with a fixed deep target; the walkthrough cannot assert a DENIED move or type-ahead
+(dayscript has no assert-this-step-fails form and no `type_ahead:` step — the deny verdict
+and type-select stay pointer checks); and the tweak line ships as
+`.tree_style(TreeStyle::sidebar())` — `tweaks/day-tweak-tree-style`, AppKit clearing the
+scroll/outline backgrounds via `Subcontrol::Content` (plus an `alternating_rows` option),
+GTK adding Adwaita's `navigation-sidebar` class, a documented no-op elsewhere. Two traps
+worth keeping: `.id("demo-tree")` must chain on the TREE builder itself — after `.height`
+it tags the wrapper and every `expand:`/`tree_move:` step fails with "no tree at this
+node"; and `assert_text` against argumented Fluent messages must go through `key:`+`args:`
+(the runner formats them with the same bidi isolates the label carries). Verified locally:
+tree.yaml 53/53 on macos-appkit, macos-gtk, macos-qt, web-dom, android-mdc, ios-uikit and
+harmony-arkui; the walkthrough.yaml tree block in the appkit full run (705/705); real
+right-click context menus, a real Duplicate commit and real chevron disclosure on web-dom
+via a headless browser; light + dark screenshot review (ArkUI shows the pooled-rebind
+label defect noted under M4).
 
 ## Day Sketch: the layer panel
 

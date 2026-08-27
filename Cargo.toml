@@ -67,6 +67,7 @@ members = [
     "tweaks/day-tweak-button-bezel",
     "tweaks/day-tweak-tooltip",
     "tweaks/day-tweak-slider-tickmarks",
+    "tweaks/day-tweak-tree-style",
     "crates/day-toolchain",
     "crates/day-build",
     "crates/day-cli",
@@ -157,6 +158,7 @@ day-piece-texteditor = { path = "pieces/day-piece-texteditor", version = "0.3.0"
 # Tweaks (docs/tweaks.md): packaged per-backend configuration of built-in pieces.
 day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel", version = "0.3.0" }
 day-tweak-tooltip = { path = "tweaks/day-tweak-tooltip", version = "0.3.0" }
+day-tweak-tree-style = { path = "tweaks/day-tweak-tree-style", version = "0.3.0" }
 day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks", version = "0.3.0" }
 day-toolchain = { path = "crates/day-toolchain", version = "0.3.0" }
 day-build = { path = "crates/day-build", version = "0.3.0" }

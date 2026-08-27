@@ -138,13 +138,14 @@ more reason the rules below say to hold a `NativeRef` rather than a handle clone
 
 For anything reusable, package the tweak: an ordinary crate whose modifier applies the native
 calls per toolkit and **no-ops where it has no coverage**; the consuming app writes zero
-`#[cfg]`. Three in-tree examples span the range:
+`#[cfg]`. Four in-tree examples span the range:
 
 | crate | scope | demonstrates |
 |---|---|---|
 | `tweaks/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
 | `tweaks/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
 | `tweaks/day-tweak-slider-tickmarks` | AppKit, GTK, Android, Qt, XAML, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's OWN Qt C++, WinRT C++, and NDK C++ |
+| `tweaks/day-tweak-tree-style` | AppKit, GTK | styling a COMPOSITE control's subcontrols (`with_native_subcontrol` reaches the `NSOutlineView` inside the tree's scroll host; GTK adds a CSS class to the `GtkListView`) |
 
 The Cargo shape mirrors piece crates: per-backend `[features]` gating optional deps, plus
 

@@ -1,0 +1,34 @@
+[package]
+name = "day-tweak-tree-style"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Tweak: native tree styling — the macOS sidebar/alternating-row treatments on day's `tree(…)`, documented no-ops where a backend has no native tree."
+
+[dependencies]
+day-core = { workspace = true }
+day-pieces = { workspace = true }
+day-spec = { workspace = true }
+day-appkit = { workspace = true, optional = true }
+objc2-app-kit = { version = "0.3", optional = true, features = [
+    "NSOutlineView",
+    "NSTableView",
+    "NSScrollView",
+    "NSControl",
+    "NSView",
+    "NSResponder",
+] }
+day-gtk = { workspace = true, optional = true }
+gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
+
+[features]
+appkit = ["dep:day-appkit", "dep:objc2-app-kit"]
+gtk = ["dep:day-gtk", "dep:gtk4"]
+
+# Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
+# features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
+[package.metadata.day.piece]
+backends = ["appkit", "gtk"]
