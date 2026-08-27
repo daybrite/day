@@ -100,7 +100,16 @@ struct Server {
 
 impl Server {
     fn start(fixture: &Fixture) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_day"))
+        Self::start_with(fixture, &[])
+    }
+
+    /// `env` is applied on top of the server's environment, for the `DAY_SELF_COMMAND` tests.
+    fn start_with(fixture: &Fixture, env: &[(&str, &str)]) -> Self {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_day"));
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let mut child = cmd
             .arg("--project")
             .arg(&fixture.dir)
             .arg("mcp-server")
@@ -240,7 +249,14 @@ fn initialize_announces_the_server_and_its_tool_capability() {
         result["capabilities"].get("tools").is_some(),
         "initialize must advertise the tools capability: {result}"
     );
-    assert_eq!(result["serverInfo"]["name"], "day");
+    // Naming the project, not just the product: a window of several Day apps runs one server per
+    // app, and a client that shows this name would otherwise present identical `day` rows with no
+    // way to tell which app each one drives.
+    let name = result["serverInfo"]["name"].as_str().unwrap_or_default();
+    assert!(
+        name.starts_with("day") && name.contains(Fixture::APP_ID),
+        "serverInfo.name must identify the bound project: {name:?}"
+    );
     assert_eq!(
         result["serverInfo"]["version"],
         env!("CARGO_PKG_VERSION"),
@@ -340,13 +356,24 @@ fn a_tool_call_reaches_the_cli_and_answers_about_this_project() {
         .as_array()
         .expect("tools/call returns content blocks");
     assert_eq!(content[0]["type"], "text");
-    let text = content[0]["text"].as_str().unwrap_or_default();
 
-    // Parsing it proves the whole path: the server shelled into this binary with `--project`
-    // pointing at the fixture, and relayed `metadata --json` intact. A tool that runs but reports
-    // on the wrong directory is precisely the bug `--project` exists to prevent.
+    // Parsing the SECOND block proves the whole path: the server shelled into this binary with
+    // `--project` pointing at the fixture, and relayed `metadata --json` intact. A tool that runs
+    // but reports on the wrong directory is precisely the bug `--project` exists to prevent. It
+    // has to stay a block of its own — an agent parses it, and a header merged into it would make
+    // the one tool everything else depends on unparseable.
+    let text = content[1]["text"].as_str().unwrap_or_default();
     let meta: serde_json::Value = serde_json::from_str(text)
         .unwrap_or_else(|e| panic!("day_metadata did not return JSON ({e}): {text}"));
+
+    // The header names the bound project. Without it an agent in a multi-project window builds
+    // and drives the wrong app with nothing in any result to say so.
+    let note = content[0]["text"].as_str().unwrap_or_default();
+    let root = meta["project"]["root"].as_str().unwrap_or_default();
+    assert!(
+        note.contains(Fixture::APP_ID) && !root.is_empty() && note.contains(root),
+        "the first block must name the project this server is bound to ({root}): {note:?}"
+    );
     assert_eq!(meta["project"]["id"], Fixture::APP_ID);
     let targets: Vec<&str> = meta["project"]["targets"]
         .as_array()
@@ -376,11 +403,19 @@ fn a_failing_tool_reports_in_band_rather_than_as_a_protocol_error() {
             result["isError"], true,
             "{name} should have failed: {result}"
         );
+        let texts: Vec<&str> = result["content"]
+            .as_array()
+            .map(|b| b.iter().filter_map(|x| x["text"].as_str()).collect())
+            .unwrap_or_default();
         assert!(
-            result["content"][0]["text"]
-                .as_str()
-                .is_some_and(|t| !t.is_empty()),
+            texts.iter().any(|t| t.contains("error")),
             "{name} failed without saying why: {result}"
+        );
+        // A failure is exactly when knowing which project answered matters most — "no running
+        // sessions" about the wrong app is what sent one agent chasing a working launch.
+        assert!(
+            texts.iter().any(|t| t.contains(Fixture::APP_ID)),
+            "{name}'s failure does not name the project it was about: {result}"
         );
     }
 }
@@ -400,6 +435,64 @@ fn an_unknown_method_is_a_protocol_error() {
         reply["error"]["code"], -32601,
         "unknown methods are JSON-RPC 'method not found': {reply}"
     );
+}
+
+/// `DAY_SELF_COMMAND` is how a day-development window keeps the agent's tools on the same CLI as
+/// the editor's own Build and Run: the extension resolves `cargo run` against the open checkout
+/// and names it here, so a day-cli edit is compiled into the next tool call.
+///
+/// Proved by pointing it somewhere unrunnable. Were the override ignored, the call would quietly
+/// succeed through `current_exe()` — which is exactly the silent staleness this exists to end, and
+/// a test that could not tell the difference would be no test at all.
+#[test]
+fn a_tool_call_re_invokes_the_cli_the_self_command_names() {
+    let fixture = Fixture::new("selfcmd").expect("write fixture");
+    let mut server = Server::start_with(
+        &fixture,
+        &[(
+            "DAY_SELF_COMMAND",
+            r#"["day-cli-no-such-program-exists-here"]"#,
+        )],
+    );
+    server.initialize();
+
+    let result = server.result(
+        "tools/call",
+        serde_json::json!({"name": "day_metadata", "arguments": {}}),
+    );
+    let text = result["content"]
+        .as_array()
+        .map(|b| {
+            b.iter()
+                .filter_map(|x| x["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    assert!(
+        text.contains("failed to run day"),
+        "the tool call did not go through DAY_SELF_COMMAND: {text}"
+    );
+}
+
+/// The override is a convenience channel, so an unusable value must degrade to the default rather
+/// than break every tool on the server.
+#[test]
+fn an_unusable_self_command_falls_back_to_this_binary() {
+    let fixture = Fixture::new("selfbad").expect("write fixture");
+    for value in ["not json", "[]", "{}", "[1, 2]"] {
+        let mut server = Server::start_with(&fixture, &[("DAY_SELF_COMMAND", value)]);
+        server.initialize();
+        let result = server.result(
+            "tools/call",
+            serde_json::json!({"name": "day_metadata", "arguments": {}}),
+        );
+        let text = result["content"][1]["text"].as_str().unwrap_or_default();
+        let meta: serde_json::Value = serde_json::from_str(text).unwrap_or_else(|e| {
+            panic!("DAY_SELF_COMMAND={value:?} broke day_metadata ({e}): {text}")
+        });
+        assert_eq!(meta["project"]["id"], Fixture::APP_ID);
+    }
 }
 
 /// A client sends notifications (`notifications/initialized` right after the handshake) and can

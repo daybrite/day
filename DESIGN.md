@@ -4366,10 +4366,14 @@ Day-Showcase gained a Model page with walkthrough coverage.
 ## Addendum (2026-08-22) — day-persistence: SQLite storage for the model
 
 Adopted as phase 2 of the same plan: the change log, folded into SQL.
-[docs/persistence.md](docs/persistence.md) is normative. The shape is deliberately SwiftData's —
-a container opens a database, loads each model's table into an ordinary `Store<Keyed<M>>`, and
-autosaves the fold of whatever the UI already announced — with the schema visible instead of
-hidden, and the engine a cargo feature instead of a linked fate.
+[docs/persistence.md](docs/persistence.md) is normative. The API vocabulary is deliberately
+SwiftData's (`ModelContainer`, `@Model`-style declarations, delete rules); the STORAGE
+strategy as first shipped was not — a container opened a database and loaded each model's
+table into an ordinary `Store<Keyed<M>>`, the document pattern, where SwiftData faults rows
+in on demand. (This paragraph originally attributed the load-everything shape to SwiftData;
+corrected 2026-08-27 — SwiftData is built on Core Data's faulting and never loads a store
+whole. The lazy-engine note below replaced the strategy itself.) The schema is visible
+instead of hidden, and the engine a cargo feature instead of a linked fate.
 
 What shipped, and where:
 
@@ -4456,8 +4460,8 @@ the storage readout in the walkthrough.
   the change log — the literal "mapped" it wrote before was invisible to the SQL fold, so a
   converted binding over a container store silently never persisted.
 
-Still deferred: lazy faulting, external storage, session-suspend auto-commit and
-cross-window undo focus routing.
+Still deferred then: lazy faulting (landed 2026-08-27 — the lazy-engine note below),
+external storage, session-suspend auto-commit and cross-window undo focus routing.
 
 **Outcome (2026-08-22).** Cross-connection watching landed — not via the preupdate hook the
 plan named (it reports only its own connection's writes and cannot see another process's), but
@@ -4489,7 +4493,9 @@ in-memory and SQL paths:
   guarded rather than latent.
 
 `tests/predicates.rs` (26) covers the vocabulary, the three-valued table, the exactness flag and
-the Unicode fold.
+the Unicode fold. (`sql_exact` itself was retired 2026-08-27: the lazy engine registers
+`day_fold` — Rust's fold as a SQL function — so the case-insensitive forms compile exactly and
+SQL became the one evaluation path; the three-valued contract carried over unchanged.)
 
 **Predicates across relations (2026-08-25).** A query can now ask about a row's relatives:
 `Trip::lodging().any(…)`, `.none(…)`, `.all(…)`, `.is_empty()`, `.count_ge(n)` — one quantifier
@@ -4515,7 +4521,9 @@ but back-resolves only one hop (`Deps::deep` reports it, and such a fetch re-der
 relation predicate is not `sql_exact` because its faithful SQL is a correlated `EXISTS` needing
 the wiring's column names. `EvalCtx` replaced `RowsView` to carry the relation half of what an
 evaluation can reach. `tests/relation_query.rs` (19) covers every shape and, more importantly,
-the counting claims.
+the counting claims. (Superseded 2026-08-27: the lazy engine compiles exactly that correlated
+`EXISTS`, nesting included, so the one-hop back-resolution limit and `Deps::deep` are gone —
+the dependency gating survives as staleness marking.)
 
 **Keys and relations (2026-08-23).** The two schema-shaping decisions, owner-ratified in
 dialog and landed together:
@@ -4533,9 +4541,9 @@ dialog and landed together:
   only until the web pipeline's entropy import lands. Refusals rather than mis-service:
   `fts(…)`/`spatial(…)` need an integer key (both address rows by ROWID), and a key field
   takes no codec.
-- **Relations, the full SwiftData shape.** `One<M>` is the child's foreign-key column — the
-  single source of truth — and `Many<M>` a marker field whose accessor reads an index the
-  container maintains from the change log, which is how maintained inverses come out of the
+- **Relations, the full SwiftData-style vocabulary.** `One<M>` is the child's foreign-key
+  column — the single source of truth — and `Many<M>` a marker field whose accessor reads an
+  index the container maintains from the change log, which is how maintained inverses come out of the
   existing pipeline rather than parallel bookkeeping: writing either side wakes both, and
   `add` goes through the child's FK so it announces, captures for undo, folds to one
   statement, and animates live queries. Delete rules default to `nullify` (refused over a
@@ -4548,6 +4556,72 @@ dialog and landed together:
   (`Key::Pair`), so they fold, undo and merge through the same machinery every other row
   uses; declaring it on both models yields one relation with two views, and a join cascade
   takes only the rows no other row still holds. `Model::RELATIONS` exposes it all as data.
+
+## Addendum (2026-08-27) — day-persistence: the lazy engine
+
+The load-everything container was replaced wholesale; [docs/persistence.md](docs/persistence.md)
+remains normative and now describes only this engine. The trigger was the Day-Sheets redesign
+surfacing that `ModelContainer::open` read every row of every table (`SELECT {cols} FROM {t}`
+per model) and that queries evaluated in memory over the loaded rows — fine for a sketch
+document, wrong for any store that grows. Breaking changes were accepted deliberately; the
+in-repo adopters migrated in the same change.
+
+What changed, and what it replaced:
+
+- **Open reads no rows.** `attach` creates/migrates the table and registers hooks; every
+  `Store<Keyed<M>>` starts empty and is renamed at the API — `container.cache::<M>()`, because
+  `store()` implied "the table" and its `keys()` no longer are. Rows FAULT in: `get(id)`,
+  `ensure_resident(&keys)` (one chunked `SELECT`), or a list materializing the window it binds
+  (`Query::materialize(range)`; the `list(query, …)` glue faults around the bound row). The
+  cache is bounded (`set_cache_limit`, default 8192/model): eviction spares dirty and observed
+  rows (day-model grew `populate`/`depopulate`/`is_observed` — silent cache traffic, no
+  announcements), and a row deleted this turn never resurrects through a fault.
+- **Queries compile whole.** Predicate → WHERE (relation crossings as correlated `EXISTS` at
+  any depth, joins through the join table, FTS as a shadow-table subquery, `rank()` as a join,
+  `within` narrowed through the R*Tree then re-checked exactly), sorts → ORDER BY + key
+  tie-break, limit → LIMIT. Case-insensitive predicates stay EXACT in SQL: the native driver
+  registers `day_fold` (Rust's full-Unicode `to_lowercase`) at open —
+  `Capabilities::unicode_fold`; a driver without it (the web engine, for now) takes a fallback
+  that SQL-filters the exact conjuncts and re-checks the fold over the selected dependency
+  columns. `sql_exact`, `evaluable`, `EvalCtx`, `OneRow` and `LiveSet` are gone.
+- **Liveness = staleness + one requery + a verified diff.** The change sink marks a query
+  stale only when a change touches its dependency set (own columns, relation fk/order fields,
+  related columns, join-store membership); ONE requery after the turn's flush re-derives the
+  ids, and `ResultSet::adopt` diffs old→new into `Insert`/`Remove`/`Move` deltas, verified by
+  simulation before delivery (an un-narratable change reloads honestly). Every read
+  (`ids`, `count`, `take_events`, the untracked forms) settles staleness first, so read-your-
+  writes holds; with autosave off, queries answer from the last save, documented. The 600-edit
+  agreement tests were rewritten to mirror the delta feed and still pin id-for-id agreement.
+- **Relations became lazy views.** The eager per-relation indexes (seeded O(n) at open) are
+  per-parent memos over one indexed `SELECT`, overlaid with the turn's unflushed dirty rows so
+  mid-turn reads are coherent without flushing; join membership stores start empty. Writes
+  materialize their rows first; cascades walk children from the same indexed SELECT, fold to
+  chunked deletes, materialize only when an undo stack is installed, and the engine's
+  `ON DELETE` clauses backstop rows this process never faulted. A wholesale `Store::update`
+  now upserts the RESIDENT rows only — a working set cannot infer deletions from absence, so
+  emptying a table became an explicit act (the one deliberate behavior break).
+- **External checks are O(working set).** `check_external`/`rescan` re-select only the
+  resident keys, diff per column under the `"database"` author, and re-run every query;
+  arrivals surface through the queries and fault like any row.
+- Fixed en route: raw queries never re-ran on inserts (`statement_touches` predated the
+  upsert form), and empty `NOT IN ()` compiles to `IS NOT NULL` so both paths keep the
+  three-valued reading.
+
+Adopters in the same change: Day-Showcase's Query page now caps its cache at 2,048 under the
+10,000-row table and shows a residency readout where the evaluation counter was; its Model
+page clears the demo file explicitly before reseeding; Day-Sketch (a document app) lifts the
+cache bound and `warm`s its tables at open — the load-at-open shape, by choice. `tests/lazy.rs`
+pins the contract (no row SELECT at open, batch faulting, bounded cache, eviction exemptions,
+no zombie faults); the full suite runs 19 green targets.
+
+One cliff found by benchmarking and fixed in the same change: eviction cost O(cache) PER
+EVICTED ROW (`Keyed::remove` rebuilds its key map per call), which made a 50k-row relation
+traversal over a 500k-row table take 8.3s at the default cache bound. day-model grew
+`depopulate_many` (one retain, one reindex) and the enforcement pass gained hysteresis
+(slack before it runs, then one batched pass to the limit); the same traversal is 68ms —
+level with an unbounded cache. Day-Bench gained the measuring apparatus: `persist/` +
+`versus/swiftdata/`, one schema and phase set over both engines
+(`scripts/compare-persistence.sh`).
 
 ---
 

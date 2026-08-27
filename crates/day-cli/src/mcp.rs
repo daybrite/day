@@ -8,9 +8,10 @@
 //! engine inside every running app — DRIVE the UI and capture screenshots on all seven toolkits,
 //! with images returned as MCP image content so vision models can look at the result.
 //!
-//! Deliberately thin: each tool call shells out to THIS binary (`current_exe`) with the ordinary
-//! CLI arguments and relays the (JSON where available) output. The CLI stays the single source
-//! of behavior; the server is transport, not logic. Transport: newline-delimited JSON-RPC 2.0.
+//! Deliberately thin: each tool call shells out to the CLI (this binary by default, or whatever
+//! `DAY_SELF_COMMAND` names — see `self_command`) with the ordinary CLI arguments and relays the
+//! (JSON where available) output. The CLI stays the single source of behavior; the server is
+//! transport, not logic. Transport: newline-delimited JSON-RPC 2.0.
 
 use std::io::{BufRead, Write};
 use std::process::Command;
@@ -95,10 +96,44 @@ fn tool_list() -> serde_json::Value {
     ])
 }
 
-/// Run this binary with `args`, capture stdout+stderr, and normalize to (ok, text).
+/// Overrides how a tool call re-invokes the CLI. A JSON array: argv[0] and any leading arguments.
+const SELF_COMMAND_ENV: &str = "DAY_SELF_COMMAND";
+
+/// How to re-invoke the CLI for one tool call: the program, and the arguments that precede the
+/// day subcommand.
+///
+/// Normally this binary (`current_exe`), which is right for a server a user started themselves.
+/// `DAY_SELF_COMMAND` replaces it — the VS Code extension sets it to the invocation it resolved,
+/// which in a day-development window is `cargo run` against the open `day/` checkout.
+///
+/// Without it, such a window is half stale: the editor's own Build and Run go through `cargo run`
+/// and compile the developer's day-cli edits, while every agent tool call execs whatever
+/// `target/debug/day` happened to be on disk — the server itself never runs cargo, so nothing in
+/// the agent loop ever rebuilds. Working on `day/` and an app in one session is the whole point of
+/// that setup, so the two paths have to agree.
+fn self_command() -> (std::ffi::OsString, Vec<String>) {
+    let fallback = || {
+        std::env::current_exe()
+            .unwrap_or_else(|_| "day".into())
+            .into_os_string()
+    };
+    // A malformed or empty value falls back rather than failing every tool call: this is a
+    // convenience channel, and an unusable one must not take the server down with it.
+    let parsed = std::env::var_os(SELF_COMMAND_ENV)
+        .and_then(|raw| raw.to_str().map(str::to_owned))
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .filter(|argv| !argv.is_empty());
+    match parsed {
+        Some(argv) => (argv[0].clone().into(), argv[1..].to_vec()),
+        None => (fallback(), Vec::new()),
+    }
+}
+
+/// Run the CLI with `args`, capture stdout+stderr, and normalize to (ok, text).
 fn run_self(project: &Project, args: &[&str]) -> (bool, String) {
-    let exe = std::env::current_exe().unwrap_or_else(|_| "day".into());
+    let (exe, prefix) = self_command();
     let out = Command::new(exe)
+        .args(&prefix)
         .arg("--project")
         .arg(&project.root)
         .args(args)
@@ -122,6 +157,53 @@ fn run_self(project: &Project, args: &[&str]) -> (bool, String) {
 /// MCP text content block.
 fn text_content(text: &str) -> serde_json::Value {
     serde_json::json!([{ "type": "text", "text": text }])
+}
+
+/// A one-line header naming the project every tool call acted on.
+///
+/// The server is bound to ONE project at spawn (`--project`), and no tool's own output revealed
+/// which. An agent asked to work on a second app in the same window therefore got answers about
+/// the first with nothing to indicate it: `day_launch` builds the wrong app, and `day_running`
+/// reports "no sessions" about an app the user can plainly see running, because the session
+/// registry lives at `<root>/build/day/sessions.json` and is read under the bound root. Stamped on
+/// every result, success or failure, so the mismatch is legible on the very first call.
+///
+/// A separate block rather than a prefix on the first one: `day_metadata` returns JSON the agent
+/// parses, and prepending to it would corrupt exactly the tool it is most important not to break.
+/// The app this server is bound to, for a human (and for a model) to read.
+fn app_name(project: &Project) -> String {
+    let app = &project.manifest.app;
+    match app
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        Some(title) => format!("{title} ({})", app.id),
+        None => app.id.clone(),
+    }
+}
+
+fn project_note(project: &Project) -> serde_json::Value {
+    let named = app_name(project);
+    serde_json::json!({
+        "type": "text",
+        "text": format!(
+            "project: {named} at {}\n(this server serves only this project; ask for another app's \
+             MCP server to act on it)",
+            project.root.display()
+        )
+    })
+}
+
+/// Put the project header in front of whatever a tool produced.
+fn with_project_note(project: &Project, content: serde_json::Value) -> serde_json::Value {
+    let mut blocks = vec![project_note(project)];
+    match content {
+        serde_json::Value::Array(items) => blocks.extend(items),
+        other => blocks.push(other),
+    }
+    serde_json::Value::Array(blocks)
 }
 
 fn call_tool(
@@ -355,10 +437,17 @@ pub fn run(project: &Project) -> i32 {
         let Some(id) = id else { continue };
 
         let result: Result<serde_json::Value, String> = match method {
+            // `serverInfo.name` names the PROJECT, not just the product. A window of several Day
+            // apps runs one server each, and a client that surfaces this name — VS Code caches it
+            // per server — would otherwise show a row of identical `day`s with no way to tell
+            // which app any of them drives.
             "initialize" => Ok(serde_json::json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "day", "version": env!("CARGO_PKG_VERSION") }
+                "serverInfo": {
+                    "name": format!("day: {}", app_name(project)),
+                    "version": env!("CARGO_PKG_VERSION")
+                }
             })),
             "ping" => Ok(serde_json::json!({})),
             "tools/list" => Ok(serde_json::json!({ "tools": tool_list() })),
@@ -370,9 +459,14 @@ pub fn run(project: &Project) -> i32 {
                 let empty = serde_json::json!({});
                 let args = msg.pointer("/params/arguments").unwrap_or(&empty);
                 match call_tool(project, name, args) {
-                    Ok(content) => Ok(serde_json::json!({ "content": content })),
+                    Ok(content) => Ok(serde_json::json!({
+                        "content": with_project_note(project, content)
+                    })),
                     Err(e) => Ok(serde_json::json!({
-                        "content": [{ "type": "text", "text": format!("error: {e}") }],
+                        "content": with_project_note(
+                            project,
+                            serde_json::json!([{ "type": "text", "text": format!("error: {e}") }]),
+                        ),
                         "isError": true
                     })),
                 }

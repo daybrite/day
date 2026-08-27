@@ -112,9 +112,21 @@ back into the day CLI, so the server is transport, not logic. Tools:
 | `day_screenshot` | `drive` with `wait_idle` + `screenshot` |
 | `day_lint` | `lint` |
 
-VS Code: the Day extension registers the server automatically for Day workspaces
-(`day.mcp.enabled`, default on). Agent mode then has all ten tools. Other MCP clients point
-at `day --project <root> mcp-server`.
+A server serves exactly ONE project — the `--project` it was spawned with — and no tool takes a
+project argument, so every result opens with a line naming that project. An agent working in a
+window of several apps reads it and knows which server it is holding.
+
+A tool call shells back into the server's own executable, or into whatever `DAY_SELF_COMMAND`
+names ([docs/environment.md](environment.md)). That matters when day itself is under development:
+with `day.cliSource` set, the editor runs the CLI as `cargo run` against the open checkout, and
+the extension passes the same invocation here — so a day-cli edit is compiled into the next tool
+call instead of the agent silently running the binary that was on disk when the server started.
+Changes to the server's own dispatch (this file's `mcp.rs`) still need **MCP: Restart Server**,
+which recompiles it on the way back up.
+
+VS Code: the Day extension registers one server per Day project in the window, labeled
+`Day: <app title>` (`day.mcp.enabled`, default on). Agent mode then has all ten tools for each.
+Other MCP clients point at `day --project <root> mcp-server`.
 
 ## The loop agents should follow
 

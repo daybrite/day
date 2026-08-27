@@ -9,7 +9,7 @@
 use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
 use day_persistence::{
-    Fetch, ModelContainer, One, OneRow, Pred, RowView, Sqlite, Value, compare_values, schema,
+    Fetch, ModelContainer, One, Pred, Recorder, RowView, Sqlite, Value, compare_values, schema,
 };
 use day_reactive::Binding;
 
@@ -62,7 +62,7 @@ fn text_row(shelf: Option<&str>) -> Row {
 
 fn papers() -> ModelContainer {
     let c = ModelContainer::open(Sqlite::memory(), schema![Paper]).expect("open");
-    let store = c.store::<Paper>();
+    let store = c.cache::<Paper>();
     for (id, title, shelf, pages) in [
         (1u32, "Quicksort", Some("A"), 12i64),
         (2, "quicksort revisited", Some("B"), 30),
@@ -154,7 +154,7 @@ fn the_set_is_sorted_so_membership_is_a_binary_search() {
     // Ten thousand ids, built in a deliberately hostile order. A linear scan per candidate
     // row would make the seed quadratic; this is the guard that it is not.
     let c = ModelContainer::open(Sqlite::memory(), schema![Paper]).expect("open");
-    let store = c.store::<Paper>();
+    let store = c.cache::<Paper>();
     for id in 0..10_000u32 {
         store.restructure("add", Op::Insert, id, |v| {
             v.push(Paper {
@@ -223,14 +223,14 @@ fn is_null_and_is_not_null_partition_the_table() {
 fn a_reference_column_reports_set_and_unset() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Author, Essay]).expect("open");
     let ada = Uuid::now_v7();
-    c.store::<Author>()
+    c.cache::<Author>()
         .restructure("add", Op::Insert, ada, |v| {
             v.push(Author {
                 id: ada,
                 name: "Ada".into(),
             })
         });
-    let essays = c.store::<Essay>();
+    let essays = c.cache::<Essay>();
     for (id, author) in [(1u32, Some(ada)), (2, None), (3, Some(ada))] {
         essays.restructure("add", Op::Insert, id, |v| {
             v.push(Essay {
@@ -283,17 +283,17 @@ fn a_comparison_against_null_is_unknown_not_false() {
         Pred::In("shelf", vec![Value::Text("A".into())]),
     ] {
         assert_eq!(
-            pred.eval3(0, &OneRow(&null_row)),
+            pred.eval3(0, &null_row),
             None,
             "{pred:?} against NULL must be UNKNOWN"
         );
         assert!(
-            !pred.eval(0, &OneRow(&null_row)),
+            !pred.eval(0, &null_row),
             "{pred:?} must not select a NULL row"
         );
     }
     // …while the same predicates stay definite over a present value.
-    assert_eq!(Pred::Ne("shelf", b).eval3(0, &OneRow(&a_row)), Some(true));
+    assert_eq!(Pred::Ne("shelf", b).eval3(0, &a_row), Some(true));
 }
 
 #[test]
@@ -305,112 +305,114 @@ fn unknown_propagates_through_and_or_and_not() {
 
     // AND: false dominates, otherwise UNKNOWN survives.
     assert_eq!(
-        Pred::And(Box::new(unknown.clone()), Box::new(no.clone())).eval3(0, &OneRow(&null_row)),
+        Pred::And(Box::new(unknown.clone()), Box::new(no.clone())).eval3(0, &null_row),
         Some(false)
     );
     assert_eq!(
-        Pred::And(Box::new(unknown.clone()), Box::new(yes.clone())).eval3(0, &OneRow(&null_row)),
+        Pred::And(Box::new(unknown.clone()), Box::new(yes.clone())).eval3(0, &null_row),
         None
     );
     // OR: true dominates.
     assert_eq!(
-        Pred::Or(Box::new(unknown.clone()), Box::new(yes)).eval3(0, &OneRow(&null_row)),
+        Pred::Or(Box::new(unknown.clone()), Box::new(yes)).eval3(0, &null_row),
         Some(true)
     );
     assert_eq!(
-        Pred::Or(Box::new(unknown.clone()), Box::new(no)).eval3(0, &OneRow(&null_row)),
+        Pred::Or(Box::new(unknown.clone()), Box::new(no)).eval3(0, &null_row),
         None
     );
     // NOT UNKNOWN is UNKNOWN — so a negated predicate still does not select a NULL row.
     assert_eq!(
-        Pred::Not(Box::new(unknown.clone())).eval3(0, &OneRow(&null_row)),
+        Pred::Not(Box::new(unknown.clone())).eval3(0, &null_row),
         None
     );
-    assert!(!Pred::Not(Box::new(unknown)).eval(0, &OneRow(&null_row)));
+    assert!(!Pred::Not(Box::new(unknown)).eval(0, &null_row));
 }
 
 #[test]
 fn is_null_stays_definite_about_null() {
     let null_row = text_row(None);
     assert_eq!(
-        Pred::Eq("shelf", Value::Null).eval3(0, &OneRow(&null_row)),
+        Pred::Eq("shelf", Value::Null).eval3(0, &null_row),
         Some(true)
     );
     assert_eq!(
-        Pred::Ne("shelf", Value::Null).eval3(0, &OneRow(&null_row)),
+        Pred::Ne("shelf", Value::Null).eval3(0, &null_row),
         Some(false)
     );
     // And a NOT over it is an ordinary negation, because there is no UNKNOWN to propagate.
     assert_eq!(
-        Pred::Not(Box::new(Pred::Eq("shelf", Value::Null))).eval3(0, &OneRow(&null_row)),
+        Pred::Not(Box::new(Pred::Eq("shelf", Value::Null))).eval3(0, &null_row),
         Some(false)
     );
 }
 
-// --- the sql_exact contract -----------------------------------------------------------
+// --- the day_fold contract --------------------------------------------------------------
 
 #[test]
-fn case_insensitive_predicates_declare_their_sql_form_inexact() {
-    // The regression guard for a real divergence: Rust's `to_lowercase` is full Unicode,
-    // SQLite's `lower()` is ASCII only, so `École` folds one way and not the other. Rather
-    // than let a SQL-filtering path silently drop the row, these predicates say so.
-    assert!(!Pred::ContainsCi("title", "école".into()).sql_exact());
-    assert!(!Pred::StartsWithCi("title", "éc".into()).sql_exact());
-    // And the flag propagates, so a compound predicate cannot smuggle one past.
-    let compound = Pred::ContainsCi("title", "é".into()) & Pred::Eq("pages", Value::Int(1));
-    assert!(!compound.sql_exact());
-    assert!(!Pred::Not(Box::new(Pred::ContainsCi("title", "é".into()))).sql_exact());
-
-    // Everything else is exact.
-    for p in [
-        Pred::Eq("pages", Value::Int(1)),
-        Pred::Contains("title", "sort".into()),
-        Pred::StartsWith("title", "Quick".into()),
-        Pred::In("pages", vec![Value::Int(1)]),
-        Pred::NotIn("pages", vec![Value::Int(1)]),
-        Pred::IdIn(vec![1, 2]),
-        Pred::Eq("shelf", Value::Null),
-    ] {
-        assert!(p.sql_exact(), "{p:?} should be exact");
-    }
-}
-
-#[test]
-fn the_unicode_fold_still_works_in_memory() {
-    // The behavior the inexact flag protects: case-insensitive search over non-ASCII is
-    // correct on the path that actually runs.
+fn case_insensitive_predicates_fold_full_unicode_in_sql() {
+    // The divergence day_fold exists to close: Rust's `to_lowercase` is full Unicode,
+    // SQLite's own `lower()` is ASCII only, so `École` folds one way and not the other.
+    // The driver registers Rust's fold as a SQL function, and these run THROUGH the engine.
     let c = papers();
     assert_eq!(matching(&c, Paper::title().contains_ci("ÉCOLE")), [5]);
     assert_eq!(matching(&c, Paper::title().starts_with_ci("école")), [5]);
+    assert_eq!(
+        matching(&c, Paper::title().contains_ci("QUICKSORT")),
+        [1, 2]
+    );
+    // Compounds fold each side independently.
+    assert_eq!(
+        matching(
+            &c,
+            Paper::title().contains_ci("ÉCOLE") | Paper::title().starts_with_ci("RADIX")
+        ),
+        [4, 5]
+    );
 }
 
-// --- SQL forms ------------------------------------------------------------------------
+// --- SQL forms (asserted through the Recorder\'s statement log) --------------------------
+
+/// The last compiled query SELECT and its parameters, from a Recorder container.
+fn compiled(pred: Pred) -> (String, Vec<Value>) {
+    let (driver, log) = Recorder::new();
+    let c = ModelContainer::open(driver, schema![Paper]).expect("open");
+    log.clear();
+    let _q = c.query::<Paper>().filter(pred).live();
+    log.entries()
+        .into_iter()
+        .rev()
+        .find(|(sql, _)| sql.starts_with("SELECT papers.id FROM papers"))
+        .expect("a compiled SELECT was recorded")
+}
 
 #[test]
 fn the_empty_set_compiles_to_a_constant_not_to_in_nothing() {
     // `IN ()` is a syntax error in SQLite rather than an empty set.
-    let mut params = Vec::new();
-    assert_eq!(Pred::In("pages", vec![]).to_sql(&mut params), "0");
-    assert_eq!(Pred::NotIn("pages", vec![]).to_sql(&mut params), "1");
-    assert_eq!(Pred::IdIn(vec![]).to_sql(&mut params), "0");
+    let (sql, params) = compiled(Pred::In("pages", vec![]));
+    assert!(sql.contains("WHERE 0"), "{sql}");
     assert!(params.is_empty());
+    let (sql, _) = compiled(Pred::NotIn("pages", vec![]));
+    assert!(
+        sql.contains("WHERE papers.pages IS NOT NULL"),
+        "NOT IN () is every row with a present value: {sql}"
+    );
+    let (sql, _) = compiled(Pred::IdIn(vec![]));
+    assert!(sql.contains("WHERE 0"), "{sql}");
 }
 
 #[test]
 fn set_and_prefix_forms_bind_what_they_say() {
-    let mut params = Vec::new();
-    let sql = Pred::In("pages", vec![Value::Int(1), Value::Int(2)]).to_sql(&mut params);
-    assert_eq!(sql, "pages IN (?, ?)");
+    let (sql, params) = compiled(Pred::In("pages", vec![Value::Int(1), Value::Int(2)]));
+    assert!(sql.contains("papers.pages IN (?, ?)"), "{sql}");
     assert_eq!(params, [Value::Int(1), Value::Int(2)]);
 
-    let mut params = Vec::new();
-    let sql = Pred::NotIn("pages", vec![Value::Int(3)]).to_sql(&mut params);
-    assert_eq!(sql, "pages NOT IN (?)");
+    let (sql, _) = compiled(Pred::NotIn("pages", vec![Value::Int(3)]));
+    assert!(sql.contains("papers.pages NOT IN (?)"), "{sql}");
 
     // Prefix binds a CHARACTER count, not a byte count — `substr` counts characters.
-    let mut params = Vec::new();
-    let sql = Pred::StartsWith("title", "École".into()).to_sql(&mut params);
-    assert_eq!(sql, "substr(title, 1, ?) = ?");
+    let (sql, params) = compiled(Pred::StartsWith("title", "École".into()));
+    assert!(sql.contains("substr(papers.title, 1, ?) = ?"), "{sql}");
     assert_eq!(params[0], Value::Int(5), "5 characters, not 6 bytes");
 }
 
@@ -422,8 +424,8 @@ fn id_membership_reads_no_column_at_all() {
     // the compilation target for relation traversal.
     let empty = Row(Vec::new());
     let pred = Pred::IdIn(vec![7, 9, 11]);
-    assert!(pred.eval(9, &OneRow(&empty)));
-    assert!(!pred.eval(8, &OneRow(&empty)));
+    assert!(pred.eval(9, &empty));
+    assert!(!pred.eval(8, &empty));
     // And it depends on no column, so a column write can never move a row through it.
     let mut cols = Vec::new();
     pred.columns(&mut cols);
@@ -439,7 +441,7 @@ fn a_fetch_over_ids_selects_exactly_those_rows() {
 // --- the maintained path ---------------------------------------------------------------
 
 #[test]
-fn the_new_predicates_maintain_incrementally() {
+fn the_predicates_stay_live() {
     let c = papers();
     let q = c
         .query::<Paper>()
@@ -451,17 +453,16 @@ fn the_new_predicates_maintain_incrementally() {
         [1, 3]
     );
 
-    // A column the fetch never mentions costs nothing.
-    let evals = q.evaluations();
-    c.store::<Paper>().elem(2).shelf().write(Some("Z".into()));
+    // A column the fetch never mentions costs nothing (proven with a trace in query.rs);
+    // here: it also moves nothing.
+    c.cache::<Paper>().elem(2).shelf().write(Some("Z".into()));
     assert_eq!(
-        q.evaluations(),
-        evals,
-        "shelf is in neither the filter nor the sort"
+        q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
+        [1, 3]
     );
 
-    // A dependency column moves exactly one row, and the delta says so.
-    c.store::<Paper>()
+    // A dependency column moves exactly one row.
+    c.cache::<Paper>()
         .elem(5)
         .title()
         .write("Quicksort in French".into());
@@ -469,7 +470,6 @@ fn the_new_predicates_maintain_incrementally() {
         q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
         [1, 3, 5]
     );
-    assert_eq!(q.evaluations(), evals + 1);
 }
 
 #[test]
@@ -493,9 +493,9 @@ fn membership_uses_the_same_equality_eq_does() {
         std::cmp::Ordering::Equal
     );
     let row = Row(vec![("n", Value::Real(1.0))]);
-    assert!(!Pred::In("n", vec![Value::Int(1)]).eval(0, &OneRow(&row)));
-    assert!(!Pred::Eq("n", Value::Int(1)).eval(0, &OneRow(&row)));
-    assert!(Pred::In("n", vec![Value::Real(1.0)]).eval(0, &OneRow(&row)));
+    assert!(!Pred::In("n", vec![Value::Int(1)]).eval(0, &row));
+    assert!(!Pred::Eq("n", Value::Int(1)).eval(0, &row));
+    assert!(Pred::In("n", vec![Value::Real(1.0)]).eval(0, &row));
 }
 
 // --- the dependency structure -----------------------------------------------------------
@@ -523,9 +523,7 @@ fn an_id_set_depends_on_no_column() {
 }
 
 #[test]
-fn nothing_yet_crosses_a_relation() {
-    // The seam relation-traversing predicates fill. Pinned so that when they do, this test is
-    // updated deliberately rather than a silent behavior change slipping through.
+fn a_local_fetch_crosses_no_relation() {
     let deps = Fetch::new()
         .filter(Paper::title().contains("sort"))
         .dependencies();

@@ -5,12 +5,17 @@
 //! delete rules, and the machinery that keeps them true.
 //!
 //! There is ONE source of truth per to-one relation — the foreign-key column on the child —
-//! and the parent's `Many` side is an INDEX over it, maintained from the container's change
-//! sink. That is what makes the inverses SwiftData promises come out of the existing
-//! pipeline instead of parallel bookkeeping: write `lodging.trip()` and the trip's
-//! `lodging()` read wakes; call `trip.lodging().add(id)` and it writes the lodging's foreign
-//! key through the front door, so the change announces, captures for undo, folds to one
-//! `UPDATE`, and animates any live query watching either table.
+//! and the parent's `Many` side is a VIEW over it, answered from the engine's own foreign-key
+//! index and memoized per parent. Nothing is loaded at open: the first read of one parent's
+//! children is one indexed `SELECT`, remembered until a membership write invalidates it.
+//! Write `lodging.trip()` and the trip's `lodging()` read wakes; call
+//! `trip.lodging().add(id)` and it writes the lodging's foreign key through the front door,
+//! so the change announces, captures for undo, folds to one `UPDATE`, and marks any live
+//! query watching either table stale.
+//!
+//! Reads made MID-TURN see the truth: the memo answers from the last flush, overlaid with
+//! this turn's unflushed dirty rows — a child reparented a millisecond ago is under its new
+//! parent before any SQL runs.
 //!
 //! Delete rules run where the delete announces: a parent's removal cascades (recursively —
 //! the nested deletes take the same pipeline, so undoing the cascade is one unit that
@@ -18,7 +23,9 @@
 //! (the checked door [`crate::ModelContainer::delete`] refuses while children remain). The
 //! generated DDL carries the matching `REFERENCES … ON DELETE …` clause, `DEFERRABLE
 //! INITIALLY DEFERRED` so within-transaction statement order never trips it — which also
-//! keeps another process honest about the same rules.
+//! keeps another process honest about the same rules, and is what deletes the NON-resident
+//! rows a cascade reaches: the pipeline walks every child (so queries, memos and undo hear),
+//! and the engine's own clause is the backstop that makes the file agree.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -28,23 +35,9 @@ use std::rc::{Rc, Weak};
 use day_model::{ApplyField, Keyed, ModelId, Op, Store, announce, field_id};
 
 use crate::{
-    ColumnValue, ContainerInner, DbError, DbErrorKind, Model, ModelContainer, Row, SqlType, Value,
-    key_param, value_to_handle,
+    ColumnValue, ContainerInner, DbError, DbErrorKind, DirtyRow, Model, ModelContainer, Row,
+    SqlType, Value, key_param, value_to_handle,
 };
-
-/// Read one row's order value by handle; write it back. The pair is what an ordered relation
-/// needs, whichever shape holds the order (a child's field, or a membership's position).
-type ReadOrder = Box<dyn Fn(u64) -> f64>;
-type WriteOrder = Box<dyn Fn(u64, f64) -> bool>;
-
-/// What placing one row inside an ordered relation needs, resolved from whichever shape holds
-/// the order.
-struct Placement {
-    ordered: bool,
-    read_ord: ReadOrder,
-    write_ord: WriteOrder,
-    is_member: bool,
-}
 
 // ---------------------------------------------------------------------------
 // The reference types
@@ -151,9 +144,8 @@ impl<M: Model> ColumnValue for One<M> {
     }
 }
 
-/// Predicates over a to-one reference column. The relation-traversing forms
-/// (`One::any(pred)`) arrive with relation queries; these are the identity and presence
-/// tests, which need nothing but the foreign-key column already stored here.
+/// Predicates over a to-one reference column: the identity and presence tests, which need
+/// nothing but the foreign-key column already stored here.
 impl<M: Model> crate::Col<One<M>> {
     /// The reference points at exactly this row.
     pub fn is(self, id: impl Into<ModelId<M>>) -> crate::Pred {
@@ -282,18 +274,19 @@ impl<M: ?Sized> std::fmt::Debug for Many<M> {
 }
 
 /// What deleting a referenced parent does. Declared per relation
-/// (`#[model(relation(delete = "…"))]`); the default is `Nullify`, SwiftData's.
+/// (`#[model(relation(delete = "…"))]`); the default is `Nullify` (also SwiftData's default
+/// for `@Relationship`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeleteRule {
     /// Children survive; their references clear. Needs `Option<One<M>>` on the child —
     /// a required reference cannot hold "nothing", and wiring refuses the combination.
     Nullify,
     /// Children delete with the parent, recursively, through the normal pipeline — undoable
-    /// as one unit, animated by live queries.
+    /// as one unit, heard by live queries.
     Cascade,
     /// The delete is refused while children remain — through
     /// [`crate::ModelContainer::delete`], the checked door; a raw `restructure` bypasses the
-    /// in-memory check and the deferred SQL `RESTRICT` refuses at flush instead.
+    /// check and the deferred SQL `RESTRICT` refuses at flush instead.
     Deny,
 }
 
@@ -342,53 +335,158 @@ impl Registrar<'_> {
     }
 }
 
-/// One wired to-one/to-many relation: the closures are monomorphized over both model types by
-/// [`wire_to_many`], so every write goes through the front door with full type knowledge.
+/// One wired to-one/to-many relation. The typed closures are monomorphized over both model
+/// types by [`wire_to_many`], so every write goes through the front door with full type
+/// knowledge; the SQL half (table and column names) is what lazy reads and the query
+/// compiler drive.
 pub(crate) struct ToOneRel {
+    pub(crate) container: Weak<ContainerInner>,
     pub(crate) parent_store: u64,
+    pub(crate) parent_table: &'static str,
     pub(crate) parent_field: &'static str,
+    pub(crate) parent_key_col: &'static str,
     pub(crate) child_store: u64,
+    pub(crate) child_table: &'static str,
+    pub(crate) child_key_col: &'static str,
+    /// The foreign key as the child's FIELD (the change log's language) and COLUMN (SQL's).
     pub(crate) fk_field: &'static str,
+    pub(crate) fk_col: &'static str,
     pub(crate) delete: DeleteRule,
     pub(crate) ordered: Option<&'static str>,
+    pub(crate) ord_col: Option<&'static str>,
     read_fk: Box<dyn Fn(u64) -> Option<u64>>,
     write_fk: Box<dyn Fn(u64, Option<u64>) -> bool>,
     delete_child: Box<dyn Fn(u64)>,
-    read_ord: ReadOrder,
-    pub(crate) write_ord: WriteOrder,
-    index: RefCell<RelIndex>,
-}
-
-#[derive(Default)]
-struct RelIndex {
-    children: HashMap<u64, Vec<u64>>,
-    parent_of: HashMap<u64, u64>,
+    /// Bring children into the cache (before their fields are written, or for undo capture).
+    materialize: Materialize,
+    read_ord_cached: Box<dyn Fn(u64) -> Option<f64>>,
+    pub(crate) write_ord: Box<dyn Fn(u64, f64) -> bool>,
+    /// parent → children (relation order), filled per parent on first read.
+    memo: RefCell<HashMap<u64, Vec<u64>>>,
+    /// child → memoized parent, maintained only for children of memoized parents — the O(1)
+    /// walk-back a foreign-key rewrite needs.
+    memo_parent: RefCell<HashMap<u64, u64>>,
 }
 
 impl ToOneRel {
-    /// The parent's children, in order (the order field's, or insertion). O(1) plus the copy.
+    fn with_container<R>(&self, f: impl FnOnce(&ModelContainer) -> R) -> Option<R> {
+        self.container.upgrade().map(|inner| {
+            let c = ModelContainer { inner };
+            f(&c)
+        })
+    }
+
+    /// The parent's children, in relation order — the memo, or one indexed `SELECT`, overlaid
+    /// with this turn's unflushed dirty rows so mid-turn reads see the truth.
     pub(crate) fn children_of(&self, parent: u64) -> Vec<u64> {
-        self.index
-            .borrow()
-            .children
-            .get(&parent)
-            .cloned()
-            .unwrap_or_default()
+        if let Some(hit) = self.memo.borrow().get(&parent) {
+            return hit.clone();
+        }
+        let Some(mut ids) = self.with_container(|c| {
+            let order = self.ord_col.unwrap_or(self.child_key_col);
+            c.select_id_column(
+                &format!(
+                    "SELECT {k} FROM {t} WHERE {fk} = ? ORDER BY {order}, {k}",
+                    k = self.child_key_col,
+                    t = self.child_table,
+                    fk = self.fk_col,
+                ),
+                &[key_param(parent)],
+            )
+        }) else {
+            return Vec::new();
+        };
+        self.overlay_children(parent, &mut ids);
+        let mut memo = self.memo.borrow_mut();
+        let mut back = self.memo_parent.borrow_mut();
+        for id in &ids {
+            back.insert(*id, parent);
+        }
+        memo.insert(parent, ids.clone());
+        ids
     }
 
-    /// The parent this child belongs to — O(1), and the back-resolution that keeps a
-    /// related change to one re-evaluated row.
+    /// Correct a freshly-selected child list against this turn's unflushed edits: dirty
+    /// resident children join or leave by their CURRENT foreign key, and dirty deletes leave.
+    fn overlay_children(&self, parent: u64, ids: &mut Vec<u64>) {
+        let Some(dirty) = self.with_container(|c| c.dirty_rows_of(self.child_store)) else {
+            return;
+        };
+        for (child, state) in dirty {
+            let is_mine = state != DirtyRow::Delete && (self.read_fk)(child) == Some(parent);
+            let at = ids.iter().position(|c| *c == child);
+            match (is_mine, at) {
+                (false, Some(i)) => {
+                    ids.remove(i);
+                }
+                (true, None) => {
+                    // Place by the relation's order (the child is resident: it is dirty).
+                    let ord = (self.read_ord_cached)(child).unwrap_or(f64::INFINITY);
+                    let at = if self.ordered.is_some() {
+                        ids.iter()
+                            .position(|c| (self.read_ord_cached)(*c).unwrap_or(0.0) > ord)
+                            .unwrap_or(ids.len())
+                    } else {
+                        ids.partition_point(|c| *c < child)
+                    };
+                    ids.insert(at, child);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The parent this child belongs to — the memo when it knows, the child's own cached
+    /// foreign key, or one point `SELECT`.
     pub(crate) fn parent_of(&self, child: u64) -> Option<u64> {
-        self.index.borrow().parent_of.get(&child).copied()
+        if let Some(p) = self.memo_parent.borrow().get(&child) {
+            return Some(*p);
+        }
+        if let Some(p) = (self.read_fk)(child) {
+            return Some(p);
+        }
+        self.with_container(|c| {
+            c.select_id_column(
+                &format!(
+                    "SELECT {fk} FROM {t} WHERE {k} = ?",
+                    fk = self.fk_col,
+                    t = self.child_table,
+                    k = self.child_key_col,
+                ),
+                &[key_param(child)],
+            )
+            .into_iter()
+            .next()
+        })
+        .flatten()
     }
 
+    /// One child's order value — cache first (which covers every unflushed write), the file
+    /// otherwise.
     pub(crate) fn read_order(&self, child: u64) -> f64 {
-        (self.read_ord)(child)
+        if let Some(v) = (self.read_ord_cached)(child) {
+            return v;
+        }
+        let Some(col) = self.ord_col else { return 0.0 };
+        self.with_container(|c| {
+            c.select_real(
+                &format!(
+                    "SELECT {col} FROM {t} WHERE {k} = ?",
+                    t = self.child_table,
+                    k = self.child_key_col,
+                ),
+                &[key_param(child)],
+            )
+        })
+        .flatten()
+        .unwrap_or(0.0)
     }
 
     pub(crate) fn set_fk(&self, child: u64, parent: Option<u64>) -> bool {
-        // The write announces; the sink routes it back through `reparent`, which is where the
-        // index and both parents' announcements happen — one path for every door.
+        // Writes need the row resident; the announcement then routes back through
+        // `reparent`, which is where the memos and both parents' announcements happen —
+        // one path for every door.
+        (self.materialize)(&[child]);
         (self.write_fk)(child, parent)
     }
 
@@ -399,90 +497,128 @@ impl ToOneRel {
         );
     }
 
-    fn attach_child(&self, parent: u64, child: u64) {
-        let mut idx = self.index.borrow_mut();
-        idx.parent_of.insert(child, parent);
-        let vec = idx.children.entry(parent).or_default();
-        if self.ordered.is_some() {
-            let ord = (self.read_ord)(child);
-            let at = vec
-                .iter()
-                .position(|c| (self.read_ord)(*c) > ord)
-                .unwrap_or(vec.len());
-            vec.insert(at, child);
-        } else {
-            // Unordered relations still answer DETERMINISTICALLY — ascending by handle — so
-            // the order survives reloads, undo rebuilds, and external merges identically.
-            let at = vec.partition_point(|c| *c < child);
-            vec.insert(at, child);
+    fn forget(&self, parent: u64) {
+        if let Some(children) = self.memo.borrow_mut().remove(&parent) {
+            let mut back = self.memo_parent.borrow_mut();
+            for c in children {
+                back.remove(&c);
+            }
         }
     }
 
-    fn detach_child(&self, child: u64) -> Option<u64> {
-        let mut idx = self.index.borrow_mut();
-        let parent = idx.parent_of.remove(&child)?;
-        if let Some(vec) = idx.children.get_mut(&parent) {
-            vec.retain(|c| *c != child);
-        }
-        Some(parent)
+    pub(crate) fn invalidate_all(&self) {
+        self.memo.borrow_mut().clear();
+        self.memo_parent.borrow_mut().clear();
     }
 
+    /// A child arrived (an insert, an undo re-insert, an external merge).
     pub(crate) fn child_added(&self, child: u64) {
         if let Some(p) = (self.read_fk)(child) {
-            self.attach_child(p, child);
+            self.forget(p);
             self.announce_parent(p);
         }
     }
 
+    /// A child left. The memo knows its parent when the parent was ever read; otherwise the
+    /// file still holds the row until the flush, so one point `SELECT` answers.
     pub(crate) fn child_removed(&self, child: u64) {
-        if let Some(p) = self.detach_child(child) {
+        let parent = self
+            .memo_parent
+            .borrow()
+            .get(&child)
+            .copied()
+            .or_else(|| self.parent_of(child));
+        if let Some(p) = parent {
+            self.forget(p);
             self.announce_parent(p);
         }
     }
 
+    /// The child's foreign key was rewritten: both parents' views move. The NEW parent is the
+    /// child's own field; the OLD one is the memo when a reader ever established it, the
+    /// FILE otherwise (the un-flushed value is exactly the pre-write one). A reader whose
+    /// memo was current re-establishes it on its own re-read, so repeated reparents in one
+    /// turn stay coherent for anything actually watching.
     pub(crate) fn reparent(&self, child: u64) {
-        let old = self.index.borrow().parent_of.get(&child).copied();
         let new = (self.read_fk)(child);
-        if old == new {
-            return;
+        let old = self
+            .memo_parent
+            .borrow()
+            .get(&child)
+            .copied()
+            .or_else(|| self.former_parent_file(child));
+        if let Some(p) = old {
+            self.forget(p);
         }
-        if old.is_some() {
-            self.detach_child(child);
+        if let Some(p) = new
+            && Some(p) != old
+        {
+            self.forget(p);
         }
-        if let Some(p) = new {
-            self.attach_child(p, child);
+        self.announce_parent_set(old, new);
+    }
+
+    /// Announce each DISTINCT parent in the pair.
+    fn announce_parent_set(&self, a: Option<u64>, b: Option<u64>) {
+        if let Some(p) = a {
+            self.announce_parent(p);
         }
-        for p in [old, new].into_iter().flatten() {
+        if let Some(p) = b
+            && Some(p) != a
+        {
             self.announce_parent(p);
         }
     }
 
-    /// The child's order field moved: reposition it and wake the parent's readers.
+    /// The parent the FILE records for this child — the pre-flush truth, bypassing both the
+    /// memo and the (already rewritten) cached row.
+    fn former_parent_file(&self, child: u64) -> Option<u64> {
+        self.with_container(|c| {
+            c.select_id_column(
+                &format!(
+                    "SELECT {fk} FROM {t} WHERE {k} = ?",
+                    fk = self.fk_col,
+                    t = self.child_table,
+                    k = self.child_key_col,
+                ),
+                &[key_param(child)],
+            )
+            .into_iter()
+            .next()
+        })
+        .flatten()
+    }
+
+    /// The child's order field moved: its parent's view reorders.
     pub(crate) fn order_changed(&self, child: u64) {
-        let Some(parent) = self.index.borrow().parent_of.get(&child).copied() else {
-            return;
-        };
-        self.detach_child(child);
-        self.attach_child(parent, child);
-        self.announce_parent(parent);
+        if let Some(p) = self.parent_of(child) {
+            self.forget(p);
+            self.announce_parent(p);
+        }
     }
 
     pub(crate) fn parent_deleted(&self, container: &ModelContainer, parent: u64) {
         let children = self.children_of(parent);
+        self.forget(parent);
         if children.is_empty() {
-            self.index.borrow_mut().children.remove(&parent);
             return;
         }
         match self.delete {
             DeleteRule::Cascade => {
                 // Each nested delete takes the whole pipeline — announce, undo capture,
-                // dirty, queries — and, for a self-referential tree, recurses through this
-                // same method one level down.
+                // dirty, query staleness — and, for a self-referential tree, recurses
+                // through this same method one level down. When an undo stack stands by,
+                // the rows materialize first so their deletes carry what inversion needs;
+                // without one the deletes are value-free and the fold batches them.
+                if day_model::record_capture_active() {
+                    (self.materialize)(&children);
+                }
                 for child in children {
                     (self.delete_child)(child);
                 }
             }
             DeleteRule::Nullify => {
+                (self.materialize)(&children);
                 for child in children {
                     (self.write_fk)(child, None);
                 }
@@ -498,7 +634,6 @@ impl ToOneRel {
                 )));
             }
         }
-        self.index.borrow_mut().children.remove(&parent);
     }
 }
 
@@ -523,7 +658,7 @@ pub fn wire_to_many<P: Model, C: Model>(
     ordered: Option<&'static str>,
 ) {
     let container = reg.container.clone();
-    let Some(parent_store) = container.try_store::<P>() else {
+    let Some(parent_store) = container.try_cache::<P>() else {
         reg.fail(format!(
             "relation `{}.{field}` wired before `{}` attached",
             P::TABLE,
@@ -531,7 +666,7 @@ pub fn wire_to_many<P: Model, C: Model>(
         ));
         return;
     };
-    let Some(child_store) = container.try_store::<C>() else {
+    let Some(child_store) = container.try_cache::<C>() else {
         reg.fail(format!(
             "relation `{}.{field}` targets `{}`, which is not in this container's schema!",
             P::TABLE,
@@ -557,18 +692,22 @@ pub fn wire_to_many<P: Model, C: Model>(
         ));
         return;
     }
+    let mut ord_col = None;
     if let Some(ord) = ordered {
-        let ok = C::COLUMNS
+        match C::COLUMNS
             .iter()
-            .any(|c| c.field == ord && c.sql == SqlType::Real);
-        if !ok {
-            reg.fail(format!(
-                "relation `{}.{field}` is ordered by `{ord}`, which is not a REAL (`f64`) \
-                 field of `{}` — the order column is a real, visible field of the child",
-                P::TABLE,
-                C::TABLE
-            ));
-            return;
+            .find(|c| c.field == ord && c.sql == SqlType::Real)
+        {
+            Some(c) => ord_col = Some(c.name),
+            None => {
+                reg.fail(format!(
+                    "relation `{}.{field}` is ordered by `{ord}`, which is not a REAL (`f64`) \
+                     field of `{}` — the order column is a real, visible field of the child",
+                    P::TABLE,
+                    C::TABLE
+                ));
+                return;
+            }
         }
     }
 
@@ -587,44 +726,47 @@ pub fn wire_to_many<P: Model, C: Model>(
             k.remove(h);
         });
     });
-    let (read_ord, write_ord): (ReadOrder, WriteOrder) = match ordered {
-        Some(ord) => (
-            Box::new(move |h| {
-                child_store.with_untracked(|k| {
-                    k.get(h)
-                        .and_then(|c| ApplyField::read_field(c, ord))
-                        .and_then(|v| v.downcast_ref::<f64>().copied())
-                        .unwrap_or(0.0)
-                })
-            }),
-            Box::new(move |h, v| child_store.write_field(h, ord, v)),
-        ),
-        None => (Box::new(|_| 0.0), Box::new(|_, _| false)),
+    let mat_container = container.clone();
+    let materialize = Box::new(move |keys: &[u64]| {
+        let _ = mat_container.ensure_resident::<C>(keys);
+    });
+    let read_ord_cached: Box<dyn Fn(u64) -> Option<f64>> = match ordered {
+        Some(ord) => Box::new(move |h| {
+            child_store.with_untracked(|k| {
+                k.get(h)
+                    .and_then(|c| ApplyField::read_field(c, ord))
+                    .and_then(|v| v.downcast_ref::<f64>().copied())
+            })
+        }),
+        None => Box::new(|_| None),
+    };
+    let write_ord: Box<dyn Fn(u64, f64) -> bool> = match ordered {
+        Some(ord) => Box::new(move |h, v| child_store.write_field(h, ord, v)),
+        None => Box::new(|_, _| false),
     };
 
     let rel = Rc::new(ToOneRel {
+        container: Rc::downgrade(&container.inner),
         parent_store: parent_store.store_id(),
+        parent_table: P::TABLE,
         parent_field: field,
+        parent_key_col: P::KEY,
         child_store: child_store.store_id(),
+        child_table: C::TABLE,
+        child_key_col: C::KEY,
         fk_field: inverse,
+        fk_col: col.name,
         delete,
         ordered,
+        ord_col,
         read_fk,
         write_fk,
         delete_child,
-        read_ord,
+        materialize,
+        read_ord_cached,
         write_ord,
-        index: RefCell::new(RelIndex::default()),
-    });
-
-    // Seed the index from the loaded rows — O(n) once, at open.
-    child_store.with_untracked(|k| {
-        for item in k.items() {
-            let child = item.handle();
-            if let Some(parent) = fk_of::<P, C>(item, inverse) {
-                rel.attach_child(parent, child);
-            }
-        }
+        memo: RefCell::new(HashMap::new()),
+        memo_parent: RefCell::new(HashMap::new()),
     });
 
     container.inner.relations.borrow_mut().push(rel);
@@ -636,7 +778,8 @@ pub fn wire_to_many<P: Model, C: Model>(
 
 /// One membership row of a generated join table. Its key is the PAIR — that is what makes a
 /// membership addressable, undoable and mergeable by the same machinery every other row uses,
-/// with no second vocabulary.
+/// with no second vocabulary. The store over these rows is a CACHE like every other: only
+/// memberships this process touched are resident.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct JoinRow {
     pub(crate) parent: u64,
@@ -671,21 +814,27 @@ impl ApplyField for JoinRow {
 
 /// A wired many-to-many — ONE per join table, whichever side (or both) declared it.
 ///
-/// Membership lives in the join store, one row per pair, and the index mirrors it in both
-/// directions, so `tag.notes()` and `note.tags()` both answer O(1) from the same rows. When
-/// both models declare the relation over the same `join = "…"` table, the second declaration
-/// attaches as this relation's B side rather than opening a second store — two stores over
-/// one table would double every write and disagree about column order.
+/// Membership lives in the join table; both directions answer from its indexes, memoized per
+/// row. When both models declare the relation over the same `join = "…"` table, the second
+/// declaration attaches as this relation's B side rather than opening a second store — two
+/// stores over one table would double every write and disagree about column order.
 pub(crate) struct JoinRel {
+    pub(crate) container: Weak<ContainerInner>,
     pub(crate) join_table: &'static str,
+    pub(crate) parent_col: &'static str,
+    pub(crate) child_col: &'static str,
     /// The side that wired first: its rows are the join row's `parent`.
     pub(crate) a_store: u64,
+    pub(crate) a_table: &'static str,
     pub(crate) a_field: &'static str,
+    pub(crate) a_key_col: &'static str,
     pub(crate) a_delete: DeleteRule,
     /// The other side; `b_field` is set only if that model declared the relation too —
     /// through a `Cell`, because the second declaration fills it in during wiring while the
     /// first declaration's `Rc` is already held.
     pub(crate) b_store: u64,
+    pub(crate) b_table: &'static str,
+    pub(crate) b_key_col: &'static str,
     pub(crate) b_field: Cell<Option<&'static str>>,
     pub(crate) b_delete: Cell<DeleteRule>,
     pub(crate) join_store: u64,
@@ -694,41 +843,156 @@ pub(crate) struct JoinRel {
     store: Store<Keyed<JoinRow>>,
     delete_a: Box<dyn Fn(u64)>,
     delete_b: Box<dyn Fn(u64)>,
-    index: RefCell<JoinIndex>,
-}
-
-#[derive(Default)]
-struct JoinIndex {
-    by_parent: HashMap<u64, Vec<u64>>,
-    by_child: HashMap<u64, Vec<u64>>,
+    /// A-side row → its members, and B-side row → its holders, filled on first read.
+    memo_fwd: RefCell<HashMap<u64, Vec<u64>>>,
+    memo_rev: RefCell<HashMap<u64, Vec<u64>>>,
 }
 
 impl JoinRel {
+    fn with_container<R>(&self, f: impl FnOnce(&ModelContainer) -> R) -> Option<R> {
+        self.container.upgrade().map(|inner| {
+            let c = ModelContainer { inner };
+            f(&c)
+        })
+    }
+
     /// The members `key` holds, read from whichever side `forward` names: A→B forward, B→A
-    /// reverse.
+    /// reverse. One indexed `SELECT` on first read, memoized, overlaid with this turn's
+    /// unflushed links and unlinks.
     pub(crate) fn members_of(&self, key: u64, forward: bool) -> Vec<u64> {
-        let idx = self.index.borrow();
-        let map = if forward {
-            &idx.by_parent
+        {
+            let memo = if forward {
+                &self.memo_fwd
+            } else {
+                &self.memo_rev
+            };
+            if let Some(hit) = memo.borrow().get(&key) {
+                return hit.clone();
+            }
+        }
+        let (own_col, other_col) = if forward {
+            (self.parent_col, self.child_col)
         } else {
-            &idx.by_child
+            (self.child_col, self.parent_col)
         };
-        map.get(&key).cloned().unwrap_or_default()
+        let order = if self.ordered && forward {
+            format!("position, {other_col}")
+        } else {
+            other_col.to_string()
+        };
+        let Some(mut ids) = self.with_container(|c| {
+            c.select_id_column(
+                &format!(
+                    "SELECT {other_col} FROM {t} WHERE {own_col} = ? ORDER BY {order}",
+                    t = self.join_table,
+                ),
+                &[key_param(key)],
+            )
+        }) else {
+            return Vec::new();
+        };
+        self.overlay_members(key, forward, &mut ids);
+        let memo = if forward {
+            &self.memo_fwd
+        } else {
+            &self.memo_rev
+        };
+        memo.borrow_mut().insert(key, ids.clone());
+        ids
+    }
+
+    /// Correct a freshly-selected member list against this turn's unflushed link/unlink rows.
+    fn overlay_members(&self, key: u64, forward: bool, ids: &mut Vec<u64>) {
+        let Some(dirty) = self.with_container(|c| c.dirty_rows_of(self.join_store)) else {
+            return;
+        };
+        for (handle, state) in dirty {
+            let Some(day_model::Key::Pair(p, c)) = day_model::Key::of_handle(handle) else {
+                continue;
+            };
+            let (own, other) = if forward { (p, c) } else { (c, p) };
+            if own != key {
+                continue;
+            }
+            let at = ids.iter().position(|m| *m == other);
+            match (state != DirtyRow::Delete, at) {
+                (false, Some(i)) => {
+                    ids.remove(i);
+                }
+                (true, None) => {
+                    if self.ordered && forward {
+                        let pos = self.position_of(p, c);
+                        let at = ids
+                            .iter()
+                            .position(|m| self.position_of(key, *m) > pos)
+                            .unwrap_or(ids.len());
+                        ids.insert(at, other);
+                    } else {
+                        let at = ids.partition_point(|m| *m < other);
+                        ids.insert(at, other);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     /// The rows on the OTHER side that hold `key` — the join's back-resolution.
     pub(crate) fn holders_of(&self, key: u64, forward: bool) -> Vec<u64> {
-        // Looking back from a B row means asking `by_child`, and vice versa.
+        // Looking back from a B row means asking the reverse direction, and vice versa.
         self.members_of(key, !forward)
     }
 
-    fn position_of(&self, parent: u64, child: u64) -> f64 {
-        self.store
-            .with_untracked(|k| {
-                k.get(day_model::Key::Pair(parent, child).handle())
-                    .map(|r| r.position)
-            })
-            .unwrap_or(0.0)
+    pub(crate) fn position_of(&self, parent: u64, child: u64) -> f64 {
+        let cached = self.store.with_untracked(|k| {
+            k.get(day_model::Key::Pair(parent, child).handle())
+                .map(|r| r.position)
+        });
+        if let Some(p) = cached {
+            return p;
+        }
+        if !self.ordered {
+            return 0.0;
+        }
+        self.with_container(|c| {
+            c.select_real(
+                &format!(
+                    "SELECT position FROM {t} WHERE {pc} = ? AND {cc} = ?",
+                    t = self.join_table,
+                    pc = self.parent_col,
+                    cc = self.child_col,
+                ),
+                &[key_param(parent), key_param(child)],
+            )
+        })
+        .flatten()
+        .unwrap_or(0.0)
+    }
+
+    /// Whether the pair is currently a membership — the cache, the dirty set, or the file.
+    fn is_member(&self, parent: u64, child: u64) -> bool {
+        let handle = day_model::Key::Pair(parent, child).handle();
+        if let Some(state) = self.with_container(|c| c.dirty_state_of(self.join_store, handle))
+            && let Some(state) = state
+        {
+            return state != DirtyRow::Delete;
+        }
+        if self.store.with_untracked(|k| k.get(handle).is_some()) {
+            return true;
+        }
+        self.with_container(|c| {
+            !c.select_id_column(
+                &format!(
+                    "SELECT 1 FROM {t} WHERE {pc} = ? AND {cc} = ?",
+                    t = self.join_table,
+                    pc = self.parent_col,
+                    cc = self.child_col,
+                ),
+                &[key_param(parent), key_param(child)],
+            )
+            .is_empty()
+        })
+        .unwrap_or(false)
     }
 
     /// Wake BOTH sides' readers: a membership change moves `a.field()` and `b.field()` alike.
@@ -742,50 +1006,27 @@ impl JoinRel {
         }
     }
 
-    fn insert_index(&self, parent: u64, child: u64) {
-        let mut idx = self.index.borrow_mut();
-        let vec = idx.by_parent.entry(parent).or_default();
-        if !vec.contains(&child) {
-            if self.ordered {
-                let pos = self.position_of(parent, child);
-                let at = vec
-                    .iter()
-                    .position(|c| self.position_of(parent, *c) > pos)
-                    .unwrap_or(vec.len());
-                vec.insert(at, child);
-            } else {
-                let at = vec.partition_point(|c| *c < child);
-                vec.insert(at, child);
-            }
-        }
-        let back = idx.by_child.entry(child).or_default();
-        if !back.contains(&parent) {
-            let at = back.partition_point(|p| *p < parent);
-            back.insert(at, parent);
-        }
+    fn forget_pair(&self, parent: u64, child: u64) {
+        self.memo_fwd.borrow_mut().remove(&parent);
+        self.memo_rev.borrow_mut().remove(&child);
     }
 
-    fn remove_index(&self, parent: u64, child: u64) {
-        let mut idx = self.index.borrow_mut();
-        if let Some(v) = idx.by_parent.get_mut(&parent) {
-            v.retain(|c| *c != child);
-        }
-        if let Some(v) = idx.by_child.get_mut(&child) {
-            v.retain(|p| *p != parent);
-        }
+    pub(crate) fn invalidate_all(&self) {
+        self.memo_fwd.borrow_mut().clear();
+        self.memo_rev.borrow_mut().clear();
     }
 
     /// A join row arrived (an `add`, an undo's re-insert, an external merge).
     pub(crate) fn row_added(&self, handle: u64) {
         if let Some(day_model::Key::Pair(p, c)) = day_model::Key::of_handle(handle) {
-            self.insert_index(p, c);
+            self.forget_pair(p, c);
             self.announce_pair(p, c);
         }
     }
 
     pub(crate) fn row_removed(&self, handle: u64) {
         if let Some(day_model::Key::Pair(p, c)) = day_model::Key::of_handle(handle) {
-            self.remove_index(p, c);
+            self.forget_pair(p, c);
             self.announce_pair(p, c);
         }
     }
@@ -793,8 +1034,7 @@ impl JoinRel {
     /// A membership's position moved: reposition and wake both sides.
     pub(crate) fn row_moved(&self, handle: u64) {
         if let Some(day_model::Key::Pair(p, c)) = day_model::Key::of_handle(handle) {
-            self.remove_index(p, c);
-            self.insert_index(p, c);
+            self.forget_pair(p, c);
             self.announce_pair(p, c);
         }
     }
@@ -802,22 +1042,24 @@ impl JoinRel {
     /// Either side's row was deleted: its memberships go with it, and under that side's own
     /// cascade rule so do the rows across the join that nobody else still holds.
     pub(crate) fn side_deleted(&self, is_a: bool, key: u64) {
-        let pairs: Vec<(u64, u64)> = {
-            let idx = self.index.borrow();
-            if is_a {
-                idx.by_parent
-                    .get(&key)
-                    .map(|v| v.iter().map(|c| (key, *c)).collect())
-                    .unwrap_or_default()
-            } else {
-                idx.by_child
-                    .get(&key)
-                    .map(|v| v.iter().map(|p| (*p, key)).collect())
-                    .unwrap_or_default()
+        let others = self.members_of(key, is_a);
+        if others.is_empty() {
+            return;
+        }
+        let capture = day_model::record_capture_active();
+        for other in &others {
+            let (p, c) = if is_a { (key, *other) } else { (*other, key) };
+            let handle = day_model::Key::Pair(p, c).handle();
+            if capture && self.store.with_untracked(|k| k.get(handle).is_none()) {
+                // Materialize the membership so its delete carries what undo inversion
+                // needs — the pair is known; only an ordered position needs the file.
+                let position = self.position_of(p, c);
+                self.store.populate(vec![JoinRow {
+                    parent: p,
+                    child: c,
+                    position,
+                }]);
             }
-        };
-        for (p, c) in &pairs {
-            let handle = day_model::Key::Pair(*p, *c).handle();
             self.store.restructure("unlink", Op::Delete, handle, |k| {
                 k.remove(handle);
             });
@@ -830,15 +1072,11 @@ impl JoinRel {
         if rule == DeleteRule::Cascade {
             // Cascade across a join takes the rows this one held — but only those no OTHER
             // row still holds, or deleting one album would take a shared photo with it.
-            for (p, c) in pairs {
-                let (other, still_held) = {
-                    let idx = self.index.borrow();
-                    if is_a {
-                        (c, idx.by_child.get(&c).is_some_and(|v| !v.is_empty()))
-                    } else {
-                        (p, idx.by_parent.get(&p).is_some_and(|v| !v.is_empty()))
-                    }
-                };
+            // (`forward` here is the DELETED side's perspective: the counterpart's holders
+            // are read from the opposite index.)
+            for other in others {
+                let holders = self.holders_of(other, is_a);
+                let still_held = holders.iter().any(|h| *h != key);
                 if !still_held {
                     if is_a {
                         (self.delete_b)(other);
@@ -851,10 +1089,10 @@ impl JoinRel {
     }
 
     fn link(&self, parent: u64, child: u64, position: f64) -> bool {
-        let handle = day_model::Key::Pair(parent, child).handle();
-        if self.store.with_untracked(|k| k.get(handle).is_some()) {
+        if self.is_member(parent, child) {
             return false; // already a member — membership is a set
         }
+        let handle = day_model::Key::Pair(parent, child).handle();
         self.store.restructure("link", Op::Insert, handle, |k| {
             k.push(JoinRow {
                 parent,
@@ -866,9 +1104,19 @@ impl JoinRel {
     }
 
     fn unlink(&self, parent: u64, child: u64) -> bool {
-        let handle = day_model::Key::Pair(parent, child).handle();
-        if self.store.with_untracked(|k| k.get(handle).is_none()) {
+        if !self.is_member(parent, child) {
             return false;
+        }
+        let handle = day_model::Key::Pair(parent, child).handle();
+        if day_model::record_capture_active()
+            && self.store.with_untracked(|k| k.get(handle).is_none())
+        {
+            let position = self.position_of(parent, child);
+            self.store.populate(vec![JoinRow {
+                parent,
+                child,
+                position,
+            }]);
         }
         self.store.restructure("unlink", Op::Delete, handle, |k| {
             k.remove(handle);
@@ -887,7 +1135,7 @@ pub fn wire_join<P: Model, C: Model>(
 ) {
     let container = reg.container.clone();
     let (Some(parent_store), Some(child_store)) =
-        (container.try_store::<P>(), container.try_store::<C>())
+        (container.try_cache::<P>(), container.try_cache::<C>())
     else {
         reg.fail(format!(
             "relation `{}.{field}` targets `{}`, which is not in this container's schema!",
@@ -970,43 +1218,9 @@ pub fn wire_join<P: Model, C: Model>(
         return;
     }
 
-    // Load the memberships this file already holds.
-    let mut rows: Vec<JoinRow> = Vec::new();
-    let mut load_err = None;
-    let sql = if ordered {
-        format!("SELECT {parent_col}, {child_col}, position FROM {join_table}")
-    } else {
-        format!("SELECT {parent_col}, {child_col} FROM {join_table}")
-    };
-    if let Err(e) = container.conn().query(&sql, &[], &mut |row| match (
-        value_to_handle(&row.get(0)),
-        value_to_handle(&row.get(1)),
-    ) {
-        (Some(p), Some(c)) => rows.push(JoinRow {
-            parent: p,
-            child: c,
-            position: if ordered {
-                row.get(2).as_real().unwrap_or(0.0)
-            } else {
-                0.0
-            },
-        }),
-        _ => {
-            load_err = Some(DbError::new(
-                DbErrorKind::Decode,
-                format!("`{join_table}` holds a membership whose ids will not read as keys"),
-            ))
-        }
-    }) {
-        reg.error.get_or_insert(e);
-        return;
-    }
-    if let Some(e) = load_err {
-        reg.error.get_or_insert(e);
-        return;
-    }
-
-    let store = Store::new(Keyed::new(rows));
+    // The membership cache starts EMPTY — memberships fault through the memos on read and
+    // enter through link/unlink on write; the file is never read whole.
+    let store = Store::new(Keyed::new(Vec::new()));
     let delete_a = Box::new(move |h: u64| {
         parent_store.restructure("cascade", Op::Delete, h, |k| {
             k.remove(h);
@@ -1018,11 +1232,18 @@ pub fn wire_join<P: Model, C: Model>(
         });
     });
     let rel = Rc::new(JoinRel {
+        container: Rc::downgrade(&container.inner),
         join_table,
+        parent_col,
+        child_col,
         a_store: parent_store.store_id(),
+        a_table: P::TABLE,
         a_field: field,
+        a_key_col: P::KEY,
         a_delete: delete,
         b_store: child_store.store_id(),
+        b_table: C::TABLE,
+        b_key_col: C::KEY,
         b_field: Cell::new(None),
         b_delete: Cell::new(DeleteRule::Nullify),
         join_store: store.store_id(),
@@ -1030,12 +1251,8 @@ pub fn wire_join<P: Model, C: Model>(
         store,
         delete_a,
         delete_b,
-        index: RefCell::new(JoinIndex::default()),
-    });
-    store.with_untracked(|k| {
-        for row in k.items() {
-            rel.insert_index(row.parent, row.child);
-        }
+        memo_fwd: RefCell::new(HashMap::new()),
+        memo_rev: RefCell::new(HashMap::new()),
     });
 
     container.register_join_hooks(join_table, parent_col, child_col, ordered, store);
@@ -1106,6 +1323,23 @@ fn find_relation(parent_store: u64, field: &str) -> Option<Wired> {
                 })
             })
     })
+}
+
+/// Bring a set of rows into the cache — what a relation write does before it writes.
+type Materialize = Box<dyn Fn(&[u64])>;
+
+/// Read one row's order value by handle; write it back. The pair is what an ordered relation
+/// needs, whichever shape holds the order (a child's field, or a membership's position).
+type ReadOrder = Box<dyn Fn(u64) -> f64>;
+type WriteOrder = Box<dyn Fn(u64, f64) -> bool>;
+
+/// What placing one row inside an ordered relation needs, resolved from whichever shape holds
+/// the order.
+struct Placement {
+    ordered: bool,
+    read_ord: ReadOrder,
+    write_ord: WriteOrder,
+    is_member: bool,
 }
 
 /// What the generated accessor for a `Many` field returns: the relation, addressed from one
@@ -1199,13 +1433,17 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
             Some((Wired::Join(r, forward), key)) => {
                 // Whichever end asked, the stored pair is always (A, B).
                 let (a, b) = if forward { (key, h) } else { (h, key) };
-                let last = r
-                    .members_of(a, true)
-                    .iter()
-                    .map(|c| r.position_of(a, *c))
-                    .fold(f64::NEG_INFINITY, f64::max);
-                let next = if last.is_finite() { last + 1.0 } else { 1.0 };
-                r.link(a, b, if r.ordered { next } else { 0.0 })
+                let next = if r.ordered {
+                    let last = r
+                        .members_of(a, true)
+                        .iter()
+                        .map(|c| r.position_of(a, *c))
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    if last.is_finite() { last + 1.0 } else { 1.0 }
+                } else {
+                    0.0
+                };
+                r.link(a, b, next)
             }
             None => false,
         }
@@ -1234,8 +1472,15 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
                 Placement {
                     ordered: r.ordered.is_some(),
                     read_ord: Box::new(move |c| r1.read_order(c)),
-                    write_ord: Box::new(move |c, v| (r2.write_ord)(c, v)),
-                    is_member: r.index.borrow().parent_of.get(&h) == Some(&parent),
+                    write_ord: Box::new(move |c, v| {
+                        (r2.materialize)(&[c]);
+                        (r2.write_ord)(c, v)
+                    }),
+                    is_member: r.parent_of(h) == Some(parent) && {
+                        // `parent_of` answers from the file too; membership here means the
+                        // CURRENT truth, which children_of's overlay establishes.
+                        r.children_of(parent).contains(&h)
+                    },
                 }
             }
             Wired::Join(r, forward) => {
@@ -1246,11 +1491,16 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
                     ordered: r.ordered && *forward,
                     read_ord: Box::new(move |c| r1.position_of(parent, c)),
                     write_ord: Box::new(move |c, v| {
-                        r2.store.write_field(
-                            day_model::Key::Pair(parent, c).handle(),
-                            "position",
-                            v,
-                        )
+                        let handle = day_model::Key::Pair(parent, c).handle();
+                        if r2.store.with_untracked(|k| k.get(handle).is_none()) {
+                            let position = r2.position_of(parent, c);
+                            r2.store.populate(vec![JoinRow {
+                                parent,
+                                child: c,
+                                position,
+                            }]);
+                        }
+                        r2.store.write_field(handle, "position", v)
                     }),
                     is_member: r.members_of(parent, *forward).contains(&h),
                 }
@@ -1305,7 +1555,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         let h = child.into().handle();
         match self.resolve() {
             Some((Wired::ToOne(r), p)) => {
-                if r.index.borrow().parent_of.get(&h) != Some(&p) {
+                if !r.children_of(p).contains(&h) {
                     return false; // not this parent's child
                 }
                 r.set_fk(h, None)
@@ -1322,8 +1572,10 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
     pub fn clear(&self) {
         match self.resolve() {
             Some((Wired::ToOne(r), p)) => {
-                for child in r.children_of(p) {
-                    r.set_fk(child, None);
+                let children = r.children_of(p);
+                (r.materialize)(&children);
+                for child in children {
+                    (r.write_fk)(child, None);
                 }
             }
             Some((Wired::Join(r, forward), key)) => {
@@ -1343,7 +1595,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
 
 impl ModelContainer {
     /// Route one announced change into relation maintenance. Called from the change sink,
-    /// AFTER dirty-marking and query dispatch; the writes it makes (cascades, nullifies)
+    /// AFTER dirty-marking and query staleness; the writes it makes (cascades, nullifies)
     /// nest through the same pipeline.
     pub(crate) fn relations_on_change(&self, change: &day_model::Change) {
         let Some(&store) = change.components.first() else {
@@ -1412,9 +1664,19 @@ impl ModelContainer {
         }
     }
 
-    /// The store for `M` when it is in this container's schema — the non-panicking
-    /// [`ModelContainer::store`].
-    pub fn try_store<M: Model>(&self) -> Option<Store<Keyed<M>>> {
+    /// Drop every relation memo — the external-change and rescan reset.
+    pub(crate) fn invalidate_relation_memos(&self) {
+        for r in self.inner.relations.borrow().iter() {
+            r.invalidate_all();
+        }
+        for j in self.inner.joins.borrow().iter() {
+            j.invalidate_all();
+        }
+    }
+
+    /// The cache for `M` when it is in this container's schema — the non-panicking
+    /// [`ModelContainer::cache`].
+    pub fn try_cache<M: Model>(&self) -> Option<Store<Keyed<M>>> {
         self.inner
             .stores
             .borrow()
@@ -1429,7 +1691,7 @@ impl ModelContainer {
     /// refuse after the row is gone, so this is deny's contract.
     pub fn delete<M: Model>(&self, id: impl Into<ModelId<M>>) -> Result<(), DbError> {
         let h = id.into().handle();
-        let store = self.store::<M>();
+        let store = self.cache::<M>();
         let rels: Vec<Rc<ToOneRel>> = self.inner.relations.borrow().iter().cloned().collect();
         for r in rels
             .iter()
@@ -1471,6 +1733,11 @@ impl ModelContainer {
                     ),
                 ));
             }
+        }
+        // The delete works resident or not — a value-free Delete folds to one statement —
+        // but an installed undo stack needs the row to invert it.
+        if day_model::record_capture_active() {
+            let _ = self.ensure_resident::<M>(&[h]);
         }
         store.restructure("delete", Op::Delete, h, |k| {
             k.remove(h);
@@ -1549,6 +1816,26 @@ impl ModelContainer {
             }
             v
         };
+        let decode = move |r: &Vec<Value>| -> Result<JoinRow, DbError> {
+            match (
+                value_to_handle(&Row::get(r, 0)),
+                value_to_handle(&Row::get(r, 1)),
+            ) {
+                (Some(p), Some(c)) => Ok(JoinRow {
+                    parent: p,
+                    child: c,
+                    position: if ordered {
+                        Row::get(r, 2).as_real().unwrap_or(0.0)
+                    } else {
+                        0.0
+                    },
+                }),
+                _ => Err(DbError::new(
+                    DbErrorKind::Decode,
+                    format!("`{table}` holds a membership whose ids will not read as keys"),
+                )),
+            }
+        };
         let hooks = crate::TableHooks {
             table,
             key_cols: vec![parent_col.to_string(), child_col.to_string()],
@@ -1559,14 +1846,10 @@ impl ModelContainer {
                 ),
                 _ => (format!("{parent_col} IS NULL"), Vec::new()),
             }),
-            key_from_row: Rc::new(|row| {
-                match (value_to_handle(&row.get(0)), value_to_handle(&row.get(1))) {
-                    (Some(p), Some(c)) => Some(day_model::Key::Pair(p, c).handle()),
-                    _ => None,
-                }
-            }),
             columns,
             fields,
+            fts: None,
+            spatial: None,
             row_for: Rc::new(move |h| store.with_untracked(|k| k.get(h).map(&to_row))),
             all_rows: Rc::new(move || {
                 store.with_untracked(|k| {
@@ -1576,60 +1859,29 @@ impl ModelContainer {
                         .collect()
                 })
             }),
-            reload: Rc::new(move |raw| {
+            resident_keys: Rc::new(move || store.with_untracked(|k| k.keys())),
+            resident_len: Rc::new(move || store.with_untracked(|k| k.len())),
+            is_resident: Rc::new(move |h| store.with_untracked(|k| k.get(h).is_some())),
+            absorb: Rc::new(move |raw| {
                 let mut rows = Vec::with_capacity(raw.len());
-                for r in raw {
-                    match (
-                        value_to_handle(&Row::get(&r, 0)),
-                        value_to_handle(&Row::get(&r, 1)),
-                    ) {
-                        (Some(p), Some(c)) => rows.push(JoinRow {
-                            parent: p,
-                            child: c,
-                            position: if ordered {
-                                Row::get(&r, 2).as_real().unwrap_or(0.0)
-                            } else {
-                                0.0
-                            },
-                        }),
-                        _ => {
-                            return Err(DbError::new(
-                                DbErrorKind::Decode,
-                                format!("`{table}` holds a membership whose ids will not read"),
-                            ));
-                        }
-                    }
+                for r in &raw {
+                    rows.push(decode(r)?);
                 }
-                let fresh = Keyed::new(rows);
-                store.update("rescan", move |k| *k = fresh);
-                Ok(())
+                let keys = rows
+                    .iter()
+                    .map(day_model::Identified::handle)
+                    .collect::<Vec<_>>();
+                store.populate(rows);
+                Ok(keys)
             }),
-            merge: Rc::new(move |raw| {
-                // Memberships are a set: the diff is which pairs arrived and which left.
+            refresh: Rc::new(move |raw| {
+                // Memberships are a set: the diff against the RESIDENT rows is which pairs
+                // arrived, moved, or left.
                 let mut fresh: Vec<JoinRow> = Vec::with_capacity(raw.len());
-                for r in raw {
-                    match (
-                        value_to_handle(&Row::get(&r, 0)),
-                        value_to_handle(&Row::get(&r, 1)),
-                    ) {
-                        (Some(p), Some(c)) => fresh.push(JoinRow {
-                            parent: p,
-                            child: c,
-                            position: if ordered {
-                                Row::get(&r, 2).as_real().unwrap_or(0.0)
-                            } else {
-                                0.0
-                            },
-                        }),
-                        _ => {
-                            return Err(DbError::new(
-                                DbErrorKind::Decode,
-                                format!("`{table}` holds a membership whose ids will not read"),
-                            ));
-                        }
-                    }
+                for r in &raw {
+                    fresh.push(decode(r)?);
                 }
-                let existing: Vec<u64> = store.with_untracked(|k| k.keys().to_vec());
+                let existing: Vec<u64> = store.with_untracked(|k| k.keys());
                 let arriving: std::collections::HashSet<u64> =
                     fresh.iter().map(day_model::Identified::handle).collect();
                 let mut changed = false;
@@ -1656,6 +1908,15 @@ impl ModelContainer {
                     }
                 });
                 Ok(changed)
+            }),
+            evict: Rc::new(move |candidates, want| {
+                let doomed: Vec<u64> = candidates
+                    .iter()
+                    .copied()
+                    .filter(|h| !store.is_observed(*h))
+                    .take(want)
+                    .collect();
+                store.depopulate_many(&doomed)
             }),
             watch_undo: Rc::new(move |stack: &day_model::UndoStack| stack.watch(store)),
         };

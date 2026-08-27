@@ -22,7 +22,7 @@ struct Doc {
 
 fn open_seeded() -> ModelContainer {
     let c = ModelContainer::open(Sqlite::memory(), schema![Doc]).expect("open");
-    c.store::<Doc>().update("seed", |k| {
+    c.cache::<Doc>().update("seed", |k| {
         *k = day_model::Keyed::new(vec![
             Doc {
                 id: 1,
@@ -51,7 +51,7 @@ fn open_seeded() -> ModelContainer {
 #[test]
 fn two_interleaved_sessions_commit_independently() {
     let c = open_seeded();
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
     let title = store.elem(1).title();
     let body = store.elem(1).body();
 
@@ -77,7 +77,7 @@ fn two_interleaved_sessions_commit_independently() {
 #[test]
 fn a_session_on_a_row_deleted_mid_gesture_stays_harmless() {
     let c = open_seeded();
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
     let title = store.elem(2).title();
 
     title.write_preview("half-typed".into());
@@ -97,7 +97,7 @@ fn a_session_on_a_row_deleted_mid_gesture_stays_harmless() {
 fn undo_against_a_row_another_author_deleted_degrades_quietly() {
     let c = open_seeded();
     let stack = c.undo(10);
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
 
     store.elem(1).rank_no().write(99);
     day_reactive::flush_sync();
@@ -124,7 +124,7 @@ fn undo_against_a_row_another_author_deleted_degrades_quietly() {
 fn id_reuse_keeps_histories_distinct() {
     let c = open_seeded();
     let stack = c.undo(10);
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
 
     store.restructure("remove", Op::Delete, 3, |v| {
         v.remove(3);
@@ -153,7 +153,7 @@ fn id_reuse_keeps_histories_distinct() {
 fn insert_edit_delete_of_one_row_in_one_turn_undoes_to_nothing() {
     let c = open_seeded();
     let stack = c.undo(10);
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
 
     day_reactive::batch(|| {
         store.restructure("add", Op::Insert, 50, |v| {
@@ -182,7 +182,7 @@ fn insert_edit_delete_of_one_row_in_one_turn_undoes_to_nothing() {
 #[test]
 fn unicode_survives_the_whole_pipeline() {
     let c = open_seeded();
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
 
     // contains_ci through Unicode case folding (ß/İ live in to_lowercase's world).
     let q = c
@@ -217,7 +217,7 @@ fn unicode_survives_the_whole_pipeline() {
     c.save().expect("flush");
     c.rescan().expect("rescan");
     assert_eq!(
-        c.store::<Doc>().elem(3).body().peek(),
+        c.cache::<Doc>().elem(3).body().peek(),
         "🎛️ / Grüße / 世界 / \u{200d} zero-width"
     );
 }
@@ -225,12 +225,12 @@ fn unicode_survives_the_whole_pipeline() {
 #[test]
 fn a_megabyte_of_text_round_trips_and_indexes() {
     let c = open_seeded();
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
     let big = "lorem 🎚️ ".repeat(120_000); // ~1.2 MB
     store.elem(1).body().write(big.clone());
     c.save().expect("flush");
     c.rescan().expect("rescan");
-    assert_eq!(c.store::<Doc>().elem(1).body().peek().len(), big.len());
+    assert_eq!(c.cache::<Doc>().elem(1).body().peek().len(), big.len());
 
     let q = c.query::<Doc>().filter(Doc::fts().matches("lorem")).live();
     assert!(q.contains(1));
@@ -254,7 +254,7 @@ fn malformed_fts_syntax_surfaces_instead_of_reading_as_empty() {
 #[test]
 fn sentinel_adjacent_keys_work_and_the_top_bit_is_reserved() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Doc]).expect("open");
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
     // The integer keyspace ends below 1 << 63: the top bit is the wide-key handle space
     // (identity derived from data belongs in a Uuid or String key now), and SQLite's own
     // INTEGER tops out at i64::MAX anyway — the old contract only "stored" larger keys by
@@ -274,20 +274,31 @@ fn sentinel_adjacent_keys_work_and_the_top_bit_is_reserved() {
 }
 
 #[test]
-fn wholesale_emptying_deletes_every_row() {
+fn wholesale_emptying_the_cache_deletes_nothing() {
+    // The lazy contract: the cache is a WORKING SET, so rewriting it wholesale upserts what
+    // it holds and never infers deletions from absence — rows the rewrite never saw are not
+    // its to delete. Emptying the table is an explicit act, row by row, through the log.
     let c = open_seeded();
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
     store.update("clear", |k| *k = day_model::Keyed::new(Vec::new()));
     c.save().expect("flush");
-    let raw = c.query_raw::<Doc>("SELECT id FROM docs", vec![], &["docs"]);
-    assert_eq!(raw.ids(), Vec::<u64>::new());
+    let raw = c.query_raw::<Doc>("SELECT id FROM docs ORDER BY id", vec![], &["docs"]);
+    assert_eq!(raw.ids().len(), 3, "the file still holds every row");
+
+    for id in raw.ids() {
+        store.restructure("delete", Op::Delete, id, |v| {
+            v.remove(id.handle());
+        });
+    }
+    c.save().expect("flush");
+    assert_eq!(raw.ids(), Vec::<u64>::new(), "explicit deletes empty it");
 }
 
 #[test]
 fn container_churn_leaves_no_standing_sinks() {
     for _ in 0..50 {
         let c = ModelContainer::open(Sqlite::memory(), schema![Doc]).expect("open");
-        let _ = c.store::<Doc>();
+        let _ = c.cache::<Doc>();
     }
     // All fifty containers are gone; a write to an unrelated store must dirty nothing and
     // panic nothing (dead sinks removed on drop).
@@ -302,7 +313,7 @@ fn container_churn_leaves_no_standing_sinks() {
 #[test]
 fn record_sql_reentrancy_is_defined() {
     let c = open_seeded();
-    let store = c.store::<Doc>();
+    let store = c.cache::<Doc>();
     let outer = c
         .record_sql(|| {
             store.elem(1).rank_no().write(10);

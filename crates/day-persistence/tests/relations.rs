@@ -127,7 +127,7 @@ fn temp_db(name: &str) -> std::path::PathBuf {
 
 fn travel() -> ModelContainer {
     let c = ModelContainer::open(Sqlite::memory(), schema![Trip, Lodging]).expect("open");
-    let trips = c.store::<Trip>();
+    let trips = c.cache::<Trip>();
     trips.restructure("add", Op::Insert, 1, |v| {
         v.push(Trip {
             id: 1,
@@ -142,7 +142,7 @@ fn travel() -> ModelContainer {
             ..Default::default()
         })
     });
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
     for (id, name, trip) in [
         (10, "Ryokan", 1),
         (11, "Machiya", 1),
@@ -164,7 +164,7 @@ fn travel() -> ModelContainer {
 #[test]
 fn the_index_answers_from_loaded_foreign_keys() {
     let c = travel();
-    let trips = c.store::<Trip>();
+    let trips = c.cache::<Trip>();
     assert_eq!(trips.elem(1).lodging().ids(), [10, 11]);
     assert_eq!(trips.elem(2).lodging().ids(), [12]);
     assert_eq!(trips.elem(1).lodging().count(), 2);
@@ -175,8 +175,8 @@ fn the_index_answers_from_loaded_foreign_keys() {
 #[test]
 fn writing_a_child_foreign_key_wakes_the_parents_many() {
     let c = travel();
-    let trips = c.store::<Trip>();
-    let lodging = c.store::<Lodging>();
+    let trips = c.cache::<Trip>();
+    let lodging = c.cache::<Lodging>();
 
     // Direction one of the maintained inverse: the child's One is the truth, and setting it
     // announces the affected parents' Many fields.
@@ -197,8 +197,8 @@ fn writing_a_child_foreign_key_wakes_the_parents_many() {
 #[test]
 fn adding_through_the_many_writes_the_foreign_key() {
     let c = travel();
-    let trips = c.store::<Trip>();
-    let lodging = c.store::<Lodging>();
+    let trips = c.cache::<Trip>();
+    let lodging = c.cache::<Lodging>();
 
     // Direction two: the Many side is sugar over the same truth.
     let sql = c
@@ -220,8 +220,8 @@ fn adding_through_the_many_writes_the_foreign_key() {
 #[test]
 fn cascade_deletes_children_with_the_parent_in_one_flush() {
     let c = travel();
-    let trips = c.store::<Trip>();
-    let lodging = c.store::<Lodging>();
+    let trips = c.cache::<Trip>();
+    let lodging = c.cache::<Lodging>();
 
     let sql = c
         .record_sql(|| {
@@ -245,7 +245,7 @@ fn cascade_deletes_children_with_the_parent_in_one_flush() {
 #[test]
 fn cascade_recurses_through_a_self_referential_tree() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Node]).expect("open");
-    let nodes = c.store::<Node>();
+    let nodes = c.cache::<Node>();
     let (root, group, leaf_a, leaf_b, other) = (
         Uuid::now_v7(),
         Uuid::now_v7(),
@@ -283,8 +283,8 @@ fn cascade_recurses_through_a_self_referential_tree() {
 fn a_cascade_is_one_undo_unit_that_restores_the_subtree() {
     let c = travel();
     let undo = c.undo(10);
-    let trips = c.store::<Trip>();
-    let lodging = c.store::<Lodging>();
+    let trips = c.cache::<Trip>();
+    let lodging = c.cache::<Lodging>();
 
     trips.restructure("delete", Op::Delete, 1, |v| {
         v.remove(1);
@@ -306,8 +306,8 @@ fn a_cascade_is_one_undo_unit_that_restores_the_subtree() {
 #[test]
 fn nullify_clears_optional_references_and_the_children_survive() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Author, Book]).expect("open");
-    let authors = c.store::<Author>();
-    let books = c.store::<Book>();
+    let authors = c.cache::<Author>();
+    let books = c.cache::<Book>();
     authors.restructure("add", Op::Insert, 1, |v| {
         v.push(Author {
             id: 1,
@@ -346,8 +346,8 @@ fn nullify_clears_optional_references_and_the_children_survive() {
 #[test]
 fn deny_refuses_through_the_checked_door() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Invoice, LineItem]).expect("open");
-    let invoices = c.store::<Invoice>();
-    let items = c.store::<LineItem>();
+    let invoices = c.cache::<Invoice>();
+    let items = c.cache::<LineItem>();
     invoices.restructure("add", Op::Insert, 1, |v| {
         v.push(Invoice {
             id: 1,
@@ -377,8 +377,8 @@ fn deny_refuses_through_the_checked_door() {
 #[test]
 fn ordered_children_read_in_order_and_a_move_writes_one_row() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Playlist, Track]).expect("open");
-    let lists = c.store::<Playlist>();
-    let tracks = c.store::<Track>();
+    let lists = c.cache::<Playlist>();
+    let tracks = c.cache::<Track>();
     lists.restructure("add", Op::Insert, 1, |v| {
         v.push(Playlist {
             id: 1,
@@ -415,8 +415,8 @@ fn ordered_children_read_in_order_and_a_move_writes_one_row() {
 #[test]
 fn a_spent_gap_rebalances_and_order_stays_true() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Playlist, Track]).expect("open");
-    let lists = c.store::<Playlist>();
-    let tracks = c.store::<Track>();
+    let lists = c.cache::<Playlist>();
+    let tracks = c.cache::<Track>();
     lists.restructure("add", Op::Insert, 1, |v| {
         v.push(Playlist {
             id: 1,
@@ -470,8 +470,8 @@ fn fk_columns_carry_references_clauses_for_external_writers() {
 fn an_external_cascade_merges_cleanly() {
     let path = temp_db("external");
     let c = ModelContainer::open(Sqlite::at(&path), schema![Trip, Lodging]).expect("open");
-    let trips = c.store::<Trip>();
-    let lodging = c.store::<Lodging>();
+    let trips = c.cache::<Trip>();
+    let lodging = c.cache::<Lodging>();
     trips.restructure("add", Op::Insert, 1, |v| {
         v.push(Trip {
             id: 1,
@@ -516,15 +516,15 @@ fn relations_rebuild_from_a_reopened_file() {
     }
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Trip, Lodging]).expect("reopen");
-        assert_eq!(c.store::<Trip>().elem(1).lodging().ids(), [10, 11]);
-        assert_eq!(c.store::<Trip>().elem(2).lodging().ids(), [12]);
+        assert_eq!(c.cache::<Trip>().elem(1).lodging().ids(), [10, 11]);
+        assert_eq!(c.cache::<Trip>().elem(2).lodging().ids(), [12]);
     }
     let _ = std::fs::remove_file(&path);
 }
 
 fn travel_at(path: &std::path::Path) -> ModelContainer {
     let c = ModelContainer::open(Sqlite::at(path), schema![Trip, Lodging]).expect("open");
-    let trips = c.store::<Trip>();
+    let trips = c.cache::<Trip>();
     trips.restructure("add", Op::Insert, 1, |v| {
         v.push(Trip {
             id: 1,
@@ -539,7 +539,7 @@ fn travel_at(path: &std::path::Path) -> ModelContainer {
             ..Default::default()
         })
     });
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
     for (id, name, trip) in [
         (10, "Ryokan", 1),
         (11, "Machiya", 1),
@@ -618,22 +618,19 @@ fn queries_filter_by_the_fk_column() {
         .live();
     assert_eq!(q.ids(), [11, 10], "Machiya, Ryokan");
 
-    // Reparenting moves the row between result sets incrementally.
-    c.store::<Lodging>().elem(12).trip().write(One::to(1u32));
+    // Reparenting moves the row between result sets.
+    c.cache::<Lodging>().elem(12).trip().write(One::to(1u32));
     assert_eq!(q.count(), 3);
-    let evals = q.evaluations();
-    c.store::<Lodging>().elem(12).name().write("Renamed".into());
-    assert!(
-        q.evaluations() > evals,
-        "name is the sort key, so the edit re-evaluated one row"
-    );
+    // Renaming re-sorts: name is the sort key.
+    c.cache::<Lodging>().elem(12).name().write("Renamed".into());
+    assert_eq!(q.ids(), [11, 12, 10], "Machiya, Renamed, Ryokan");
 }
 
 #[test]
 fn a_dangling_reference_reads_as_a_missing_parent() {
     let c = travel();
-    let trips = c.store::<Trip>();
-    let lodging = c.store::<Lodging>();
+    let trips = c.cache::<Trip>();
+    let lodging = c.cache::<Lodging>();
 
     // Bypass the rules on purpose: a raw delete of the parent with cascade runs the rule…
     trips.restructure("delete", Op::Delete, 2, |v| {
@@ -688,7 +685,7 @@ fn a_renamed_foreign_key_column_still_wires_and_folds() {
     let path = temp_db("renamed");
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Crate, Bottle]).expect("open");
-        let crates = c.store::<Crate>();
+        let crates = c.cache::<Crate>();
         for id in [1u32, 2] {
             crates.restructure("add", Op::Insert, id, |v| {
                 v.push(Crate {
@@ -697,7 +694,7 @@ fn a_renamed_foreign_key_column_still_wires_and_folds() {
                 })
             });
         }
-        c.store::<Bottle>().restructure("add", Op::Insert, 10, |v| {
+        c.cache::<Bottle>().restructure("add", Op::Insert, 10, |v| {
             v.push(Bottle {
                 id: 10,
                 label: "Riesling".into(),
@@ -734,8 +731,8 @@ fn a_renamed_foreign_key_column_still_wires_and_folds() {
 #[test]
 fn ordered_edges_place_correctly() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Playlist, Track]).expect("open");
-    let lists = c.store::<Playlist>();
-    let tracks = c.store::<Track>();
+    let lists = c.cache::<Playlist>();
+    let tracks = c.cache::<Track>();
     lists.restructure("add", Op::Insert, 1, |v| {
         v.push(Playlist {
             id: 1,
@@ -781,7 +778,7 @@ fn a_self_referential_cascade_flushes_as_one_statement() {
     // self-referential test asserts which ROWS survive; this one asserts the STATEMENTS,
     // which is where a duplicate would hide.
     let c = ModelContainer::open(Sqlite::memory(), schema![Node]).expect("open");
-    let nodes = c.store::<Node>();
+    let nodes = c.cache::<Node>();
     let ids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
     // ids[0] is a group holding the other four.
     for (i, id) in ids.iter().enumerate() {
@@ -824,7 +821,7 @@ fn the_engines_own_cascade_re_logs_the_parent_statement() {
         schema![Node],
     )
     .expect("open");
-    let nodes = c.store::<Node>();
+    let nodes = c.cache::<Node>();
     let ids: Vec<Uuid> = (0..5).map(|_| Uuid::now_v7()).collect();
     for (i, id) in ids.iter().enumerate() {
         let parent = (i > 0).then(|| One::to(ids[0]));
@@ -894,7 +891,7 @@ fn identical_updates_across_rows_flush_as_one_statement() {
     // rows. They merge; rows written DIFFERENT values keep their own statement, because a
     // single `SET … WHERE id IN (…)` can only carry one value.
     let c = travel();
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
 
     let sql = c
         .record_sql(|| {
@@ -938,7 +935,7 @@ fn a_batched_update_reaches_the_file_for_every_row() {
     let path = temp_db("batched-update");
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Trip, Lodging]).expect("open");
-        let trips = c.store::<Trip>();
+        let trips = c.cache::<Trip>();
         for id in [1u32, 2] {
             trips.restructure("add", Op::Insert, id, |v| {
                 v.push(Trip {
@@ -959,8 +956,8 @@ fn a_batched_update_reaches_the_file_for_every_row() {
     }
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Trip, Lodging]).expect("reopen");
-        assert_eq!(c.store::<Trip>().elem(1).name().peek(), "after");
-        assert_eq!(c.store::<Trip>().elem(2).name().peek(), "after");
+        assert_eq!(c.get::<Trip>(1u32).expect("faults").name().peek(), "after");
+        assert_eq!(c.get::<Trip>(2u32).expect("faults").name().peek(), "after");
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -970,7 +967,7 @@ fn a_join_rows_composite_key_keeps_its_own_statement() {
     // A membership is addressed by a PAIR of columns, which no single-column `IN` expresses,
     // so those stay one statement each rather than being merged wrongly.
     let c = ModelContainer::open(Sqlite::memory(), schema![Crate2, Bottle2]).expect("open");
-    c.store::<Crate2>()
+    c.cache::<Crate2>()
         .restructure("add", Op::Insert, 1u32, |v| {
             v.push(Crate2 {
                 id: 1,
@@ -978,20 +975,20 @@ fn a_join_rows_composite_key_keeps_its_own_statement() {
             })
         });
     for id in [10u32, 11] {
-        c.store::<Bottle2>()
+        c.cache::<Bottle2>()
             .restructure("add", Op::Insert, id, |v| {
                 v.push(Bottle2 {
                     id,
                     label: format!("b{id}"),
                 })
             });
-        c.store::<Crate2>().elem(1u32).bottles().add(id);
+        c.cache::<Crate2>().elem(1u32).bottles().add(id);
     }
     c.save().expect("seed");
 
     let sql = c
         .record_sql(|| {
-            c.store::<Crate2>().elem(1u32).bottles().clear();
+            c.cache::<Crate2>().elem(1u32).bottles().clear();
         })
         .expect("flush");
     assert_eq!(sql.len(), 2, "one per membership: {sql:?}");

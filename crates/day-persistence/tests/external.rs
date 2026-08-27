@@ -35,7 +35,7 @@ fn temp_db(name: &str) -> std::path::PathBuf {
 
 fn seeded(path: &std::path::Path) -> ModelContainer {
     let container = ModelContainer::open(Sqlite::at(path), schema![Note]).expect("open");
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
     for (id, title) in [(1, "first"), (2, "second"), (3, "third")] {
         store.restructure("add", Op::Insert, id, |v| {
             v.push(Note {
@@ -58,7 +58,7 @@ fn second_connection(path: &std::path::Path) -> impl SqliteConnection {
 fn another_connections_writes_arrive_precisely_and_do_not_echo() {
     let path = temp_db("merge");
     let container = seeded(&path);
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     {
         let mut other = second_connection(&path);
@@ -93,9 +93,17 @@ fn another_connections_writes_arrive_precisely_and_do_not_echo() {
     assert_eq!(row1.len(), 1);
     assert_eq!(row1[0].label, "title");
 
-    // The store followed the file.
+    // The resident rows followed the file; the arrival is not resident (nothing showed it
+    // yet) and faults in on demand like any other row.
     assert_eq!(store.elem(1).title().peek(), "renamed");
-    assert_eq!(store.elem(4).title().peek(), "fourth");
+    assert_eq!(
+        container
+            .get::<Note>(4u32)
+            .expect("the external insert faults in")
+            .title()
+            .peek(),
+        "fourth"
+    );
     assert!(!store.with_untracked(|k| k.get(3).is_some()), "row 3 gone");
 
     // Nothing echoes back: the merge left nothing dirty, so a flush issues no statements.
@@ -135,7 +143,7 @@ fn a_live_query_follows_the_merge() {
 fn an_unchanged_file_and_our_own_writes_report_nothing() {
     let path = temp_db("quiet");
     let container = seeded(&path);
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     // Nothing external happened.
     assert!(!container.check_external().expect("check_external"));
@@ -154,7 +162,7 @@ fn an_unflushed_local_edit_survives_the_merge() {
     let path = temp_db("pending");
     let container = seeded(&path);
     container.set_autosave(false);
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     // A local edit still pending when the external write arrives on a DIFFERENT row.
     store.elem(2).title().write("local, unflushed".into());

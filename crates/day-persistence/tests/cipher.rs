@@ -31,7 +31,7 @@ fn temp_db(name: &str) -> std::path::PathBuf {
 
 fn add_note(container: &ModelContainer, id: u32, title: &str) {
     container
-        .store::<Note>()
+        .cache::<Note>()
         .restructure("add", Op::Insert, id as u64, |v| {
             v.push(Note {
                 id,
@@ -69,7 +69,7 @@ fn an_encrypted_file_opens_with_its_key_and_refuses_others() {
         schema![Note],
     )
     .expect("reopen");
-    assert_eq!(container.store::<Note>().elem(1).title().peek(), "secret");
+    assert_eq!(container.cache::<Note>().elem(1).title().peek(), "secret");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -93,7 +93,7 @@ fn encrypt_open_decrypt_round_trips() {
         let container =
             ModelContainer::open(Sqlite::at(&encrypted).key(Secret::new("k1")), schema![Note])
                 .expect("open encrypted copy");
-        assert_eq!(container.store::<Note>().elem(1).title().peek(), "travels");
+        assert_eq!(container.cache::<Note>().elem(1).title().peek(), "travels");
         // …and comes back out as plaintext.
         container.decrypt_to(&decrypted).expect("decrypt_to");
     }
@@ -101,7 +101,7 @@ fn encrypt_open_decrypt_round_trips() {
     assert!(head.starts_with(b"SQLite format 3"), "plaintext again");
     let container =
         ModelContainer::open(Sqlite::at(&decrypted), schema![Note]).expect("open decrypted");
-    assert_eq!(container.store::<Note>().elem(1).title().peek(), "travels");
+    assert_eq!(container.cache::<Note>().elem(1).title().peek(), "travels");
 
     for p in [plain, encrypted, decrypted] {
         let _ = std::fs::remove_file(&p);
@@ -128,6 +128,6 @@ fn rekey_changes_the_key_in_place() {
     let container =
         ModelContainer::open(Sqlite::at(&path).key(Secret::new("new key")), schema![Note])
             .expect("new key works");
-    assert_eq!(container.store::<Note>().elem(1).title().peek(), "kept");
+    assert_eq!(container.cache::<Note>().elem(1).title().peek(), "kept");
     let _ = std::fs::remove_file(&path);
 }

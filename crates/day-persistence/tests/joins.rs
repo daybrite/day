@@ -74,7 +74,7 @@ fn notes_app(path: Option<&std::path::Path>) -> Notes {
         None => Sqlite::memory(),
     };
     let c = ModelContainer::open(driver, schema![Tag, Note]).expect("open");
-    let tags = c.store::<Tag>();
+    let tags = c.cache::<Tag>();
     for (id, name) in [(1, "rust"), (2, "design"), (3, "archive")] {
         tags.restructure("add", Op::Insert, id, |v| {
             v.push(Tag {
@@ -84,7 +84,7 @@ fn notes_app(path: Option<&std::path::Path>) -> Notes {
             })
         });
     }
-    let notes = c.store::<Note>();
+    let notes = c.cache::<Note>();
     let ids: Vec<Uuid> = (0..3).map(|_| Uuid::now_v7()).collect();
     for (i, id) in ids.iter().enumerate() {
         notes.restructure("add", Op::Insert, *id, |v| {
@@ -102,8 +102,8 @@ fn notes_app(path: Option<&std::path::Path>) -> Notes {
 #[test]
 fn membership_reads_from_both_sides() {
     let app = notes_app(None);
-    let tags = app.c.store::<Tag>();
-    let notes = app.c.store::<Note>();
+    let tags = app.c.cache::<Tag>();
+    let notes = app.c.cache::<Note>();
 
     assert!(tags.elem(1).notes().add(app.ids[0]));
     assert!(tags.elem(1).notes().add(app.ids[1]));
@@ -121,7 +121,7 @@ fn membership_reads_from_both_sides() {
 #[test]
 fn membership_is_a_set_and_unlinking_is_precise() {
     let app = notes_app(None);
-    let tags = app.c.store::<Tag>();
+    let tags = app.c.cache::<Tag>();
 
     assert!(tags.elem(1).notes().add(app.ids[0]));
     assert!(
@@ -138,7 +138,7 @@ fn membership_is_a_set_and_unlinking_is_precise() {
 #[test]
 fn linking_folds_to_one_insert_and_unlinking_to_one_delete() {
     let app = notes_app(None);
-    let tags = app.c.store::<Tag>();
+    let tags = app.c.cache::<Tag>();
 
     let sql = app
         .c
@@ -169,7 +169,7 @@ fn memberships_survive_a_reopen() {
     let path = temp_db("reopen");
     let ids = {
         let app = notes_app(Some(&path));
-        let tags = app.c.store::<Tag>();
+        let tags = app.c.cache::<Tag>();
         tags.elem(1).notes().add(app.ids[0]);
         tags.elem(1).notes().add(app.ids[2]);
         tags.elem(2).notes().add(app.ids[0]);
@@ -178,9 +178,9 @@ fn memberships_survive_a_reopen() {
     };
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Tag, Note]).expect("reopen");
-        assert_eq!(c.store::<Tag>().elem(1).notes().count(), 2);
-        assert!(c.store::<Note>().elem(ids[0]).tags().contains(2u32));
-        assert!(c.store::<Note>().elem(ids[1]).tags().is_empty());
+        assert_eq!(c.cache::<Tag>().elem(1).notes().count(), 2);
+        assert!(c.cache::<Note>().elem(ids[0]).tags().contains(2u32));
+        assert!(c.cache::<Note>().elem(ids[1]).tags().is_empty());
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -190,7 +190,7 @@ fn the_join_table_is_readable_and_indexed() {
     let path = temp_db("ddl");
     {
         let app = notes_app(Some(&path));
-        app.c.store::<Tag>().elem(1).notes().add(app.ids[0]);
+        app.c.cache::<Tag>().elem(1).notes().add(app.ids[0]);
         app.c.save().expect("save");
     }
     let conn = rusqlite::Connection::open(&path).expect("raw open");
@@ -217,8 +217,8 @@ fn the_join_table_is_readable_and_indexed() {
 #[test]
 fn deleting_either_side_drops_its_memberships() {
     let app = notes_app(None);
-    let tags = app.c.store::<Tag>();
-    let notes = app.c.store::<Note>();
+    let tags = app.c.cache::<Tag>();
+    let notes = app.c.cache::<Note>();
     tags.elem(1).notes().add(app.ids[0]);
     tags.elem(1).notes().add(app.ids[1]);
     tags.elem(2).notes().add(app.ids[0]);
@@ -246,7 +246,7 @@ fn deleting_either_side_drops_its_memberships() {
 fn a_membership_is_undoable_like_any_other_row() {
     let app = notes_app(None);
     let undo = app.c.undo(10);
-    let tags = app.c.store::<Tag>();
+    let tags = app.c.cache::<Tag>();
 
     tags.elem(1).notes().add(app.ids[0]);
     day_reactive::flush_sync();
@@ -262,7 +262,7 @@ fn a_membership_is_undoable_like_any_other_row() {
 fn another_connections_membership_merges() {
     let path = temp_db("external");
     let app = notes_app(Some(&path));
-    let tags = app.c.store::<Tag>();
+    let tags = app.c.cache::<Tag>();
     tags.elem(1).notes().add(app.ids[0]);
     app.c.save().expect("save");
 
@@ -294,7 +294,7 @@ fn another_connections_membership_merges() {
 
 fn catalog() -> ModelContainer {
     let c = ModelContainer::open(Sqlite::memory(), schema![Course, Reading]).expect("open");
-    let courses = c.store::<Course>();
+    let courses = c.cache::<Course>();
     for (id, code) in [(1, "CS101"), (2, "CS201")] {
         courses.restructure("add", Op::Insert, id, |v| {
             v.push(Course {
@@ -304,7 +304,7 @@ fn catalog() -> ModelContainer {
             })
         });
     }
-    let readings = c.store::<Reading>();
+    let readings = c.cache::<Reading>();
     for (id, title) in [(10, "Structure"), (11, "Interpretation"), (12, "Programs")] {
         readings.restructure("add", Op::Insert, id, |v| {
             v.push(Reading {
@@ -320,7 +320,7 @@ fn catalog() -> ModelContainer {
 #[test]
 fn an_ordered_join_keeps_per_parent_order() {
     let c = catalog();
-    let courses = c.store::<Course>();
+    let courses = c.cache::<Course>();
 
     for r in [10u32, 11, 12] {
         courses.elem(1).readings().add(r);
@@ -350,7 +350,7 @@ fn an_ordered_join_survives_a_reopen_in_order() {
     let path = temp_db("ordered");
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Course, Reading]).expect("open");
-        let courses = c.store::<Course>();
+        let courses = c.cache::<Course>();
         courses.restructure("add", Op::Insert, 1, |v| {
             v.push(Course {
                 id: 1,
@@ -358,7 +358,7 @@ fn an_ordered_join_survives_a_reopen_in_order() {
                 ..Default::default()
             })
         });
-        let readings = c.store::<Reading>();
+        let readings = c.cache::<Reading>();
         for id in [10u32, 11, 12] {
             readings.restructure("add", Op::Insert, id, |v| {
                 v.push(Reading {
@@ -373,7 +373,7 @@ fn an_ordered_join_survives_a_reopen_in_order() {
     }
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Course, Reading]).expect("reopen");
-        assert_eq!(c.store::<Course>().elem(1).readings().ids(), [12, 10, 11]);
+        assert_eq!(c.cache::<Course>().elem(1).readings().ids(), [12, 10, 11]);
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -381,7 +381,7 @@ fn an_ordered_join_survives_a_reopen_in_order() {
 #[test]
 fn insert_at_places_a_new_member_directly() {
     let c = catalog();
-    let courses = c.store::<Course>();
+    let courses = c.cache::<Course>();
     courses.elem(1).readings().add(10u32);
     courses.elem(1).readings().add(11u32);
 
@@ -393,7 +393,7 @@ fn insert_at_places_a_new_member_directly() {
 #[test]
 fn an_unordered_join_refuses_a_move() {
     let app = notes_app(None);
-    let tags = app.c.store::<Tag>();
+    let tags = app.c.cache::<Tag>();
     tags.elem(1).notes().add(app.ids[0]);
     tags.elem(1).notes().add(app.ids[1]);
     assert!(
@@ -405,8 +405,8 @@ fn an_unordered_join_refuses_a_move() {
 #[test]
 fn clear_unlinks_every_membership_of_one_parent() {
     let app = notes_app(None);
-    let tags = app.c.store::<Tag>();
-    let notes = app.c.store::<Note>();
+    let tags = app.c.cache::<Tag>();
+    let notes = app.c.cache::<Note>();
     for id in &app.ids {
         tags.elem(1).notes().add(*id);
         tags.elem(2).notes().add(*id);
@@ -440,22 +440,22 @@ fn a_join_deny_refuses_while_memberships_remain() {
     }
 
     let c = ModelContainer::open(Sqlite::memory(), schema![Shelf, Title]).expect("open");
-    c.store::<Shelf>()
+    c.cache::<Shelf>()
         .restructure("add", Op::Insert, 1, |v| v.push(Shelf::default()));
-    c.store::<Title>().restructure("add", Op::Insert, 5, |v| {
+    c.cache::<Title>().restructure("add", Op::Insert, 5, |v| {
         v.push(Title {
             id: 5,
             name: "Dune".into(),
         })
     });
-    c.store::<Shelf>().elem(1).titles().add(5u32);
+    c.cache::<Shelf>().elem(1).titles().add(5u32);
 
     let err = c
         .delete::<Shelf>(1u32)
         .expect_err("still holds memberships");
     assert_eq!(err.kind, DbErrorKind::Deny);
 
-    c.store::<Shelf>().elem(1).titles().clear();
+    c.cache::<Shelf>().elem(1).titles().clear();
     c.delete::<Shelf>(1u32).expect("empty now");
 }
 
@@ -478,8 +478,8 @@ fn a_join_cascade_deletes_only_the_children_nobody_else_holds() {
     }
 
     let c = ModelContainer::open(Sqlite::memory(), schema![Album, Photo]).expect("open");
-    let albums = c.store::<Album>();
-    let photos = c.store::<Photo>();
+    let albums = c.cache::<Album>();
+    let photos = c.cache::<Photo>();
     for id in [1u32, 2] {
         albums.restructure("add", Op::Insert, id, |v| {
             v.push(Album {

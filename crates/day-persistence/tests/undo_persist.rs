@@ -33,6 +33,8 @@ fn recorder_seeded() -> (ModelContainer, day_persistence::RecorderLog) {
         ]],
     );
     let c = ModelContainer::open(driver, schema![Trip]).expect("open");
+    // Editing starts by faulting the row in — nothing is resident at open.
+    c.ensure_resident::<Trip>(&[1]).expect("fault");
     log.clear();
     (c, log)
 }
@@ -41,7 +43,7 @@ fn recorder_seeded() -> (ModelContainer, day_persistence::RecorderLog) {
 fn an_undone_delete_is_one_insert() {
     let (c, _log) = recorder_seeded();
     let stack = c.undo(100);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
 
     let sql = c
         .record_sql(|| {
@@ -80,7 +82,7 @@ fn an_undone_delete_is_one_insert() {
 fn a_sixty_move_drag_is_one_update() {
     let (c, _log) = recorder_seeded();
     let stack = c.undo(100);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     let field = store.elem(1).start_day();
 
     let sql = c
@@ -111,7 +113,7 @@ fn a_sixty_move_drag_is_one_update() {
 fn an_undone_field_edit_is_one_update_with_the_prior_value() {
     let (c, log) = recorder_seeded();
     let stack = c.undo(100);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
 
     store.elem(1).name().write("osaka".into());
     day_reactive::flush_sync();
@@ -137,7 +139,7 @@ fn agreement_holds_with_undos_interleaved() {
     // The §15 agreement property, with undo/redo woven through the edit stream: after 600
     // steps the live query's ids equal a fresh evaluation of the same store.
     let c = ModelContainer::open(Sqlite::memory(), schema![Trip]).expect("open");
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     store.update("seed", |k| {
         *k = day_model::Keyed::new(
             (1..=40u32)
@@ -216,7 +218,7 @@ fn container_undo_covers_every_store_and_labels_resolve() {
     let (c, _log) = recorder_seeded();
     let stack = c.undo(10);
     stack.set_label_resolver(|label| format!("Undo {label}"));
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     store.elem(1).notes().write("packed".into());
     day_reactive::flush_sync();
     assert_eq!(stack.undo_label().get_untracked(), "Undo notes");

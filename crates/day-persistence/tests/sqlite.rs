@@ -36,7 +36,7 @@ fn rows_survive_a_reopen() {
     let path = temp_db("reopen");
     {
         let container = ModelContainer::open(Sqlite::at(&path), schema![Note]).expect("open");
-        let store = container.store::<Note>();
+        let store = container.cache::<Note>();
         store.restructure("add", Op::Insert, 1, |v| {
             v.push(Note {
                 id: 1,
@@ -59,9 +59,12 @@ fn rows_survive_a_reopen() {
     }
     {
         let container = ModelContainer::open(Sqlite::at(&path), schema![Note]).expect("reopen");
-        let store = container.store::<Note>();
-        assert_eq!(store.keys(), [1]);
-        assert_eq!(store.elem(1).title().peek(), "first, edited");
+        let survivors = container.query::<Note>().live();
+        assert_eq!(survivors.ids(), [1]);
+        assert_eq!(
+            container.get::<Note>(1u32).expect("faults").title().peek(),
+            "first, edited"
+        );
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -78,7 +81,7 @@ fn hand_made_tables_coexist_with_days() {
     }
     {
         let container = ModelContainer::open(Sqlite::at(&path), schema![Note]).expect("open");
-        let store = container.store::<Note>();
+        let store = container.cache::<Note>();
         store.restructure("add", Op::Insert, 1, |v| {
             v.push(Note {
                 id: 1,
@@ -108,7 +111,7 @@ fn a_backup_taken_mid_write_opens_clean() {
     let path = temp_db("backup-src");
     let backup = temp_db("backup-dst");
     let container = ModelContainer::open(Sqlite::at(&path), schema![Note]).expect("open");
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
     store.restructure("add", Op::Insert, 1, |v| {
         v.push(Note {
             id: 1,
@@ -125,7 +128,7 @@ fn a_backup_taken_mid_write_opens_clean() {
 
     let restored = ModelContainer::open(Sqlite::at(&backup), schema![Note]).expect("open backup");
     assert_eq!(
-        restored.store::<Note>().elem(1).title().peek(),
+        restored.get::<Note>(1u32).expect("faults").title().peek(),
         "saved, then edited"
     );
     assert_eq!(
@@ -160,7 +163,7 @@ fn an_added_column_backfills_and_a_dropped_one_goes() {
     {
         let container = ModelContainer::open(Sqlite::at(&path), schema![TaskV1]).expect("v1");
         container
-            .store::<TaskV1>()
+            .cache::<TaskV1>()
             .restructure("add", Op::Insert, 1, |v| {
                 v.push(TaskV1 {
                     id: 1,
@@ -173,9 +176,9 @@ fn an_added_column_backfills_and_a_dropped_one_goes() {
     }
     {
         let container = ModelContainer::open(Sqlite::at(&path), schema![TaskV2]).expect("v2");
-        let store = container.store::<TaskV2>();
-        assert_eq!(store.elem(1).title().peek(), "carried");
-        assert_eq!(store.elem(1).count().peek(), 0, "added column backfilled");
+        let row = container.get::<TaskV2>(1u32).expect("faults");
+        assert_eq!(row.title().peek(), "carried");
+        assert_eq!(row.count().peek(), 0, "added column backfilled");
         container.checkpoint().expect("checkpoint");
     }
     {
@@ -219,7 +222,7 @@ fn size_and_vacuum_report_something_sane() {
     let path = temp_db("size");
     let container = ModelContainer::open(Sqlite::at(&path), schema![Note]).expect("open");
     container
-        .store::<Note>()
+        .cache::<Note>()
         .restructure("add", Op::Insert, 1, |v| {
             v.push(Note {
                 id: 1,
@@ -252,7 +255,7 @@ fn trace_sql_logs_every_statement_the_engine_runs() {
     let sink = seen.clone();
     let driver = Sqlite::memory().trace_sql(move |sql| sink.borrow_mut().push(sql.to_string()));
     let container = ModelContainer::open(driver, schema![TracedNote]).expect("open");
-    let store = container.store::<TracedNote>();
+    let store = container.cache::<TracedNote>();
     store.update("seed", |k| {
         k.push(TracedNote {
             id: 1,

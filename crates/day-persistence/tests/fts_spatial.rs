@@ -31,7 +31,7 @@ struct Post {
 
 fn seeded() -> ModelContainer {
     let c = ModelContainer::open(Sqlite::memory(), schema![Post]).expect("open");
-    c.store::<Post>().update("seed", |k| {
+    c.cache::<Post>().update("seed", |k| {
         *k = day_model::Keyed::new(vec![
             Post {
                 id: 1,
@@ -86,7 +86,7 @@ fn matches_answers_through_the_generated_index() {
 #[test]
 fn the_index_follows_edits_through_the_triggers() {
     let c = seeded();
-    let store = c.store::<Post>();
+    let store = c.cache::<Post>();
     let q = c
         .query::<Post>()
         .filter(Post::fts().matches("fjords"))
@@ -117,7 +117,7 @@ fn the_index_follows_edits_through_the_triggers() {
 #[test]
 fn rank_orders_by_relevance() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Post]).expect("open");
-    c.store::<Post>().update("seed", |k| {
+    c.cache::<Post>().update("seed", |k| {
         *k = day_model::Keyed::new(vec![
             Post {
                 id: 1,
@@ -145,7 +145,7 @@ fn rank_orders_by_relevance() {
 #[test]
 fn within_filters_and_follows_a_moved_pin() {
     let c = seeded();
-    let store = c.store::<Post>();
+    let store = c.cache::<Post>();
     let japan = GeoRect {
         min_lat: 30.0,
         max_lat: 40.0,
@@ -158,12 +158,10 @@ fn within_filters_and_follows_a_moved_pin() {
         .sort(Post::id().asc())
         .live();
     assert_eq!(q.ids(), [1, 2]);
-    let evals = q.evaluations();
 
-    // A pin dragged out of the box: ONE in-memory evaluation, no re-query.
+    // A pin dragged out of the box leaves the set on the next read.
     store.elem(1).lat().write(52.0);
     assert_eq!(q.ids_untracked(), [2]);
-    assert_eq!(q.evaluations() - evals, 1);
 
     // The R*Tree shadow answers the same box directly — proving the triggers kept it true.
     c.save().expect("flush");

@@ -567,6 +567,15 @@ fn values_wanted() -> bool {
     WANT_VALUES.with(|w| w.get()) || WANT_VALUES_STANDING.with(|w| w.get() > 0)
 }
 
+/// Whether any change consumer currently captures prior/new values — a scoped
+/// [`record_values`], or a standing holder like an installed undo stack. A framework layer
+/// (the persistence container) asks this to decide whether a delete must materialize its row
+/// first: a value-free delete cannot be inverted, and capturing costs nothing when nobody
+/// records.
+pub fn record_capture_active() -> bool {
+    values_wanted()
+}
+
 /// Keep prior/new values flowing on every change while `on` holders exist — the undo stack's
 /// standing form of what [`record_values`] does for one closure.
 pub fn want_values_standing(on: bool) {
@@ -1595,6 +1604,85 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
             after,
         );
         true
+    }
+
+    /// Insert-or-replace rows WITHOUT announcing — the persistence layer faulting stored rows
+    /// into its cache. No change record is born (sinks, undo and autosave all stay quiet: the
+    /// rows are the database's own contents arriving, not edits), and no trigger wakes: a
+    /// faulting read populates BEFORE anything binds, so there is nobody to wake yet. The
+    /// version still bumps, so version-watching tests see the population.
+    pub fn populate(self, rows: Vec<T>) {
+        {
+            let mut g = self.inner.data.write().expect("store poisoned");
+            for row in rows {
+                let key = row.handle();
+                match g.get_mut(key) {
+                    Some(slot) => *slot = row,
+                    None => g.push(row),
+                }
+            }
+        }
+        self.inner.version.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Remove one row WITHOUT announcing — the persistence layer evicting a clean cached row.
+    /// The row is not deleted anywhere; it simply stops being resident, and a later fault
+    /// brings it back. Callers guard with [`Store::is_observed`]: evicting a row something is
+    /// bound to would flip that binding to its `Default` with no wakeup to correct it.
+    pub fn depopulate(self, key: impl Into<ModelId<T>>) -> bool {
+        let key = key.into().handle();
+        let removed = {
+            let mut g = self.inner.data.write().expect("store poisoned");
+            g.remove(key).is_some()
+        };
+        if removed {
+            self.inner.version.fetch_add(1, Ordering::Relaxed);
+        }
+        removed
+    }
+
+    /// [`Store::depopulate`], batched: ONE retain and one reindex for the whole set, where
+    /// per-key removal would rebuild the key map per row — the difference between an eviction
+    /// pass costing O(cache) and O(cache × evicted). Returns how many rows left.
+    pub fn depopulate_many(self, keys: &[u64]) -> usize {
+        if keys.is_empty() {
+            return 0;
+        }
+        let set: std::collections::HashSet<u64> = keys.iter().copied().collect();
+        let removed = {
+            let mut g = self.inner.data.write().expect("store poisoned");
+            let before = g.len();
+            g.items_mut().retain(|item| !set.contains(&item.handle()));
+            g.reindex_if_stale();
+            before - g.len()
+        };
+        if removed > 0 {
+            self.inner.version.fetch_add(1, Ordering::Relaxed);
+        }
+        removed
+    }
+
+    /// Whether anything currently observes this element — a trigger on the element's own path,
+    /// or on any path under it (a bound field, a nested struct). The eviction guard: a row
+    /// nobody observes can leave the cache silently, because the next reader faults it back.
+    pub fn is_observed(self, key: impl Into<ModelId<T>>) -> bool {
+        let key = key.into().handle();
+        let elem = Path::under(self.node, key);
+        if TRIGGERS.with(|t| t.borrow().contains_key(&elem)) {
+            return true;
+        }
+        NODES.with(|n| {
+            let i = n.borrow();
+            match i.lookup.get(&elem) {
+                Some(id) => match i.slots.get(id.idx as usize) {
+                    Some(s) if s.alive && s.generation == id.generation => {
+                        s.triggers > 0 || s.children > 0
+                    }
+                    _ => false,
+                },
+                None => false,
+            }
+        })
     }
 }
 

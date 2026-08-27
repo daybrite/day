@@ -1,8 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Typed queries against a live container: the §15 cost tiers through the real change sink,
-//! tracked reads, the reactive-fetch form, raw SQL, and the connection escape hatch.
+//! Typed queries against a live container: the cost tiers through the real change sink,
+//! tracked reads, the reactive-fetch form, raw SQL, and the connection escape hatch. The
+//! engine answers every fetch; these tests watch the SQL trace to prove which changes cost a
+//! requery and which cost nothing.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -24,27 +26,38 @@ struct Trip {
     rating: Option<f64>,
 }
 
-fn seeded(n: u32) -> ModelContainer {
-    let container = ModelContainer::open(Sqlite::memory(), schema![Trip]).expect("open");
-    let store = container.store::<Trip>();
-    // A wholesale update: the fold resyncs the whole table, which is the honest way to seed
-    // many rows at once (a single restructure op names ONE key, not three hundred).
+fn trips(n: u32) -> Vec<Trip> {
+    (1..=n)
+        .map(|i| Trip {
+            id: i,
+            name: format!("trip {i:03}"),
+            start_day: i as i64,
+            done: i % 4 == 0,
+            notes: String::new(),
+            rating: None,
+        })
+        .collect()
+}
+
+fn seed(container: &ModelContainer, rows: Vec<Trip>) {
+    let store = container.cache::<Trip>();
     store.update("seed", move |k| {
-        *k = day_model::Keyed::new(
-            (1..=n)
-                .map(|i| Trip {
-                    id: i,
-                    name: format!("trip {i:03}"),
-                    start_day: i as i64,
-                    done: i % 4 == 0,
-                    notes: String::new(),
-                    rating: None,
-                })
-                .collect(),
-        );
+        *k = day_model::Keyed::new(rows);
     });
     container.save().expect("seed flush");
+}
+
+fn seeded(n: u32) -> ModelContainer {
+    let container = ModelContainer::open(Sqlite::memory(), schema![Trip]).expect("open");
+    seed(&container, trips(n));
     container
+}
+
+/// A drain plus the turn-end requeries it triggers: staleness resolves at turn end, and the
+/// version bumps there schedule one more drain.
+fn settle() {
+    day_reactive::flush_sync();
+    day_reactive::flush_sync();
 }
 
 #[test]
@@ -66,9 +79,13 @@ fn the_builder_filters_sorts_and_limits() {
 }
 
 #[test]
-fn a_column_the_query_never_mentions_wakes_nothing() {
-    let c = seeded(50);
-    let store = c.store::<Trip>();
+fn a_column_the_query_never_mentions_costs_nothing() {
+    let trace: Rc<std::cell::RefCell<Vec<String>>> = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = trace.clone();
+    let driver = Sqlite::memory().trace_sql(move |sql| sink.borrow_mut().push(sql.to_string()));
+    let c = ModelContainer::open(driver, schema![Trip]).expect("open");
+    seed(&c, trips(50));
+    let store = c.cache::<Trip>();
     let q = c
         .query::<Trip>()
         .filter(Trip::done().eq(false))
@@ -82,26 +99,40 @@ fn a_column_the_query_never_mentions_wakes_nothing() {
         runs2.set(runs2.get() + 1);
     });
     assert_eq!(runs.get(), 1);
-    let evals = q.evaluations();
+
+    let requeries = |t: &[String]| {
+        t.iter()
+            .filter(|s| s.starts_with("SELECT trips.id FROM trips"))
+            .count()
+    };
+    let baseline = requeries(&trace.borrow());
 
     for i in 1..=50u64 {
         store.elem(i).notes().write(format!("note {i}"));
     }
-    day_reactive::flush_sync();
-
+    settle();
     assert_eq!(runs.get(), 1, "fifty notes edits woke the query zero times");
-    assert_eq!(q.evaluations(), evals, "and evaluated zero predicates");
+    assert_eq!(
+        requeries(&trace.borrow()),
+        baseline,
+        "and re-ran zero SQL: the dependency gate held"
+    );
 
     store.elem(1).done().write(true);
-    day_reactive::flush_sync();
+    settle();
     assert_eq!(runs.get(), 2, "a predicate column wakes it exactly once");
+    assert_eq!(
+        requeries(&trace.borrow()),
+        baseline + 1,
+        "one requery, after the flush"
+    );
     assert!(!q.ids_untracked().iter().any(|i| *i == 1));
 }
 
 #[test]
 fn deltas_feed_through_take_events() {
     let c = seeded(6);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     let q = c
         .query::<Trip>()
         .filter(Trip::done().eq(false))
@@ -141,15 +172,15 @@ fn query_fn_follows_its_signals() {
     assert_eq!(q.count(), 30);
 
     term.write("trip 00".into());
-    day_reactive::flush_sync();
+    settle();
     assert_eq!(q.ids(), [1, 2, 3, 4, 5, 6, 7, 8, 9], "trip 001..009 match");
 
     term.write("TRIP 003".into());
-    day_reactive::flush_sync();
-    assert_eq!(q.ids(), [3], "case-insensitive");
+    settle();
+    assert_eq!(q.ids(), [3], "case-insensitive, folded by day_fold in SQL");
 
     term.write(String::new());
-    day_reactive::flush_sync();
+    settle();
     assert_eq!(q.count(), 30);
 }
 
@@ -170,7 +201,7 @@ fn a_filter_flip_keeps_row_identity() {
     assert_eq!(before.len(), 12);
 
     all.write(false);
-    day_reactive::flush_sync();
+    settle();
     let filtered = q.ids();
     assert_eq!(filtered, [1, 2, 3, 5, 6, 7, 9, 10, 11]);
     assert!(
@@ -179,14 +210,14 @@ fn a_filter_flip_keeps_row_identity() {
     );
 
     all.write(true);
-    day_reactive::flush_sync();
+    settle();
     assert_eq!(q.ids(), before, "flip back restores the exact set");
 }
 
 #[test]
 fn option_columns_compare_null_correctly() {
     let c = seeded(4);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     store.elem(2).rating().write(Some(4.5));
 
     let unrated = c
@@ -203,7 +234,7 @@ fn option_columns_compare_null_correctly() {
 #[test]
 fn a_windowed_query_stays_correct_across_the_boundary() {
     let c = seeded(10);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     let q = c
         .query::<Trip>()
         .filter(Trip::done().eq(false))
@@ -212,7 +243,7 @@ fn a_windowed_query_stays_correct_across_the_boundary() {
         .live();
     assert_eq!(q.ids(), [1, 2, 3]);
 
-    // Deleting inside the window pulls the next row in — the requery tier, still correct.
+    // Deleting inside the window pulls the next row in — the engine re-answers the window.
     store.restructure("remove", Op::Delete, 2, |v| {
         v.remove(2);
     });
@@ -224,9 +255,11 @@ fn a_windowed_query_stays_correct_across_the_boundary() {
 }
 
 #[test]
-fn raw_queries_rerun_when_their_table_flushes() {
+fn every_read_settles_pending_writes() {
+    // Reads are current: a dependency-touching edit flushes and requeries on the next read,
+    // so imperative same-turn code never sees yesterday's answer.
     let c = seeded(8);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     let q = c.query_raw::<Trip>(
         "SELECT id FROM trips WHERE id % 2 = 0 ORDER BY id",
         vec![],
@@ -240,10 +273,11 @@ fn raw_queries_rerun_when_their_table_flushes() {
             ..Default::default()
         });
     });
-    // Not yet: raw queries wait for the COMMIT (the flush), by design.
-    assert_eq!(q.ids_untracked(), [2, 4, 6, 8]);
-    c.save().expect("flush");
-    assert_eq!(q.ids_untracked(), [2, 4, 6, 8, 12]);
+    assert_eq!(
+        q.ids_untracked(),
+        [2, 4, 6, 8, 12],
+        "the read flushed the insert and re-ran the statement"
+    );
 }
 
 #[test]
@@ -273,15 +307,16 @@ fn with_connection_plus_rescan_recovers() {
 
     c.rescan().expect("rescan");
     assert_eq!(q.ids_untracked(), [99, 1, 2, 3], "start 0 sorts first");
-    assert_eq!(c.store::<Trip>().elem(99).name().peek(), "smuggled");
-    // And the rescan's reload did not mark everything dirty for a pointless write-back.
+    let row = c.get::<Trip>(99u32).expect("faults in on demand");
+    assert_eq!(row.name().peek(), "smuggled");
+    // And the rescan did not mark everything dirty for a pointless write-back.
     let sql = c.record_sql(|| {}).expect("empty flush");
     assert_eq!(sql, Vec::<String>::new());
 }
 
 #[test]
 fn queries_work_against_the_recorder_too() {
-    let (driver, _log) = Recorder::new();
+    let (driver, log) = Recorder::new();
     let driver = driver.with_table(
         "trips",
         vec![vec![
@@ -298,17 +333,21 @@ fn queries_work_against_the_recorder_too() {
         .query::<Trip>()
         .filter(Trip::name().contains("kyo"))
         .live();
-    assert_eq!(
-        q.ids(),
-        [1],
-        "in-memory queries never need the database at all"
+    assert_eq!(q.ids(), [1], "fixtures answer the compiled SELECT");
+    // The Recorder's real value now: the compiled SQL is assertable, headlessly.
+    assert!(
+        log.sql()
+            .iter()
+            .any(|s| s.starts_with("SELECT trips.id FROM trips WHERE instr(trips.name, ?) > 0")),
+        "recorded: {:?}",
+        log.sql()
     );
 }
 
 #[test]
 fn dropping_the_query_unregisters_it() {
     let c = seeded(5);
-    let store = c.store::<Trip>();
+    let store = c.cache::<Trip>();
     {
         let _q = c.query::<Trip>().filter(Trip::done().eq(false)).live();
     }

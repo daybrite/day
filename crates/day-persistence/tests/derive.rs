@@ -146,7 +146,7 @@ fn the_default_table_name_is_the_snake_cased_struct() {
 fn the_derive_drives_the_container_end_to_end() {
     let (driver, log) = Recorder::new();
     let container = ModelContainer::open(driver, schema![Trip]).expect("open");
-    let store = container.store::<Trip>();
+    let store = container.cache::<Trip>();
 
     let ddl = log
         .sql()

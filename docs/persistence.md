@@ -10,13 +10,18 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Persistence (`day-persistence`) — normative
 
-`day-persistence` stores observable models in SQLite. The write half is not a new mechanism: it
-is [day-model's change log](model.md), folded. A `ModelContainer` opens a database, creates or
-migrates each model's table, loads the rows into an ordinary `Store<Keyed<M>>`, and then watches
-the change log the UI already produces. At the end of any turn that touched a store, the
-accumulated changes fold into the smallest statement list that expresses them — twenty
-keystrokes into one field are one `UPDATE`, a row inserted and then filled is one `INSERT`, a
-row deleted is one `DELETE` no matter what preceded it.
+`day-persistence` stores observable models in SQLite, and SQLite keeps owning the data: a
+`ModelContainer` opens a database, creates or migrates each model's table, and reads **no
+rows** — opening a million-row store costs what opening an empty one does. Rows enter memory
+by *faulting* (a `get`, a batch `ensure_resident`, a list materializing the rows it shows)
+into a bounded per-model cache, and queries compile to SQL the engine answers from its
+indexes, so memory holds a working set rather than the table.
+
+The write half is not a new mechanism: it is [day-model's change log](model.md), folded. The
+container watches the change log the UI already produces, and at the end of any turn that
+touched a store the accumulated changes fold into the smallest statement list that expresses
+them — twenty keystrokes into one field are one `UPDATE`, a row inserted and then filled is
+one `INSERT`, a row deleted is one `DELETE` no matter what preceded it.
 
 Enable it with the `day` facade's `persistence` feature (implies `model`):
 
@@ -92,12 +97,35 @@ its ten-thousand-row demo in memory this way):
 
 ```rust
 let container = ModelContainer::open(Sqlite::app_data("trips.db")?, schema![Trip, Lodging])?;
-let trips: Store<Keyed<Trip>> = container.store::<Trip>();
+let trips: Store<Keyed<Trip>> = container.cache::<Trip>();
 ```
 
-`open` migrates and then LOADS each model's table into its store — the document pattern; lazy
-faulting is a later phase. The store is an ordinary day-model store: every binding, projection
-and list source works on it unchanged, and nothing in the UI knows the container exists.
+`open` migrates and stops. `cache::<M>()` is the model's **working set**: an ordinary
+day-model store holding the rows currently resident — every binding, projection and list
+source works on it unchanged, and nothing in the UI knows the container exists — but its
+`keys()` are whatever happens to be faulted in, never "the table". Enumerate rows through a
+query; read one row through the container:
+
+```rust
+let trip = container.get::<Trip>(id);          // resident, faulted from the file if needed
+container.ensure_resident::<Trip>(&keys)?;     // a batch, in one chunked SELECT
+container.insert(Trip { id, ..Default::default() });   // resident + dirty + announced
+let n = container.table_count::<Trip>()?;      // SELECT COUNT(*) — the table's true size
+container.warm::<Trip>()?;                     // the document pattern: fault EVERY row in
+```
+
+Editing requires residency — writing a row is what faulted it in — and a delete works either
+way (a value-free delete folds to one statement; with an undo stack installed the row
+materializes first so the history can restore it). The cache is bounded:
+`set_cache_limit(rows)` (default `DEFAULT_CACHE_LIMIT`, 8192 per model) evicts the oldest
+clean rows past the limit, sparing anything dirty and anything a binding still observes;
+evicted rows fault back on the next read. A row deleted this turn does not resurrect through
+a fault, even though the file still holds it until the flush.
+
+A DOCUMENT container — a sketch whose canvas draws the whole scene — says so explicitly:
+`set_cache_limit(usize::MAX)` then `warm::<M>()` per model at open, and the file-sized
+working set behaves exactly as the old load-at-open engine did, by choice instead of by
+default.
 
 Autosave is on by default: a change sink marks rows dirty as the change log announces them, and
 the end of any turn that touched a store flushes the fold in one transaction. `save()` flushes
@@ -110,7 +138,8 @@ The fold's merge rules, per row: same-row changes coalesce (column names accumul
 `UPDATE`), an insert absorbs the edits that fill it, a delete absorbs everything, moves are
 order-only and order is not persisted. Row values are read from the store at flush time — the
 change log carries which rows and columns moved, never their contents. A wholesale
-`Store::update` resyncs that whole table: upsert every row, delete the gone ones.
+`Store::update` upserts every RESIDENT row — the cache is a working set, so a rewrite covers
+what it holds and never infers deletions from absence; deleting is an explicit act.
 
 Rows then merge ACROSS each other where one statement can carry them. Deletes from the same
 table become a single `DELETE … WHERE id IN (?, ?, …)`, and updates join when they set the
@@ -282,23 +311,13 @@ container.query::<Trip>().filter(
 `none` sits beside it: "no unconfirmed lodging" and "every lodging confirmed" differ exactly for
 the rows with nothing related, and an app usually means the former.
 
-**Crossing a relation does not leave the incremental tier.** A related column the predicate
-never reads costs zero evaluations, exactly like a local one. A column it does read resolves
-back through the relation index — O(1) to a to-many's parent, the holders of a join membership —
-so one changed related row re-evaluates one local row and emits a row delta, rather than
-re-deriving the set. `is_empty` and `count_ge` read no related row at all; the index knows its
-own length.
-
-Maintenance happens in two phases around relation upkeep, because each half needs a different
-view of the index: WHICH local rows a related change can move is answered before it (a deleted
-child is still filed under its parent), and WHETHER they still match is answered after (a
-reparented child has to be under its new parent for the predicate to find it there).
-
-Two limits, stated rather than hidden. A relation inside a relation evaluates correctly to any
-depth, but back-resolution walks one hop, so a deeper fetch re-derives on a related change
-instead of guessing (`Fetch::dependencies().deep` reports it). And a relation predicate is not
-`sql_exact`: its faithful SQL is a correlated `EXISTS` needing the wiring's column names, which
-belongs with the phase that makes SQL filtering run at all.
+**Crossing a relation keeps the zero-cost tier.** A relation predicate compiles to a
+correlated `EXISTS` over the relation's indexed foreign key (a join crosses through the join
+table; nesting is unlimited — each level is another subquery the engine plans). Its
+dependency set names the far table's columns the inner predicate reads, so a related column
+the predicate never mentions costs nothing at all; one it does read marks the query stale for
+one requery. `is_empty` and `count_ge` compile to `NOT EXISTS` and a correlated `COUNT` over
+the same index.
 
 ### NULL follows SQL's rule, in both paths
 
@@ -312,34 +331,45 @@ NULL instead of quietly disagreeing. `is_null`/`is_not_null` stay definite, as `
 Sorting is unaffected and keeps SQLite's `ORDER BY` rule, where NULL sorts below numbers —
 ordering and comparison are different questions and day answers each the way SQL does.
 
-### Two evaluation paths, one answer
+### One evaluation path: the engine's
 
-A predicate carries `sql_exact()` beside `evaluable()`: whether its SQL form would select the
-same rows its in-memory evaluation does. Case-insensitive predicates answer `false`, because
-Rust folds case over the whole of Unicode while SQLite's `lower()` folds ASCII only — `ÉCOLE`
-would match one way and not the other. Those predicates evaluate in memory, where the Unicode
-answer is the correct one; a SQL-filtering path may only use `to_sql` when `sql_exact()` holds.
-(The exact fix, when one needs it, is a folding function registered through `Sqlite::with_init`.)
+A fetch compiles whole — predicate to WHERE, sorts to ORDER BY with the key as a
+deterministic tie-break, window to LIMIT — and the engine answers it from its indexes, at any
+table size. Case-insensitive text predicates stay exact: the native driver registers
+`day_fold` (Rust's full-Unicode `to_lowercase` as a scalar SQL function) at open, so `ÉCOLE`
+folds in SQL exactly as it folds in Rust — SQLite's own `lower()` folds ASCII only and would
+quietly answer a different question. A driver without the function
+(`Capabilities::unicode_fold`, false for the web engine today) takes a fallback: SQL runs the
+exact conjuncts and carries the dependency columns, and the folding test re-checks over them
+in memory, preserving order and window.
 
-The result set is maintained INCREMENTALLY against the change log (`LiveSet`, the
-fetched-results-controller algorithm with one better tier): a change to a column the query
-never mentions costs nothing at all — no predicate evaluation, no waking; a predicate or sort
-column evaluates exactly the changed row and emits an `Insert`/`Remove`/`Move` delta; only a
-windowed (`limit`) boundary crossing re-derives the set. The 600-edit agreement test in
-`tests/liveset.rs` pins the property that makes skipping the database safe: the incremental
-path lands, id for id, where a fresh fetch would.
+Liveness is dependency-gated invalidation, not re-evaluation: a change to a column the query
+never mentions costs nothing at all — no SQL, no waking; a change the query does depend on
+marks it stale, and ONE requery after the turn's flush re-derives its ids. The fresh answer
+is diffed against the previous one into `Insert`/`Remove`/`Move` deltas a list can animate
+(verified by simulation before delivery — a delta list that would not land exactly on the
+new set reloads instead). Reads are always current: `ids()`, `count()`, `take_events()` and
+the rest settle pending staleness first, so imperative same-turn code never sees yesterday's
+answer. With autosave off, queries answer from the last save — only the file can answer
+them — which is the one read-side consequence of deferring writes. The 600-edit agreement
+test in `tests/liveset.rs` pins the property that keeps the feed honest: a mirror maintained
+purely from the deltas lands, id for id, where a fresh fetch does.
 
-`list(query, row)` (facade feature `persistence`) makes a query a row source: rows bind through
-`ModelSlot` exactly as a store source's do, and set changes reach the native list as
-`ListPatch::Splice` row deltas it can animate — an NSTableView slides the row out instead of
-reloading. Hosts that cannot animate treat a splice as a reload.
+`list(query, row)` (facade feature `persistence`) makes a query a row source: the query
+holds ids, and rows FAULT IN as the list binds them — a window at a time
+(`Query::materialize(range)` is the same door, callable directly), so showing row 40,000 of
+a large result costs one windowed `SELECT`, not 40,000 resident rows. Bound rows stay
+resident (observed rows never evict); scrolled-away rows may leave and fault back. Set
+changes reach the native list as `ListPatch::Splice` row deltas it can animate — an
+NSTableView slides the row out instead of reloading. Hosts that cannot animate treat a
+splice as a reload.
 
 Three tiers of SQL access, each stating its price: the typed builder (incremental, the
 default); `query_raw::<M>(sql, params, &["tables"])` — a read-only SELECT of ids, re-run whole
 whenever a flush touches a named table; and `with_connection(|conn| …)` — the driver's
 connection for maintenance and imports, whose writes bypass the change log entirely. Call
-`rescan()` afterward: it reloads every store from the file (without re-marking them dirty) and
-re-runs every query.
+`rescan()` afterward: it re-reads the RESIDENT rows from the file (without re-marking them
+dirty) and re-runs every query — O(working set + results), never O(table).
 
 ## Full-text and spatial
 
@@ -362,13 +392,13 @@ fold's upsert is a true `ON CONFLICT DO UPDATE` and not `INSERT OR REPLACE`: the
 implicit delete skips the delete triggers unless `recursive_triggers` is on, and the index
 would rot.) A freshly created shadow backfills from existing rows.
 
-The two predicates sit at different tiers, honestly. `within` is range comparisons over two
-REAL columns, so it evaluates in memory — a moved pin is one evaluation and one `Move` delta.
-`matches` cannot be evaluated without reimplementing the tokenizer, so it declares the INDEXED
-columns as its dependency set: a change to one of them re-queries (deferred until after the
-flush, when the triggers have run), and a change to any column outside the set still costs
-nothing. A driver whose engine lacks FTS5 or R*Tree fails `open` with the module named — an
-error at open, never a silent downgrade at query time.
+Both predicates compile through their shadows. `matches` is a subquery over the FTS5 table
+(`rank()` joins it so bm25 orders the result), and its dependency set is the INDEXED columns:
+a change to one of them re-queries after the flush, when the triggers have run, and a change
+to any column outside the set still costs nothing. `within` narrows through the R*Tree first
+and re-checks the exact ranges — the shadow stores 32-bit outward-rounded entries, a
+candidate superset that can never miss. A driver whose engine lacks FTS5 or R*Tree fails
+`open` with the module named — an error at open, never a silent downgrade at query time.
 
 ## Undo
 
@@ -433,10 +463,14 @@ question.
 ## Relations
 
 `One<M>` is a to-one reference — the foreign-key column on the child, stored in the target's
-own key shape. `Many<M>` is the other side: a marker field storing nothing, whose accessor
-reads an index the container maintains from the change log. That is the whole design. There is
-**one source of truth** (the child's foreign key), so the maintained inverses SwiftData
-promises fall out of the pipeline that already exists rather than parallel bookkeeping:
+own key shape. `Many<M>` is the other side: a marker field storing nothing, whose accessor is
+a VIEW over the children's foreign keys — one indexed `SELECT` on a parent's first read,
+memoized until a membership write invalidates it, and overlaid with the turn's unflushed
+edits so mid-turn reads see the truth. That is the whole design. There is **one source of
+truth** (the child's foreign key), so maintained inverses fall out of the pipeline that
+already exists rather than parallel bookkeeping (the API shape here — `@Model`-style
+declarations, delete rules on the relationship — is deliberately close to SwiftData's
+vocabulary, so the concepts transfer):
 
 ```rust
 #[derive(Model, Clone, Default, PartialEq)]
@@ -469,8 +503,10 @@ wakes exactly the readers of that parent's relation — not every reader of the 
 **Delete rules** are declared on the `Many` side and default to `nullify` (SwiftData's):
 children survive and their references clear, which requires `Option<One<M>>` — wiring refuses
 `nullify` over a required reference, naming the fix. `cascade` deletes the children with the
-parent, recursively and through the normal pipeline, so a cascade is one undo unit that
-restores the whole subtree and a list animates the rows out. `deny` refuses while children
+parent, recursively and through the normal pipeline — the children come from one indexed
+`SELECT`, their deletes fold into chunked statements, and the engine\'s own `ON DELETE`
+clause backstops rows this process never saw. With an undo stack installed the cascade
+materializes the rows it removes, so it is one undo unit that restores the whole subtree. `deny` refuses while children
 remain, through `container.delete::<M>(id)` — the checked door; a raw `restructure` delete
 cannot be refused after the fact, so deny is the one rule that needs it. The generated DDL
 carries the matching `REFERENCES … ON DELETE …` clause, `DEFERRABLE INITIALLY DEFERRED` so
@@ -511,14 +547,15 @@ Another connection's committed writes — another process, a sync engine, a CLI 
 file — do not announce themselves. `check_external()` looks: detection is one
 `PRAGMA data_version` (the counter moves only when another connection commits, never for this
 one's own writes), so it is cheap enough to wire to app foreground, window focus, or a timer.
-When the counter moved, pending local edits flush first, each table is diffed against its
-store, and only the differences feed through: changed fields announce per column, inserts and
-deletes take the structural path, and live queries emit their usual precise deltas — a list
-animates the row another process inserted. The merged changes are tagged
+When the counter moved, pending local edits flush first, then only the RESIDENT rows re-read
+and diff — O(working set), never O(table): changed fields announce per column,
+disappearances take the structural path, every live query re-derives (a list animates the
+row another process inserted), and rows that arrived elsewhere become visible through the
+re-run queries and fault in like any other row. The merged changes are tagged
 `ModelContainer::EXTERNAL_AUTHOR` (`"database"`): the autosave fold declines the echo, an undo
 stack skips them (another author's writes are not the user's history), and any change sink can
 tell them from the user's edits. A row another connection rewrote arrives whole, so its
-`#[model(transient)]` fields reset to their defaults, exactly as at load.
+`#[model(transient)]` fields reset to their defaults, exactly as at fault.
 
 `Capabilities::external_changes` says whether detection is real: the built-in driver claims it
 for file databases on native targets; memory databases (no second connection can reach one),
@@ -540,7 +577,11 @@ let sql = container.record_sql(|| {
 assert_eq!(sql, ["UPDATE trips SET name = ? WHERE id = ?"]);
 ```
 
-`with_table` registers the rows a table's load `SELECT` answers with; `log.sql()` and
+`with_table` registers the rows any `SELECT … FROM` that table answers with — by table, not
+by statement, so faulting paths keep only the keys they asked for, and a QUERY against the
+Recorder answers with every fixture key whatever its predicate says. Assert the SQL the
+query compiled (the Recorder\'s real value), and use `Sqlite::memory()` where predicate
+results themselves are under test. `log.sql()` and
 `log.entries()` expose everything issued, parameters included. The crate's own suites in
 `crates/day-persistence/tests/` are the reference: the fold rules against the Recorder
 (`container.rs`), the derive (`derive.rs`), real files, coexistence, backups and migration
@@ -548,9 +589,8 @@ assert_eq!(sql, ["UPDATE trips SET name = ? WHERE id = ?"]);
 
 ## Not in this version
 
-Lazy row faulting (a container LOADS each table at open — the document pattern) and external
-storage (`#[model(external)]`) are later phases — the plan's design for them shapes what exists
-today (visible schema, `ColumnValue` everywhere, capabilities), but neither is API yet. Row
+External storage (`#[model(external)]`) is a later phase, and eviction order is
+insertion-order rather than true LRU (a proposal, not a promise). Row
 identity is the `#[model(id)]` key in its own stored shape (`INTEGER`, a 16-byte `BLOB` for
 `Uuid`, `TEXT` for a string key — [model.md](model.md)); a model's own display order is a
 projection concern and is not persisted, though an ordered relation's position is.

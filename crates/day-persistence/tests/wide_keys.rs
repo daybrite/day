@@ -63,7 +63,7 @@ fn uuid_rows_survive_a_reopen_and_store_as_blobs() {
     let (ada, grace) = (Uuid::now_v7(), Uuid::now_v7());
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Contact]).expect("open");
-        let store = c.store::<Contact>();
+        let store = c.cache::<Contact>();
         store.restructure("add", Op::Insert, ada, |v| v.push(contact(ada, "Ada")));
         store.restructure("add", Op::Insert, grace, |v| {
             v.push(contact(grace, "Grace"))
@@ -90,12 +90,12 @@ fn uuid_rows_survive_a_reopen_and_store_as_blobs() {
     }
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Contact]).expect("reopen");
-        let store = c.store::<Contact>();
-        assert_eq!(store.keys().len(), 2);
-        assert_eq!(store.elem(ada).name().peek(), "Ada Lovelace");
-        assert!(store.elem(grace).starred().peek());
-        // The handle → key round trip survives the reload.
-        assert_eq!(store.elem(ada).model_id().key().as_uuid(), Some(ada));
+        assert_eq!(c.table_count::<Contact>().expect("count"), 2);
+        let ada_row = c.get::<Contact>(ada).expect("faults by uuid");
+        assert_eq!(ada_row.name().peek(), "Ada Lovelace");
+        assert!(c.get::<Contact>(grace).expect("faults").starred().peek());
+        // The handle → key round trip survives the fault.
+        assert_eq!(ada_row.model_id().key().as_uuid(), Some(ada));
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -104,7 +104,7 @@ fn uuid_rows_survive_a_reopen_and_store_as_blobs() {
 fn the_fold_binds_typed_key_parameters() {
     let (driver, log) = Recorder::new();
     let c = ModelContainer::open(driver, schema![Contact]).expect("open");
-    let store = c.store::<Contact>();
+    let store = c.cache::<Contact>();
     let id = Uuid::now_v7();
 
     store.restructure("add", Op::Insert, id, |v| v.push(contact(id, "Alan")));
@@ -146,7 +146,7 @@ fn string_keys_round_trip_as_text_primary_keys() {
     let path = temp_db("slugs");
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![WikiPage]).expect("open");
-        let store = c.store::<WikiPage>();
+        let store = c.cache::<WikiPage>();
         for (slug, body) in [("welcome", "hello"), ("faq", "answers"), ("about", "us")] {
             store.restructure("add", Op::Insert, slug, |v| {
                 v.push(WikiPage {
@@ -175,7 +175,10 @@ fn string_keys_round_trip_as_text_primary_keys() {
     }
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![WikiPage]).expect("reopen");
-        assert_eq!(c.store::<WikiPage>().elem("about").body().peek(), "us");
+        assert_eq!(
+            c.get::<WikiPage>("about").expect("faults").body().peek(),
+            "us"
+        );
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -184,7 +187,7 @@ fn string_keys_round_trip_as_text_primary_keys() {
 fn another_connections_uuid_writes_merge_precisely() {
     let path = temp_db("external");
     let c = ModelContainer::open(Sqlite::at(&path), schema![Contact]).expect("open");
-    let store = c.store::<Contact>();
+    let store = c.cache::<Contact>();
     let (a, b) = (Uuid::now_v7(), Uuid::now_v7());
     store.restructure("add", Op::Insert, a, |v| v.push(contact(a, "Edsger")));
     store.restructure("add", Op::Insert, b, |v| v.push(contact(b, "Barbara")));
@@ -214,7 +217,7 @@ fn another_connections_uuid_writes_merge_precisely() {
 #[test]
 fn queries_speak_typed_ids_over_wide_keys() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Contact]).expect("open");
-    let store = c.store::<Contact>();
+    let store = c.cache::<Contact>();
     let ids: Vec<Uuid> = (0..4).map(|_| Uuid::now_v7()).collect();
     for (i, id) in ids.iter().enumerate() {
         let mut row = contact(*id, &format!("contact {i}"));
@@ -246,7 +249,7 @@ fn undo_writes_inverse_statements_with_blob_keys() {
     let (driver, _log) = Recorder::new();
     let c = ModelContainer::open(driver, schema![Contact]).expect("open");
     let undo = c.undo(10);
-    let store = c.store::<Contact>();
+    let store = c.cache::<Contact>();
     let id = Uuid::now_v7();
 
     store.restructure("add", Op::Insert, id, |v| v.push(contact(id, "Grace")));
@@ -294,25 +297,28 @@ fn three_key_shapes_coexist_in_one_container() {
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Contact, WikiPage, Counter])
             .expect("open");
-        c.store::<Contact>()
+        c.cache::<Contact>()
             .restructure("add", Op::Insert, ada, |v| v.push(contact(ada, "Ada")));
-        c.store::<WikiPage>()
+        c.cache::<WikiPage>()
             .restructure("add", Op::Insert, "home", |v| {
                 v.push(WikiPage {
                     slug: "home".into(),
                     body: "start".into(),
                 });
             });
-        c.store::<Counter>()
+        c.cache::<Counter>()
             .restructure("add", Op::Insert, 7, |v| v.push(Counter { id: 7, n: 1 }));
         c.save().expect("save");
     }
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Contact, WikiPage, Counter])
             .expect("reopen");
-        assert_eq!(c.store::<Contact>().elem(ada).name().peek(), "Ada");
-        assert_eq!(c.store::<WikiPage>().elem("home").body().peek(), "start");
-        assert_eq!(c.store::<Counter>().elem(7).n().peek(), 1);
+        assert_eq!(c.get::<Contact>(ada).expect("faults").name().peek(), "Ada");
+        assert_eq!(
+            c.get::<WikiPage>("home").expect("faults").body().peek(),
+            "start"
+        );
+        assert_eq!(c.get::<Counter>(7).expect("faults").n().peek(), 1);
     }
     let _ = std::fs::remove_file(&path);
 }
@@ -325,7 +331,7 @@ fn two_default_uuid_rows_coalesce_to_one_stored_row() {
     let path = temp_db("nil");
     {
         let c = ModelContainer::open(Sqlite::at(&path), schema![Contact]).expect("open");
-        let store = c.store::<Contact>();
+        let store = c.cache::<Contact>();
         store.restructure("add", Op::Insert, Uuid::nil(), |v| {
             v.push(contact(Uuid::nil(), "first"))
         });

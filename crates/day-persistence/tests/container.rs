@@ -98,6 +98,8 @@ fn open_with_one_note() -> (ModelContainer, day_persistence::RecorderLog) {
     let (driver, log) = Recorder::new();
     let driver = driver.with_table("notes", vec![note_row(1, "before", "…", 0)]);
     let container = ModelContainer::open(driver, schema![Note]).expect("recorder open");
+    // Nothing is resident at open; editing a row starts by faulting it in.
+    container.ensure_resident::<Note>(&[1]).expect("fault");
     log.clear();
     (container, log)
 }
@@ -105,7 +107,7 @@ fn open_with_one_note() -> (ModelContainer, day_persistence::RecorderLog) {
 #[test]
 fn twenty_keystrokes_fold_to_one_update() {
     let (container, _log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     let mut title = String::new();
     let sql = container
@@ -123,7 +125,7 @@ fn twenty_keystrokes_fold_to_one_update() {
 #[test]
 fn the_update_carries_the_final_value() {
     let (container, log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     container
         .record_sql(|| {
@@ -147,7 +149,7 @@ fn the_update_carries_the_final_value() {
 #[test]
 fn two_fields_fold_into_one_update() {
     let (container, _log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     let sql = container
         .record_sql(|| {
@@ -163,7 +165,7 @@ fn two_fields_fold_into_one_update() {
 #[test]
 fn an_insert_absorbs_the_edits_that_fill_it() {
     let (container, _log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     let sql = container
         .record_sql(|| {
@@ -189,7 +191,7 @@ fn an_insert_absorbs_the_edits_that_fill_it() {
 #[test]
 fn a_delete_absorbs_everything_before_it() {
     let (container, _log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     let sql = container
         .record_sql(|| {
@@ -204,15 +206,25 @@ fn a_delete_absorbs_everything_before_it() {
 }
 
 #[test]
-fn fixture_rows_load_into_the_store() {
-    let (driver, _log) = Recorder::new();
+fn rows_fault_on_demand_and_open_loads_none() {
+    let (driver, log) = Recorder::new();
     let driver = driver.with_table(
         "notes",
         vec![note_row(1, "a", "…", 0), note_row(7, "b", "…", 1)],
     );
     let container = ModelContainer::open(driver, schema![Note]).expect("recorder open");
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
+    // The lazy contract, asserted twice over: the cache is empty, and the open issued no
+    // row SELECT at all.
+    assert!(store.keys().is_empty(), "open loads nothing");
+    assert!(
+        !log.sql().iter().any(|s| s.starts_with("SELECT id, title")),
+        "no row scan at open: {:?}",
+        log.sql()
+    );
+
+    container.ensure_resident::<Note>(&[1, 7]).expect("fault");
     let mut keys = store.keys();
     keys.sort_unstable();
     assert_eq!(keys, [1, 7]);
@@ -228,7 +240,8 @@ fn a_null_reads_as_the_field_default() {
         vec![vec![Value::Int(1), Value::Null, Value::Null, Value::Null]],
     );
     let container = ModelContainer::open(driver, schema![Note]).expect("recorder open");
-    let store = container.store::<Note>();
+    container.ensure_resident::<Note>(&[1]).expect("fault");
+    let store = container.cache::<Note>();
 
     assert_eq!(store.elem(1).title().peek(), "");
     assert!(!store.elem(1).pinned().peek());
@@ -255,7 +268,7 @@ fn opening_creates_the_table_and_stores_a_fingerprint() {
 #[test]
 fn a_wholesale_rewrite_resyncs_the_table() {
     let (container, log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     store.update("import", |k| {
         *k = Keyed::new(vec![
@@ -279,21 +292,17 @@ fn a_wholesale_rewrite_resyncs_the_table() {
         .into_iter()
         .filter(|s| !matches!(s.as_str(), "BEGIN" | "COMMIT"))
         .collect();
-    // The store no longer holds row 1: the resync upserts 3 and 4 and deletes 1 (the recorder's
-    // fixture still answers the key scan with it).
-    assert_eq!(sql.len(), 4, "{sql:?}");
-    assert_eq!(
-        sql.iter().filter(|s| s.starts_with("INSERT INTO")).count(),
-        2
-    );
-    assert!(sql.iter().any(|s| s.starts_with("SELECT id FROM notes")));
-    assert!(sql.iter().any(|s| s.starts_with("DELETE FROM notes")));
+    // The cache is a WORKING SET: a wholesale rewrite upserts what it holds and touches
+    // nothing else — rows outside the cache were never part of the rewrite, and deleting
+    // "the rest" would delete data the rewrite never saw. Deleting is an explicit act.
+    assert_eq!(sql.len(), 2, "{sql:?}");
+    assert!(sql.iter().all(|s| s.starts_with("INSERT INTO")));
 }
 
 #[test]
 fn autosave_flushes_at_turn_end() {
     let (container, log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     // A turn only drains when something observes — as the UI always does. One binding
     // stands in for it.
@@ -422,7 +431,7 @@ fn fingerprints_answer_to_every_declared_detail() {
 #[test]
 fn a_transient_labeled_change_writes_nothing() {
     let (container, _log) = open_with_one_note();
-    let store = container.store::<Note>();
+    let store = container.cache::<Note>();
 
     // A row-level restructure that names no column: the fold treats it as a full-row write.
     let sql = container

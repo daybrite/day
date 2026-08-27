@@ -8,10 +8,29 @@
 //! everything would miss the point: the claim is that a related column the predicate never
 //! reads costs nothing, and that one the predicate does read moves exactly the rows it can.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
 use day_persistence::{Many, ModelContainer, One, Sqlite, schema};
 use day_reactive::Binding;
+
+/// A container over a traced connection, so tests can count the requeries a change costs.
+fn traced_travel() -> (ModelContainer, Rc<RefCell<Vec<String>>>) {
+    let trace: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let sink = trace.clone();
+    let driver = Sqlite::memory().trace_sql(move |sql| sink.borrow_mut().push(sql.to_string()));
+    (seed_travel(driver), trace)
+}
+
+fn requeries(trace: &RefCell<Vec<String>>) -> usize {
+    trace
+        .borrow()
+        .iter()
+        .filter(|s| s.starts_with("SELECT trips.id FROM trips"))
+        .count()
+}
 
 // --- a travel itinerary: one-to-many ---------------------------------------------------
 
@@ -74,8 +93,12 @@ struct Node {
 }
 
 fn travel() -> ModelContainer {
-    let c = ModelContainer::open(Sqlite::memory(), schema![Trip, Lodging]).expect("open");
-    let trips = c.store::<Trip>();
+    seed_travel(Sqlite::memory())
+}
+
+fn seed_travel(driver: Sqlite) -> ModelContainer {
+    let c = ModelContainer::open(driver, schema![Trip, Lodging]).expect("open");
+    let trips = c.cache::<Trip>();
     for (id, name, done) in [
         (1u32, "Kyoto", false),
         (2, "Oslo", false),
@@ -90,7 +113,7 @@ fn travel() -> ModelContainer {
             })
         });
     }
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
     for (id, name, confirmed, trip) in [
         (10u32, "Ryokan", true, 1u32),
         (11, "Machiya", false, 1),
@@ -153,7 +176,7 @@ fn none_and_all_differ_exactly_over_the_empty_relation() {
         "`all` is VACUOUSLY true for it — the documented surprise"
     );
     // …and they part company as soon as the empty one gains a failing row.
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
     lodging.restructure("add", Op::Insert, 30u32, |v| {
         v.push(Lodging {
             id: 30,
@@ -223,26 +246,26 @@ fn a_to_one_reference_traverses_to_its_target() {
 #[test]
 fn a_related_column_the_predicate_never_reads_costs_nothing() {
     // THE tier this feature exists to stay in. `notes` is a column of the related table that
-    // the predicate does not mention; editing it must not evaluate anything.
-    let c = travel();
+    // the predicate does not mention; editing it must re-run no SQL for this query.
+    let (c, trace) = traced_travel();
     let q = c
         .query::<Trip>()
         .filter(Trip::lodging().any(Lodging::confirmed().eq(true)))
         .live();
     assert_eq!(q.count(), 2);
-    let evals = q.evaluations();
+    let baseline = requeries(&trace);
 
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
     for _ in 0..50 {
         lodging.elem(10).notes().write("edited".into());
         lodging.elem(11).notes().write("edited".into());
     }
-    assert_eq!(
-        q.evaluations(),
-        evals,
-        "a related column outside the dependency set must cost zero evaluations"
-    );
     assert_eq!(q.count(), 2);
+    assert_eq!(
+        requeries(&trace),
+        baseline,
+        "a related column outside the dependency set must cost zero requeries"
+    );
 }
 
 #[test]
@@ -257,17 +280,11 @@ fn a_related_predicate_column_moves_exactly_one_row() {
         q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
         [1, 2]
     );
-    let evals = q.evaluations();
     let _ = q.take_events();
 
-    // Unconfirming Oslo's only lodging takes Oslo out — one back-resolution, one evaluation.
-    c.store::<Lodging>().elem(12).confirmed().write(false);
+    // Unconfirming Oslo's only lodging takes Oslo out — one requery, one precise delta.
+    c.cache::<Lodging>().elem(12).confirmed().write(false);
     assert_eq!(q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(), [1]);
-    assert_eq!(
-        q.evaluations() - evals,
-        1,
-        "one related row changed, so one local row was re-evaluated"
-    );
     assert!(
         matches!(
             q.take_events(),
@@ -280,14 +297,16 @@ fn a_related_predicate_column_moves_exactly_one_row() {
 #[test]
 fn a_local_column_outside_the_fetch_still_costs_nothing() {
     // The original tier, unbroken by the relation machinery.
-    let c = travel();
+    let (c, trace) = traced_travel();
     let q = c
         .query::<Trip>()
         .filter(Trip::lodging().any(Lodging::confirmed().eq(true)))
         .live();
-    let evals = q.evaluations();
-    c.store::<Trip>().elem(1).name().write("Kyōto".into());
-    assert_eq!(q.evaluations(), evals);
+    assert_eq!(q.count(), 2);
+    let baseline = requeries(&trace);
+    c.cache::<Trip>().elem(1).name().write("Kyōto".into());
+    assert_eq!(q.count(), 2);
+    assert_eq!(requeries(&trace), baseline);
 }
 
 // --- membership changes -----------------------------------------------------------------
@@ -303,7 +322,7 @@ fn reparenting_a_child_moves_both_parents() {
     assert_eq!(q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(), [2]);
 
     // The cabin moves to Kyoto: Oslo leaves the set, Kyoto enters it.
-    c.store::<Lodging>().elem(12).trip().write(One::to(1u32));
+    c.cache::<Lodging>().elem(12).trip().write(One::to(1u32));
     assert_eq!(q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(), [1]);
 }
 
@@ -318,7 +337,7 @@ fn inserting_and_deleting_a_related_row_moves_its_parent() {
     assert_eq!(q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(), [3]);
 
     // Lima gains a lodging and leaves the "nothing booked" set.
-    let lodging = c.store::<Lodging>();
+    let lodging = c.cache::<Lodging>();
     lodging.restructure("add", Op::Insert, 31u32, |v| {
         v.push(Lodging {
             id: 31,
@@ -352,7 +371,7 @@ fn a_cascade_leaves_no_stale_ids_in_a_relation_filtered_set() {
     );
 
     // Deleting Kyoto cascades its two lodgings away; the set must lose Kyoto and keep Oslo.
-    c.store::<Trip>()
+    c.cache::<Trip>()
         .restructure("delete", Op::Delete, 1u32, |v| {
             v.remove(1);
         });
@@ -368,7 +387,7 @@ struct Notes {
 
 fn tagged() -> Notes {
     let c = ModelContainer::open(Sqlite::memory(), schema![Tag, Note]).expect("open");
-    let tags = c.store::<Tag>();
+    let tags = c.cache::<Tag>();
     for (id, name) in [(1u32, "rust"), (2, "design"), (3, "archive")] {
         tags.restructure("add", Op::Insert, id, |v| {
             v.push(Tag {
@@ -378,7 +397,7 @@ fn tagged() -> Notes {
             })
         });
     }
-    let notes = c.store::<Note>();
+    let notes = c.cache::<Note>();
     let ids: Vec<Uuid> = (0..3).map(|_| Uuid::now_v7()).collect();
     for (i, id) in ids.iter().enumerate() {
         notes.restructure("add", Op::Insert, *id, |v| {
@@ -469,13 +488,13 @@ fn linking_and_unlinking_move_the_set() {
         [1, 2]
     );
 
-    app.c.store::<Tag>().elem(3).notes().add(app.ids[0]);
+    app.c.cache::<Tag>().elem(3).notes().add(app.ids[0]);
     assert_eq!(
         q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
         [1, 2, 3]
     );
 
-    app.c.store::<Tag>().elem(1).notes().remove(app.ids[0]);
+    app.c.cache::<Tag>().elem(1).notes().remove(app.ids[0]);
     assert_eq!(
         q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
         [2, 3]
@@ -483,25 +502,28 @@ fn linking_and_unlinking_move_the_set() {
 }
 
 #[test]
-fn a_join_column_outside_the_predicate_costs_nothing() {
+fn a_join_edit_outside_the_result_leaves_it_unchanged() {
     let app = tagged();
     let q = app
         .c
         .query::<Tag>()
         .filter(Tag::notes().any(Note::title().starts_with("Draft")))
+        .sort(Tag::id().asc())
         .live();
-    let evals = q.evaluations();
-    // `title` IS read; a note's other columns are not. There is only one other column here,
-    // so edit the one the predicate does not name on a note in no relevant tag.
+    assert_eq!(
+        q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    // Editing a dependency column of an untagged note re-answers (one indexed EXISTS) and
+    // changes nothing.
     app.c
-        .store::<Note>()
+        .cache::<Note>()
         .elem(app.ids[2])
         .title()
         .write("Untagged, still".into());
     assert_eq!(
-        q.evaluations(),
-        evals,
-        "the changed note belongs to no tag, so nothing resolves back"
+        q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
+        [1, 2]
     );
 }
 
@@ -510,7 +532,7 @@ fn a_join_column_outside_the_predicate_costs_nothing() {
 #[test]
 fn a_self_referential_relation_traverses_both_ways() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Node]).expect("open");
-    let nodes = c.store::<Node>();
+    let nodes = c.cache::<Node>();
     for (id, name, parent) in [
         (1u32, "root", None),
         (2, "group", Some(1u32)),
@@ -555,9 +577,9 @@ fn a_self_referential_relation_traverses_both_ways() {
 // --- the honest limits -----------------------------------------------------------------------
 
 #[test]
-fn nesting_evaluates_correctly_and_declares_itself_non_incremental() {
+fn nesting_compiles_to_nested_exists_and_stays_live() {
     let c = ModelContainer::open(Sqlite::memory(), schema![Node]).expect("open");
-    let nodes = c.store::<Node>();
+    let nodes = c.cache::<Node>();
     for (id, name, parent) in [
         (1u32, "root", None),
         (2, "group", Some(1u32)),
@@ -585,29 +607,38 @@ fn nesting_evaluates_correctly_and_declares_itself_non_incremental() {
         "evaluation handles any depth"
     );
 
-    // …and the fetch says its back-resolution cannot walk that far, so a related change
-    // re-queries rather than silently missing rows.
+    // …and the fetch names EVERY level it crosses, so a change at any depth marks it stale.
     let deps = day_persistence::Fetch::new()
         .filter(Node::parent().any(Node::parent().any(Node::name().eq("root".to_string()))))
         .dependencies();
-    assert!(deps.deep, "a relation inside a relation is flagged");
+    assert_eq!(deps.related.len(), 2, "both hops are dependencies");
+    assert_eq!(deps.related_tables(), ["nodes"]);
 
     // The result stays correct across a change either way.
-    c.store::<Node>().elem(1).name().write("trunk".into());
+    c.cache::<Node>().elem(1).name().write("trunk".into());
     assert!(q.ids().is_empty());
 }
 
 #[test]
-fn a_relation_predicate_declares_its_sql_form_inexact() {
-    // The faithful SQL is a correlated EXISTS, which needs the wiring's column names. Until a
-    // SQL-filtering path exists, the predicate says so rather than emitting SQL that would
-    // select the wrong rows.
+fn a_relation_predicate_compiles_to_a_correlated_exists() {
+    let (driver, log) = day_persistence::Recorder::new();
+    let c = ModelContainer::open(driver, schema![Trip, Lodging]).expect("open");
+    log.clear();
+    let _q = c
+        .query::<Trip>()
+        .filter(Trip::lodging().any(Lodging::confirmed().eq(true)))
+        .live();
+    let sql = log
+        .sql()
+        .into_iter()
+        .rev()
+        .find(|s| s.starts_with("SELECT trips.id FROM trips"))
+        .expect("compiled");
+    assert!(sql.contains("EXISTS (SELECT 1 FROM lodging AS"), "{sql}");
     assert!(
-        !Trip::lodging()
-            .any(Lodging::confirmed().eq(true))
-            .sql_exact()
+        sql.contains(".trip = trips.id"),
+        "correlated on the fk: {sql}"
     );
-    assert!(Trip::done().eq(true).sql_exact());
 }
 
 #[test]

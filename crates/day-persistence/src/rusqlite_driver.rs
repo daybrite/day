@@ -219,6 +219,29 @@ impl SqliteDriver for Sqlite {
             .as_ref()
             .map(|f| install_sql_trace(&conn, f.clone()));
 
+        // `day_fold`: Rust's full-Unicode `to_lowercase` as a scalar SQL function, so
+        // case-insensitive predicates compile to SQL that selects EXACTLY the rows the
+        // in-memory fold would (SQLite's own `lower()` folds ASCII only). Deterministic, so
+        // the planner may hoist and index it.
+        {
+            use rusqlite::functions::FunctionFlags;
+            conn.create_scalar_function(
+                "day_fold",
+                1,
+                FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+                |ctx| {
+                    let folded = match ctx.get_raw(0) {
+                        rusqlite::types::ValueRef::Text(t) => {
+                            Some(String::from_utf8_lossy(t).to_lowercase())
+                        }
+                        _ => None,
+                    };
+                    Ok(folded)
+                },
+            )
+            .map_err(|e| DbError::driver(format!("registering day_fold: {e}")))?;
+        }
+
         conn.busy_timeout(std::time::Duration::from_millis(
             self.opts.busy_timeout_ms as u64,
         ))
@@ -256,6 +279,9 @@ impl SqliteDriver for Sqlite {
                 full_text_search: true,
                 rtree: true,
                 external_changes: false,
+                // The web engine runs in the day-sql worker, out of reach of a Rust closure
+                // registration — folded predicates take the exact fallback path instead.
+                unicode_fold: false,
             }
         }
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -273,6 +299,8 @@ impl SqliteDriver for Sqlite {
                 // are detectable on any file database. A memory database has no second
                 // connection to detect.
                 external_changes: matches!(self.opts.location, Location::File(_)),
+                // `day_fold` registers at open on every native connection.
+                unicode_fold: true,
             }
         }
     }

@@ -50,7 +50,8 @@ day-spec = { workspace = true }
 # web (its C build carries no wasm-bindgen, so the module still instantiates in Day's
 # raw-wasm pipeline).
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
-rusqlite = { version = "0.40", optional = true }
+# `functions` registers `day_fold` (exact Unicode case folding for CI predicates) at open.
+rusqlite = { version = "0.40", optional = true, features = ["functions"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 day-sqlite-worker = { workspace = true, optional = true }

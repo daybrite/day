@@ -44,7 +44,7 @@ fn count(probe: &day_mock::MockProbe, needle: &str) -> usize {
 fn keystrokes_into_a_container_store_keep_patching_the_row_label() {
     let container =
         ModelContainer::open(Sqlite::memory(), schema![Task]).expect("open memory container");
-    let store: Store<Keyed<Task>> = container.store::<Task>();
+    let store: Store<Keyed<Task>> = container.cache::<Task>();
     store.restructure("seed", Op::Insert, 1, |v| {
         for n in 1..=3u32 {
             v.push(Task {
@@ -100,7 +100,7 @@ fn a_query_backed_list_splices_instead_of_reloading() {
 
     let container =
         ModelContainer::open(Sqlite::memory(), schema![Task]).expect("open memory container");
-    let store: Store<Keyed<Task>> = container.store::<Task>();
+    let store: Store<Keyed<Task>> = container.cache::<Task>();
     store.update("seed", |k| {
         *k = Keyed::new(
             (1..=5u32)
