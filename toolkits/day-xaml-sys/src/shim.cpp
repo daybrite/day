@@ -2184,11 +2184,14 @@ void* day_xaml_nav_new(unsigned long long id,
 // than over it. Two stretched Canvas hosts, one per side; day positions content into each,
 // and each host's SizeChanged reports its region back (0 = content, 1 = panel), the same
 // contract the NavigationView regions use above.
-void* day_xaml_inspector_new(unsigned long long id, double panel_width, int open,
+void* day_xaml_inspector_new(unsigned long long id, double panel_width, int open, int leading,
                              void (*size_cb)(unsigned long long, int, int, int),
                              void** out_content, void** out_panel) {
     WUXC::SplitView sv;
-    sv.PanePlacement(WUXC::SplitViewPanePlacement::Right);
+    // `leading` puts the pane FIRST — a layer panel (docs/inspector.md `.edge`), the same
+    // arrangement Qt's splitter takes; Right stays the classic trailing inspector.
+    sv.PanePlacement(leading ? WUXC::SplitViewPanePlacement::Left
+                             : WUXC::SplitViewPanePlacement::Right);
     sv.DisplayMode(WUXC::SplitViewDisplayMode::Inline);
     sv.OpenPaneLength(panel_width);
     sv.IsPaneOpen(open != 0);

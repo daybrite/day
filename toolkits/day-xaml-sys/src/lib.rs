@@ -172,6 +172,7 @@ unsafe extern "C" {
         id: u64,
         panel_width: c_double,
         open: c_int,
+        leading: c_int,
         size_cb: extern "C" fn(u64, c_int, c_int, c_int),
         out_content: *mut *mut c_void,
         out_panel: *mut *mut c_void,

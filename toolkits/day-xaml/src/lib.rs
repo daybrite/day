@@ -565,22 +565,32 @@ fn list_scroll_end(host_key: usize) {
 /// mark it all dirty and refill the window. Reload, reorder, and a width that re-lays every row
 /// all come through here — the callers that used to rebind all n rows.
 fn list_populate(host_key: usize) {
-    LIST_STATE.with(|m| {
+    let stale = LIST_STATE.with(|m| {
         let mut m = m.borrow_mut();
-        let Some(st) = m.get_mut(&host_key) else {
-            return;
-        };
+        let st = m.get_mut(&host_key)?;
         st.bound.iter_mut().for_each(|b| *b = false);
         // A source that SHRANK leaves realized cells past its end. They stay in the pool (index
         // == row, so a source that grows back reuses each for the row it always held) and are
         // simply hidden — the same append-only pool, minus the eager building.
         let n = st.source.borrow().as_ref().map_or(0, |src| (src.len)());
-        for &cell in st.cells.iter().skip(n) {
-            if !cell.is_null() {
-                unsafe { ffi::day_xaml_set_visible(cell, 0) };
-            }
-        }
+        let recycle = st.source.borrow().as_ref().map(|src| src.recycle.clone())?;
+        let stale: Vec<*mut c_void> = st
+            .cells
+            .iter()
+            .skip(n)
+            .copied()
+            .filter(|c| !c.is_null())
+            .collect();
+        Some((recycle, stale))
     });
+    if let Some((recycle, stale)) = stale {
+        for cell in stale {
+            unsafe { ffi::day_xaml_set_visible(cell, 0) };
+            // A hidden row past the shrunk source keeps its pooled cell but must stop
+            // answering dayscript lookups — clear its element ids (day-core's recycle).
+            recycle(cell);
+        }
+    }
     list_fill_window(host_key);
 }
 
@@ -1356,6 +1366,11 @@ impl Toolkit for Xaml {
             Cap::Appearance => Support::Native,
             // A topmost child of the content Canvas — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
+            // The COMPOSED tree (docs/tree.md M2/M4): the piece flattens onto this backend's
+            // emulated list; disclosure, indentation and row content are day pieces. No
+            // native drag wiring, so `Cap::TreeMove` stays Unsupported (`tree_move:` drives
+            // the seam synthetically).
+            Cap::Tree => Support::Emulated,
             // The NavigationView shows the current destination in its Header, so pages needn't
             // repeat their title in-content (docs/navigation.md).
             Cap::NavHeader => Support::Native,
@@ -1465,16 +1480,23 @@ impl Toolkit for Xaml {
                     WinHandle(page)
                 }
                 Some(Builtin::Inspector) => {
-                    let (visible, width) = props
+                    let (visible, width, leading) = props
                         .downcast_ref::<InspectorProps>()
-                        .map(|p| (p.visible, p.width))
-                        .unwrap_or((false, 280.0));
+                        .map(|p| {
+                            (
+                                p.visible,
+                                p.width,
+                                p.edge == day_spec::props::PaneEdge::Leading,
+                            )
+                        })
+                        .unwrap_or((false, 280.0, false));
                     let mut content: *mut c_void = std::ptr::null_mut();
                     let mut panel: *mut c_void = std::ptr::null_mut();
                     let sv = ffi::day_xaml_inspector_new(
                         id.0,
                         width,
                         visible as c_int,
+                        leading as c_int,
                         inspector_region_size,
                         &mut content,
                         &mut panel,

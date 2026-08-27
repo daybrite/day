@@ -76,7 +76,7 @@ An app branches on this rather than on the target name.
 | `EditBridge` | N | N | – | – | – | – | – | N |
 | `ListReorder` | N | N | N | N | N | N | N | E |
 | `ListDelete` | – | N | – | – | – | N | N | – |
-| `Tree` | N | N | N | E | – | E | E | E |
+| `Tree` | N | N | N | E | E | E | E | E |
 | `TreeMove` | N | – | – | – | – | – | – | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |
 | `TextRuns` | N | N | N | N | N | N | N | N |

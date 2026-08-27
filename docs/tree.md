@@ -20,8 +20,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > suite and Day Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim on
 > macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
 > (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
-> seven. The remaining milestones — XAML (M4's other half), the Showcase page +
-> `day-tweak-tree-style` (M5's other half) — are still the build order. M3's as-built notes:
+> seven. XAML's composed flip is CODE-COMPLETE but awaits CI (nothing on this
+> development Mac can compile or run it — see M4's as-built notes); the remaining
+> milestone is the Showcase page + `day-tweak-tree-style` (M5's other half). M3's as-built notes:
 >
 > - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
 >   but not yet `Cap::TreeMove` — the dayscript `tree_move:` step drives the seam on every
@@ -958,7 +959,7 @@ and `sectionSnapshotHandlers.willExpandItem`/`willCollapseItem` for the expansio
 Reorder rides the collection's drag and drop delegates. The list-configuration knobs are
 build-time on this backend — `TreeProps` hints, per the customization note.
 
-### M4 — XAML and ArkUI (ArkUI SHIPPED 2026-08 as COMPOSED — see the as-built notes)
+### M4 — XAML and ArkUI (both COMPOSED 2026-08: ArkUI verified locally, XAML CI-pending — see the as-built notes)
 
 XAML: WinUI `TreeView` with `TreeViewNode`s mirrored from the seam, `CanReorderItems` for the
 drag, native type-ahead, the raw subcontrol/row tweak channel from the examples above.
@@ -968,6 +969,18 @@ ArkUI: the ArkTS `TreeView` driven through the bridge described
 node with a per-node `NodeContent` in `NodeParam.container`, `TreeListener` for `NODE_CLICK`
 and `NODE_MOVE`, and `tree_ext::node_params` for the per-node extras. This lands last of the
 natives because it is the most unusual and wants the seam settled.
+
+**As built (2026-08, the XAML half — CI-pending).** XAML also joined through the COMPOSED
+tree: `Cap::Tree` answers `Emulated` over its emulated list (which already honored
+`multi_select` + `ListPatch::Selected`), `list_populate` clears hidden pooled cells' ids
+through `ListSource::recycle` (the same shape qt took), and `day_xaml_inspector_new` gained
+a `leading` flag mapping `.edge(PaneEdge::Leading)` to `SplitViewPanePlacement::Left` — the
+same ignored-edge bug qt had, fixed by inspection. Every edit mirrors a walkthrough-proven
+qt twin and parses (edition-aware rustfmt), but NOTHING here is verified: this Mac cannot
+type-check the crate (the cppwinrt build script needs the Windows SDK), so the WinUI
+`TreeView` native form stays open work AND the composed form's proof is the CI walkthrough —
+`dayscript/tree.yaml` joined Day Sketch's CI script list in the same change, which also
+closes M1's "tree.yaml not wired into CI" leftover across all eight targets.
 
 **As built (2026-08, the ArkUI half).** ArkUI joined through the COMPOSED tree instead of
 the ArkTS `TreeView` — `Cap::Tree` answers `Emulated` and the M2 piece runs unchanged; the
