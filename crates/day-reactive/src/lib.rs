@@ -266,6 +266,12 @@ crate::tls_group! {
 /// Per-drain re-run cap (§4.2): panic in debug, warn-and-defer in release.
 const RERUN_CAP: u32 = 100;
 
+/// Per-turn cap on drain→turn-end rounds ([`flush_sync`]): same panic/warn split as
+/// [`RERUN_CAP`]. Two rounds settle the normal case (a turn-end hook scheduling reactive
+/// work — day-persistence's deferred requeries); reaching the cap means hooks are feeding
+/// each other every round.
+const TURN_ROUND_CAP: u32 = 8;
+
 fn with_rt<R>(f: impl FnOnce(&mut Runtime) -> R) -> R {
     RT.with(|rt| f(&mut rt.borrow_mut()))
 }
@@ -510,7 +516,15 @@ fn run_reaction(key: NodeKey) {
     });
 }
 
-/// Drain the pending queue to fixpoint, then run turn-end callbacks once (§3.3 steps 2–3).
+/// Drain the pending queue to fixpoint, then run turn-end callbacks (§3.3 steps 2–3) —
+/// REPEATING both until the turn is truly quiescent. A turn-end callback may schedule new
+/// reactive work (day-persistence's autosave flush re-derives live queries and diffs the
+/// answers into signals); that work belongs to THIS turn — §3.3 step 2's "writes made
+/// during the drain extend the current drain", extended across the turn-end boundary.
+/// Left pending instead, every cross-row readout (a query-fed list, a derived bound)
+/// would render one turn stale. Round two drains the deltas and re-runs the hooks —
+/// autosave then finds nothing dirty — so a settled app exits after two rounds;
+/// [`TURN_ROUND_CAP`] stops turn-end hooks that feed each other forever.
 pub fn flush_sync() {
     let already = with_rt(|rt| {
         if rt.draining {
@@ -522,62 +536,95 @@ pub fn flush_sync() {
     if already {
         return; // re-entrant flush folds into the current drain
     }
-    let mut run_counts: HashMap<NodeKey, u32> = HashMap::new();
-    loop {
-        let mut batch = with_rt(|rt| std::mem::take(&mut rt.pending));
-        if batch.is_empty() {
-            break;
-        }
-        // (priority, scope-depth, creation-seq) — owners before descendants.
-        with_rt(|rt| {
-            batch.sort_by_key(|&k| {
-                rt.nodes
-                    .get(k)
-                    .map(|n| (n.priority, n.depth, n.seq))
-                    .unwrap_or((u8::MAX, u32::MAX, u64::MAX))
-            })
-        });
-        for key in batch {
-            let count = run_counts.entry(key).or_insert(0);
-            *count += 1;
-            if *count > RERUN_CAP {
-                if *count == RERUN_CAP + 1 {
-                    let loc = with_rt(|rt| rt.nodes.get(key).map(|n| n.created_at));
-                    if let Some(loc) = loc {
-                        if cfg!(debug_assertions) {
-                            panic!(
-                                "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
-                            );
-                        } else {
-                            log::warn!(
-                                "day-reactive: effect created at {loc} exceeded the re-run cap; skipping it for the rest of this drain (the next source write re-arms it)"
-                            );
+    let mut round = 0u32;
+    'turn: loop {
+        round += 1;
+        // Fresh per round: the re-run cap is per DRAIN (§4.2), and each round is one drain.
+        let mut run_counts: HashMap<NodeKey, u32> = HashMap::new();
+        loop {
+            let mut batch = with_rt(|rt| std::mem::take(&mut rt.pending));
+            if batch.is_empty() {
+                break;
+            }
+            // (priority, scope-depth, creation-seq) — owners before descendants.
+            with_rt(|rt| {
+                batch.sort_by_key(|&k| {
+                    rt.nodes
+                        .get(k)
+                        .map(|n| (n.priority, n.depth, n.seq))
+                        .unwrap_or((u8::MAX, u32::MAX, u64::MAX))
+                })
+            });
+            for key in batch {
+                let count = run_counts.entry(key).or_insert(0);
+                *count += 1;
+                if *count > RERUN_CAP {
+                    if *count == RERUN_CAP + 1 {
+                        let loc = with_rt(|rt| rt.nodes.get(key).map(|n| n.created_at));
+                        if let Some(loc) = loc {
+                            if cfg!(debug_assertions) {
+                                panic!(
+                                    "day-reactive: effect created at {loc} re-ran more than {RERUN_CAP} times in one drain (reactive cycle?)"
+                                );
+                            } else {
+                                log::warn!(
+                                    "day-reactive: effect created at {loc} exceeded the re-run cap; skipping it for the rest of this drain (the next source write re-arms it)"
+                                );
+                            }
                         }
                     }
+                    // Break the cycle but leave the node runnable. This key was drained out of
+                    // `pending` above with `queued` still true; without the reset here,
+                    // `mark_observers` would never enqueue it again and the binding would be
+                    // silently dead for the rest of the process. Clean + unqueued means the next
+                    // source write re-marks and re-enqueues it with a fresh per-drain budget.
+                    with_rt(|rt| {
+                        if let Some(n) = rt.nodes.get_mut(key) {
+                            n.queued = false;
+                            n.state = NodeState::Clean;
+                        }
+                    });
+                    continue;
                 }
-                // Break the cycle but leave the node runnable. This key was drained out of
-                // `pending` above with `queued` still true; without the reset here,
-                // `mark_observers` would never enqueue it again and the binding would be
-                // silently dead for the rest of the process. Clean + unqueued means the next
-                // source write re-marks and re-enqueues it with a fresh per-drain budget.
-                with_rt(|rt| {
-                    if let Some(n) = rt.nodes.get_mut(key) {
-                        n.queued = false;
-                        n.state = NodeState::Clean;
-                    }
-                });
-                continue;
+                run_reaction(key);
             }
-            run_reaction(key);
         }
-    }
-    let turn_end = with_rt(|rt| {
-        rt.draining = false;
-        rt.schedule_posted = false;
-        rt.turn_end.clone()
-    });
-    for cb in turn_end {
-        cb();
+        let turn_end = with_rt(|rt| {
+            rt.draining = false;
+            rt.schedule_posted = false;
+            rt.turn_end.clone()
+        });
+        for cb in turn_end {
+            cb();
+        }
+        // Quiescent — or a nested flush inside a callback already settled everything.
+        let more = with_rt(|rt| {
+            if rt.pending.is_empty() {
+                return false;
+            }
+            rt.draining = true;
+            true
+        });
+        if !more {
+            return;
+        }
+        if round >= TURN_ROUND_CAP {
+            // The callbacks' first write posted a scheduled drain (draining was false
+            // then), so the deferred work still runs next turn — same recovery shape as
+            // the re-run cap.
+            with_rt(|rt| rt.draining = false);
+            if cfg!(debug_assertions) {
+                panic!(
+                    "day-reactive: turn-end callbacks scheduled new reactive work for {TURN_ROUND_CAP} straight rounds in one turn (hooks feeding each other?)"
+                );
+            } else {
+                log::warn!(
+                    "day-reactive: turn-end callbacks still scheduling work after {TURN_ROUND_CAP} rounds; deferring the rest to the next turn"
+                );
+            }
+            return;
+        }
+        continue 'turn;
     }
 }
 

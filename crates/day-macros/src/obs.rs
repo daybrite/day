@@ -96,6 +96,7 @@ struct StructDef {
     table: Option<String>,
     composites: Vec<Vec<String>>,
     fts: Vec<String>,
+    fts_tokenize: Option<String>,
     spatial: Option<(String, String)>,
     fields: Vec<FieldDef>,
 }
@@ -457,8 +458,15 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
     let fts_const = if def.fts.is_empty() {
         String::new()
     } else {
+        let tokenize = match &def.fts_tokenize {
+            Some(t) => format!(
+                "    const FTS_TOKENIZE: Option<&'static str> = Some(\"{}\");\n",
+                t.replace('\\', "\\\\").replace('"', "\\\"")
+            ),
+            None => String::new(),
+        };
         format!(
-            "    const FTS_COLUMNS: &'static [&'static str] = &[{}];\n",
+            "    const FTS_COLUMNS: &'static [&'static str] = &[{}];\n{tokenize}",
             def.fts
                 .iter()
                 .map(|c| format!("\"{c}\""))
@@ -582,6 +590,7 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
     let mut table = None;
     let mut composites = Vec::new();
     let mut fts = Vec::new();
+    let mut fts_tokenize = None;
     let mut spatial = None;
     let mut i = 0;
     while i < tokens.len() {
@@ -595,6 +604,7 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
                             &mut table,
                             &mut composites,
                             &mut fts,
+                            &mut fts_tokenize,
                             &mut spatial,
                         )?;
                     }
@@ -626,6 +636,7 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
         table,
         composites,
         fts,
+        fts_tokenize,
         spatial,
         fields: parse_fields(body)?,
     })
@@ -657,6 +668,7 @@ fn parse_struct_options(
     table: &mut Option<String>,
     composites: &mut Vec<Vec<String>>,
     fts: &mut Vec<String>,
+    fts_tokenize: &mut Option<String>,
     spatial: &mut Option<(String, String)>,
 ) -> Result<(), String> {
     for item in items {
@@ -664,12 +676,31 @@ fn parse_struct_options(
             [TokenTree::Ident(id), TokenTree::Group(g)]
                 if id.to_string() == "fts" && g.delimiter() == Delimiter::Parenthesis =>
             {
+                // Column literals, plus an optional `tokenize = "…"` naming the FTS5
+                // tokenizer (e.g. "unicode61 remove_diacritics 2").
+                let mut fts_items = vec![Vec::new()];
                 for tt in g.stream() {
                     match &tt {
-                        TokenTree::Literal(lit) => fts.push(string_literal(lit)?),
-                        TokenTree::Punct(p) if p.as_char() == ',' => {}
+                        TokenTree::Punct(p) if p.as_char() == ',' => fts_items.push(Vec::new()),
+                        _ => fts_items.last_mut().expect("never empty").push(tt.clone()),
+                    }
+                }
+                for item in fts_items.into_iter().filter(|i| !i.is_empty()) {
+                    match item.as_slice() {
+                        [TokenTree::Literal(lit)] => fts.push(string_literal(lit)?),
+                        [
+                            TokenTree::Ident(k),
+                            TokenTree::Punct(eq),
+                            TokenTree::Literal(lit),
+                        ] if k.to_string() == "tokenize" && eq.as_char() == '=' => {
+                            *fts_tokenize = Some(string_literal(lit)?);
+                        }
                         other => {
-                            return Err(format!("fts(…) expects string literals, found `{other}`"));
+                            return Err(format!(
+                                "fts(…) expects column string literals and an optional \
+                                 tokenize = \"…\", found `{}`",
+                                tokens_text(other)
+                            ));
                         }
                     }
                 }

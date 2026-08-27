@@ -251,6 +251,11 @@ let results = container.query_fn::<Trip>(move || {
     let t = term.get();
     Fetch::new().filter(Trip::name().contains_ci(t)).sort(Trip::name().asc())
 });
+
+// The badge form: a live COUNT holding no ids — `SELECT COUNT(*)` behind the same
+// dependency gate, O(1) memory at any result size. `count_fn` is its reactive twin.
+let unread = container.query::<Trip>().filter(Trip::done().eq(false)).live_count();
+label(move || unread.get().to_string());
 ```
 
 ### The predicate vocabulary
@@ -377,12 +382,22 @@ Both of SQLite's own answers ship in the derive:
 
 ```rust
 #[derive(Model, Clone, Default, PartialEq)]
-#[model(table = "posts", fts("title", "body"), spatial(lat = "lat", lon = "lon"))]
+#[model(table = "posts", fts("title", "body", tokenize = "unicode61 remove_diacritics 2"),
+        spatial(lat = "lat", lon = "lon"))]
 struct Post { /* … */ }
 
 query.filter(Post::fts().matches("kyoto OR osaka")).sort(rank())   // bm25, best first
 query.filter(Post::geo().within(GeoRect { min_lat, max_lat, min_lon, max_lon }))
+
+// Crossing a relation composes with a match: the search box that reads two tables.
+query.filter(Post::title().contains_ci(t) | Post::chapters().any(Chapter::fts().matches(t)))
 ```
+
+`tokenize = "…"` selects the FTS5 tokenizer (the diacritics-folding `unicode61` form is what
+a search field usually wants); it is part of the schema fingerprint, so changing it rebuilds
+the shadow. A `matches` predicate works inside a relation crossing too — the compiled
+subquery resolves the TARGET model's shadow — which is how an app whose bodies live in a
+separate model searches titles and bodies in one fetch.
 
 The schema derive generates the standard patterns rather than asking you to hand-write them: an
 external-content FTS5 table (`posts_fts`, `content=posts`) and an R*Tree table (`posts_geo`),

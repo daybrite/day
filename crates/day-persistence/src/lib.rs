@@ -53,7 +53,7 @@ pub use queries::{
     Col, Delta, Deps, Fetch, FtsRef, GeoRect, GeoRef, Pred, Quant, RelatedDep, RelationCol,
     ResultSet, RowView, SetChange, Sort, compare_values, encode_column, rank,
 };
-use queries::{CompileErr, RelSql, SqlIndex, compile_fallback, compile_fetch};
+use queries::{CompileErr, RelSql, SqlIndex, compile_count, compile_fallback, compile_fetch};
 
 mod relations;
 pub use relations::{
@@ -706,6 +706,10 @@ pub trait Model: Identified + day_model::ApplyField + Clone + 'static {
     /// Full-text-indexed columns from struct-level `#[model(fts("a", "b"))]` — an
     /// external-content FTS5 shadow table plus sync triggers, generated at open.
     const FTS_COLUMNS: &'static [&'static str] = &[];
+    /// The FTS5 tokenizer, from `#[model(fts(…, tokenize = "…"))]` — e.g.
+    /// `"unicode61 remove_diacritics 2"` for diacritics-insensitive search. `None` keeps
+    /// FTS5's default. Part of the schema fingerprint, so changing it rebuilds the shadow.
+    const FTS_TOKENIZE: Option<&'static str> = None;
     /// The R*Tree pair from struct-level `#[model(spatial(lat = "…", lon = "…"))]`.
     const SPATIAL: Option<SpatialCols> = None;
     /// The key column's SQL shape — what a `One<Self>` foreign-key column stores.
@@ -750,6 +754,10 @@ pub fn model_fingerprint<M: Model>() -> u64 {
         eat(b"fts:");
         eat(c.as_bytes());
     }
+    if let Some(t) = M::FTS_TOKENIZE {
+        eat(b"tok:");
+        eat(t.as_bytes());
+    }
     if let Some(s) = M::SPATIAL {
         eat(b"geo:");
         eat(s.lat.as_bytes());
@@ -783,6 +791,8 @@ type RefreshFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<bool, DbError>>;
 type KeyWhere = Rc<dyn Fn(u64) -> (String, Vec<Value>)>;
 /// A WHERE clause plus its parameters, addressing a SET of rows by handle.
 type KeysWhere = Rc<dyn Fn(&[u64]) -> (String, Vec<Value>)>;
+/// Evict up to N clean rows from an ordered candidate list, answering how many left.
+type EvictFn = Rc<dyn Fn(&[u64], usize) -> usize>;
 
 /// One foreign-key clause, resolved from a `RelationDef` at `Schema::with` time — the child's
 /// column carries `REFERENCES parent(key) ON DELETE …` in its generated DDL.
@@ -982,7 +992,7 @@ pub(crate) struct TableHooks {
     /// skipping anything observed; answers how many left. One retain over the store, so an
     /// eviction pass costs O(cache), not O(cache × evicted). (Dirtiness is the container's
     /// knowledge — checked before this is called.)
-    pub(crate) evict: Rc<dyn Fn(&[u64], usize) -> usize>,
+    pub(crate) evict: EvictFn,
     /// Bring this store under an undo history — captured here because the model TYPE is known
     /// only at attach time.
     pub(crate) watch_undo: Rc<dyn Fn(&day_model::UndoStack)>,
@@ -1254,8 +1264,12 @@ impl ModelContainer {
         store.restructure("create", Op::Insert, h, move |k| k.push(row));
     }
 
-    /// `SELECT COUNT(*)` — the table's true size, which the cache cannot know.
+    /// `SELECT COUNT(*)` — the table's true size, which the cache cannot know. Settles
+    /// pending writes first (with autosave), like every other read.
     pub fn table_count<M: Model>(&self) -> Result<u64, DbError> {
+        if self.inner.autosave.get() && !self.inner.dirty.borrow().is_empty() {
+            self.save()?;
+        }
         let mut n = 0i64;
         self.conn().query(
             &format!("SELECT COUNT(*) FROM {}", M::TABLE),
@@ -1625,7 +1639,7 @@ impl ModelContainer {
                 .take(want)
                 .collect();
             store.depopulate_many(&doomed)
-        }) as Rc<dyn Fn(&[u64], usize) -> usize>;
+        }) as EvictFn;
         let watch_undo = Rc::new(move |stack: &day_model::UndoStack| stack.watch(store))
             as Rc<dyn Fn(&day_model::UndoStack)>;
 
@@ -1722,10 +1736,16 @@ impl ModelContainer {
             }
             let cols = M::FTS_COLUMNS.join(", ");
             let fresh = !self.table_exists(&format!("{t}_fts"))?;
+            // The tokenizer rides in the DDL; its value is a compile-time literal, quoted
+            // through SQL's own escape so an apostrophe cannot break the statement.
+            let tokenize = match M::FTS_TOKENIZE {
+                Some(tok) => format!(", tokenize='{}'", tok.replace('\'', "''")),
+                None => String::new(),
+            };
             self.conn().execute(
                 &format!(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS {t}_fts USING fts5({cols}, \
-                     content={t}, content_rowid={key})"
+                     content={t}, content_rowid={key}{tokenize})"
                 ),
                 &[],
             )?;
@@ -2508,6 +2528,10 @@ struct QueryState {
     needs_sql: Cell<bool>,
     /// `query_raw` only: the statement and the tables whose flush re-runs it.
     raw: Option<RawQuery>,
+    /// A COUNT-shaped query: `count` is the answer, the id set stays empty, and requeries
+    /// run `SELECT COUNT(*)` — the badge query, O(1) memory at any result size.
+    count_only: bool,
+    count: Cell<usize>,
 }
 
 struct RawQuery {
@@ -2676,6 +2700,74 @@ impl<M: Model> QueryBuilder<'_, M> {
     pub fn live(self) -> Query<M> {
         self.container.install_query::<M>(self.fetch, None)
     }
+
+    /// Keep only the COUNT live — the badge form: no id vector, one `SELECT COUNT(*)` per
+    /// requery, the same dependency gating.
+    pub fn live_count(self) -> CountQuery<M> {
+        CountQuery {
+            state: self.container.install_state::<M>(self.fetch, None, true),
+            container: self.container.clone(),
+            _p: std::marker::PhantomData,
+        }
+    }
+}
+
+/// A live COUNT over one model's table — the badge query: `SELECT COUNT(*)` behind the same
+/// dependency-gated staleness as [`Query`], holding no id vector, so a count over a
+/// million-row result costs O(1) memory. Clone shares the same state.
+pub struct CountQuery<M: Model> {
+    state: Rc<QueryState>,
+    container: ModelContainer,
+    _p: std::marker::PhantomData<fn() -> M>,
+}
+
+impl<M: Model> Clone for CountQuery<M> {
+    fn clone(&self) -> Self {
+        CountQuery {
+            state: self.state.clone(),
+            container: self.container.clone(),
+            _p: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<M: Model> CountQuery<M> {
+    /// The count — a TRACKED read: the caller re-runs when it changes, and only then.
+    pub fn get(&self) -> usize {
+        self.refresh_if_stale();
+        let _ = self.state.version.get();
+        self.state.count.get()
+    }
+
+    /// Untracked snapshot — reactively silent, still current.
+    pub fn get_untracked(&self) -> usize {
+        self.refresh_if_stale();
+        self.state.count.get()
+    }
+
+    /// Swap the fetch (a changed filter): re-counts. No-op when equal, so a `count_fn`
+    /// closure can re-run cheaply.
+    pub fn set_fetch(&self, fetch: Fetch) {
+        if *self.state.set.borrow().fetch() == fetch {
+            return;
+        }
+        self.container.rewire_watches(&self.state, &fetch);
+        *self.state.set.borrow_mut() = ResultSet::new(fetch);
+        self.state.needs_sql.set(true);
+        self.refresh_if_stale();
+    }
+
+    fn refresh_if_stale(&self) {
+        if !self.state.needs_sql.get() {
+            return;
+        }
+        if self.container.inner.autosave.get() {
+            let _ = self.container.save();
+        }
+        if self.state.needs_sql.replace(false) {
+            self.container.requery(&self.state);
+        }
+    }
 }
 
 /// A fallback row: the key plus the dependency columns the fallback `SELECT` carried.
@@ -2710,6 +2802,19 @@ impl ModelContainer {
     /// (a search term, a filter toggle) re-derives itself when they change.
     pub fn query_fn<M: Model>(&self, f: impl Fn() -> Fetch + 'static) -> Query<M> {
         let q = self.install_query::<M>(f(), None);
+        let q2 = q.clone();
+        day_reactive::bind(f, move |fetch| q2.set_fetch(fetch.clone()));
+        q
+    }
+
+    /// The reactive-fetch COUNT: a badge whose FETCH depends on signals (the "Today" cutoff,
+    /// a filter toggle) re-counts itself when they change.
+    pub fn count_fn<M: Model>(&self, f: impl Fn() -> Fetch + 'static) -> CountQuery<M> {
+        let q = CountQuery::<M> {
+            state: self.install_state::<M>(f(), None, true),
+            container: self.clone(),
+            _p: std::marker::PhantomData,
+        };
         let q2 = q.clone();
         day_reactive::bind(f, move |fetch| q2.set_fetch(fetch.clone()));
         q
@@ -2877,7 +2982,12 @@ impl ModelContainer {
         Ok(changed)
     }
 
-    fn install_query<M: Model>(&self, fetch: Fetch, raw: Option<RawQuery>) -> Query<M> {
+    fn install_state<M: Model>(
+        &self,
+        fetch: Fetch,
+        raw: Option<RawQuery>,
+        count_only: bool,
+    ) -> Rc<QueryState> {
         let store = self.cache::<M>();
         let state = Rc::new(QueryState {
             store_id: store.store_id(),
@@ -2889,22 +2999,31 @@ impl ModelContainer {
             pending: RefCell::new(QueryEvents::None),
             needs_sql: Cell::new(false),
             raw,
+            count_only,
+            count: Cell::new(0),
         });
         self.rewire_watches(&state, &fetch);
         self.inner.queries.borrow_mut().push(Rc::downgrade(&state));
-        let q = Query {
-            state,
-            container: self.clone(),
-            _p: std::marker::PhantomData,
-        };
         // The seed: flush anything pending (with autosave; without it the query answers from
         // the last save, documented), then one SQL round trip.
         if self.inner.autosave.get() && !self.inner.dirty.borrow().is_empty() {
             let _ = self.save();
         }
-        let ids = self.answer(&q.state);
-        q.state.set.borrow_mut().reset(ids);
-        q
+        if count_only {
+            state.count.set(self.answer_count(&state));
+        } else {
+            let ids = self.answer(&state);
+            state.set.borrow_mut().reset(ids);
+        }
+        state
+    }
+
+    fn install_query<M: Model>(&self, fetch: Fetch, raw: Option<RawQuery>) -> Query<M> {
+        Query {
+            state: self.install_state::<M>(fetch, raw, false),
+            container: self.clone(),
+            _p: std::marker::PhantomData,
+        }
     }
 
     /// (Re)compute a query's relation subscriptions from its fetch.
@@ -3107,6 +3226,16 @@ impl ModelContainer {
 
     /// One requery: answer through the engine, adopt, narrate.
     fn requery(&self, state: &Rc<QueryState>) {
+        if state.count_only {
+            let n = self.answer_count(state);
+            if n != state.count.get() {
+                state.count.set(n);
+                state
+                    .version
+                    .set(state.version.get_untracked().wrapping_add(1));
+            }
+            return;
+        }
         let ids = self.answer(state);
         let change = state.set.borrow_mut().adopt(ids);
         match change {
@@ -3122,6 +3251,61 @@ impl ModelContainer {
                 state
                     .version
                     .set(state.version.get_untracked().wrapping_add(1));
+            }
+        }
+    }
+
+    /// Answer a COUNT-shaped fetch: one `SELECT COUNT(*)`, capped by the fetch's limit
+    /// (a limited set's length is `min(count, limit)`). The fallback form counts its
+    /// re-checked rows the same way.
+    fn answer_count(&self, state: &Rc<QueryState>) -> usize {
+        if let Some(raw) = &state.raw {
+            return self.select_id_column(&raw.sql, &raw.params).len();
+        }
+        let fetch = state.set.borrow().fetch().clone();
+        let cap = fetch.limit.unwrap_or(usize::MAX);
+        let snapshot = self.sql_snapshot();
+        match compile_count(state.table, &fetch, &snapshot) {
+            Ok(q) => {
+                let mut n = 0usize;
+                if let Err(e) = self.conn().query(&q.sql, &q.params, &mut |row| {
+                    n = row.get(0).as_int().unwrap_or(0).max(0) as usize;
+                }) {
+                    self.inner.error.set(Some(e.to_string()));
+                    return 0;
+                }
+                n.min(cap)
+            }
+            Err(CompileErr::NeedsFold) => match compile_fallback(state.table, &fetch, &snapshot) {
+                Ok((q, cols)) => {
+                    let mut n = 0usize;
+                    if let Err(e) = self.conn().query(&q.sql, &q.params, &mut |row| {
+                        let len = Row::len(row);
+                        let values: Vec<Value> = (0..len).map(|i| row.get(i)).collect();
+                        let Some(h) = value_to_handle(&values[0]) else {
+                            return;
+                        };
+                        let view = FallbackRow {
+                            cols: &cols,
+                            values: &values,
+                        };
+                        if fetch.pred.eval(h, &view) {
+                            n += 1;
+                        }
+                    }) {
+                        self.inner.error.set(Some(e.to_string()));
+                        return 0;
+                    }
+                    n.min(cap)
+                }
+                Err(e) => {
+                    self.inner.error.set(Some(e.message()));
+                    0
+                }
+            },
+            Err(e) => {
+                self.inner.error.set(Some(e.message()));
+                0
             }
         }
     }

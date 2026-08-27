@@ -227,3 +227,137 @@ fn a_missing_module_refuses_at_open_not_at_query_time() {
     assert_eq!(err.kind, DbErrorKind::Unsupported);
     assert!(err.message.contains("FTS5"), "{}", err.message);
 }
+
+// --- the tokenizer option and cross-model search -------------------------------------------
+
+#[derive(Model, Clone, Default, PartialEq, Debug)]
+#[model(
+    table = "chapters",
+    fts("heading", tokenize = "unicode61 remove_diacritics 2")
+)]
+struct Chapter {
+    #[model(id)]
+    id: u32,
+    heading: String,
+    book: One<Book>,
+}
+
+#[derive(Model, Clone, Default, PartialEq, Debug)]
+#[model(table = "books")]
+struct Book {
+    #[model(id)]
+    id: u32,
+    title: String,
+    #[model(relation(target = Chapter, inverse = "book", delete = "cascade"))]
+    chapters: Many<Chapter>,
+}
+
+use day_persistence::{Many, One};
+
+fn library() -> ModelContainer {
+    let c = ModelContainer::open(Sqlite::memory(), schema![Book, Chapter]).expect("open");
+    c.cache::<Book>().update("seed", |k| {
+        *k = day_model::Keyed::new(vec![
+            Book {
+                id: 1,
+                title: "Voyages".into(),
+                ..Default::default()
+            },
+            Book {
+                id: 2,
+                title: "Essays".into(),
+                ..Default::default()
+            },
+        ]);
+    });
+    c.cache::<Chapter>().update("seed", |k| {
+        *k = day_model::Keyed::new(vec![
+            Chapter {
+                id: 10,
+                heading: "École de la montagne".into(),
+                book: One::to(1u32),
+            },
+            Chapter {
+                id: 11,
+                heading: "Harbor towns".into(),
+                book: One::to(1u32),
+            },
+            Chapter {
+                id: 12,
+                heading: "On rivers".into(),
+                book: One::to(2u32),
+            },
+        ]);
+    });
+    c.save().expect("seed");
+    c
+}
+
+#[test]
+fn a_declared_tokenizer_reaches_the_shadow_and_folds_diacritics() {
+    let c = library();
+    // remove_diacritics 2: `ecole` matches `École` through the index itself.
+    let q = c
+        .query::<Chapter>()
+        .filter(Chapter::fts().matches("ecole"))
+        .live();
+    assert_eq!(q.ids(), [10]);
+
+    // And the DDL carries the declaration — proven against the file.
+    let mut ddl = String::new();
+    c.with_connection(|conn| {
+        conn.query(
+            "SELECT sql FROM sqlite_master WHERE name = 'chapters_fts'",
+            &[],
+            &mut |row| {
+                ddl = row.get(0).as_text().unwrap_or_default().to_string();
+            },
+        )
+        .expect("read master");
+    });
+    assert!(
+        ddl.contains("tokenize='unicode61 remove_diacritics 2'"),
+        "{ddl}"
+    );
+}
+
+#[test]
+fn a_match_inside_a_relation_predicate_searches_the_target_table() {
+    // The cross-model search shape: books whose chapters match — the FTS shadow lookup must
+    // resolve the TARGET's table, not the EXISTS alias it travels under.
+    let c = library();
+    let books: Vec<u64> = c
+        .query::<Book>()
+        .filter(Book::chapters().any(Chapter::fts().matches("harbor")))
+        .live()
+        .ids()
+        .iter()
+        .map(|i| i.handle())
+        .collect();
+    assert_eq!(books, [1]);
+
+    let none: Vec<u64> = c
+        .query::<Book>()
+        .filter(Book::chapters().any(Chapter::fts().matches("glacier")))
+        .live()
+        .ids()
+        .iter()
+        .map(|i| i.handle())
+        .collect();
+    assert!(none.is_empty());
+
+    // Composed with a local predicate, as the reader's search box does.
+    let either: Vec<u64> = c
+        .query::<Book>()
+        .filter(
+            Book::title().contains("Essays")
+                | Book::chapters().any(Chapter::fts().matches("ecole")),
+        )
+        .sort(Book::id().asc())
+        .live()
+        .ids()
+        .iter()
+        .map(|i| i.handle())
+        .collect();
+    assert_eq!(either, [1, 2]);
+}

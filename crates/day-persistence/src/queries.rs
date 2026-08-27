@@ -455,7 +455,15 @@ pub(crate) fn compile_fetch(
         idx,
         skip_matches: rank_pred,
     };
-    let where_clause = pred_sql(&fetch.pred, table, &key, &ctx, &mut params, &mut aliases)?;
+    let where_clause = pred_sql(
+        &fetch.pred,
+        table,
+        table,
+        &key,
+        &ctx,
+        &mut params,
+        &mut aliases,
+    )?;
 
     let mut sql = format!("SELECT {table}.{key} FROM {from}");
     if where_clause != "1" {
@@ -479,6 +487,37 @@ pub(crate) fn compile_fetch(
     sql.push_str(&format!(" ORDER BY {}", orders.join(", ")));
     if let Some(n) = fetch.limit {
         sql.push_str(&format!(" LIMIT {n}"));
+    }
+    Ok(SqlQuery { sql, params })
+}
+
+/// Compile the COUNT form of a fetch: the same WHERE, no ORDER BY, no id vector — the
+/// badge-shaped query. A `limit` caps the answer after the fact (`min(count, limit)` is what
+/// a limited set's length would be), which the caller applies.
+pub(crate) fn compile_count(
+    table: &str,
+    fetch: &Fetch,
+    idx: &dyn SqlIndex,
+) -> Result<SqlQuery, CompileErr> {
+    let key = idx.key_of(table).ok_or(CompileErr::Unwired("", ""))?;
+    let mut params = Vec::new();
+    let mut aliases = 0usize;
+    let ctx = SqlCtx {
+        idx,
+        skip_matches: false,
+    };
+    let where_clause = pred_sql(
+        &fetch.pred,
+        table,
+        table,
+        &key,
+        &ctx,
+        &mut params,
+        &mut aliases,
+    )?;
+    let mut sql = format!("SELECT COUNT(*) FROM {table}");
+    if where_clause != "1" {
+        sql.push_str(&format!(" WHERE {where_clause}"));
     }
     Ok(SqlQuery { sql, params })
 }
@@ -512,7 +551,15 @@ pub(crate) fn compile_fallback(
     let mut clauses = Vec::new();
     for c in conjuncts {
         if !c.contains_fold() {
-            clauses.push(pred_sql(c, table, &key, &ctx, &mut params, &mut aliases)?);
+            clauses.push(pred_sql(
+                c,
+                table,
+                table,
+                &key,
+                &ctx,
+                &mut params,
+                &mut aliases,
+            )?);
         }
     }
 
@@ -575,9 +622,12 @@ struct SqlCtx<'a> {
 }
 
 /// The WHERE form of one predicate, columns qualified by `alias` (the current table or an
-/// EXISTS alias), appending bound parameters to `params`.
+/// EXISTS alias), appending bound parameters to `params`. `table` is the alias's TRUE table
+/// name — what FTS and R*Tree shadow lookups resolve against, since an EXISTS alias like
+/// `day_r0` names no shadow.
 fn pred_sql(
     pred: &Pred,
+    table: &str,
     alias: &str,
     key: &str,
     ctx: &SqlCtx<'_>,
@@ -679,15 +729,18 @@ fn pred_sql(
         }
         Pred::And(a, b) => format!(
             "({} AND {})",
-            pred_sql(a, alias, key, ctx, params, aliases)?,
-            pred_sql(b, alias, key, ctx, params, aliases)?
+            pred_sql(a, table, alias, key, ctx, params, aliases)?,
+            pred_sql(b, table, alias, key, ctx, params, aliases)?
         ),
         Pred::Or(a, b) => format!(
             "({} OR {})",
-            pred_sql(a, alias, key, ctx, params, aliases)?,
-            pred_sql(b, alias, key, ctx, params, aliases)?
+            pred_sql(a, table, alias, key, ctx, params, aliases)?,
+            pred_sql(b, table, alias, key, ctx, params, aliases)?
         ),
-        Pred::Not(a) => format!("NOT ({})", pred_sql(a, alias, key, ctx, params, aliases)?),
+        Pred::Not(a) => format!(
+            "NOT ({})",
+            pred_sql(a, table, alias, key, ctx, params, aliases)?
+        ),
         Pred::Raw(sql, args) => {
             params.extend(args.iter().cloned());
             format!("({sql})")
@@ -697,7 +750,7 @@ fn pred_sql(
                 // The rank join already constrains to matching rows.
                 "1".into()
             } else {
-                let fts = ctx.idx.fts_of(alias).ok_or(CompileErr::NoFts)?;
+                let fts = ctx.idx.fts_of(table).ok_or(CompileErr::NoFts)?;
                 params.push(Value::Text(query.clone()));
                 format!("{alias}.{key} IN (SELECT rowid FROM {fts} WHERE {fts} MATCH ?)")
             }
@@ -720,7 +773,7 @@ fn pred_sql(
             // The R*Tree shadow narrows first when this is the declared pair: its 32-bit
             // entries are outward-rounded (a candidate superset, never a miss), and the exact
             // check above settles the edges.
-            match ctx.idx.geo_of(alias, lat, lon) {
+            match ctx.idx.geo_of(table, lat, lon) {
                 Some(geo) => {
                     params.push(Value::Real(*min_lat));
                     params.push(Value::Real(*max_lat));
@@ -791,8 +844,15 @@ fn pred_sql(
                     format!("(SELECT COUNT(*) FROM {from} WHERE {tie}) >= ?")
                 }
                 Quant::Any | Quant::None | Quant::All => {
-                    let inner_sql =
-                        pred_sql(inner, &inner_alias, &inner_key, ctx, params, aliases)?;
+                    let inner_sql = pred_sql(
+                        inner,
+                        target,
+                        &inner_alias,
+                        &inner_key,
+                        ctx,
+                        params,
+                        aliases,
+                    )?;
                     match quant {
                         Quant::Any => {
                             format!("EXISTS (SELECT 1 FROM {from} WHERE {tie} AND ({inner_sql}))")

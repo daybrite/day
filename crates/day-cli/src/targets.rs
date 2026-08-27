@@ -37,9 +37,11 @@ pub struct Target {
     pub experimental: bool,
 }
 
-// Ordered for presentation (mobile first, then desktops grouped by OS, experimental last) — this is
-// the order the `day new` interactive target menu shows. `find()` is by name and `Day.toml` defaults
-// are string literals, so the order is purely cosmetic elsewhere.
+// Ordered for presentation: the phone OSes first (iOS, Android, HarmonyOS), then the desktops
+// grouped by OS (macOS, Linux, Windows), then the web — this is the order the `day new`
+// interactive target menu shows AND the column order `day screenshot index` writes into a
+// gallery, so a published site reads the same way the menu does. `find()` is by name and
+// `Day.toml` defaults are string literals, so the order is purely cosmetic elsewhere.
 pub const TARGETS: &[Target] = &[
     Target {
         name: "ios-uikit",
@@ -57,6 +59,15 @@ pub const TARGETS: &[Target] = &[
         os: "android",
         host: "any",
         label: "Android",
+        experimental: false,
+    },
+    Target {
+        name: "harmony-arkui",
+        toolkit: "arkui",
+        kind: TargetKind::HarmonyOs,
+        os: "harmony",
+        host: "any",
+        label: "OpenHarmony ArkUI",
         experimental: false,
     },
     Target {
@@ -129,15 +140,6 @@ pub const TARGETS: &[Target] = &[
         os: "windows",
         host: "windows",
         label: "Windows (GTK)",
-        experimental: false,
-    },
-    Target {
-        name: "harmony-arkui",
-        toolkit: "arkui",
-        kind: TargetKind::HarmonyOs,
-        os: "harmony",
-        host: "any",
-        label: "OpenHarmony ArkUI",
         experimental: false,
     },
     Target {

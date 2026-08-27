@@ -355,3 +355,94 @@ fn dropping_the_query_unregisters_it() {
     store.elem(1).done().write(true);
     store.elem(1).done().write(false);
 }
+
+// --- count-only queries ---------------------------------------------------------------------
+
+#[test]
+fn a_count_query_stays_live_without_holding_ids() {
+    let trace: Rc<std::cell::RefCell<Vec<String>>> = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = trace.clone();
+    let driver = Sqlite::memory().trace_sql(move |sql| sink.borrow_mut().push(sql.to_string()));
+    let c = ModelContainer::open(driver, schema![Trip]).expect("open");
+    seed(&c, trips(50));
+    let store = c.cache::<Trip>();
+
+    let unread = c
+        .query::<Trip>()
+        .filter(Trip::done().eq(false))
+        .live_count();
+    assert_eq!(unread.get(), 38, "50 minus the twelve done");
+    assert!(
+        trace
+            .borrow()
+            .iter()
+            .any(|s| s.starts_with("SELECT COUNT(*) FROM trips")),
+        "the badge form is one COUNT: {:?}",
+        trace.borrow()
+    );
+
+    let counts = |t: &[String]| {
+        t.iter()
+            .filter(|s| s.starts_with("SELECT COUNT(*) FROM trips"))
+            .count()
+    };
+    let baseline = counts(&trace.borrow());
+
+    // The dependency gate holds for counts too.
+    for i in 1..=50u64 {
+        store.elem(i).notes().write(format!("note {i}"));
+    }
+    assert_eq!(unread.get(), 38);
+    assert_eq!(
+        counts(&trace.borrow()),
+        baseline,
+        "notes edits re-count nothing"
+    );
+
+    store.elem(1).done().write(true);
+    assert_eq!(unread.get(), 37, "a predicate write re-counts once");
+    assert_eq!(counts(&trace.borrow()), baseline + 1);
+}
+
+#[test]
+fn a_count_query_wakes_its_readers_exactly_when_the_count_moves() {
+    let c = seeded(10);
+    let store = c.cache::<Trip>();
+    let q = c.query::<Trip>().filter(Trip::done().eq(true)).live_count();
+
+    let runs = Rc::new(Cell::new(0));
+    let seen = Rc::new(Cell::new(0usize));
+    let (q2, runs2, seen2) = (q.clone(), runs.clone(), seen.clone());
+    day_reactive::Effect::new(move || {
+        seen2.set(q2.get());
+        runs2.set(runs2.get() + 1);
+    });
+    assert_eq!((runs.get(), seen.get()), (1, 2), "4 and 8 are done");
+
+    store.elem(1).done().write(true);
+    settle();
+    assert_eq!((runs.get(), seen.get()), (2, 3));
+
+    // A write that leaves the count unchanged wakes nothing: 1 was already done.
+    store.elem(1).done().write(true);
+    settle();
+    assert_eq!(runs.get(), 2, "same count, no wake");
+}
+
+#[test]
+fn a_count_respects_the_window_and_the_reactive_fetch_form() {
+    let c = seeded(30);
+    let capped = c
+        .query::<Trip>()
+        .filter(Trip::done().eq(false))
+        .limit(10)
+        .live_count();
+    assert_eq!(capped.get(), 10, "a limited set counts its window");
+
+    let floor = Signal::new(20i64);
+    let q = c.count_fn::<Trip>(move || Fetch::new().filter(Trip::start_day().gt(floor.get())));
+    assert_eq!(q.get(), 10, "days 21..=30");
+    floor.write(25);
+    settle();
+    assert_eq!(q.get(), 5, "the fetch re-derived from its signal");
+}
