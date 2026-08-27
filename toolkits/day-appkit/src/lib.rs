@@ -138,6 +138,9 @@ day_core::tls_group! {
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     /// TREE host scroll-view ptr → (outline, data source) — docs/tree.md.
     static TREE_STATE: RefCell<HashMap<usize, TreeEntry>> = RefCell::new(HashMap::new());
+    /// View ptr → its summon-time context-menu provider (docs/menus.md). Swept on release
+    /// via `day_spec::sidetable`.
+    static CTX_MENU_FNS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
 
     /// NAV_MENU scroll-view ptr → (outline, data source) for patches and measure.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuEntry>> = RefCell::new(HashMap::new());
@@ -642,6 +645,29 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        /// A summon-time context menu (docs/menus.md): built when the right-click lands,
+        /// from the provider `set_context_menu_fn` registered — so a canvas can select what
+        /// is under the pointer and offer commands for THAT selection.
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(
+            &self,
+            event: &objc2_app_kit::NSEvent,
+        ) -> Option<Retained<NSMenu>> {
+            let f = CTX_MENU_FNS.with(|t| t.get(self as *const Self as usize));
+            let Some(f) = f else {
+                return unsafe { msg_send![super(self), menuForEvent: event] };
+            };
+            // Guarded: the provider is app code (it usually re-selects, then builds).
+            ffi_guard::contain(None, || {
+                let p = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+                let items = f(day_spec::Point::new(p.x, p.y));
+                if items.is_empty() {
+                    return None;
+                }
+                Some(build_ns_menu(self.mtm(), "", &items))
+            })
         }
 
         // Focus, and with it the keyboard (docs/focus.md, docs/menus.md). A canvas is the one
@@ -2681,6 +2707,37 @@ define_class!(
         fn layout(&self) {
             sync_tree_width(self);
             let _: () = unsafe { msg_send![super(self), layout] };
+        }
+
+        /// A summon-time ROW context menu (docs/menus.md, docs/tree.md): right-click asks
+        /// the tree's `row_menu` provider for the row under the pointer.
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(
+            &self,
+            event: &objc2_app_kit::NSEvent,
+        ) -> Option<Retained<NSMenu>> {
+            ffi_guard::contain(None, || {
+                let scroll = unsafe { self.enclosingScrollView() }?;
+                let (_, data) = tree_entry(Retained::as_ptr(&scroll) as usize)?;
+                let row_menu = data
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.row_menu.clone())?;
+                let p = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+                let row = unsafe { self.rowAtPoint(p) };
+                if row < 0 {
+                    return None;
+                }
+                let token =
+                    unsafe { self.itemAtRow(row) }.and_then(|i| DayTreeData::token_of_item(&i))?;
+                let items = row_menu(token);
+                if items.is_empty() {
+                    return None;
+                }
+                Some(build_ns_menu(self.mtm(), "", &items))
+            })
         }
     }
 );
@@ -6140,6 +6197,12 @@ impl Toolkit for AppKit {
             }
         }
         apply_to_subviews(view, &menu);
+    }
+
+    fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        // Consulted by the classes that override `menuForEvent:` (the canvas; docs/menus.md
+        // "Dynamic context menus" lists the covered surfaces per backend).
+        CTX_MENU_FNS.with(|t| t.insert(ptr_of(h), f));
     }
 
     fn enable_gesture(&mut self, h: &Handle, node: NodeId, kind: day_spec::GestureKind) {

@@ -30,7 +30,7 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.nav_page` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.nav_menu` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.list` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day.tree` | ✓ | · | · | · | · | · | · | · |
+| `day.tree` | ✓ | ✓ | ✓ | · | · | · | · | · |
 | `day.cover` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.inspector` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
 | `day.inspector_pane` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
@@ -76,7 +76,7 @@ An app branches on this rather than on the target name.
 | `EditBridge` | N | N | – | – | – | – | – | N |
 | `ListReorder` | N | N | N | N | N | N | N | E |
 | `ListDelete` | – | N | – | – | – | N | N | – |
-| `Tree` | N | – | – | – | – | – | – | – |
+| `Tree` | N | N | N | E | – | – | – | E |
 | `TreeMove` | N | – | – | – | – | – | – | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |
 | `TextRuns` | N | N | N | N | N | N | N | N |

@@ -884,14 +884,22 @@ void *day_qt_splitter_pane(void *w, int index) {
 // --- inspector (docs/inspector.md): the same QSplitter family, panel pane TRAILING. Not a
 // QDockWidget: DayWindow is a plain QWidget with hand-managed chrome (see the toolbar note
 // above), and dock areas need QMainWindow. ---
-void *day_qt_inspector_new(double panel_width) {
+void *day_qt_inspector_new(double panel_width, int leading) {
     auto *s = new QSplitter(Qt::Horizontal);
     s->setChildrenCollapsible(false);
     s->addWidget(new QWidget());
     s->addWidget(new QWidget());
-    s->setStretchFactor(0, 1);
-    s->setStretchFactor(1, 0);
-    s->setSizes({640, static_cast<int>(panel_width)});
+    // Panes are positional; the LEADING arrangement (docs/inspector.md `.edge`) puts the
+    // panel first, and day-qt maps roles onto positions at realize.
+    int content = leading ? 1 : 0;
+    int panel = leading ? 0 : 1;
+    s->setStretchFactor(content, 1);
+    s->setStretchFactor(panel, 0);
+    if (leading) {
+        s->setSizes({static_cast<int>(panel_width), 640});
+    } else {
+        s->setSizes({640, static_cast<int>(panel_width)});
+    }
     return s;
 }
 /// Reports a splitter's pane geometry every time Qt lays the panes out. Day measures the panes
@@ -2655,6 +2663,31 @@ int day_qt_modifiers() {
     if (k & Qt::ControlModifier) mods |= 2;
     if (k & Qt::AltModifier) mods |= 4;
     return mods;
+}
+
+// Summon-time context menus (docs/menus.md "Dynamic context menus"): the callback builds a
+// fresh QMenu per right-click, so the items reflect the state under the pointer. Ownership
+// mirrors day_qt_set_context_menu — parented to the widget with window flags kept — and each
+// summon drops the previous menu.
+void day_qt_context_menu_fn(void *w, uint64_t node,
+                            void *(*cb)(uint64_t, double, double)) {
+    QWidget *widget = static_cast<QWidget *>(w);
+    QObject::disconnect(widget, &QWidget::customContextMenuRequested, nullptr, nullptr);
+    widget->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(widget, &QWidget::customContextMenuRequested,
+                     [widget, node, cb](const QPoint &pos) {
+                         void *raw = cb(node, double(pos.x()), double(pos.y()));
+                         if (!raw) return;
+                         if (QMenu *old = widget->findChild<QMenu *>(
+                                 QStringLiteral("day_ctx_menu_fn"), Qt::FindDirectChildrenOnly)) {
+                             old->setObjectName(QString());
+                             old->deleteLater();
+                         }
+                         QMenu *m = static_cast<QMenu *>(raw);
+                         m->setObjectName(QStringLiteral("day_ctx_menu_fn"));
+                         m->setParent(widget, m->windowFlags());
+                         m->popup(widget->mapToGlobal(pos));
+                     });
 }
 
 void day_qt_set_context_menu(void *w, void *menu) {

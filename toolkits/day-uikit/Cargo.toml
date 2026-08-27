@@ -46,6 +46,11 @@ objc2-ui-kit = { version = "0.3", features = [
     "UISearchController", "UISearchBar",
     "UITabBarController", "UITabBar", "UITabBarItem",
     "UITableView", "UITableViewCell", "UILabel",
+    # The hierarchical tree (docs/tree.md): a list-layout UICollectionView driven by a
+    # diffable data source over SECTION snapshots, disclosure via UICellAccessory.
+    "UICollectionView", "UICollectionViewCell", "UICollectionViewListCell",
+    "UICollectionViewLayout", "UICollectionViewCompositionalLayout", "UICollectionLayoutList",
+    "UIDiffableDataSource", "NSDiffableDataSourceSectionSnapshot", "UICellAccessory",
     "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",
     "UIMenu", "UIMenuElement", "UIAction", "UICommand", "UIContextMenuInteraction",
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",

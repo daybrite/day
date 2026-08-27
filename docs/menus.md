@@ -91,7 +91,14 @@ menu_item("Delete").shortcut(Shortcut::plain("Delete"))      // no primary modif
 `.control()` add the others (`.control()` is the physical Control key, distinct from `primary` on
 macOS). Named keys (`"Return"`, `"Delete"`, `"Space"`, `"F5"`, arrows) are recognized alongside
 single characters. The shortcut is drawn in the native accelerator position and is live whenever the
-menu (or its window) is in the responder/focus chain.
+menu (or its window) is in the responder/focus chain. On GTK, `primary` spells the COMMAND key on
+macOS (`<Meta>` — GTK4's `<Primary>` is a plain `<Control>` alias, unlike GTK3's) and `<Primary>`
+elsewhere, so the one spec stays right on macos-gtk too.
+
+The standard roles need no spelling at all: `menu_role(Undo/Redo/Cut/Copy/Paste/SelectAll)` items
+take the platform-neutral defaults (primary+Z/X/C/V/A, shift for redo) unless the app sets its
+own — AppKit's native items always carried these; the lowering is what gives GTK, Qt and the
+other action-routed backends the same accelerators.
 
 Shortcuts render on the platforms that draw a menu bar — the three desktops, which is
 [`Cap::AppMenu`](duty-matrix.md). The UIKit and Android menu builders take the item and drop
@@ -352,3 +359,55 @@ Fluent key resolved in the run's locale, so `path: [menu_file]` works wherever
 `key: menu_file` does and one script stays valid in every language. The step dispatches the
 registered day action directly (toolkit-uniform, no native menu automation), so role-only
 items that run a native selector (Cut, Quit, …) are not invokable this way.
+
+## Dynamic context menus
+
+`.context_menu(items)` is declarative: one menu, set at build time. Some surfaces cannot
+know their menu until the click lands — a canvas whose commands describe the SELECTION under
+the pointer, a tree whose rows each mean something different — so two summon-time forms
+exist ([docs/tree.md](tree.md) is the driving case):
+
+- `.context_menu_fn(|point| … -> Vec<MenuEntry>)` on any piece: the closure runs when the
+  user summons the menu (right-click on desktop, long-press on touch), receives the location
+  in the piece's own coordinates, and whatever it returns is shown. An empty result shows
+  nothing. The closure may adjust app state first (select what is under the pointer, then
+  build) — it runs on the UI thread, outside any day-core borrow, like every synchronous
+  seam closure.
+- `tree(…).row_context_menu(|key| … -> Vec<MenuEntry>)`: the per-row form, handed the row's
+  key. The convention: a summon on a row outside the current selection selects that row
+  first, so the menu describes what it acts on.
+
+Action closures are lowered per summon into their own scope, disposed when the next summon
+(or the piece's teardown) replaces them — per-click menus never accumulate registrations.
+
+Backends: the duty is `Toolkit::set_context_menu_fn` (default no-op). AppKit serves it from
+`menuForEvent:` on the canvas view and the tree's outline; GTK from a button-3 click (and a
+long-press) building a one-summon `PopoverMenu`; UIKit from `UIContextMenuInteraction`,
+whose configuration callback is already summon-time — and the tree's rows from the
+collection view's own `contextMenuConfigurationForItemAtIndexPath`. On AppKit the covered
+surfaces are the canvas and tree rows (other views keep the static `.menu` path); GTK's
+form is generic over any widget. Qt connects `customContextMenuRequested` to a callback
+that asks the provider and pops a fresh `QMenu` per summon (`day_qt_context_menu_fn`),
+generic over any widget like GTK's.
+
+### The composed presentation (web-dom)
+
+A toolkit with no native menu to hand the model to REPORTS the summon instead: web-dom's
+shim listens for the browser's `contextmenu` (default prevented; **primary-button taps and
+drags ignore the right button**, or the summon's own pointer-up would come out as a tap and
+re-target the selection under the menu it just built) and emits
+`Event::ContextMenu { local, window }` — the point in the node's coordinates for the app's
+provider, and the same point in window coordinates for placement. The `.context_menu*`
+decorators mount a lazily-armed, unrouted cover beside the decorated node (inside an
+overlay-host wrapper, so single-child layouts still reach it in the place pass); on the
+event they run the SAME provider and present the lowered model as day pieces — item rows
+(`day-menu-item-N` ids, so a browser test can click them), separators, inlined submenus,
+role items resolved to their standing dispatchers, disabled items dimmed — at the summon
+point, pulled inside the window near edges. A tap outside dismisses. Toolkits that serve
+menus natively never emit the event, so the fallback costs them nothing — not even a node,
+until a first summon that never comes.
+
+An app whose context menu commands need the CLIPBOARD (Cut/Copy/Paste items) calls
+`day::invoke_edit(EditOp::…)` — the same handler, transport included, the platform's own
+Edit route reaches — rather than duplicating the clipboard plumbing.
+

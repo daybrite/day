@@ -666,7 +666,15 @@ pub enum Event {
     /// A link run inside a label was activated; the payload is [`TextRun::link`] verbatim.
     LinkActivated(String),
     LongPress(Point),
-    ContextMenu(Point),
+    /// A context-menu summon reported by a toolkit that presents no native menu of its own
+    /// (web-dom): the pieces layer shows the COMPOSED menu (docs/menus.md). `local` is the
+    /// point in the node's own coordinates (what the app's provider receives); `window` the
+    /// same point in window coordinates (where the composed panel goes). Toolkits that serve
+    /// context menus natively never emit this.
+    ContextMenu {
+        local: Point,
+        window: Point,
+    },
     /// A drag/pan gesture (docs/shapes.md). `location` is in the node's local coordinates;
     /// `translation` is the cumulative movement since `Began`.
     Drag {
@@ -1160,6 +1168,9 @@ pub enum Symbol {
     Auto,
     ZoomIn,
     ZoomOut,
+    /// Back to actual size — the 100% zoom command between [`Symbol::ZoomIn`] and
+    /// [`Symbol::ZoomOut`].
+    ZoomReset,
     Undo,
     Redo,
     Copy,
@@ -1178,6 +1189,10 @@ pub enum Symbol {
     Oval,
     /// A straight line segment.
     Line,
+    /// Combine the selection into a group — the drawing-tool command (two stacked squares).
+    Group,
+    /// Dissolve a group back into its members (two separated squares).
+    Ungroup,
 }
 
 /// The SF Symbol each standard symbol draws as — the system's own glyphs, so they match the
@@ -1222,6 +1237,7 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Dark => "moon",
         Symbol::Auto => "circle.lefthalf.filled",
         Symbol::ZoomIn => "plus.magnifyingglass",
+        Symbol::ZoomReset => "1.magnifyingglass",
         Symbol::ZoomOut => "minus.magnifyingglass",
         Symbol::Undo => "arrow.uturn.backward",
         Symbol::Redo => "arrow.uturn.forward",
@@ -1237,6 +1253,8 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Rectangle => "rectangle",
         Symbol::Oval => "oval",
         Symbol::Line => "line.diagonal",
+        Symbol::Group => "square.on.square",
+        Symbol::Ungroup => "square.on.square.dashed",
     }
 }
 
@@ -1494,6 +1512,11 @@ pub struct TreeSource {
     pub layout_cell: std::rc::Rc<dyn Fn(RawHandle, f64)>,
     /// The row's type-ahead string (docs/tree.md) — what native type-select matches against.
     pub type_select_text: std::rc::Rc<dyn Fn(u64) -> String>,
+    /// The row's context menu, built AT SUMMON TIME (docs/menus.md "Dynamic context
+    /// menus") — called on the UI thread from the platform's own menu callback, outside any
+    /// day-core borrow, like every closure here. `None` = rows carry no menu; an empty
+    /// result suppresses the menu for that row.
+    pub row_menu: Option<std::rc::Rc<dyn Fn(u64) -> Vec<MenuItem>>>,
     /// Drag-to-move seam, present when `TreeProps::movable` (docs/tree.md). `None` on
     /// immovable trees — backends must not enable their drag machinery without it.
     pub moves: Option<TreeMoves>,
@@ -1513,6 +1536,9 @@ pub struct TreeMoves {
     #[allow(clippy::type_complexity)]
     pub move_node: std::rc::Rc<dyn Fn(u64, Option<u64>, Option<usize>)>,
 }
+
+/// A summon-time context-menu provider (docs/menus.md): local-point in, menu out.
+pub type ContextMenuFn = std::rc::Rc<dyn Fn(Point) -> Vec<MenuItem>>;
 
 /// A tree move guard's verdict (docs/tree.md). No `Retarget` yet — the drop vocabulary is
 /// already positional, so a guard that wants a different target denies and the user drops
@@ -2862,6 +2888,10 @@ impl Symbol {
             S::ZoomOut => {
                 "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M7 9h6v2H7z"
             }
+            // The ZoomIn lens with a numeral 1 in it — "back to actual size".
+            S::ZoomReset => {
+                "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4M12 13h-1.7V9.3l-1.2.8-.9-1.3 2.4-1.8H12z"
+            }
             S::Undo => "M12 5V2L7 7l5 5V9a5 5 0 1 1 0 10H8v2h4a7 7 0 0 0 0-14z",
             S::Redo => "M12 5V2l5 5-5 5V9a5 5 0 1 0 0 10h4v2h-4a7 7 0 0 1 0-14z",
             S::Copy => "M8 2h10v14H8zM4 6h2v14h12v2H4z",
@@ -2884,6 +2914,10 @@ impl Symbol {
                 "M12 5c5 0 9 3.1 9 7s-4 7-9 7-9-3.1-9-7 4-7 9-7zm0 2c-3.9 0-7 2.2-7 5s3.1 5 7 5 7-2.2 7-5-3.1-5-7-5z"
             }
             S::Line => "M4.7 17.9l13.2-13.2 1.4 1.4L6.1 19.3z",
+            // Group: a solid square stacked on another (the visible L of the back one);
+            // Ungroup: the same two squares pulled apart.
+            S::Group => "M8 4h12v12h-4V8H8zM4 8h12v12H4z",
+            S::Ungroup => "M3 3h8v8H3zM13 13h8v8h-8z",
             // `Symbol` is `#[non_exhaustive]`: a variant added upstream draws nothing here rather
             // than failing to compile, and its item keeps its label.
             _ => return None,
@@ -4286,6 +4320,14 @@ pub trait Toolkit: Sized + 'static {
     fn modifiers(&mut self) -> Modifiers {
         Modifiers::default()
     }
+
+    // Dynamic context menu (docs/menus.md): the menu is built AT SUMMON TIME — the provider
+    // is called synchronously from the platform's own menu callback (UI thread, outside any
+    // day-core borrow) with the location in the node's LOCAL coordinates, and its result is
+    // shown. The static `set_context_menu` below stays the simple path; this one exists for
+    // surfaces whose menu depends on what is under the pointer (a canvas selection,
+    // docs/tree.md). Default no-op: a backend without the affordance shows nothing.
+    fn set_context_menu_fn(&mut self, _h: &Self::Handle, _node: NodeId, _f: ContextMenuFn) {}
 
     // menus (§ menus): render `items` with the backend's native menu affordance, firing
     // `Event::MenuAction(id)` (enqueue-only) for each id'd item; `role` items use the native standard

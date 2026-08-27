@@ -42,9 +42,13 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
 - `.edge(PaneEdge::Leading)` puts the pane on the LEADING side of the content instead — a
   utility pane like a layer panel ([docs/tree.md](tree.md)) rather than a properties
   inspector. Default `PaneEdge::Trailing`. On AppKit the leading pane is a plain pinned
-  split item (not the system inspector item, whose treatment is trailing-specific); the
-  composed form mounts the pane before the content. Two inspectors nest — Day Sketch wraps
-  its trailing-inspector editor in a leading layers pane.
+  split item (not the system inspector item, whose treatment is trailing-specific); GTK
+  packs the `AdwOverlaySplitView` sidebar at the start; Qt puts the splitter's panel pane
+  FIRST (the panes are positional — day-qt maps roles onto positions at realize). The composed form mounts the pane
+  before the content — and, unlike the trailing pane, it stays a SIDE PANE at every width
+  rather than re-homing into the compact sheet: a layer panel beside a narrow canvas beats
+  a fullscreen modal, which on iOS also detaches the presenting view from the window. Two
+  inspectors nest — Day Sketch wraps its trailing-inspector editor in a leading layers pane.
 
 ## Wide and compact
 

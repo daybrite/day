@@ -67,6 +67,7 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
         ],
         Symbol::ZoomIn => &["zoom-in-symbolic"],
         Symbol::ZoomOut => &["zoom-out-symbolic"],
+        Symbol::ZoomReset => &["zoom-original-symbolic", "zoom-original"],
         Symbol::Undo => &["edit-undo-symbolic"],
         Symbol::Redo => &["edit-redo-symbolic"],
         Symbol::Copy => &["edit-copy-symbolic"],
@@ -83,6 +84,8 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
         Symbol::Rectangle => &["draw-rectangle-symbolic", "draw-rectangle"],
         Symbol::Oval => &["draw-ellipse-symbolic", "draw-ellipse"],
         Symbol::Line => &["draw-line-symbolic", "draw-line"],
+        Symbol::Group => &["object-group-symbolic", "object-group"],
+        Symbol::Ungroup => &["object-ungroup-symbolic", "object-ungroup"],
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol falls back to the item's
         // label rather than to GTK's broken-image icon.
         _ => &[],

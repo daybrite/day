@@ -445,13 +445,116 @@ fn op_focused(
 fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let n = inner(cx);
-            // Scoped: the action closures die with the build scope, not the process —
-            // an unscoped registration here leaks one closure per remount.
-            let model = lower_menu_scoped(items);
-            with_tree(|t| t.set_context_menu(n, model));
+            // The overlay host places the decorated subtree at its own bounds and the
+            // composed-menu mount beside it (see `OverlayHost` — a plain sibling would sit
+            // under a single-child layout, never placed).
+            let w = cx.layout_only(Rc::new(OverlayHost), Flex::default(), Boundary::No);
+            let mut n = w;
+            cx.under(w, |cx| {
+                n = inner(cx);
+                // Scoped: the action closures die with the build scope, not the process —
+                // an unscoped registration here leaks one closure per remount.
+                let model = lower_menu_scoped(items);
+                with_tree(|t| t.set_context_menu(n, model.clone()));
+                // A backend with no native menu reports the summon instead; the composed
+                // presenter replays the same lowered model (docs/menus.md).
+                let model = std::rc::Rc::new(model);
+                crate::menus::mount_composed_menu(cx, n, Rc::new(move |_p| (*model).clone()));
+            });
+            // Later ops decorate the CONTENT node: ids, gestures and menus belong to it,
+            // while the wrapper only exists to keep the mount in the layout pass.
             n
         })
+    }
+}
+
+/// The `.context_menu*` wrapper's layout: the decorated subtree fills the wrapper; every
+/// other child (the composed menu's lazy mount) is layout-inert but must still be VISITED —
+/// a cover lays its content out from the size the backend reports, but only if the place
+/// pass reaches it at all.
+struct OverlayHost;
+
+impl Layout for OverlayHost {
+    fn measure(
+        &self,
+        cx: &mut dyn LayoutOps,
+        children: &[day_core::RNode],
+        p: day_spec::Proposal,
+    ) -> day_spec::Size {
+        match children.first() {
+            Some(&c) => cx.measure_child(c, p),
+            None => day_spec::Size::ZERO,
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[day_core::RNode], bounds: day_spec::Rect) {
+        let mut it = children.iter();
+        if let Some(&c) = it.next() {
+            cx.place_child(c, day_spec::Rect::from_size(bounds.size));
+        }
+        for &c in it {
+            cx.place_child(c, day_spec::Rect::ZERO);
+        }
+    }
+    fn baseline(
+        &self,
+        cx: &mut dyn LayoutOps,
+        children: &[day_core::RNode],
+        size: day_spec::Size,
+    ) -> Option<f64> {
+        children.first().and_then(|&c| cx.baseline_of(c, size))
+    }
+}
+
+fn op_context_menu_fn(
+    f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static,
+) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let w = cx.layout_only(Rc::new(OverlayHost), Flex::default(), Boundary::No);
+            let mut out = w;
+            cx.under(w, |cx| {
+                out = op_context_menu_fn_body(inner, f, cx);
+            });
+            out
+        })
+    }
+}
+
+fn op_context_menu_fn_body(
+    inner: Build,
+    f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static,
+    cx: &mut day_core::BuildCx,
+) -> day_core::RNode {
+    {
+        {
+            let n = inner(cx);
+            // Each summon lowers a fresh menu whose action closures live in their own scope,
+            // disposed when the NEXT summon replaces them (and with the build scope at
+            // teardown) — so per-click menus never accumulate registrations.
+            let last: Rc<std::cell::RefCell<Option<day_reactive::Scope>>> = Rc::default();
+            {
+                let last = last.clone();
+                day_reactive::Scope::current().on_cleanup(move || {
+                    if let Some(s) = last.borrow_mut().take() {
+                        s.dispose();
+                    }
+                });
+            }
+            let provider: day_spec::ContextMenuFn = Rc::new(move |p| {
+                if let Some(s) = last.borrow_mut().take() {
+                    s.dispose();
+                }
+                let scope = day_reactive::Scope::child();
+                let items = scope.enter(|| crate::menus::lower_menu_scoped(f(p)));
+                *last.borrow_mut() = Some(scope);
+                items
+            });
+            with_tree(|t| t.set_context_menu_fn(n, provider.clone()));
+            // A backend with no native menu reports the summon instead; the composed
+            // presenter calls the same provider there (docs/menus.md).
+            crate::menus::mount_composed_menu(cx, n, provider);
+            n
+        }
     }
 }
 
@@ -784,6 +887,13 @@ impl<P: Piece> Decorated<P> {
     pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
         self.push(op_context_menu(items))
     }
+    /// A context menu built AT SUMMON TIME (docs/menus.md "Dynamic context menus"): the
+    /// closure runs when the user summons the menu, with the location in this piece's own
+    /// coordinates, and whatever it returns is shown — so a canvas can select what is under
+    /// the pointer and offer commands for THAT selection. An empty result shows nothing.
+    pub fn context_menu_fn(self, f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static) -> Self {
+        self.push(op_context_menu_fn(f))
+    }
     pub fn on_drag(self, f: impl Fn(Drag) + 'static) -> Self {
         self.push(op_on_drag(f))
     }
@@ -1025,6 +1135,13 @@ pub trait Decorate: Piece + Sized {
     /// [`menu_separator`]. Passing an empty `Vec` removes any menu.
     fn context_menu(self, items: Vec<MenuEntry>) -> Decorated<Self> {
         Decorated::new(self).context_menu(items)
+    }
+    /// See [`Decorated::context_menu_fn`]: a context menu built at summon time.
+    fn context_menu_fn(
+        self,
+        f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static,
+    ) -> Decorated<Self> {
+        Decorated::new(self).context_menu_fn(f)
     }
 
     /// Fire on each phase of a drag over this piece.

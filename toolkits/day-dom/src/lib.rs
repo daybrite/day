@@ -486,6 +486,10 @@ mod ev {
     /// a = the settled value. The DOM already separates the two: `input` fires as the thumb
     /// moves, `change` once the user lets go (day-spec `Event::ValueCommitted`).
     pub const VALUE_COMMITTED: u32 = 15;
+    /// a,b = local point; c,d = the same point in viewport coordinates. The browser's
+    /// `contextmenu` (right-click / long-press), default prevented; the pieces layer
+    /// presents the composed menu at the viewport point (docs/menus.md).
+    pub const CONTEXT: u32 = 16;
 }
 
 // ---------------------------------------------------------------------------
@@ -782,13 +786,15 @@ fn color_css(c: day_spec::Color) -> String {
 
 fn apply_font(el: u32, f: &FontSpec) {
     s(el, "font", &font_css(f));
-    // `font-variant-numeric` is a separate property from the `font` shorthand — and the shorthand
-    // RESETS it, so this has to be set after, not before.
-    s(
-        el,
-        "font-variant-numeric",
-        if f.tabular { "tabular-nums" } else { "normal" },
-    );
+    // The `font` shorthand RESETS every `font-variant-*` longhand to normal, so only the
+    // tabular case writes one back — after the shorthand, never before. The reset is also why
+    // a re-applied font needs no explicit "normal": the shorthand already cleared a previous
+    // tabular-nums. Skipping the redundant write keeps the style attribute serializing as the
+    // one compact `font:` declaration — touching any longhand of the family makes the browser
+    // spell out every longhand individually, empty values and all.
+    if f.tabular {
+        s(el, "font-variant-numeric", "tabular-nums");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -864,6 +870,55 @@ fn navmenu_json(
 /// `kind` mirrors the XAML serializer's one-letter vocabulary so the two stay readable together:
 /// B button, T toggle, S sidebar toggle, M menu, F search field, L label, `-` separator,
 /// `_` space, `>` flexible space.
+/// A toolbar pull-down's item list, for the shim's popup (docs/toolbars.md): label, action
+/// id, enabled and icon per command; separators as `{"sep":true}`; submenus recursive (the
+/// shim inlines them, indented, like the composed context menu). Activation rides the same
+/// `day_dom_toolbar_action` route a plain button takes — the ids are registered menu-action
+/// ids, and that export emits `Event::MenuAction`.
+fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
+    json.push('[');
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            json.push(',');
+        }
+        match item {
+            day_spec::MenuItem::Separator => json.push_str("{\"sep\":true}"),
+            day_spec::MenuItem::Submenu { label, items, .. } => {
+                json.push_str("{\"label\":");
+                json_str(json, label);
+                json.push_str(",\"items\":");
+                menu_items_json(json, items);
+                json.push('}');
+            }
+            day_spec::MenuItem::Action {
+                id,
+                label,
+                enabled,
+                icon,
+                ..
+            } => {
+                json.push_str("{\"label\":");
+                json_str(json, label);
+                json.push_str(",\"id\":");
+                json.push_str(&id.to_string());
+                json.push_str(",\"enabled\":");
+                json.push_str(if *enabled { "true" } else { "false" });
+                let url = match icon {
+                    Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
+                    Some(day_spec::Icon::Symbol(sym)) => symbol_svg(*sym),
+                    None => None,
+                };
+                if let Some(url) = url {
+                    json.push_str(",\"icon\":");
+                    json_str(json, &url);
+                }
+                json.push('}');
+            }
+        }
+    }
+    json.push(']');
+}
+
 fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
     use day_spec::ToolbarItemKind as K;
     let mut json = String::from("{\"items\":[");
@@ -921,6 +976,10 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
                 json.push('}');
             }
             json.push(']');
+        }
+        if let K::Menu { items } = &it.kind {
+            json.push_str(",\"menu\":");
+            menu_items_json(&mut json, items);
         }
         if let K::Search {
             text,
@@ -1175,6 +1234,10 @@ impl Toolkit for Dom {
             Cap::AppBadgeCount | Cap::AppBadgeDot => Support::Emulated,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
+            // The COMPOSED tree (docs/tree.md M2): the piece flattens onto the emulated
+            // list; disclosure, indentation, and row menus are day pieces. No native drag,
+            // so `Cap::TreeMove` stays Unsupported.
+            Cap::Tree => Support::Emulated,
             // Pointer-tracked drag with a CSS gap — the browser has no native list reorder.
             Cap::ListReorder => Support::Emulated,
             // A topmost fixed-position child — not a system modal (docs/cover.md).
@@ -2122,8 +2185,19 @@ impl Toolkit for Dom {
         // No menu bar on the web (Cap-honest no-op; docs/menus.md).
     }
 
-    fn set_context_menu(&mut self, _h: &DomHandle, _node: NodeId, _items: &[MenuItem]) {
-        // MVP: no emulated context popover yet (docs/menus.md matrix).
+    fn set_context_menu(&mut self, h: &DomHandle, node: NodeId, _items: &[MenuItem]) {
+        // The browser has no native menu to hand day's model to: arm the `contextmenu`
+        // listener and report `Event::ContextMenu`; the pieces layer presents the COMPOSED
+        // menu from its own copy of the items (docs/menus.md), so none are stored here.
+        remember(h.0, node);
+        unsafe { day_dom_listen(h.0, 1024) };
+    }
+
+    fn set_context_menu_fn(&mut self, h: &DomHandle, node: NodeId, _f: day_spec::ContextMenuFn) {
+        // Summon-time menus take the same route as the static ones above: the event reaches
+        // the piece that owns the provider, and the composed presenter calls it there.
+        remember(h.0, node);
+        unsafe { day_dom_listen(h.0, 1024) };
     }
 
     fn supports_lifecycle(&self, phase: Lifecycle) -> bool {
@@ -2584,6 +2658,7 @@ fn list_populate(host: u32) {
         // == row, so a source that grows back reuses each for the row it always held) and are
         // simply hidden — the same append-only pool, minus the eager building.
         let n = st.source.as_ref().map_or(0, |src| (src.len)());
+        let recycle = st.source.as_ref().map(|src| src.recycle.clone());
         let stale: Vec<u32> = st
             .cells
             .iter()
@@ -2594,6 +2669,11 @@ fn list_populate(host: u32) {
         drop(m);
         for cell in stale {
             s(cell, "display", "none");
+            // A hidden row past the shrunk source keeps its pooled cell but must stop
+            // answering dayscript lookups — clear its element ids (day-core's recycle).
+            if let Some(recycle) = &recycle {
+                recycle(cell as usize as day_spec::RawHandle);
+            }
         }
     });
     list_fill_window(host);
@@ -3231,6 +3311,10 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
             translation: Point::new(c, d),
         },
         ev::SCROLL => Event::ScrollChanged(Point::new(a, b)),
+        ev::CONTEXT => Event::ContextMenu {
+            local: Point::new(a, b),
+            window: Point::new(c, d),
+        },
         ev::RESIZED => Event::FrameChanged(Size::new(a, b)),
         ev::NAV_BACK => Event::NavBack {
             already_popped: false,

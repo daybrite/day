@@ -159,6 +159,18 @@ pub struct Tree<B: Toolkit> {
 }
 
 impl<B: Toolkit> Tree<B> {
+    /// Drop the element ids of `anchor`'s whole subtree — the recycle write shared by tree
+    /// and list cells (a pooled cell keeps its nodes; only the dayscript identity must go).
+    fn clear_subtree_ids(&mut self, anchor: RNode) {
+        let mut stack = vec![anchor];
+        while let Some(n) = stack.pop() {
+            if let Some(d) = self.nodes.get_mut(n) {
+                d.id = None;
+                stack.extend(d.children.iter().copied());
+            }
+        }
+    }
+
     pub fn new(toolkit: B, root_handle: B::Handle, window_size: Size) -> Self {
         let mut nodes = SlotMap::with_key();
         let root = nodes.insert(NodeData {
@@ -767,6 +779,10 @@ pub trait TreeOps {
     /// The physical-cell keys of every bound cell of the list at `node` (for a bulk re-layout
     /// after the list's own width changed).
     fn list_cell_keys(&self, node: RNode) -> Vec<usize>;
+    /// A pooled cell left the visible row set (an emulated backend hides rows past a shrunk
+    /// source instead of destroying them): clear the cell subtree's element ids so stale rows
+    /// stop answering dayscript lookups. The cell itself stays pooled; the next bind re-ids it.
+    fn list_recycle_cell(&mut self, node: RNode, key: usize);
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
@@ -823,6 +839,8 @@ pub trait TreeOps {
     /// The tree's driver, for the guard → commit path `tree_try_move` runs outside the
     /// borrow (`None` when `node` hosts no tree).
     fn tree_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::tree_driver::TreeDriver>>;
+    /// Install a summon-time context-menu provider on `node` (docs/menus.md).
+    fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn);
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -1871,13 +1889,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         else {
             return;
         };
-        let mut stack = vec![anchor];
-        while let Some(n) = stack.pop() {
-            if let Some(d) = self.nodes.get_mut(n) {
-                d.id = None;
-                stack.extend(d.children.iter().copied());
-            }
-        }
+        self.clear_subtree_ids(anchor);
+    }
+
+    fn list_recycle_cell(&mut self, node: RNode, key: usize) {
+        let Some(anchor) = self
+            .lists
+            .get(&node)
+            .and_then(|s| s.cells.get(&key))
+            .map(|b| b.anchor)
+        else {
+            return;
+        };
+        self.clear_subtree_ids(anchor);
     }
 
     fn tree_reload(&mut self, node: RNode) {
@@ -1926,6 +1950,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn tree_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::tree_driver::TreeDriver>> {
         self.trees.get(&node).map(|s| s.driver.clone())
+    }
+
+    fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit
+                .set_context_menu_fn(&handle, rnode_to_id(node), f);
+        }
     }
 }
 

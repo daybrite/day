@@ -285,26 +285,33 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         panel,
     } = inspector;
     let window = day_core::toolbar::current_window();
+    // A LEADING pane is a utility surface (a layer panel, docs/tree.md): it stays a side
+    // pane at EVERY width rather than re-homing into the compact sheet — a phone shows a
+    // narrow canvas beside it, and everything stays mounted in the window (no modal to
+    // juggle around focus or scripting).
+    if inspector_edge == PaneEdge::Leading {
+        let lead_visible = visible;
+        let lead_panel = panel;
+        return row((
+            when(
+                move || lead_visible.read(),
+                move || row((scroll(lead_panel()).width(width), divider())),
+            ),
+            content.grow(),
+        ))
+        .build(cx);
+    }
     let side_visible = visible.clone();
-    let lead_visible = visible.clone();
     let side_panel = panel.clone();
-    let lead_panel = panel.clone();
     let sheet_panel = panel;
     let sheet_close = visible.clone();
     let done = sheet_done.initial();
-    let edge = inspector_edge;
     row((
-        // A LEADING pane sits before the content (docs/tree.md) — same mount rule as the
-        // trailing one below.
-        when(
-            move || edge == PaneEdge::Leading && lead_visible.read() && !compact(window),
-            move || row((scroll(lead_panel()).width(width), divider())),
-        ),
         content.grow(),
         // The side pane: mounted only while visible on a non-compact window, so the compact
         // home (the sheet below) is never doubled.
         when(
-            move || edge == PaneEdge::Trailing && side_visible.read() && !compact(window),
+            move || side_visible.read() && !compact(window),
             move || row((divider(), scroll(side_panel()).width(width))),
         ),
         // The compact home: a fullscreen sheet. Unrouted — the inspector is chrome, not a

@@ -79,11 +79,12 @@ mod imp {
         UINavigationBarDelegate, UINavigationController, UINavigationItem,
     };
     use objc2_ui_kit::{
-        UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
-        UIPinchGestureRecognizer, UITapGestureRecognizer,
+        UICollectionViewDelegate, UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate,
+        UITableViewDragDelegate,
     };
     use objc2_ui_kit::{
-        UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate,
+        UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
+        UIPinchGestureRecognizer, UITapGestureRecognizer,
     };
     use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
     // `.import`/`.exportToService` modes (deprecated in favor of `initFor…ContentTypes:`, which
@@ -96,7 +97,7 @@ mod imp {
     use day_spec::{
         A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Edges, Event, EventSink, Font,
         ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer,
-        Size, Support, Toolkit, Transform, WINDOW_NODE, WindowOptions, kinds,
+        Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE, WindowOptions, kinds,
     };
 
     pub type Handle = Retained<UIView>;
@@ -161,6 +162,11 @@ mod imp {
         /// reconfigure, swept on release via `day_spec::sidetable`). The teardown detaches
         /// the interaction from its view first, so a recycled address can never serve a dead
         /// view's menu, then drops both retains.
+        /// The summon-time providers' interactions, same lifecycle rules as CTX_MENUS.
+        static CTX_MENU_FNS: RefCell<HashMap<usize, (
+            Retained<UIContextMenuInteraction>,
+            Retained<DayContextMenuFn>,
+        )>> = RefCell::new(HashMap::new());
         static CTX_MENUS: day_spec::sidetable::SideTable<(
             Retained<UIContextMenuInteraction>,
             Retained<DayContextMenu>,
@@ -222,6 +228,10 @@ mod imp {
 
         /// LIST table ptr → (table, data source).
         static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+
+        /// TREE collection-view ptr → its delegate/state object (docs/tree.md).
+        static TREE_STATE: RefCell<HashMap<usize, Retained<DayTreeData>>> =
+            RefCell::new(HashMap::new());
 
         /// Canvas view ptr → its display list. Swept on release via `day_spec::sidetable` —
         /// a stale entry made a NEW DayCanvasView at a dead canvas's recycled address replay
@@ -982,6 +992,62 @@ mod imp {
     impl DayContextMenu {
         fn new(mtm: MainThreadMarker, menu: Retained<UIMenu>) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(CtxMenuIvars { menu });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    // The summon-time variant (docs/menus.md "Dynamic context menus"): the menu is built
+    // when the long-press lands, from the provider — UIContextMenuInteraction's
+    // configuration callback is exactly that moment, and it hands over the location.
+    struct CtxMenuFnIvars {
+        f: day_spec::ContextMenuFn,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitContextMenuFn"]
+        #[ivars = CtxMenuFnIvars]
+        struct DayContextMenuFn;
+
+        unsafe impl NSObjectProtocol for DayContextMenuFn {}
+
+        unsafe impl UIContextMenuInteractionDelegate for DayContextMenuFn {
+            #[unsafe(method_id(contextMenuInteraction:configurationForMenuAtLocation:))]
+            fn configuration_for_menu(
+                &self,
+                _interaction: &UIContextMenuInteraction,
+                location: CGPoint,
+            ) -> Option<Retained<UIContextMenuConfiguration>> {
+                // Guarded: the provider is app code (it usually re-selects, then builds).
+                day_spec::ffi_guard::contain(None, || {
+                    let items = (self.ivars().f)(day_spec::Point::new(location.x, location.y));
+                    if items.is_empty() {
+                        return None;
+                    }
+                    let mtm = self.mtm();
+                    let menu = build_ui_menu(mtm, "", &items);
+                    let provider = block2::RcBlock::new(
+                        move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                            Retained::autorelease_return(menu.clone())
+                        },
+                    );
+                    Some(unsafe {
+                        UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                            None,
+                            std::ptr::null_mut(),
+                            block2::RcBlock::as_ptr(&provider),
+                            mtm,
+                        )
+                    })
+                })
+            }
+        }
+    );
+
+    impl DayContextMenuFn {
+        fn new(mtm: MainThreadMarker, f: day_spec::ContextMenuFn) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CtxMenuFnIvars { f });
             unsafe { msg_send![super(this), init] }
         }
     }
@@ -2521,6 +2587,317 @@ mod imp {
     }
 
     // -----------------------------------------------------------------------
+    // The hierarchical tree (docs/tree.md): a list-layout UICollectionView, its rows driven
+    // by a diffable data source over ONE section's snapshot — the token tree itself. Day owns
+    // disclosure end to end: the cell's outline-disclosure accessory carries a custom action
+    // handler that only EMITS `Event::TreeExpanded`; the piece answers with
+    // `TreePatch::Expand`, which re-applies the section snapshot — so a native tap and the
+    // dayscript `expand:` step share one path, and nothing auto-toggles behind day's back.
+    // -----------------------------------------------------------------------
+
+    struct TreeIvars {
+        node: NodeId,
+        source: RefCell<Option<TreeSource>>,
+        ds: RefCell<
+            Option<Retained<objc2_ui_kit::UICollectionViewDiffableDataSource<NSObject, NSObject>>>,
+        >,
+        /// token → its interned NSNumber: the diffable identifiers compare by isEqual, and
+        /// ONE object per token also keeps snapshot identity stable across reloads.
+        items: RefCell<HashMap<u64, Retained<objc2_foundation::NSNumber>>>,
+        /// Disclosure by token, as last patched — what a rebuilt snapshot restores.
+        expanded: RefCell<std::collections::HashSet<u64>>,
+        row_height: std::cell::Cell<f64>,
+        selectable: std::cell::Cell<bool>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayTreeData"]
+        #[ivars = TreeIvars]
+        struct DayTreeData;
+
+        unsafe impl NSObjectProtocol for DayTreeData {}
+
+        unsafe impl UIScrollViewDelegate for DayTreeData {}
+
+        unsafe impl UICollectionViewDelegate for DayTreeData {
+            #[unsafe(method(collectionView:didSelectItemAtIndexPath:))]
+            fn did_select(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || self.report_selection(cv));
+            }
+
+            #[unsafe(method(collectionView:didDeselectItemAtIndexPath:))]
+            fn did_deselect(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || self.report_selection(cv));
+            }
+
+            #[unsafe(method_id(collectionView:contextMenuConfigurationForItemAtIndexPath:point:))]
+            fn context_menu_for_item(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                index_path: &objc2_foundation::NSIndexPath,
+                _point: CGPoint,
+            ) -> Option<Retained<objc2_ui_kit::UIContextMenuConfiguration>> {
+                // A summon-time ROW menu (docs/menus.md, docs/tree.md): long-press asks the
+                // tree's `row_menu` provider for this row.
+                day_spec::ffi_guard::contain(None, || {
+                    let row_menu = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.row_menu.clone())?;
+                    let ds = self.ivars().ds.borrow().clone()?;
+                    let token = ds
+                        .itemIdentifierForIndexPath(index_path)
+                        .and_then(|it| Self::token_of_item(&it))?;
+                    let items = row_menu(token);
+                    if items.is_empty() {
+                        return None;
+                    }
+                    let mtm = self.mtm();
+                    let menu = build_ui_menu(mtm, "", &items);
+                    let provider = block2::RcBlock::new(
+                        move |_suggested: NonNull<objc2_foundation::NSArray<UIMenuElement>>| -> *mut UIMenu {
+                            Retained::autorelease_return(menu.clone())
+                        },
+                    );
+                    Some(unsafe {
+                        UIContextMenuConfiguration::configurationWithIdentifier_previewProvider_actionProvider(
+                            None,
+                            std::ptr::null_mut(),
+                            block2::RcBlock::as_ptr(&provider),
+                            mtm,
+                        )
+                    })
+                })
+            }
+
+            #[unsafe(method(collectionView:didEndDisplayingCell:forItemAtIndexPath:))]
+            fn did_end_displaying(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                cell: &objc2_ui_kit::UICollectionViewCell,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                // The row left the screen (a collapse, a scroll): clear its day element ids
+                // so a hidden row stops answering `find_by_id` — the next bind re-sets the
+                // live row's (docs/tree.md; the rule every tree backend wires).
+                day_spec::ffi_guard::contain((), || {
+                    let content = cell.contentView();
+                    let recycle = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .map(|s| s.recycle.clone());
+                    if let Some(recycle) = recycle {
+                        recycle(Retained::as_ptr(&content) as RawHandle);
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayTreeData {
+        fn new(
+            mtm: MainThreadMarker,
+            node: NodeId,
+            selectable: bool,
+            row_height: f64,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(TreeIvars {
+                node,
+                source: RefCell::new(None),
+                ds: RefCell::new(None),
+                items: RefCell::new(HashMap::new()),
+                expanded: RefCell::new(std::collections::HashSet::new()),
+                row_height: std::cell::Cell::new(row_height),
+                selectable: std::cell::Cell::new(selectable),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// The SAME NSNumber for a token, every time (see `TreeIvars::items`).
+        fn intern(&self, token: u64) -> Retained<objc2_foundation::NSNumber> {
+            self.ivars()
+                .items
+                .borrow_mut()
+                .entry(token)
+                .or_insert_with(|| objc2_foundation::NSNumber::new_u64(token))
+                .clone()
+        }
+
+        fn token_of_item(item: &AnyObject) -> Option<u64> {
+            item.downcast_ref::<objc2_foundation::NSNumber>()
+                .map(|n| n.as_u64())
+        }
+
+        /// The one section's identifier (a lone list has exactly one).
+        fn section() -> Retained<objc2_foundation::NSNumber> {
+            objc2_foundation::NSNumber::new_u64(0)
+        }
+
+        /// Report the FULL selected token set (docs/tree.md).
+        fn report_selection(&self, cv: &objc2_ui_kit::UICollectionView) {
+            if !self.ivars().selectable.get() {
+                return;
+            }
+            let ds = self.ivars().ds.borrow().clone();
+            let Some(ds) = ds else { return };
+            let mut tokens = Vec::new();
+            if let Some(paths) = cv.indexPathsForSelectedItems() {
+                for ip in paths.iter() {
+                    if let Some(tok) = ds
+                        .itemIdentifierForIndexPath(&ip)
+                        .and_then(|it| Self::token_of_item(&it))
+                    {
+                        tokens.push(tok);
+                    }
+                }
+            }
+            emit(self.ivars().node, Event::TreeSelection(tokens));
+        }
+
+        /// Rebuild the section snapshot from the source's CURRENT hierarchy and re-apply the
+        /// recorded disclosure. Call outside any day-core borrow (deferred by the patches).
+        fn apply_snapshot(&self, animated: bool) {
+            let Some(ds) = self.ivars().ds.borrow().clone() else {
+                return;
+            };
+            let src = self.ivars().source.borrow().clone();
+            let Some(src) = src else { return };
+            let snap: Retained<objc2_ui_kit::NSDiffableDataSourceSectionSnapshot<NSObject>> = unsafe {
+                msg_send![
+                    <objc2_ui_kit::NSDiffableDataSourceSectionSnapshot<NSObject> as objc2::AnyThread>::alloc(),
+                    init
+                ]
+            };
+            // Parents-first DFS: append each level under its parent item.
+            let mut present: Vec<u64> = Vec::new();
+            let mut stack: Vec<Option<u64>> = vec![None];
+            while let Some(parent) = stack.pop() {
+                let n = (src.children_len)(parent);
+                if n == 0 {
+                    continue;
+                }
+                let kids: Vec<u64> = (0..n).map(|i| (src.child_token)(parent, i)).collect();
+                let arr = objc2_foundation::NSArray::from_retained_slice(
+                    &kids
+                        .iter()
+                        .map(|t| unsafe { Retained::cast_unchecked::<NSObject>(self.intern(*t)) })
+                        .collect::<Vec<_>>(),
+                );
+                match parent {
+                    None => snap.appendItems(&arr),
+                    Some(p) => {
+                        let item = unsafe { Retained::cast_unchecked::<NSObject>(self.intern(p)) };
+                        snap.appendItems_intoParentItem(&arr, Some(&item));
+                    }
+                }
+                for k in kids {
+                    present.push(k);
+                    if (src.expandable)(k) {
+                        stack.push(Some(k));
+                    }
+                }
+            }
+            let open: Vec<Retained<NSObject>> = present
+                .iter()
+                .filter(|t| self.ivars().expanded.borrow().contains(t))
+                .map(|t| unsafe { Retained::cast_unchecked::<NSObject>(self.intern(*t)) })
+                .collect();
+            if !open.is_empty() {
+                snap.expandItems(&objc2_foundation::NSArray::from_retained_slice(&open));
+            }
+            let section = unsafe { Retained::cast_unchecked::<NSObject>(Self::section()) };
+            ds.applySnapshot_toSection_animatingDifferences(&snap, &section, animated);
+        }
+    }
+
+    // A tree row: a UICollectionViewListCell that (a) sizes itself to the tree's UNIFORM row
+    // height — day content is frame-laid, so auto-layout self-sizing would collapse it — and
+    // (b) re-lays its day row at the content view's OWN width on every layout pass, because
+    // indentation and accessories make that width per-row (docs/tree.md `layout_cell`).
+    struct TreeCellIvars {
+        row_height: std::cell::Cell<f64>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UICollectionViewListCell))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayTreeListCell"]
+        #[ivars = TreeCellIvars]
+        struct DayTreeListCell;
+
+        impl DayTreeListCell {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                day_spec::ffi_guard::contain((), || {
+                    let content = self.contentView();
+                    let width = content.bounds().size.width;
+                    if width <= 0.0 {
+                        return;
+                    }
+                    // This cell's tree: walk up to the collection view, which keys TREE_STATE.
+                    let mut cur = self.superview();
+                    while let Some(v) = cur {
+                        cur = v.superview();
+                        if let Ok(cv) = v.downcast::<objc2_ui_kit::UICollectionView>() {
+                            let layout = TREE_STATE.with(|m| {
+                                m.borrow().get(&(Retained::as_ptr(&cv) as usize)).and_then(
+                                    |d| {
+                                        d.ivars()
+                                            .source
+                                            .borrow()
+                                            .as_ref()
+                                            .map(|s| s.layout_cell.clone())
+                                    },
+                                )
+                            });
+                            if let Some(f) = layout {
+                                f(Retained::as_ptr(&content) as RawHandle, width);
+                            }
+                            break;
+                        }
+                    }
+                });
+            }
+
+            #[unsafe(method_id(preferredLayoutAttributesFittingAttributes:))]
+            fn preferred_layout_attributes(
+                &self,
+                attrs: &objc2_ui_kit::UICollectionViewLayoutAttributes,
+            ) -> Retained<objc2_ui_kit::UICollectionViewLayoutAttributes> {
+                let mut frame = attrs.frame();
+                frame.size.height = self.ivars().row_height.get();
+                attrs.setFrame(frame);
+                unsafe {
+                    Retained::retain(
+                        attrs as *const objc2_ui_kit::UICollectionViewLayoutAttributes
+                            as *mut objc2_ui_kit::UICollectionViewLayoutAttributes,
+                    )
+                }
+                .expect("attributes retained")
+            }
+        }
+    );
+
+    fn tree_entry_u(key: usize) -> Option<Retained<DayTreeData>> {
+        TREE_STATE.with(|m| m.borrow().get(&key).cloned())
+    }
+
+    // -----------------------------------------------------------------------
     // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
     // -----------------------------------------------------------------------
 
@@ -3905,6 +4282,11 @@ mod imp {
                 | Cap::TextSpellCheck
                 // UITableView's own drag pipeline: long-press lift + gap, no editing mode.
                 | Cap::ListReorder
+                // A list-layout UICollectionView over one diffable SECTION snapshot hosts
+                // day-built rows natively (docs/tree.md). `Cap::TreeMove` is deliberately
+                // not here yet: native finger-drag lands after seam parity — the dayscript
+                // `tree_move:` step drives the seam regardless.
+                | Cap::Tree
                 // Trailing swipe actions: the row tracks the finger, the destructive action
                 // reveals behind it, and a full swipe commits (docs/list.md).
                 | Cap::ListDelete
@@ -4274,6 +4656,161 @@ mod imp {
                     view
                 }
 
+                Some(Builtin::Tree) => {
+                    let Some(p) = day_spec::props_of::<TreeProps>(kind, "uikit", props) else {
+                        return placeholder_view(kind);
+                    };
+                    let row_height = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 44.0,
+                    };
+                    let config = unsafe {
+                        objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
+                            objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
+                            objc2_ui_kit::UICollectionLayoutListAppearance::Plain,
+                        )
+                    };
+                    unsafe {
+                        config.setShowsSeparators(false);
+                        config.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
+                    }
+                    let layout = unsafe {
+                        objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(&config)
+                    };
+                    let cv = unsafe {
+                        objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
+                            objc2_ui_kit::UICollectionView::alloc(mtm),
+                            CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0)),
+                            &layout,
+                        )
+                    };
+                    unsafe {
+                        cv.registerClass_forCellWithReuseIdentifier(
+                            Some(<DayTreeListCell as objc2::ClassType>::class()),
+                            &NSString::from_str("day.tree.cell"),
+                        );
+                        cv.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
+                        cv.setAllowsSelection(p.selectable);
+                        if p.multi_select {
+                            cv.setAllowsMultipleSelection(true);
+                        }
+                    }
+                    let data = DayTreeData::new(mtm, id, p.selectable, row_height);
+                    unsafe {
+                        cv.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    }
+                    let key = Retained::as_ptr(&cv) as usize;
+                    // The cell provider looks its tree up by the collection view it is handed
+                    // — capturing `data` would tie a retain cycle through the data source.
+                    let provider = block2::RcBlock::new(
+                        move |cvp: core::ptr::NonNull<objc2_ui_kit::UICollectionView>,
+                              ip: core::ptr::NonNull<objc2_foundation::NSIndexPath>,
+                              item: core::ptr::NonNull<AnyObject>|
+                              -> *mut objc2_ui_kit::UICollectionViewCell {
+                            day_spec::ffi_guard::contain(core::ptr::null_mut(), || {
+                                let cv = unsafe { cvp.as_ref() };
+                                let ip = unsafe { ip.as_ref() };
+                                let item = unsafe { item.as_ref() };
+                                let cell = unsafe {
+                                    cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
+                                        &NSString::from_str("day.tree.cell"),
+                                        ip,
+                                    )
+                                };
+                                let Ok(cell) = cell.downcast::<DayTreeListCell>() else {
+                                    return core::ptr::null_mut();
+                                };
+                                let Some(data) = tree_entry_u(cv as *const _ as usize) else {
+                                    return Retained::autorelease_return(cell)
+                                        as *mut objc2_ui_kit::UICollectionViewCell;
+                                };
+                                cell.ivars().row_height.set(data.ivars().row_height.get());
+                                let Some(tok) = DayTreeData::token_of_item(item) else {
+                                    return Retained::autorelease_return(cell)
+                                        as *mut objc2_ui_kit::UICollectionViewCell;
+                                };
+                                let (expandable, bind) = {
+                                    let src = data.ivars().source.borrow();
+                                    match src.as_ref() {
+                                        Some(s) => ((s.expandable)(tok), Some(s.bind_row.clone())),
+                                        None => (false, None),
+                                    }
+                                };
+                                if expandable {
+                                    // Day-owned disclosure (module comment): the accessory
+                                    // only reports; the patch does the toggling.
+                                    let mtm = unsafe { MainThreadMarker::new_unchecked() };
+                                    let disc: Retained<
+                                        objc2_ui_kit::UICellAccessoryOutlineDisclosure,
+                                    > = unsafe {
+                                        msg_send![
+                                            objc2_ui_kit::UICellAccessoryOutlineDisclosure::alloc(
+                                                mtm
+                                            ),
+                                            init
+                                        ]
+                                    };
+                                    let cv_key = cv as *const _ as usize;
+                                    let handler = block2::RcBlock::new(move || {
+                                        day_spec::ffi_guard::contain((), || {
+                                            let Some(data) = tree_entry_u(cv_key) else {
+                                                return;
+                                            };
+                                            let ds = data.ivars().ds.borrow().clone();
+                                            let Some(ds) = ds else { return };
+                                            let section = unsafe {
+                                                Retained::cast_unchecked::<NSObject>(
+                                                    DayTreeData::section(),
+                                                )
+                                            };
+                                            let item = unsafe {
+                                                Retained::cast_unchecked::<NSObject>(
+                                                    data.intern(tok),
+                                                )
+                                            };
+                                            let open =
+                                                ds.snapshotForSection(&section).isExpanded(&item);
+                                            emit(
+                                                data.ivars().node,
+                                                Event::TreeExpanded {
+                                                    token: tok,
+                                                    expanded: !open,
+                                                },
+                                            );
+                                        });
+                                    });
+                                    unsafe { disc.setActionHandler(Some(&handler)) };
+                                    let acc = unsafe {
+                                        Retained::cast_unchecked::<objc2_ui_kit::UICellAccessory>(
+                                            disc,
+                                        )
+                                    };
+                                    cell.setAccessories(
+                                        &objc2_foundation::NSArray::from_retained_slice(&[acc]),
+                                    );
+                                } else {
+                                    cell.setAccessories(&objc2_foundation::NSArray::new());
+                                }
+                                if let Some(bind) = bind {
+                                    let content = cell.contentView();
+                                    bind(tok, Retained::as_ptr(&content) as RawHandle);
+                                }
+                                Retained::autorelease_return(cell)
+                                    as *mut objc2_ui_kit::UICollectionViewCell
+                            })
+                        },
+                    );
+                    let ds = unsafe {
+                        objc2_ui_kit::UICollectionViewDiffableDataSource::<NSObject, NSObject>::initWithCollectionView_cellProvider(
+                            objc2_ui_kit::UICollectionViewDiffableDataSource::alloc(mtm),
+                            &cv,
+                            &*provider as *const block2::DynBlock<_> as *mut block2::DynBlock<_>,
+                        )
+                    };
+                    data.ivars().ds.replace(Some(ds));
+                    TREE_STATE.with(|m| m.borrow_mut().insert(key, data));
+                    view_of(cv)
+                }
                 Some(Builtin::List) => {
                     let Some(p) = day_spec::props_of::<ListProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
@@ -4541,7 +5078,6 @@ mod imp {
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
-                | Some(Builtin::Tree)
                 | Some(Builtin::Inspector)
                 | Some(Builtin::InspectorPane)
                 | None => {
@@ -4919,6 +5455,93 @@ mod imp {
                         }
                     }
                 }
+                kinds::TREE => match patch.downcast_ref::<TreePatch>() {
+                    // Deferred to the main queue: these arrive inside a `with_tree` borrow,
+                    // and applying a snapshot binds cells synchronously.
+                    Some(TreePatch::Reload) => {
+                        let key = ptr_of(h);
+                        <Uikit as Platform>::post(Box::new(move || {
+                            if let Some(data) = tree_entry_u(key) {
+                                data.apply_snapshot(false);
+                            }
+                        }));
+                    }
+                    Some(TreePatch::Expand(token, on)) => {
+                        if let Some(data) = tree_entry_u(ptr_of(h)) {
+                            if *on {
+                                data.ivars().expanded.borrow_mut().insert(*token);
+                            } else {
+                                data.ivars().expanded.borrow_mut().remove(token);
+                            }
+                        }
+                        let key = ptr_of(h);
+                        <Uikit as Platform>::post(Box::new(move || {
+                            if let Some(data) = tree_entry_u(key) {
+                                // Re-derive from the recorded set — expand/collapse of one
+                                // row animates as a section-snapshot difference.
+                                data.apply_snapshot(true);
+                            }
+                        }));
+                    }
+                    Some(TreePatch::Selected(tokens)) => {
+                        let (key, tokens) = (ptr_of(h), tokens.clone());
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let Some(data) = tree_entry_u(key) else {
+                                return;
+                            };
+                            let ds = data.ivars().ds.borrow().clone();
+                            let Some(ds) = ds else { return };
+                            let cv =
+                                unsafe { (key as *const objc2_ui_kit::UICollectionView).as_ref() };
+                            let Some(cv) = cv else { return };
+                            // Programmatic (de)selects never fire the delegate — no echo.
+                            if let Some(paths) = cv.indexPathsForSelectedItems() {
+                                for ip in paths.iter() {
+                                    cv.deselectItemAtIndexPath_animated(&ip, false);
+                                }
+                            }
+                            for t in &tokens {
+                                let item = unsafe {
+                                    Retained::cast_unchecked::<NSObject>(data.intern(*t))
+                                };
+                                if let Some(ip) = ds.indexPathForItemIdentifier(&item) {
+                                    unsafe {
+                                        cv.selectItemAtIndexPath_animated_scrollPosition(
+                                            Some(&ip),
+                                            false,
+                                            objc2_ui_kit::UICollectionViewScrollPosition::empty(),
+                                        )
+                                    };
+                                }
+                            }
+                        }));
+                    }
+                    Some(TreePatch::Reveal(token)) => {
+                        let (key, token) = (ptr_of(h), *token);
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let Some(data) = tree_entry_u(key) else {
+                                return;
+                            };
+                            let ds = data.ivars().ds.borrow().clone();
+                            let Some(ds) = ds else { return };
+                            let cv =
+                                unsafe { (key as *const objc2_ui_kit::UICollectionView).as_ref() };
+                            let Some(cv) = cv else { return };
+                            let item =
+                                unsafe { Retained::cast_unchecked::<NSObject>(data.intern(token)) };
+                            if let Some(ip) = ds.indexPathForItemIdentifier(&item) {
+                                unsafe {
+                                    cv.scrollToItemAtIndexPath_atScrollPosition_animated(
+                                        &ip,
+                                        objc2_ui_kit::UICollectionViewScrollPosition::CenteredVertically,
+                                        false,
+                                    )
+                                };
+                            }
+                        }));
+                    }
+                    None => {}
+                },
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Splice(deltas)) => {
                         let (key, deltas) = (ptr_of(h), deltas.clone());
@@ -5030,6 +5653,12 @@ mod imp {
             LIST_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            TREE_STATE.with(|m| {
+                m.borrow_mut().remove(&ptr_of(&h));
+            });
+            if let Some((old, _)) = CTX_MENU_FNS.with(|t| t.borrow_mut().remove(&ptr_of(&h))) {
+                unsafe { h.removeInteraction(ProtocolObject::from_ref(&*old)) };
+            }
             NAV_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
@@ -5382,7 +6011,9 @@ mod imp {
                         Size::new(p.width.unwrap_or(180.0), 4.0)
                     }
                 }
-                kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
+                kinds::LIST | kinds::TREE => {
+                    Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+                }
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         measure(self, h, p)
@@ -5576,6 +6207,27 @@ mod imp {
             GESTURES.with(|m| m.borrow_mut().entry(key).or_default().push(target));
         }
 
+        fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+            let key = ptr_of(h);
+            if let Some((old, _)) = CTX_MENU_FNS.with(|t| t.borrow_mut().remove(&key)) {
+                unsafe { h.removeInteraction(ProtocolObject::from_ref(&*old)) };
+            }
+            let mtm = mtm();
+            let delegate = DayContextMenuFn::new(mtm, f);
+            let proto = ProtocolObject::from_ref(&*delegate);
+            let interaction = unsafe {
+                UIContextMenuInteraction::initWithDelegate(
+                    UIContextMenuInteraction::alloc(mtm),
+                    proto,
+                )
+            };
+            unsafe {
+                h.setUserInteractionEnabled(true);
+                h.addInteraction(ProtocolObject::from_ref(&*interaction));
+            }
+            CTX_MENU_FNS.with(|t| t.borrow_mut().insert(key, (interaction, delegate)));
+        }
+
         fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
             let key = ptr_of(h);
             // Remove any prior interaction (replace-on-reconfigure): the table's teardown
@@ -5619,6 +6271,40 @@ mod imp {
         fn set_undo_state(&mut self, state: &day_spec::UndoState) {
             let front = undo_front(self.mtm());
             *front.ivars().state.borrow_mut() = state.clone();
+        }
+
+        fn attach_tree(&mut self, host: &Handle, source: TreeSource) {
+            let key = ptr_of(host);
+            if let Some(data) = tree_entry_u(key) {
+                data.ivars().source.replace(Some(source));
+            }
+            // Prime OUTSIDE this borrow: the one flat snapshot that creates the section,
+            // then the first section snapshot from the (possibly still empty) hierarchy —
+            // the piece's own initial Reload re-applies once the data lands.
+            <Uikit as Platform>::post(Box::new(move || {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(data) = tree_entry_u(key) else {
+                        return;
+                    };
+                    let ds = data.ivars().ds.borrow().clone();
+                    let Some(ds) = ds else { return };
+                    let flat: Retained<
+                        objc2_ui_kit::NSDiffableDataSourceSnapshot<NSObject, NSObject>,
+                    > = unsafe {
+                        msg_send![
+                            <objc2_ui_kit::NSDiffableDataSourceSnapshot<NSObject, NSObject> as objc2::AnyThread>::alloc(),
+                            init
+                        ]
+                    };
+                    let section =
+                        unsafe { Retained::cast_unchecked::<NSObject>(DayTreeData::section()) };
+                    flat.appendSectionsWithIdentifiers(
+                        &objc2_foundation::NSArray::from_retained_slice(&[section]),
+                    );
+                    ds.applySnapshot_animatingDifferences(&flat, false);
+                    data.apply_snapshot(false);
+                });
+            }));
         }
 
         fn attach_list(&mut self, host: &Handle, source: ListSource) {

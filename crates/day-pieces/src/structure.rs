@@ -14,8 +14,8 @@ use day_core::*;
 use day_reactive::{Scope, Signal, watch};
 use day_spec::props::*;
 
-use crate::Decorated;
-use day_spec::{Event, kinds};
+use crate::{Decorate, Decorated, MenuEntry};
+use day_spec::{Event, Proposal, Rect, Size, kinds};
 
 // ---------------------------------------------------------------------------
 // Structure: when / each (§5.3–§5.4)
@@ -1592,6 +1592,7 @@ pub struct TreePiece<S: NodeSource> {
     type_ahead: Option<KeyTextFn<S::Key>>,
     reveal: Option<Signal<Option<S::Key>>>,
     row_id: Option<KeyTextFn<S::Key>>,
+    row_menu: Option<RowMenuEntriesFn<S::Key>>,
 }
 
 /// The committed-move callback, aliased for the field above.
@@ -1604,6 +1605,8 @@ type KeyPredicate<K> = Rc<dyn Fn(&K) -> bool>;
 type SelectionKeysFn<K> = Rc<dyn Fn(Vec<K>)>;
 /// A per-key string (`.type_ahead`, `.row_id`), aliased for the fields above.
 type KeyTextFn<K> = Rc<dyn Fn(&K) -> String>;
+/// A row's summon-time context-menu builder (`.row_context_menu`), aliased for the field above.
+type RowMenuEntriesFn<K> = Rc<dyn Fn(&K) -> Vec<MenuEntry>>;
 
 /// Build a hierarchical tree from a [`NodeSource`] and a row builder:
 /// `tree(branches(items_fn, key_of, parent_of), row_view)` for plain data,
@@ -1629,6 +1632,7 @@ where
         type_ahead: None,
         reveal: None,
         row_id: None,
+        row_menu: None,
     }
 }
 
@@ -1719,10 +1723,441 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self.row_id = Some(Rc::new(f));
         self
     }
+    /// A per-row context menu, built AT SUMMON TIME (docs/menus.md "Dynamic context
+    /// menus") — right-click on desktop, long-press on touch. The closure receives the
+    /// row's key and returns the menu to show; it may adjust the app's selection first (the
+    /// convention: a summon outside the current selection selects that row). An empty
+    /// result shows nothing for that row.
+    pub fn row_context_menu(mut self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self {
+        self.row_menu = Some(Rc::new(f));
+        self
+    }
+
+    /// The COMPOSED tree (docs/tree.md M2): on a backend without a native tree widget, the
+    /// same piece flattens its visible rows onto [`list`] — indentation and the disclosure
+    /// chevron are day pieces inside each row, and selection rides the list's own machinery.
+    /// The [`TreeDriver`] still installs on the returned node, so the dayscript
+    /// `expand:`/`tree_move:` steps drive the composed tree exactly as they drive a native
+    /// one (`attach_tree` is the no-op default off the native path — nothing pulls cells).
+    fn build_composed(mut self, cx: &mut BuildCx) -> RNode {
+        /// Disclosure column width, and the default per-depth indent where the platform
+        /// offers no native step to inherit.
+        const CHEVRON_W: f64 = 18.0;
+        const DEFAULT_INDENT: f64 = 14.0;
+
+        let conn = Rc::new(self.source.take().expect("TreePiece built once").connect());
+        // Expansion state: the app's key set when it owns one, else this token set. Both are
+        // signals, so the flattener below re-runs on every disclosure however it arrives —
+        // a chevron tap, the app writing its set, or a synthetic `expand:` step.
+        let open_sig: Signal<HashSet<u64>> = Signal::new(HashSet::new());
+        let expanded_sig = self.expanded;
+
+        // Tracked when read inside a reactive closure.
+        let is_open: Rc<dyn Fn(u64) -> bool> = {
+            let conn = conn.clone();
+            match expanded_sig {
+                Some(sig) => Rc::new(move |t| match conn.key_of(t) {
+                    Some(k) => sig.with(|s| s.contains(&k)),
+                    None => false,
+                }),
+                None => Rc::new(move |t| open_sig.with(|s| s.contains(&t))),
+            }
+        };
+        let set_open: Rc<dyn Fn(u64, bool)> = {
+            let conn = conn.clone();
+            match expanded_sig {
+                Some(sig) => Rc::new(move |t, on| {
+                    if let Some(k) = conn.key_of(t) {
+                        sig.update(|s| {
+                            if on {
+                                s.insert(k.clone());
+                            } else {
+                                s.remove(&k);
+                            }
+                        });
+                    }
+                }),
+                None => Rc::new(move |t, on| {
+                    open_sig.update(|s| {
+                        if on {
+                            s.insert(t);
+                        } else {
+                            s.remove(&t);
+                        }
+                    });
+                }),
+            }
+        };
+
+        // "Can hold children": the app's branch/leaf rule, or "has children right now".
+        let expandable_of: Rc<dyn Fn(u64) -> bool> = {
+            let (conn, f) = (conn.clone(), self.expandable.clone());
+            Rc::new(move |tok| match &f {
+                Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or(false),
+                None => conn.children_len(Some(tok)) > 0,
+            })
+        };
+
+        // The visible rows, in display order: a refresh (the TRACKED shape read) plus a DFS
+        // that descends only into expanded rows — the list's row set.
+        fn visible<C: TreeConn + ?Sized>(
+            conn: &C,
+            is_open: &dyn Fn(u64) -> bool,
+            parent: Option<u64>,
+            depth: u16,
+            out: &mut Vec<(u64, u16)>,
+        ) {
+            for i in 0..conn.children_len(parent) {
+                let t = conn.child_token(parent, i);
+                out.push((t, depth));
+                if is_open(t) {
+                    visible(conn, is_open, Some(t), depth + 1, out);
+                }
+            }
+        }
+        let flatten: Rc<dyn Fn() -> Vec<(u64, u16)>> = {
+            let (conn, is_open) = (conn.clone(), is_open.clone());
+            Rc::new(move || {
+                let _shape = conn.refresh();
+                let mut rows = Vec::new();
+                visible(&*conn, &*is_open, None, 0, &mut rows);
+                rows
+            })
+        };
+
+        // Each physical row: indent shell → chevron + the user's row content. The rebind
+        // watch re-points the user's slot, the depth cell, and the dayscript id whenever
+        // the list recycles this cell onto another row.
+        let step = self.indent.unwrap_or(DEFAULT_INDENT);
+        let build_row = {
+            let (conn, user_row, row_id) =
+                (conn.clone(), self.build_row.clone(), self.row_id.clone());
+            let (is_open, expandable_of, set_open) =
+                (is_open.clone(), expandable_of.clone(), set_open.clone());
+            let row_menu = self.row_menu.clone();
+            move |slot: ItemSlot<(u64, u16), u64>| -> AnyPiece {
+                let (token0, depth0) = day_reactive::untrack(|| slot.get());
+                let Some(user_slot) = conn.slot_for(token0) else {
+                    // A stale mid-reload pull: an empty row instead of a panic.
+                    return AnyPiece::new(crate::spacer());
+                };
+                let depth = Rc::new(std::cell::Cell::new(depth0 as f64));
+                let chevron = {
+                    let (is_open, expandable_of) = (is_open.clone(), expandable_of.clone());
+                    let (set_open, is_open_tap) = (set_open.clone(), is_open.clone());
+                    let expandable_tap = expandable_of.clone();
+                    crate::label(move || {
+                        let t = slot.get().0;
+                        if expandable_of(t) {
+                            if is_open(t) { "▾" } else { "▸" }
+                        } else {
+                            ""
+                        }
+                        .to_string()
+                    })
+                    .align(TextAlign::Center)
+                    .width(CHEVRON_W)
+                    .on_tap(move || {
+                        let t = day_reactive::untrack(|| slot.get().0);
+                        if expandable_tap(t) {
+                            set_open(t, !day_reactive::untrack(|| is_open_tap(t)));
+                        }
+                    })
+                };
+                let content = crate::row((chevron, user_row(user_slot)));
+                let shell = TreeRowShell {
+                    depth: depth.clone(),
+                    step,
+                    content: AnyPiece::new(content),
+                }
+                .tweak({
+                    let (conn, row_id) = (conn.clone(), row_id.clone());
+                    move |n| {
+                        let id_conn = conn.clone();
+                        let set_ids = move |tok: u64| {
+                            if let Some(rid) = &row_id
+                                && let Some(k) = id_conn.key_of(tok)
+                            {
+                                with_tree(|t| t.set_id(n, rid(&k)));
+                            }
+                        };
+                        set_ids(token0);
+                        watch(
+                            move || slot.get(),
+                            move |(tok, d), _| {
+                                conn.rebind(&user_slot, *tok);
+                                depth.set(*d as f64);
+                                set_ids(*tok);
+                            },
+                        );
+                    }
+                });
+                match &row_menu {
+                    // The ordinary decorator: the dom backend arms its listener, and the
+                    // composed presenter answers the summon — key read AT SUMMON TIME, so a
+                    // recycled cell asks about the row it currently shows.
+                    Some(f) => {
+                        let (conn, f) = (conn.clone(), f.clone());
+                        AnyPiece::new(shell.context_menu_fn(move |_p| {
+                            match conn.key_of(day_reactive::untrack(|| slot.get().0)) {
+                                Some(k) => f(&k),
+                                None => Vec::new(),
+                            }
+                        }))
+                    }
+                    None => AnyPiece::new(shell),
+                }
+            }
+        };
+
+        let scroll_sig: Signal<Option<usize>> = Signal::new(None);
+        let mut lst = list(
+            items(
+                {
+                    let flatten = flatten.clone();
+                    move || flatten()
+                },
+                |r: &(u64, u16)| r.0,
+            ),
+            build_row,
+        )
+        .row_height(self.row_height)
+        .multi_select(self.multi_select)
+        .scroll_to_row(scroll_sig);
+        if let Some(f) = self.on_selection.clone() {
+            let conn = conn.clone();
+            lst = lst.on_selection(move |toks: Vec<u64>| {
+                f(toks.iter().filter_map(|t| conn.key_of(*t)).collect());
+            });
+        }
+        if let Some(sel) = self.selected.clone() {
+            let (conn, flatten) = (conn.clone(), flatten.clone());
+            lst = lst.selected_rows(move || {
+                let rows = flatten();
+                let want: HashSet<u64> = sel().iter().map(|k| conn.token_of(k)).collect();
+                rows.iter()
+                    .enumerate()
+                    .filter(|(_, r)| want.contains(&r.0))
+                    .map(|(i, _)| i)
+                    .collect()
+            });
+        }
+        let node = lst.build(cx);
+
+        // Synthetic events (the dayscript `expand:` step, `tree_try_move`'s commit) land on
+        // this node exactly as native ones land on a native tree.
+        {
+            let (on_move, conn_ev, set_open) =
+                (self.on_move.clone(), conn.clone(), set_open.clone());
+            cx.on(node, move |ev| match ev {
+                Event::TreeExpanded { token, expanded } => set_open(*token, *expanded),
+                Event::TreeMove {
+                    token,
+                    parent,
+                    index,
+                } => {
+                    if let Some(f) = &on_move
+                        && let Some(key) = conn_ev.key_of(*token)
+                    {
+                        f(key, parent.and_then(|p| conn_ev.key_of(p)), *index);
+                    }
+                }
+                _ => {}
+            });
+        }
+
+        // The driver: what `expand:`/`tree_move:` resolve rows and route moves through.
+        let driver = TreeDriver {
+            row_height: self.row_height,
+            children_len: {
+                let conn = conn.clone();
+                Box::new(move |p| conn.children_len(p))
+            },
+            child_token: {
+                let conn = conn.clone();
+                Box::new(move |p, i| conn.child_token(p, i))
+            },
+            expandable: {
+                let f = expandable_of.clone();
+                Box::new(move |t| f(t))
+            },
+            expanded: {
+                let is_open = is_open.clone();
+                Box::new(move |t| day_reactive::untrack(|| is_open(t)))
+            },
+            // Never pulled: no toolkit attaches to the composed tree, so no cell binds
+            // arrive. The list's own driver owns the physical rows.
+            build: Box::new(|_tok, _anchor| TreeBuiltRow {
+                scope: Scope::child(),
+                rebind: Rc::new(|_| {}),
+            }),
+            type_select_text: Box::new(|_| String::new()),
+            resolve_row: {
+                let (conn, row_id) = (conn.clone(), self.row_id.clone());
+                Box::new(move |id| {
+                    let rid = row_id.as_ref()?;
+                    conn.tokens_now()
+                        .into_iter()
+                        .find(|t| conn.key_of(*t).map(|k| rid(&k) == id).unwrap_or(false))
+                })
+            },
+            row_menu: None,
+            moves: self.movable.then(|| {
+                let can = {
+                    let (conn, expandable_of, guard) =
+                        (conn.clone(), expandable_of.clone(), self.move_guard.clone());
+                    move |tok: u64, parent: Option<u64>, index: Option<usize>| {
+                        let Some(key) = conn.key_of(tok) else {
+                            return MoveVerdict::Deny;
+                        };
+                        let parent_key = match parent {
+                            Some(p) => {
+                                if p == tok || !expandable_of(p) {
+                                    return MoveVerdict::Deny;
+                                }
+                                let mut cur = Some(p);
+                                while let Some(c) = cur {
+                                    if c == tok {
+                                        return MoveVerdict::Deny;
+                                    }
+                                    cur = conn.parent_of(c).flatten();
+                                }
+                                match conn.key_of(p) {
+                                    Some(k) => Some(k),
+                                    None => return MoveVerdict::Deny,
+                                }
+                            }
+                            None => None,
+                        };
+                        match &guard {
+                            Some(g) => g(&key, parent_key.as_ref(), index),
+                            None => MoveVerdict::Allow,
+                        }
+                    }
+                };
+                let can_commit = can.clone();
+                TreeMovesDriver {
+                    can_move: Box::new(can),
+                    moved: Box::new(move |t, p, i| {
+                        if can_commit(t, p, i) == MoveVerdict::Deny {
+                            return;
+                        }
+                        enqueue_event(
+                            rnode_to_id(node),
+                            Event::TreeMove {
+                                token: t,
+                                parent: p,
+                                index: i,
+                            },
+                        );
+                    }),
+                }
+            }),
+        };
+        install_tree(node, driver);
+
+        // Reveal: expand every ancestor through the app-visible state, then scroll the
+        // list to the row's flattened index.
+        if let Some(sig) = self.reveal {
+            let (conn, set_open, flatten) = (conn.clone(), set_open.clone(), flatten.clone());
+            watch(
+                move || sig.get(),
+                move |key: &Option<S::Key>, _| {
+                    let Some(key) = key else { return };
+                    let tok = conn.token_of(key);
+                    let mut cur = conn.parent_of(tok).flatten();
+                    while let Some(p) = cur {
+                        set_open(p, true);
+                        cur = conn.parent_of(p).flatten();
+                    }
+                    let row = day_reactive::untrack(|| flatten())
+                        .iter()
+                        .position(|r| r.0 == tok);
+                    if let Some(row) = row {
+                        scroll_sig.set(Some(row));
+                    }
+                },
+            );
+        }
+
+        node
+    }
+}
+
+/// The composed tree row's indentation (docs/tree.md M2): offsets its single child by the
+/// row's CURRENT depth × step. Depth lives in a `Cell` the rebind watch writes before the
+/// cell's relayout, so a recycled row re-indents without rebuilding.
+struct TreeIndent {
+    depth: Rc<std::cell::Cell<f64>>,
+    step: f64,
+}
+
+impl Layout for TreeIndent {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let pad = self.depth.get() * self.step;
+        let child_p = Proposal::new(p.width.map(|w| (w - pad).max(0.0)), p.height);
+        let s = match children.first() {
+            Some(&c) => cx.measure_child(c, child_p),
+            None => Size::ZERO,
+        };
+        Size::new(s.width + pad, s.height)
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let pad = (self.depth.get() * self.step).min(bounds.size.width);
+            let inner = Size::new(bounds.size.width - pad, bounds.size.height);
+            let _ = cx.measure_child(c, Proposal::exact(inner));
+            cx.place_child(c, Rect::new(pad, 0.0, inner.width, inner.height));
+        }
+    }
+}
+
+/// One composed tree row: the [`TreeIndent`] wrapper around the chevron + user content,
+/// grown to the cell's width so selection and taps span the row.
+struct TreeRowShell {
+    depth: Rc<std::cell::Cell<f64>>,
+    step: f64,
+    content: AnyPiece,
+}
+
+impl Piece for TreeRowShell {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        // NATIVE, not layout-only: the row's dayscript id and its `.context_menu_fn` listener
+        // both need a realized element to land on (a11y identifier; the dom's `contextmenu`
+        // arm) — a transparent container, like the decorators' layer nodes.
+        let w = cx.native(
+            kinds::CONTAINER,
+            &ContainerProps {
+                background: None,
+                corner_radius: 0.0,
+                clips: false,
+                role: None,
+            },
+            Rc::new(TreeIndent {
+                depth: self.depth,
+                step: self.step,
+            }),
+            Flex {
+                grow_w: true,
+                ..Default::default()
+            },
+            Boundary::No,
+        );
+        cx.under(w, |cx| {
+            let _ = self.content.build(cx);
+        });
+        w
+    }
 }
 
 impl<S: NodeSource + 'static> Piece for TreePiece<S> {
     fn build(mut self, cx: &mut BuildCx) -> RNode {
+        // No native tree widget → the COMPOSED tree: the same piece contract flattened onto
+        // [`list`] (docs/tree.md M2). `Emulated` and `Unsupported` both take this path — the
+        // composition needs nothing beyond the list machinery every backend carries.
+        if day_core::capability(day_spec::Cap::Tree) != day_spec::Support::Native {
+            return self.build_composed(cx);
+        }
         let props = TreeProps {
             row_height: self.row_height,
             selectable: self.selected.is_some() || self.on_selection.is_some(),
@@ -1879,6 +2314,32 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                         .find(|t| conn.key_of(*t).map(|k| rid(&k) == id).unwrap_or(false))
                 })
             },
+            row_menu: self.row_menu.clone().map(|f| {
+                // Per-summon lowering in its own scope, disposed when the next summon (or
+                // the tree's teardown) replaces it — the `context_menu_fn` rule.
+                let conn = conn.clone();
+                let last: Rc<RefCell<Option<Scope>>> = Rc::default();
+                {
+                    let last = last.clone();
+                    Scope::current().on_cleanup(move || {
+                        if let Some(s) = last.borrow_mut().take() {
+                            s.dispose();
+                        }
+                    });
+                }
+                Box::new(move |tok: u64| {
+                    let Some(key) = conn.key_of(tok) else {
+                        return Vec::new();
+                    };
+                    if let Some(s) = last.borrow_mut().take() {
+                        s.dispose();
+                    }
+                    let scope = Scope::child();
+                    let items = scope.enter(|| crate::menus::lower_menu_scoped(f(&key)));
+                    *last.borrow_mut() = Some(scope);
+                    items
+                }) as day_core::tree_driver::RowMenuFn
+            }),
             moves: self.movable.then(|| {
                 // The live verdict: structural refusals first (a row into itself, into its
                 // own descendant, into a leaf, or addressing anything unknown), then the
@@ -2104,6 +2565,7 @@ pub trait TreeBuilder<S: NodeSource + 'static>: Sized {
     fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self;
     fn reveal(self, sig: Signal<Option<S::Key>>) -> Self;
     fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self;
+    fn row_context_menu(self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self;
 }
 
 impl<S: NodeSource + 'static> TreeBuilder<S> for TreePiece<S> {
@@ -2149,6 +2611,9 @@ impl<S: NodeSource + 'static> TreeBuilder<S> for TreePiece<S> {
     fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
         TreePiece::row_id(self, f)
     }
+    fn row_context_menu(self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self {
+        TreePiece::row_context_menu(self, f)
+    }
 }
 
 impl<S: NodeSource + 'static, Inner: TreeBuilder<S> + Piece> TreeBuilder<S> for Decorated<Inner> {
@@ -2193,5 +2658,8 @@ impl<S: NodeSource + 'static, Inner: TreeBuilder<S> + Piece> TreeBuilder<S> for 
     }
     fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.row_id(f))
+    }
+    fn row_context_menu(self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.row_context_menu(f))
     }
 }

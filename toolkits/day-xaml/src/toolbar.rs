@@ -70,6 +70,8 @@ fn glyph(s: Symbol) -> &'static str {
         Symbol::Auto => "E793",
         Symbol::ZoomIn => "E8A3",
         Symbol::ZoomOut => "E71F",
+        // No stock "actual size" glyph in Segoe MDL2 — the label fallback below.
+        Symbol::ZoomReset => "",
         Symbol::Undo => "E7A7",
         Symbol::Redo => "E7A6",
         Symbol::Copy => "E8C8",
@@ -85,6 +87,9 @@ fn glyph(s: Symbol) -> &'static str {
         Symbol::Rectangle => "E739",
         Symbol::Oval => "E91F",
         Symbol::Line => "E93B",
+        Symbol::Group => "E8FD",
+        // No stock ungroup glyph — the label fallback below.
+        Symbol::Ungroup => "",
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol gets no glyph rather than an
         // arbitrary wrong one — the item still shows its label.
         _ => "",

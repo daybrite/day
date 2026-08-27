@@ -541,9 +541,21 @@ pub fn install_edit_bridge(
 }
 
 fn dispatch_edit_invoke(op: day_spec::EditOp) {
+    let _ = invoke_edit(op);
+}
+
+/// Invoke the installed edit bridge — the SAME handler the platform's own Cut/Copy/Paste
+/// route reaches (clipboard transport included) — returning whether one is installed. An
+/// app's own affordances (a context menu's Cut/Copy) call this rather than duplicating the
+/// clipboard plumbing (docs/menus.md).
+pub fn invoke_edit(op: day_spec::EditOp) -> bool {
     let f = EDIT_INVOKE.with(|u| u.borrow().clone());
-    if let Some(f) = f {
-        day_reactive::batch(|| f(op));
+    match f {
+        Some(f) => {
+            day_reactive::batch(|| f(op));
+            true
+        }
+        None => false,
     }
 }
 

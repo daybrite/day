@@ -36,7 +36,7 @@ day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
 day patch --local <checkout> # build against a local day checkout (--check: no day crate from git)
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
-day version                  # print the CLI version, build profile, and git ref
+day version                  # print the CLI version, build profile, and git ref (always the commit)
 ```
 
 `day patch` switches an app from the published git dependency to a local day checkout and

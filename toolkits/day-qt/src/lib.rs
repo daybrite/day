@@ -68,6 +68,10 @@ day_core::tls_group! {
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
 
+    /// Summon-time context-menu providers by node (docs/menus.md "Dynamic context menus").
+    static CTX_MENU_FNS: RefCell<HashMap<u64, day_spec::ContextMenuFn>> =
+        RefCell::new(HashMap::new());
+
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     /// List NODE id → host key, so the cell-click callback (which carries the node) can
     /// find its entry.
@@ -382,22 +386,32 @@ fn schedule_list_scroll_row(host_key: usize, row: usize) {
 /// mark it all dirty and refill the window. Reload, reorder, and a width that re-lays every row
 /// all come through here — the callers that used to rebind all n rows.
 fn list_populate(host_key: usize) {
-    LIST_STATE.with(|m| {
+    let stale = LIST_STATE.with(|m| {
         let mut m = m.borrow_mut();
-        let Some(st) = m.get_mut(&host_key) else {
-            return;
-        };
+        let st = m.get_mut(&host_key)?;
         st.bound.iter_mut().for_each(|b| *b = false);
         // A source that SHRANK leaves realized cells past its end. They stay in the pool (index
         // == row, so a source that grows back reuses each for the row it always held) and are
         // simply hidden — the same append-only pool, minus the eager building.
         let n = st.source.borrow().as_ref().map_or(0, |src| (src.len)());
-        for &cell in st.cells.iter().skip(n) {
-            if !cell.is_null() {
-                unsafe { ffi::day_qt_set_visible(cell, 0) };
-            }
-        }
+        let recycle = st.source.borrow().as_ref().map(|src| src.recycle.clone())?;
+        let stale: Vec<*mut c_void> = st
+            .cells
+            .iter()
+            .skip(n)
+            .copied()
+            .filter(|c| !c.is_null())
+            .collect();
+        Some((recycle, stale))
     });
+    if let Some((recycle, stale)) = stale {
+        for cell in stale {
+            unsafe { ffi::day_qt_set_visible(cell, 0) };
+            // A hidden row past the shrunk source keeps its pooled cell but must stop
+            // answering dayscript lookups — clear its element ids (day-core's recycle).
+            recycle(cell);
+        }
+    }
     list_fill_window(host_key);
 }
 
@@ -485,6 +499,28 @@ fn list_fill_window(host_key: usize) {
             list_paint_selection(st);
         }
     });
+}
+
+/// A right-click landed on a widget with a summon-time menu: ask the provider and hand Qt a
+/// fresh QMenu (null when the provider answers empty). Runs synchronously inside Qt's
+/// customContextMenuRequested — the provider must not re-enter the event loop.
+extern "C" fn on_context_menu_summon(
+    node: u64,
+    x: std::os::raw::c_double,
+    y: std::os::raw::c_double,
+) -> *mut c_void {
+    ffi_guard::contain(std::ptr::null_mut(), || {
+        let Some(f) = CTX_MENU_FNS.with(|m| m.borrow().get(&node).cloned()) else {
+            return std::ptr::null_mut();
+        };
+        let items = f(day_spec::Point::new(x, y));
+        if items.is_empty() {
+            return std::ptr::null_mut();
+        }
+        let menu = unsafe { ffi::day_qt_menu_new() };
+        build_qt_menu(menu, &items);
+        menu
+    })
 }
 
 extern "C" fn on_press(id: u64) {
@@ -1442,6 +1478,10 @@ impl Toolkit for Qt {
             | Cap::Inspector => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
+            // The COMPOSED tree (docs/tree.md M2): the piece flattens onto this backend's
+            // emulated list; disclosure, indentation and row menus are day pieces. No native
+            // drag, so `Cap::TreeMove` stays Unsupported.
+            Cap::Tree => Support::Emulated,
             // Derived from QFontMetrics — Qt publishes no baseline of its own
             // (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
@@ -1453,13 +1493,22 @@ impl Toolkit for Qt {
         unsafe {
             match Builtin::from_key(kind) {
                 Some(Builtin::Inspector) => {
-                    let (visible, width) = props
+                    let (visible, width, leading) = props
                         .downcast_ref::<InspectorProps>()
-                        .map(|p| (p.visible, p.width))
-                        .unwrap_or((false, 280.0));
-                    let host = ffi::day_qt_inspector_new(width);
-                    let content_pane = ffi::day_qt_splitter_pane(host, 0);
-                    let panel_pane = ffi::day_qt_splitter_pane(host, 1);
+                        .map(|p| {
+                            (
+                                p.visible,
+                                p.width,
+                                p.edge == day_spec::props::PaneEdge::Leading,
+                            )
+                        })
+                        .unwrap_or((false, 280.0, false));
+                    let host = ffi::day_qt_inspector_new(width, c_int::from(leading));
+                    // Positional panes, role-mapped: the LEADING arrangement holds the panel
+                    // first (docs/inspector.md `.edge`).
+                    let (content_ix, panel_ix) = if leading { (1, 0) } else { (0, 1) };
+                    let content_pane = ffi::day_qt_splitter_pane(host, content_ix);
+                    let panel_pane = ffi::day_qt_splitter_pane(host, panel_ix);
                     ffi::day_qt_splitter_on_moved(host, inspector_splitter_moved);
                     // …and on every layout pass, so the panes stop reporting the placeholder
                     // geometry they have at insert time (before the window lays the splitter
@@ -2656,6 +2705,11 @@ impl Toolkit for Qt {
             primary: m & i32::from(day_spec::KeyEvent::PRIMARY) != 0,
             alt: m & i32::from(day_spec::KeyEvent::ALT) != 0,
         }
+    }
+
+    fn set_context_menu_fn(&mut self, h: &QtHandle, node: NodeId, f: day_spec::ContextMenuFn) {
+        CTX_MENU_FNS.with(|m| m.borrow_mut().insert(node.0, f));
+        unsafe { ffi::day_qt_context_menu_fn(h.0, node.0, on_context_menu_summon) };
     }
 
     fn set_context_menu(&mut self, h: &QtHandle, _node: NodeId, items: &[day_spec::MenuItem]) {

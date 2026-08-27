@@ -11,12 +11,40 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Tree (plan)
 
 > [!IMPORTANT]
-> **Status: M0 + M1 shipped (2026-08), M6 partially.** The seam, driver, flattener, `tree()`
-> piece, mock probes and the AppKit `NSOutlineView` backend are implemented and proven by the
-> mock e2e suite and Day Sketch's layer panel (its `dayscript/tree.yaml` passes 57/57 on
-> macos-appkit, and the leading pane rides the new `.edge(PaneEdge::Leading)` inspector). The
-> remaining milestones — the shared emulation (M2), GTK/UIKit (M3), XAML/ArkUI (M4), Android +
-> the Showcase page + `day-tweak-tree-style` (M5) — are still the build order. As-built deltas
+> **Status: M0 + M1 + M2 + M3 shipped (2026-08), M6 partially.** The seam, driver,
+> flattener, `tree()` piece, mock probes, THREE native backends — AppKit `NSOutlineView`,
+> GTK `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, and UIKit's list-layout
+> `UICollectionView` over one diffable SECTION snapshot — and the COMPOSED tree (M2, on
+> web-dom and the qt toolkit) are implemented and proven by the mock e2e suite and Day
+> Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim on macos-appkit,
+> macos-gtk, ios-uikit, web-dom and macos-qt (87/87), and the leading pane rides the
+> `.edge(PaneEdge::Leading)` inspector on all five. The remaining milestones — XAML/ArkUI
+> (M4), Android + the Showcase page + `day-tweak-tree-style` (M5) — are still the build
+> order. M3's as-built notes:
+>
+> - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
+>   but not yet `Cap::TreeMove` — the dayscript `tree_move:` step drives the seam on every
+>   target regardless, which is what the walkthrough parity proves. Their native drag halves
+>   are the next tree work.
+> - GTK rebuilds its `TreeListModel` per Reload (deferred to an idle — GTK binds
+>   synchronously, the `schedule_list_resize` rule) and restores disclosure + selection
+>   top-down from token records; rows report disclosure through `TreeListRow`'s `expanded`
+>   notify, and the factory's unbind hook is where `recycle` clears a hidden row's ids.
+> - UIKit owns disclosure END TO END: the outline-disclosure accessory carries a custom
+>   action handler that only EMITS `TreeExpanded`, and the patch re-applies the section
+>   snapshot — a native tap and the `expand:` step share one path by construction. Cells are
+>   `DayTreeListCell`s that pin their self-sizing height to the uniform row height and
+>   re-lay day content at the content view's own width per layout pass.
+> - The iOS walkthrough wraps its `insp-tab` asserts in `only_on: [uikit]` inspector-sheet
+>   toggles: a FULLSCREEN modal removes the presenting view from the window, and a detached
+>   `UICollectionView` never creates cells — so the tree sections run with the sheet closed.
+>   Visibility toggles only; the undo history stays the same depth on every target.
+> - The tree grew **`.row_context_menu(|key| …)`** (2026-08): per-row summon-time context
+>   menus, served natively on all three backends — see [docs/menus.md](menus.md) "Dynamic
+>   context menus". Day Sketch's rows and its canvas share one selection menu through it.
+> - A composed LEADING inspector pane stays a side pane at EVERY width (no compact-sheet
+>   re-homing): a layer panel beside a narrow canvas beats a modal that detaches the window
+>   — see [docs/inspector.md](inspector.md). As-built deltas
 > from the text below, applied where implementation decided differently:
 >
 > - The pane-edge enum shipped as **`PaneEdge`** (`Trailing`/`Leading`) on `InspectorProps` —
@@ -870,21 +898,53 @@ drag-reparent on macOS; `a11y_audit` reports tree rows with disclosure levels; a
 source-list tweak from [the AppKit example](#appkit--nsoutlineview-in-an-nsscrollview)
 compiles and visibly changes the rendering.
 
-### M2 — the shared emulation, on web-dom and Qt
+### M2 — the shared emulation, on web-dom and Qt (SHIPPED 2026-08 — see the as-built notes)
 
 Both already emulate `list`, so they are the cheapest proof that one flattener serves three
 backends. Rows come from the flattener; each row's Day subtree gets an indent and a disclosure
-control built from ordinary pieces; the keyboard handler and type-ahead come from `day-core`.
-web-dom carries the ARIA tree pattern (`role="tree"`/`treeitem`, `aria-level`,
-`aria-expanded`, `aria-setsize`, `aria-posinset`, roving tabindex) and the stable
-`day-tree`/`day-tree-row`/`data-depth` class hooks; **day-dom joins the tweak system** here
-(`with_element`, `add_class`, `set_style` over new shim calls). Drop targeting is a hit test
-inside the row: the top and bottom quarters mean *between*, the middle means *into*.
+control built from ordinary pieces.
 
-**Done when** the same walkthrough steps that passed on AppKit pass on both, the CSS example
-above restyles the web tree, and the [Qt spike](#the-note-on-qt) has a verdict recorded here.
+**As built (2026-08).** The emulation landed one level higher than planned: in the PIECE, not
+in each backend. `TreePiece::build` branches on `capability(Cap::Tree)` — `Native` takes the
+attach path above, anything else takes `build_composed`, which flattens the connection's
+visible rows (a DFS descending only into expanded rows, tracked against the shape read and
+the expansion signal) onto the existing [`list`] piece. So the composed tree costs a backend
+NOTHING: web-dom and the qt toolkit answer `Cap::Tree` `Emulated`, and the same code would
+render on any backend with the list machinery. Per row:
 
-### M3 — GTK and UIKit
+- **Indent** is a layout (`TreeIndent`) reading the row's depth from a `Cell` the rebind
+  watch writes before the cell's relayout — a recycled cell re-indents without rebuilding.
+- **Disclosure** is a chevron label (`▸`/`▾`, tracked against the expansion state) with an
+  `on_tap` that flips the app's `.expanded` signal (or the piece's internal set). The
+  dayscript `expand:` step emits the same `Event::TreeExpanded` the native backends do, and
+  the handler routes it into the same signal — one echo-free path for both.
+- **Selection rides the list's own machinery** — `.selected_rows` / `.on_selection` with
+  tokens translated to keys — so multi-select, shift/ctrl clicks and the painted highlight
+  are the list backend's, not re-implemented.
+- **The row shell is a NATIVE transparent container**, not a layout-only node: the row's
+  dayscript id lands as a real a11y identifier, and `.row_context_menu` (lowered onto the
+  ordinary `.context_menu_fn` decorator, key read AT SUMMON) needs an element to arm its
+  listener on ([docs/menus.md](menus.md) "Dynamic context menus").
+- **The driver still installs** on the returned node — `expand:`/`tree_move:` resolve rows
+  and route moves through the same guard → commit seam, which is what lets ONE
+  `tree.yaml` pass verbatim on native and composed backends alike.
+
+Pool honesty: an emulated list that SHRANK hides pooled cells in place, so
+`ListSource::recycle` now clears a hidden cell's element ids (`list_recycle_cell` — the
+list twin of the tree's recycle rule); web-dom and qt call it as they hide. Qt also honors
+`.edge(PaneEdge::Leading)` now (the splitter's panel pane goes FIRST) — the layers pane was
+the first leading inspector a qt target ever showed.
+
+Deliberate deltas, still open: a disclosure click also selects its row (the tap reaches the
+cell-click machinery too); keyboard navigation and type-ahead do not exist on composed trees;
+the ARIA tree pattern (`role="tree"`, `aria-level`, …) and the `day-tree`/`data-depth` class
+hooks are NOT emitted yet; **"day-dom joins the tweak system"** (`with_element`, `add_class`,
+`set_style`) was not taken in this pass; and there is no drag-to-move — `Cap::TreeMove` stays
+`Unsupported`, with `tree_move:` driving the seam synthetically. Verified by tree.yaml 87/87
+on web-dom and macos-qt plus a real-pointer browser suite (chevron clicks, row and canvas
+right-clicks through the composed menu, drag-move) against the live server.
+
+### M3 — GTK and UIKit (SHIPPED 2026-08 — native drag pending on both; see the status alert)
 
 GTK: `GtkListView` over a `GtkTreeListModel` whose `create_model_func` pulls children lazily
 from the seam, each row wrapped in a `GtkTreeExpander`; selection through

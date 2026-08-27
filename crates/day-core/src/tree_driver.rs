@@ -40,6 +40,8 @@ pub struct TreeDriver {
     /// Resolve a dayscript row id (the piece's `.row_id` string) to its token — how the
     /// `expand:`/`tree_move:` steps and the mock address rows without native gestures.
     pub resolve_row: RowResolver,
+    /// The row's summon-time context menu (docs/menus.md), `None` = no row menus.
+    pub row_menu: Option<RowMenuFn>,
     /// Drag-to-move half, present when the piece is `.movable(true)` (docs/tree.md).
     pub moves: Option<TreeMovesDriver>,
 }
@@ -47,6 +49,9 @@ pub struct TreeDriver {
 /// A `.row_id` string → token resolver (aliased for the field above; clippy's
 /// type-complexity bound).
 pub type RowResolver = Box<dyn Fn(&str) -> Option<u64>>;
+
+/// A row's summon-time context-menu builder (aliased for the field above).
+pub type RowMenuFn = Box<dyn Fn(u64) -> Vec<day_spec::MenuItem>>;
 
 /// The move closures the `tree()` piece supplies (docs/tree.md). Exposed to the backend as
 /// [`day_spec::TreeMoves`] by [`make_tree_source`]; also driven directly by [`tree_try_move`]
@@ -179,7 +184,8 @@ pub fn tree_visible_rows(driver: &TreeDriver) -> Vec<(u64, u16)> {
 /// the driver directly (no tree); `bind_row` phases the tree borrow around the build + flush
 /// exactly as the list's does (see module doc).
 pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSource {
-    let (d_len, d_tok, d_exp, d_type, d_moves, d_bind) = (
+    let (d_len, d_tok, d_exp, d_type, d_menu, d_moves, d_bind) = (
+        driver.clone(),
         driver.clone(),
         driver.clone(),
         driver.clone(),
@@ -192,6 +198,11 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
         child_token: Rc::new(move |p, i| (d_tok.child_token)(p, i)),
         expandable: Rc::new(move |t| (d_exp.expandable)(t)),
         type_select_text: Rc::new(move |t| (d_type.type_select_text)(t)),
+        row_menu: d_menu.row_menu.as_ref().map(|_| {
+            let d = d_menu.clone();
+            Rc::new(move |t: u64| (d.row_menu.as_ref().expect("mapped from Some"))(t))
+                as Rc<dyn Fn(u64) -> Vec<day_spec::MenuItem>>
+        }),
         bind_row: Rc::new(move |token, cell| {
             let key = cell as usize;
             // Same skip rule as the list: a backend snapshot drawing inside a with_tree
@@ -261,6 +272,7 @@ mod tests {
             build: Box::new(|_, _| unreachable!("flattener never builds")),
             type_select_text: Box::new(|_| String::new()),
             resolve_row: Box::new(|_| None),
+            row_menu: None,
             moves: None,
         }
     }

@@ -23,7 +23,7 @@ use day_spec::sidetable::SideTable;
 use day_spec::{
     A11yProps, AnimSpec, Animatable, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font,
     ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size,
-    Support, Toolkit, Transform, ffi_guard, kinds, props_of,
+    Support, Toolkit, Transform, TreeSource, ffi_guard, kinds, props_of,
 };
 
 pub type Handle = gtk4::Widget;
@@ -106,6 +106,16 @@ day_core::tls_group! {
 
     /// LIST scrolled-window key → its model + source holder.
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
+    /// TREE host scrolled-window key → its live state (docs/tree.md).
+    static TREE_STATE: RefCell<HashMap<usize, Rc<TreeEntry>>> = RefCell::new(HashMap::new());
+    /// Widget key → its summon-time context-menu provider (docs/menus.md).
+    static CTX_MENU_FNS: RefCell<HashMap<usize, day_spec::ContextMenuFn>> =
+        RefCell::new(HashMap::new());
+    /// Widgets that already carry the summon gesture (attach once; providers replace).
+    static CTX_MENU_WIRED: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
+    /// TREE cell widget key → the token its row currently shows (for row context menus).
+    static TREE_CELL_TOKENS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     /// Physical cell (GtkFixed ptr) → the row it is currently bound to, for drag-to-reorder:
     /// a cell's row changes on every recycle, so the DragSource reads it at drag time. A
     /// [`SideTable`]: recycling overwrites live entries, but only the release sweep drops a
@@ -781,7 +791,14 @@ fn gtk_role_label(role: day_spec::MenuRole) -> &'static str {
 fn accel_string(s: &day_spec::Shortcut) -> String {
     let mut acc = String::new();
     if s.primary {
-        acc.push_str("<Primary>");
+        // GTK4 dropped GTK3's Primary→Command mapping: <Primary> is a plain <Control> alias
+        // now, so on macOS the conventional command modifier is the Command key — which the
+        // macos GDK backend reports as META.
+        acc.push_str(if cfg!(target_os = "macos") {
+            "<Meta>"
+        } else {
+            "<Primary>"
+        });
     }
     if s.shift {
         acc.push_str("<Shift>");
@@ -1635,6 +1652,202 @@ struct ListEntry {
 /// A realized nav menu's rows: `(node, titles, icon names)`.
 type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
 
+// ---------------------------------------------------------------------------
+// Native hierarchical tree (docs/tree.md): GtkListView + GtkTreeListModel + GtkTreeExpander.
+// Rows are keyed by TOKEN (a StringObject holding its decimal form); children come lazily
+// from the injected `TreeSource` through the tree model's create func. A Reload REBUILDS the
+// whole model (deferred to an idle — GTK binds synchronously, and reloads arrive inside a
+// `with_tree` borrow, the same rule `schedule_list_resize` documents) and then re-applies
+// the recorded expansion and selection top-down, so both survive by token.
+// ---------------------------------------------------------------------------
+
+struct TreeEntry {
+    node: NodeId,
+    listview: gtk4::ListView,
+    source: Rc<RefCell<Option<TreeSource>>>,
+    /// Disclosure by token, as last patched or natively toggled — what a rebuild restores.
+    expanded: Rc<RefCell<std::collections::HashSet<u64>>>,
+    /// Selection by token, as last patched — what a rebuild restores.
+    selected: Rc<RefCell<Vec<u64>>>,
+    /// Programmatic changes in flight: don't echo them back as events.
+    suppress: Rc<std::cell::Cell<bool>>,
+    multi: bool,
+}
+
+thread_local! {
+    /// The `notify::expanded` handler each bound row holds while bound, keyed by ListItem ptr.
+    static TREE_ROW_HANDLERS: RefCell<HashMap<usize, (gtk4::TreeListRow, gtk4::glib::SignalHandlerId)>> =
+        RefCell::new(HashMap::new());
+}
+
+fn tree_row_token(row: &gtk4::TreeListRow) -> Option<u64> {
+    row.item()?
+        .downcast_ref::<gtk4::StringObject>()?
+        .string()
+        .parse()
+        .ok()
+}
+
+/// The children of `parent` as a StringList of tokens, from the source's snapshot.
+fn tree_children_model(src: &TreeSource, parent: Option<u64>) -> gtk4::StringList {
+    let list = gtk4::StringList::new(&[]);
+    let n = (src.children_len)(parent);
+    for i in 0..n {
+        list.append(&(src.child_token)(parent, i).to_string());
+    }
+    list
+}
+
+/// Rebuild the whole model from the source's snapshot, then restore disclosure and
+/// selection — ALWAYS deferred to an idle (see the module comment).
+fn schedule_tree_rebuild(entry: Rc<TreeEntry>) {
+    gtk4::glib::idle_add_local_once(move || {
+        ffi_guard::contain((), || {
+            let root = {
+                let src = entry.source.borrow();
+                let Some(src) = src.as_ref() else { return };
+                tree_children_model(src, None)
+            };
+            let create = {
+                let source = entry.source.clone();
+                move |obj: &gtk4::glib::Object| -> Option<gtk4::gio::ListModel> {
+                    ffi_guard::contain(None, || {
+                        let tok: u64 = obj
+                            .downcast_ref::<gtk4::StringObject>()?
+                            .string()
+                            .parse()
+                            .ok()?;
+                        let src = source.borrow();
+                        let src = src.as_ref()?;
+                        // Expandability is the app's branch rule: a childless BRANCH still
+                        // discloses (to an empty level); a leaf returns no model at all,
+                        // which is what hides the expander arrow.
+                        if !(src.expandable)(tok) {
+                            return None;
+                        }
+                        Some(tree_children_model(src, Some(tok)).upcast())
+                    })
+                }
+            };
+            let tlm = gtk4::TreeListModel::new(root, false, false, create);
+            let model: gtk4::gio::ListModel = tlm.upcast();
+            let sel_model: gtk4::SelectionModel = if entry.multi {
+                let m = gtk4::MultiSelection::new(Some(model));
+                m.upcast()
+            } else {
+                let m = gtk4::SingleSelection::new(Some(model));
+                m.set_autoselect(false);
+                m.set_can_unselect(true);
+                m.upcast()
+            };
+            {
+                // Report the FULL selected token set (docs/tree.md). Captures only what it
+                // needs — an Rc cycle through the entry would leak a model per rebuild.
+                let (node, suppress) = (entry.node, entry.suppress.clone());
+                sel_model.connect_selection_changed(move |m, _, _| {
+                    ffi_guard::contain((), || {
+                        if suppress.get() {
+                            return;
+                        }
+                        emit(node, Event::TreeSelection(tree_selected_tokens(m)));
+                    });
+                });
+            }
+            entry.listview.set_model(Some(&sel_model));
+            tree_apply_expansion(&entry);
+            tree_apply_selection(&entry);
+        });
+    });
+}
+
+/// Every currently selected row's token, in visible order.
+fn tree_selected_tokens(m: &gtk4::SelectionModel) -> Vec<u64> {
+    let mut out = Vec::new();
+    let bits = m.selection();
+    if !bits.is_empty() {
+        for i in bits.minimum()..=bits.maximum() {
+            if m.is_selected(i)
+                && let Some(row) = m
+                    .item(i)
+                    .and_then(|o| o.downcast::<gtk4::TreeListRow>().ok())
+                && let Some(tok) = tree_row_token(&row)
+            {
+                out.push(tok);
+            }
+        }
+    }
+    out
+}
+
+/// Walk the VISIBLE rows top-down and set each one's disclosure to the recorded state —
+/// expanding at `i` inserts children right after it, which the loop then visits, so a
+/// recorded deep disclosure re-opens ancestors-first in one pass. Suppressed: a restore
+/// must not echo as `Event::TreeExpanded`.
+fn tree_apply_expansion(entry: &TreeEntry) {
+    let Some(model) = entry.listview.model() else {
+        return;
+    };
+    entry.suppress.set(true);
+    let mut i = 0;
+    while i < model.n_items() {
+        if let Some(row) = model
+            .item(i)
+            .and_then(|o| o.downcast::<gtk4::TreeListRow>().ok())
+            && let Some(tok) = tree_row_token(&row)
+        {
+            let want = entry.expanded.borrow().contains(&tok);
+            if row.is_expandable() && row.is_expanded() != want {
+                row.set_expanded(want);
+            }
+        }
+        i += 1;
+    }
+    entry.suppress.set(false);
+}
+
+/// Sync the native selection to the recorded tokens (suppressed — no event echo). A token
+/// under a collapsed ancestor has no row; the piece re-applies after expansion changes.
+fn tree_apply_selection(entry: &TreeEntry) {
+    let Some(model) = entry.listview.model() else {
+        return;
+    };
+    entry.suppress.set(true);
+    model.unselect_all();
+    for i in 0..model.n_items() {
+        if let Some(row) = model
+            .item(i)
+            .and_then(|o| o.downcast::<gtk4::TreeListRow>().ok())
+            && let Some(tok) = tree_row_token(&row)
+            && entry.selected.borrow().contains(&tok)
+        {
+            model.select_item(i, false);
+        }
+    }
+    entry.suppress.set(false);
+}
+
+fn tree_entry(key: usize) -> Option<Rc<TreeEntry>> {
+    TREE_STATE.with(|m| m.borrow().get(&key).cloned())
+}
+
+/// Show `items` as a one-summon popover anchored at `(x, y)` on `w` — built fresh per
+/// summon (docs/menus.md "Dynamic context menus") and unparented once it closes.
+fn show_menu_popover(w: &Handle, items: &[day_spec::MenuItem], x: f64, y: f64) {
+    let group = gtk4::gio::SimpleActionGroup::new();
+    let model = build_gio_menu(items, &group);
+    w.insert_action_group("daymenu", Some(&group));
+    let popover = gtk4::PopoverMenu::from_model(Some(&model));
+    popover.set_parent(w);
+    popover.set_has_arrow(false);
+    popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+    popover.connect_closed(|pop| {
+        // Unparent OUTSIDE the close handler — GTK is still walking the popover's state.
+        let pop = pop.clone();
+        gtk4::glib::idle_add_local_once(move || pop.unparent());
+    });
+    popover.popup();
+}
+
 /// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).
 fn list_resize(model: &gtk4::StringList, n: usize) {
     let cur = model.n_items();
@@ -2229,6 +2442,11 @@ impl Toolkit for Gtk {
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
             | Cap::ListReorder
+            // GtkListView + GtkTreeListModel + GtkTreeExpander host day-built rows natively
+            // (docs/tree.md). `Cap::TreeMove` is deliberately NOT here yet: the native drag
+            // half lands after the seam parity — dayscript's `tree_move:` drives the seam
+            // regardless.
+            | Cap::Tree
             // Real AdwApplicationWindows on the shared GtkApplication (docs/windows.md).
             | Cap::MultiWindow
             // The window's AdwHeaderBar — GNOME's toolbar (docs/toolbars.md).
@@ -2261,12 +2479,17 @@ impl Toolkit for Gtk {
                 w
             }
             Some(Builtin::Inspector) => {
-                let (visible, width) = props
+                let (visible, width, edge) = props
                     .downcast_ref::<InspectorProps>()
-                    .map(|p| (p.visible, p.width))
-                    .unwrap_or((false, 280.0));
+                    .map(|p| (p.visible, p.width, p.edge))
+                    .unwrap_or((false, 280.0, PaneEdge::Trailing));
                 let sv = adw::OverlaySplitView::new();
-                sv.set_sidebar_position(gtk4::PackType::End);
+                // The pane's side follows the piece: Trailing is the classic inspector,
+                // Leading a utility pane like a layer panel (docs/tree.md).
+                sv.set_sidebar_position(match edge {
+                    PaneEdge::Trailing => gtk4::PackType::End,
+                    PaneEdge::Leading => gtk4::PackType::Start,
+                });
                 // Pinned, per the GNOME idiom (no draggable sidebars) — same as the nav split.
                 // In PIXELS: the default unit is sp, which rescales with the text size and
                 // would leave Day laying content out for a width the pane doesn't have. The
@@ -2726,6 +2949,214 @@ impl Toolkit for Gtk {
                 area.add_controller(keys);
                 area.upcast()
             }
+            Some(Builtin::Tree) => {
+                let Some(p) = props_of::<TreeProps>(kind, "gtk", props) else {
+                    return placeholder_label(kind);
+                };
+                let source: Rc<RefCell<Option<TreeSource>>> = Rc::new(RefCell::new(None));
+                let suppress = Rc::new(std::cell::Cell::new(false));
+                let factory = gtk4::SignalListItemFactory::new();
+                factory.connect_setup(|_, item| {
+                    if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
+                        // The expander draws the indent + arrow and wraps the day cell.
+                        let expander = gtk4::TreeExpander::new();
+                        expander.set_indent_for_icon(true);
+                        let cell = gtk4::Fixed::new();
+                        cell.set_overflow(gtk4::Overflow::Visible);
+                        expander.set_child(Some(&cell));
+                        li.set_child(Some(&expander));
+                    }
+                });
+                factory.connect_bind({
+                    let source = source.clone();
+                    let suppress = suppress.clone();
+                    // Contained: bind_row runs day-core (and the app's row builder).
+                    move |_, item| {
+                        ffi_guard::contain((), || {
+                            let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
+                                return;
+                            };
+                            let Some(row) = li
+                                .item()
+                                .and_then(|o| o.downcast::<gtk4::TreeListRow>().ok())
+                            else {
+                                return;
+                            };
+                            let Some(expander) = li
+                                .child()
+                                .and_then(|c| c.downcast::<gtk4::TreeExpander>().ok())
+                            else {
+                                return;
+                            };
+                            expander.set_list_row(Some(&row));
+                            let Some(tok) = tree_row_token(&row) else {
+                                return;
+                            };
+                            // The user's disclosure click reports through the row's expanded
+                            // property; a programmatic restore is suppressed. Held only
+                            // while bound (see unbind).
+                            {
+                                let suppress = suppress.clone();
+                                let handler = row.connect_expanded_notify(move |r| {
+                                    ffi_guard::contain((), || {
+                                        if suppress.get() {
+                                            return;
+                                        }
+                                        let Some(tok) = tree_row_token(r) else { return };
+                                        // The record lives with the entry, found via the
+                                        // expander's scroller at event time (the closure
+                                        // must not hold the entry — Rc cycle).
+                                        TREE_STATE.with(|m| {
+                                            for e in m.borrow().values() {
+                                                if e.listview.model().is_some_and(|mm| {
+                                                    mm.item(r.position()).is_some_and(|it| {
+                                                        it.downcast_ref::<gtk4::TreeListRow>()
+                                                            .is_some_and(|rr| rr == r)
+                                                    })
+                                                }) {
+                                                    if r.is_expanded() {
+                                                        e.expanded.borrow_mut().insert(tok);
+                                                    } else {
+                                                        e.expanded.borrow_mut().remove(&tok);
+                                                    }
+                                                    emit(
+                                                        e.node,
+                                                        Event::TreeExpanded {
+                                                            token: tok,
+                                                            expanded: r.is_expanded(),
+                                                        },
+                                                    );
+                                                    break;
+                                                }
+                                            }
+                                        });
+                                    });
+                                });
+                                TREE_ROW_HANDLERS.with(|t| {
+                                    if let Some((old_row, old_h)) = t
+                                        .borrow_mut()
+                                        .insert(li.as_ptr() as usize, (row.clone(), handler))
+                                    {
+                                        old_row.disconnect(old_h);
+                                    }
+                                });
+                            }
+                            if let Some(cell) = expander.child()
+                                && let Some(src) = source.borrow().as_ref()
+                            {
+                                TREE_CELL_TOKENS
+                                    .with(|m| m.borrow_mut().insert(widget_key(&cell), tok));
+                                // Deliberately laid at the HOST's width (bind_row's default),
+                                // not the cell's: the cell's first allocation arrives narrow
+                                // and re-laying to it WRAPPED every label; day rows overflow
+                                // the indented cell to the right instead (Overflow::Visible),
+                                // which a leading-content row never shows.
+                                (src.bind_row)(tok, cell.as_ptr() as RawHandle);
+                            }
+                        });
+                    }
+                });
+                factory.connect_unbind({
+                    let source = source.clone();
+                    move |_, item| {
+                        if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
+                            TREE_ROW_HANDLERS.with(|t| {
+                                if let Some((row, h)) =
+                                    t.borrow_mut().remove(&(li.as_ptr() as usize))
+                                {
+                                    row.disconnect(h);
+                                }
+                            });
+                            if let Some(expander) = li
+                                .child()
+                                .and_then(|c| c.downcast::<gtk4::TreeExpander>().ok())
+                            {
+                                expander.set_list_row(None::<&gtk4::TreeListRow>);
+                                // The cell left its row (a collapse, a model swap): clear
+                                // its day element ids so a hidden row stops answering
+                                // `find_by_id` — the next bind re-sets the live row's
+                                // (docs/tree.md; the same rule AppKit wires through
+                                // didRemoveRowView).
+                                if let (Some(cell), Some(src)) =
+                                    (expander.child(), source.borrow().as_ref())
+                                {
+                                    TREE_CELL_TOKENS
+                                        .with(|m| m.borrow_mut().remove(&widget_key(&cell)));
+                                    ffi_guard::contain((), || {
+                                        (src.recycle)(cell.as_ptr() as RawHandle);
+                                    });
+                                }
+                            }
+                        }
+                    }
+                });
+                // No model until the first rebuild fills one from the injected source.
+                let listview = gtk4::ListView::new(None::<gtk4::SelectionModel>, Some(factory));
+                // Summon-time ROW context menus (docs/menus.md, docs/tree.md): right-click
+                // (and long-press) picks the row under the pointer and asks the tree's
+                // `row_menu` provider.
+                {
+                    let show = {
+                        let (lv, source) = (listview.clone(), source.clone());
+                        move |x: f64, y: f64| {
+                            let row_menu =
+                                source.borrow().as_ref().and_then(|s| s.row_menu.clone());
+                            let Some(row_menu) = row_menu else { return };
+                            let Some(mut picked) = lv.pick(x, y, gtk4::PickFlags::DEFAULT) else {
+                                return;
+                            };
+                            let token = loop {
+                                if let Some(tok) = TREE_CELL_TOKENS
+                                    .with(|m| m.borrow().get(&widget_key(&picked)).copied())
+                                {
+                                    break Some(tok);
+                                }
+                                match picked.parent() {
+                                    Some(p) => picked = p,
+                                    None => break None,
+                                }
+                            };
+                            let Some(token) = token else { return };
+                            // Guarded: the provider is app code.
+                            ffi_guard::contain((), || {
+                                let items = row_menu(token);
+                                if !items.is_empty() {
+                                    show_menu_popover(&lv.clone().upcast(), &items, x, y);
+                                }
+                            });
+                        }
+                    };
+                    let click = gtk4::GestureClick::new();
+                    click.set_button(3);
+                    let f = show.clone();
+                    click.connect_pressed(move |_, _n, x, y| f(x, y));
+                    listview.add_controller(click);
+                    let long = gtk4::GestureLongPress::new();
+                    let f = show.clone();
+                    long.connect_pressed(move |_, x, y| f(x, y));
+                    listview.add_controller(long);
+                }
+                let sw = gtk4::ScrolledWindow::new();
+                sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+                sw.set_child(Some(&listview));
+                sw.set_vexpand(true);
+                let host: Handle = sw.upcast();
+                TREE_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        widget_key(&host),
+                        Rc::new(TreeEntry {
+                            node: id,
+                            listview,
+                            source,
+                            expanded: Rc::new(RefCell::new(std::collections::HashSet::new())),
+                            selected: Rc::new(RefCell::new(Vec::new())),
+                            suppress,
+                            multi: p.multi_select,
+                        }),
+                    );
+                });
+                host
+            }
             Some(Builtin::List) => {
                 let Some(p) = props_of::<ListProps>(kind, "gtk", props) else {
                     return placeholder_label(kind);
@@ -2939,7 +3370,7 @@ impl Toolkit for Gtk {
             }
             // A recycled list cell is ADOPTED from the native list, never realized
             // through this path; anything else is an extension piece.
-            Some(Builtin::ListCell) | Some(Builtin::Tree) | None => {
+            Some(Builtin::ListCell) | None => {
                 if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                     return make(self, props, id);
                 }
@@ -3301,6 +3732,68 @@ impl Toolkit for Gtk {
                 // the next factory bind) and Selected (no programmatic selection sync yet).
                 Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Selected(_)) | None => {}
             },
+            kinds::TREE => match patch.downcast_ref::<TreePatch>() {
+                // ALL of these defer to an idle: they arrive inside a `with_tree` borrow, and
+                // model changes bind rows synchronously (the schedule_list_resize rule).
+                Some(TreePatch::Reload) => {
+                    if let Some(entry) = tree_entry(widget_key(h)) {
+                        schedule_tree_rebuild(entry);
+                    }
+                }
+                Some(TreePatch::Expand(token, on)) => {
+                    if let Some(entry) = tree_entry(widget_key(h)) {
+                        if *on {
+                            entry.expanded.borrow_mut().insert(*token);
+                        } else {
+                            entry.expanded.borrow_mut().remove(token);
+                        }
+                        gtk4::glib::idle_add_local_once(move || {
+                            ffi_guard::contain((), || tree_apply_expansion(&entry));
+                        });
+                    }
+                }
+                Some(TreePatch::Selected(tokens)) => {
+                    if let Some(entry) = tree_entry(widget_key(h)) {
+                        *entry.selected.borrow_mut() = tokens.clone();
+                        gtk4::glib::idle_add_local_once(move || {
+                            ffi_guard::contain((), || tree_apply_selection(&entry));
+                        });
+                    }
+                }
+                Some(TreePatch::Reveal(token)) => {
+                    // The v4_10 route the list documents: position × uniform pitch through
+                    // the scroller's adjustment.
+                    if let (Some(entry), Some(sw)) = (
+                        tree_entry(widget_key(h)),
+                        h.downcast_ref::<gtk4::ScrolledWindow>(),
+                    ) {
+                        let (adj, token) = (sw.vadjustment(), *token);
+                        gtk4::glib::idle_add_local_once(move || {
+                            ffi_guard::contain((), || {
+                                let Some(model) = entry.listview.model() else {
+                                    return;
+                                };
+                                let n = model.n_items();
+                                for i in 0..n {
+                                    let hit = model
+                                        .item(i)
+                                        .and_then(|o| o.downcast::<gtk4::TreeListRow>().ok())
+                                        .and_then(|r| tree_row_token(&r))
+                                        == Some(token);
+                                    if hit {
+                                        let y = (adj.upper() / n as f64) * i as f64;
+                                        adj.set_value(
+                                            y.min((adj.upper() - adj.page_size()).max(0.0)),
+                                        );
+                                        break;
+                                    }
+                                }
+                            });
+                        });
+                    }
+                }
+                None => {}
+            },
             _ => {
                 if let Some(update) = self.registry.get(kind).map(|r| r.update) {
                     update(self, h, patch);
@@ -3354,6 +3847,9 @@ impl Toolkit for Gtk {
             m.borrow_mut().remove(&key);
         });
         LIST_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        TREE_STATE.with(|m| {
             m.borrow_mut().remove(&key);
         });
         // A nav menu's row popovers are parented to its ROWS, so they have to be unparented
@@ -3684,7 +4180,7 @@ impl Toolkit for Gtk {
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             // The recycling list fills the space it is offered (its scroll owns overflow).
-            kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
+            kinds::LIST | kinds::TREE => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             kinds::PROGRESS => {
                 if h.downcast_ref::<gtk4::Spinner>().is_some() {
                     Size::new(20.0, 20.0)
@@ -4078,6 +4574,47 @@ impl Toolkit for Gtk {
         }
     }
 
+    fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        let key = widget_key(h);
+        CTX_MENU_FNS.with(|m| m.borrow_mut().insert(key, f));
+        let already = CTX_MENU_WIRED.with(|s| !s.borrow_mut().insert(key));
+        if already {
+            return;
+        }
+        h.set_can_target(true);
+        let attach = |w: &Handle, button: Option<u32>| {
+            let show = {
+                let w = w.clone();
+                move |x: f64, y: f64| {
+                    let f = CTX_MENU_FNS.with(|m| m.borrow().get(&widget_key(&w)).cloned());
+                    let Some(f) = f else { return };
+                    // Guarded: the provider is app code (it usually re-selects, then builds).
+                    ffi_guard::contain((), || {
+                        let items = f(day_spec::Point::new(x, y));
+                        if !items.is_empty() {
+                            show_menu_popover(&w, &items, x, y);
+                        }
+                    });
+                }
+            };
+            match button {
+                Some(b) => {
+                    let click = gtk4::GestureClick::new();
+                    click.set_button(b);
+                    click.connect_pressed(move |_, _n, x, y| show(x, y));
+                    w.add_controller(click);
+                }
+                None => {
+                    let long = gtk4::GestureLongPress::new();
+                    long.connect_pressed(move |_, x, y| show(x, y));
+                    w.add_controller(long);
+                }
+            }
+        };
+        attach(h, Some(3));
+        attach(h, None);
+    }
+
     fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
         // Remove any prior context menu (popover + gesture) for this widget.
         MENU_POPOVERS.with(|m| {
@@ -4189,6 +4726,13 @@ impl Toolkit for Gtk {
         let bar = gtk4::PopoverMenuBar::from_model(Some(&model));
         toolbar.add_top_bar(&bar);
         self.menu_bar = Some(bar);
+    }
+
+    fn attach_tree(&mut self, host: &Handle, source: TreeSource) {
+        if let Some(entry) = tree_entry(widget_key(host)) {
+            entry.source.replace(Some(source));
+            schedule_tree_rebuild(entry);
+        }
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {
@@ -4961,6 +5505,22 @@ use day_spec::WindowOptions;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GTK4's <Primary> is a plain <Control> alias (the GTK3 Command mapping is gone), so on
+    /// macOS the conventional command modifier must spell the Command key — META to the macos
+    /// GDK backend. Everywhere else <Primary> stays.
+    #[test]
+    fn primary_accelerator_is_command_on_macos() {
+        let z = accel_string(&day_spec::Shortcut::new("z"));
+        let sz = accel_string(&day_spec::Shortcut::new("z").shift());
+        if cfg!(target_os = "macos") {
+            assert_eq!(z, "<Meta>z");
+            assert_eq!(sz, "<Meta><Shift>z");
+        } else {
+            assert_eq!(z, "<Primary>z");
+            assert_eq!(sz, "<Primary><Shift>z");
+        }
+    }
 
     /// The dayscript ordering that crashed the linux-gtk walkthrough: `respond` resolves the
     /// request before the deferred idle runs. The idle then declines to open a picker nothing

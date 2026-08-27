@@ -144,7 +144,9 @@ if capability(Cap::Toolbar) == Support::Native { /* toolbar(…) */ } else { /* 
 ```
 
 `Cap::Toolbar` is `Native` on the four desktop backends, **`Emulated` on web-dom** (2026-08: a
-strip docked above the app root, since a browser tab has no title bar to hang chrome on), and
+strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
+`toolbar_menu` pops a themed popup under its button, items activated through the same
+`day_dom_toolbar_action` route a plain button takes), and
 `Unsupported` on the phones. Probe for `!= Support::Unsupported` rather than `== Native` unless
 the difference actually matters to the app — what a caller usually wants to know is whether the
 commands belong in a bar at all. A phone has no toolbar, so `toolbar(…)` installs nothing there

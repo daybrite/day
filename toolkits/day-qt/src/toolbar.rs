@@ -80,6 +80,7 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Auto => ("preferences-desktop-theme", sp::NONE),
         Symbol::ZoomIn => ("zoom-in", sp::NONE),
         Symbol::ZoomOut => ("zoom-out", sp::NONE),
+        Symbol::ZoomReset => ("zoom-original", sp::NONE),
         Symbol::Undo => ("edit-undo", sp::NONE),
         Symbol::Redo => ("edit-redo", sp::NONE),
         Symbol::Copy => ("edit-copy", sp::NONE),
@@ -96,6 +97,8 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
         Symbol::Rectangle => ("draw-rectangle", sp::NONE),
         Symbol::Oval => ("draw-ellipse", sp::NONE),
         Symbol::Line => ("draw-line", sp::NONE),
+        Symbol::Group => ("object-group", sp::NONE),
+        Symbol::Ungroup => ("object-ungroup", sp::NONE),
         // The vocabulary is `#[non_exhaustive]`: an unmapped symbol shows the label.
         _ => ("", sp::DIALOG_HELP),
     }

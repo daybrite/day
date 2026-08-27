@@ -603,6 +603,41 @@ body.day-has-toolbar #day-root {
   background: var(--day-divider);
 }
 .day-toolbar-label { padding: 0 8px; opacity: 0.75; }
+/* A toolbar pull-down's popup (docs/toolbars.md): anchored under its button, themed like a
+   card, dismissed by an outside press or Escape. */
+.day-toolbar-menu {
+  position: fixed;
+  min-width: 160px;
+  padding: 5px 0;
+  border: 1px solid var(--day-card-border);
+  border-radius: 8px;
+  background: var(--day-card-bg);
+  /* The card background is translucent by design — the blur is what keeps it readable
+     over whatever the popup happens to hang across (the same treatment the sheets use). */
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--day-shadow);
+  z-index: 1000;
+}
+.day-toolbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  cursor: default;
+  white-space: nowrap;
+}
+.day-toolbar-menu-item:not(.header):not(.disabled):hover {
+  background: var(--day-selected-row);
+}
+.day-toolbar-menu-item.header,
+.day-toolbar-menu-item.disabled { color: var(--day-fg-dim); }
+.day-toolbar-menu-item .day-toolbar-icon { width: 16px; height: 16px; }
+.day-toolbar-menu-sep {
+  height: 1px;
+  margin: 4px 10px;
+  background: var(--day-divider);
+}
 .day-toolbar-btn {
   display: inline-flex;
   align-items: center;

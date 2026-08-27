@@ -285,7 +285,8 @@ unsafe extern "C" {
     );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     pub fn day_qt_splitter_new() -> *mut c_void;
-    pub fn day_qt_inspector_new(panel_width: c_double) -> *mut c_void;
+    /// `leading` nonzero puts the panel pane FIRST (docs/inspector.md `.edge`).
+    pub fn day_qt_inspector_new(panel_width: c_double, leading: c_int) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
     pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     /// Report a splitter's pane geometry on every layout pass Qt runs on it — the first of
@@ -378,6 +379,13 @@ unsafe extern "C" {
         shortcut: *const c_char,
     );
     pub fn day_qt_set_context_menu(widget: *mut c_void, menu: *mut c_void);
+    /// Summon-time context menus (docs/menus.md): `cb` receives (node, x, y) in widget
+    /// coordinates and returns a fresh QMenu* (null = show nothing this time).
+    pub fn day_qt_context_menu_fn(
+        widget: *mut c_void,
+        node: u64,
+        cb: extern "C" fn(u64, c_double, c_double) -> *mut c_void,
+    );
     /// The modifier keys held right now (docs/menus.md): shift 1, primary 2, alt 4. A query,
     /// not a callback — Qt exposes the live keyboard state directly.
     pub fn day_qt_modifiers() -> c_int;

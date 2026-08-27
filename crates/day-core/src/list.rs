@@ -206,7 +206,12 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
             day_reactive::flush_sync();
             with_tree(|t| t.list_layout_cell(node, key));
         }),
-        recycle: Rc::new(|_cell| { /* v1: cells stay cached in the reuse pool */ }),
+        // The cell stays pooled; only its dayscript ids clear, so a hidden row past a shrunk
+        // source stops answering lookups (`try_with_tree`: a backend may recycle while a
+        // snapshot draw holds the borrow — the ids clear on the next pass then).
+        recycle: Rc::new(move |cell| {
+            let _ = try_with_tree(|t| t.list_recycle_cell(node, cell as usize));
+        }),
         delete: d_delete.delete.as_ref().map(|_| day_spec::ListDelete {
             can_delete: {
                 let d = d_delete.clone();

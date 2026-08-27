@@ -31,11 +31,12 @@ implement them, and this table proves it.
 | `enable_gesture` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `attach_tree` | · | ✓ | · | · | · | · | · | · | · | ✓ |
+| `attach_tree` | · | ✓ | ✓ | ✓ | · | · | · | · | · | ✓ |
 | `set_route` | · | · | · | · | · | · | · | · | ✓ | · |
 | `set_undo_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `set_edit_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `modifiers` | · | ✓ | · | · | ✓ | · | · | · | ✓ | · |
+| `set_context_menu_fn` | · | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · |
 | `set_app_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_toolbar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |

@@ -66,7 +66,7 @@ the architecture-level view and the rationale.
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
-| tree — `tree(source, row)` hierarchical rows over each platform's native tree view: token identity, app-owned expansion, drag-to-reparent, `Cap::Tree` | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| tree — `tree(source, row)` hierarchical rows: native tree views where `Cap::Tree` is Native, the composed list-backed tree elsewhere; token identity, app-owned expansion, drag-to-reparent | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -758,10 +758,11 @@ when(cond_fn, build_fn)            // reactive conditional subtree
     .otherwise(build_fn)           //   optional else arm; without it, false builds nothing
 each(items_fn, key_fn, build_fn)   // reactive keyed collection (§5.4)
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
-tree(source, row_fn)               // NATIVE hierarchical tree (docs/tree.md): token-addressed
-                                   //   rows, app-owned expansion, drag-to-reparent; sources are
+tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-addressed rows,
+                                   //   app-owned expansion, drag-to-reparent; sources are
                                    //   branches(items, key, parent) or store.tree(children_of);
-                                   //   gate on Cap::Tree (macos-appkit first)
+                                   //   NATIVE where Cap::Tree says so (appkit/gtk/uikit),
+                                   //   COMPOSED onto list() everywhere else (web-dom, qt)
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
 selector(section)                  // sidebar / tabs / segmented, per SelectorStyle
@@ -1336,6 +1337,11 @@ pub trait Toolkit: Sized + 'static {
     // menus (docs/menus.md)
     fn set_app_menu(&mut self, items: &[MenuItem]) {}
     fn set_context_menu(&mut self, h, node: NodeId, items: &[MenuItem]) {}
+    // Summon-time context menu (docs/menus.md "Dynamic context menus"): the provider
+    // is called when the click lands, with the local point, and its result is shown —
+    // natively (appkit/gtk/uikit/qt), or via `Event::ContextMenu` + the composed
+    // presentation on a backend with no native menu (web-dom).
+    fn set_context_menu_fn(&mut self, h, node: NodeId, f: ContextMenuFn) {}
 
     // window toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend
     // walks from it to the window. A full install replaces the bar; `update_toolbar` is the
@@ -1503,7 +1509,9 @@ pub enum Event {
     SelectionChanged(i64),                    // pickers, tabs, nav lists
     SelectionSet(Vec<i64>),                   // multi-select lists (docs/list.md)
     FocusChanged(bool),                       // docs/focus.md
-    Tap(Point), LongPress(Point), ContextMenu(Point),
+    Tap(Point), LongPress(Point),
+    ContextMenu { local, window },            // a reported summon — the composed menu
+                                              // presents at `window` (docs/menus.md)
     Drag { phase, location, translation },    // docs/shapes.md gestures
     Pinch { phase, scale, location },         // trackpad/touch zoom (docs/canvas.md)
     Pan { phase, delta, location },           // two-finger scroll/pan (docs/canvas.md)
@@ -2767,7 +2775,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 
 | command | what it does |
 |---|---|
-| `day version` | version, build profile, git ref |
+| `day version` | version, build profile, git ref — the tag or branch when there is one, and **always the commit** (`0.3.0 (release, branch main, bd026ff7)`), so a build can be told from another build of the same branch. Omitted entirely off a git checkout, which is what a crates.io build looks like |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>…` | build for one or more targets, in parallel |
 | `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |

@@ -327,6 +327,9 @@ pub fn tool_version(key: &str) -> Option<String> {
     match key {
         "rust" => probe("rustc", &["--version"]),
         "cargo" => probe("cargo", &["--version"]),
+        // Carries the COMMIT, not just the branch (day-cli/build.rs): `day rebuild` compares these
+        // strings exactly, and every build of `main` used to record the same one — so two CLIs a
+        // month apart verified as the same tool.
         "day" => Some(env!("DAY_VERSION_LONG").to_string()),
         "xcode" => probe("xcodebuild", &["-version"]),
         "clang" => probe("clang", &["--version"]),

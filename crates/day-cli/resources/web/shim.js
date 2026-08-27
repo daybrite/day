@@ -15,6 +15,70 @@ let appStarted = false;     // day_dom_main has run; script lines before that qu
 const scriptInbox = [];
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
 let toolbarItems = {};      // toolbar item id → its element, for targeted patches
+// The one open toolbar pull-down (docs/toolbars.md). Item activation rides
+// day_dom_toolbar_action — the encoded ids are registered menu-action ids.
+let toolbarMenu = null;
+function closeToolbarMenu() {
+  if (toolbarMenu) { toolbarMenu.remove(); toolbarMenu = null; }
+}
+function toggleToolbarMenu(anchor, items) {
+  if (toolbarMenu && toolbarMenu.__anchor === anchor) { closeToolbarMenu(); return; }
+  closeToolbarMenu();
+  const m = document.createElement('div');
+  m.className = 'day-toolbar-menu';
+  m.__anchor = anchor;
+  const add = (list, depth) => {
+    for (const it of list) {
+      if (it.sep) {
+        const sep = document.createElement('div');
+        sep.className = 'day-toolbar-menu-sep';
+        m.append(sep);
+        continue;
+      }
+      const row = document.createElement('div');
+      row.className = 'day-toolbar-menu-item';
+      row.style.paddingLeft = `${12 + depth * 14}px`;
+      if (it.items) {
+        // Inlined submenu: a dimmed header, then its children indented — the same flattening
+        // the composed context menu uses.
+        row.classList.add('header');
+        row.textContent = it.label;
+        m.append(row);
+        add(it.items, depth + 1);
+        continue;
+      }
+      if (it.icon) {
+        const ic = document.createElement('div');
+        ic.className = 'day-toolbar-icon';
+        ic.style.maskImage = `url("${it.icon}")`;
+        ic.style.webkitMaskImage = `url("${it.icon}")`;
+        row.append(ic);
+      }
+      const t = document.createElement('span');
+      t.textContent = it.label;
+      row.append(t);
+      if (it.enabled === false) row.classList.add('disabled');
+      else row.addEventListener('click', () => {
+        closeToolbarMenu();
+        if (it.id) wasm.day_dom_toolbar_action(it.id);
+      });
+      m.append(row);
+    }
+  };
+  add(items, 0);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = `${Math.round(r.left)}px`;
+  m.style.top = `${Math.round(r.bottom + 4)}px`;
+  document.body.append(m);
+  // Opened past the right edge: pull it back inside.
+  const mr = m.getBoundingClientRect();
+  if (mr.right > innerWidth - 4) m.style.left = `${Math.max(4, innerWidth - 4 - mr.width)}px`;
+  toolbarMenu = m;
+}
+document.addEventListener('pointerdown', (e) => {
+  if (toolbarMenu && !toolbarMenu.contains(e.target) && !toolbarMenu.__anchor.contains(e.target)) closeToolbarMenu();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeToolbarMenu(); });
 
 // Fill a <datalist> with a search field's completions (docs/search.md).
 function setSuggestions(dl, list) {
@@ -695,6 +759,10 @@ const env = {
             el.setAttribute('aria-pressed', on ? 'true' : 'false');
             if (it.action) wasm.day_dom_toolbar_on(it.action, on ? 1 : 0);
           });
+        } else if (it.kind === 'M') {
+          // A pull-down: the popup below, fed by the encoded item list. Toggling twice on
+          // the same button closes it, like every native menu button.
+          el.addEventListener('click', (e) => { e.stopPropagation(); toggleToolbarMenu(el, it.menu || []); });
         } else if (it.kind === 'S') {
           // The sidebar toggle owns its behavior: no app action to dispatch.
           el.classList.add('day-toolbar-sidebar');
@@ -720,6 +788,7 @@ const env = {
     document.body.classList.add('day-has-toolbar');
   },
   day_dom_toolbar_patch(json, len) {
+    closeToolbarMenu();
     const p = JSON.parse(str(json, len));
     const el = toolbarItems[p.item];
     if (!el) return;
@@ -1418,6 +1487,10 @@ function listen(id, mask) {
     // outside a shape's geometry, on web only).
     let tap = null;
     host.addEventListener('pointerdown', (e) => {
+      // Primary button only: a right-click is a SUMMON (the contextmenu listener above), and
+      // the pointerup it also produces must not come out as a tap — on Day-Sketch the phantom
+      // tap re-targeted the selection under the menu the summon had just built.
+      if (e.button !== 0) { tap = null; return; }
       const r = host.getBoundingClientRect();
       tap = [e.clientX - r.left, e.clientY - r.top, e.clientX, e.clientY];
     });
@@ -1431,12 +1504,23 @@ function listen(id, mask) {
     });
     host.addEventListener('pointercancel', () => { tap = null; });
   }
+  if (mask & 1024) {
+    // The browser's own context menu yields to the app's: Day presents a composed menu from
+    // the same model every other backend shows natively (event 16 — ev::CONTEXT in lib.rs).
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = host.getBoundingClientRect();
+      wasm.day_dom_event(id, 16, e.clientX - r.left, e.clientY - r.top, e.clientX, e.clientY);
+    });
+  }
   if (mask & 256) {
     // The drag engages only past the same small slop, with Began at the ORIGINAL press point
     // — so a clean click never produces a zero-length drag, and a real drag never produces a
     // tap.
     let start = null, dragging = false;
     host.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return; // primary-button drags only (see the tap guard above)
       host.setPointerCapture(e.pointerId);
       const r = host.getBoundingClientRect();
       start = [e.clientX, e.clientY, r.left, r.top];
