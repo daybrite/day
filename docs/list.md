@@ -177,8 +177,12 @@ the same signal `on_selection` writes to get a two-way binding and a "clear sele
 
 Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt**, **XAML** and
 **web-dom** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's
-background, ctrl/cmd toggles, shift extends) honor `multi_select` and `ListPatch::Selected`. The
-remaining toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
+background, ctrl/cmd toggles, shift extends) honor `multi_select` and `ListPatch::Selected`.
+**Android** reports single selection (a tap replaces — the touch idiom) but DOES honor
+`ListPatch::Selected`: the sync paints the visible holders (the theme accent at 20% alpha as
+the cell background, under the ripple) and newly bound holders inherit the row's state, which
+is what lets the composed tree's selection follow the canvas ([docs/tree.md](tree.md)). The remaining
+toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
 programmatic sync; the one-element `on_selection` contract still holds there.
 
 ### Keyboard

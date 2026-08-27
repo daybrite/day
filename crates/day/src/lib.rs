@@ -766,6 +766,34 @@ macro_rules! android_main {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListRecycle<'local>(
+            mut env: $crate::android::jni::EnvUnowned<'local>,
+            _class: $crate::android::jni::objects::JClass<'local>,
+            host_id: $crate::android::jni::sys::jlong,
+            cell: $crate::android::jni::objects::JObject<'local>,
+        ) {
+            let _ = env
+                .with_env(|env| {
+                    $crate::android::list_recycle(env, host_id, cell);
+                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
+                })
+                .into_outcome();
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListIsSelected(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            host_id: $crate::android::jni::sys::jlong,
+            position: $crate::android::jni::sys::jint,
+        ) -> $crate::android::jni::sys::jboolean {
+            $crate::android::list_is_selected(host_id, position)
+                as $crate::android::jni::sys::jboolean
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
         pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListCanDrop(
             _env: $crate::android::jni::EnvUnowned,
             _class: $crate::android::jni::objects::JClass,
@@ -817,8 +845,8 @@ macro_rules! android_main {
 pub mod android {
     pub use day_android::jni;
     pub use day_android::{
-        dispatch_event, list_bind, list_can_delete, list_can_drop, list_delete, list_len,
-        list_move, read_jstring, run_frame, run_posted, window_started,
+        dispatch_event, list_bind, list_can_delete, list_can_drop, list_delete, list_is_selected,
+        list_len, list_move, list_recycle, read_jstring, run_frame, run_posted, window_started,
     };
 
     #[allow(clippy::too_many_arguments)]

@@ -11,16 +11,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Tree (plan)
 
 > [!IMPORTANT]
-> **Status: M0 + M1 + M2 + M3 shipped (2026-08), M6 partially.** The seam, driver,
-> flattener, `tree()` piece, mock probes, THREE native backends — AppKit `NSOutlineView`,
-> GTK `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, and UIKit's list-layout
-> `UICollectionView` over one diffable SECTION snapshot — and the COMPOSED tree (M2, on
-> web-dom and the qt toolkit) are implemented and proven by the mock e2e suite and Day
-> Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim on macos-appkit,
-> macos-gtk, ios-uikit, web-dom and macos-qt (87/87), and the leading pane rides the
-> `.edge(PaneEdge::Leading)` inspector on all five. The remaining milestones — XAML/ArkUI
-> (M4), Android + the Showcase page + `day-tweak-tree-style` (M5) — are still the build
-> order. M3's as-built notes:
+> **Status: M0 + M1 + M2 + M3 shipped (2026-08), M5's Android half shipped (2026-08), M6
+> partially.** The seam, driver, flattener, `tree()` piece, mock probes, THREE native
+> backends — AppKit `NSOutlineView`, GTK `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`,
+> and UIKit's list-layout `UICollectionView` over one diffable SECTION snapshot — and the
+> COMPOSED tree (M2, on web-dom, the qt toolkit and Android) are implemented and proven by
+> the mock e2e suite and Day Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim
+> on macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt and android-mdc (89/89), and the
+> leading pane rides the `.edge(PaneEdge::Leading)` inspector on all six. The remaining
+> milestones — XAML/ArkUI (M4), the Showcase page + `day-tweak-tree-style` (M5's other
+> half) — are still the build order. M3's as-built notes:
 >
 > - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
 >   but not yet `Cap::TreeMove` — the dayscript `tree_move:` step drives the seam on every
@@ -968,12 +968,38 @@ node with a per-node `NodeContent` in `NodeParam.container`, `TreeListener` for 
 and `NODE_MOVE`, and `tree_ext::node_params` for the per-node extras. This lands last of the
 natives because it is the most unusual and wants the seam settled.
 
-### M5 — Android, the Showcase page, and the style crate
+### M5 — Android, the Showcase page, and the style crate (Android SHIPPED 2026-08)
 
 Android joins the emulation (the flattener over the existing `RecyclerView` list machinery,
 `ItemTouchHelper` for the drag, `AccessibilityNodeInfo` collection-item info plus
 expand/collapse actions). The Showcase gains its page — see below — and
 `day-tweak-tree-style` ships with whatever coverage the backends built so far support.
+
+**As built (2026-08, the Android half).** Because M2 landed the emulation in the PIECE,
+Android's cost was the list gaps, not a tree: `Cap::Tree` answers `Emulated` and the
+composed build runs unchanged. What the RecyclerView machinery gained with it:
+
+- **`ListPatch::Selected`** — recorded per list, painted onto the visible holders (the theme
+  accent at 20% alpha as the cell BACKGROUND, under the ripple foreground) and inherited by
+  newly bound holders, with no selection-event echo. Taps still report single selection —
+  the touch idiom — and the round trip through the app's signal highlights the row.
+- **`onViewRecycled` → `ListSource::recycle`** — a pooled holder's day content keeps its
+  views but sheds its dayscript ids (the same rule every other backend follows), keyed by
+  the per-cell GlobalRef `nativeListBind` binds with.
+
+Day Sketch grew the phone ergonomics in the same change: a COMPACT window starts with the
+layers pane closed (the canvas needs the room), the tool row carries a Layers toggle, and
+`tree.yaml` opens the pane up front on the phone targets (89 steps; the two open-toggle
+steps are `only_on: [uikit, mdc]`). Verified on the emulator: tree.yaml 89/89 and demo.yaml
+321/321, a cold-start check of the compact default, and REAL `adb input` taps — a row tap
+moving the selection tree→canvas, a chevron tap collapsing and re-expanding (dayscript
+injects events, so only real taps prove the recognizers; the inner chevron listener wins
+over the cell's click, so a disclosure tap does NOT re-target the selection — Android and
+iOS get this right where the web's bubbling cannot). Still open on Android: the
+`ItemTouchHelper` drag half (`Cap::TreeMove` stays `Unsupported`), the
+`AccessibilityNodeInfo` expand/collapse actions, and row context menus (no
+`set_context_menu_fn` wiring — a long-press summon would need the composed presenter's
+`Event::ContextMenu`).
 
 ### M6 — Day Sketch (leading pane, layer panel and walkthrough SHIPPED 2026-08; the Showcase page waits for M5)
 

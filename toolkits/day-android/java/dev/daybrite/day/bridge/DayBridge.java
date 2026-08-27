@@ -142,6 +142,10 @@ public final class DayBridge {
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
     public static native void nativeListBind(long hostId, int position, View cell);
+    /** A holder left the visible set — day clears its dayscript ids (docs/list.md). */
+    public static native void nativeListRecycle(long hostId, View cell);
+    /** Whether row `position` is in the list's programmatic selection (ListPatch::Selected). */
+    public static native boolean nativeListIsSelected(long hostId, int position);
     /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto —
      *  a Retarget verdict reads as deny here, since ItemTouchHelper can't relocate the gap.) */
     public static native boolean nativeListCanDrop(long hostId, int from, int to);
@@ -298,6 +302,9 @@ public final class DayBridge {
             public void onBindViewHolder(DayCellHolder h, int position) {
                 nativeListBind(hostId, position, h.itemView);
                 if (selectable) {
+                    // A rebound holder inherits the row's selection state — the sync patch
+                    // (listPaintSelection) covers the holders already on screen.
+                    paintSelected(h.itemView, nativeListIsSelected(hostId, position));
                     h.itemView.setOnClickListener(new View.OnClickListener() {
                         public void onClick(View v) {
                             int pos = h.getBindingAdapterPosition();
@@ -307,6 +314,11 @@ public final class DayBridge {
                         }
                     });
                 }
+            }
+            public void onViewRecycled(DayCellHolder h) {
+                // The pooled cell keeps its day content for the next bind, but its dayscript
+                // ids must stop answering lookups (docs/list.md).
+                nativeListRecycle(hostId, h.itemView);
             }
         });
         if (reorderable || deletable) {
@@ -395,6 +407,37 @@ public final class DayBridge {
         }
         return rv;
     }
+    /** Repaint the VISIBLE holders' selection state from day's record (ListPatch::Selected):
+     *  newly bound holders take theirs in onBindViewHolder. Paint only — no events. */
+    public static void listPaintSelection(View v, long hostId) {
+        if (!(v instanceof RecyclerView)) return;
+        RecyclerView rv = (RecyclerView) v;
+        for (int i = 0; i < rv.getChildCount(); i++) {
+            View child = rv.getChildAt(i);
+            int pos = rv.getChildAdapterPosition(child);
+            if (pos != RecyclerView.NO_POSITION) {
+                paintSelected(child, nativeListIsSelected(hostId, pos));
+            }
+        }
+    }
+    private static Integer selectionColor;
+    /** A selected row's fill — the theme's accent at 20% alpha, resolved once (colorPrimary
+     *  is a plain color int on Material themes; colorControlHighlight is usually a state-list
+     *  REFERENCE, which TypedValue.data cannot carry as a color). As the BACKGROUND: day's
+     *  row content paints above it, and the ripple foreground stays free for touch feedback. */
+    static void paintSelected(View cell, boolean on) {
+        if (selectionColor == null) {
+            selectionColor = 0x1F888888;
+            android.util.TypedValue tv = new android.util.TypedValue();
+            if (ctx.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorPrimary, tv, true)
+                    && tv.type >= android.util.TypedValue.TYPE_FIRST_COLOR_INT
+                    && tv.type <= android.util.TypedValue.TYPE_LAST_COLOR_INT) {
+                selectionColor = (tv.data & 0x00FFFFFF) | 0x33000000;
+            }
+        }
+        cell.setBackgroundColor(on ? selectionColor : 0x00000000);
+    }
+
     public static void listReload(View v) {
         if (v instanceof RecyclerView && ((RecyclerView) v).getAdapter() != null) {
             ((RecyclerView) v).getAdapter().notifyDataSetChanged();

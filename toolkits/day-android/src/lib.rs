@@ -477,6 +477,12 @@ mod imp {
         static LIST_CELLS: std::cell::RefCell<
             std::collections::HashMap<i64, std::collections::HashMap<i32, Gref>>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
+        /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the Java side
+        /// paints from this — at bind (nativeListIsSelected) and on a sync
+        /// (listPaintSelection walking the visible holders).
+        static LIST_SELECTED: std::cell::RefCell<
+            std::collections::HashMap<i64, std::collections::BTreeSet<usize>>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
 
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static DENSITY: Cell<f64> = const { Cell::new(1.0) };
@@ -534,6 +540,41 @@ mod imp {
                 (source.bind_row)(position as usize, raw);
             }
         });
+    }
+
+    /// A holder left the visible set (RecyclerView's onViewRecycled): clear the cell
+    /// subtree's dayscript ids so pooled rows stop answering lookups — day-core's
+    /// `list_recycle_cell`, keyed by the SAME per-cell GlobalRef `list_bind` binds with.
+    /// A JNI up-call entry: contained.
+    pub fn list_recycle(env: &mut Env, host_id: i64, cell: JObject) {
+        day_spec::ffi_guard::contain((), || {
+            let hash = env
+                .dcall(&cell, "hashCode", "()I", &[])
+                .and_then(|v| v.i())
+                .unwrap_or(0);
+            let gref = LIST_CELLS.with(|m| {
+                m.borrow()
+                    .get(&host_id)
+                    .and_then(|cells| cells.get(&hash).cloned())
+            });
+            let Some(gref) = gref else { return };
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            if let Some(source) = source {
+                (source.recycle)(gref.as_obj().as_raw() as RawHandle);
+            }
+        });
+    }
+
+    /// Whether row `position` is in the list's programmatic selection — the Java bind path
+    /// paints newly bound holders from this. A JNI up-call entry: contained.
+    pub fn list_is_selected(host_id: i64, position: i32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
+            LIST_SELECTED.with(|m| {
+                m.borrow()
+                    .get(&host_id)
+                    .is_some_and(|set| set.contains(&(position.max(0) as usize)))
+            })
+        })
     }
 
     /// The reorder guard's verdict for a hovered drop (docs/list.md), pulled synchronously by
@@ -1657,6 +1698,11 @@ mod imp {
                 // `Event::NavPresentationChanged` rather than pushing one in
                 // (docs/size-classes.md).
                 Cap::NavRepresent => Support::Emulated,
+                // The COMPOSED tree (docs/tree.md M2/M5): the piece flattens onto this
+                // backend's RecyclerView list; disclosure, indentation and row content are
+                // day pieces. No native drag wiring yet, so `Cap::TreeMove` stays
+                // Unsupported (`tree_move:` drives the seam synthetically).
+                Cap::Tree => Support::Emulated,
                 _ => Support::Unsupported,
             }
         }
@@ -2684,11 +2730,25 @@ mod imp {
                             &[JValue::Object(h.0.as_obj()), JValue::Int(*row as i32)],
                         );
                     }
+                    Some(ListPatch::Selected(rows)) => {
+                        // Record, then repaint the visible holders; newly bound holders pick
+                        // the state up from nativeListIsSelected in the bind path. Paint
+                        // only — no selection event echoes back.
+                        let key = h.0.as_obj().as_raw() as usize;
+                        if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&key).copied()) {
+                            LIST_SELECTED.with(|m| {
+                                m.borrow_mut().insert(nid, rows.iter().copied().collect());
+                            });
+                            call_void(
+                                "listPaintSelection",
+                                "(Landroid/view/View;J)V",
+                                &[JValue::Object(h.0.as_obj()), JValue::Long(nid)],
+                            );
+                        }
+                    }
                     // Not implemented: RowSizeInvalidated (the adapter re-measures on the next
-                    // notifyDataSetChanged) and Selected (no programmatic selection sync yet).
-                    Some(ListPatch::RowSizeInvalidated(_))
-                    | Some(ListPatch::Selected(_))
-                    | None => {}
+                    // notifyDataSetChanged).
+                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
@@ -2731,6 +2791,9 @@ mod imp {
                 // Drop the list's per-cell GlobalRefs with it (see LIST_CELLS): each Arc drop
                 // releases its JNI global ref, keeping long sessions off the JNI table limit.
                 LIST_CELLS.with(|m| {
+                    m.borrow_mut().remove(&nid);
+                });
+                LIST_SELECTED.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
             }
