@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use linkme::distributed_slice;
+use objc2::Message as _;
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{
@@ -48,8 +49,8 @@ use objc2_app_kit::{
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
-    NSAffineTransform, NSAffineTransformStruct, NSDictionary, NSNotification, NSNumber, NSObject,
-    NSPoint, NSRect, NSSize, NSString,
+    NSAffineTransform, NSAffineTransformStruct, NSArray, NSDictionary, NSNotification, NSNumber,
+    NSObject, NSPoint, NSRect, NSSize, NSString,
 };
 use objc2_quartz_core::{
     CAMediaTimingFunction, kCAMediaTimingFunctionEaseIn, kCAMediaTimingFunctionEaseInEaseOut,
@@ -109,6 +110,11 @@ day_core::tls_group! {
     /// canvas is registered at realize (unlike [`PAN_NODES`], which only holds the ones that
     /// asked for a pan) because focus, not a gesture, is what decides who hears a key.
     static KEY_NODES: SideTable<NodeId> = SideTable::new();
+    /// Focusable CONTAINER view ptr → its node (docs/focus.md): `Decorate::focusable` opts a
+    /// `DayFlipped` into the canvas contract — accepts first responder, takes focus on a
+    /// press, reports both directions, hears the arrows. Empty for every container that
+    /// never asked, whose behavior is exactly as before.
+    static FOCUSABLE_NODES: SideTable<NodeId> = SideTable::new();
 
     /// Keeps each view's gesture targets alive + records which gestures are attached (idempotent).
     static GESTURES: RefCell<HashMap<usize, Vec<Retained<DayGesture>>>> =
@@ -493,6 +499,77 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        // Focus, and with it the keyboard (docs/focus.md): the canvas contract, opted into by
+        // `Decorate::focusable` — a container never in FOCUSABLE_NODES behaves exactly as
+        // before (refuses first responder, forwards every key).
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            FOCUSABLE_NODES.with(|t| t.get(ptr)).is_some()
+        }
+
+        // Clicking a focusable container focuses it, the way clicking a table does. The
+        // gesture recognizers still see the press — this runs before `super`, which is what
+        // forwards it to them.
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
+            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            if FOCUSABLE_NODES.with(|t| t.get(ptr)).is_some()
+                && let Some(window) = self.window()
+            {
+                window.makeFirstResponder(Some(self));
+            }
+            let _: () = unsafe { msg_send![super(self), mouseDown: event] };
+        }
+
+        #[unsafe(method(becomeFirstResponder))]
+        fn become_first_responder(&self) -> bool {
+            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            if let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) {
+                ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+            }
+            true
+        }
+
+        #[unsafe(method(resignFirstResponder))]
+        fn resign_first_responder(&self) -> bool {
+            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            if let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) {
+                ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+            }
+            true
+        }
+
+        /// The arrows, delivered here while this container is the first responder. Anything
+        /// else — and every arrow when the app registered no key handler for the node — goes
+        /// to `super`, which walks the responder chain exactly as it would have without us.
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &objc2_app_kit::NSEvent) {
+            let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
+            let handled = ffi_guard::contain(false, || {
+                let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) else {
+                    return false;
+                };
+                let Some(key) = arrow_key_name(unsafe { event.keyCode() }) else {
+                    return false;
+                };
+                if !day_spec::keys::handled(node) {
+                    return false;
+                }
+                emit(
+                    node,
+                    Event::Key(day_spec::KeyEvent {
+                        key: key.to_string(),
+                        modifiers: key_modifiers(event.modifierFlags()),
+                    }),
+                );
+                true
+            });
+            if !handled {
+                let _: () = unsafe { msg_send![super(self), keyDown: event] };
+            }
         }
 
         /// Show the attached context menu (docs/menus.md) explicitly rather than relying on
@@ -892,6 +969,11 @@ const NAV_HEADER_H: f64 = 34.0;
 const NAV_SIDEBAR_MIN_W: f64 = 160.0;
 const NAV_SIDEBAR_MAX_W: f64 = 400.0;
 
+/// Drag limits for the content-list pane (`NavProps::list_width`, docs/navigation.md), around
+/// the app's preferred width — Mail's message-list proportions.
+const NAV_LIST_MIN_W: f64 = 220.0;
+const NAV_LIST_MAX_W: f64 = 560.0;
+
 /// Height of the `NavPresentation::Tabs` bottom bar.
 const NAV_TABBAR_H: f64 = 36.0;
 
@@ -916,6 +998,13 @@ struct NavState {
     /// `NSToolbarToggleSidebarItem` reaches the controller through the responder chain; this is
     /// the path dayscript and any non-toolbar caller take.
     sidebar_item: Retained<objc2_app_kit::NSSplitViewItem>,
+    /// The content-list pane (docs/navigation.md), `Some` only on a host whose
+    /// `NavProps::list_width` was set: the wrap its `Pane::List` page fills, and the
+    /// `contentList` split item `NavPatch::ListVisible` collapses. The pane PERSISTS through
+    /// every presentation (`Cap::NavContentList` = Native) — a narrow window collapses the
+    /// sidebar and keeps the list, exactly as a narrow Mail.app does.
+    list_wrap: Option<Retained<NSView>>,
+    list_item: Option<Retained<objc2_app_kit::NSSplitViewItem>>,
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
@@ -1879,35 +1968,12 @@ fn post_realize_visible_rows(key: usize) {
     }));
 }
 
-define_class!(
-    #[unsafe(super(objc2_app_kit::NSTableRowView))]
-    #[thread_kind = MainThreadOnly]
-    #[name = "DayListRowView"]
-    struct DayListRowView;
-
-    impl DayListRowView {
-        // NSTableRowView insets its cell views ~6pt per side even in the FullWidth table
-        // style, while day lays row content out at the LIST's full frame width — the inset
-        // shifted every row right and clipped the trailing edge of its content. Pin day
-        // cells back to the row's full bounds after the standard layout.
-        #[unsafe(method(layout))]
-        fn layout(&self) {
-            let _: () = unsafe { msg_send![super(self), layout] };
-            let b = self.bounds();
-            for sub in self.subviews().iter() {
-                let is_cell = sub
-                    .identifier()
-                    .map(|i| i.to_string() == "day.cell")
-                    .unwrap_or(false);
-                if is_cell {
-                    unsafe { sub.setFrame(b) };
-                }
-            }
-        }
-    }
-);
-
 // DayListData — NSTableView data-source + delegate for the recycling list (docs/list.md, §10)
+//
+// No custom NSTableRowView: the table runs the PLAIN style, whose standard row view lays cell
+// views out at the full row bounds — no inset to pin away — and whose cell-frame slide is what
+// animates a row-action swipe. (A `layout`-override pin lived here under FullWidth until
+// 2026-08; it also froze row content mid-swipe, revealing actions behind a motionless row.)
 // ---------------------------------------------------------------------------
 
 struct ListIvars {
@@ -2102,18 +2168,6 @@ define_class!(
             })
         }
 
-        #[unsafe(method_id(tableView:rowViewForRow:))]
-        fn row_view_for_row(
-            &self,
-            _tv: &NSTableView,
-            _row: isize,
-        ) -> Option<Retained<objc2_app_kit::NSTableRowView>> {
-            // Our row view pins day cells to the full row bounds (see DayListRowView).
-            let rv: Retained<DayListRowView> =
-                unsafe { msg_send![DayListRowView::alloc(self.mtm()), init] };
-            Some(Retained::into_super(rv))
-        }
-
         #[unsafe(method(tableViewSelectionDidChange:))]
         fn selection_did_change(&self, notification: &NSNotification) {
             ffi_guard::contain((), || {
@@ -2142,6 +2196,81 @@ define_class!(
                         emit(self.ivars().node, Event::SelectionChanged(row as i64));
                     }
                 }
+            })
+        }
+
+        // --- swipe actions (docs/list.md): NSTableView's row-action pipeline. AppKit calls
+        // this as the two-finger swipe starts, so the offer reflects the row's state at
+        // GESTURE time; a full swipe across activates the FIRST action (AppKit's own
+        // full-slide behavior). The handler commits through the seam, which defers the app's
+        // callback to the event drain.
+        #[unsafe(method_id(tableView:rowActionsForRow:edge:))]
+        fn row_actions_for_row(
+            &self,
+            tv: &NSTableView,
+            row: isize,
+            edge: objc2_app_kit::NSTableRowActionEdge,
+        ) -> Retained<NSArray<objc2_app_kit::NSTableViewRowAction>> {
+            // Guarded: `actions_at` runs the app's provider closure.
+            ffi_guard::contain(NSArray::new(), || {
+                let sw = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.swipe.clone());
+                let Some(sw) = sw else {
+                    return NSArray::new();
+                };
+                if row < 0 {
+                    return NSArray::new();
+                }
+                // AppKit's Leading/Trailing already speak reading direction, same as ours.
+                let day_edge = if edge == objc2_app_kit::NSTableRowActionEdge::Leading {
+                    day_spec::SwipeEdge::Leading
+                } else {
+                    day_spec::SwipeEdge::Trailing
+                };
+                let offer = (sw.actions_at)(row as usize, day_edge);
+                let actions: Vec<Retained<objc2_app_kit::NSTableViewRowAction>> = offer
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        let style = if a.destructive {
+                            objc2_app_kit::NSTableViewRowActionStyle::Destructive
+                        } else {
+                            objc2_app_kit::NSTableViewRowActionStyle::Regular
+                        };
+                        let perform = sw.perform.clone();
+                        // Retained only for the swipe session: AppKit releases the actions
+                        // (and this block) when the revealed buttons close.
+                        let table = tv.retain();
+                        let handler = block2::RcBlock::new(
+                            move |_action: std::ptr::NonNull<
+                                objc2_app_kit::NSTableViewRowAction,
+                            >,
+                                  row: isize| {
+                                ffi_guard::contain((), || {
+                                    perform(row as usize, day_edge, i);
+                                    // A button press leaves the buttons revealed; close
+                                    // them (a full slide already closed itself).
+                                    unsafe { table.setRowActionsVisible(false) };
+                                })
+                            },
+                        );
+                        let action =
+                            objc2_app_kit::NSTableViewRowAction::rowActionWithStyle_title_handler(
+                                style,
+                                &NSString::from_str(&a.label),
+                                &handler,
+                            );
+                        if let Some(t) = a.tint {
+                            unsafe { action.setBackgroundColor(Some(&nscolor(t))) };
+                        }
+                        action
+                    })
+                    .collect();
+                NSArray::from_retained_slice(&actions)
             })
         }
     }
@@ -4205,6 +4334,9 @@ impl Toolkit for AppKit {
             // its sidebar item collapsed — so re-presenting is a collapse plus one `addSubview`
             // that re-parents the sidebar page (docs/size-classes.md).
             | Cap::NavRepresent
+            // A REAL `contentList` NSSplitViewItem between sidebar and detail; the pane
+            // persists through every presentation (docs/navigation.md).
+            | Cap::NavContentList
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::Animation
@@ -4214,6 +4346,9 @@ impl Toolkit for AppKit {
             | Cap::TextSpellCheck
             // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
             | Cap::ListReorder
+            // NSTableView row actions: reveal-as-you-swipe buttons with the native full-slide
+            // activation (docs/list.md).
+            | Cap::ListSwipeActions
             // NSOutlineView hosts Day-built rows natively, drag-reparent included
             // (docs/tree.md).
             | Cap::Tree
@@ -4566,6 +4701,29 @@ impl Toolkit for AppKit {
                 let detail_item = unsafe {
                     objc2_app_kit::NSSplitViewItem::splitViewItemWithViewController(&detail_vc)
                 };
+                // The content-list pane (docs/navigation.md): a REAL `contentList`
+                // NSSplitViewItem between the sidebar and the detail — Mail's own machinery,
+                // holding priorities included. Its `Pane::List` page fills `list_wrap` exactly
+                // as the sidebar page fills its own wrap, and the pane persists through every
+                // presentation (only `NavPatch::ListVisible` collapses it).
+                let list_width = props.downcast_ref::<NavProps>().and_then(|p| p.list_width);
+                let (list_wrap, list_item) = match list_width {
+                    Some(w) => {
+                        let wrap = view_of(DayFlipped::new(mtm));
+                        let vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
+                        unsafe { vc.setView(&wrap) };
+                        let item = unsafe {
+                            objc2_app_kit::NSSplitViewItem::contentListWithViewController(&vc)
+                        };
+                        unsafe {
+                            item.setCanCollapse(true);
+                            item.setMinimumThickness(NAV_LIST_MIN_W.min(w));
+                            item.setMaximumThickness(NAV_LIST_MAX_W.max(w));
+                        }
+                        (Some(wrap), Some(item))
+                    }
+                    None => (None, None),
+                };
                 unsafe {
                     // A stack presentation has no sidebar to show: collapse the (empty) pane
                     // and refuse the drag, so the detail owns the full width.
@@ -4583,6 +4741,9 @@ impl Toolkit for AppKit {
                         sidebar_item.setMaximumThickness(0.0);
                     }
                     split_vc.addSplitViewItem(&sidebar_item);
+                    if let Some(item) = list_item.as_ref() {
+                        split_vc.addSplitViewItem(item);
+                    }
                     split_vc.addSplitViewItem(&detail_item);
                 }
                 let split = unsafe { split_vc.splitView() };
@@ -4651,6 +4812,8 @@ impl Toolkit for AppKit {
                             detail_wrap,
                             _split_vc: split_vc,
                             sidebar_item,
+                            list_wrap,
+                            list_item,
                             pages: Vec::new(),
                             sidebar_page: None,
                             positioned: false,
@@ -4788,14 +4951,28 @@ impl Toolkit for AppKit {
                     }
                     table.addTableColumn(&col);
                     table.setHeaderView(None);
-                    // Full-width cells: the default "automatic" style (macOS 11+) insets cell
-                    // views ~14pt per side, clipping day row content laid out at the host's
-                    // full frame width (a trailing button loses its right edge).
-                    table.setStyle(objc2_app_kit::NSTableViewStyle::FullWidth);
+                    // PLAIN, the classic edge-to-edge style: the macOS 11+ decorated styles
+                    // (automatic ~14pt, FullWidth ~6pt) inset every cell view, clipping day
+                    // row content laid out at the host's full frame width. This table ran
+                    // FullWidth with a custom NSTableRowView pinning cells back to the row
+                    // bounds until 2026-08 — and that pin also clobbered the cell-frame slide
+                    // AppKit performs for row-action swipes, so the actions revealed behind a
+                    // row whose CONTENT never moved. Plain has no inset to fight: standard
+                    // row views, standard cell frames, and the swipe slide works untouched.
+                    table.setStyle(objc2_app_kit::NSTableViewStyle::Plain);
                     // ...and the default intercell spacing (3pt × 2pt) shaves the column the
                     // same way — the last few points of a trailing control. Day rows own all
                     // of their spacing.
                     table.setIntercellSpacing(NSSize::new(0.0, 0.0));
+                    // Host-drawn row separators (docs/list.md): the native horizontal grid
+                    // line, which sits exactly at the row boundary — aligned with the
+                    // selection, stationary under a row-action swipe, the Mail look.
+                    if p.separators == Some(true) {
+                        table.setGridStyleMask(
+                            objc2_app_kit::NSTableViewGridLineStyle::SolidHorizontalGridLineMask,
+                        );
+                        table.setGridColor(&objc2_app_kit::NSColor::separatorColor());
+                    }
                     table.setColumnAutoresizingStyle(
                         objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
                     );
@@ -5280,6 +5457,21 @@ impl Toolkit for AppKit {
                                     unsafe { tb.bar.setSelectedSegment(*i as isize) };
                                 }
                             }
+                            // Per-destination pane visibility (docs/navigation.md). Directly,
+                            // not through the animator proxy: a screenshot must not catch a
+                            // mid-animation pane (the sidebar-toggle rule) — and settled NOW,
+                            // like a re-present, so the detail's frame is right the instant
+                            // the patch returns rather than one layout pass later.
+                            NavPatch::ListVisible(v) => {
+                                if let Some(item) = state.list_item.as_ref() {
+                                    item.setCollapsed(!*v);
+                                    unsafe { state._split_vc.splitView().layoutSubtreeIfNeeded() };
+                                }
+                            }
+                            // Never arrives here: the pane persists through every presentation
+                            // (`Cap::NavContentList` = Native), so the pieces layer never asks
+                            // for the merged-stack shape.
+                            NavPatch::ListInStack(_) => {}
                         }
                     });
                 }
@@ -5663,14 +5855,29 @@ impl Toolkit for AppKit {
     fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
         // Nav host: pages land by their PANE, not their position (docs/size-classes.md). Pages
         // fill their pane via autoresizing — the pane, not Day, owns their frames.
-        let is_sidebar_page =
-            PAGE_PANE.with(|t| t.get(ptr_of(child)) == Some(day_spec::props::Pane::Sidebar));
+        let page_pane = PAGE_PANE.with(|t| t.get(ptr_of(child)));
+        let is_sidebar_page = page_pane == Some(day_spec::props::Pane::Sidebar);
         let mut needs_tabbar = false;
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&ptr_of(parent)) else {
                 return false;
             };
+            // The content-list page fills its own pane at every presentation
+            // (docs/navigation.md) — never a member of the detail stack.
+            if page_pane == Some(day_spec::props::Pane::List)
+                && let Some(wrap) = state.list_wrap.as_ref()
+            {
+                unsafe {
+                    child.setFrame(wrap.bounds());
+                    child.setAutoresizingMask(
+                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                            | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                    );
+                    wrap.addSubview(child);
+                }
+                return true;
+            }
             if is_sidebar_page {
                 state.sidebar_page = Some(child.clone());
                 // A host that STARTS as a tab bar gets its bar here rather than at realize: the
@@ -6010,6 +6217,16 @@ impl Toolkit for AppKit {
         });
         if owns {
             window.makeFirstResponder(None);
+        }
+    }
+
+    fn set_focusable(&mut self, h: &Handle, node: NodeId, focusable: bool) {
+        // The overrides live on `DayFlipped` (the container view) — registering any other
+        // view is harmless but inert, the graceful silence the duty documents.
+        if focusable {
+            FOCUSABLE_NODES.with(|t| t.insert(ptr_of(h), node));
+        } else {
+            FOCUSABLE_NODES.with(|t| t.remove(ptr_of(h)));
         }
     }
 

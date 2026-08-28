@@ -52,11 +52,23 @@ button("Back").enabled(move || history).action(move || back.notify());
 `.back()`, `.forward()` and `.stop()` are no-ops below `Native`, so a button left enabled there is one
 that does nothing when pressed.
 
+**`file://` URLs** (an app-written local document — a feed reader's article file) load on every
+`Native` backend. On Android, API 30 turned `WebSettings.setAllowFileAccess` off by default, which
+refuses even the app's own `loadUrl("file://…")`; the piece's Java re-enables it **only for a
+WebView the app actually pointed at a `file://` URL**, so remote-browsing views keep the modern
+lockdown. The switches that would let a file page read OTHER files or reach other origins
+(`setAllowFileAccessFromFileURLs`, `setAllowUniversalAccessFromFileURLs`) stay off, and web
+content can never navigate a WebView to `file://` itself — only the app's load can. web-dom is
+the exception with no filesystem at all: a `file://` URL renders nothing there, so a document an
+app wants shown on web too must arrive as content, not as a file (an open gap — the piece has no
+direct-HTML API yet).
+
 Evaluating JavaScript and reading a value back is its own story — [docs/webview-eval.md](webview-eval.md) keeps the per-platform support list current:
 `JsHandle::eval(script).await` returns the value as JSON, or the error the script threw. Ask
-`eval_support()` before offering it — GTK, Android and ArkUI have an engine but no arm yet, and
-web-dom can never have one. See [webview-eval.md](./webview-eval.md) for the per-platform research,
-the JavaScript envelope, and what each remaining arm needs.
+`eval_support()` before offering it — AppKit, UIKit, Qt, XAML, Android and ArkWeb have working
+arms; GTK has an engine but no arm yet, windows-qt ships no engine, and web-dom can never have
+one (`contentWindow.eval` throws across origins). See [webview-eval.md](./webview-eval.md) for
+the per-platform research, the JavaScript envelope, and what each arm does.
 
 ### Sessions (surviving navigation)
 

@@ -1802,8 +1802,13 @@ jobs:
       - name: Clippy (dom backend)
         # `--lib` like the other non-desktop backends: wasm has no `day::launch` (desktop-only), so
         # `src/main.rs` is not part of this build. The cargo feature is `dom`; `web-dom` is the
-        # platform name `day build` takes (Cargo.toml [features], §9).
+        # platform name `day build` takes (Cargo.toml [features], §9). The getrandom_backend cfg
+        # mirrors what `day build` sets for every web app (crates/day-cli/web.rs): day-dom carries
+        # getrandom's custom-backend hook, and getrandom refuses to compile for raw wasm until a
+        # backend is chosen.
         working-directory: showcase-src
+        env:
+          RUSTFLAGS: -D warnings --cfg getrandom_backend="custom"
         run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features dom
       - name: Build the showcase web-dom dist (release)
         working-directory: showcase-src

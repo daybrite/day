@@ -402,6 +402,16 @@ fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) ->
     }
 }
 
+fn op_focusable() -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.set_focusable(n, true));
+            n
+        })
+    }
+}
+
 fn op_focused(
     want: Box<dyn Fn() -> bool>,
     on_native: Box<dyn Fn(bool)>,
@@ -884,6 +894,9 @@ impl<P: Piece> Decorated<P> {
     pub fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Self {
         self.push(op_on_key(f))
     }
+    pub fn focusable(self) -> Self {
+        self.push(op_focusable())
+    }
     pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
         self.push(op_context_menu(items))
     }
@@ -1128,6 +1141,15 @@ pub trait Decorate: Piece + Sized {
     /// is focusable on the backends that draw one from a real view (appkit, web-dom today).
     fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_key(f)
+    }
+
+    /// Opt this piece into the platform's focus system (docs/focus.md) — the canvas contract
+    /// for anything composed: it joins the key loop, takes focus on a press, reports through
+    /// `.focused(…)`, and hears the arrows through `.on_key(…)` while focused. A composed
+    /// list column is the motivating case (docs/navigation.md). On a backend without the
+    /// `set_focusable` duty the piece renders normally and simply never takes focus.
+    fn focusable(self) -> Decorated<Self> {
+        Decorated::new(self).focusable()
     }
 
     /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)

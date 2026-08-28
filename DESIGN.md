@@ -766,6 +766,13 @@ tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-ad
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
 selector(section)                  // sidebar / tabs / segmented, per SelectorStyle
+    .content_list(build)           //   the Mail shape's middle column (2026-08): a resident
+                                   //   Pane::List page — a real contentList split item on
+                                   //   appkit, the uikit triple-column supplementary column,
+                                   //   composed beside/in place of the detail elsewhere
+                                   //   (Cap::NavContentList); .content_list_for(pred) collapses
+                                   //   it per destination, .detail_visible(sig) gates the
+                                   //   compact push flow two-way
 stack(path, root)                  // push/pop navigation bound to a Vec<Route> signal
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
@@ -796,6 +803,8 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
 `.on_pinch()` / `.on_pan()` (the continuous zoom/scroll pair, [docs/canvas.md](docs/canvas.md)), `.focused()`,
 `.on_key()` (the non-text keys, delivered only while THIS piece has focus — [docs/menus.md](docs/menus.md)),
+`.focusable()` (opt a composed container into the focus system — the canvas contract behind
+`Toolkit::set_focusable`, [docs/focus.md](docs/focus.md); appkit today, a no-op elsewhere),
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
 `.context_menu()`, `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
 ([docs/cover.md](docs/cover.md)), `.tweak()` / `.native_ref()` ([docs/tweaks.md](docs/tweaks.md)), `.modifier(impl Modifier)`,
@@ -1262,8 +1271,8 @@ pub trait Toolkit: Sized + 'static {
     type Handle: Clone + 'static;
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
-    // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavHeader, Appearance, Dialogs,
-    // FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck)
+    // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
+    // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1292,6 +1301,8 @@ pub trait Toolkit: Sized + 'static {
     // gestures + focus (docs/shapes.md, docs/focus.md)
     fn enable_gesture(&mut self, h, node: NodeId, kind: GestureKind) {}
     fn focus(&mut self, h, node: NodeId, focused: bool) {}
+    fn set_focusable(&mut self, h, node: NodeId, focusable: bool) {}  // Decorate::focusable —
+                                   // the canvas contract for composed containers (2026-08)
 
     // native recycling lists (§10, docs/list.md)
     fn attach_list(&mut self, host, source: ListSource) {}
@@ -1525,6 +1536,7 @@ pub enum Event {
     Lifecycle(Lifecycle),                     // docs/lifecycle.md
     ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
     ListDelete(usize),                        // committed swipe-delete (docs/list.md)
+    ListSwipe { index, edge, action },        // activated swipe action (docs/list.md)
     TreeExpanded { token, expanded },         // native disclosure (docs/tree.md)
     TreeMove { token, parent, index },        // committed native tree drag (docs/tree.md)
     TreeSelection(Vec<u64>),                  // tree selection, full token set (docs/tree.md)
@@ -1735,7 +1747,15 @@ ResizeObserver. The WebSocket dayscript transport shipped as sketched ([§14.5](
 the page speaks WebSocket to the dev server, which bridges to the runner's TCP protocol — CI
 drives the full walkthrough this way, including the HTTP demo against the dev server's
 `/day-http-ok` echo (day-part-http's browser arm rides the shim, [docs/http.md](docs/http.md)). [docs/web.md](docs/web.md)
-is the reference.
+is the reference. Two hardenings for dependency graphs (2026-08): `day build` compiles every
+web app with `--cfg getrandom_backend="custom"` and day-dom answers getrandom v0.3's
+custom-backend hook from the shim's `crypto.getRandomValues` import (entropy for uuid/rand
+without wasm-bindgen), and the shim + day-sql worker satisfy import modules besides `env`
+(a dependency's UNREACHED wasm-bindgen placeholders — chrono's default `wasmbind`, dragged in
+by feed parsers) with throw-on-call stubs, so instantiation survives and only an actual call
+into the missing runtime fails, diagnosably. One known limit: a DEBUG persistence app can
+exhaust WebKit's machine stack opening its store (unoptimized SQLite frames; Chromium copes,
+release fits everywhere) — scripted WebKit runs build `--profile release`, as CI always has.
 
 **harmony-arkui — shipped.** The "speculative sketch" bet paid off: ArkUI's C node API
 (`ArkUI_NativeNodeAPI_1`) matched day-spec's shape and the backend is now first-class — full
@@ -1765,6 +1785,24 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > keyed id goes stale when a cell rebinds). **Programmatic row scrolling** followed
 > (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
+> **Swipe actions shipped** (2026-08): app-declared reveal-as-you-swipe buttons on either
+> semantic edge, offers pulled per gesture so labels track row state — the pieces API
+> (`swipe_action(label).destructive/.tint/.action` + `.swipe_leading/.swipe_trailing`), the
+> `ListSource::swipe` seam (`actions_at` offer / `perform` commit, handlers held app-side and
+> re-resolved at the event drain), `Event::ListSwipe`, `Cap::ListSwipeActions` (Native on
+> AppKit via `tableView:rowActionsForRow:edge:` and UIKit via `UISwipeActionsConfiguration`,
+> sharing the delete pipeline; affordance simply absent elsewhere), and the dayscript
+> `swipe_row` step, whose `label:`/`key:` pins which button a state-dependent offer held
+> ([docs/list.md](docs/list.md)). The AppKit table then moved to `NSTableViewStyle::Plain`
+> (2026-08): the FullWidth style's ~6pt cell inset had been countered by a custom
+> `NSTableRowView` pinning cells to the row bounds, and that pin also clobbered the cell-frame
+> slide AppKit performs for row-action swipes — actions revealed behind a motionless row.
+> Plain has no inset, so the custom row view is gone and the swipe slides whole rows natively.
+> **Host-drawn separators** joined in the same change (`ListProps::separators`,
+> `.separators(bool)`, tri-state over each platform's default): the row boundary line belongs
+> to the host, where it aligns with the native selection and holds still under a swipe —
+> lowered on AppKit (grid mask), UIKit (`separatorStyle`), GTK (row CSS) and web (cell
+> border); the docs matrix tracks the rest.
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -1849,6 +1887,17 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   which four presentations can no longer encode in a lowered `Split`. Drawn today by
 >   macos-appkit and web-dom; the rest answer `Cap::NavTabs = Unsupported` and take the
 >   pre-adaptive sidebar ladder ([docs/navigation.md](docs/navigation.md) is normative).
+> - **The content list** *(2026-08)* — `selector(…).content_list(build)` adds the Mail shape's
+>   middle column as a third pane role: `Pane::List`, one resident page whose content follows
+>   the app's signals. `Cap::NavContentList` carries where it lands — `Native` on macos-appkit
+>   (a real `contentList` `NSSplitViewItem` that persists through every presentation),
+>   `Emulated` on ios-uikit (`UISplitViewController` triple-column, merged into the stack at
+>   compact width, interposed by `NavPatch::ListInStack` and gated by the app's
+>   `.detail_visible(sig)` binding), composed by the selector everywhere else.
+>   `.content_list_for(pred)` collapses the pane per destination (`NavPatch::ListVisible`).
+>   The keyboard half rides `Decorate::focusable` — the canvas focus contract generalized to
+>   containers through the new `Toolkit::set_focusable` duty (appkit today).
+>   [docs/navigation.md](docs/navigation.md) and [docs/focus.md](docs/focus.md) are normative.
 > - **Nav bar actions, plural and scoped** *(2026-08)* — `NavProps::bar_action: Option<_>` became
 >   `bar_actions: Vec<NavBarAction>`, and each action carries a `NavBarScope`. `bar_action` appends
 >   an `EveryPage` action (the old behavior, unchanged for existing callers); `list_action` appends
@@ -4849,6 +4898,9 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `toggle` | `id`, `value?` | omitted value = flip |
 | `select` | `id`, `index` | pickers/tabs |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam ([docs/list.md](docs/list.md)); a guard denial fails the step, non-retryably |
+| `delete_row` | `id`, `row` | delete a list row through the same guard → commit path a native swipe takes ([docs/list.md](docs/list.md)); a guard refusal fails the step, non-retryably |
+| `swipe_row` | `id`, `row`, `edge?`, `action?`, `label?`/`key?` | activate a row's swipe action through the offer → commit seam ([docs/list.md](docs/list.md)): `edge` defaults to `trailing`, `action` to 0 (the full-swipe button); `label:`/`key:` (Fluent, run-locale) pins which button may be pressed — a mismatched offer refuses the press, leaving state untouched |
+| `web_eval` | `id`, `script`, `contains?`, `text?` | evaluate JavaScript in a web-view node and assert on the result ([docs/webview-eval.md](docs/webview-eval.md)) — proves a page RENDERED where `assert_visible` only proves the native view exists; retryable while pending/throwing/mismatching, so a page mid-load settles within the wait; gate with `only_on:` to the backends whose eval arm exists |
 | `expand` | `id`, `row`, `expanded?` | disclose/collapse a tree row by its `.row_id` string — emits the same `TreeExpanded` a native disclosure does ([docs/tree.md](docs/tree.md)); omitted `expanded` = true |
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `item` \| `key`, `path?` | invoke an app-menu action by label or Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |

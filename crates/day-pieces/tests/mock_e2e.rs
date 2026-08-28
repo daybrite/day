@@ -1048,6 +1048,193 @@ fn selector_filtered_rows_keep_a_live_detail() {
     );
 }
 
+/// Boot with `Cap::NavContentList` forced — the content-list pane harness
+/// (docs/navigation.md). Splittable, so the launch size decides split vs stack.
+fn boot_content_list(
+    support: day_spec::Support,
+    size: Size,
+    root: impl FnOnce() -> AnyPiece + 'static,
+) -> MockProbe {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_nav_split(true);
+    probe.set_nav_content_list(support);
+    let options = WindowOptions {
+        title: "test".into(),
+        size,
+        ..Default::default()
+    };
+    day_core::launch_with(mock, options, root);
+    probe
+}
+
+fn content_list_selector(sel: Signal<String>, dv: Option<Signal<bool>>) -> AnyPiece {
+    let s = selector(sel)
+        .style(SelectorStyle::Sidebar)
+        .title("Home")
+        .content_list(|| label("the-list"))
+        .content_list_for(|k: &String| k != "extra")
+        .item("about", "About", || label("about-content"))
+        .item("extra", "Extra", || label("extra-content"));
+    match dv {
+        Some(v) => s.detail_visible(v).any(),
+        None => s.any(),
+    }
+}
+
+/// `Cap::NavContentList` Unsupported: the selector COMPOSES the pane into each list-backed
+/// destination — beside the detail while split, and never into an excluded one.
+#[test]
+fn content_list_composes_where_unsupported() {
+    let sel = Signal::new(String::new());
+    let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(1000.0, 700.0), {
+        move || content_list_selector(sel, None)
+    });
+    // Split auto-selects the first item; the composed page carries list AND detail.
+    assert_eq!(sel.get_untracked(), "about");
+    let texts = |probe: &MockProbe| -> Vec<String> {
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .map(|(_, w)| w.text.clone())
+            .collect()
+    };
+    let t = texts(&probe);
+    assert!(t.iter().any(|s| s == "the-list"), "list beside the detail");
+    assert!(t.iter().any(|s| s == "about-content"));
+    // No native pane: root + one detail page only.
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+
+    // An excluded destination takes the whole pane — no list composed in.
+    assert!(navigate("extra"));
+    flush_sync();
+    let t = texts(&probe);
+    assert!(t.iter().any(|s| s == "extra-content"));
+    assert!(
+        !t.iter().any(|s| s == "the-list"),
+        "excluded destination composes no list"
+    );
+}
+
+/// `Cap::NavContentList` Native: the list is its own `Pane::List` page, resident from the
+/// build, and per-destination visibility flows as `NavPatch::ListVisible`.
+#[test]
+fn content_list_native_pane_and_visibility() {
+    let sel = Signal::new(String::new());
+    let probe = boot_content_list(day_spec::Support::Native, Size::new(1000.0, 700.0), {
+        move || content_list_selector(sel, None)
+    });
+    // Root + list pane + auto-selected detail.
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    let lists = probe
+        .find_by_kind("day.label")
+        .iter()
+        .filter(|(_, w)| w.text == "the-list")
+        .count();
+    assert_eq!(lists, 1, "one list, in its own pane — never composed");
+
+    // Selecting the excluded destination collapses the pane; returning restores it.
+    let mark = probe.log_len();
+    assert!(navigate("extra"));
+    flush_sync();
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav list visible=false")),
+        "excluded destination collapses the pane"
+    );
+    let mark = probe.log_len();
+    assert!(navigate("about"));
+    flush_sync();
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav list visible=true"))
+    );
+}
+
+/// `Cap::NavContentList` Emulated, stacked: the list interposes above the sidebar root
+/// (`NavPatch::ListInStack`) and the detail push waits on `detail_visible` — the phone flow.
+#[test]
+fn content_list_emulated_gates_detail_on_visibility() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let probe = boot_content_list(day_spec::Support::Emulated, Size::new(400.0, 600.0), {
+        move || content_list_selector(sel, Some(dv))
+    });
+    // Narrow → Stack; the content list still forces a first selection, and the list — not the
+    // detail — is what shows for it.
+    assert_eq!(sel.get_untracked(), "about");
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("nav list in-stack=true")),
+        "list interposed above the sidebar root"
+    );
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        2,
+        "root + list; the detail push waits on detail_visible"
+    );
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content")
+    );
+
+    // Opening a row pushes the detail; closing pops back to the list.
+    batch(|| dv.set(true));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content")
+    );
+    batch(|| dv.set(false));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+
+    // NATIVE back (the swipe, the back button — `Event::NavBack` against the host) from an
+    // open detail clears `detail_visible` through its owner, not the selection.
+    batch(|| dv.set(true));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    let host = probe.find_by_kind("day.nav")[0].1.node;
+    probe.emit(
+        NodeId(host),
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert!(!dv.get_untracked(), "back from the detail closes it");
+    assert_eq!(sel.get_untracked(), "about", "the selection survives");
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+
+    // Native back from the list deselects and retracts it from the stack.
+    probe.emit(
+        NodeId(host),
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert_eq!(sel.get_untracked(), "");
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("nav list in-stack=false"))
+    );
+}
+
 #[test]
 fn stack_on_back_guard_intercepts_and_defers() {
     use std::cell::Cell;
@@ -4623,6 +4810,183 @@ fn list_delete_refused_by_guard_and_unsupported_without_optin() {
     let host2 = probe2.find_by_kind("day.list")[0].0;
     assert_eq!(probe2.list_can_delete(host2, 0), None);
     assert!(!probe2.list_delete(host2, 0));
+}
+
+// ---------------------------------------------------------------------------
+// List swipe actions (docs/list.md): the offer → commit seam behind
+// Cap::ListSwipeActions. The probe plays the native gesture's part — pull the
+// offer as the row starts to slide, press a button by index.
+// ---------------------------------------------------------------------------
+
+use day_spec::SwipeEdge;
+
+/// Five rows and a per-row read flag: the TRAILING offer flips its label off the row's
+/// current state (the Mail triage idiom — this is why the offer is pulled at gesture time),
+/// the LEADING offer stars. Handlers record what ran.
+fn swipe_list(
+    read: Signal<Vec<bool>>,
+    hits: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+) -> AnyPiece {
+    let items = Signal::new(seed());
+    let star_hits = hits.clone();
+    list(
+        day_pieces::items(move || items.get(), |s: &String| s.clone()),
+        |row: ItemSlot<String, String>| label(move || row.get()),
+    )
+    .row_height(RowHeight::Uniform(20.0))
+    .swipe_trailing(move |i| {
+        let was_read = read.get_untracked()[i];
+        let hits = hits.clone();
+        vec![
+            swipe_action(if was_read {
+                "Mark as Unread"
+            } else {
+                "Mark as Read"
+            })
+            .tint(day_spec::Color::rgb(0.0, 0.0, 1.0))
+            .action(move || {
+                hits.borrow_mut().push(format!("read:{i}"));
+                read.update(|v| v[i] = !v[i]);
+            }),
+        ]
+    })
+    .swipe_leading(move |i| {
+        let hits = star_hits.clone();
+        vec![
+            swipe_action("Star")
+                .destructive(true)
+                .action(move || hits.borrow_mut().push(format!("star:{i}"))),
+        ]
+    })
+    .any()
+}
+
+#[test]
+fn list_swipe_offer_is_pulled_live_and_activation_defers_the_handler() {
+    let read = Signal::new(vec![false; 5]);
+    let hits = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let h = hits.clone();
+    let probe = boot(move || swipe_list(read, h));
+    let host = probe.find_by_kind("day.list")[0].0;
+
+    // The trailing offer speaks the row's CURRENT state, styling included.
+    let offer = probe
+        .list_swipe_actions(host, 1, SwipeEdge::Trailing)
+        .expect("swipe seam installed");
+    assert_eq!(offer.len(), 1);
+    assert_eq!(offer[0].label, "Mark as Read");
+    assert!(!offer[0].destructive);
+    assert_eq!(offer[0].tint, Some(day_spec::Color::rgb(0.0, 0.0, 1.0)));
+
+    // Activation commits through the seam; the handler rides the event queue (never the
+    // native gesture callback itself) — the probe pumps it, as the delete commit does.
+    assert!(probe.list_swipe(host, 1, SwipeEdge::Trailing, 0));
+    assert_eq!(hits.borrow().as_slice(), ["read:1"]);
+
+    // The state flipped, so the NEXT pull offers the opposite label — the whole point of
+    // resolving the offer at gesture time.
+    let offer = probe
+        .list_swipe_actions(host, 1, SwipeEdge::Trailing)
+        .expect("swipe seam installed");
+    assert_eq!(offer[0].label, "Mark as Unread");
+
+    // The edges are distinct offers with distinct handlers.
+    let offer = probe
+        .list_swipe_actions(host, 3, SwipeEdge::Leading)
+        .expect("swipe seam installed");
+    assert_eq!(offer[0].label, "Star");
+    assert!(offer[0].destructive);
+    assert!(probe.list_swipe(host, 3, SwipeEdge::Leading, 0));
+    assert_eq!(hits.borrow().as_slice(), ["read:1", "star:3"]);
+}
+
+#[test]
+fn list_swipe_unsupported_without_optin_and_bounded_by_the_offer() {
+    // A list that never opted in has no seam at all — a backend must not offer the gesture.
+    let probe = boot(|| {
+        let items = Signal::new(seed());
+        list(
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .row_height(RowHeight::Uniform(20.0))
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    assert_eq!(probe.list_swipe_actions(host, 0, SwipeEdge::Trailing), None);
+    assert!(!probe.list_swipe(host, 0, SwipeEdge::Trailing, 0));
+
+    // Opted into ONE edge only: the other edge answers an empty offer (no affordance),
+    // and an action index past the offer refuses rather than guessing.
+    let read = Signal::new(vec![false; 5]);
+    let hits = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let h = hits.clone();
+    let probe2 = boot(move || {
+        let items = Signal::new(seed());
+        list(
+            day_pieces::items(move || items.get(), |s: &String| s.clone()),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .row_height(RowHeight::Uniform(20.0))
+        .swipe_trailing(move |i| {
+            let hits = h.clone();
+            let _ = read.get_untracked();
+            vec![swipe_action("Flag").action(move || hits.borrow_mut().push(format!("flag:{i}")))]
+        })
+        .any()
+    });
+    let host2 = probe2.find_by_kind("day.list")[0].0;
+    assert_eq!(
+        probe2
+            .list_swipe_actions(host2, 0, SwipeEdge::Leading)
+            .as_deref(),
+        Some(&[][..])
+    );
+    assert!(!probe2.list_swipe(host2, 0, SwipeEdge::Trailing, 1));
+    assert!(hits.borrow().is_empty());
+}
+
+#[test]
+fn list_try_swipe_drives_the_scripted_path() {
+    let read = Signal::new(vec![false; 5]);
+    let hits = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let h = hits.clone();
+    let probe = boot(move || swipe_list(read, h));
+    let node = day_core::id_to_rnode(node_id(&probe, "day.list", 0));
+
+    // The dayscript path answers the ACTIVATED label, so a step can pin which button it
+    // pressed — the offer is state-dependent.
+    assert_eq!(
+        day_core::list_try_swipe(node, 2, SwipeEdge::Trailing, 0, None),
+        Ok("Mark as Read".to_string())
+    );
+    assert_eq!(hits.borrow().as_slice(), ["read:2"]);
+    assert_eq!(
+        day_core::list_try_swipe(node, 2, SwipeEdge::Trailing, 0, None),
+        Ok("Mark as Unread".to_string())
+    );
+
+    // Two presses toggled the row back to unread, so the live offer is "Mark as Read" again.
+    // A pinned label that does not match it REFUSES the press — nothing runs, nothing flips
+    // (the re-runnability contract: a stale pin must not corrupt state).
+    assert!(
+        day_core::list_try_swipe(node, 2, SwipeEdge::Trailing, 0, Some("Mark as Unread")).is_err()
+    );
+    assert_eq!(
+        hits.borrow().as_slice(),
+        ["read:2", "read:2"],
+        "refused press ran nothing"
+    );
+    // ...and a matching pin presses.
+    assert_eq!(
+        day_core::list_try_swipe(node, 2, SwipeEdge::Trailing, 0, Some("Mark as Read")),
+        Ok("Mark as Read".to_string())
+    );
+    assert_eq!(hits.borrow().as_slice(), ["read:2", "read:2", "read:2"]);
+
+    // Out-of-offer and out-of-bounds report errors the runner can surface.
+    assert!(day_core::list_try_swipe(node, 2, SwipeEdge::Trailing, 1, None).is_err());
+    assert!(day_core::list_try_swipe(node, 99, SwipeEdge::Trailing, 0, None).is_err());
 }
 
 // ---------------------------------------------------------------------------

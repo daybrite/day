@@ -2083,9 +2083,20 @@ impl ModelContainer {
         // Per-row work, into batches that can merge. Deletes of one table merge into one
         // `IN`; updates merge when they write the SAME columns to the SAME values, which is
         // what a multi-selection edit produces ("set fill on twelve shapes").
+        //
+        // Deletes are held apart and emitted LAST. Dirty order interleaves rows by when each
+        // FIRST changed, which can put a parent row's delete between its children's detach
+        // updates (the first detach dirties the parent through relation upkeep) — and a
+        // relation column's `ON DELETE CASCADE` fires per STATEMENT, `DEFERRABLE` or not, so
+        // the mid-batch delete would take every still-attached child with it (found by Day
+        // Sketch's ungroup: two members detached, one row left). With inserts and updates
+        // first, a row still referencing a deleted parent at delete time is one the batch
+        // never detached — an orphan the cascade rule is SUPPOSED to take.
         let mut batches: Vec<Batch> = Vec::new();
+        let mut deletes: Vec<Batch> = Vec::new();
         // (store, statement shape, a fingerprint of the SET values) → the batch it joins.
         let mut open: HashMap<(u64, String, u64), usize> = HashMap::new();
+        let mut open_deletes: HashMap<(u64, String, u64), usize> = HashMap::new();
 
         for id in &dirty.order {
             let Some(state) = dirty.rows.get(id) else {
@@ -2105,13 +2116,13 @@ impl ModelContainer {
                 DirtyRow::Delete => {
                     if !batchable {
                         let (clause, params) = (hooks.key_where)(key);
-                        batches.push(Batch::Single(
+                        deletes.push(Batch::Single(
                             format!("DELETE FROM {} WHERE {clause}", hooks.table),
                             params,
                         ));
                         continue;
                     }
-                    join_batch(&mut batches, &mut open, store_id, None, key);
+                    join_batch(&mut deletes, &mut open_deletes, store_id, None, key);
                 }
                 DirtyRow::Insert => {
                     if let Some(row) = (hooks.row_for)(key) {
@@ -2163,7 +2174,7 @@ impl ModelContainer {
             }
         }
 
-        for batch in batches {
+        for batch in batches.into_iter().chain(deletes) {
             match batch {
                 Batch::Single(sql, params) => stmts.push((sql, params)),
                 Batch::Keyed { store, set, keys } => {

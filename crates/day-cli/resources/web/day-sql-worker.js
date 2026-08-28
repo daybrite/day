@@ -276,8 +276,27 @@ onmessage = async (e) => {
         : (k === 'day_dom_entropy') ? (p, n) => crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, p, n))
           : () => 0),
     });
-    // The page compiled the module once; this instantiation is cheap.
-    const instantiated = WebAssembly.instantiate(module, { env });
+    // The page compiled the module once; this instantiation is cheap. Import modules besides
+    // `env` (unreached wasm-bindgen placeholders a dependency drags in — the page shim's
+    // `foreignStubs` has the full story) get loud throw-on-call stubs so instantiation succeeds.
+    const imports = { env };
+    for (const im of WebAssembly.Module.imports(module)) {
+      if (im.module === 'env') continue;
+      const mod = (imports[im.module] ||= {});
+      if (im.name in mod) continue;
+      if (im.kind === 'function') {
+        mod[im.name] = () => {
+          throw new Error(`day-sql worker: ${im.module}.${im.name} called — no wasm-bindgen runtime here`);
+        };
+      } else if (im.kind === 'global') {
+        mod[im.name] = new WebAssembly.Global({ value: 'i32', mutable: false }, 0);
+      } else if (im.kind === 'table') {
+        mod[im.name] = new WebAssembly.Table({ element: 'anyfunc', initial: 0 });
+      } else if (im.kind === 'memory') {
+        mod[im.name] = new WebAssembly.Memory({ initial: 1 });
+      }
+    }
+    const instantiated = WebAssembly.instantiate(module, imports);
     await bootPool();
     wasm = (await instantiated).exports;
     postMessage('ready');

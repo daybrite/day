@@ -126,8 +126,12 @@ else skip "clippy harmonyos (arkui)" "rustup target add aarch64-unknown-linux-oh
 
 if have_target wasm32-unknown-unknown; then
   # CI only *builds* web-dom (no clippy leg), so this is a local superset — clippy subsumes the
-  # build's warning check and additionally keeps the dom backend clippy-clean.
-  app_leg "clippy web-dom (dom)" cargo clippy --target wasm32-unknown-unknown --lib \
+  # build's warning check and additionally keeps the dom backend clippy-clean. The
+  # getrandom_backend cfg mirrors what `day build` sets for every web app (crates/day-cli/web.rs):
+  # day-dom carries getrandom's custom-backend hook, and getrandom refuses to compile for raw
+  # wasm until a backend is chosen.
+  app_leg "clippy web-dom (dom)" env "RUSTFLAGS=$RUSTFLAGS --cfg getrandom_backend=\"custom\"" \
+    cargo clippy --target wasm32-unknown-unknown --lib \
     --no-default-features --features dom
 else skip "clippy web-dom (dom)" "rustup target add wasm32-unknown-unknown"; fi
 

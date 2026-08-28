@@ -126,6 +126,10 @@ pub struct MockState {
     /// narrow window collapses to a stack instead of growing a tab bar. Also inverted: the mock
     /// models a phone by default, and a phone adapts.
     pub desktop_idiom: bool,
+    /// What `Cap::NavContentList` answers (docs/navigation.md) — `Unsupported` by default (the
+    /// composed path); a test opts into `Native` (persistent pane) or `Emulated` (merges into
+    /// the stack) with [`MockProbe::set_nav_content_list`]. Read during the BUILD.
+    pub nav_content_list: Support,
     /// `open_window` answers `Pending` (the async-completion test harness); the test
     /// finishes the open through [`MockProbe::complete_window`].
     pub pending_windows: bool,
@@ -301,6 +305,56 @@ impl MockProbe {
             return false;
         }
         (d.delete_row)(index);
+        true
+    }
+
+    /// Pull a row's swipe-action offer the way a native gesture would as the row starts to
+    /// slide (docs/list.md): `Some(actions)` — possibly empty — when the list has a swipe
+    /// seam, `None` when it has none (no `.swipe_leading()`/`.swipe_trailing()`).
+    pub fn list_swipe_actions(
+        &self,
+        host: MockHandle,
+        index: usize,
+        edge: SwipeEdge,
+    ) -> Option<Vec<ListSwipeAction>> {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.swipe.as_ref().map(|sw| sw.actions_at.clone()));
+        f.map(|f| f(index, edge))
+    }
+
+    /// Simulate a native swipe activation: pull the offer and press button `action` (an index
+    /// into it), committing through the seam — which defers the app's handler to the event
+    /// drain, exactly as a native backend would. Returns whether an action was activated.
+    pub fn list_swipe(
+        &self,
+        host: MockHandle,
+        index: usize,
+        edge: SwipeEdge,
+        action: usize,
+    ) -> bool {
+        let sw = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|s| s.swipe.clone());
+        let Some(sw) = sw else {
+            self.state
+                .borrow_mut()
+                .log(format!("list swipe unsupported {index}"));
+            return false;
+        };
+        if (sw.actions_at)(index, edge).len() <= action {
+            self.state
+                .borrow_mut()
+                .log(format!("list swipe no action {index}"));
+            return false;
+        }
+        (sw.perform)(index, edge, action);
         true
     }
 
@@ -483,6 +537,13 @@ impl MockProbe {
         self.state.borrow_mut().desktop_idiom = v;
     }
 
+    /// What `Cap::NavContentList` answers (docs/navigation.md) — the content-list pane
+    /// harness. `Native` = persistent pane, `Emulated` = merges into the collapsed stack,
+    /// `Unsupported` (the default) = the selector composes. Read during the BUILD.
+    pub fn set_nav_content_list(&self, v: day_spec::Support) {
+        self.state.borrow_mut().nav_content_list = v;
+    }
+
     /// Make `open_window` answer `Pending` — the async-completion test harness. Finish an
     /// open with [`Self::complete_window`] + `day_core::finish_window_open`.
     pub fn set_pending_windows(&self, v: bool) {
@@ -616,6 +677,9 @@ impl Toolkit for MockToolkit {
                     Support::Unsupported
                 }
             }
+            // Unsupported by default (the composed path); a test opts into the pane shapes
+            // (docs/navigation.md) with [`MockProbe::set_nav_content_list`].
+            Cap::NavContentList => self.state.borrow().nav_content_list,
             // ON by default (docs/navigation.md): the mock models a phone, and a phone has a tab
             // bar. A test opts OUT to exercise the degradation path, where `Automatic` falls back
             // to the sidebar resolver.
@@ -884,6 +948,11 @@ impl Toolkit for MockToolkit {
                         w.value = *i as f64;
                         format!("nav select={i}")
                     }
+                    // Content-list pane visibility / stack membership (docs/navigation.md).
+                    // Logged only: mock answers `Cap::NavContentList` Unsupported, so the pieces
+                    // layer composes and these arrive solely in tests that force the cap.
+                    NavPatch::ListVisible(v) => format!("nav list visible={v}"),
+                    NavPatch::ListInStack(v) => format!("nav list in-stack={v}"),
                 }
             } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {
                 // `flag` records presented-ness (probe-visible). Tests emit the FrameChanged

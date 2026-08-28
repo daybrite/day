@@ -1704,6 +1704,10 @@ mod imp {
                             // The resident-page switch (docs/navigation.md): show that
                             // destination and move the bar's accent to it.
                             NavPatch::Select(i) => suite_select(*i),
+                            // Never arrives: this backend answers `Cap::NavContentList`
+                            // Unsupported, so the pieces layer composes the pane itself
+                            // (docs/navigation.md).
+                            NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
                         }
                     }
                 }

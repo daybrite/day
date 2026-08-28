@@ -35,7 +35,7 @@ list(items(move || messages.get(), |m| m.id), move |row: ItemSlot<Message, u64>|
         label(move || row.field(|m| m.preview.clone())),
     ))
 })
-.row_height(RowHeight::Uniform(56.0))   // or ::Automatic (self-sizing, slower)
+.row_height(RowHeight::Uniform(56.0))   // ::Automatic currently sizes rows at a fixed default
 .on_select(move |key| open(key))
 .id("inbox")
 ```
@@ -290,8 +290,9 @@ commit, which drops the row from Day's snapshot **before returning**, so `len`/`
 `bind_row` answer for the shorter list while the native removal animates, and defers the app's
 `on_delete` through the event queue — the same discipline the reorder half follows.
 
-**The desktop toolkits answer `Unsupported`**: none of them has a swipe idiom, and inventing one
-would be a Day invention rather than a platform's. A list that must be editable everywhere pairs
+**The desktop toolkits answer `Unsupported`** for the delete affordance: GTK, Qt and XAML have
+no swipe idiom at all, and macOS's row actions (the swipe-actions section below rides them) do
+not carry the delete affordance yet. A list that must be editable everywhere pairs
 `.deletable()` with an explicit control — a menu item, a per-row button — and lets the mobile
 toolkits add the gesture on top.
 
@@ -303,9 +304,94 @@ on every target — including the desktops, where there is no gesture to simulat
 |---|---|---|
 | UIKit | `trailingSwipeActionsConfigurationForRowAtIndexPath` | row tracks the finger, destructive action reveals behind it, full swipe commits |
 | Android | `ItemTouchHelper` swipe (`START`, so it is the trailing edge in RTL too) | row slides to reveal a red field carrying the label; `notifyItemRemoved` animates the close-up |
-| AppKit · GTK · Qt · XAML · web | — | `Unsupported`: no swipe idiom; use a menu item or a row button |
+| AppKit · GTK · Qt · XAML · web | — | `Unsupported`: the delete affordance does not ride macOS's row actions yet, and the rest have no swipe idiom; use a menu item or a row button |
 | ArkUI | `NODE_LIST_ITEM_SWIPE_ACTION` | *not yet implemented* — the NDK exposes it; the shim does not build it yet |
 
+## Swipe actions
+
+The generalized sibling of swipe-to-delete: app-declared buttons that reveal behind a row as
+the user drags it aside, on either edge, with the platform's own full-swipe shortcut for the
+first one — Mail's triage gestures.
+
+```rust
+list(source, row)
+    .swipe_trailing(move |i| {
+        let read = is_read(i);
+        vec![
+            swipe_action(if read { str::mark_unread() } else { str::mark_read() }.format())
+                .tint(palette().accent)
+                .action(move || set_read(i, !read)),
+        ]
+    })
+    .swipe_leading(move |i| vec![
+        swipe_action(str::delete_word().format())
+            .destructive(true)
+            .action(move || remove(i)),
+    ])
+```
+
+The provider runs at **gesture time**, with the row index, as the row starts to slide — so the
+offer reflects the row's current state (the "Mark as Read" / "Mark as Unread" flip above is the
+whole reason it is a closure and not a list). Keep it pure and fast: it runs inside the
+platform's swipe callback. The `action` handlers run later, at the event drain, never inside
+the native gesture — when an activation drains, the provider is invoked again and the action
+looked up by position, so the handler always closes over the row's current state.
+
+Edges are semantic, not geometric: `Leading` follows the reading direction (left in LTR, right
+in RTL), exactly as every platform's own swipe API already spells it. A full swipe across
+activates the edge's FIRST action. `destructive` takes the platform's destructive styling
+(red, on the Apple toolkits); `tint` colors the button where the platform honors one.
+
+Probe `Cap::ListSwipeActions`: **Native** on macOS (`NSTableView`'s
+`tableView:rowActionsForRow:edge:` — two-finger swipe, the Mail affordance) and iOS
+(`UISwipeActionsConfiguration`, sharing one pipeline with swipe-to-delete: on the trailing
+edge a `.deletable()` list offers its delete action first, then the row's own trailing offer).
+Everywhere else the answer is `Unsupported` and the affordance is simply absent — no gesture,
+no buttons — so pair each action with an explicit control (a menu item, a toolbar button) for
+the rest, exactly as the delete section advises.
+
+The seam is `ListSource::swipe`, present only when an edge is declared:
+`actions_at(index, edge) -> Vec<ListSwipeAction>` pulls the offer (label + styling, no
+handlers — those stay in the pieces layer), and `perform(index, edge, action)` commits an
+activation, deferring the app's handler through the event queue.
+
+The dayscript step `swipe_row: { id, row, edge?, action?, label?|key? }` drives the same
+offer → commit path without a native gesture (`edge` defaults to `trailing`, `action` to 0 —
+the full-swipe button). `label:` (literal) or `key:` (a Fluent key resolved in the run's
+locale) PINS which button the step may press — worth pinning precisely because offers are
+state-dependent. The pin is checked before the press: a mismatched offer refuses the
+activation and fails the step, leaving the row's state untouched, so a stale pin (say, from
+an aborted earlier run's leftover state) fails once instead of flipping state and poisoning
+every later run. An empty offer or an out-of-range action also fails, non-retryably. This is
+how a walkthrough exercises the wiring on every target, including the toolkits that show no
+affordance.
+
+## Separators
+
+```rust
+list(source, row).separators(true)
+```
+
+Row separators are the HOST's to draw, at the row boundary — never row content. A hand-drawn
+hairline inside a row sits wherever the row's own layout puts it, which is not where the
+native selection ends and not where the platform slides its rows: it misaligns with the
+selection under a uniform pitch, doubles up with iOS's native line, and stays frozen while a
+swipe-action reveal slides the row past it. The host's separator has none of those problems
+by construction.
+
+Left unset, each platform keeps its own default — iOS draws separators, the desktops don't.
+`.separators(true)` forces them on, `.separators(false)` off (an iOS list whose rows draw
+their own separation turns the native line off rather than showing both).
+
+| Backend | Mechanism |
+|---|---|
+| AppKit | `gridStyleMask = solidHorizontalGridLineMask`, `separatorColor` |
+| UIKit | the table's own `separatorStyle` (default on; `false` sets `.none`) |
+| GTK | a `border-bottom` on the ListView's `row` CSS nodes |
+| web | a `border-bottom` inside each cell frame (border-box) |
+| Qt · Android · XAML · ArkUI | *not lowered yet* — a force is ignored; rows separate by their pitch |
+
+## Reorder + row-height caveat
 
 Rows drag within their own list only; nothing is draggable out of the app. `RowHeight::Automatic`
 lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI; prefer

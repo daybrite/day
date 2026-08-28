@@ -502,10 +502,62 @@ pub struct List<S: RowSource> {
     delete_label: String,
     on_delete: Option<Rc<dyn Fn(usize)>>,
     delete_guard: Option<Rc<dyn Fn(usize) -> bool>>,
+    swipe_leading: Option<SwipeProvider>,
+    swipe_trailing: Option<SwipeProvider>,
+    separators: Option<bool>,
 }
 
 /// The full-set selection callback, aliased for the field above.
 type SelectionFn<R> = Rc<dyn Fn(Vec<R>)>;
+
+/// A row's swipe-action offer, aliased for the fields above: called with the row index at
+/// GESTURE time, so the actions reflect the row's current state (docs/list.md).
+type SwipeProvider = Rc<dyn Fn(usize) -> Vec<SwipeAction>>;
+
+/// One button in a row's swipe-action offer (docs/list.md): what the platform reveals as the
+/// user drags a row aside, built by [`swipe_action`]. Holds the label, the styling hints the
+/// backend maps onto its own affordance, and the handler the activation runs.
+pub struct SwipeAction {
+    label: String,
+    destructive: bool,
+    tint: Option<day_spec::Color>,
+    handler: Rc<dyn Fn()>,
+}
+
+/// Build a swipe action with `label` (localized by the app — `res::str::…` formatted to a
+/// `String`). Chain [`destructive`](SwipeAction::destructive) or [`tint`](SwipeAction::tint)
+/// for styling and [`action`](SwipeAction::action) for the work; an action without a handler
+/// still reveals and dismisses, but does nothing.
+pub fn swipe_action(label: impl Into<String>) -> SwipeAction {
+    SwipeAction {
+        label: label.into(),
+        destructive: false,
+        tint: None,
+        handler: Rc::new(|| {}),
+    }
+}
+
+impl SwipeAction {
+    /// Mark the action destructive: the platform styles it as such (red, on the Apple
+    /// toolkits) and may animate the row away on activation.
+    pub fn destructive(mut self, on: bool) -> Self {
+        self.destructive = on;
+        self
+    }
+    /// The button's background color, where the platform honors one. Left unset, the platform
+    /// picks its own default (gray, with red for destructive actions, on the Apple toolkits).
+    pub fn tint(mut self, color: day_spec::Color) -> Self {
+        self.tint = Some(color);
+        self
+    }
+    /// The work an activation runs. Called on the main thread at the next event drain, never
+    /// inside the native gesture callback; the row index is the one the offer was pulled for,
+    /// so capture what the action needs when building it.
+    pub fn action(mut self, f: impl Fn() + 'static) -> Self {
+        self.handler = Rc::new(f);
+        self
+    }
+}
 
 /// A reorder guard's verdict on a proposed row move (docs/list.md): consulted synchronously from
 /// the native drag's validate hook, so the affordance (gap, insertion mark, forbidden cursor)
@@ -546,6 +598,9 @@ where
         delete_label: String::new(),
         on_delete: None,
         delete_guard: None,
+        swipe_leading: None,
+        swipe_trailing: None,
+        separators: None,
     }
 }
 
@@ -644,9 +699,10 @@ impl<S: RowSource + 'static> List<S> {
     /// [`on_delete`](Self::on_delete) so the app's data follows, and optionally
     /// [`delete_guard`](Self::delete_guard) to protect individual rows.
     ///
-    /// The DESKTOP toolkits have no swipe idiom and answer `Unsupported`, so a list that must be
-    /// editable everywhere pairs this with an explicit control — a menu item or a button — rather
-    /// than leaving desktop users with no way to delete.
+    /// The DESKTOP toolkits answer `Unsupported` (macOS's row actions don't carry the delete
+    /// affordance yet; the rest have no swipe idiom), so a list that must be editable
+    /// everywhere pairs this with an explicit control — a menu item or a button — rather than
+    /// leaving desktop users with no way to delete.
     pub fn deletable(mut self, on: bool) -> Self {
         self.deletable = on;
         self
@@ -675,6 +731,40 @@ impl<S: RowSource + 'static> List<S> {
         self.delete_guard = Some(Rc::new(g));
         self
     }
+
+    /// Offer swipe actions on the row's LEADING edge — the reading-direction start, where the
+    /// platform reveals them as the user drags the row aside (probe `Cap::ListSwipeActions`;
+    /// docs/list.md has the matrix — a backend without the affordance shows nothing, so pair
+    /// each action with an explicit control for the rest). `provider` runs at GESTURE time
+    /// with the row index, so the offer can reflect the row's current state ("Mark as Read"
+    /// vs "Mark as Unread"). Keep it pure and fast — it runs inside the platform's swipe
+    /// callback; the actions' handlers run later, at the event drain. A full swipe across
+    /// activates the edge's FIRST action.
+    pub fn swipe_leading(mut self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
+        self.swipe_leading = Some(Rc::new(provider));
+        self
+    }
+
+    /// Offer swipe actions on the row's TRAILING edge — the reading-direction end. Same
+    /// contract as [`swipe_leading`](Self::swipe_leading).
+    pub fn swipe_trailing(
+        mut self,
+        provider: impl Fn(usize) -> Vec<SwipeAction> + 'static,
+    ) -> Self {
+        self.swipe_trailing = Some(Rc::new(provider));
+        self
+    }
+
+    /// Draw a separator under each row — the HOST's, at the row boundary, never row content
+    /// (docs/list.md): it aligns with the native selection and stays put while a macOS/iOS
+    /// swipe slides the row past it, exactly as Mail's separators do. Unset, each platform
+    /// keeps its own default (iOS draws them, the desktops don't). A backend without a
+    /// separator mechanism ignores this (the docs matrix says which) — don't re-create the
+    /// old hand-drawn hairline there; rows separate by their pitch.
+    pub fn separators(mut self, on: bool) -> Self {
+        self.separators = Some(on);
+        self
+    }
 }
 
 impl<S: RowSource + 'static> Piece for List<S> {
@@ -686,6 +776,8 @@ impl<S: RowSource + 'static> Piece for List<S> {
             reorderable: self.reorderable,
             deletable: self.deletable,
             delete_label: self.delete_label.clone(),
+            swipe_actions: self.swipe_leading.is_some() || self.swipe_trailing.is_some(),
+            separators: self.separators,
         };
         let node = cx.leaf(
             kinds::LIST,
@@ -753,6 +845,33 @@ impl<S: RowSource + 'static> Piece for List<S> {
             cx.on(node, move |ev| {
                 if let Event::ListDelete(index) = ev {
                     on_delete(*index);
+                }
+            });
+        }
+
+        // An activated swipe action, deferred to the event drain. The handlers live in
+        // `SwipeAction`s the provider builds fresh per gesture, so RE-PULL the offer here to
+        // find the one the user pressed — the provider is the single source of both the offer
+        // and its handlers, and a state change between reveal and activation resolves to the
+        // action the row NOW offers at that position.
+        if self.swipe_leading.is_some() || self.swipe_trailing.is_some() {
+            let (leading, trailing) = (self.swipe_leading.clone(), self.swipe_trailing.clone());
+            cx.on(node, move |ev| {
+                if let Event::ListSwipe {
+                    index,
+                    edge,
+                    action,
+                } = ev
+                {
+                    let provider = match edge {
+                        day_spec::SwipeEdge::Leading => leading.as_ref(),
+                        day_spec::SwipeEdge::Trailing => trailing.as_ref(),
+                    };
+                    if let Some(p) = provider
+                        && let Some(a) = p(*index).get(*action)
+                    {
+                        (a.handler)();
+                    }
                 }
             });
         }
@@ -832,6 +951,49 @@ impl<S: RowSource + 'static> Piece for List<S> {
                         enqueue_event(rnode_to_id(node), Event::ListReorder { from, to });
                     })
                 },
+            }),
+            swipe: (self.swipe_leading.is_some() || self.swipe_trailing.is_some()).then(|| {
+                ListSwipeDriver {
+                    // The offer, stripped to data: labels + styling cross the seam; the
+                    // handlers stay here, found again by index when the activation drains.
+                    actions_at: {
+                        let (leading, trailing) =
+                            (self.swipe_leading.clone(), self.swipe_trailing.clone());
+                        Box::new(move |i, edge| {
+                            let provider = match edge {
+                                day_spec::SwipeEdge::Leading => leading.as_ref(),
+                                day_spec::SwipeEdge::Trailing => trailing.as_ref(),
+                            };
+                            provider.map_or_else(Vec::new, |p| {
+                                p(i).iter()
+                                    .map(|a| day_spec::ListSwipeAction {
+                                        label: a.label.clone(),
+                                        destructive: a.destructive,
+                                        tint: a.tint,
+                                    })
+                                    .collect()
+                            })
+                        })
+                    },
+                    // Commit: defer the app's handler through the event queue (never run it
+                    // inside the native gesture callback).
+                    performed: {
+                        let conn = conn.clone();
+                        Box::new(move |index, edge, action| {
+                            if index >= conn.len() {
+                                return;
+                            }
+                            enqueue_event(
+                                rnode_to_id(node),
+                                Event::ListSwipe {
+                                    index,
+                                    edge,
+                                    action,
+                                },
+                            );
+                        })
+                    },
+                }
             }),
         };
         install_list(node, driver);
@@ -1275,6 +1437,9 @@ pub trait ListBuilder<S: RowSource + 'static>: Sized {
     fn delete_label(self, text: impl Into<String>) -> Self;
     fn on_delete(self, f: impl Fn(usize) + 'static) -> Self;
     fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self;
+    fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self;
+    fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self;
+    fn separators(self, on: bool) -> Self;
 }
 
 impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
@@ -1323,6 +1488,15 @@ impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
     fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
         List::delete_guard(self, g)
     }
+    fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
+        List::swipe_leading(self, provider)
+    }
+    fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
+        List::swipe_trailing(self, provider)
+    }
+    fn separators(self, on: bool) -> Self {
+        List::separators(self, on)
+    }
 }
 
 impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for Decorated<Inner> {
@@ -1370,6 +1544,15 @@ impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for D
     }
     fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.delete_guard(g))
+    }
+    fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.swipe_leading(provider))
+    }
+    fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.swipe_trailing(provider))
+    }
+    fn separators(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.separators(on))
     }
 }
 

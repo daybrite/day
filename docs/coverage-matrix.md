@@ -76,6 +76,7 @@ An app branches on this rather than on the target name.
 | `EditBridge` | N | N | – | – | – | – | – | N |
 | `ListReorder` | N | N | N | N | N | N | N | E |
 | `ListDelete` | – | N | – | – | – | N | N | – |
+| `ListSwipeActions` | N | N | – | – | – | – | – | – |
 | `Tree` | N | N | N | E | E | E | E | E |
 | `TreeMove` | N | – | – | – | – | – | – | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |
@@ -88,6 +89,7 @@ An app branches on this rather than on the target name.
 | `NavTabs` | N | N | N | N | N | N | E | E |
 | `NavTabsAdaptive` | – | N | – | – | – | N | E | E |
 | `NavRepresent` | N | E | – | N | – | E | – | N |
+| `NavContentList` | N | E | – | – | – | – | – | – |
 | `NavHeader` | – | N | – | – | N | N | N | – |
 | `Appearance` | N | N | N | – | N | – | – | N |
 | `AppMenu` | N | – | N | N | N | – | – | – |

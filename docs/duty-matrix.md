@@ -30,6 +30,7 @@ implement them, and this table proves it.
 | `set_event_sink` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `enable_gesture` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `set_focusable` | · | ✓ | · | · | · | · | · | · | · | · |
 | `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `attach_tree` | · | ✓ | ✓ | ✓ | · | · | · | · | · | ✓ |
 | `set_route` | · | · | · | · | · | · | · | · | ✓ | · |

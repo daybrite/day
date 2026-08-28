@@ -55,6 +55,19 @@ struct Book {
     author: Option<One<Author>>,
 }
 
+// --- the sketch: an ORDERED self-referential tree — the ungroup fold regression -------------
+
+#[derive(Model, Clone, Default, PartialEq, Debug)]
+#[model(table = "layers")]
+struct Layer {
+    #[model(id)]
+    id: u32,
+    z: f64,
+    parent: Option<One<Layer>>,
+    #[model(relation(target = Layer, inverse = "parent", delete = "cascade", ordered = "z"))]
+    children: Many<Layer>,
+}
+
 // --- the drawing: a self-referential tree, uuid-keyed, cascade ------------------------------
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]
@@ -277,6 +290,51 @@ fn cascade_recurses_through_a_self_referential_tree() {
     // Three generations went; the unrelated root stayed.
     assert_eq!(nodes.keys().len(), 1);
     assert!(nodes.with_untracked(|k| k.get(ModelId::<Node>::of(other).handle()).is_some()));
+}
+
+#[test]
+fn a_mid_batch_parent_delete_spares_the_children_the_batch_detached() {
+    // The ungroup shape: both children detach and the parent dies IN ONE TURN. The first
+    // detach's ORDERED-relation upkeep dirties the parent row, so first-dirty order puts
+    // the parent between the children — and `ON DELETE CASCADE` fires per statement
+    // (`DEFERRABLE` defers the check, never the action), so a mid-batch DELETE would take
+    // every child whose detach had not landed yet. The fold must emit deletes LAST.
+    let c = ModelContainer::open(Sqlite::memory(), schema![Layer]).expect("open");
+    let _undo = c.undo(10);
+    let layers = c.cache::<Layer>();
+    let add = |id: u32, z: f64, parent: Option<u32>| {
+        let node = Layer {
+            id,
+            z,
+            parent: parent.map(One::to),
+            ..Default::default()
+        };
+        layers.restructure("add", Op::Insert, id, move |v| v.push(node));
+    };
+    add(1, 1.0, None); // the group
+    add(2, 1.0, Some(1));
+    add(3, 2.0, Some(1));
+    c.save().expect("seed flush");
+    assert_eq!(c.table_count::<Layer>().expect("count"), 3);
+
+    // One batch, the app's ungroup: detach each child (parent + a fresh z), delete the group.
+    for (i, child) in [2u32, 3u32].into_iter().enumerate() {
+        layers.elem(child as u64).parent().write(None);
+        layers
+            .elem(child as u64)
+            .z()
+            .write(1.0 + (i as f64 + 1.0) / 1024.0);
+    }
+    layers.restructure("ungroup", Op::Delete, 1, |v| {
+        v.remove(1);
+    });
+    c.save().expect("ungroup flush");
+
+    assert_eq!(
+        c.table_count::<Layer>().expect("count"),
+        2,
+        "the mid-batch cascade must not take the detached children"
+    );
 }
 
 #[test]

@@ -16,3 +16,11 @@ license.workspace = true
 day-spec = { workspace = true }
 day-geometry = { workspace = true }
 log = { workspace = true }
+
+# The entropy bridge (§9): `day build` compiles every web app with
+# `--cfg getrandom_backend="custom"`, and this crate answers getrandom v0.3's custom-backend
+# hook from the shim's `day_dom_entropy` (crypto.getRandomValues) — the raw-wasm pipeline has
+# no wasm-bindgen runtime for getrandom's own `wasm_js` backend. Target-gated: on native
+# hosts (clippy's cross-target sweep) getrandom keeps its OS backends and the hook is absent.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.3", default-features = false }

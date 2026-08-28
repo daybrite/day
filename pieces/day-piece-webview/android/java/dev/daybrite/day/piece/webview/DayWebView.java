@@ -34,6 +34,23 @@ public final class DayWebView {
         return "0\u001FAndroidWebView\u001F" + message;
     }
 
+    /**
+     * API 30 flipped {@link android.webkit.WebSettings#setAllowFileAccess} to {@code false},
+     * refusing even the app's OWN {@code loadUrl("file://...")} with net::ERR_ACCESS_DENIED —
+     * which broke every day app that renders a locally written document (a feed reader's
+     * article file). Re-enable it ONLY when the app itself asks for a {@code file://} URL, so
+     * a WebView that never leaves http(s) keeps the modern lockdown. The dangerous switches
+     * stay at their defaults regardless: scripts inside a file page still cannot read other
+     * {@code file://} content (setAllowFileAccessFromFileURLs) or reach other origins from the
+     * file scheme (setAllowUniversalAccessFromFileURLs), and web content cannot navigate a
+     * WebView to {@code file://} at all — only the app's {@code loadUrl} can.
+     */
+    private static void allowFileUrl(WebView web, String url) {
+        if (url != null && url.startsWith("file://")) {
+            web.getSettings().setAllowFileAccess(true);
+        }
+    }
+
     public static View makeWebView(long id, String url, String inlinePrefix) {
         WebView web = new WebView(DayBridge.ctx);
         web.getSettings().setJavaScriptEnabled(true);
@@ -60,6 +77,7 @@ public final class DayWebView {
             }
         });
         if (url != null && !url.isEmpty()) {
+            allowFileUrl(web, url);
             web.loadUrl(url);
         }
         IDS.put(web, id);
@@ -116,6 +134,7 @@ public final class DayWebView {
         switch (code) {
             case 0:
                 if (url != null && !url.isEmpty()) {
+                    allowFileUrl(web, url);
                     web.loadUrl(url);
                 }
                 break;

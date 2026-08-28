@@ -152,6 +152,13 @@ and inserts, which already fold to one multi-row upsert. A batch longer than SQL
 parameter limit splits into chunks inside the same transaction, so the whole flush still
 commits or rolls back together. `record_sql` shows the batched form, which is what to assert.
 
+Within the transaction, deletes always come last. A relation column's `ON DELETE CASCADE`
+fires per statement — `DEFERRABLE` defers the constraint CHECK, never the action — so a
+parent row's delete emitted mid-batch would take every child the batch had not yet
+re-parented (an ungroup detaches its members and deletes the group in one turn). With
+inserts and updates flushed first, a row still referencing a deleted parent at delete time
+is one the batch never detached — an orphan the cascade rule is supposed to take.
+
 ## Drivers and engines
 
 The container speaks to SQLite through the `SqliteDriver` trait; two drivers are built in.

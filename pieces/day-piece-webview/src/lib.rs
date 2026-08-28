@@ -417,11 +417,20 @@ thread_local! {
     /// Request ids start at 1 so 0 stays free for the URL report, which shares this channel.
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
     static PENDING: RefCell<HashMap<u64, Rc<EvalShared>>> = RefCell::new(HashMap::new());
+    /// Callback-shaped requests (the dayscript `web_eval` step, via day-core's seam) — same
+    /// req space and reply channel as the futures above, different completion shape.
+    static PENDING_CB: RefCell<HashMap<u64, day_core::WebviewEvalDone>> =
+        RefCell::new(HashMap::new());
 }
 
-/// Deliver a reply to whichever future is waiting on `req`. A reply for a dropped future finds
-/// nothing pending and is discarded.
+/// Deliver a reply to whichever request is waiting on `req` — an awaited [`EvalFuture`] or a
+/// `web_eval` step callback. A reply for a dropped future finds nothing pending and is
+/// discarded.
 fn resolve(req: u64, payload: &str) {
+    if let Some(done) = PENDING_CB.with(|p| p.borrow_mut().remove(&req)) {
+        done(decode(payload).map_err(|e| e.to_string()));
+        return;
+    }
     let Some(shared) = PENDING.with(|p| p.borrow_mut().remove(&req)) else {
         return;
     };
@@ -429,6 +438,41 @@ fn resolve(req: u64, payload: &str) {
     if let Some(waker) = shared.waker.borrow_mut().take() {
         waker.wake();
     }
+}
+
+/// Register this piece's evaluator with day-core, for the dayscript `web_eval` step
+/// (docs/webview-eval.md). Called from the constructors — idempotent, and an app that never
+/// builds a web view never registers, which the step reports honestly. The provider applies
+/// the same [`wrap_script`] envelope and reply channel as [`JsHandle::eval`]; on a backend
+/// whose arm answers `eval_support() != Native` it fails the callback immediately rather
+/// than letting the step wait out its retry window.
+fn register_script_eval() {
+    day_core::register_webview_eval(
+        KIND,
+        std::rc::Rc::new(|node, script, done| {
+            if eval_support() != day_spec::Support::Native {
+                done(Err(EvalError::Unsupported.to_string()));
+                return;
+            }
+            let req = NEXT_REQ.with(|c| {
+                let v = c.get();
+                c.set(v + 1);
+                v
+            });
+            let wrapped = wrap_script(script);
+            PENDING_CB.with(|p| p.borrow_mut().insert(req, done));
+            with_tree(|t| {
+                t.patch(
+                    node,
+                    Box::new(WebPatch::Eval {
+                        req,
+                        script: wrapped,
+                    }),
+                    false,
+                )
+            });
+        }),
+    );
 }
 
 /// A handle for running JavaScript in a web view. `Copy`, like `Trigger`, so it can be captured by
@@ -564,6 +608,9 @@ pub fn web_view(url: Signal<String>) -> WebView {
     // the earliest point the piece is known to be in play — always before its node is realized.
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
     dom_impl::register();
+    // Same earliest-point reasoning for the dayscript `web_eval` seam: a step can only target
+    // a webview some constructor built, so registration here is always in time.
+    register_script_eval();
     WebView {
         url,
         go: None,

@@ -1612,9 +1612,17 @@ pub struct NavLayout {
     /// The host's sidebar page, once it has one. Identity, not position: after a re-present the
     /// pages keep their roles but a backend may have re-homed them in a different order.
     pub sidebar: std::rc::Rc<std::cell::Cell<Option<RNode>>>,
+    /// The host's content-list page (`Pane::List`), once it has one — shared like `sidebar`.
+    pub list: std::rc::Rc<std::cell::Cell<Option<RNode>>>,
+    /// The content-list pane's preferred width (`NavProps::list_width`), for the fallback split.
+    pub list_width: f64,
+    /// Whether the pane is showing (`NavPatch::ListVisible`) — shared with the piece so a
+    /// collapsed pane stops narrowing the detail's FALLBACK immediately, rather than one
+    /// FrameChanged report later.
+    pub list_visible: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
-pub use day_spec::NAV_SIDEBAR_WIDTH;
+pub use day_spec::{NAV_LIST_WIDTH, NAV_SIDEBAR_WIDTH};
 
 impl NavLayout {
     /// A host with no sidebar pane and no re-presenting to do: a tab strip's page area, or a
@@ -1628,6 +1636,9 @@ impl NavLayout {
                 day_spec::props::NavPresentation::Stack,
             )),
             sidebar: std::rc::Rc::new(std::cell::Cell::new(None)),
+            list: std::rc::Rc::new(std::cell::Cell::new(None)),
+            list_width: NAV_LIST_WIDTH,
+            list_visible: std::rc::Rc::new(std::cell::Cell::new(true)),
         }
     }
 }
@@ -1643,6 +1654,14 @@ impl Layout for NavLayout {
         let pres = self.presentation.get();
         let split = pres.is_split();
         let sidebar = self.sidebar.get();
+        let list = self.list.get();
+        // The list pane narrows the detail's fallback only while it has its own pane AND it
+        // is showing — a collapsed pane gives the detail its width back at once.
+        let list_w = if split && list.is_some() && self.list_visible.get() {
+            self.list_width
+        } else {
+            0.0
+        };
         for &page in children {
             let reported = self.sizes.borrow().get(&page).copied();
             // Only a FALLBACK: every backend reports each page's real frame through
@@ -1650,6 +1669,7 @@ impl Layout for NavLayout {
             // before the first report arrives.
             let sz = reported.unwrap_or_else(|| {
                 let is_sidebar = Some(page) == sidebar;
+                let is_list = Some(page) == list;
                 if pres.rows_are_chrome() {
                     // The rows are the chrome (a tab bar, a rail): the backend draws them itself
                     // and sizes its own bar, so the sidebar page is measured but not shown. Keep
@@ -1658,16 +1678,23 @@ impl Layout for NavLayout {
                     // into a split.
                     if is_sidebar {
                         Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
+                    } else if is_list {
+                        Size::new(self.list_width, bounds.size.height)
                     } else {
                         bounds.size
                     }
                 } else if !split {
+                    // Includes a stacked host's list page: full width where it joins the stack
+                    // (`Cap::NavContentList` Emulated); where its pane persists instead
+                    // (Native, a narrow Mac window) the first FrameChanged report corrects it.
                     bounds.size
                 } else if is_sidebar {
                     Size::new(NAV_SIDEBAR_WIDTH, bounds.size.height)
+                } else if is_list {
+                    Size::new(self.list_width, bounds.size.height)
                 } else {
                     Size::new(
-                        (bounds.size.width - NAV_SIDEBAR_WIDTH - 1.0).max(0.0),
+                        (bounds.size.width - NAV_SIDEBAR_WIDTH - list_w - 1.0).max(0.0),
                         bounds.size.height,
                     )
                 }

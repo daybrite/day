@@ -81,6 +81,17 @@ pub fn build_web(
         status("Using", &format!("{} (wasm32 C compiler)", cc.display()));
         cmd.env("CC_wasm32_unknown_unknown", &cc);
     }
+    // Route entropy to day-dom's getrandom bridge (docs/web.md): the raw-wasm pipeline has no
+    // wasm-bindgen runtime, so getrandom v0.3's own `wasm_js` backend cannot work here — the
+    // `custom` backend cfg points it at `__getrandom_v03_custom`, which day-dom answers from
+    // the shim's `crypto.getRandomValues`. APPENDED to an inherited RUSTFLAGS (CI sets one);
+    // inert for app graphs that never pull getrandom.
+    let mut rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
+    if !rustflags.is_empty() {
+        rustflags.push(' ');
+    }
+    rustflags.push_str("--cfg getrandom_backend=\"custom\"");
+    cmd.env("RUSTFLAGS", rustflags);
     if profile == Profile::Release {
         // Debug symbols are most of a release wasm's bytes and no browser tool reads them
         // from a stripped build; keep the shipped module small.
@@ -89,6 +100,12 @@ pub fn build_web(
         // Debug keeps the NAME section (browser backtraces read it) but drops DWARF, which
         // no browser reads and which multiplies the module several times over — the page AND
         // the day-sql worker each decode this module, so its size is boot time twice.
+        //
+        // KNOWN LIMIT: a DEBUG persistence app can die opening its store on WebKit only —
+        // "RangeError: Maximum call stack size exceeded" from the day-sql worker. Unoptimized
+        // SQLite open recurses deeper than WebKit's machine stack allows for wasm frames (a
+        // VM budget `-zstack-size` cannot raise; Chromium copes, release fits everywhere).
+        // Scripted WebKit runs should build `--profile release`, as CI does.
         cmd.args(["--", "-Cstrip=debuginfo"]);
     }
     status("Building", &format!("{} ({profile})", target.name));

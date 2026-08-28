@@ -38,6 +38,33 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > the case the JS envelope structurally cannot catch, delivered by `ExecuteScriptWithResult`'s
 > engine-level error channel. See [webview.md](./webview.md) for the shipped piece.
 
+## The dayscript step: `web_eval`
+
+```yaml
+- web_eval:
+    id: reader-web
+    script: "document.getElementById('reader-title') ? 'reader-ok' : 'no-title'"
+    text: "reader-ok"
+```
+
+The scripted face of the same machinery — the step that proves a page RENDERED, where
+`assert_visible` only proves the native view exists (an error page or a blank document passes
+that; both famously did). `script` runs through the identical envelope and reply channel as
+`JsHandle::eval`; a string result compares as itself, anything else as its JSON text.
+`contains:` asserts a substring, `text:` an exact match; with neither, a successful
+evaluation alone passes.
+
+The plumbing is a three-party handoff with no new dependency edges: the webview piece
+registers an evaluator with day-core (`register_webview_eval`, keyed by its node kind) from
+its constructors, and the step drives it via `day_core::webview_eval` — day-script and the
+piece never learn about each other. Because a step handler cannot block the event pump its
+reply needs, the step is a retryable poll: the first pass starts the evaluation, retries
+within the runner's implicit wait collect it, and an assertion mismatch discards the result
+so the next retry re-evaluates — a page mid-load settles into passing within the wait. It
+fails non-retryably when the id names no web view (or no webview piece is linked), and
+spends the wait then fails where the backend's arm reports `Unsupported` — gate it with
+`only_on:` to the platforms in the support list above.
+
 Goal: `js.eval("document.title").await` returning a value from the embedded engine, on every backend
 that has one.
 

@@ -2510,6 +2510,10 @@ mod imp {
                                     &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
                                 );
                             }
+                            // Never arrives: this backend answers `Cap::NavContentList`
+                            // Unsupported, so the pieces layer composes the pane itself
+                            // (docs/navigation.md).
+                            NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
                         }
                     }
                 }

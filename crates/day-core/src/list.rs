@@ -32,6 +32,8 @@ pub struct ListDriver {
     pub reorder: Option<ListReorderDriver>,
     /// Swipe-to-delete half, present when the piece is `.deletable()` (docs/list.md).
     pub delete: Option<ListDeleteDriver>,
+    /// Swipe-ACTIONS half, present when the piece declared edge actions (docs/list.md).
+    pub swipe: Option<ListSwipeDriver>,
 }
 
 /// The reorder closures the `list()` piece supplies (docs/list.md). Exposed to the backend as
@@ -54,6 +56,18 @@ pub struct ListDeleteDriver {
     /// Commit an accepted delete: drops the row from the piece's snapshot + tokens synchronously
     /// and defers the app's `on_delete` callback to the next event drain.
     pub deleted: Box<dyn Fn(usize)>,
+}
+
+/// The swipe-action closures the `list()` piece supplies (docs/list.md). Exposed to the
+/// backend as [`day_spec::ListSwipe`] by [`make_source`]; also driven directly by
+/// [`list_try_swipe`] (the dayscript `swipe_row` step and the mock probe).
+pub struct ListSwipeDriver {
+    /// The offer: the actions for row `index` on `edge` — pure, runs inside native swipe
+    /// callbacks.
+    pub actions_at: Box<dyn Fn(usize, day_spec::SwipeEdge) -> Vec<day_spec::ListSwipeAction>>,
+    /// Commit an activated action (an index into the offer): defers the app's handler to the
+    /// next event drain.
+    pub performed: Box<dyn Fn(usize, day_spec::SwipeEdge, usize)>,
 }
 
 /// A freshly built row: its `Scope` (owns the row's reactive graph) and a rebind writer that
@@ -172,10 +186,50 @@ pub fn list_try_delete(node: RNode, index: usize) -> Result<(), &'static str> {
     Ok(())
 }
 
+/// Programmatically run a swipe action through the same offer → commit path a native gesture
+/// takes (docs/list.md): pull the row's offer for the edge, refuse when the action is not in
+/// it, and defer the commit. This is how the dayscript `swipe_row` step and the mock probe
+/// drive the seam without a native gesture. `expect` pins the button by its label — offers
+/// are state-dependent, and a pinned step must REFUSE to press a different button rather
+/// than press it and complain (pressing anyway flips state the script did not mean to flip,
+/// which is how one aborted run poisons every later one). Answers the activated label.
+/// Call with no borrow held.
+pub fn list_try_swipe(
+    node: RNode,
+    index: usize,
+    edge: day_spec::SwipeEdge,
+    action: usize,
+    expect: Option<&str>,
+) -> Result<String, String> {
+    let driver = with_tree(|t| t.list_driver(node)).ok_or("no list at this node")?;
+    let Some(sw) = driver.swipe.as_ref() else {
+        return Err("list has no swipe actions".into());
+    };
+    if index >= (driver.len)() {
+        return Err("row index out of bounds".into());
+    }
+    let offer = (sw.actions_at)(index, edge);
+    let Some(a) = offer.get(action) else {
+        return Err("no such action in this row's offer".into());
+    };
+    if let Some(want) = expect
+        && a.label != want
+    {
+        return Err(format!(
+            "the offer holds {:?}, expected {want:?} — not pressed",
+            a.label
+        ));
+    }
+    let label = a.label.clone();
+    (sw.performed)(index, edge, action);
+    Ok(label)
+}
+
 /// Build the `ListSource` the backend calls from its data-source. `len`/`token_at` read the driver
 /// directly (no tree). `bind_row` phases the tree borrow around the build + flush (see module doc).
 pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
-    let (d_len, d_tok, d_reorder, d_delete, d_bind) = (
+    let (d_len, d_tok, d_reorder, d_delete, d_swipe, d_bind) = (
+        driver.clone(),
         driver.clone(),
         driver.clone(),
         driver.clone(),
@@ -233,6 +287,18 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
                 let d = d_reorder.clone();
                 Rc::new(move |from, to| {
                     (d.reorder.as_ref().expect("mapped from Some").moved)(from, to)
+                })
+            },
+        }),
+        swipe: d_swipe.swipe.as_ref().map(|_| day_spec::ListSwipe {
+            actions_at: {
+                let d = d_swipe.clone();
+                Rc::new(move |i, e| (d.swipe.as_ref().expect("mapped from Some").actions_at)(i, e))
+            },
+            perform: {
+                let d = d_swipe.clone();
+                Rc::new(move |i, e, a| {
+                    (d.swipe.as_ref().expect("mapped from Some").performed)(i, e, a)
                 })
             },
         }),

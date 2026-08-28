@@ -55,9 +55,9 @@ pub use frame::{
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
-    BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, install_list, list_reload,
-    list_scroll_to_end, list_scroll_to_row, list_set_selected, list_splice, list_try_delete,
-    list_try_reorder,
+    BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, ListSwipeDriver, install_list,
+    list_reload, list_scroll_to_end, list_scroll_to_row, list_set_selected, list_splice,
+    list_try_delete, list_try_reorder, list_try_swipe,
 };
 pub use menu::{
     dispatch_menu_action, register_menu_action, register_scoped_menu_action, set_app_menu,
@@ -921,6 +921,46 @@ pub fn synthesize_text(node: RNode, text: String) {
         _ => {}
     });
     tree::enqueue_event(tree::rnode_to_id(node), day_spec::Event::TextChanged(text));
+}
+
+// ---------------------------------------------------------------------------
+// Webview-evaluation seam (docs/webview-eval.md): a webview PIECE registers its evaluator
+// here; the dayscript `web_eval` step drives it. day-core owns only the handoff — the
+// script engine and the piece never depend on each other.
+// ---------------------------------------------------------------------------
+
+/// A webview piece's evaluator: run RAW `script` (the piece applies its own envelope) against
+/// a node of the piece's kind, delivering `Ok(json)` — the value as JSON text — or `Err` (a
+/// human-readable message) to the callback at a later event drain, never inline.
+pub type WebviewEvalFn = std::rc::Rc<dyn Fn(RNode, &str, WebviewEvalDone)>;
+/// The reply callback [`WebviewEvalFn`] must eventually call (a dropped callback shows up as
+/// a step that waits out its retry window — deliver an `Err` instead where possible).
+pub type WebviewEvalDone = Box<dyn FnOnce(Result<String, String>)>;
+
+thread_local! {
+    static WEBVIEW_EVAL: std::cell::RefCell<Option<(day_spec::PieceKind, WebviewEvalFn)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Register the evaluator for webview nodes of `kind`. Called by the webview piece's
+/// constructors (idempotent — the last registration wins); an app that never builds a web
+/// view never registers one, and the `web_eval` step says so.
+pub fn register_webview_eval(kind: day_spec::PieceKind, f: WebviewEvalFn) {
+    WEBVIEW_EVAL.with(|c| *c.borrow_mut() = Some((kind, f)));
+}
+
+/// Start an evaluation for the dayscript `web_eval` step: `false` when no evaluator is
+/// registered or `node` is not the registered webview kind (the step fails, non-retryably,
+/// with that story); `true` means the evaluator took the request and WILL call `done`.
+pub fn webview_eval(node: RNode, script: &str, done: WebviewEvalDone) -> bool {
+    let Some((kind, f)) = WEBVIEW_EVAL.with(|c| c.borrow().clone()) else {
+        return false;
+    };
+    if tree::with_tree(|t| t.node_kind(node)) != Some(kind) {
+        return false;
+    }
+    f(node, script, done);
+    true
 }
 
 /// Override the app's appearance: `Some(true)` dark, `Some(false)` light, `None` follow the

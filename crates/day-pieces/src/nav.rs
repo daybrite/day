@@ -442,6 +442,9 @@ struct ResidentPage {
 /// or a stack's `.destination`.
 type DestFn<K> = Rc<dyn Fn(&K) -> AnyPiece>;
 
+/// Which destinations show the content-list pane (`Selector::content_list_for`).
+type ListPred<K> = Rc<dyn Fn(&K) -> bool>;
+
 /// Completions for a search field's current text (`Selector::search_suggestions`).
 type SuggestFn = Rc<dyn Fn(&str) -> Vec<String>>;
 
@@ -807,6 +810,18 @@ pub struct Selector<S: Binding<K>, K: Route = String> {
     /// The presentation pinned by [`Selector::presentation`]; `None` = automatic, resolved from
     /// the window's size class and re-resolved whenever it changes.
     presentation: Option<day_spec::props::NavPresentation>,
+    /// The content-list pane builder ([`Selector::content_list`], docs/navigation.md) — the
+    /// Mail shape's middle column, built ONCE and resident for the host's life. `None` = the
+    /// classic two-pane selector.
+    content_list: Option<Rc<dyn Fn() -> AnyPiece>>,
+    /// Preferred width of the content-list pane in points.
+    content_list_width: f64,
+    /// Which destinations show the pane ([`Selector::content_list_for`]); `None` = all of them.
+    content_list_pred: Option<ListPred<K>>,
+    /// Whether the DETAIL is showing, two-way ([`Selector::detail_visible`]) — what gates the
+    /// detail push in a stacked presentation with a content list, and what native back writes
+    /// `false` into. `None` = the detail behaves classically (pushed on selection).
+    detail_visible: Option<Signal<bool>>,
 }
 
 /// A pending search declaration ([`Selector::searchable`] and its modifiers). The query and the
@@ -1045,6 +1060,10 @@ pub fn selector<K: Route, S: Binding<K>>(selection: S) -> Selector<S, K> {
         bar_actions: Vec::new(),
         search: None,
         presentation: None,
+        content_list: None,
+        content_list_width: day_spec::NAV_LIST_WIDTH,
+        content_list_pred: None,
+        detail_visible: None,
     }
 }
 
@@ -1122,6 +1141,45 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     /// whatever is asked for, exactly as it does for the automatic case.
     pub fn presentation(mut self, presentation: day_spec::props::NavPresentation) -> Self {
         self.presentation = Some(presentation);
+        self
+    }
+    /// A CONTENT-LIST pane between the sidebar and the detail — the Mail shape: mailboxes,
+    /// message list, message (docs/navigation.md). Built ONCE and resident for the host's
+    /// life; its content follows the app's own signals (the selection scoping it, the row
+    /// chosen from it), never a rebuild.
+    ///
+    /// Where the toolkit has a native pane (`Cap::NavContentList`) the list gets its own
+    /// column — an AppKit `contentList` split item, a UIKit supplementary column — and
+    /// otherwise the selector composes it beside (split) or in place of (stacked) each
+    /// destination. Pair with [`Self::detail_visible`] so compact widths get the
+    /// list-then-detail push flow, and [`Self::content_list_for`] to give full-width
+    /// destinations (a settings page) the whole detail area.
+    pub fn content_list<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
+        self.content_list = Some(Rc::new(move || AnyPiece::new(build())));
+        self
+    }
+    /// Preferred width of the content-list pane in points (default
+    /// [`day_spec::NAV_LIST_WIDTH`]). Where the divider is user-draggable this is the initial
+    /// width, not a limit.
+    pub fn content_list_width(mut self, width: f64) -> Self {
+        self.content_list_width = width;
+        self
+    }
+    /// Which destinations show the content-list pane (default: all of them). A destination
+    /// answering `false` collapses the pane and takes the whole detail area — the settings
+    /// page beside a mail-shaped app.
+    pub fn content_list_for(mut self, pred: impl Fn(&K) -> bool + 'static) -> Self {
+        self.content_list_pred = Some(Rc::new(pred));
+        self
+    }
+    /// Whether the DETAIL is showing, as a two-way signal (docs/navigation.md). Split-family
+    /// presentations ignore it — the detail pane is always there, showing the app's empty
+    /// state until a row is chosen. A STACKED presentation (a phone, a collapsed split) uses
+    /// it as the push gate: the content list is the top of the stack until the app writes
+    /// `true` (a row was opened), the detail pushes then, and the platform's back writes
+    /// `false` on the way out.
+    pub fn detail_visible(mut self, visible: Signal<bool>) -> Self {
+        self.detail_visible = Some(visible);
         self
     }
     /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
@@ -1474,6 +1532,14 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let represent = with_tree(|t| t.capability(day_spec::Cap::NavRepresent));
     let we_drive = represent == day_spec::Support::Native;
     let toolkit_drives = represent == day_spec::Support::Emulated;
+    // The content-list pane (docs/navigation.md). `Native`/`Emulated` = the toolkit places the
+    // `Pane::List` page itself; `Unsupported` = the wrapper below composes it around each
+    // destination and the backend never hears of it.
+    let list_cap = with_tree(|t| t.capability(day_spec::Cap::NavContentList));
+    let native_list = sel.content_list.is_some() && list_cap != day_spec::Support::Unsupported;
+    // A merged-pane backend (uikit) folds the list into the stack when it collapses; that is
+    // the only shape where the detail push is gated on `detail_visible`.
+    let merged_list = native_list && list_cap == day_spec::Support::Emulated;
     // Either way the window's size decides the INITIAL value: a backend that morphs itself still
     // starts wherever its container will land, so seeding from the class avoids a first frame in
     // the wrong presentation followed by a correcting report.
@@ -1599,8 +1665,17 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     };
     let split = presentation.is_split();
     let presentation_cell = Rc::new(Cell::new(presentation));
+    // The same fact as a SIGNAL, for content the composed list wrapper builds inside the
+    // pages: a re-present re-runs its `when` where a Cell could only be re-read on rebuild.
+    let presentation_sig = Signal::new(presentation);
     let split_cell = Rc::new(Cell::new(split));
     let sidebar_cell: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
+    let list_cell: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
+    // ListVisible / ListInStack bookkeeping (both start where the backend starts: the pane
+    // visible, the stack without the list). `list_shown` is shared with NavLayout so a
+    // collapsed pane stops narrowing the detail's fallback at once.
+    let list_shown = Rc::new(Cell::new(true));
+    let list_in_stack = Rc::new(Cell::new(false));
     let selection = sel.selection;
     let routed = sel.routed;
     let restore = sel.restore;
@@ -1640,11 +1715,15 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             adaptive,
             bar_actions,
             search,
+            list_width: native_list.then_some(sel.content_list_width),
         },
         Rc::new(NavLayout {
             sizes: sizes.clone(),
             presentation: presentation_cell.clone(),
             sidebar: sidebar_cell.clone(),
+            list: list_cell.clone(),
+            list_width: sel.content_list_width,
+            list_visible: list_shown.clone(),
         }),
         Flex {
             grow_w: true,
@@ -1763,6 +1842,78 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         });
     }
 
+    // The content-list page (docs/navigation.md): built ONCE, resident for the host's life —
+    // its content follows the app's signals, so a selection change re-scopes it without a
+    // rebuild. `with_nav_host(None)`: the pane is not a merge target — a stack inside the
+    // list keeps its own container rather than pushing onto this host.
+    let list_build = sel.content_list.clone();
+    let list_pred = sel.content_list_pred.clone();
+    let detail_visible = sel.detail_visible;
+    if native_list && let Some(build_list) = list_build.clone() {
+        let page = nav_page(
+            host,
+            &NavPageProps {
+                title: title_s.clone(),
+                pane: Pane::List,
+            },
+            &sizes,
+        );
+        list_cell.set(Some(page));
+        with_nav_host(None, || {
+            let mut pcx = BuildCx::new(page);
+            let _ = build_list().build(&mut pcx);
+        });
+    }
+    // The COMPOSED content list (`Cap::NavContentList` Unsupported): every list-backed
+    // destination page carries the pane itself — beside the content while split, in place of
+    // it while stacked until `detail_visible` opens a row. The presentation is read through
+    // the SIGNAL, so a live morph re-arranges the page without the host's involvement.
+    let compose: Option<DestFn<K>> = if let (Some(list), true) = (
+        list_build.clone(),
+        list_cap == day_spec::Support::Unsupported,
+    ) {
+        let pred = list_pred.clone();
+        let width = sel.content_list_width;
+        let dv = detail_visible;
+        let items_c = items.clone();
+        let pres = presentation_sig;
+        Some(Rc::new(move |key: &K| {
+            if pred.as_ref().is_some_and(|p| !p(key)) {
+                return items_c.build_page(key);
+            }
+            let (l1, l2) = (list.clone(), list.clone());
+            let (i1, i2) = (items_c.clone(), items_c.clone());
+            let (k1, k2) = (key.clone(), key.clone());
+            AnyPiece::new(
+                when(
+                    move || {
+                        let p = pres.get();
+                        p.is_split() || p.rows_are_chrome()
+                    },
+                    move || {
+                        let (l, i, k) = (l1.clone(), i1.clone(), k1.clone());
+                        row((l().width(width).grow_h(), i.build_page(&k).grow())).grow()
+                    },
+                )
+                .otherwise(move || {
+                    let (l, i, k) = (l2.clone(), i2.clone(), k2.clone());
+                    match dv {
+                        Some(d) => AnyPiece::new(
+                            when(move || d.get(), {
+                                let (i, k) = (i.clone(), k.clone());
+                                move || i.build_page(&k).grow()
+                            })
+                            .otherwise(move || l().grow()),
+                        ),
+                        None => i.build_page(&k),
+                    }
+                }),
+            )
+        }))
+    } else {
+        None
+    };
+
     let sync_menu = {
         let mh = menu_holder.clone();
         move |idx: Option<usize>| {
@@ -1811,11 +1962,20 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             selection.clone(),
             presentation_cell.clone(),
         );
+        let (list_pred_s, list_shown_s, list_in_stack_s) =
+            (list_pred.clone(), list_shown.clone(), list_in_stack.clone());
+        let compose_s = compose.clone();
         move |key: &str| {
             if current.borrow().as_deref() == Some(key) {
                 return;
             }
             let chrome = pres.get().rows_are_chrome();
+            // The list interposes between the sidebar root and the detail exactly while a
+            // merged-pane backend is STACKED and the app gates the detail
+            // (docs/navigation.md). Split-family presentations show the detail beside the
+            // list, empty state and all.
+            let gated =
+                merged_list && pres.get() == NavPresentation::Stack && detail_visible.is_some();
             if !chrome {
                 // Stacked or split: the outgoing page goes away. Dispose its scope FIRST — a
                 // merged inner stack's cleanup pops its pages (which sit on top natively) before
@@ -1835,6 +1995,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             }
             *current.borrow_mut() = None;
             if key.is_empty() {
+                // Deselected: the list layer (if interposed) leaves the stack with the detail.
+                if list_in_stack_s.get() {
+                    list_in_stack_s.set(false);
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::ListInStack(false)), false));
+                    owners.borrow_mut().pop();
+                }
                 sync_menu(None);
                 return;
             }
@@ -1857,6 +2023,44 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             }
             let typed_key = typed_s.borrow()[idx].clone();
             let title_now = titles_s.borrow()[idx].clone();
+            // Per-destination pane visibility (`content_list_for`): a full-width destination
+            // collapses the pane, a list-backed one brings it back. `interposed` = this
+            // destination puts the LIST between the sidebar root and its detail (a stacked
+            // merged-pane backend, docs/navigation.md).
+            let want = native_list && list_pred_s.as_ref().is_none_or(|p| p(&typed_key));
+            let interposed = gated && want;
+            if native_list {
+                if want != list_shown_s.get() {
+                    list_shown_s.set(want);
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::ListVisible(want)), false));
+                }
+                if interposed && !list_in_stack_s.get() {
+                    // Interpose the list above the sidebar root, with its own back owner
+                    // (back from the list = deselect).
+                    list_in_stack_s.set(true);
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::ListInStack(true)), false));
+                    let s = selection.clone();
+                    owners.borrow_mut().push(Rc::new(move |_already_popped| {
+                        if let Some(root) = K::from_key("") {
+                            s.write(root);
+                        }
+                    }) as PopOwner);
+                } else if gated && !want && list_in_stack_s.get() {
+                    // A full-width destination while stacked: the list leaves the stack so its
+                    // page sits directly on the sidebar root and back deselects.
+                    list_in_stack_s.set(false);
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::ListInStack(false)), false));
+                    owners.borrow_mut().pop();
+                }
+                // The detail waits for `detail_visible`: the list is the top of the stack
+                // until the app opens a row. The selection is recorded as current — the
+                // `detail_visible` bind re-enters here to perform the deferred push.
+                if interposed && !detail_visible.expect("gated implies Some").peek() {
+                    *current.borrow_mut() = Some(key.to_string());
+                    sync_menu(Some(idx));
+                    return;
+                }
+            }
             // A static item retitles on locale change (its TextSource); a data-driven key uses
             // the resolved snapshot (its title tracks the items signal, not the locale).
             let retitle = items.static_title(key);
@@ -1869,10 +2073,16 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 &sizes,
             );
             if !chrome {
-                // The detail page's back action = deselect (return to the list). Pushed BEFORE
-                // the content builds, so a merged inner stack's page owners stack on top of it.
-                // A chrome presentation has no back stack to own — a tab bar never pops.
-                let owner: PopOwner = {
+                // The detail page's back action: with the list interposed, back from the
+                // detail returns TO THE LIST (`detail_visible` := false); classically it
+                // deselects (returns to the sidebar rows). Pushed BEFORE the content builds,
+                // so a merged inner stack's page owners stack on top of it. A chrome
+                // presentation has no back stack to own — a tab bar never pops.
+                let owner: PopOwner = if interposed && let Some(dv) = detail_visible {
+                    Rc::new(move |_already_popped| {
+                        dv.set(false);
+                    })
+                } else {
                     let s = selection.clone();
                     Rc::new(move |_already_popped| {
                         if let Some(root) = K::from_key("") {
@@ -1883,7 +2093,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 owners.borrow_mut().push(owner);
             }
             let scope = nav_scope.enter(Scope::child);
-            let content = items.build_page(&typed_key);
+            let content = match &compose_s {
+                Some(c) => c(&typed_key),
+                None => items.build_page(&typed_key),
+            };
             scope.enter(|| {
                 // A resident page is a merge BARRIER: a `stack` inside a tab keeps its own native
                 // container rather than pushing onto the enclosing host, because the enclosing
@@ -1947,8 +2160,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // Neither a split nor a tab bar can draw "nothing selected": a split has no way to fill the
     // detail pane, and a tab bar always has one tab active. Both default to the first item. Only
     // a STACK has an empty state, and there it is the whole point — the collapsed list the user
-    // has not chosen from yet.
-    if (split || presentation.rows_are_chrome())
+    // has not chosen from yet. A host with a native content list joins the default-selection
+    // rule at every presentation: the pane needs a selection to scope itself to, and a
+    // collapsed merged-pane host opens on the list rather than on bare rows.
+    if (split || presentation.rows_are_chrome() || native_list)
         && selection.peek().key().is_empty()
         && let Some(k) = typed.borrow().first().cloned()
     {
@@ -1957,6 +2172,53 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     {
         let (s, show) = (selection.clone(), show.clone());
         bind(move || s.read().key(), move |key: &String| show(key));
+    }
+
+    // `detail_visible`, both directions (docs/navigation.md). Only the stacked merged-pane
+    // shape reacts here: `true` performs the deferred detail push for the current selection,
+    // `false` pops back to the interposed list. Split-family presentations ignore the signal —
+    // their detail pane is always on screen (native back never runs a detail owner there).
+    if let Some(dv) = detail_visible {
+        let (show_dv, current_dv, resident_dv, sizes_dv, owners_dv) = (
+            show.clone(),
+            current.clone(),
+            resident.clone(),
+            sizes.clone(),
+            owners.clone(),
+        );
+        let (pres_dv, list_in_stack_dv) = (presentation_cell.clone(), list_in_stack.clone());
+        bind(
+            move || dv.get(),
+            move |v: &bool| {
+                let gated_now = merged_list
+                    && pres_dv.get() == NavPresentation::Stack
+                    && list_in_stack_dv.get();
+                if !gated_now {
+                    return;
+                }
+                if *v {
+                    let key = current_dv.borrow().clone();
+                    if resident_dv.borrow().is_empty()
+                        && let Some(k) = key
+                    {
+                        // Deferred push: `show` re-runs for the recorded selection, sees the
+                        // signal true, and performs the build it withheld.
+                        *current_dv.borrow_mut() = None;
+                        show_dv(&k);
+                    }
+                } else if let Some(p) = resident_dv.borrow_mut().pop() {
+                    p.scope.dispose();
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                    owners_dv.borrow_mut().pop();
+                    sizes_dv.borrow_mut().remove(&p.node);
+                    with_tree(|t| {
+                        t.remove_subtree(p.node);
+                        t.mark_layout_dirty();
+                        t.layout_if_needed();
+                    });
+                }
+            },
+        );
     }
 
     // Build every destination, then re-select the current one.
@@ -1998,10 +2260,13 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             sizes.clone(),
             owners.clone(),
         );
+        let (list_pred_r, list_in_stack_r, show_r) =
+            (list_pred.clone(), list_in_stack.clone(), show.clone());
         Rc::new(move |next: NavPresentation| {
             let was_chrome = pc.get().rows_are_chrome();
             pc.set(next);
             split_r.set(next.is_split());
+            presentation_sig.set(next);
             // LEAVING a chrome presentation: the resident pages nobody can see any more go away,
             // because a split or stacked host draws exactly one detail page. The SHOWN page is
             // kept — rebuilding what the user is looking at is the one thing a morph must never
@@ -2045,11 +2310,78 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 // destination needs its page for the bar to be complete.
                 build_all_r();
             }
-            if (next.is_split() || next.rows_are_chrome())
+            if (next.is_split() || next.rows_are_chrome() || native_list)
                 && sel_r.peek().key().is_empty()
                 && let Some(k) = typed_r.borrow().first().cloned()
             {
                 sel_r.write(k);
+            }
+            // Content-list settlement (docs/navigation.md). Narrowing into the gated stack
+            // interposes the list for the current selection and retracts a detail the app is
+            // not showing; widening back restores the always-on detail beside the pane. The
+            // owner stack is REBUILT for the new shape — the old owners named the old one.
+            if merged_list && let Some(dv) = detail_visible {
+                if next == NavPresentation::Stack {
+                    let key = current_r.borrow().clone();
+                    let want = key.as_ref().is_some_and(|k| {
+                        typed_r
+                            .borrow()
+                            .iter()
+                            .find(|x| &x.key() == k)
+                            .is_some_and(|tk| list_pred_r.as_ref().is_none_or(|p| p(tk)))
+                    });
+                    if want {
+                        if !list_in_stack_r.get() {
+                            list_in_stack_r.set(true);
+                            with_tree(|t| {
+                                t.patch(host, Box::new(NavPatch::ListInStack(true)), false)
+                            });
+                        }
+                        owners_r.borrow_mut().clear();
+                        let s = sel_r.clone();
+                        owners_r.borrow_mut().push(Rc::new(move |_already_popped| {
+                            if let Some(root) = K::from_key("") {
+                                s.write(root);
+                            }
+                        }) as PopOwner);
+                        if dv.peek() {
+                            // The detail stays on top of the interposed list; its back now
+                            // returns to the list, not to the rows.
+                            owners_r.borrow_mut().push(Rc::new(move |_already_popped| {
+                                dv.set(false);
+                            }) as PopOwner);
+                        } else if let Some(p) = resident_r.borrow_mut().pop() {
+                            // The app is not showing a detail: the list is the top.
+                            p.scope.dispose();
+                            with_tree(|t| t.patch(host, Box::new(NavPatch::Popped), false));
+                            sizes_r.borrow_mut().remove(&p.node);
+                            with_tree(|t| {
+                                t.remove_subtree(p.node);
+                                t.mark_layout_dirty();
+                                t.layout_if_needed();
+                            });
+                        }
+                    }
+                } else if next.is_split() {
+                    // The backend's expand lifted the list back into its own pane.
+                    list_in_stack_r.set(false);
+                    let key = current_r.borrow().clone();
+                    if resident_r.borrow().is_empty()
+                        && let Some(k) = key
+                    {
+                        // The detail was withheld while gated; a split shows it always.
+                        *current_r.borrow_mut() = None;
+                        show_r(&k);
+                    } else if !resident_r.borrow().is_empty() {
+                        owners_r.borrow_mut().clear();
+                        let s = sel_r.clone();
+                        owners_r.borrow_mut().push(Rc::new(move |_already_popped| {
+                            if let Some(root) = K::from_key("") {
+                                s.write(root);
+                            }
+                        }) as PopOwner);
+                    }
+                }
             }
         })
     };
@@ -2178,7 +2510,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 // gone, move to the first row that survived rather than blanking the pane.
                 let mut cur2 = sel_e.peek().key();
                 let pres_now = pres_e.get();
-                if (pres_now.is_split() || pres_now.rows_are_chrome())
+                if (pres_now.is_split() || pres_now.rows_are_chrome() || native_list)
                     && cur2.is_empty()
                     && let Some(k) = keys.first().cloned()
                 {
@@ -2540,6 +2872,8 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                     // (docs/search.md); a stack gains the same surface when the placement
                     // resolver lands, since it is the same lowering.
                     search: None,
+                    // A content list is a selector shape; a stack has no sidebar to sit beside.
+                    list_width: None,
                 },
                 Rc::new(NavLayout::stack(sizes.clone())),
                 Flex {

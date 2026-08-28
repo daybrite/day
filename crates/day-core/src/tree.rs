@@ -601,6 +601,9 @@ pub trait TreeOps {
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind);
     /// Move native keyboard focus to (or away from) `node` (docs/focus.md).
     fn focus_node(&mut self, node: RNode, focused: bool);
+    /// Opt a container into the platform's focus system (docs/focus.md) — the
+    /// `Decorate::focusable` seam. The node must have a native view somewhere under it.
+    fn set_focusable(&mut self, node: RNode, focusable: bool);
     /// Mirror a `FocusChanged` event into the node's dayscript probe (pump-only).
     fn set_probe_focused(&mut self, node: RNode, focused: bool);
     /// Record which ROW of a selector is current, on the `kinds::NAV` host that `.id()` tags
@@ -1075,6 +1078,28 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         {
             self.toolkit.focus(&h, rnode_to_id(node), focused);
         }
+    }
+
+    fn set_focusable(&mut self, node: RNode, focusable: bool) {
+        // Same wrapper-descent as `enable_gesture`: `.focusable()` often lands on a
+        // layout-only wrapper; the duty needs the nearest native view, events keep the
+        // original node.
+        let mut cur = node;
+        for _ in 0..16 {
+            let Some(n) = self.nodes.get(cur) else { return };
+            if let Some(h) = n.handle.clone() {
+                self.toolkit.set_focusable(&h, rnode_to_id(node), focusable);
+                return;
+            }
+            match n.children.as_slice() {
+                [only] => cur = *only,
+                _ => break,
+            }
+        }
+        log::warn!(
+            "set_focusable found no native view under the target node — \
+             the piece will not join the focus order"
+        );
     }
 
     fn set_probe_focused(&mut self, node: RNode, focused: bool) {

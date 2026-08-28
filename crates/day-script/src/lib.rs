@@ -196,6 +196,51 @@ pub enum Step {
         id: String,
         row: usize,
     },
+    /// Activate a list row's swipe action programmatically: pull row `row`'s offer for `edge`
+    /// (`trailing`, the default, or `leading`) and run action `action` (an index into the
+    /// offer, default 0 — the one a native full swipe activates), through the same
+    /// offer → commit path a native gesture takes (docs/list.md). `label:` (literal) or
+    /// `key:` (a Fluent key resolved in the run's locale) PINS which button may be pressed —
+    /// offers are state-dependent ("Mark as Read" vs "Mark as Unread"), and the pin is
+    /// checked BEFORE the press: a mismatched offer refuses the activation and fails the
+    /// step with the row's state untouched, so a stale pin (leftover state from an aborted
+    /// earlier run) fails once instead of flipping state and poisoning every later run.
+    /// Fails (non-retryably) when the list offers no swipe actions or the row's offer has
+    /// no such action.
+    ///
+    /// This is how a walkthrough exercises swipe actions on EVERY target, including the
+    /// toolkits that answer `Cap::ListSwipeActions = Unsupported` and show no affordance:
+    /// the step drives the seam, not the platform's gesture recognizer.
+    SwipeRow {
+        id: String,
+        row: usize,
+        #[serde(default)]
+        edge: Option<String>,
+        #[serde(default)]
+        action: usize,
+        #[serde(default)]
+        label: Option<String>,
+        #[serde(default)]
+        key: Option<String>,
+    },
+    /// Evaluate JavaScript in a WEB VIEW node and assert on the result
+    /// (docs/webview-eval.md) — the step that proves a page RENDERED, where
+    /// `assert_visible` only proves the native view exists. `script` runs in the page;
+    /// its value (a string compares as itself, anything else as its JSON) must contain
+    /// `contains:` and/or equal `text:` — with neither, a successful evaluation alone
+    /// passes. Retryable while the reply is pending, the script throws, or the assertion
+    /// mismatches (a page mid-load settles within the wait); fails non-retryably when the
+    /// id names no web view or no webview piece is linked. Only meaningful where the
+    /// backend's eval arm exists (`eval_support()` — docs/webview-eval.md keeps the list);
+    /// elsewhere the step fails after the wait, so gate it with `only_on:`.
+    WebEval {
+        id: String,
+        script: String,
+        #[serde(default)]
+        contains: Option<String>,
+        #[serde(default)]
+        text: Option<String>,
+    },
     /// Invoke an app-menu item programmatically (docs/menus.md): match a unique `Action`
     /// leaf in the installed app-menu model by exact `item` label, or by `key` — a Fluent
     /// key resolved in the run's locale (locale-portable; a standard-role item also
@@ -1078,6 +1123,135 @@ fn exec(step: Step) -> Reply {
                     // Not retryable: a guard refusal or a non-deletable list won't change by
                     // waiting — surface it to the runner immediately.
                     Err(e) => Err(Reply::fail(format!("delete_row {id:?} {row}: {e}"), false)),
+                }
+            }
+            Step::SwipeRow {
+                id,
+                row,
+                edge,
+                action,
+                label,
+                key,
+            } => {
+                let node = find(&id)?;
+                let edge = match edge.as_deref() {
+                    None | Some("trailing") => day_spec::SwipeEdge::Trailing,
+                    Some("leading") => day_spec::SwipeEdge::Leading,
+                    Some(other) => {
+                        return Err(Reply::fail(
+                            format!("swipe_row {id:?}: edge {other:?} (leading|trailing)"),
+                            false,
+                        ));
+                    }
+                };
+                let expected = match (&label, &key) {
+                    (Some(l), _) => Some(l.clone()),
+                    (None, Some(k)) => Some(format_key(k, None)),
+                    (None, None) => None,
+                };
+                // The pin is checked BEFORE the press (docs/list.md): a mismatched offer
+                // refuses the activation rather than flipping state the script did not mean
+                // to flip — which is how one aborted run would poison every later one.
+                match day_core::list_try_swipe(node, row, edge, action, expected.as_deref()) {
+                    Ok(_) => Ok(Reply::ok()),
+                    // Not retryable: the offer was pulled live — a missing seam, an
+                    // out-of-offer action, or a different button at this position won't
+                    // change by waiting. Surface it to the runner immediately.
+                    Err(e) => Err(Reply::fail(format!("swipe_row {id:?} {row}: {e}"), false)),
+                }
+            }
+            Step::WebEval {
+                id,
+                script,
+                contains,
+                text,
+            } => {
+                // The eval resolves at a LATER event drain, and a step handler cannot block
+                // the pump it needs — so the step is a retryable poll: the first pass starts
+                // the evaluation, retries within the runner's implicit wait collect it, and
+                // an assertion mismatch discards the result so the retry re-evaluates (a page
+                // mid-load settles into passing). Keyed by (id, script): the runner resends
+                // the identical step on retry, and that pair is what identifies the request.
+                use std::cell::RefCell;
+                use std::rc::Rc;
+                type EvalCell = Rc<RefCell<Option<Result<String, String>>>>;
+                thread_local! {
+                    static WEB_EVALS: RefCell<
+                        std::collections::HashMap<(String, String), (u32, EvalCell)>,
+                    > = RefCell::new(std::collections::HashMap::new());
+                }
+                let node = find(&id)?;
+                let key = (id.clone(), script.clone());
+                let pending = WEB_EVALS.with(|m| m.borrow().get(&key).map(|(_, c)| c.clone()));
+                let Some(cell) = pending else {
+                    let cell: EvalCell = Rc::new(RefCell::new(None));
+                    let done = {
+                        let cell = cell.clone();
+                        Box::new(move |r: Result<String, String>| *cell.borrow_mut() = Some(r))
+                    };
+                    if !day_core::webview_eval(node, &script, done) {
+                        return Err(Reply::fail(
+                            format!(
+                                "web_eval {id:?}: not a web view (or no webview piece registered an evaluator)"
+                            ),
+                            false,
+                        ));
+                    }
+                    WEB_EVALS.with(|m| m.borrow_mut().insert(key, (0, cell)));
+                    return Err(Reply::fail(
+                        format!("web_eval {id:?}: awaiting the engine"),
+                        true,
+                    ));
+                };
+                let Some(result) = cell.borrow_mut().take() else {
+                    // Still pending. A reply that never comes (a torn-down view drops its
+                    // callback) must not wedge every later identical step: after enough
+                    // polls, forget the request so the next retry starts fresh.
+                    let stale = WEB_EVALS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        match m.get_mut(&key) {
+                            Some((polls, _)) => {
+                                *polls += 1;
+                                *polls > 25
+                            }
+                            None => false,
+                        }
+                    });
+                    if stale {
+                        WEB_EVALS.with(|m| m.borrow_mut().remove(&key));
+                    }
+                    return Err(Reply::fail(
+                        format!("web_eval {id:?}: awaiting the engine"),
+                        true,
+                    ));
+                };
+                WEB_EVALS.with(|m| m.borrow_mut().remove(&key));
+                match result {
+                    // Retryable: a throw from a page still loading (`document` half-built)
+                    // resolves with time; a permanent error just spends the wait.
+                    Err(e) => Err(Reply::fail(format!("web_eval {id:?}: {e}"), true)),
+                    Ok(json) => {
+                        // A string value compares as itself; anything else as its JSON text.
+                        let value = serde_json::from_str::<serde_json::Value>(&json)
+                            .ok()
+                            .and_then(|v| v.as_str().map(str::to_string))
+                            .unwrap_or(json);
+                        let failed = match (&contains, &text) {
+                            (Some(c), _) if !value.contains(c.as_str()) => {
+                                Some(format!("result {value:?} does not contain {c:?}"))
+                            }
+                            (_, Some(t)) if value != *t => {
+                                Some(format!("result {value:?}, expected {t:?}"))
+                            }
+                            _ => None,
+                        };
+                        match failed {
+                            // Retryable: the page may still be settling — the retry
+                            // re-evaluates against its current state.
+                            Some(why) => Err(Reply::fail(format!("web_eval {id:?}: {why}"), true)),
+                            None => Ok(Reply::ok()),
+                        }
+                    }
                 }
             }
             Step::Menu { item, key, path } => {

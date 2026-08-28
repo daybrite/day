@@ -1248,6 +1248,23 @@ mod imp {
         /// and no bar button. Which of the two is live therefore depends on the presentation,
         /// which is what `active_nav` answers (docs/size-classes.md).
         primary_nav: Retained<DayNavController>,
+        /// The SUPPLEMENTARY column's controller (docs/navigation.md), `Some` only on a
+        /// triple-column host (`NavProps::list_width`): the `Pane::List` page's stack. While
+        /// collapsed, the pieces layer interposes its root between the sidebar root and the
+        /// detail (`NavPatch::ListInStack`) and the `vcs` mirror carries it like any page.
+        supplementary_nav: Option<Retained<DayNavController>>,
+        /// The `Pane::List` page's controller, retained at `insert` — the RELIABLE identity
+        /// for the collapse/expand bookkeeping. While merged, the supplementary column's own
+        /// stack is empty (UIKit moved the controller into the primary's), so reading
+        /// `supplementary_nav.viewControllers()` at a transition answers nothing; this
+        /// reference is what the mirror rebase and the expand rebuild key on.
+        list_vc: std::cell::RefCell<Option<Retained<UIViewController>>>,
+        /// Triple-column only: a blank root the SECONDARY stack holds whenever Day has no
+        /// detail page. Older runtimes (iOS 16) throw "Cannot display a nested
+        /// UINavigationController with zero viewControllers" the moment a collapse nests an
+        /// empty column; the placeholder keeps the nav non-empty and `nav_sync_stack` swaps
+        /// it for real pages. Never in the `vcs` mirror.
+        secondary_placeholder: Option<Retained<UIViewController>>,
         _split_delegate: Retained<DaySplitDelegate>,
     }
 
@@ -1269,6 +1286,10 @@ mod imp {
         /// rather than re-pruning the mirror for a pop that already happened
         /// (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
         native_pops: std::cell::Cell<usize>,
+        /// Whether the pieces layer has the content-list page interposed in the collapsed
+        /// stack (`NavPatch::ListInStack`, docs/navigation.md) — with the collapse flag, what
+        /// the mirror's floor and the collapse rebase count.
+        list_in_stack: std::cell::Cell<bool>,
         /// The native VC count at the LAST `didShow` — the pop detector's baseline. Comparing
         /// against the `vcs` mirror instead is wrong: a previous transition's pop-`didShow` can
         /// arrive arbitrarily late, after the next push has already appended to the mirror but
@@ -1550,6 +1571,40 @@ mod imp {
                     split_presentation_changed(self.ivars().host.get(), true);
                 });
             }
+
+            /// Which column tops the collapsed stack (docs/navigation.md). Triple-column
+            /// hosts only — a double-column host returns the proposal untouched, keeping
+            /// UIKit's stock behavior. The detail tops only while one is actually pushed;
+            /// otherwise the content list is what the user was looking at.
+            #[unsafe(method(splitViewController:topColumnForCollapsingToProposedTopColumn:))]
+            fn top_column_for_collapsing(
+                &self,
+                _svc: &objc2_ui_kit::UISplitViewController,
+                proposed: objc2_ui_kit::UISplitViewControllerColumn,
+            ) -> objc2_ui_kit::UISplitViewControllerColumn {
+                day_spec::ffi_guard::contain(proposed, || {
+                    NAV_STATE.with(|m| {
+                        let m = m.borrow();
+                        let Some(state) = m.get(&self.ivars().host.get()) else {
+                            return proposed;
+                        };
+                        let Some(parts) = state.split.as_ref() else {
+                            return proposed;
+                        };
+                        if parts.supplementary_nav.is_none() {
+                            return proposed;
+                        }
+                        // Day's MIRROR answers, not the native count — the secondary holds a
+                        // placeholder while no real detail page exists, and the placeholder
+                        // must never top the collapsed stack.
+                        if state.vcs.is_empty() {
+                            objc2_ui_kit::UISplitViewControllerColumn::Supplementary
+                        } else {
+                            objc2_ui_kit::UISplitViewControllerColumn::Secondary
+                        }
+                    })
+                })
+            }
         }
     );
 
@@ -1570,7 +1625,7 @@ mod imp {
     /// and the pop detector's `last_native` baseline have to be rebased in step; otherwise the
     /// next `didShow` reads the count change as a user back and tears down a live page.
     fn split_presentation_changed(host: usize, expanded: bool) {
-        let node = NAV_STATE.with(|m| {
+        let plan = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let state = m.get_mut(&host)?;
             let parts = state.split.as_ref()?;
@@ -1580,21 +1635,36 @@ mod imp {
             // so the sidebar page has to join it exactly when UIKit merges it in and leave when
             // it is lifted back out, or every subsequent back is misread.
             let sidebar_vc = unsafe { parts.primary_nav.viewControllers() }.firstObject();
-            if let Some(vc) = sidebar_vc {
-                let already = state.vcs.iter().any(|v| std::ptr::eq(&**v, &*vc));
+            if let Some(vc) = sidebar_vc.as_ref() {
+                let already = state.vcs.iter().any(|v| std::ptr::eq(&**v, &**vc));
                 if expanded && already {
-                    state.vcs.retain(|v| !std::ptr::eq(&**v, &*vc));
+                    state.vcs.retain(|v| !std::ptr::eq(&**v, &**vc));
                 } else if !expanded && !already {
-                    state.vcs.insert(0, vc);
+                    state.vcs.insert(0, vc.clone());
                 }
             }
+            // The list page leaves the mirror with the expand, by its RETAINED identity
+            // (`SplitParts::list_vc` — while merged, the supplementary column's own stack is
+            // empty, so it cannot answer). It JOINS only through `NavPatch::ListInStack`.
+            let list_vc = parts.list_vc.borrow().clone();
+            if expanded && let Some(lv) = list_vc.as_ref() {
+                state.vcs.retain(|v| !std::ptr::eq(&**v, &**lv));
+                state.list_in_stack.set(false);
+            }
+            // A triple-column EXPAND rebuilds every column deterministically (deferred,
+            // below): the collapsed stack was set WHOLESALE by `nav_sync_stack`, so UIKit's
+            // own separation can only guess which controller belonged where — and guesses
+            // the detail into the primary.
             // Rebase against what UIKit actually left in the stack, rather than predicting it —
             // the merge runs inside this callback, so the count here is already the new one.
+            // Nothing rebuilds columns here: the collapsed stack is only ever driven through
+            // UIKit's own APIs (`Act::Triple*`), so its bookkeeping stays intact and its own
+            // expand puts every column back where it belongs.
             let native = unsafe { state.active_nav().viewControllers() }.count();
             state.last_native.set(native);
             Some(state.host_node)
         });
-        let Some(node) = node else { return };
+        let Some(node) = plan else { return };
         emit(
             node,
             Event::NavPresentationChanged(if expanded {
@@ -1668,9 +1738,39 @@ mod imp {
     fn nav_sync_stack(host: usize) {
         let target = NAV_STATE.with(|m| {
             let m = m.borrow();
-            m.get(&host).map(|s| (s.active_nav(), s.vcs.clone()))
+            m.get(&host).map(|s| {
+                let mut vcs = s.vcs.clone();
+                // NEVER wholesale-set a COLLAPSED triple-column stack: UIKit nests its
+                // columns into the merge on the older runtimes and keeps private bookkeeping
+                // a set destroys — the expand then re-guesses columns wrong and throws. The
+                // collapsed triple is driven exclusively through UIKit's own column APIs
+                // (`Act::Triple*`), so a sync arriving here has nothing to do.
+                if s.collapsed.get()
+                    && s.split
+                        .as_ref()
+                        .is_some_and(|p| p.supplementary_nav.is_some())
+                {
+                    return None;
+                }
+                // A triple-column secondary must never go EMPTY (see
+                // `secondary_placeholder`): with no detail page, the placeholder is the
+                // stack. Only while expanded — collapsed, the active stack is the primary's
+                // and always holds at least the merged sidebar root.
+                if vcs.is_empty()
+                    && !s.collapsed.get()
+                    && let Some(ph) = s
+                        .split
+                        .as_ref()
+                        .and_then(|p| p.secondary_placeholder.clone())
+                {
+                    vcs.push(ph);
+                }
+                Some((s.active_nav(), vcs))
+            })
         });
-        let Some((nav, vcs)) = target else { return };
+        let Some(Some((nav, vcs))) = target else {
+            return;
+        };
         let current = unsafe { nav.viewControllers() };
         let unchanged = current.count() == vcs.len()
             && (0..vcs.len()).all(|i| std::ptr::eq(&*current.objectAtIndex(i), &*vcs[i]));
@@ -1741,7 +1841,12 @@ mod imp {
                         // as a user back: absorbed as a phantom pop, it would swallow the NEXT
                         // real one and leave a stale page under the detail.
                         if let Some(parts) = state.split.as_ref()
-                            && state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
+                            && (state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
+                                // Any live transition on the split host — a rotation's
+                                // collapse/expand, and the deferred column rebuild that
+                                // follows it — shuffles counts without a user back. A real
+                                // swipe cannot coincide with one, so rebasing here is safe.
+                                || unsafe { parts.split_vc.transitionCoordinator() }.is_some())
                         {
                             if *DIAG_NAV {
                                 log::debug!(
@@ -3036,11 +3141,14 @@ mod imp {
                 });
             }
 
-            // --- swipe-to-delete (docs/list.md). `UISwipeActionsConfiguration` is the modern
-            // spelling: it gives the full native UX — the row tracking the finger, the red
-            // action revealing behind it, the full-swipe shortcut — where the older
-            // `commitEditingStyle` pair only offered a fixed Delete button. Returning `None`
-            // means this row has no swipe action, which is exactly how a guarded row declines.
+            // --- swipe actions (docs/list.md). `UISwipeActionsConfiguration` is the modern
+            // spelling: it gives the full native UX — the row tracking the finger, the actions
+            // revealing behind it, the full-swipe shortcut for the FIRST action — where the
+            // older `commitEditingStyle` pair only offered a fixed Delete button. The trailing
+            // edge carries the delete affordance first (full swipe deletes, the Mail idiom),
+            // then the row's own trailing offer; the leading edge is the offer alone.
+            // Returning `None` means this row has no swipe action, which is exactly how a
+            // guarded row declines.
             #[unsafe(method_id(tableView:trailingSwipeActionsConfigurationForRowAtIndexPath:))]
             fn trailing_swipe_actions(
                 &self,
@@ -3049,65 +3157,132 @@ mod imp {
             ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
                 // The whole body runs inside a closure: `define_class!`'s `method_id` return
                 // shim leaves no room for an early `return None`, but a closure gives `?` back.
-                // `contain` doubles as the invoker (§8.5) — the guard seam runs an app closure,
+                // `contain` doubles as the invoker (§8.5) — the guard seam runs app closures,
                 // and a panic degrades to "no swipe action".
                 let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
                     let row = unsafe { index_path.row() } as usize;
-                    let del = self
+                    let (del, sw) = {
+                        let src = self.ivars().source.borrow();
+                        let s = src.as_ref()?;
+                        (s.delete.clone(), s.swipe.clone())
+                    };
+                    let mtm = MainThreadMarker::new()?;
+                    let mut actions: Vec<Retained<objc2_ui_kit::UIContextualAction>> = Vec::new();
+                    // A guarded row offers NO delete rather than one that fails on use.
+                    if let Some(del) = del.filter(|d| (d.can_delete)(row)) {
+                        let label = self.ivars().delete_label.borrow().clone();
+                        let title = (!label.is_empty()).then(|| NSString::from_str(&label));
+                        let tv: Retained<objc2_ui_kit::UITableView> = Retained::from(tv);
+                        let path: Retained<objc2_foundation::NSIndexPath> =
+                            Retained::from(index_path);
+                        let handler =
+                            block2::RcBlock::new(
+                                move |_a: NonNull<objc2_ui_kit::UIContextualAction>,
+                                      _v: NonNull<UIView>,
+                                      done: NonNull<
+                                    block2::DynBlock<dyn Fn(objc2::runtime::Bool)>,
+                                >| {
+                                    // Commit through the seam FIRST — it shortens Day's snapshot
+                                    // synchronously — then let the table animate the row away.
+                                    // Deleting the row natively (rather than reloading) keeps the
+                                    // swipe's own animation continuous into the removal.
+                                    (del.delete_row)(row);
+                                    let paths = objc2_foundation::NSArray::from_retained_slice(
+                                        std::slice::from_ref(&path),
+                                    );
+                                    unsafe {
+                                        tv.deleteRowsAtIndexPaths_withRowAnimation(
+                                            &paths,
+                                            objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                                        );
+                                        // Report the action finished; the row is gone, so the swipe
+                                        // must not spring back.
+                                        done.as_ref().call((objc2::runtime::Bool::YES,));
+                                    }
+                                },
+                            );
+                        let action = unsafe {
+                            objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
+                                objc2_ui_kit::UIContextualActionStyle::Destructive,
+                                title.as_deref(),
+                                block2::RcBlock::as_ptr(&handler),
+                                mtm,
+                            )
+                        };
+                        // No app label ⇒ the wordless idiom: a trash glyph, legible in every
+                        // locale.
+                        if title.is_none()
+                            && let Some(img) = objc2_ui_kit::UIImage::systemImageNamed(
+                                &NSString::from_str("trash"),
+                            )
+                        {
+                            unsafe { action.setImage(Some(&img)) };
+                        }
+                        actions.push(action);
+                    }
+                    if let Some(sw) = sw {
+                        let offer = (sw.actions_at)(row, day_spec::SwipeEdge::Trailing);
+                        for (i, a) in offer.iter().enumerate() {
+                            actions.push(Self::contextual_action(
+                                a,
+                                row,
+                                day_spec::SwipeEdge::Trailing,
+                                i,
+                                sw.perform.clone(),
+                                mtm,
+                            ));
+                        }
+                    }
+                    if actions.is_empty() {
+                        return None;
+                    }
+                    Some(
+                        objc2_ui_kit::UISwipeActionsConfiguration::configurationWithActions(
+                            &objc2_foundation::NSArray::from_retained_slice(&actions),
+                            mtm,
+                        ),
+                    )
+                };
+                day_spec::ffi_guard::contain(None, body)
+            }
+
+            #[unsafe(method_id(tableView:leadingSwipeActionsConfigurationForRowAtIndexPath:))]
+            fn leading_swipe_actions(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                // Guarded as the trailing edge is: the offer runs the app's provider closure.
+                let body = || -> Option<Retained<objc2_ui_kit::UISwipeActionsConfiguration>> {
+                    let row = unsafe { index_path.row() } as usize;
+                    let sw = self
                         .ivars()
                         .source
                         .borrow()
                         .as_ref()
-                        .and_then(|s| s.delete.clone())?;
-                    // A guarded row offers NO action rather than one that fails on use.
-                    if !(del.can_delete)(row) {
+                        .and_then(|s| s.swipe.clone())?;
+                    let mtm = MainThreadMarker::new()?;
+                    let offer = (sw.actions_at)(row, day_spec::SwipeEdge::Leading);
+                    if offer.is_empty() {
                         return None;
                     }
-                    let mtm = MainThreadMarker::new()?;
-                    let label = self.ivars().delete_label.borrow().clone();
-                    let title = (!label.is_empty()).then(|| NSString::from_str(&label));
-                    let tv: Retained<objc2_ui_kit::UITableView> = Retained::from(tv);
-                    let path: Retained<objc2_foundation::NSIndexPath> = Retained::from(index_path);
-                    let handler = block2::RcBlock::new(
-                        move |_a: NonNull<objc2_ui_kit::UIContextualAction>,
-                              _v: NonNull<UIView>,
-                              done: NonNull<block2::DynBlock<dyn Fn(objc2::runtime::Bool)>>| {
-                            // Commit through the seam FIRST — it shortens Day's snapshot
-                            // synchronously — then let the table animate the row away. Deleting
-                            // the row natively (rather than reloading) keeps the swipe's own
-                            // animation continuous into the removal.
-                            (del.delete_row)(row);
-                            let paths =
-                                objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(&path));
-                            unsafe {
-                                tv.deleteRowsAtIndexPaths_withRowAnimation(
-                                    &paths,
-                                    objc2_ui_kit::UITableViewRowAnimation::Automatic,
-                                );
-                                // Report the action finished; the row is gone, so the swipe must
-                                // not spring back.
-                                done.as_ref().call((objc2::runtime::Bool::YES,));
-                            }
-                        },
-                    );
-                    let action = unsafe {
-                        objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
-                            objc2_ui_kit::UIContextualActionStyle::Destructive,
-                            title.as_deref(),
-                            block2::RcBlock::as_ptr(&handler),
-                            mtm,
-                        )
-                    };
-                    // No app label ⇒ the wordless idiom: a trash glyph, legible in every locale.
-                    if title.is_none()
-                        && let Some(img) =
-                            objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str("trash"))
-                    {
-                        unsafe { action.setImage(Some(&img)) };
-                    }
+                    let actions: Vec<Retained<objc2_ui_kit::UIContextualAction>> = offer
+                        .iter()
+                        .enumerate()
+                        .map(|(i, a)| {
+                            Self::contextual_action(
+                                a,
+                                row,
+                                day_spec::SwipeEdge::Leading,
+                                i,
+                                sw.perform.clone(),
+                                mtm,
+                            )
+                        })
+                        .collect();
                     Some(
                         objc2_ui_kit::UISwipeActionsConfiguration::configurationWithActions(
-                            &objc2_foundation::NSArray::from_retained_slice(&[action]),
+                            &objc2_foundation::NSArray::from_retained_slice(&actions),
                             mtm,
                         ),
                     )
@@ -3206,6 +3381,47 @@ mod imp {
                 .as_ref()
                 .and_then(|s| s.reorder.as_ref().map(|r| (r.can_move)(from, to)))
                 .unwrap_or(-1)
+        }
+
+        /// One offered swipe action as a `UIContextualAction` (docs/list.md). The handler
+        /// commits through the seam — which defers the app's callback to the event drain —
+        /// and reports done; the row springs back on its own (an action that removes its row
+        /// does so through the app's data refresh).
+        fn contextual_action(
+            a: &day_spec::ListSwipeAction,
+            row: usize,
+            edge: day_spec::SwipeEdge,
+            index: usize,
+            perform: std::rc::Rc<dyn Fn(usize, day_spec::SwipeEdge, usize)>,
+            mtm: MainThreadMarker,
+        ) -> Retained<objc2_ui_kit::UIContextualAction> {
+            let handler = block2::RcBlock::new(
+                move |_a: NonNull<objc2_ui_kit::UIContextualAction>,
+                      _v: NonNull<UIView>,
+                      done: NonNull<block2::DynBlock<dyn Fn(objc2::runtime::Bool)>>| {
+                    day_spec::ffi_guard::contain((), || {
+                        perform(row, edge, index);
+                        unsafe { done.as_ref().call((objc2::runtime::Bool::YES,)) };
+                    })
+                },
+            );
+            let style = if a.destructive {
+                objc2_ui_kit::UIContextualActionStyle::Destructive
+            } else {
+                objc2_ui_kit::UIContextualActionStyle::Normal
+            };
+            let action = unsafe {
+                objc2_ui_kit::UIContextualAction::contextualActionWithStyle_title_handler(
+                    style,
+                    Some(&NSString::from_str(&a.label)),
+                    block2::RcBlock::as_ptr(&handler),
+                    mtm,
+                )
+            };
+            if let Some(t) = a.tint {
+                unsafe { action.setBackgroundColor(Some(&uicolor(t))) };
+            }
+            action
         }
     }
 
@@ -4290,6 +4506,9 @@ mod imp {
                 // Trailing swipe actions: the row tracks the finger, the destructive action
                 // reveals behind it, and a full swipe commits (docs/list.md).
                 | Cap::ListDelete
+                // The same pipeline generalized: app-declared actions on either edge, with
+                // the full-swipe shortcut on the first (docs/list.md).
+                | Cap::ListSwipeActions
                 // A `UISplitViewController` hosts every `selector(Sidebar)`, so two columns are
                 // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
                 // iPhone in landscape (docs/size-classes.md).
@@ -4308,6 +4527,10 @@ mod imp {
                 // through `Event::NavPresentationChanged` rather than pushing a presentation
                 // into it (docs/size-classes.md).
                 Cap::NavRepresent => Support::Emulated,
+                // The supplementary column of a `.tripleColumn` UISplitViewController; EMULATED
+                // because the pane MERGES into the stack when the host collapses, and the
+                // pieces layer interposes it there (docs/navigation.md).
+                Cap::NavContentList => Support::Emulated,
                 // Real UIScenes on iPad (docs/windows.md); iPhone shows one scene, so the
                 // cover fallback is the honest answer there.
                 Cap::MultiWindow => {
@@ -4452,13 +4675,57 @@ mod imp {
                         // Day's model already has in a stack presentation — the sidebar page as
                         // the stack's root — so the phone path is unchanged and only the mirror
                         // needs rebasing.
+                        // A content list (`NavProps::list_width`) makes this a TRIPLE-column
+                        // host — the style is init-only, which is why the prop is read at
+                        // realize (docs/navigation.md).
+                        let list_width = p.list_width;
                         let split_vc = unsafe {
                             objc2_ui_kit::UISplitViewController::initWithStyle(
                                 objc2_ui_kit::UISplitViewController::alloc(mtm),
-                                objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn,
+                                if list_width.is_some() {
+                                    objc2_ui_kit::UISplitViewControllerStyle::TripleColumn
+                                } else {
+                                    objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn
+                                },
                             )
                         };
                         let primary_nav = DayNavController::new(mtm, 0); // host ptr set below
+                        // The secondary column must never be an EMPTY navigation controller
+                        // on the older runtimes (see `secondary_placeholder`); seed it now,
+                        // before the first collapse can nest it.
+                        let secondary_placeholder = list_width.map(|_| {
+                            let ph = unsafe { UIViewController::new(mtm) };
+                            unsafe {
+                                if let Some(v) = ph.view() {
+                                    v.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+                                }
+                                let arr =
+                                    objc2_foundation::NSArray::from_retained_slice(&[ph.clone()]);
+                                nav.setViewControllers(&arr);
+                            }
+                            ph
+                        });
+                        let supplementary_nav = list_width.map(|w| {
+                            let snav = DayNavController::new(mtm, 0); // host ptr set below
+                            unsafe {
+                                // Seeded non-empty for the same iOS 16 rule as the secondary:
+                                // the window-attach collapse can nest this column BEFORE the
+                                // `Pane::List` page arrives, and `insert` replaces the seed
+                                // wholesale when it does.
+                                let ph = UIViewController::new(mtm);
+                                if let Some(v) = ph.view() {
+                                    v.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+                                }
+                                let arr = objc2_foundation::NSArray::from_retained_slice(&[ph]);
+                                snav.setViewControllers(&arr);
+                                split_vc.setViewController_forColumn(
+                                    Some(&snav),
+                                    objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
+                                );
+                                split_vc.setPreferredSupplementaryColumnWidth(w);
+                            }
+                            snav
+                        });
                         unsafe {
                             split_vc.setViewController_forColumn(
                                 Some(&primary_nav),
@@ -4468,11 +4735,13 @@ mod imp {
                                 Some(&nav),
                                 objc2_ui_kit::UISplitViewControllerColumn::Secondary,
                             );
-                            // Both columns side by side when there is room; UIKit still collapses
-                            // to one at compact width.
-                            split_vc.setPreferredDisplayMode(
-                                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary,
-                            );
+                            // Every column side by side when there is room; UIKit still
+                            // collapses to one stack at compact width.
+                            split_vc.setPreferredDisplayMode(if list_width.is_some() {
+                                objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
+                            } else {
+                                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary
+                            });
                             // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a
                             // portrait iPad: the sidebar floats above a dimmed detail, and the
                             // detail keeps the full window width — so Day lays its content out
@@ -4500,20 +4769,27 @@ mod imp {
                             Some(SplitParts {
                                 split_vc,
                                 primary_nav,
+                                supplementary_nav,
+                                list_vc: std::cell::RefCell::new(None),
+                                secondary_placeholder,
                                 _split_delegate: split_delegate,
                             }),
                         )
                     };
                     nav.ivars().host.set(ptr_of(&host));
                     let delegate = DayNavDelegate::new(mtm, ptr_of(&host));
-                    // One delegate for both columns: they are the same Day host, and only one of
-                    // them owns the stack at a time.
+                    // One delegate for every column: they are the same Day host, and only one
+                    // of them owns the stack at a time.
                     unsafe {
                         nav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
                         if let Some(parts) = split.as_ref() {
                             parts
                                 .primary_nav
                                 .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                            if let Some(snav) = parts.supplementary_nav.as_ref() {
+                                snav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                                snav.ivars().host.set(ptr_of(&host));
+                            }
                         }
                     }
                     // Inline search (docs/search.md): build the controller now; it is attached to
@@ -4561,6 +4837,7 @@ mod imp {
                                 split,
                                 vcs: Vec::new(),
                                 native_pops: std::cell::Cell::new(0),
+                                list_in_stack: std::cell::Cell::new(false),
                                 last_native: std::cell::Cell::new(0),
                                 bar_actions,
                                 _delegate: delegate,
@@ -4832,6 +5109,14 @@ mod imp {
                         table.setRowHeight(row_height);
                         table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                         table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        // Separators are UIKit's default; only a forced OFF changes anything
+                        // (docs/list.md) — a list whose rows draw their own separation turns
+                        // the native line off rather than showing both.
+                        if p.separators == Some(false) {
+                            table.setSeparatorStyle(
+                                objc2_ui_kit::UITableViewCellSeparatorStyle::None,
+                            );
+                        }
                         if !p.selectable {
                             table.setAllowsSelection(false);
                         }
@@ -5225,15 +5510,73 @@ mod imp {
                         enum Act {
                             Sync,
                             Title(Retained<UIViewController>, String),
+                            /// Show/hide the supplementary column (expanded triple only).
+                            Column(bool),
+                            /// Collapsed triple-column ops (docs/navigation.md): UIKit nests
+                            /// its columns into the merge and keeps private bookkeeping a
+                            /// wholesale set destroys, so the merged stack is driven ONLY
+                            /// through its own APIs — offstage column content + showColumn,
+                            /// and plain pops.
+                            TriplePush {
+                                svc: Retained<objc2_ui_kit::UISplitViewController>,
+                                secondary: Retained<DayNavController>,
+                                details: Vec<Retained<UIViewController>>,
+                            },
+                            TriplePop {
+                                active: Retained<DayNavController>,
+                            },
+                            TripleList {
+                                svc: Retained<objc2_ui_kit::UISplitViewController>,
+                                primary: Retained<DayNavController>,
+                                show: bool,
+                            },
                             None,
+                        }
+                        // The mirror's detail slice: everything that is not the merged
+                        // sidebar root and not the interposed list page.
+                        fn detail_slice(state: &NavState) -> Vec<Retained<UIViewController>> {
+                            let list_vc = state
+                                .split
+                                .as_ref()
+                                .and_then(|p| p.list_vc.borrow().clone());
+                            let sidebar_vc = state.split.as_ref().and_then(|p| {
+                                unsafe { p.primary_nav.viewControllers() }.firstObject()
+                            });
+                            state
+                                .vcs
+                                .iter()
+                                .filter(|v| {
+                                    !list_vc.as_ref().is_some_and(|l| std::ptr::eq(&***v, &**l))
+                                        && !sidebar_vc
+                                            .as_ref()
+                                            .is_some_and(|s| std::ptr::eq(&***v, &**s))
+                                })
+                                .cloned()
+                                .collect()
                         }
                         let act = NAV_STATE.with(|m| {
                             let mut m = m.borrow_mut();
                             let Some(state) = m.get_mut(&ptr_of(h)) else {
                                 return Act::None;
                             };
+                            let collapsed_triple = state.collapsed.get()
+                                && state
+                                    .split
+                                    .as_ref()
+                                    .is_some_and(|p| p.supplementary_nav.is_some());
                             match p {
-                                NavPatch::Pushed { .. } => Act::Sync,
+                                NavPatch::Pushed { .. } => {
+                                    if collapsed_triple {
+                                        let parts = state.split.as_ref().expect("triple");
+                                        Act::TriplePush {
+                                            svc: parts.split_vc.clone(),
+                                            secondary: state.nav.clone(),
+                                            details: detail_slice(state),
+                                        }
+                                    } else {
+                                        Act::Sync
+                                    }
+                                }
                                 NavPatch::Popped => {
                                     // Answering a native user-back? The stack already popped, so
                                     // absorb it — syncing again would be a no-op anyway, but the
@@ -5245,12 +5588,22 @@ mod imp {
                                         // Day-initiated: prune the mirror NOW — the sync target
                                         // derives from it, and the remove() duty only arrives
                                         // after this patch. Never below the merged stack's
-                                        // sidebar root (docs/size-classes.md).
-                                        let floor = usize::from(state.collapsed.get());
+                                        // sidebar root, nor below an interposed content list
+                                        // (docs/size-classes.md, docs/navigation.md).
+                                        let floor = usize::from(state.collapsed.get())
+                                            + usize::from(
+                                                state.collapsed.get() && state.list_in_stack.get(),
+                                            );
                                         if state.vcs.len() > floor {
                                             state.vcs.pop();
                                         }
-                                        Act::Sync
+                                        if collapsed_triple {
+                                            Act::TriplePop {
+                                                active: state.active_nav(),
+                                            }
+                                        } else {
+                                            Act::Sync
+                                        }
                                     }
                                 }
                                 // Retitle the TOP page's controller — the navigation bar
@@ -5279,6 +5632,48 @@ mod imp {
                                 // Resident-page switch: `.tabSidebar` keeps a controller per tab
                                 // at every width, so switching is a selection rather than a push.
                                 NavPatch::Select(_) => Act::None,
+                                // Per-destination pane visibility, EXPANDED only — while
+                                // collapsed the columns are one stack and `ListInStack` is the
+                                // membership switch (docs/navigation.md).
+                                NavPatch::ListVisible(v) => {
+                                    if state.collapsed.get() {
+                                        Act::None
+                                    } else {
+                                        Act::Column(*v)
+                                    }
+                                }
+                                // The interposed list joins/leaves the collapsed stack right
+                                // above the sidebar root — through UIKit's own column APIs;
+                                // the mirror splice is COUNT bookkeeping for the pop detector.
+                                NavPatch::ListInStack(v) => {
+                                    state.list_in_stack.set(*v);
+                                    // By RETAINED identity (`SplitParts::list_vc`): while
+                                    // merged, the supplementary column's own stack is empty.
+                                    let list_vc = state
+                                        .split
+                                        .as_ref()
+                                        .and_then(|p| p.list_vc.borrow().clone());
+                                    if let Some(vc) = list_vc {
+                                        let already =
+                                            state.vcs.iter().any(|x| std::ptr::eq(&**x, &*vc));
+                                        if *v && !already && state.collapsed.get() {
+                                            let at = 1.min(state.vcs.len());
+                                            state.vcs.insert(at, vc);
+                                        } else if !*v && already {
+                                            state.vcs.retain(|x| !std::ptr::eq(&**x, &*vc));
+                                        }
+                                    }
+                                    if collapsed_triple {
+                                        let parts = state.split.as_ref().expect("triple");
+                                        Act::TripleList {
+                                            svc: parts.split_vc.clone(),
+                                            primary: parts.primary_nav.clone(),
+                                            show: *v,
+                                        }
+                                    } else {
+                                        Act::None
+                                    }
+                                }
                             }
                         });
                         // Defer past any in-flight modal transition: a stack change issued the
@@ -5293,6 +5688,60 @@ mod imp {
                             Act::Title(vc, t) => unsafe {
                                 vc.setTitle(Some(&NSString::from_str(&t)));
                             },
+                            Act::Column(v) => {
+                                let svc = NAV_STATE.with(|m| {
+                                    m.borrow()
+                                        .get(&ptr_of(h))
+                                        .and_then(|s| s.split.as_ref().map(|p| p.split_vc.clone()))
+                                });
+                                if let Some(svc) = svc {
+                                    note_ui_transition();
+                                    unsafe {
+                                        let col =
+                                            objc2_ui_kit::UISplitViewControllerColumn::Supplementary;
+                                        if v {
+                                            svc.showColumn(col);
+                                        } else {
+                                            svc.hideColumn(col);
+                                        }
+                                    }
+                                }
+                            }
+                            Act::TriplePush {
+                                svc,
+                                secondary,
+                                details,
+                            } => {
+                                note_ui_transition();
+                                modal_after_idle(move || unsafe {
+                                    // Offstage content first, then UIKit pushes it onto the
+                                    // merged stack itself — the documented compact flow.
+                                    let arr =
+                                        objc2_foundation::NSArray::from_retained_slice(&details);
+                                    secondary.setViewControllers(&arr);
+                                    svc.showColumn(
+                                        objc2_ui_kit::UISplitViewControllerColumn::Secondary,
+                                    );
+                                });
+                            }
+                            Act::TriplePop { active } => {
+                                note_ui_transition();
+                                modal_after_idle(move || unsafe {
+                                    let _ = active.popViewControllerAnimated(true);
+                                });
+                            }
+                            Act::TripleList { svc, primary, show } => {
+                                note_ui_transition();
+                                modal_after_idle(move || unsafe {
+                                    if show {
+                                        svc.showColumn(
+                                            objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
+                                        );
+                                    } else {
+                                        let _ = primary.popToRootViewControllerAnimated(true);
+                                    }
+                                });
+                            }
                             Act::None => {}
                         }
                     }
@@ -5731,8 +6180,27 @@ mod imp {
             // (docs/size-classes.md). It goes in whatever the current presentation calls for:
             // its own column while expanded, and the stack's root while collapsed — which is the
             // shape the phone path has always had, so nothing below changes for it.
-            let is_sidebar =
-                PAGE_PANE.with(|t| t.get(ptr_of(child))) == Some(day_spec::props::Pane::Sidebar);
+            let page_pane = PAGE_PANE.with(|t| t.get(ptr_of(child)));
+            let is_sidebar = page_pane == Some(day_spec::props::Pane::Sidebar);
+            // The CONTENT-LIST page is the supplementary column's root, the same shape one
+            // column over (docs/navigation.md): never a member of the `vcs` mirror — while
+            // collapsed the pieces layer interposes it explicitly (`NavPatch::ListInStack`).
+            if page_pane == Some(day_spec::props::Pane::List) {
+                let placed = NAV_STATE.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let state = m.get_mut(&ptr_of(parent))?;
+                    let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
+                    let parts = state.split.as_ref()?;
+                    let snav = parts.supplementary_nav.clone()?;
+                    *parts.list_vc.borrow_mut() = Some(vc.clone());
+                    Some((snav, vc))
+                });
+                if let Some((snav, vc)) = placed {
+                    let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
+                    unsafe { snav.setViewControllers(&arr) };
+                }
+                return;
+            }
             // Nav host: pages join the VC stack; the first one becomes the root VC now, later
             // pages are presented by the Pushed patch.
             // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).

@@ -2089,6 +2089,10 @@ impl Toolkit for Qt {
                                         }
                                     }
                                 }
+                                // Never arrives: this backend answers `Cap::NavContentList`
+                                // Unsupported, so the pieces layer composes the pane itself
+                                // (docs/navigation.md).
+                                NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
                             }
                         });
                         // Header visibility follows the depth AFTER the pop completes (the

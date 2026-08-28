@@ -219,6 +219,34 @@ const V = (id) => E(id).__input || E(id);
 // Imports: the DOM verbs lib.rs declares
 // ---------------------------------------------------------------------------
 
+// Satisfy import modules besides `env` with loud stubs. A dependency compiled with unreached
+// wasm-bindgen code paths (chrono's default `wasmbind`, dragged in by a parsing library) still
+// lists `__wbindgen_placeholder__.*` in the module's import table, and instantiation refuses a
+// missing module outright. The stubs let the module start; a call into one — code that truly
+// needs the wasm-bindgen runtime, which the day web pipeline does not carry — fails with a
+// diagnosable message at the call site instead of a TypeError at startup.
+const foreignStubs = (module, imports) => {
+  for (const im of WebAssembly.Module.imports(module)) {
+    if (im.module === 'env') continue;
+    const mod = (imports[im.module] ||= {});
+    if (im.name in mod) continue;
+    if (im.kind === 'function') {
+      mod[im.name] = () => {
+        throw new Error(
+          `day: ${im.module}.${im.name} called — this import needs a runtime (wasm-bindgen?) the day web pipeline does not provide`,
+        );
+      };
+    } else if (im.kind === 'global') {
+      mod[im.name] = new WebAssembly.Global({ value: 'i32', mutable: false }, 0);
+    } else if (im.kind === 'table') {
+      mod[im.name] = new WebAssembly.Table({ element: 'anyfunc', initial: 0 });
+    } else if (im.kind === 'memory') {
+      mod[im.name] = new WebAssembly.Memory({ initial: 1 });
+    }
+  }
+  return imports;
+};
+
 const env = {
   // Seconds since the Unix epoch, for day-piece-datetime: wasm32-unknown-unknown has no clock of
   // its own, and `SystemTime::now()` traps there rather than failing.
@@ -1943,7 +1971,7 @@ async function boot(wasmUrl) {
     module = await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer());
   }
   const sqlBoot = startSqlWorker(module);
-  wasm = (await WebAssembly.instantiate(module, { env })).exports;
+  wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
 
   new ResizeObserver(() => wasm.day_dom_resized(r.clientWidth, r.clientHeight)).observe(r);
   document.addEventListener('visibilitychange', () =>

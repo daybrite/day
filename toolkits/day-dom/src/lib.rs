@@ -160,6 +160,24 @@ unsafe extern "C" {
     /// The page's wall clock (`Date.now()`), in milliseconds since the Unix epoch. This is the
     /// only wall clock on `wasm32-unknown-unknown` — `std::time::SystemTime::now()` aborts there.
     fn day_dom_now_ms() -> f64;
+    /// Fill `len` bytes at `ptr` with browser entropy (`crypto.getRandomValues`) — the
+    /// getrandom bridge below answers the crate's custom-backend hook with it.
+    fn day_dom_entropy(ptr: *mut u8, len: usize);
+}
+
+/// getrandom v0.3's custom-backend hook (its `custom.rs` contract): `day build` compiles every
+/// web app with `--cfg getrandom_backend="custom"`, so any crate in the graph that asks
+/// getrandom for entropy (uuid, rand, …) lands here instead of failing to compile — the
+/// raw-wasm pipeline carries no wasm-bindgen runtime for getrandom's own `wasm_js` backend.
+#[unsafe(no_mangle)]
+unsafe extern "Rust" fn __getrandom_v03_custom(
+    dest: *mut u8,
+    len: usize,
+) -> Result<(), getrandom::Error> {
+    // SAFETY: getrandom hands us a valid, writable buffer of exactly `len` bytes; the shim
+    // writes that many and no more.
+    unsafe { day_dom_entropy(dest, len) };
+    Ok(())
 }
 
 fn s(el: u32, prop: &str, val: &str) {
@@ -543,6 +561,9 @@ struct ListEntry {
     fill_pending: bool,
     last_width: f64,
     selectable: bool,
+    /// Host-drawn row separators (docs/list.md): a bottom border on each cell, so the line
+    /// sits exactly at the row boundary the cell frame defines.
+    separators: bool,
     multi: bool,
     selected: BTreeSet<usize>,
     /// The FIXED end of a shifted range — the row the extension pivots on, set by a plain click
@@ -1541,6 +1562,7 @@ impl Toolkit for Dom {
                             fill_pending: false,
                             last_width: -1.0,
                             selectable: p.selectable,
+                            separators: p.separators == Some(true),
                             multi: p.multi_select,
                             selected: BTreeSet::new(),
                             anchor: None,
@@ -2496,6 +2518,9 @@ fn nav_patch(el: u32, p: &NavPatch) {
         match p {
             // Handled above, before the borrow.
             NavPatch::Presentation(_) => {}
+            // Never arrives: this backend answers `Cap::NavContentList` Unsupported, so the
+            // pieces layer composes the pane itself (docs/navigation.md).
+            NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
             // Resident-page switch (docs/navigation.md): every page stays in the DOM and only
             // one is displayed, so a tab switch costs a `display` flip and keeps the other
             // tabs' scroll offsets and focused fields exactly as the user left them.
@@ -2682,11 +2707,12 @@ fn list_populate(host: u32) {
 /// Build the rows the viewport shows and that are not built already. Idempotent and cheap when
 /// nothing moved, which is what lets every scroll event call it.
 fn list_fill_window(host: u32) {
-    let Some((content, rowh, source, work, n, width)) = LISTS.with(|m| {
+    let Some((content, rowh, source, work, n, width, separators)) = LISTS.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host)?;
         let source = st.source.clone()?;
         let (content, rowh, selectable) = (st.content, st.row_height.max(1.0), st.selectable);
+        let separators = st.separators;
         let n = (source.len)();
         let width = unsafe { day_dom_width(host) }.max(1.0);
         // The rows on screen, plus the overscan. A list the browser has not laid out yet reports
@@ -2726,7 +2752,7 @@ fn list_fill_window(host: u32) {
             }
         }
         st.last_width = width;
-        Some((content, rowh, source, work, n, width))
+        Some((content, rowh, source, work, n, width, separators))
     }) else {
         return;
     };
@@ -2735,6 +2761,16 @@ fn list_fill_window(host: u32) {
             day_dom_set_frame(cell, 0.0, i as f64 * rowh, width, rowh);
         }
         s(cell, "display", "block");
+        if separators {
+            // Inside the frame (border-box), so the line lands exactly on the row boundary
+            // without growing the cell past its pitch.
+            s(cell, "box-sizing", "border-box");
+            s(
+                cell,
+                "border-bottom",
+                "1px solid color-mix(in srgb, currentColor 18%, transparent)",
+            );
+        }
         (source.bind_row)(i, cell as usize as day_spec::RawHandle);
     }
     s(content, "position", "relative");

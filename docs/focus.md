@@ -58,10 +58,15 @@ column((
 - **Field chaining** is a write in `on_submit(f)`, which ships with the same change: the native
   end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
 
-Reserved with names but not implemented: `.focusable()` (opt a custom piece into focus),
-`default_focus(…)` on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab
-traversal stays native. Day wraps real widgets, so platform traversal is already correct
-(§13: focus order follows layout order).
+`.focusable()` opts a composed CONTAINER into focus — the canvas contract (press-to-focus,
+`FocusChanged` both ways, the arrows through `.on_key` while focused) behind the
+`Toolkit::set_focusable` duty. Implemented on macos-appkit (2026-08, the content-list keyboard
+work in [docs/navigation.md](navigation.md)); on every other backend the duty is a no-op
+today, so the piece renders normally and simply never joins the key loop — the same graceful
+silence unfocusable controls have. Reserved with names but not implemented: `default_focus(…)`
+on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
+native. Day wraps real widgets, so platform traversal is already correct (§13: focus order
+follows layout order).
 
 ## 2. Semantics: the rules
 

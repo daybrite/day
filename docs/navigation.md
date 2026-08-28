@@ -520,6 +520,52 @@ from the window's size class and re-resolved whenever the window crosses a break
 content only works one way. [docs/size-classes.md](size-classes.md) is normative — it covers the
 breakpoints, what survives a re-presentation, and which backends morph today.
 
+## The content list (three panes)
+
+> **Status: implemented** (2026-08). Native pane on macos-appkit (a real `contentList`
+> `NSSplitViewItem`) and ios-uikit (`UISplitViewController` triple-column, merging into the
+> stack at compact width); composed by the selector everywhere else, including the mock.
+> `Cap::NavContentList` carries the three-way answer.
+
+`.content_list(build)` gives a `selector(Sidebar)` the Mail shape: sidebar, content list,
+detail — mailboxes, message list, message. The list is built ONCE and stays resident for the
+host's life; its content follows the app's own signals (the sidebar selection scoping it, the
+row chosen from it), so switching sections re-scopes it without a rebuild.
+
+```rust
+selector(section).style(SelectorStyle::Sidebar)
+    .content_list(timeline_pane)               // the middle column, built once
+    .content_list_width(400.0)                 // preferred; drag limits are the backend's
+    .content_list_for(|k| k != "settings")     // full-page sections collapse the pane
+    .detail_visible(reader_open)               // the compact push gate, two-way
+    .item(…)…
+    .destination(…)                            // the DETAIL only — the list is not in here
+```
+
+- **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit): a real
+  pane at EVERY presentation — a narrow window collapses the sidebar and keeps the list, as a
+  narrow Mail.app does. `Emulated` (ios-uikit): a real column while expanded that MERGES into
+  the navigation stack when the host collapses. `Unsupported` (everything else): the selector
+  composes the list beside each list-backed destination while split, and in place of it while
+  stacked.
+- **`detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
+  ignore it (the detail pane is always on screen, showing the app's empty state until a row is
+  chosen). Stacked, the content list is the top of the stack until the app writes `true` — a
+  row was opened — the detail pushes then, and the platform's back writes `false` on the way
+  out. Without it a stacked host behaves classically (the detail pushes on selection).
+- **`content_list_for`** collapses the pane per destination (`NavPatch::ListVisible`): a
+  settings page takes the whole detail area, and selecting a list-backed section brings the
+  pane back.
+- A host with a content list joins the split's default-selection rule at every presentation:
+  the pane needs a selection to scope itself to, so a collapsed host opens on the list rather
+  than on bare sidebar rows.
+- The list pane is a merge BARRIER like a chrome page: a `stack` inside it keeps its own
+  container rather than pushing onto the host.
+
+Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_key(…)`
+([docs/focus.md](focus.md)) so the arrows walk the selection, and a `scroll_target` signal
+(`ScrollTarget::Id`) to keep the selected row in view.
+
 ## Backend notes
 
 - **GTK** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The

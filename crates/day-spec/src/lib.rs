@@ -424,6 +424,10 @@ pub enum SurfaceRole {
 
 pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
 
+/// Default preferred width of a navigation host's content-list pane
+/// (`props::NavProps::list_width`, docs/navigation.md) — Mail's message-list proportion.
+pub const NAV_LIST_WIDTH: f64 = 300.0;
+
 /// Reserved id for window-level events (resize, lifecycle): day-core routes it to the root.
 pub const WINDOW_NODE: NodeId = NodeId(u64::MAX);
 
@@ -797,6 +801,17 @@ pub enum Event {
     /// A native list committed a swipe-delete (docs/list.md): the row at this index is gone.
     /// Deferred through the event queue exactly as [`Event::ListReorder`] is.
     ListDelete(usize),
+    /// A native list activated a swipe action (docs/list.md): the user pressed button `action`
+    /// (an index into the row's [`ListSwipe::actions_at`] offer for `edge`) on row `index`, or
+    /// swiped clear across for the edge's first action. Emitted on the LIST node by the list
+    /// piece's own commit hook and deferred through the event queue exactly as
+    /// [`Event::ListReorder`] is, so the app's handler never runs inside a native animation
+    /// callstack.
+    ListSwipe {
+        index: usize,
+        edge: SwipeEdge,
+        action: usize,
+    },
     /// A fullscreen cover's hide transition finished (docs/cover.md): the content can now be
     /// disposed. Answers [`props::CoverPatch::Dismiss`]; delivery is a hard guarantee, and
     /// backends over-report rather than under-report — consumers gate on their own closing
@@ -1450,6 +1465,10 @@ pub struct ListSource {
     /// Swipe-to-delete seam, present when `ListProps::deletable` (docs/list.md). `None` on
     /// non-deletable lists — backends must not offer their delete affordance without it.
     pub delete: Option<ListDelete>,
+    /// Swipe-ACTIONS seam, present when `ListProps::swipe_actions` (docs/list.md). `None` on
+    /// lists that declared none — backends must not install their row-action machinery
+    /// without it.
+    pub swipe: Option<ListSwipe>,
 }
 
 /// The synchronous drag-to-reorder half of [`ListSource`] (docs/list.md). Both closures follow
@@ -1484,6 +1503,43 @@ pub struct ListDelete {
     /// `len`/`token_at`/`bind_row` already reflect the shorter list while the native row-removal
     /// animates — and defers the app's own callback to the next event drain.
     pub delete_row: std::rc::Rc<dyn Fn(usize)>,
+}
+
+/// Which edge of a row a swipe action rides (docs/list.md). Semantic, not geometric:
+/// `Leading` follows the reading direction — the left edge in LTR, the right in RTL — the
+/// mapping every platform's own swipe API already makes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwipeEdge {
+    Leading,
+    Trailing,
+}
+
+/// One offered swipe action (docs/list.md) — pure data. The pieces layer keeps the handlers;
+/// the backend answers a tap through [`ListSwipe::perform`] by index into the offer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListSwipeAction {
+    /// The word on the button, already localized (a toolkit cannot translate).
+    pub label: String,
+    /// Destructive styling — the platform's red.
+    pub destructive: bool,
+    /// Explicit button color; `None` = the platform's default for the style.
+    pub tint: Option<Color>,
+}
+
+/// The synchronous swipe-ACTIONS half of [`ListSource`] (docs/list.md) — the generalized
+/// sibling of [`ListDelete`]: reveal-as-you-swipe buttons on either row edge. The offer is
+/// pulled per row AT GESTURE TIME, so labels follow row state ("Mark Read" on an unread row,
+/// "Mark Unread" on a read one); the commit defers to the event drain like every seam here.
+#[derive(Clone)]
+pub struct ListSwipe {
+    /// The OFFER: the actions for row `index` on `edge`, called inside the platform's swipe
+    /// callback — keep it pure. Empty = no affordance for that row and edge. The FIRST action
+    /// is the full-swipe action where the platform activates one at the far edge.
+    pub actions_at: std::rc::Rc<dyn Fn(usize, SwipeEdge) -> Vec<ListSwipeAction>>,
+    /// The COMMIT: the user activated action `action` (an index into the offer) on row
+    /// `index`, `edge`. Unlike a delete this never reshapes the row snapshot; the app's
+    /// handler is deferred to the next event drain, never run inside the native callback.
+    pub perform: std::rc::Rc<dyn Fn(usize, SwipeEdge, usize)>,
 }
 
 /// The synchronous row-pull seam for hierarchical trees (docs/tree.md) — [`ListSource`]'s
@@ -1697,6 +1753,13 @@ pub enum Cap {
     /// whose lists have no swipe idiom and where deletion belongs to a menu or a button
     /// (docs/list.md).
     ListDelete,
+    /// The toolkit realizes `ListProps::swipe_actions` as REAL edge swipe actions — buttons
+    /// that reveal as the row tracks the swipe, with the far edge activating the first one
+    /// (docs/list.md). `Native` where the platform ships the affordance: macos-appkit
+    /// (`NSTableView` row actions — Mail's own machinery) and ios-uikit
+    /// (`UISwipeActionsConfiguration`). `Unsupported` everywhere else: the affordance is
+    /// simply absent, and the app's command lives in its explicit controls.
+    ListSwipeActions,
     /// The toolkit realizes `kinds::TREE` as a hierarchical tree view (docs/tree.md) —
     /// `Native` where a platform tree widget hosts Day-built rows (NSOutlineView, the UIKit
     /// sidebar list, GtkListView+TreeListModel, WinUI TreeView, ArkTS TreeView), `Emulated`
@@ -1792,6 +1855,23 @@ pub enum Cap {
     ///   cannot change presentation must not have it decided by something that can, or a window
     ///   launched narrow would be stuck stacked with no way back.
     NavRepresent,
+    /// The toolkit places a navigation host's CONTENT-LIST page ([`props::Pane::List`]) in its
+    /// own pane between the sidebar and the detail — the Mail shape: mailboxes, message list,
+    /// message (docs/navigation.md). The three answers differ on what happens when the host
+    /// leaves the split:
+    ///
+    /// - `Native` — the pane exists at EVERY presentation. A narrow window collapses the
+    ///   sidebar but keeps the list beside the detail, exactly as a narrow Mail.app does
+    ///   (macos-appkit: a `contentList` `NSSplitViewItem`).
+    /// - `Emulated` — the pane exists while split and MERGES into the navigation stack when
+    ///   the host collapses (ios-uikit: `UISplitViewController` triple-column). The pieces
+    ///   layer then interposes the list between the sidebar root and the detail
+    ///   ([`props::NavPatch::ListInStack`]) and gates the detail push on the app's
+    ///   `detail_visible` binding.
+    /// - `Unsupported` — the backend never sees [`props::Pane::List`] or
+    ///   [`props::NavProps::list_width`]; the selector piece composes the pane beside (split)
+    ///   or in place of (stacked) the destination content itself.
+    NavContentList,
     /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
     /// needn't repeat it in its own content. `Native` on XAML (the NavigationView header),
     /// UIKit (`UINavigationBar`), Android (`MaterialToolbar`), and ArkUI (`NavDestination`
@@ -1862,10 +1942,12 @@ pub enum Cap {
     Inspector,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Support {
     Native,
     Emulated,
+    /// The default — what an unimplemented capability answers everywhere.
+    #[default]
     Unsupported,
 }
 
@@ -3573,6 +3655,14 @@ pub mod props {
         /// Search over this navigation surface (`Selector::searchable`, docs/search.md).
         /// `None` = the surface is not searchable and no field is rendered anywhere.
         pub search: Option<SearchProps>,
+        /// `Some(width)` = this host has a CONTENT-LIST pane ([`Pane::List`]) at this preferred
+        /// width in points, between the sidebar and the detail (docs/navigation.md). Read at
+        /// realize — a backend that builds a different container for a three-pane host (UIKit's
+        /// triple-column style is init-only) needs to know before it builds. `None` on every
+        /// host without one, including all of them on backends answering
+        /// [`crate::Cap::NavContentList`] `Unsupported` — the pieces layer composes there and
+        /// the prop is never set.
+        pub list_width: Option<f64>,
     }
 
     /// Where a searchable surface's field should be drawn.
@@ -3667,6 +3757,22 @@ pub mod props {
         /// A backend drawing a stacked presentation never receives it; the pieces layer sends
         /// push/pop there instead.
         Select(usize),
+        /// Show or collapse the CONTENT-LIST pane ([`Pane::List`]) — the per-destination
+        /// visibility switch (`Selector::content_list_for`, docs/navigation.md): a selector
+        /// section that spans the whole detail area (a settings page) collapses the pane, and
+        /// selecting a list-backed section brings it back. Only sent to hosts whose
+        /// [`NavProps::list_width`] is set. Applied directly, not through an animator proxy —
+        /// the screenshot seam captures the instant the patch returns (the sidebar-toggle rule).
+        ListVisible(bool),
+        /// STACKED presentations on a merged-pane backend ([`crate::Cap::NavContentList`]
+        /// `Emulated`) only: the resident [`Pane::List`] page joins (`true`) or leaves
+        /// (`false`) the navigation stack directly above the sidebar root. The pieces layer
+        /// sends it as the selection gains or loses a list-backed destination; the backend
+        /// realizes the membership change through its platform's OWN navigation APIs (UIKit:
+        /// `showColumn(.supplementary)` / a pop to the root — never a manual splice, which
+        /// destroys the split's collapse bookkeeping). Never sent to `Native` backends (their
+        /// pane persists through every presentation) nor while split.
+        ListInStack(bool),
     }
 
     /// Which pane of a navigation host a page belongs to (docs/navigation.md).
@@ -3682,6 +3788,11 @@ pub mod props {
     pub enum Pane {
         /// The list / master pane of a selector. At most one page per host.
         Sidebar,
+        /// The content-list pane between the sidebar and the detail — Mail's message list
+        /// (`Selector::content_list`, docs/navigation.md). At most one page per host, and only
+        /// on hosts whose [`NavProps::list_width`] is set; a backend answering
+        /// [`crate::Cap::NavContentList`] `Unsupported` never sees one.
+        List,
         /// A destination page. Every page of a `stack` presentation is one of these.
         #[default]
         Detail,
@@ -3855,6 +3966,20 @@ pub mod props {
         /// the props. Empty means "no text": each backend falls back to its platform's own
         /// wordless idiom (a trash glyph), which is honest in every language.
         pub delete_label: String,
+        /// The rows offer edge swipe ACTIONS (docs/list.md) through the injected
+        /// `ListSource::swipe` seam (offer via `actions_at`, commit via `perform`); probe
+        /// [`crate::Cap::ListSwipeActions`] for per-backend support. A backend without the
+        /// affordance simply never shows one — an app that must offer the command everywhere
+        /// pairs the swipe with an explicit control, exactly as `deletable` documents.
+        pub swipe_actions: bool,
+        /// Row separators, drawn by the HOST at the row boundary (docs/list.md) — so they
+        /// align with the native selection and ride the platform's own row animations (a
+        /// macOS/iOS swipe slides the row content past a stationary separator, exactly as
+        /// Mail's does). `None` keeps each platform's own default (iOS draws them, the
+        /// desktops don't); `Some(true)`/`Some(false)` forces. A backend without a separator
+        /// mechanism ignores a force — the matrix in docs/list.md says which; rows there
+        /// separate by their pitch alone.
+        pub separators: Option<bool>,
     }
 
     /// One row-level result-set change. Indexes are SEQUENTIAL — each delta describes the
@@ -4280,6 +4405,17 @@ pub trait Toolkit: Sized + 'static {
     // be honored (unfocusable, unmounted) simply produces no event. The default no-op means a
     // backend without focus support neither moves nor reports focus.
     fn focus(&mut self, _h: &Self::Handle, _node: NodeId, _focused: bool) {}
+
+    // focusability (docs/focus.md): opt this CONTAINER into the platform's focus system — the
+    // canvas contract generalized (`Decorate::focusable`). A focusable container accepts focus,
+    // takes it on a press (before the press reaches its gesture recognizers), reports both
+    // directions with `Event::FocusChanged`, and delivers the non-text keys it hears while
+    // focused as `Event::Key` for `node` (gated on `keys::handled`, like a canvas). The default
+    // no-op means the piece renders normally but never joins the focus order — `.focused(…)`
+    // bindings stay quiet and `.on_key(…)` never fires, the same graceful silence unfocusable
+    // controls already have. Idempotent; only `true` is ever sent today (a piece opts in at
+    // build, it does not opt back out).
+    fn set_focusable(&mut self, _h: &Self::Handle, _node: NodeId, _focusable: bool) {}
 
     // recycling list (docs/list.md, §10): day-core hands the `LIST` host its row-pull `source`
     // once, right after realize. A recycling backend stores it and calls it from its native

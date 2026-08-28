@@ -3243,6 +3243,33 @@ impl Toolkit for Gtk {
                         Some(factory),
                     )
                 };
+                // Host-drawn row separators (docs/list.md): a border on the ListView's own
+                // `row` CSS nodes, which sit exactly at the row boundary — aligned with the
+                // native selection. One global provider serves every separated list.
+                if p.separators == Some(true) {
+                    thread_local! {
+                        static SEP_CSS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+                    }
+                    SEP_CSS.with(|done| {
+                        if !done.get()
+                            && let Some(display) = gtk4::gdk::Display::default()
+                        {
+                            let provider = gtk4::CssProvider::new();
+                            provider.load_from_data(
+                                "listview.day-separators > row { \
+                                     border-bottom: 1px solid alpha(currentColor, 0.18); \
+                                 }",
+                            );
+                            gtk4::style_context_add_provider_for_display(
+                                &display,
+                                &provider,
+                                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                            );
+                            done.set(true);
+                        }
+                    });
+                    listview.add_css_class("day-separators");
+                }
                 let sw = gtk4::ScrolledWindow::new();
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
                 sw.set_child(Some(&listview));
