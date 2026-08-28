@@ -1,14 +1,13 @@
-use super::detail::{color_of, editor, editor_pane};
+use super::detail::{color_of, editor_pane};
 use crate::model::{self, Item, ItemFields, KINDS};
-use crate::{res, wide};
+use crate::res;
 use day::prelude::*;
 
-// This file owns CHOOSING an item — the list, the selection, the routes, the commands — and
-// `detail.rs` owns editing the one that was chosen. The seam is `selected()`, below.
+// This file owns CHOOSING an item — the list, the selection, the commands — and `detail.rs`
+// owns editing the one that was chosen. The seam is `selected()` and `detail_open()`, below.
 //
-// The row the editor is showing. One signal drives BOTH shapes this page takes — the pushed
-// stack on a phone and the two-pane layout on a desktop — so crossing a breakpoint rebuilds the
-// layout without losing the user's place.
+// Both are globals rather than page state because the navigation host may rebuild either pane
+// when the window crosses a breakpoint: the selection has to outlive the layout it was made in.
 thread_local! {
     // `Signal::global`: this outlives the page that first reads it. With `Signal::new` it would
     // be created inside the Navigate page's scope and disposed the moment the user switched to
@@ -16,6 +15,11 @@ thread_local! {
     static SELECTED: Signal<Option<u32>> = Signal::global(None);
     // The row the list should scroll into view; cleared once it has.
     static SCROLL_TO: Signal<Option<usize>> = Signal::global(None);
+    // Whether the EDITOR is showing. A three-column window always shows it beside the list; a
+    // shape that shows one pane at a time pushes it over the list and pops back, and this is
+    // the signal the navigation host drives in both directions — `selector(…).detail_visible`
+    // in `lib.rs` (https://daybrite.dev/docs/navigation).
+    static DETAIL_OPEN: Signal<bool> = Signal::global(false);
 }
 
 /// The seam between this file and `detail.rs`: the editor pane reads it, the list writes it.
@@ -27,28 +31,18 @@ fn scroll_to() -> Signal<Option<usize>> {
     SCROLL_TO.with(|s| *s)
 }
 
-/// A typed route carrying the item's id (https://daybrite.dev/docs/navigation): `Row { id }`
-/// encodes as `item-<id>` and parses back, so a deep link to `navigate/item-42` validates on the
-/// way in and the destination builder receives a parsed value rather than a string to split.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct Row {
-    pub id: u32,
+/// The other half of that seam: whether the editor is up. The navigation host both reads this
+/// (to push the editor) and writes it (when a native back gesture pops back to the list).
+pub(crate) fn detail_open() -> Signal<bool> {
+    DETAIL_OPEN.with(|s| *s)
 }
 
-impl Route for Row {
-    fn key(&self) -> String {
-        format!("item-{}", self.id)
-    }
-    fn from_key(key: &str) -> Option<Self> {
-        key.strip_prefix("item-")?.parse().ok().map(|id| Row { id })
-    }
-    /// What the native navigation bar shows above the editor.
-    fn title(&self) -> String {
-        model::find(self.id)
-            .map(|i| i.name)
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| res::str::item_untitled().format())
-    }
+/// Open `id` in the editor — the one path every "show me this item" command takes. The layout
+/// is not this function's business: a wide window already has the editor beside the list, a
+/// narrow one pushes it, and the host decides which (https://daybrite.dev/docs/navigation).
+fn open(id: u32) {
+    selected().set(Some(id));
+    detail_open().set(true);
 }
 
 // --- commands, shared by the toolbar, the menu bar, and the row context menus ---------------
@@ -57,22 +51,19 @@ impl Route for Row {
 /// the row you just made is the row you want to be typing into.
 pub(crate) fn new_item() {
     let id = model::add();
-    selected().set(Some(id));
+    open(id);
     // A hundred rows in, a new one lands off screen. Ask the list to bring it into view by its
     // DISPLAY index, which is not the order it was appended in — finished items float to the top
     // (https://daybrite.dev/docs/list).
     scroll_to().set(model::ordered_keys().iter().position(|k| *k == id as u64));
-    if !wide() {
-        route(&crate::Section::Navigate)
-            .then(&Row { id })
-            .navigate();
-    }
 }
 
 pub(crate) fn delete_selected() {
     if let Some(id) = selected().get_untracked() {
         model::remove(id);
         selected().set(None);
+        // Nothing left to edit: on the shapes that pushed the editor, this pops back to the list.
+        detail_open().set(false);
     }
 }
 
@@ -84,51 +75,22 @@ pub(crate) fn done_selected() {
 
 // --- the page -------------------------------------------------------------------------------
 
-/// A list that drills into an editor.
+/// The Navigate section's DETAIL — the editor for whichever row the content list has selected.
 ///
-/// The SHAPE follows the window and the two shapes share everything but their frame: a desktop
-/// shows list and editor side by side, a phone pushes the editor over the list with a native back
-/// button. Both read `SELECTED`, both write through `model`, and neither knows about the other.
+/// There is no width check here and no second layout: the list is the section's CONTENT-LIST
+/// pane (`item_list_pane`, handed to the selector in `lib.rs`), so the navigation host owns the
+/// columns and re-presents them itself as the window changes — a real split on a desktop, a
+/// pushed middle layer on a phone (https://daybrite.dev/docs/navigation).
 pub(crate) fn navigate_page() -> impl Piece {
-    // TWO `when` arms rather than an `if`: a page's builder runs once, so a plain `if wide()`
-    // would freeze this page in whichever shape the window had when the section was first opened.
-    // `when` re-derives on the tracked read, which is what makes the layout follow the window
-    // (https://daybrite.dev/docs/size-classes).
-    column((when(wide, master_detail), when(|| !wide(), pushed_stack))).grow()
+    editor_pane().grow()
 }
 
-/// Wide: list and editor side by side. A `selector` sidebar cannot carry rows this rich — its
-/// rows are a label and an icon — so the two panes are composed from ordinary pieces, which is
-/// also what lets the same list widget serve both layouts.
-fn master_detail() -> impl Piece {
-    row((item_list().width(320.0), editor_pane().grow())).grow()
+/// The content-list pane: the item list in its own column.
+pub(crate) fn item_list_pane() -> impl Piece {
+    item_list().grow()
 }
 
-/// Narrow: the list fills the window and the editor pushes over it with a native back button.
-fn pushed_stack() -> impl Piece {
-    let path = Signal::new(Vec::<Row>::new());
-    stack(path, item_list())
-        .destination(|r: &Row| editor(r.id))
-        // The phones have no window toolbar, so the same commands ride the navigation bar instead
-        // (https://daybrite.dev/docs/navigation) — the same three the desktop toolbar carries, in
-        // the same order, so the app is one app on either.
-        //
-        // `list_action`, not `bar_action`: all three act on the LIST. Pushed over the editor they
-        // would be acting on something the user can no longer see — a phone has covered the list
-        // with the item they tapped — so they belong to the list's own bar and stop there.
-        .list_action(res::vectors::filter, res::str::cmd_show_done(), || {
-            crate::model::show_done().update(|v| *v = !*v)
-        })
-        .list_action(res::vectors::check, res::str::cmd_done(), done_selected)
-        .list_action(res::vectors::add, res::str::cmd_add(), new_item)
-    // No `.id()` here. Where this stack MERGES into an enclosing one — which is what happens
-    // on a phone, so the whole chain is a single native navigation controller — it returns
-    // its ROOT's node rather than a host of its own. An id here would therefore retag the
-    // list, and the list's own id would be the one that vanished
-    // (https://daybrite.dev/docs/navigation).
-}
-
-/// The list itself — one widget, both layouts, driven straight by the STORE.
+/// The list itself — one widget, every layout, driven straight by the STORE.
 ///
 /// `items().rows(ordered_keys)` hands the list a projection of row KEYS; the rows themselves
 /// bind their fields through the slot. The division of labor is the whole performance story
@@ -144,18 +106,10 @@ fn pushed_stack() -> impl Piece {
 fn item_list() -> impl Piece {
     list(model::items().rows(model::ordered_keys), row_view)
         .row_height(RowHeight::Uniform(58.0))
-        .on_select(move |it: Elem<Item>| {
-            let id = it.key() as u32;
-            selected().set(Some(id));
-            if !wide() {
-                route(&crate::Section::Navigate)
-                    .then(&Row { id })
-                    .navigate();
-            }
-        })
+        .on_select(move |it: Elem<Item>| open(it.key() as u32))
         // Two-way selection. `on_select` writes the signal; this reads it back, so a row opened
-        // any other way — the "+" command, a deep link, a restored launch — highlights in the
-        // list rather than leaving the form and the list disagreeing about what is open.
+        // any other way — the "+" command, a restored launch — highlights in the list rather
+        // than leaving the editor and the list disagreeing about what is open.
         .selected_rows(move || {
             selected()
                 .get()

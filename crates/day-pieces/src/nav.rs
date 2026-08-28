@@ -1849,6 +1849,25 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let list_build = sel.content_list.clone();
     let list_pred = sel.content_list_pred.clone();
     let detail_visible = sel.detail_visible;
+    // Whether the content-list pane belongs to THIS destination (`content_list_for`), applied
+    // wherever the shown destination can change. It lives here, shared, because three paths
+    // reach it: a fresh `show`, a `show` that finds its page already resident (a chrome
+    // presentation has built them all), and a presentation change that rebuilds the shape
+    // around an unchanged selection. Missing any one of them strands the pane — collapsed
+    // because some other destination was the last to speak, with nothing left to reopen it.
+    let apply_list_visible: Rc<dyn Fn(&K)> = {
+        let (shown, pred) = (list_shown.clone(), list_pred.clone());
+        Rc::new(move |key: &K| {
+            if !native_list {
+                return;
+            }
+            let want = pred.as_ref().is_none_or(|p| p(key));
+            if want != shown.get() {
+                shown.set(want);
+                with_tree(|t| t.patch(host, Box::new(NavPatch::ListVisible(want)), false));
+            }
+        })
+    };
     if native_list && let Some(build_list) = list_build.clone() {
         let page = nav_page(
             host,
@@ -1962,8 +1981,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             selection.clone(),
             presentation_cell.clone(),
         );
-        let (list_pred_s, list_shown_s, list_in_stack_s) =
-            (list_pred.clone(), list_shown.clone(), list_in_stack.clone());
+        let (list_pred_s, list_in_stack_s) = (list_pred.clone(), list_in_stack.clone());
+        let apply_list_visible_s = apply_list_visible.clone();
         let compose_s = compose.clone();
         move |key: &str| {
             if current.borrow().as_deref() == Some(key) {
@@ -2009,6 +2028,11 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 sync_menu(None);
                 return;
             };
+            let typed_key_now = typed_s.borrow()[idx].clone();
+            // The pane's visibility is settled for EVERY destination change, including the
+            // resident case below — a chrome presentation builds every destination, so the
+            // last one built would otherwise be the one that had the final word.
+            apply_list_visible_s(&typed_key_now);
             // Already built and still alive — the resident case. Nothing to build, nothing to
             // push: tell the host which of its pages to show and we are done.
             if let Some(i) = resident.borrow().iter().position(|p| p.key == key) {
@@ -2021,7 +2045,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 sync_menu(Some(idx));
                 return;
             }
-            let typed_key = typed_s.borrow()[idx].clone();
+            let typed_key = typed_key_now;
             let title_now = titles_s.borrow()[idx].clone();
             // Per-destination pane visibility (`content_list_for`): a full-width destination
             // collapses the pane, a list-backed one brings it back. `interposed` = this
@@ -2030,10 +2054,6 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             let want = native_list && list_pred_s.as_ref().is_none_or(|p| p(&typed_key));
             let interposed = gated && want;
             if native_list {
-                if want != list_shown_s.get() {
-                    list_shown_s.set(want);
-                    with_tree(|t| t.patch(host, Box::new(NavPatch::ListVisible(want)), false));
-                }
                 if interposed && !list_in_stack_s.get() {
                     // Interpose the list above the sidebar root, with its own back owner
                     // (back from the list = deselect).
@@ -2262,6 +2282,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         );
         let (list_pred_r, list_in_stack_r, show_r) =
             (list_pred.clone(), list_in_stack.clone(), show.clone());
+        let apply_list_visible_r = apply_list_visible.clone();
         Rc::new(move |next: NavPresentation| {
             let was_chrome = pc.get().rows_are_chrome();
             pc.set(next);
@@ -2316,10 +2337,24 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             {
                 sel_r.write(k);
             }
-            // Content-list settlement (docs/navigation.md). Narrowing into the gated stack
-            // interposes the list for the current selection and retracts a detail the app is
-            // not showing; widening back restores the always-on detail beside the pane. The
-            // owner stack is REBUILT for the new shape — the old owners named the old one.
+            // Content-list settlement (docs/navigation.md). The pane's own visibility comes
+            // first and applies to EVERY backend that places the pane itself: entering a chrome
+            // presentation builds every destination, and a destination without a list collapses
+            // the pane on its way past, so the shape that comes next has to state the selected
+            // destination's answer again.
+            if native_list
+                && let Some(k) = typed_r
+                    .borrow()
+                    .iter()
+                    .find(|x| Some(&x.key()) == current_r.borrow().as_ref())
+                    .cloned()
+            {
+                apply_list_visible_r(&k);
+            }
+            // Narrowing into the gated stack interposes the list for the current selection and
+            // retracts a detail the app is not showing; widening back restores the always-on
+            // detail beside the pane. The owner stack is REBUILT for the new shape — the old
+            // owners named the old one.
             if merged_list && let Some(dv) = detail_visible {
                 if next == NavPresentation::Stack {
                     let key = current_r.borrow().clone();

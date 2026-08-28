@@ -9,7 +9,19 @@ use crate::pages::*;
 
 // The mobile / embedded entry point. Expands to the export each platform's shell binds against —
 // and to nothing at all on a plain cargo desktop build, where src/main.rs is the entry instead.
-day::day_start!("{{title}}", root);
+day::day_start!(window_title(), root);
+
+/// The window (and web document) title, from the locale catalog rather than a literal — so it
+/// is translated with every other user-facing string and the app's name lives in ONE place.
+///
+/// The catalog is installed HERE as well as in [`root`] on purpose: the entry points above
+/// evaluate this title before `root` runs, and a lookup with no catalog installed renders the
+/// key itself — `⟨app_title⟩` in the title bar. Re-registering is cheap and keeps the locale
+/// signal bindings already created (https://daybrite.dev/docs/localization).
+pub fn window_title() -> String {
+    res::locales::install();
+    res::str::app_title().format()
+}
 
 /// Typed constants for the files under `resource/`, generated at build time by `day-build` (§18.5):
 /// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`, `res::str::<key>()`, and
@@ -34,15 +46,6 @@ day::routes! {
         Navigate => "navigate",
         Settings => "settings",
     }
-}
-
-/// `true` where there is room to show a list and its detail side by side.
-///
-/// A TRACKED read (https://daybrite.dev/docs/size-classes): anything calling this rebuilds when the
-/// window crosses a breakpoint, which is what lets one `root()` be right on a phone and a desktop
-/// without a second code path. A question about the WINDOW — use it for layout.
-pub(crate) fn wide() -> bool {
-    day::size_class().is_some_and(|c| c.width >= WidthClass::Expanded)
 }
 
 /// `true` on a platform with an application MENU BAR — where `register_preferences` puts a
@@ -106,12 +109,38 @@ pub fn root() -> impl Piece {
         ]
     });
 
-    // No `.style(…)`: a selector is ADAPTIVE by default — a tab bar on a phone, a rail on a
-    // tablet, a sidebar beside the detail on a desktop, re-presenting live as the window
-    // changes (https://daybrite.dev/docs/navigation).
+    // `Sidebar`, not the adaptive default: the item list below is a CONTENT-LIST pane, and a
+    // pane needs a presentation with a column to put it in. The sidebar family has one at every
+    // width — three columns on a desktop, and on a phone the same three as a push sequence
+    // (sections → list → editor). A tab bar has nowhere to place it
+    // (https://daybrite.dev/docs/navigation).
     let section = Signal::new(Section::Welcome);
     selector(section)
+        .style(SelectorStyle::Sidebar)
         .title(res::str::app_title())
+        // The item list is a real CONTENT-LIST pane (https://daybrite.dev/docs/navigation): its
+        // own column between the sidebar and the editor where the toolkit has one — a
+        // `contentList` split item on macOS, the supplementary column on iPadOS — the pushed
+        // middle layer on a phone, and composed beside the editor everywhere else. That is what
+        // makes this a TRUE three-column window rather than two panes drawn inside one, and it
+        // is why neither this file nor `navigate.rs` branches on the window width any more.
+        .content_list(item_list_pane)
+        .content_list_width(320.0)
+        // Only the section that HAS a list gets the middle column; Welcome and Settings keep the
+        // whole detail area.
+        .content_list_for(|s: &Section| matches!(s, Section::Navigate))
+        // On the shapes that show one pane at a time, this is what says whether the editor is up:
+        // the host pushes it when the signal goes true and pops back to the list when it clears.
+        .detail_visible(pages::detail_open())
+        // These three act on the LIST, so they ride the list pane's own navigation bar on the
+        // phones — where a window toolbar does not exist — and the desktop split ignores them
+        // because the toolbar above already carries the same commands
+        // (https://daybrite.dev/docs/toolbars).
+        .list_action(res::vectors::filter, res::str::cmd_show_done(), || {
+            crate::model::show_done().update(|v| *v = !*v)
+        })
+        .list_action(res::vectors::check, res::str::cmd_done(), pages::done_selected)
+        .list_action(res::vectors::add, res::str::cmd_add(), pages::new_item)
         .item_icon(
             Section::Welcome,
             res::str::nav_welcome(),

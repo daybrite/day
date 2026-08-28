@@ -53,8 +53,13 @@ const ARTIFACT_DIRS: &[&str] = &[
 /// bytes reclaimed (0 for a dry run, which only reports).
 pub fn run(project: &Project, dry_run: bool) -> Result<u64, String> {
     // A live session holds its app's store and its entry in build/day/sessions.json — clean
-    // under it and the runner is orphaned mid-run. Same teardown as `day stop --all`.
+    // under it and the runner is orphaned mid-run. Same teardown as `day stop --all`. A dry
+    // run stops nothing: it must leave the project exactly as it found it.
     for session in crate::sessions::list(&project.root) {
+        if dry_run {
+            status("Would stop", &session.target);
+            continue;
+        }
         if let Ok(target) = crate::external::find_target(project, &session.target) {
             crate::script::terminate(project, target);
         }

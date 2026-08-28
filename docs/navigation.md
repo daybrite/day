@@ -527,6 +527,14 @@ breakpoints, what survives a re-presentation, and which backends morph today.
 > stack at compact width); composed by the selector everywhere else, including the mock.
 > `Cap::NavContentList` carries the three-way answer.
 
+> [!IMPORTANT]
+> The pane needs a presentation with a COLUMN to put it in, so declare it on a sidebar-family
+> selector (`SelectorStyle::Sidebar`, the style every example here uses). A tab bar has nowhere
+> to place the list — on `ios-uikit` the page is dropped rather than drawn, and the destinations
+> that remain shift under the tabs — so an `Automatic` selector that resolves to `Tabs` on a
+> phone must not declare one. A phone still gets all three layers from the sidebar style: the
+> sections, the list, and the detail, as a push sequence.
+
 `.content_list(build)` gives a `selector(Sidebar)` the Mail shape: sidebar, content list,
 detail — mailboxes, message list, message. The list is built ONCE and stays resident for the
 host's life; its content follows the app's own signals (the sidebar selection scoping it, the

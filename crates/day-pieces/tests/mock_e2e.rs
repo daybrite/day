@@ -4991,6 +4991,58 @@ fn list_try_swipe_drives_the_scripted_path() {
     assert!(day_core::list_try_swipe(node, 99, SwipeEdge::Trailing, 0, None).is_err());
 }
 
+/// Crossing presentations must leave the content-list pane matching the SELECTED destination.
+/// Entering a chrome presentation (a rail, a tab bar) builds every destination, and one the
+/// pane does not belong to collapses it on the way past, so the last word has to be the
+/// selected destination's.
+///
+/// This pins the invariant, not the AppKit bug that prompted it: that one needs the selected
+/// destination to be resident when the rebuild replays, which this harness does not reproduce
+/// (verified live instead — the split item stayed collapsed after a rail crossing until
+/// `show` settled visibility before its resident early-return).
+#[test]
+fn content_list_survives_a_presentation_round_trip() {
+    let sel = Signal::new("about".to_string());
+    let probe = boot_content_list(day_spec::Support::Native, Size::new(1000.0, 700.0), {
+        move || {
+            // ADAPTIVE, not `Sidebar`: only the styles that resolve to chrome build every
+            // destination, and that build is what strands the pane.
+            selector(sel)
+                .style(SelectorStyle::Automatic)
+                .title("Home")
+                .content_list(|| label("the-list"))
+                .content_list_for(|k: &String| k != "extra")
+                .item("about", "About", || label("about-content"))
+                .item("extra", "Extra", || label("extra-content"))
+                .any()
+        }
+    });
+    assert_eq!(presentation_of(&probe), Some(NP::Split), "starts split");
+
+    // TWICE. The first crossing builds every destination, so on the second the selected one is
+    // already RESIDENT — the path that used to skip the pane's visibility entirely and leave
+    // whatever the last-built destination said standing.
+    let mut mark = probe.log_len();
+    for _ in 0..2 {
+        mark = probe.log_len();
+        day_core::set_size_class(day_spec::SizeClass::from_size(700.0, 800.0));
+        flush_sync();
+        day_core::set_size_class(day_spec::SizeClass::from_size(1000.0, 800.0));
+        flush_sync();
+    }
+
+    let last = probe
+        .log_since(mark)
+        .iter()
+        .rev()
+        .find_map(|l| l.strip_prefix("nav list visible=").map(|v| v == "true"));
+    assert_ne!(
+        last,
+        Some(false),
+        "widening left the pane collapsed — the selected destination never got to answer"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Adaptive navigation — SelectorStyle::Automatic (docs/navigation.md,
 // docs/size-classes.md). One host, four presentations, chosen by the window.
