@@ -62,7 +62,7 @@ pub fn build_web(
     let mut cmd = Command::new("cargo");
     cmd.current_dir(&project.root)
         .env("CARGO_TARGET_DIR", &cargo_dir)
-        // The app's lib as a cdylib (the same shape as Android/HarmonyOS): `web_main!` exports
+        // The app's lib as a cdylib (the same shape as Android/HarmonyOS): `day_start_web!` exports
         // `day_dom_main`, which the host page calls after instantiation.
         .args(["rustc", "-p", name, "--lib", "--no-default-features"])
         .args(["--features", &features])

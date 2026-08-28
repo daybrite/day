@@ -11,8 +11,7 @@
 //!
 //! Data (`assets/`) is copied into the app bundle by the xcode-backend copy phase and read back
 //! through the default mmap file opener (a plain bundle file — the Apple native path). macOS/AppKit
-//! stays on the bundle-file path in BOTH of its build modes: the bare-cargo build has no
-//! xcodebuild at all, and the `platform/macos/` Xcode host stages images through the
+//! stays on the bundle-file path too: the `platform/macos/` Xcode host stages images through the
 //! `day xcode-backend stage-resources` script phase into `Contents/Resources` rather than through
 //! an asset catalog, so no `actool` runs for them there either (the appicon is the exception).
 

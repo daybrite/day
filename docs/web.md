@@ -59,9 +59,9 @@ index.html                        app.wasm (Rust cdylib)
   rather than beside the toolkit because `day build` embeds it with `include_str!` (so an
   installed CLI needs no source checkout) and `include_str!` may not reach outside its own
   package. **Editing shim.js means rebuilding the CLI** before the change reaches a served page.
-- **`day::web_main!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
+- **`day::day_start_web!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
   instantiated. Emits nothing off wasm32, like the other entry macros (§17.4). Apps reach it
-  through `day::day_main!("App Name", root)`, which expands to this macro and to every other
+  through `day::day_start!("App Name", root)`, which expands to this macro and to every other
   platform's entry — one line in `lib.rs` covering all of them.
 - **Logging** ([docs/logging.md](logging.md)) — `day_dom_log(level, ptr, len)` is the console
   seam: `error!`/`warn!`/`info!`/`debug!` land on the matching `console.*` method, so devtools'

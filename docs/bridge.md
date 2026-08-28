@@ -272,10 +272,10 @@ wrappers, `<fn>_support()` — plus the C/C++ translation units cargo itself com
 **`day build`** emits the foreign side into the project that target already builds from.
 
 The CLI renders those adapters **from the crate's own sources**, using the same parser day-build
-uses, rather than reading anything the build script produced. That is not a preference: a prepass
-has to finish before cargo links, and a build script's output only exists once cargo has already
-run. Reading sources makes staging independent of build order, exactly as the Swift prepass already
-treats `[package.metadata.day.macos]` shims.
+uses, rather than reading anything the build script produced. That is not a preference: staging
+has to finish before the platform build compiles, and a build script's output only exists once
+cargo has already run. Reading sources makes staging independent of build order, exactly as the
+macOS Swift staging already treats `[package.metadata.day.macos]` shims.
 
 An arm whose foreign half the CLI stages — Swift, Kotlin, Java, ArkTS, JavaScript — is compiled under a
 `day_bridge_staged` cfg the CLI sets. Without it (a plain `cargo build`, or a target this arm does
@@ -285,7 +285,7 @@ need no such gate: cargo compiles them itself.
 
 | Arm | Adapter lands in | Existing mechanism it rides |
 |---|---|---|
-| `swift` | the generated `DayPieces` SwiftPM module | the Swift prepass, `swift build`, `-force_load` ([docs/swiftui.md](swiftui.md)) |
+| `swift` | the generated `DayPieces` SwiftPM module | the Xcode host projects' SwiftPM reference ([docs/swiftui.md](swiftui.md)) |
 | `kotlin`, `java` | a Gradle `srcDirs` entry | the checked-in Gradle host project, JNI, `day-pieces.json` |
 | `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor ([docs/harmonyos.md](harmonyos.md)) |
 | `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it ([docs/web.md](web.md)) |

@@ -79,11 +79,11 @@ their constructors.
 
 ## How a build works
 
-`day build -p <target>` orchestrates; platform tools do the platform work. Desktop targets are
-plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds never
-contend); the one addition is `macos-appkit`, which runs a `swift build` prepass and statically
-links the result whenever a dependency contributes macOS Swift — the
-[SwiftUI embedding](/docs/internal/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed deliberately
+`day build -p <target>` orchestrates; platform tools do the platform work. Most desktop targets
+are plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds
+never contend); the exception is `macos-appkit`, which builds through its `platform/macos/`
+Xcode host project like a mobile target — including any macOS Swift a dependency contributes,
+the [SwiftUI embedding](/docs/internal/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed deliberately
 from Flutter: the checked-in platform project drives, and calls back into `day` for the Rust
 part, so building from Xcode/Android Studio and building from the CLI produce identical results
 and neither goes stale.
@@ -104,8 +104,8 @@ and neither goes stale.
 
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
 `libentry.so`), and `macos-appkit` generates its own `DayPieces` SwiftPM package (at
-`build/day/macos/DayPieces`) when Swift is contributed — referenced by the `platform/macos/`
-Xcode host project, or linked directly by cargo on the bare-cargo path. Metadata flows one way: `Day.toml` (identity) and the Cargo
+`build/day/macos/DayPieces`), referenced by the `platform/macos/`
+Xcode host project. Metadata flows one way: `Day.toml` (identity) and the Cargo
 `version` are conveyed into generated, gitignored files that the checked-in projects read; the
 scaffolds themselves are never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.

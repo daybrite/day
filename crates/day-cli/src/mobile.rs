@@ -453,19 +453,6 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 // macos-appkit via the Xcode host project (platform/macos/, §17.4)
 // ---------------------------------------------------------------------------
 
-/// Whether `day build`/`day launch` should drive macos-appkit through the Xcode host
-/// project: the scaffold exists and `DAY_MACOS_XCODE=0` hasn't opted out (the escape hatch
-/// CI capture loops use to stay on the faster bare-cargo path).
-pub fn macos_xcode_enabled(project: &Project) -> bool {
-    if std::env::var("DAY_MACOS_XCODE").is_ok_and(|v| v == "0") {
-        return false;
-    }
-    project
-        .root
-        .join("platform/macos/DayApp.xcodeproj")
-        .is_dir()
-}
-
 /// The `OTHER_LDFLAGS` override that keeps a linked Mach-O reproducible across build directories
 /// (DESIGN.md §20.3), the macOS counterpart of the `/Brepro` link argument the xaml build passes.
 ///
@@ -519,11 +506,11 @@ fn oso_prefix_setting(project_root: &Path) -> String {
     )
 }
 
-/// Build macos-appkit through the Xcode host project. Mirrors [`build_ios_for`]: stage the
-/// DayPieces package the pbxproj references (empty is fine — the reference must resolve),
-/// run xcodebuild with an absolute SYMROOT, and hand back the built `.app` bundle as the
-/// artifact (launch execs its inner binary; the bundle itself carries identity, icon, and
-/// resources, so none of the bare-binary launch tricks apply).
+/// Build macos-appkit through the Xcode host project — the ONLY macos-appkit build since the
+/// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the DayPieces package
+/// the pbxproj references (empty is fine — the reference must resolve), run xcodebuild with
+/// an absolute SYMROOT, and hand back the built `.app` bundle as the artifact (launch execs
+/// its inner binary; the bundle carries identity, icon, and resources).
 pub fn build_macos_xcode(
     project: &Project,
     target: &'static Target,
@@ -541,7 +528,7 @@ pub fn build_macos_xcode(
     // The xcconfig split (§17.4) — same order rationale as prepare_ios.
     crate::xcconfig::ensure_split(project, "macos")?;
     crate::xcconfig::write_generated(project, "macos")?;
-    crate::pieces::write_macos_pieces(project, true)?;
+    crate::pieces::write_macos_pieces(project)?;
     status(
         "Building",
         &format!("{} (xcodebuild {configuration}, macosx)", target.name),

@@ -553,7 +553,7 @@ pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'stat
 /// instead of one macro per platform.
 ///
 /// ```ignore
-/// day::day_main!("My App", root);    // or: day::day_main!(root);
+/// day::day_start!("My App", root);    // or: day::day_start!(root);
 /// ```
 ///
 /// It expands to every platform macro below. Each of those is gated on its own target
@@ -566,16 +566,16 @@ pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'stat
 /// from Rust, so they accept the argument and ignore it; passing it here keeps one call site for
 /// every target instead of making the caller remember which two are different.
 #[macro_export]
-macro_rules! day_main {
+macro_rules! day_start {
     ($root:expr) => {
-        $crate::day_main!("", $root);
+        $crate::day_start!("", $root);
     };
     ($title:expr, $root:expr) => {
-        $crate::ios_main!($title, $root);
-        $crate::macos_main!($title, $root);
-        $crate::android_main!($root);
-        $crate::arkui_main!($root);
-        $crate::web_main!($title, $root);
+        $crate::day_start_ios!($title, $root);
+        $crate::day_start_macos!($title, $root);
+        $crate::day_start_android!($root);
+        $crate::day_start_arkui!($root);
+        $crate::day_start_web!($title, $root);
     };
 }
 
@@ -583,15 +583,15 @@ macro_rules! day_main {
 /// (`@_silgen_name("day_main")`). The optional title is currently unused on
 /// iOS (the window fills the screen bounds); accepted for future window-scene use.
 ///
-/// Apps normally reach this through [`day_main!`] rather than calling it directly.
+/// Apps normally reach this through [`day_start!`] rather than calling it directly.
 ///
 /// ```ignore
-/// day::ios_main!(root);              // or: day::ios_main!("My App", root);
+/// day::day_start_ios!(root);              // or: day::day_start_ios!("My App", root);
 /// ```
 #[macro_export]
-macro_rules! ios_main {
+macro_rules! day_start_ios {
     ($root:expr) => {
-        $crate::ios_main!("", $root);
+        $crate::day_start_ios!("", $root);
     };
     ($title:expr, $root:expr) => {
         /// iOS entry: the Runner's main.swift calls this from the app staticlib (§17.4).
@@ -615,12 +615,12 @@ macro_rules! ios_main {
 /// identically however it was built.
 ///
 /// ```ignore
-/// day::macos_main!(root);            // or: day::macos_main!("My App", root);
+/// day::day_start_macos!(root);            // or: day::day_start_macos!("My App", root);
 /// ```
 #[macro_export]
-macro_rules! macos_main {
+macro_rules! day_start_macos {
     ($root:expr) => {
-        $crate::macos_main!("", $root);
+        $crate::day_start_macos!("", $root);
     };
     ($title:expr, $root:expr) => {
         /// macOS entry: the Runner's main.swift calls this from the app staticlib (§17.4).
@@ -645,10 +645,10 @@ macro_rules! macos_main {
 /// wired to the given root piece.
 ///
 /// ```ignore
-/// day::android_main!(root);
+/// day::day_start_android!(root);
 /// ```
 #[macro_export]
-macro_rules! android_main {
+macro_rules! day_start_android {
     ($root:expr) => {
         // jni 0.22 native methods receive the FFI-safe `EnvUnowned`; `with_env` upgrades it to the
         // real `Env` (sharing the frame's `'local`, so the object args pass straight in) and wraps
@@ -894,10 +894,10 @@ pub mod android {
 /// It mounts the app's `root` piece into the ArkTS `NodeContent` and runs the loop.
 ///
 /// ```ignore
-/// day::arkui_main!(root);
+/// day::day_start_arkui!(root);
 /// ```
 #[macro_export]
-macro_rules! arkui_main {
+macro_rules! day_start_arkui {
     ($root:expr) => {
         /// HarmonyOS entry: the ArkUI shim's NAPI `start` calls this from the app cdylib (§17.4).
         #[cfg(target_env = "ohos")]
@@ -926,12 +926,12 @@ macro_rules! arkui_main {
 /// is instantiated (`wasm.day_dom_main()` at the end of `start()` in `crates/day-cli/resources/web/shim.js`).
 ///
 /// ```ignore
-/// day::web_main!(root);              // or: day::web_main!("My App", root);
+/// day::day_start_web!(root);              // or: day::day_start_web!("My App", root);
 /// ```
 #[macro_export]
-macro_rules! web_main {
+macro_rules! day_start_web {
     ($root:expr) => {
-        $crate::web_main!("", $root);
+        $crate::day_start_web!("", $root);
     };
     ($title:expr, $root:expr) => {
         /// Web entry: the host page's shim calls this from the app cdylib (§17.4).

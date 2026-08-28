@@ -504,8 +504,8 @@ one checked-in `.xcodeproj` depends on that package. So an iOS framework depende
 `Cargo.toml` data. You never edit the `.xcodeproj`.
 
 A `[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
-compiles the contributions with a `swift build` prepass and statically links them into the cargo
-binary. `day-part-local-notify` declares `frameworks = ["UserNotifications"]` under both tables.
+hands the contributions to the `platform/macos/` Xcode host project through the same generated
+package. `day-part-local-notify` declares `frameworks = ["UserNotifications"]` under both tables.
 Both also take a `platform` key (`platform = "16.0"`) to raise the minimum-OS floor when the
 native API needs it; the max across contributing crates wins.
 

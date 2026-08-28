@@ -2896,15 +2896,18 @@ several days — `day checkup --day-version` drives both halves through it.
 Per target: (1) preflight, (2) conveyance generation from `Day.toml` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)), (3) the target's
 pipeline — `xcodebuild` for ios; `gradle` for android; hvigor for ohos; cargo + bundle
 assembly for the cargo-driven desktop targets; MSBuild-free cargo + C++/WinRT shim for windows.
-**`macos-appkit` is dual-mode** (2026-08): an app carrying the `platform/macos/` Xcode host
-project (scaffolded by default; adoptable via `day app add-toolkit macos-appkit`) builds through
-`xcodebuild` into a real `.app` — bundle identity, compiled appiconset, resources staged into
-`Contents/Resources` by the `day xcode-backend stage-resources` script phase (host-arch by
-default; `DAY_MACOS_UNIVERSAL=1` builds arm64 + x86_64, which needs both Rust stdlibs
-installed) — while
-`DAY_MACOS_XCODE=0` (or no scaffold) keeps the bare cargo + bundle-assembly path, whose
-conditional `swift build` prepass statically links macOS Swift contributions
-([§15.2](#152-package-layout-and-aggregation), [docs/swiftui.md](docs/swiftui.md)). The
+**`macos-appkit` builds through the `platform/macos/` Xcode host project, always** (dual-mode
+2026-08, single-mode later that month — the bare cargo + bundle-assembly path and its
+`DAY_MACOS_XCODE=0` escape hatch were retired, along with the `swift build` prepass that
+statically linked macOS Swift contributions into the cargo binary; those now build inside the
+same xcodebuild run via the generated DayPieces package,
+[§15.2](#152-package-layout-and-aggregation), [docs/swiftui.md](docs/swiftui.md)). The scaffold
+ships by default and an app that predates it adopts it with `day app add-toolkit macos-appkit`
+— without it, `day build -p macos-appkit` fails with that instruction. The build is a real
+`.app`: bundle identity, compiled appiconset, resources staged into `Contents/Resources` by the
+`day xcode-backend stage-resources` script phase (host-arch by default; `DAY_MACOS_UNIVERSAL=1`
+builds arm64 + x86_64, which needs both Rust stdlibs installed), and `day pack` takes that
+bundle as-is — copy, codesign, dmg, notarize — assembling nothing. The
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
 Both Xcode scaffolds keep their user-adjustable build settings (signing, deployment target,
@@ -4183,7 +4186,7 @@ implementation as noted above.
 | DP-17 | flush scheduling: when does the reactive drain run? | (A) synchronous fixpoint drain at batch end; layout in a coalesced posted callback (as specced [§3.3](#33-threading-model-and-the-turn-state-machine)); (B) always-posted flush (pane's literal model — simpler reentrancy, +1 turn latency on every event, fuzzier `wait_idle`) | **A** (already specced; this DP records the ratification) |
 | DP-18 | reading a disposed signal in **release** builds | (A) panic (floem/pane precedent, fail-fast); (B) log-once + default via try-path (leptos's panic-on-read is a notorious production footgun) | **A**, paired with the `try_*` doctrine of [§4.3](#43-scopes-and-disposal) — silent defaults hide real bugs and the no-op-write rule already covers legitimate async races |
 | DP-19 | Qt list recycling (QListView recycles delegate *paintings*, not live QWidget rows; `setIndexWidget` is unvirtualized) | (A) day-side emulated recycling: QAbstractScrollArea host + pooled cell QWidgets behind the same RowHost protocol, reported `Support::Emulated`; (B) painted `QStyledItemDelegate` fast path, rows restricted to text/icon/accessory | **A** default (preserves "any piece is a row"), B as a later optimization |
-| DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into [§16.5](#165-subcommands); needed for macos-gtk/qt regardless). **Outcome (2026-08):** both, in the end — macos-appkit gained the `platform/macos/` Xcode host project and is now dual-mode ([§16.5](#165-subcommands)), while A survives as the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) and is still the only answer for macos-gtk/qt. The feared cost of B was real and is why the escape hatch exists: CI capture loops take the cargo path for speed |
+| DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into [§16.5](#165-subcommands); needed for macos-gtk/qt regardless). **Outcome (2026-08):** both, in the end — macos-appkit gained the `platform/macos/` Xcode host project and is now dual-mode ([§16.5](#165-subcommands)), while A survives as the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) and is still the only answer for macos-gtk/qt. The feared cost of B was real and is why the escape hatch exists: CI capture loops take the cargo path for speed. **Outcome (2026-08, later):** B alone — the bare-cargo macos-appkit path, its escape hatch, and the prepass were retired once every checkout carried the scaffold and CI proved the xcodebuild loop fast enough in practice; macos-appkit is single-mode ([§16.5](#165-subcommands)). macos-gtk/qt never used the prepass (the Swift halves are appkit-only), so nothing remains of A |
 | DP-21 | extensibility (pillar 4) in the MVP | (A) tier-1 combobox joins MVP acceptance; battery/dayffi defer to M9; scaffolds ship the (empty) generated-aggregator attachment points from M5; (B) A + one thin tier-2 slice (battery, apple+android) in M8 to force dayffi real before templates ossify (~1 milestone-week); (C) confirm full M9+ deferral and say pillar 4 ships unproven | **A** (folded into [§21](#21-mvp-definition-and-milestone-plan)), with **B as stretch** if schedule allows |
 | DP-22 | scriptability of tier-2/adopted-native piece *internals* (a ComboBox popup or WebView content is one opaque handle to the element index) | (A) optional `script_query`/`script_act` dayffi vtable entries + sub-element locator syntax (`stations-combo#item:3`) — additive, keeps pillar composition true; (B) scope the claim to root nodes + exposed props, with capability-flagged structured errors | **A** for MVP-adjacent pieces (ComboBox); at minimum [§2](#2-the-four-pillars)'s claim stays scoped as now written |
 | DP-23 | ~~navigation architecture~~ | — | **resolved (owner, 2026-07-01): native containers.** `nav_stack` = UINavigationController / fragment+predictive-back hosts, desktop day-composed with native-style transitions ([§10.5](#105-navigation-and-presentation)); prerequisites already in place — VC/fragment-hosted roots ([§17.1](#171-project-layout-day-new-output)) + reserved push/pop/present hooks ([§10.5](#105-navigation-and-presentation)) |

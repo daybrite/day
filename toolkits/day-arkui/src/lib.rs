@@ -712,7 +712,7 @@ mod imp {
     }
 
     /// Set up the window root and density from the ArkTS host, before `launch_with`. Called by
-    /// `day::arkui::start` (via the `day::arkui_main!` entry macro) with the `NodeContent` handle.
+    /// `day::arkui::start` (via the `day::day_start_arkui!` entry macro) with the `NodeContent` handle.
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is a trusted NodeContent handle from ArkTS
     pub fn init(content: *mut c_void, w_vp: f64, h_vp: f64, density: f64) {
         // Reached from the ArkTS host's NAPI start call: contained like every FFI entry.

@@ -7,6 +7,10 @@ mod model;
 mod pages;
 use crate::pages::*;
 
+// The mobile / embedded entry point. Expands to the export each platform's shell binds against —
+// and to nothing at all on a plain cargo desktop build, where src/main.rs is the entry instead.
+day::day_start!("{{title}}", root);
+
 /// Typed constants for the files under `resource/`, generated at build time by `day-build` (§18.5):
 /// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`, `res::str::<key>()`, and
 /// the `res::locales` catalog. Reference bundled resources
@@ -185,7 +189,3 @@ fn menus() -> Vec<MenuEntry> {
         ),
     ]
 }
-
-// The mobile / embedded entry point. Expands to the export each platform's shell binds against —
-// and to nothing at all on a plain cargo desktop build, where src/main.rs is the entry instead.
-day::day_main!("{{title}}", root);

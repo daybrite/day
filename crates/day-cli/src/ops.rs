@@ -455,13 +455,22 @@ pub fn build(
     if target.toolkit == "mdc" {
         crate::shortcuts::sync_android(project)?;
     }
-    // macos-appkit through the Xcode host project when the app carries one (§17.4,
-    // platform/macos/): a real bundle with identity, icon, and staged resources — the same
-    // build a developer gets pressing Run in Xcode. `DAY_MACOS_XCODE=0` opts back into the
-    // bare-cargo path (CI capture loops). Falls through to the shared artifact stamping
-    // below, so `--skip-build` reuse works on this path too.
-    let xcode_macos = target.name == "macos-appkit" && crate::mobile::macos_xcode_enabled(project);
-    let outcome = if xcode_macos {
+    // macos-appkit builds through the Xcode host project (§17.4, platform/macos/), always:
+    // a real bundle with identity, compiled appiconset, and staged resources — the same
+    // build a developer gets pressing Run in Xcode. (The bare-cargo path this replaced was
+    // retired 2026-08; the shared artifact stamping below keeps `--skip-build` reuse.)
+    let outcome = if target.name == "macos-appkit" {
+        if !project
+            .root
+            .join("platform/macos/DayApp.xcodeproj")
+            .is_dir()
+        {
+            return Err(format!(
+                "macos-appkit builds through the Xcode host project, and this app has no \
+                 platform/macos/DayApp.xcodeproj.\n  {}",
+                "Run `day app add-toolkit macos-appkit` to adopt the scaffold."
+            ));
+        }
         crate::mobile::build_macos_xcode(project, target, profile, start)
     } else {
         build_native(project, target, profile, start)
@@ -494,18 +503,6 @@ fn build_native(
             // renderer feature, derived from `cargo metadata` — so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).
             let features = feature_selection(project, target.toolkit);
-            // The macos-appkit Swift prepass (docs/swiftui.md): when dependencies contribute
-            // macOS Swift, `swift build` the generated DayPieces package and statically link it.
-            // No contributions → `swift_link` is None and the cargo command below is byte-identical
-            // to a plain build (no Swift toolchain needed).
-            let swift_link = if target.name == "macos-appkit" {
-                match crate::pieces::write_macos_pieces(project, false)? {
-                    Some(swift) => Some(crate::swift::build_day_pieces(project, profile, &swift)?),
-                    None => None,
-                }
-            } else {
-                None
-            };
             if target.toolkit == "xaml" {
                 // XAML Islands refuses to start unless the app manifest declares
                 // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
@@ -526,21 +523,6 @@ fn build_native(
                 // rather than in RUSTFLAGS because CI already sets RUSTFLAGS and appending to an
                 // inherited value is easy to get wrong; `cargo rustc --` scopes it to this bin.
                 cmd.arg("-Clink-arg=/Brepro");
-            } else if let Some(link) = &swift_link {
-                // Statically link the Swift prepass output. `cargo rustc -- <link-args>` scopes
-                // the extra arguments to the final bin (the xaml-manifest precedent above), so
-                // gaining or losing Swift contributions relinks one crate, never rebuilds the
-                // world. MACOSX_DEPLOYMENT_TARGET matches the Swift objects' floor so ld doesn't
-                // warn about mixed minimum versions — an app embedding SwiftUI needs that OS
-                // anyway.
-                cmd.env("MACOSX_DEPLOYMENT_TARGET", &link.platform);
-                cmd.args(["rustc", "--bin", &project.manifest.app.name])
-                    .args(["--no-default-features", "--features", &features]);
-                if profile == Profile::Release {
-                    cmd.arg("--release");
-                }
-                cmd.arg("--");
-                cmd.args(link.rustc_args());
             } else {
                 cmd.args([
                     "build",
@@ -854,9 +836,9 @@ pub fn desktop_launch_plan(
         env.extend(app_identity_env(project));
     }
 
-    // App icon (§18.2): the backend applies it to the dock / taskbar at startup (NSApp icon,
-    // QApplication window icon, GTK icon theme, Win32 WM_SETICON). A bundled launch needs none of
-    // this — the compiled appiconset is the Dock icon.
+    // App icon (§18.2): the backend applies it to the dock / taskbar at startup (QApplication
+    // window icon, GTK icon theme, Win32 WM_SETICON). macos-appkit never reaches this — its
+    // launch is always the bundled Xcode build, whose compiled appiconset is the Dock icon.
     if let Some(icon) = (!bundled)
         .then(|| crate::resources::app_icon(project, target.toolkit))
         .flatten()

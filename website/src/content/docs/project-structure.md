@@ -204,7 +204,7 @@ app's lib crate is compiled straight to wasm and dropped next to the host page:
 day build -p web-dom
 │
 ├── cargo rustc --crate-type cdylib --target wasm32-unknown-unknown
-│       exports day_dom_main (via day::web_main!)
+│       exports day_dom_main (via day::day_start_web!)
 │       ────────► dist/app.wasm
 │
 ├── the host trio, embedded in the CLI and written out verbatim

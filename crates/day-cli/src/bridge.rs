@@ -9,10 +9,11 @@
 //! into a Gradle `srcDir`, ArkTS into the hvigor module, JavaScript into the day-dom shim.
 //!
 //! **Adapters are rendered from source, not read out of build output.** day-build writes the
-//! *Rust* half into `OUT_DIR` while cargo runs, which is far too late for a prepass that has to
-//! finish before cargo links; parsing the crate's own sources — through `day_build::bridge`, the
-//! same parser the build script uses — makes staging independent of whether cargo has ever run.
-//! It is also how the Swift prepass already treats `[package.metadata.day.macos]` shims.
+//! *Rust* half into `OUT_DIR` while cargo runs, which is far too late for staging that has to
+//! finish before the platform build compiles; parsing the crate's own sources — through
+//! `day_build::bridge`, the same parser the build script uses — makes staging independent of
+//! whether cargo has ever run. It is also how the macOS Swift staging already treats
+//! `[package.metadata.day.macos]` shims.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -204,7 +205,8 @@ pub fn write_arkts(harmony: &Path, staged: &Staged) -> Result<(), String> {
 
 /// The bridge platform a target stages for, or `None` when nothing is staged: C and C++ arms are
 /// compiled by cargo itself, and the GTK/Qt/XAML desktop targets have no host project to stage a
-/// foreign source INTO. `macos` is appkit-only for the same reason — the Swift prepass runs there.
+/// foreign source INTO. `macos` is appkit-only for the same reason — only appkit has the
+/// `platform/macos/` Xcode host to compile a staged Swift source.
 pub fn platform_of(target_name: &str) -> Option<&'static str> {
     match target_name {
         "macos-appkit" => Some("macos"),

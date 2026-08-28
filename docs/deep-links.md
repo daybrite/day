@@ -118,10 +118,9 @@ Registration already ships in the platform/macos scaffold's Info.plist. Intake d
 runtime needs the Apple Event handler (`kAEGetURL`) registered at startup, emitting the same
 cold/warm paths as iOS. Two macOS-specific concerns:
 
-1. **Only the Xcode-built `.app` can receive links.** Launch Services registers bundles, not
-   bare binaries — the `DAY_MACOS_XCODE=0` cargo path runs an unbundled executable that no
-   scheme can reach. Dev-loop link testing therefore requires the bundle path (the default
-   where the scaffold exists).
+1. **Launch Services registers bundles, not binaries.** macos-appkit always builds as the
+   Xcode `.app` now, so every `day launch` produces a bundle a scheme can reach — the caveat
+   is only for anyone running the raw executable out of `Contents/MacOS` by hand.
 2. **Stale copies shadow each other.** Launch Services indexes every copy of the bundle it
    has seen — a Debug build in `build/day/`, a packed copy in `/Applications` — and picks one
    by its own rules. During development, `open <url>` may target a copy other than the one

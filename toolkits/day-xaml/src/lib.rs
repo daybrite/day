@@ -2039,6 +2039,10 @@ impl Toolkit for Xaml {
                                 select_sync(h.0);
                                 None
                             }
+                            // Never arrive: this backend answers `Cap::NavContentList`
+                            // Unsupported, so the pieces layer composes the pane itself
+                            // (docs/navigation.md) — the qt twin's arm.
+                            NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => None,
                         };
                         if let Some(title) = title {
                             let nav = NAV_STATE.with(|m| {

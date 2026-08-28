@@ -284,15 +284,11 @@ Two further keys, shared with the macOS table below ([docs/swiftui.md](swiftui.m
 ### macOS Swift (`[package.metadata.day.macos]`)
 
 The same table shape for the macos-appkit leg — `swift`, `swift-packages` (remote or local),
-`frameworks`, `platform`. macos-appkit is dual-mode: an app with `platform/macos/DayApp.xcodeproj`
-builds through xcodebuild, whose pbxproj references the generated package. On the bare-cargo path
-(`DAY_MACOS_XCODE=0`, or no scaffold) `day build` generates `build/day/macos/DayPieces` with a
-**static** library product, compiles it
-with `swift build`, and links the archives into the cargo binary directly (`-force_load` on the
-DayPieces archive, so provider classes reached only by name survive the link; the Swift runtime
-resolves against the OS dylibs). Apps that contribute no macOS Swift keep the exact prior cargo
-build and need no Swift toolchain. `day-piece-swiftui` declares the same shim dir under both
-tables — one `DaySwiftUI.swift` with `#if os(...)` arms.
+`frameworks`, `platform`. `day build` generates `build/day/macos/DayPieces` from the table and
+the `platform/macos/DayApp.xcodeproj` host project's pbxproj references it — xcodebuild compiles
+and links the package with the Runner, the same shape as iOS (the Swift runtime resolves against
+the OS dylibs). `day-piece-swiftui` declares the same shim dir under both tables — one
+`DaySwiftUI.swift` with `#if os(...)` arms.
 
 ### HarmonyOS ArkTS components (`[package.metadata.day.ohos]`)
 

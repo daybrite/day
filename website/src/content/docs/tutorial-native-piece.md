@@ -475,8 +475,7 @@ contributing crates wins), and `swift-packages` entries may be **local**
 (`{ path = "swiftui", products = ["MyViews"] }`, relative to the crate): a local package's public
 SwiftUI views are scanned and exported as typed `crate::swiftui::MyView(…)` bindings. A parallel
 `[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
-hands the contributions to the `platform/macos/` Xcode host project, or compiles them with a
-`swift build` prepass and links them into the cargo binary on the bare-cargo path. See the
+hands the contributions to the `platform/macos/` Xcode host project. See the
 [SwiftUI embedding reference](/docs/internal/swiftui).
 
 ## 5. Register and wire the features

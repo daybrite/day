@@ -85,9 +85,9 @@ sudo xcode-select -s /Applications/Xcode.app
 rustup target add aarch64-apple-ios-sim
 ```
 
-A scaffolded app carries `platform/macos/DayApp.xcodeproj`, so `macos-appkit` also builds through
-`xcodebuild` by default and wants full Xcode. Setting `DAY_MACOS_XCODE=0` falls back to a bare
-cargo build, where the command-line tools suffice.
+A scaffolded app carries `platform/macos/DayApp.xcodeproj`, and `macos-appkit` builds through
+`xcodebuild`, so it wants full Xcode too. (An app that predates the scaffold adopts it with
+`day app add-toolkit macos-appkit`.)
 
 **[Homebrew](https://brew.sh)** provides the rest:
 

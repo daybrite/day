@@ -1304,45 +1304,22 @@ fn package_swift(
 // macOS — the appkit leg's Swift contributions (docs/swiftui.md)
 // ===========================================================================
 
-/// The macOS Swift contributions `day build -p macos-appkit` folds into the cargo binary.
-pub struct MacosSwift {
-    /// The generated SwiftPM package to `swift build` and statically link.
-    pub package: std::path::PathBuf,
-    /// System frameworks to link alongside it (from `[package.metadata.day.macos].frameworks`).
-    pub frameworks: Vec<String>,
-    /// The package's platform floor — also the binary's `MACOSX_DEPLOYMENT_TARGET`, so the cargo
-    /// link and the Swift objects agree on the minimum OS.
-    pub platform: String,
-}
-
 /// Generate the local `DayPieces` SwiftPM package under `build/day/macos/DayPieces` from every
 /// piece's `[package.metadata.day.macos]` — the macOS analog of [`write_ios_pieces`], minus the
-/// resource legs (`pack/macos.rs` owns those). Returns `None` when nothing contributes Swift: the
-/// package dir is removed and the cargo build stays byte-identical to today's, with no Swift
-/// toolchain requirement (the zero-cost path).
+/// resource legs (the `day xcode-backend stage-resources` phase owns those). The Xcode host
+/// project's pbxproj references the package unconditionally, so it is written even when
+/// nothing contributes Swift — an empty package must still exist for xcodebuild to resolve.
 ///
-/// Unlike the iOS leg this stages **only files whose bytes changed** (and prunes the rest): the
-/// package is rebuilt by `swift build` on every `day build`, and churned mtimes would make that
-/// incremental build recompile from scratch each time (§17.5's touch-only-when-changed rule).
-/// `keep_empty`: the cargo-driven build passes `false` — no Swift contributions means no
-/// package and no `swift build` prepass at all. The Xcode host project (platform/macos/)
-/// passes `true`: its pbxproj references the package unconditionally, so an empty one must
-/// still exist for xcodebuild to resolve.
-pub fn write_macos_pieces(
-    project: &Project,
-    keep_empty: bool,
-) -> Result<Option<MacosSwift>, String> {
+/// Unlike the iOS leg this stages **only files whose bytes changed** (and prunes the rest):
+/// churned mtimes would make Xcode's incremental SwiftPM build recompile from scratch each
+/// time (§17.5's touch-only-when-changed rule).
+pub fn write_macos_pieces(project: &Project) -> Result<(), String> {
     let pieces = resolve_apple(project, &["appkit"], "macos").unwrap_or_else(|e| {
         eprintln!("day: macOS piece discovery failed ({e}); building without Swift contributions");
         ApplePieces::default()
     });
 
     let pkg_dir = project.root.join("build/day/macos/DayPieces");
-    if pieces.swift_dirs.is_empty() && pieces.packages.is_empty() && !keep_empty {
-        let _ = std::fs::remove_dir_all(&pkg_dir);
-        return Ok(None);
-    }
-
     let sources = pkg_dir.join("Sources/DayPieces");
     std::fs::create_dir_all(&sources).map_err(|e| e.to_string())?;
     let mut expected: Vec<std::path::PathBuf> = Vec::new();
@@ -1388,11 +1365,7 @@ pub fn write_macos_pieces(
         ),
     )?;
 
-    Ok(Some(MacosSwift {
-        package: pkg_dir,
-        frameworks: pieces.frameworks,
-        platform,
-    }))
+    Ok(())
 }
 
 /// Every package in the app's dependency graph, as `(name, crate root)` — what the bridge stager

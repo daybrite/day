@@ -123,8 +123,7 @@ At build time, `day build` resolves every piece in your app's dependency graph v
 `cargo metadata` and regenerates the glue the platform projects reference: a local SwiftPM
 package for the Xcode side, a JSON manifest the Gradle build reads for Java sources,
 dependencies, and merged permissions. On macos-appkit the same aggregation produces
-`build/day/macos/DayPieces`, which its Xcode host project references — or which a `swift build`
-prepass compiles and links into the cargo binary, on the bare-cargo path. Your checked-in platform scaffolds never change; only
+`build/day/macos/DayPieces`, which its Xcode host project references. Your checked-in platform scaffolds never change; only
 generated, gitignored files do. (This is the same architecture Flutter uses for plugin
 registration, adapted to Cargo.)
 

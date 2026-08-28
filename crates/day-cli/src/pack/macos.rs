@@ -1,9 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! macos-appkit → .app assembly → codesign (inside-out, never `--deep`) → .dmg (UDZO) →
-//! notarytool submit (ASC API key) → stapler → verify. Stage order is normative (hoppack lineage,
-//! DESIGN.md §16.5). Ad-hoc signing remains the default when no identity is configured.
+//! macos-appkit → the Xcode-built .app, taken as-is → codesign (inside-out, never `--deep`) →
+//! .dmg (UDZO) → notarytool submit (ASC API key) → stapler → verify. Stage order is normative
+//! (hoppack lineage, DESIGN.md §16.5). Ad-hoc signing remains the default when no identity is
+//! configured. The bundle arrives complete from `day build` (§17.4): identity and version from
+//! the xcconfig conveyance, the compiled appiconset, and resources staged into
+//! `Contents/Resources` by the `day xcode-backend stage-resources` phase — this packer copies
+//! it, re-signs it, and wraps it; it assembles nothing.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,97 +25,36 @@ pub fn pack(
     dist: &Path,
 ) -> Result<Artifact, PackError> {
     let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
-    let name = &project.manifest.app.name;
-    // A scaffolded app (platform/macos/, §17.4) builds as a whole `.app`; this packer still
-    // assembles its own bundle, so take the inner binary — the bundle's single
-    // Contents/MacOS entry, named by the pbxproj's PRODUCT_NAME rather than the crate.
-    // (Packing the Xcode bundle as-is is the planned follow-up — signing/dmg/notarization
-    // stay identical either way.)
-    let built_binary = if outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app") {
-        let macos_dir = outcome.artifact.join("Contents/MacOS");
-        std::fs::read_dir(&macos_dir)
-            .ok()
-            .and_then(|rd| rd.flatten().map(|e| e.path()).next())
-            .ok_or_else(|| {
-                PackError::Other(format!("no executable under {}", macos_dir.display()))
-            })?
-    } else {
-        outcome.artifact.clone()
-    };
+    if outcome.artifact.extension().and_then(|e| e.to_str()) != Some("app") {
+        return Err(PackError::Other(format!(
+            "expected an .app bundle from the macos-appkit build, got {}",
+            outcome.artifact.display()
+        )));
+    }
     let title = project
         .manifest
         .app
         .title
         .clone()
-        .unwrap_or_else(|| name.clone());
-    let version = &project.manifest.app.version;
+        .unwrap_or_else(|| project.manifest.app.name.clone());
 
-    // --- assemble ---------------------------------------------------------
+    // --- stage --------------------------------------------------------------
+    // A COPY of the built bundle, renamed to the display title (that is what /Applications
+    // shows): signing mutates the bundle, and the build output must stay reusable.
     let stage = project.root.join("build/day/pack/macos-appkit");
     let app = stage.join(format!("{title}.app"));
     let _ = std::fs::remove_dir_all(&stage);
-    let macos_dir = app.join("Contents/MacOS");
-    let res_dir = app.join("Contents/Resources");
-    std::fs::create_dir_all(&macos_dir).map_err(|e| PackError::Other(e.to_string()))?;
-    std::fs::create_dir_all(&res_dir).map_err(|e| PackError::Other(e.to_string()))?;
-    std::fs::copy(&built_binary, macos_dir.join(name))
-        .map_err(|e| PackError::Other(e.to_string()))?;
-    let assets = project.root.join("resource/assets");
-    if assets.is_dir() {
-        super::copy_tree(&assets, &res_dir.join("assets")).map_err(PackError::Other)?;
-    }
-    // Bundled images (§18.3): day-appkit resolves `image("name")` through the exe-relative
-    // `../Resources/images` probe when the `day launch` env roots are absent.
-    let images = project.root.join("resource/images");
-    if images.is_dir() {
-        super::copy_tree(&images, &res_dir.join("images")).map_err(PackError::Other)?;
-    }
-    // Vector glyphs (docs/vectors.md): the staged SVGs (`Resources/vectors/svg`, what
-    // day-appkit renders — NSImage draws SVG at display size) plus the raster cache
-    // (`Resources/vectors/raster`, the shared fallback resolution).
-    for (from, to) in [
-        (crate::resources::vector_svg_dir(project), "vectors/svg"),
-        (
-            crate::resources::vector_fallback_dir(project, target.toolkit),
-            "vectors/raster",
-        ),
-    ] {
-        if from.is_dir() {
-            super::copy_tree(&from, &res_dir.join(to)).map_err(PackError::Other)?;
-        }
-    }
-    // Bundled fonts (§18.4): day-appkit registers Resources/fonts with CoreText at startup.
-    let fonts = project.root.join("resource/fonts");
-    if fonts.is_dir() {
-        super::copy_tree(&fonts, &res_dir.join("fonts")).map_err(PackError::Other)?;
-    }
+    std::fs::create_dir_all(&stage).map_err(|e| PackError::Other(e.to_string()))?;
+    super::copy_tree(&outcome.artifact, &app).map_err(PackError::Other)?;
     // SBOM into the bundle when [sbom] mode = embed (§20.4), so the app can read its own
     // license notices at runtime.
     if project.manifest.sbom.mode == crate::meta::SbomMode::Embed {
-        crate::provenance::embed_into(&project.root.join("build/day/sbom"), &res_dir)
-            .map_err(PackError::Other)?;
+        crate::provenance::embed_into(
+            &project.root.join("build/day/sbom"),
+            &app.join("Contents/Resources"),
+        )
+        .map_err(PackError::Other)?;
     }
-    let icon_entry = build_icns(project, &res_dir)
-        .map(|_| "  <key>CFBundleIconFile</key><string>AppIcon</string>\n")
-        .unwrap_or_default();
-    let plist = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>CFBundleExecutable</key><string>{name}</string>
-  <key>CFBundleIdentifier</key><string>{id}</string>
-  <key>CFBundleName</key><string>{title}</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>{version}</string>
-  <key>CFBundleVersion</key><string>{build}</string>
-  <key>NSHighResolutionCapable</key><true/>
-{icon_entry}</dict></plist>
-"#,
-        id = project.manifest.app.id,
-        build = project.manifest.app.build,
-    );
-    std::fs::write(app.join("Contents/Info.plist"), plist)
-        .map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- sign ---------------------------------------------------------------
     let tier = if opts.no_sign {
@@ -373,47 +316,4 @@ fn notarize(project: &Project, opts: &PackOptions, dmg: &Path) -> Result<(), Pac
         );
     }
     Ok(())
-}
-
-/// Build Contents/Resources/AppIcon.icns from the project's icons/macos PNGs via sips + iconutil.
-/// Best-effort: a missing icon set or tool must not fail the pack (the dmg just has no icon).
-fn build_icns(project: &Project, res_dir: &Path) -> Option<()> {
-    let source = crate::resources::app_icon(project, "appkit")?;
-    let iconset = project.root.join("build/day/pack/AppIcon.iconset");
-    let _ = std::fs::remove_dir_all(&iconset);
-    std::fs::create_dir_all(&iconset).ok()?;
-    // The canonical iconset slots, rendered from the largest available PNG.
-    for (px, name) in [
-        (16, "icon_16x16.png"),
-        (32, "icon_16x16@2x.png"),
-        (32, "icon_32x32.png"),
-        (64, "icon_32x32@2x.png"),
-        (128, "icon_128x128.png"),
-        (256, "icon_128x128@2x.png"),
-        (256, "icon_256x256.png"),
-        (512, "icon_256x256@2x.png"),
-        (512, "icon_512x512.png"),
-        (1024, "icon_512x512@2x.png"),
-    ] {
-        let px_s = px.to_string();
-        let ok = Command::new("sips")
-            .args(["-z", &px_s, &px_s])
-            .arg(&source)
-            .arg("--out")
-            .arg(iconset.join(name))
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-        if !ok {
-            return None;
-        }
-    }
-    let ok = Command::new("iconutil")
-        .args(["-c", "icns", "-o"])
-        .arg(res_dir.join("AppIcon.icns"))
-        .arg(&iconset)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    ok.then_some(())
 }

@@ -91,10 +91,10 @@ the backend resolves the name.
   `DayResources_DayResources.bundle`; the backend loads via
   `UIImage(named:in:compatibleWith:)`.
 - **macOS (AppKit):** the image is a file in the `.app` bundle, loaded with
-  `NSImage(contentsOfFile:)`. That holds in both build modes — the bare-cargo build runs no
-  xcodebuild at all, and the `platform/macos/` Xcode host stages images into `Contents/Resources`
-  through its `day xcode-backend stage-resources` phase rather than through an asset catalog.
-  (Optimization is whatever the source already is; no `actool` runs for images on either path.)
+  `NSImage(contentsOfFile:)` — the `platform/macos/` Xcode host stages images into
+  `Contents/Resources` through its `day xcode-backend stage-resources` phase rather than through
+  an asset catalog. (Optimization is whatever the source already is; no `actool` runs for
+  images.)
 - **Android:** staged into `res/drawable*/` (density buckets from `@Nx` variants); aapt2 crunches and
   assigns an `R.drawable` id. Runtime resolves the name with `Resources.getIdentifier(name,
   "drawable", pkg)` (cached) → `getDrawable`.

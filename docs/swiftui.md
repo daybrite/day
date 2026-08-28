@@ -154,7 +154,7 @@ tabs keep their parameters across tab switches and page revisits alike.
 | host | `NSHostingView<AnyView>` | `UIHostingController<AnyView>`'s view |
 | retention | provider via associated object | provider + controller via associated objects |
 | ownership | shim returns +1-retained; Rust takes it as `Retained<NSView>` | same, `Retained<UIView>` |
-| build | generated SwiftPM package at `build/day/macos/DayPieces`, `swift build`, statically linked into the cargo binary | the existing `build/day/ios/DayPieces` package, built by the scaffold's xcodebuild |
+| build | generated SwiftPM package at `build/day/macos/DayPieces`, referenced by the `platform/macos/` scaffold and built by its xcodebuild | the existing `build/day/ios/DayPieces` package, built by the scaffold's xcodebuild |
 
 The hosting view is an ordinary native handle to Day: framed, measured (`fill_measure` — it fills
 what it is offered; constrain with `.frame`), snapshotted, and disposed like a built-in.
@@ -163,24 +163,16 @@ callbacks do not fire inside the hosted view.
 
 ### The macOS leg
 
-macos-appkit is dual-mode (DESIGN §16.5, 2026-08): an app carrying `platform/macos/DayApp.xcodeproj`
-builds through xcodebuild, and its pbxproj references the generated `DayPieces` package directly;
-`DAY_MACOS_XCODE=0` or a project without the scaffold takes the bare-cargo path described here.
-When any dependency contributes under `[package.metadata.day.macos]`, that path has `day build`:
-
-1. regenerates `build/day/macos/DayPieces` (staged shims + generated glue + `Package.swift` with a
-   static library product), touching only files whose bytes changed so the Swift incremental build
-   stays warm;
-2. runs `swift build` for the selected profile;
-3. switches the app compile to `cargo rustc -- <link args>`: `-force_load` on `libDayPieces.a`
-   (provider classes are reached by name, so nothing references them by symbol — without this the
-   linker would drop them), the other product archives, the Swift runtime search paths
-   (`/usr/lib/swift` + the SDK stubs; the installed binary uses the OS dylibs, macOS ≥ 10.14.4),
-   and any metadata `frameworks`. The extra arguments fingerprint only the bin crate.
-
-Apps with no macOS Swift contributions build exactly as before, with no Swift toolchain
-requirement. `day pack -p macos-appkit` needs nothing extra: the Swift code is inside the binary
-and codesign/notarize are unchanged.
+macos-appkit builds through the `platform/macos/DayApp.xcodeproj` host project (DESIGN §16.5),
+whose pbxproj references the generated `DayPieces` package directly — the same shape as iOS.
+`day build` regenerates `build/day/macos/DayPieces` (staged shims + generated glue +
+`Package.swift`) before every xcodebuild, touching only files whose bytes changed so the Swift
+incremental build stays warm, and writes it even when nothing contributes Swift: the pbxproj's
+package reference must resolve, so an empty package still exists. xcodebuild compiles and links
+the package with the Runner; the installed binary uses the OS Swift dylibs (macOS ≥ 10.14.4).
+`day pack -p macos-appkit` needs nothing extra: the Swift code is inside the bundle's binary and
+codesign/notarize are unchanged. (The retired bare-cargo build carried its own `swift build`
+prepass and `cargo rustc` link — gone with that path, 2026-08.)
 
 ### Deployment floors
 

@@ -41,7 +41,6 @@ mod sign;
 mod signals;
 mod starter_l10n;
 mod store;
-mod swift;
 mod targets;
 mod template;
 mod term;

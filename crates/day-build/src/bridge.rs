@@ -303,8 +303,9 @@ fn emit_c(bridge: &Bridge, dir: &Path, crate_name: &str) -> Result<(), String> {
         println!("cargo:rustc-cfg={STAGED_CFG}");
     }
 
-    // Swift arms are compiled by `day build`'s prepass into the generated DayPieces package, not
-    // by cargo: this writes the adapter and the manifest points at it (docs/bridge.md).
+    // Swift arms are compiled into the generated DayPieces package by the platform's
+    // xcodebuild, not by cargo: this writes the adapter and the manifest points at it
+    // (docs/bridge.md).
     for arm in bridge.arms.iter().filter(|a| a.lang == Lang::Swift) {
         let file = dir.join(format!("{}-{}.swift", crate_name, arm.platforms.join("-")));
         write_if_changed(&file, &render_swift(bridge, arm, crate_name))?;

@@ -6920,20 +6920,6 @@ impl Platform for AppKit {
                 unsafe { app.setAppearance(appearance.as_deref()) };
             }
         }
-        // Dock icon (§18.2): `day launch` points DAY_APP_ICON at the project's macOS icon export;
-        // an unbundled binary otherwise shows the generic executable icon in the Dock.
-        if let Ok(icon) = std::env::var("DAY_APP_ICON") {
-            use objc2::AllocAnyThread as _;
-            if let Some(img) = unsafe {
-                objc2_app_kit::NSImage::initWithContentsOfFile(
-                    objc2_app_kit::NSImage::alloc(),
-                    &NSString::from_str(&icon),
-                )
-            } {
-                unsafe { app.setApplicationIconImage(Some(&img)) };
-            }
-        }
-
         // Bundled custom fonts (§18.4) must be registered before the first label realizes.
         register_bundled_fonts();
 
