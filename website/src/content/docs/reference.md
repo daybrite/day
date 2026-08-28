@@ -33,7 +33,6 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [toolbars](/docs/internal/toolbars) | window toolbars: the item vocabulary, symbol icons, per-desktop realization |
 | [windows](/docs/internal/windows) | secondary windows, the Preferences window, the cover fallback |
 | [window-image](/docs/internal/window-image) | capturing the app's own window as a PNG |
-| [tabs](/docs/internal/tabs) | tabbed containers |
 | [grid](/docs/internal/grid) | the eager grid: rows, spans, flexible columns |
 | [forms](/docs/internal/forms) | form/section/labeled groupings |
 | [baseline](/docs/internal/baseline) | baseline alignment across toolkits |
@@ -44,6 +43,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [inspector](/docs/internal/inspector) | the trailing properties pane: native splits, the compact sheet |
 | [focus](/docs/internal/focus) | keyboard focus as a signal: bindings, rules, per-backend map |
 | [list](/docs/internal/list) | the native recycling list: row protocol, heights, selection |
+| [tree](/docs/internal/tree) | the hierarchical tree: nesting, expansion, drag-to-reparent (plan) |
 | [canvas](/docs/internal/canvas) | the canvas display list and gestures |
 | [shapes](/docs/internal/shapes) | canvas drawing, shape pieces, gestures |
 | [progress](/docs/internal/progress) | determinate bars and spinners |
@@ -54,6 +54,8 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [accessibility](/docs/internal/accessibility) | roles, per-backend attribute mapping, the audit |
 | [lifecycle](/docs/internal/lifecycle) | app phases and their per-platform availability |
 | [async](/docs/internal/async) | tasks, resources, and the runtime rules |
+| [model](/docs/internal/model) | the per-property observable store and the Observable derive |
+| [persistence](/docs/internal/persistence) | SQLite storage for the model: ModelContainer, the Model derive, migrations |
 | [resources](/docs/internal/resources) | asset packaging and the zero-copy runtime path |
 | [vectors](/docs/internal/vectors) | resolution-independent SVG glyphs and the `vector` piece |
 | [color](/docs/internal/color) | the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it |
@@ -116,6 +118,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [coverage-matrix](/docs/internal/coverage-matrix) | which piece kinds each backend renders (generated, CI-gated) |
 | [duty-matrix](/docs/internal/duty-matrix) | which backend implements which Toolkit duty (generated, CI-gated) |
 | [recorder-matrix](/docs/internal/recorder-matrix) | event → recorded dayscript step coverage (generated, CI-gated) |
+| [logging](/docs/internal/logging) | the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers |
 | [break](/docs/internal/break) | `day-break` consent-first crash reporting |
 | [lite](/docs/internal/lite) | `day-lite` JS/TS miniapps and superapp embedding |
 | [store](/docs/internal/store) | store listings and `day store` |

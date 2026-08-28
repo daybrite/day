@@ -127,7 +127,7 @@ A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window tit
 
 ```
 Day Showcase (1.1.0/gtk/walkthrough.yaml)
-Day Sheets (0.1.0/appkit)
+Day News (0.1.0/appkit)
 ```
 
 With several apps, several toolkits and a scripted run open at once, the title bar is the only
@@ -145,7 +145,7 @@ the same window can be retitled many times.
 
 The tag is on the window title only. The macOS App menu, the About panel and the process name
 read the app's *name*, so `launch_with` pins `WindowOptions::app_name` to the undecorated title
-before tagging; an app that sets only `title` still shows "Day Sheets" in its App menu.
+before tagging; an app that sets only `title` still shows "Day News" in its App menu.
 
 ## dayscript
 

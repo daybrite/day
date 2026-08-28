@@ -473,6 +473,13 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
+    /// Remove every build artifact: build/, target/, and the platform scaffolds' generated
+    /// outputs (gradle, hvigor, SwiftPM scratch). Stops recorded sessions first
+    Clean {
+        /// Report what would be removed (and its size) without removing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Stop, rebuild, and relaunch targets — "apply my code changes"
     Relaunch {
         /// Target(s) to relaunch (repeatable); omit with --all-running
@@ -983,6 +990,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         }),
         Cmd::Localize { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::localize::run(project, &cmd).map(|()| 0)
+        }),
+        Cmd::Clean { dry_run } => with_project(cli.project.as_deref(), |project| {
+            crate::clean::run(project, dry_run)
+                .map(|_| 0)
+                .map_err(CliError::failure)
         }),
         Cmd::Stop { platforms, all } => with_project(cli.project.as_deref(), |project| {
             let names: Vec<String> = if all {

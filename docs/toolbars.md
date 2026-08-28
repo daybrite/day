@@ -140,7 +140,7 @@ paints GTK's broken-image glyph.
 Probe it:
 
 ```rust
-if capability(Cap::Toolbar) == Support::Native { /* toolbar(…) */ } else { /* in the content */ }
+if capability(Cap::Toolbar) != Support::Unsupported { /* toolbar(…) */ } else { /* in the content */ }
 ```
 
 `Cap::Toolbar` is `Native` on the four desktop backends, **`Emulated` on web-dom** (2026-08: a
@@ -150,7 +150,7 @@ strip docked above the app root, since a browser tab has no title bar to hang ch
 `Unsupported` on the phones. Probe for `!= Support::Unsupported` rather than `== Native` unless
 the difference actually matters to the app — what a caller usually wants to know is whether the
 commands belong in a bar at all. A phone has no toolbar, so `toolbar(…)` installs nothing there
-and the app puts those commands in the content instead; see Day Sheets, whose search is a toolbar
+and the app puts those commands in the content instead; see Day News, whose search is a toolbar
 item on the desktops and a timeline field on a phone.
 
 For commands that belong on the chrome rather than in the page — Settings, Compose, "Show Source",
@@ -262,11 +262,11 @@ disable one, write both bound signals, and read back what the bar did. The walkt
 button, types into the search field, sets the toggle, adds the optional item and runs it, then
 disables one and clears the search, asserting the page's live readouts after each.
 
-Day Sheets carries the applied version: refresh and mark-all-read, next-unread and a star toggle,
+Day News carries the applied version: refresh and mark-all-read, next-unread and a star toggle,
 then search at the trailing edge, with the same search signal moving into the timeline's own
 field on a phone.
 
-Verified by running the showcase and Day Sheets walkthroughs on macos-appkit, macos-gtk and
+Verified by running the showcase and Day News walkthroughs on macos-appkit, macos-gtk and
 macos-qt, and by capturing the real windows (an offscreen snapshot cannot show the title bar on
 AppKit, and omits the header bar on GTK). XAML is CI-only.
 

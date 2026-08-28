@@ -506,6 +506,57 @@ fn oso_prefix_setting(project_root: &Path) -> String {
     )
 }
 
+/// The product bundle to install. A RENAME leaves the previous `PRODUCT_NAME.app` sitting in
+/// the same products directory, and taking whichever `.app` the directory happens to yield
+/// first installs the stale one — which then fails to launch with a bare "failed to open",
+/// because launch opens the id from Day.toml and the installed bundle carries the old one.
+/// Pick the bundle whose `CFBundleIdentifier` IS that id; fall back to the sole candidate when
+/// the identifier cannot be read, and name the candidates when none matches.
+fn product_bundle(products: &Path, want_id: &str) -> Result<PathBuf, String> {
+    let mut apps: Vec<PathBuf> = std::fs::read_dir(products)
+        .map_err(|e| format!("reading {}: {e}", products.display()))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
+        .collect();
+    apps.sort();
+    if let Some(hit) = apps
+        .iter()
+        .find(|p| bundle_id_of(p).as_deref() == Some(want_id))
+    {
+        return Ok(hit.clone());
+    }
+    match apps.as_slice() {
+        [only] => Ok(only.clone()),
+        [] => Err(format!("no .app bundle in {}", products.display())),
+        many => {
+            let names: Vec<String> = many
+                .iter()
+                .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                .collect();
+            Err(format!(
+                "no .app in {} carries the app id {want_id} (found {}). A stale product from a \
+                 rename is the usual cause — delete it, or `day clean`, and build again.",
+                products.display(),
+                names.join(", ")
+            ))
+        }
+    }
+}
+
+/// A BUILT bundle's `CFBundleIdentifier`. Built `Info.plist`s are binary, so ask the system
+/// rather than parsing (this path is macOS-only — it exists to serve xcodebuild).
+fn bundle_id_of(app: &Path) -> Option<String> {
+    let out = Command::new("/usr/libexec/PlistBuddy")
+        .args(["-c", "Print :CFBundleIdentifier"])
+        .arg(app.join("Info.plist"))
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 /// Build macos-appkit through the Xcode host project — the ONLY macos-appkit build since the
 /// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the DayPieces package
 /// the pbxproj references (empty is fine — the reference must resolve), run xcodebuild with
@@ -563,12 +614,7 @@ pub fn build_macos_xcode(
     }
     // macosx products land under `<configuration>/` (no SDK suffix, unlike iOS).
     let products = symroot.join(configuration);
-    let app = std::fs::read_dir(&products)
-        .map_err(|e| format!("reading {}: {e}", products.display()))?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
-        .ok_or_else(|| format!("no .app under {}", products.display()))?;
+    let app = product_bundle(&products, &project.manifest.app.id)?;
     Ok(BuildOutcome {
         target: target.name,
         artifact: app,
@@ -902,12 +948,7 @@ pub fn build_ios_for(
     // The Runner target's product bundle is named after the app's PRODUCT_NAME (per app), so locate
     // the single `.app` in the products dir rather than assuming a fixed name.
     let products = symroot.join(format!("{configuration}-{sdk}"));
-    let app = std::fs::read_dir(&products)
-        .map_err(|e| format!("reading {}: {e}", products.display()))?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.extension().and_then(|x| x.to_str()) == Some("app"))
-        .ok_or_else(|| format!("no .app bundle in {}", products.display()))?;
+    let app = product_bundle(&products, &project.manifest.app.id)?;
     if physical {
         let p = prov.ok_or_else(|| {
             format!(

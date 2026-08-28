@@ -2955,6 +2955,17 @@ through `day::env` — a browser sandbox has no process environment, [docs/web.m
 ([§14](#14-scripting-dayscript)) — with scripts the command exits when the last one finishes (the CI entry point), and
 `--keep-alive` keeps the session drivable via `day drive` afterwards.
 
+#### `day clean`
+
+`day clean [--dry-run]` (2026-08) removes every build artifact a project accumulates and
+reports the space reclaimed: `build/` (all `day build`/`launch`/`pack` outputs), cargo's
+bare-invocation `target/`, and the platform scaffolds' generated outputs (gradle's `.gradle` +
+module `build` dirs, hvigor's caches/modules and the CLI's in-scaffold ArkTS/resource staging,
+SwiftPM's local `swiftui/.build`). The list is the scaffold `.gitignore`s made executable —
+source, IDE state, and machine-local config (`local.properties`, `.cargo/config.toml`) stay.
+Recorded sessions are stopped first, the `day stop --all` teardown. `--dry-run` lists what
+would go, with sizes. The day-vscode extension's "Clean Project" action calls this.
+
 #### `day pack`
 
 `day pack -p <target> [--profile release]` = build → sign → **installable artifact**, per
@@ -4612,7 +4623,7 @@ dialog and landed together:
 ## Addendum (2026-08-27) — day-persistence: the lazy engine
 
 The load-everything container was replaced wholesale; [docs/persistence.md](docs/persistence.md)
-remains normative and now describes only this engine. The trigger was the Day-Sheets redesign
+remains normative and now describes only this engine. The trigger was the Day-News redesign
 surfacing that `ModelContainer::open` read every row of every table (`SELECT {cols} FROM {t}`
 per model) and that queries evaluated in memory over the loaded rows — fine for a sketch
 document, wrong for any store that grows. Breaking changes were accepted deliberately; the
@@ -4883,7 +4894,12 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > shipped one gained navigation, dialogs, and focus steps the design predates. Unshipped
 > designed steps return "unknown step" errors, exactly as the step-tier plan intended.
 
-Scripts are YAML: `name`, `description`, and a `flow:` list of steps. Every element reference
+Scripts are YAML: `name`, `description`, and a `flow:` list of steps. Any string in a step may
+carry `${project}`, which the CLI expands to the absolute path of the project root before the
+step reaches the engine — the way a script names a fixture that lives in the REPOSITORY
+(`respond: { path: "${project}/tests/data/sample.opml" }`), so a run works on any machine and
+on CI. Test resources belong in the repository for exactly this reason; a path into a
+developer's home directory compiles and runs nowhere else. Every element reference
 is a Day `.id()` ([§5.5](#55-node-identity-ids-and-the-element-index)). Steps whose failure may resolve with time (element not found yet,
 assertion pending) retry within a bounded implicit wait (5 s default) — no sleeps in
 well-written scripts; `pause` exists for demos and settle-time.

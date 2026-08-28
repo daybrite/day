@@ -32,6 +32,7 @@ day devices boot -p ios-uikit <id>  # start a simulator/AVD so it can be launche
 day doctor                   # check toolchains for every target
 day checkup                  # doctor, then scaffold + build + pack a throwaway app per target
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
+day clean                    # remove all build artifacts (build/, target/, gradle/hvigor outputs); --dry-run lists them
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
 day patch --local <checkout> # build against a local day checkout (--check: no day crate from git)

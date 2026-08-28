@@ -7,6 +7,7 @@
 
 mod bridge;
 mod checkup;
+mod clean;
 mod cli;
 mod devices;
 mod diagnose;

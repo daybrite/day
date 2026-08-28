@@ -56,7 +56,28 @@ impl std::fmt::Display for ScriptError {
 
 /// Parse a walkthrough file into engine steps: each flow entry is a single-key mapping
 /// (`- tap: { id: x, repeat: 3 }`, `- screenshot: home`, `- wait_idle:`).
-fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
+/// Expand `${project}` in every string a step carries. A script that hands a real file to a
+/// picker (`respond: { path: … }`) needs a fixture that lives in the REPOSITORY, so the run
+/// works on any machine and on CI — and the repository's location is known only here, on the
+/// host. The engine itself runs inside the app, where a relative path resolves against the
+/// app's own writable directory (which on a device is nowhere near the checkout).
+fn expand_project(v: &mut serde_json::Value, root: &str) {
+    match v {
+        serde_json::Value::String(s) => {
+            if s.contains("${project}") {
+                *s = s.replace("${project}", root);
+            }
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|e| expand_project(e, root)),
+        serde_json::Value::Object(m) => m.values_mut().for_each(|e| expand_project(e, root)),
+        _ => {}
+    }
+}
+
+fn parse_flow(
+    path: &Path,
+    project_root: &Path,
+) -> Result<Vec<(String, serde_json::Value)>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let doc: serde_json::Value = serde_norway::from_str(&text).map_err(|e| e.to_string())?;
     let flow = doc
@@ -88,7 +109,9 @@ fn parse_flow(path: &Path) -> Result<Vec<(String, serde_json::Value)>, String> {
                 return Err(format!("step {op}: unsupported params {other}"));
             }
         }
-        steps.push((op.clone(), serde_json::Value::Object(step)));
+        let mut step = serde_json::Value::Object(step);
+        expand_project(&mut step, &project_root.to_string_lossy());
+        steps.push((op.clone(), step));
     }
     Ok(steps)
 }
@@ -431,7 +454,7 @@ pub fn run_scripts(
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     for script in scripts {
-        let steps = parse_flow(script).map_err(ScriptError::Other)?;
+        let steps = parse_flow(script, &project.root).map_err(ScriptError::Other)?;
         // `expect_exit` tolerates the app dying, so it must be terminal — a step after it could
         // never run (the connection is gone). Reject a misplaced one before driving anything.
         if let Some(pos) = steps.iter().position(|(op, _)| op == "expect_exit")
