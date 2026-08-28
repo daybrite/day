@@ -319,6 +319,7 @@ list(source, row)
         let read = is_read(i);
         vec![
             swipe_action(if read { str::mark_unread() } else { str::mark_read() }.format())
+                .symbol(if read { Symbol::CircleFilled } else { Symbol::Circle })
                 .tint(palette().accent)
                 .action(move || set_read(i, !read)),
         ]
@@ -336,6 +337,10 @@ whole reason it is a closure and not a list). Keep it pure and fast: it runs ins
 platform's swipe callback. The `action` handlers run later, at the event drain, never inside
 the native gesture — when an activation drains, the provider is invoked again and the action
 looked up by position, so the handler always closes over the row's current state.
+
+`symbol` puts a glyph on the button where the platform draws one — above the label on macOS
+(Mail's row-action look), in place of it on iOS (the label stays the accessibility name). The
+platforms without a glyph slot show the label alone.
 
 Edges are semantic, not geometric: `Leading` follows the reading direction (left in LTR, right
 in RTL), exactly as every platform's own swipe API already spells it. A full swipe across

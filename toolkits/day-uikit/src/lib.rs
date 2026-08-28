@@ -3421,6 +3421,16 @@ mod imp {
             if let Some(t) = a.tint {
                 unsafe { action.setBackgroundColor(Some(&uicolor(t))) };
             }
+            // The glyph, where one is declared — UIKit shows it in place of the title on
+            // standard-height rows (the title stays the accessibility name), the same
+            // wordless idiom the delete affordance uses.
+            if let Some(sym) = a.symbol
+                && let Some(img) = objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str(
+                    day_spec::sf_symbol_name(sym),
+                ))
+            {
+                unsafe { action.setImage(Some(&img)) };
+            }
             action
         }
     }

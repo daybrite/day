@@ -1202,6 +1202,11 @@ pub enum Symbol {
     Rectangle,
     /// An ellipse.
     Oval,
+    /// An outlined circle — the read/unread vocabulary (a read row, its dot removed), and the
+    /// generic ring glyph.
+    Circle,
+    /// A filled circle — the unread dot itself.
+    CircleFilled,
     /// A straight line segment.
     Line,
     /// Combine the selection into a group — the drawing-tool command (two stacked squares).
@@ -1267,6 +1272,8 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Warning => "exclamationmark.triangle",
         Symbol::Rectangle => "rectangle",
         Symbol::Oval => "oval",
+        Symbol::Circle => "circle",
+        Symbol::CircleFilled => "circle.fill",
         Symbol::Line => "line.diagonal",
         Symbol::Group => "square.on.square",
         Symbol::Ungroup => "square.on.square.dashed",
@@ -1524,6 +1531,9 @@ pub struct ListSwipeAction {
     pub destructive: bool,
     /// Explicit button color; `None` = the platform's default for the style.
     pub tint: Option<Color>,
+    /// A glyph for the button where the platform draws one — above the label on macOS, in
+    /// place of it on iOS (docs/list.md).
+    pub symbol: Option<Symbol>,
 }
 
 /// The synchronous swipe-ACTIONS half of [`ListSource`] (docs/list.md) — the generalized
@@ -2995,6 +3005,9 @@ impl Symbol {
             S::Oval => {
                 "M12 5c5 0 9 3.1 9 7s-4 7-9 7-9-3.1-9-7 4-7 9-7zm0 2c-3.9 0-7 2.2-7 5s3.1 5 7 5 7-2.2 7-5-3.1-5-7-5z"
             }
+            // A circular ring (even-odd: outer disc minus inner) and its filled twin.
+            S::Circle => "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z",
+            S::CircleFilled => "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z",
             S::Line => "M4.7 17.9l13.2-13.2 1.4 1.4L6.1 19.3z",
             // Group: a solid square stacked on another (the visible L of the back one);
             // Ungroup: the same two squares pulled apart.

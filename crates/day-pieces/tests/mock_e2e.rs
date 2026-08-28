@@ -4843,6 +4843,7 @@ fn swipe_list(
             } else {
                 "Mark as Read"
             })
+            .symbol(day_spec::Symbol::Circle)
             .tint(day_spec::Color::rgb(0.0, 0.0, 1.0))
             .action(move || {
                 hits.borrow_mut().push(format!("read:{i}"));
@@ -4877,6 +4878,7 @@ fn list_swipe_offer_is_pulled_live_and_activation_defers_the_handler() {
     assert_eq!(offer[0].label, "Mark as Read");
     assert!(!offer[0].destructive);
     assert_eq!(offer[0].tint, Some(day_spec::Color::rgb(0.0, 0.0, 1.0)));
+    assert_eq!(offer[0].symbol, Some(day_spec::Symbol::Circle));
 
     // Activation commits through the seam; the handler rides the event queue (never the
     // native gesture callback itself) — the probe pumps it, as the delete commit does.

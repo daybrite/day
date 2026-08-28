@@ -1005,6 +1005,9 @@ struct NavState {
     /// sidebar and keeps the list, exactly as a narrow Mail.app does.
     list_wrap: Option<Retained<NSView>>,
     list_item: Option<Retained<objc2_app_kit::NSSplitViewItem>>,
+    /// The app's requested content-list width (`NavProps::list_width`) — applied ONCE, at the
+    /// first frame pass, by placing divider 1 (see `set_frame`).
+    list_width: Option<f64>,
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
@@ -2266,6 +2269,18 @@ define_class!(
                             );
                         if let Some(t) = a.tint {
                             unsafe { action.setBackgroundColor(Some(&nscolor(t))) };
+                        }
+                        // Glyph above the label — the Mail row-action look. The SF symbol
+                        // resolves per OS release; an unknown name yields no image and the
+                        // button keeps its label alone.
+                        if let Some(sym) = a.symbol {
+                            let img = objc2_app_kit::NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                                &NSString::from_str(day_spec::sf_symbol_name(sym)),
+                                None,
+                            );
+                            if let Some(img) = img {
+                                unsafe { action.setImage(Some(&img)) };
+                            }
                         }
                         action
                     })
@@ -4816,6 +4831,7 @@ impl Toolkit for AppKit {
                             list_item,
                             pages: Vec::new(),
                             sidebar_page: None,
+                            list_width,
                             positioned: false,
                             presentation,
                             selected: 0,
@@ -6159,15 +6175,24 @@ impl Toolkit for AppKit {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
                     .map(|s| {
-                        !std::mem::replace(&mut s.positioned, true) && s.presentation.is_split()
+                        (!std::mem::replace(&mut s.positioned, true) && s.presentation.is_split())
+                            .then_some(s.list_width)
                     })
-                    .unwrap_or(false)
+                    .unwrap_or(None)
             });
             unsafe {
                 split.setFrame(r);
                 split.layoutSubtreeIfNeeded();
-                if first {
+                if let Some(list_width) = first {
                     split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH, 0);
+                    // A triple split has a SECOND divider, and nothing else places it: left
+                    // alone, the controller's initial constraint pass lands it wherever the
+                    // solver liked, so the content list opened at an arbitrary width and the
+                    // detail pane got the leftovers until the first manual drag re-settled
+                    // them. Place it at the app's requested list width, once.
+                    if let Some(w) = list_width {
+                        split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH + w, 1);
+                    }
                 }
             }
         } else {

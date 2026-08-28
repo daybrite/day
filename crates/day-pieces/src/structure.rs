@@ -521,6 +521,7 @@ pub struct SwipeAction {
     label: String,
     destructive: bool,
     tint: Option<day_spec::Color>,
+    symbol: Option<day_spec::Symbol>,
     handler: Rc<dyn Fn()>,
 }
 
@@ -533,6 +534,7 @@ pub fn swipe_action(label: impl Into<String>) -> SwipeAction {
         label: label.into(),
         destructive: false,
         tint: None,
+        symbol: None,
         handler: Rc::new(|| {}),
     }
 }
@@ -548,6 +550,13 @@ impl SwipeAction {
     /// picks its own default (gray, with red for destructive actions, on the Apple toolkits).
     pub fn tint(mut self, color: day_spec::Color) -> Self {
         self.tint = Some(color);
+        self
+    }
+    /// A glyph for the button where the platform draws one — above the label on macOS, in
+    /// place of it on iOS (docs/list.md). The label still matters: it is the accessibility
+    /// name, and the platforms without a glyph slot show it alone.
+    pub fn symbol(mut self, symbol: day_spec::Symbol) -> Self {
+        self.symbol = Some(symbol);
         self
     }
     /// The work an activation runs. Called on the main thread at the next event drain, never
@@ -970,6 +979,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                                         label: a.label.clone(),
                                         destructive: a.destructive,
                                         tint: a.tint,
+                                        symbol: a.symbol,
                                     })
                                     .collect()
                             })

@@ -1787,7 +1787,7 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
 > **Swipe actions shipped** (2026-08): app-declared reveal-as-you-swipe buttons on either
 > semantic edge, offers pulled per gesture so labels track row state — the pieces API
-> (`swipe_action(label).destructive/.tint/.action` + `.swipe_leading/.swipe_trailing`), the
+> (`swipe_action(label).destructive/.tint/.symbol/.action` + `.swipe_leading/.swipe_trailing`), the
 > `ListSource::swipe` seam (`actions_at` offer / `perform` commit, handlers held app-side and
 > re-resolved at the event drain), `Event::ListSwipe`, `Cap::ListSwipeActions` (Native on
 > AppKit via `tableView:rowActionsForRow:edge:` and UIKit via `UISwipeActionsConfiguration`,
