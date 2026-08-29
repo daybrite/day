@@ -1137,6 +1137,37 @@ public final class DayBridge {
         return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
+    /** Whether this device can be told to use a light or dark appearance for THIS APP alone.
+     *
+     *  `UiModeManager.setApplicationNightMode` arrived in API 31. The older route,
+     *  `AppCompatDelegate.setDefaultNightMode`, only restyles an activity that runs through
+     *  AppCompat's delegate, and `DayActivity` is a plain `FragmentActivity` — so below 31 there
+     *  is nothing to offer, and `Cap::Appearance` says so rather than showing a control that
+     *  would do nothing. */
+    public static boolean canSetAppearance() {
+        return android.os.Build.VERSION.SDK_INT >= 31;
+    }
+
+    /** Apply an app-level appearance (Toolkit::set_appearance): 0 light, 1 dark, 2 follow system.
+     *
+     *  Applying it changes the app's uiMode, which the OS delivers to `DayActivity` as a
+     *  configuration change — the manifest lists `uiMode`, so the activity is not recreated — and
+     *  that path already calls `appearanceChanged()`. So this only has to ask; the report back to
+     *  day-core is the same one a user flipping the system theme produces. */
+    public static void setAppearance(int mode) {
+        if (!canSetAppearance() || ctx == null) return;
+        android.app.UiModeManager um = (android.app.UiModeManager)
+                ((android.content.Context) ctx).getSystemService(android.content.Context.UI_MODE_SERVICE);
+        if (um == null) return;
+        int night;
+        switch (mode) {
+            case 0: night = android.app.UiModeManager.MODE_NIGHT_NO; break;
+            case 1: night = android.app.UiModeManager.MODE_NIGHT_YES; break;
+            default: night = android.app.UiModeManager.MODE_NIGHT_AUTO; break;
+        }
+        um.setApplicationNightMode(night);
+    }
+
     /** Report a light/dark switch to native (event kind 25), once the app has started.
      *  DayActivity calls this from onConfigurationChanged; day-core restyles what it owns and
      *  rebuilds app-painted surfaces. */

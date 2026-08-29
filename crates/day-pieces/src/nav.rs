@@ -1536,10 +1536,6 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // `Pane::List` page itself; `Unsupported` = the wrapper below composes it around each
     // destination and the backend never hears of it.
     let list_cap = with_tree(|t| t.capability(day_spec::Cap::NavContentList));
-    let native_list = sel.content_list.is_some() && list_cap != day_spec::Support::Unsupported;
-    // A merged-pane backend (uikit) folds the list into the stack when it collapses; that is
-    // the only shape where the detail push is gated on `detail_visible`.
-    let merged_list = native_list && list_cap == day_spec::Support::Emulated;
     // Either way the window's size decides the INITIAL value: a backend that morphs itself still
     // starts wherever its container will land, so seeding from the class avoids a first frame in
     // the wrong presentation followed by a correcting report.
@@ -1663,6 +1659,18 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     } else {
         presentation
     };
+    // Whether the backend gets a `Pane::List` page of its own, decided only now that the host's
+    // shape is known. A CHROME-ROWS host has no column to put one in — UIKit's `.tabSidebar`
+    // builds a `UITabBarController` and never the split, so a list page handed to it becomes an
+    // extra TAB beside the app's own sections. Where there is no pane, the wrapper below composes
+    // the list into its destination instead, exactly as it does on a backend that has no pane at
+    // all (docs/navigation.md).
+    let native_list = sel.content_list.is_some()
+        && list_cap != day_spec::Support::Unsupported
+        && lowered != NavPresentation::Tabs;
+    // A merged-pane backend (uikit) folds the list into the stack when it collapses; that is
+    // the only shape where the detail push is gated on `detail_visible`.
+    let merged_list = native_list && list_cap == day_spec::Support::Emulated;
     let split = presentation.is_split();
     let presentation_cell = Rc::new(Cell::new(presentation));
     // The same fact as a SIGNAL, for content the composed list wrapper builds inside the
@@ -1905,15 +1913,14 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // destination page carries the pane itself — beside the content while split, in place of
     // it while stacked until `detail_visible` opens a row. The presentation is read through
     // the SIGNAL, so a live morph re-arranges the page without the host's involvement.
-    let compose: Option<DestFn<K>> = if let (Some(list), true) = (
-        list_build.clone(),
-        list_cap == day_spec::Support::Unsupported,
-    ) {
+    let compose: Option<DestFn<K>> = if let (Some(list), true) = (list_build.clone(), !native_list)
+    {
         let pred = list_pred.clone();
         let width = sel.content_list_width;
         let dv = detail_visible;
         let items_c = items.clone();
         let pres = presentation_sig;
+        let win = window;
         Some(Rc::new(move |key: &K| {
             if pred.as_ref().is_some_and(|p| !p(key)) {
                 return items_c.build_page(key);
@@ -1925,7 +1932,16 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 when(
                     move || {
                         let p = pres.get();
-                        p.is_split() || p.rows_are_chrome()
+                        // Side by side only where there is ROOM for two columns.
+                        // `rows_are_chrome()` alone is not that question: under the adaptive
+                        // ladder a tab bar IS the compact rung, and pairing a 320pt list with an
+                        // editor across a phone leaves neither usable — which is what a scaffold
+                        // that wanted tabs on a phone got. A PINNED tab bar on a wide window
+                        // still earns the pair, so the WIDTH is asked rather than the style.
+                        p.is_split()
+                            || (p.rows_are_chrome()
+                                && day_core::window_size_class(win)
+                                    .is_some_and(|c| c.prefers_split()))
                     },
                     move || {
                         let (l, i, k) = (l1.clone(), i1.clone(), k1.clone());

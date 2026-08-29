@@ -1156,6 +1156,98 @@ fn content_list_native_pane_and_visibility() {
     );
 }
 
+/// An ADAPTIVE selector that also has a content list, on a compact phone: the rows are a tab bar,
+/// and the list is that tab's own screen rather than a column squeezed beside the editor.
+///
+/// Both halves are the regression. The scaffold pinned `SelectorStyle::Sidebar` to get the pane a
+/// column, which cost it the tab bar on every phone; and the composed pane keyed its side-by-side
+/// layout on `rows_are_chrome()`, which is true of an adaptive tab bar — the compact rung — so
+/// un-pinning the style alone would have paired a 320pt list with an editor across a 400pt screen.
+#[test]
+fn content_list_on_a_compact_tab_bar_is_the_tab_s_own_screen() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(400.0, 700.0), {
+        move || {
+            selector(sel)
+                .title("Home")
+                .content_list(|| label("the-list"))
+                .item("about", "About", || label("about-content"))
+                .item("extra", "Extra", || label("extra-content"))
+                .detail_visible(dv)
+                .any()
+        }
+    });
+    let hosts = probe.find_by_kind("day.nav");
+    assert_eq!(
+        hosts[0].1.presentation,
+        Some(day_spec::props::NavPresentation::Tabs),
+        "an adaptive selector on a compact window is a tab bar, content list or not",
+    );
+
+    let texts = || -> Vec<String> {
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .map(|(_, w)| w.text.clone())
+            .collect()
+    };
+    assert!(
+        texts().iter().any(|s| s == "the-list"),
+        "the tab shows its list"
+    );
+    assert!(
+        !texts().iter().any(|s| s == "about-content"),
+        "the editor must NOT sit beside the list on a phone; texts: {:?}",
+        texts(),
+    );
+
+    // Opening a row replaces it, the ordinary phone flow.
+    batch(|| dv.set(true));
+    flush_sync();
+    assert!(texts().iter().any(|s| s == "about-content"));
+}
+
+/// A backend that HAS a content-list pane, on a host lowered as adaptive tabs (UIKit's
+/// `.tabSidebar` shape): no native pane is created, and the list is composed instead.
+///
+/// The pane would have nowhere to go. `.tabSidebar` builds a `UITabBarController` and never the
+/// split, so a `Pane::List` page handed to it is inserted as an extra TAB — the app's three
+/// sections plus a stray one holding the item list.
+#[test]
+fn a_tabs_host_composes_its_content_list_instead_of_asking_for_a_pane() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let probe = boot_content_list(day_spec::Support::Emulated, Size::new(400.0, 700.0), {
+        move || {
+            selector(sel)
+                .title("Home")
+                .content_list(|| label("the-list"))
+                .item("about", "About", || label("about-content"))
+                .item("extra", "Extra", || label("extra-content"))
+                .detail_visible(dv)
+                .any()
+        }
+    });
+    assert_eq!(
+        probe.find_by_kind("day.nav")[0].1.presentation,
+        Some(day_spec::props::NavPresentation::Tabs),
+    );
+    assert!(
+        !probe.log().iter().any(|l| l.contains("pane=List")),
+        "a tabs host must be given no content-list pane; log: {:?}",
+        probe.log(),
+    );
+    // Composed instead, so the list is still there.
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "the-list"),
+        "the list is composed into the destination",
+    );
+}
+
 /// The FIRST destination is excluded from the content list — the scaffold's own shape, where
 /// Welcome opens on launch and has no list.
 ///

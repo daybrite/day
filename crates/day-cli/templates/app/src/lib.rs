@@ -114,14 +114,13 @@ pub fn root() -> impl Piece {
         ]
     });
 
-    // `Sidebar`, not the adaptive default: the item list below is a CONTENT-LIST pane, and a
-    // pane needs a presentation with a column to put it in. The sidebar family has one at every
-    // width — three columns on a desktop, and on a phone the same three as a push sequence
-    // (sections → list → editor). A tab bar has nowhere to place it
-    // (https://daybrite.dev/docs/navigation).
+    // No `.style(…)`: a selector is ADAPTIVE by default — a tab bar on a phone, a rail on a
+    // tablet, a sidebar beside the detail on a desktop, re-presenting live as the window changes
+    // (https://daybrite.dev/docs/navigation). The content-list pane below rides that ladder
+    // rather than forcing it: where there is room it is a column of its own, and on a phone it
+    // is the tab's own first screen with the editor pushed over it.
     let section = Signal::new(Section::Welcome);
     selector(section)
-        .style(SelectorStyle::Sidebar)
         .title(res::str::app_title())
         // The item list is a real CONTENT-LIST pane (https://daybrite.dev/docs/navigation): its
         // own column between the sidebar and the editor where the toolkit has one — a

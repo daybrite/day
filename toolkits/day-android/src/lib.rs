@@ -3264,6 +3264,25 @@ mod imp {
             android_window_image(true)
         }
 
+        /// Apply an app-level appearance (docs/appearance.md). The uiMode change the platform
+        /// makes comes straight back as a configuration change `DayActivity` turns into
+        /// `appearanceChanged()`, so nothing has to be reported from here.
+        fn set_appearance(&mut self, dark: Option<bool>) {
+            let mode = match dark {
+                Some(false) => 0i32,
+                Some(true) => 1,
+                None => 2,
+            };
+            with_env(|env| {
+                let _ = env.dcall_static(
+                    "dev/daybrite/day/bridge/DayBridge",
+                    "setAppearance",
+                    "(I)V",
+                    &[mode.into()],
+                );
+            });
+        }
+
         /// The system color mode, DAY_THEME override first (themed capture runs).
         fn dark_mode(&mut self) -> bool {
             match std::env::var("DAY_THEME").ok().as_deref() {
