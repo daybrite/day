@@ -2624,6 +2624,32 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     {
         selection.write(k);
     }
+    // Build every destination, then re-select the current one.
+    //
+    // A tab bar needs an ITEM PER DESTINATION up front — `UITabBarController` and Material's
+    // navigation bar both build their chrome from the full set, so a page nobody has visited yet
+    // is a tab that simply is not there. Lazy building is right for a split or a stack, where
+    // only the shown page is drawn; where the rows ARE the chrome, the rows have to be complete.
+    //
+    // This runs BEFORE the selection bind below, and that order is the whole contract with the
+    // chrome backends: `NavPatch::Select` names a page by ATTACH order, while the chrome draws
+    // the ROWS, so a suite can only pair the two when page i is row i. Letting the bind build the
+    // SELECTED destination first breaks that — restoring a saved section (`.restore`, which
+    // android-mdc installs for every app as its instance-state contract) rebuilds with a
+    // non-first selection, whose page then attaches at 0 and highlights row 0.
+    let build_all = {
+        let (show, typed_a, sel_a) = (show.clone(), typed.clone(), selection.clone());
+        Rc::new(move || {
+            let keys: Vec<String> = typed_a.borrow().iter().map(|k| k.key()).collect();
+            for k in keys {
+                show(&k);
+            }
+            show(&sel_a.peek().key());
+        })
+    };
+    if presentation.rows_are_chrome() {
+        build_all();
+    }
     {
         let (s, show) = (selection.clone(), show.clone());
         bind(move || s.read().key(), move |key: &String| show(key));
@@ -2674,26 +2700,6 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 }
             },
         );
-    }
-
-    // Build every destination, then re-select the current one.
-    //
-    // A tab bar needs an ITEM PER DESTINATION up front — `UITabBarController` and Material's
-    // navigation bar both build their chrome from the full set, so a page nobody has visited yet
-    // is a tab that simply is not there. Lazy building is right for a split or a stack, where
-    // only the shown page is drawn; where the rows ARE the chrome, the rows have to be complete.
-    let build_all = {
-        let (show, typed_a, sel_a) = (show.clone(), typed.clone(), selection.clone());
-        Rc::new(move || {
-            let keys: Vec<String> = typed_a.borrow().iter().map(|k| k.key()).collect();
-            for k in keys {
-                show(&k);
-            }
-            show(&sel_a.peek().key());
-        })
-    };
-    if presentation.rows_are_chrome() {
-        build_all();
     }
 
     // What a presentation change means for the MODEL, whoever caused it. Widening with nothing

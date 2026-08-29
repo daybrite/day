@@ -3663,8 +3663,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    `deny` sit the same way.
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
    later job (and the release lane). The native-arch leg of each OS runs the host-portable
-   `cargo test` first — one run per operating system — so a failing host test fails that leg
+   test suite first (`scripts/ci/host-test.sh`: the whole workspace minus the toolkit crates)
+   — one run per operating system — so a failing host test fails that leg
    before the release build spends anything, and every combo downstream of that binary skips.
+   The script exists because a bare `cargo test` covers only `default-members`, the small
+   quick-iteration set — which until 2026-08 silently left most of the workspace's tests
+   (day-cli's and day-persistence's entire suites among them) out of CI.
    The tag lane skips the test step (the tagged commit was already validated on main). The leg whose arch matches its runner also runs
    `scripts/ci/scaffold-check.sh`, the only place CI exercises `day new app` end to end: it
    scaffolds a 21-locale project and lints it with `--strict --allow store-placeholder`, so every

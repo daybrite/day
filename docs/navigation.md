@@ -77,6 +77,13 @@ rebuild a tab's content on every tap. Splitting it this way means a morph only e
 that are NOT on screen, or lazily builds ones that were not built yet — the VISIBLE page is never
 rebuilt, which is the invariant a morph has to keep. Pages build on FIRST VISIT, not eagerly.
 
+A chrome presentation is the exception, because its bar needs an item per destination: every page
+is built up front, in ROW order, before the initial selection is applied. `NavPatch::Select` names
+a page by attach order while the chrome draws the rows, so page i has to be row i — that pairing
+is all a suite has. Building the selected destination first (the selection a `.restore(key)` came
+back with, say) would attach it at index 0 and leave the bar highlighting the first row while
+another destination's page is the one on screen.
+
 The active key is a `Signal<String>`, two-way exactly like `Picker`/`Toggle`: set it and the UI
 switches; the user picking natively writes it back (origin-tagged, no echo).
 

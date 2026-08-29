@@ -74,7 +74,11 @@ members = [
     "crates/day-lite",
     "crates/day-break",
 ]
-# Host-portable crates built/tested by a bare `cargo test`. Backend and app crates join as they land.
+# The quick-iteration set: what a FLAGLESS `cargo build`/`check`/`test` compiles, kept small so
+# editor loops stay fast (day-lite's oxc tree, the CLI, and the piece/part catalog are
+# deliberately out). This list is NOT the CI test roster — CI tests the whole workspace minus
+# the toolkit backends via scripts/ci/host-test.sh, so a crate absent here still has its tests
+# run on every push.
 default-members = [
     "crates/day-fluent",
     "crates/day-geometry",
@@ -86,7 +90,6 @@ default-members = [
     "crates/day-core",
     "crates/day-pieces",
     "crates/day-l10n",
-    "crates/day-fluent",
     "crates/day-vector",
 ]
 

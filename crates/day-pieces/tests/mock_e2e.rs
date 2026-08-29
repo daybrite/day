@@ -4301,10 +4301,13 @@ fn selector_restore_reopens_last_tab_and_persists() {
         Some("three"),
         "restored"
     );
-    // The ROW highlight is what a tab bar shows; the page index is build order, which for a
-    // restored key is 0 because that page was the first one visited.
+    // The ROW highlight and the page index are one fact in a chrome presentation: the bar
+    // highlights row 2 and the host shows the page attached at 2. A restored key must not drift
+    // them apart — the destinations build in row order precisely so that a suite (whose chrome
+    // draws the rows and whose pages are indexed by attach order) can pair the two. Drift here
+    // is a tab bar highlighting one destination while another one's page is on screen.
     assert_eq!(probe.find_by_kind("day.nav_menu")[0].1.value, 2.0);
-    assert_eq!(probe.find_by_kind("day.nav")[0].1.selected_page, Some(0));
+    assert_eq!(probe.find_by_kind("day.nav")[0].1.selected_page, Some(2));
 
     // A later selection is persisted.
     assert!(navigate("two"));
