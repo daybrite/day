@@ -974,7 +974,16 @@ fn find_project_dir(
             projects.len(),
             projects
                 .iter()
-                .map(|p| p.strip_prefix(root).unwrap_or(p).display().to_string())
+                .map(|p| {
+                    // Repo-relative with forward slashes on every host — the notation the
+                    // SBOM's `day:project` field records (git's show-prefix form), not the
+                    // OS separator (Windows would print `apps\example`).
+                    p.strip_prefix(root)
+                        .unwrap_or(p)
+                        .display()
+                        .to_string()
+                        .replace('\\', "/")
+                })
                 .collect::<Vec<_>>()
                 .join(", "),
         )),

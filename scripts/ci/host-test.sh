@@ -30,7 +30,9 @@ esac
 
 # $windows_excludes is unquoted on purpose: empty means no extra words, non-empty splits into
 # the two flag words (bash 3.2 on macOS mishandles empty arrays under `set -u`).
-exec cargo test --locked --workspace \
+# --no-fail-fast: one red crate must not hide another's failures — a leg's first CI run on new
+# hardware surfaced failures one round-trip at a time without it (exit is nonzero either way).
+exec cargo test --locked --workspace --no-fail-fast \
     $windows_excludes \
     --exclude day-appkit \
     --exclude day-gtk \

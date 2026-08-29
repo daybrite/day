@@ -24,7 +24,14 @@ pub use day_bridge::{Error, Support};
 /// Speak `text` with the system voice, interrupting anything already speaking.
 ///
 /// `Ok` means the platform accepted the request. Nothing reports completion in v1.
+///
+/// Where [`available`] reports `Unsupported` this returns `Err(Unsupported)` without reaching
+/// the arm — the arm can only say "failed", and a host with no engine (desktop Linux without
+/// speech-dispatcher) is not a failure, it is the absence `available` already reported.
 pub fn speak(text: &str) -> Result<(), Error> {
+    if available() == Support::Unsupported {
+        return Err(Error::Unsupported);
+    }
     speak_native(text)
 }
 
