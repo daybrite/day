@@ -1156,6 +1156,20 @@ public final class DayBridge {
      *  day-core is the same one a user flipping the system theme produces. */
     public static void setAppearance(int mode) {
         if (!canSetAppearance() || ctx == null) return;
+        // IDEMPOTENT, and it has to be. The settings row re-applies its stored value every time
+        // the tree is built, and applying one recreates the activity — which builds the tree
+        // again. Without this the app recreates itself forever.
+        //
+        // For an explicit light or dark the current uiMode answers exactly, which also means a
+        // cold start whose stored choice already matches the system costs no recreation at all.
+        // "Follow the system" cannot be read back, so it leans on the remembered value; a static
+        // is enough because recreation keeps the process.
+        if (mode == appliedNightMode) return;
+        if (mode != 2 && (mode == 1) == isDarkMode()) {
+            appliedNightMode = mode;
+            return;
+        }
+        appliedNightMode = mode;
         android.app.UiModeManager um = (android.app.UiModeManager)
                 ((android.content.Context) ctx).getSystemService(android.content.Context.UI_MODE_SERVICE);
         if (um == null) return;
@@ -1166,7 +1180,15 @@ public final class DayBridge {
             default: night = android.app.UiModeManager.MODE_NIGHT_AUTO; break;
         }
         um.setApplicationNightMode(night);
+        // A DayNight theme picks its variant when the activity's theme is RESOLVED, which is at
+        // creation. The uiMode change alone leaves every view — and every view inflated after it —
+        // on the colors chosen at startup, so the appearance has to be re-resolved by recreating.
+        // Day's tree is rebuilt from `onCreate`, the same path a cold start takes.
+        if (ctx instanceof android.app.Activity) ((android.app.Activity) ctx).recreate();
     }
+
+    /** The appearance last applied, so re-applying the stored choice does not recreate again. */
+    private static int appliedNightMode = Integer.MIN_VALUE;
 
     /** Report a light/dark switch to native (event kind 25), once the app has started.
      *  DayActivity calls this from onConfigurationChanged; day-core restyles what it owns and

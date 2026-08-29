@@ -1656,6 +1656,28 @@ mod imp {
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
+                // An app-level light/dark override, through `UiModeManager` — API 31 and up.
+                // Answered from the DEVICE rather than pinned for the backend: below 31 the only
+                // route is AppCompat's delegate, which does not restyle the plain
+                // `FragmentActivity` Day runs in, so there the honest answer is that there is no
+                // such control — and `day-piece-settings` draws no appearance row rather than one
+                // that does nothing.
+                Cap::Appearance => {
+                    if with_env(|env| {
+                        env.dcall_static(
+                            "dev/daybrite/day/bridge/DayBridge",
+                            "canSetAppearance",
+                            "()Z",
+                            &[],
+                        )
+                        .and_then(|v| v.z())
+                        .unwrap_or(false)
+                    }) {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
                 // SpannableString spans, drawn by the one TextView (docs/text-runs.md).
                 // A link run is a ClickableSpan; the TextView takes LinkMovementMethod when one
                 // is present, which is what makes the tap land.

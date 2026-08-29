@@ -91,7 +91,7 @@ An app branches on this rather than on the target name.
 | `NavRepresent` | N | E | – | N | – | E | – | N |
 | `NavContentList` | N | E | – | – | – | – | – | – |
 | `NavHeader` | – | N | – | – | N | N | N | – |
-| `Appearance` | N | N | N | – | N | – | – | N |
+| `Appearance` | N | N | N | – | N | ? | – | N |
 | `AppMenu` | N | – | N | N | N | – | – | – |
 | `Dialogs` | N | N | N | N | N | N | – | N |
 | `FileDialogs` | N | N | N | N | N | N | N | N |

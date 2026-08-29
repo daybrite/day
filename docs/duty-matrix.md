@@ -55,7 +55,7 @@ implement them, and this table proves it.
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
 | `dark_mode` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| `set_appearance` | · | ✓ | ✓ | ✓ | · | ✓ | · | · | ✓ | · |
+| `set_appearance` | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | · | ✓ | · |
 | `set_app_badge` | · | ✓ | ✓ | · | · | · | · | · | ✓ | · |
 | `on_suspend` | · | · | · | · | · | · | · | · | · | ✓ |
 | `on_resume` | · | · | · | · | · | · | · | · | · | ✓ |
