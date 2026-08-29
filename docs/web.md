@@ -177,6 +177,12 @@ every platform. Differences from native, all internal:
   has OPFS and is the local default, but Playwright's LINUX WebKit (the WPE port) ships no
   OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
   runs fail at the first screenshot; interactive `day launch` never needs one.
+- Storage lasts exactly as long as the launch: the driver's profile is created for the run
+  and removed at quit, and the loopback origin's port changes per launch, so no OPFS state
+  survives from one `day launch` to the next the way a native target's on-disk store does.
+  Scripts that hand state onward — a seed script before a walkthrough — must ride one
+  launch as repeated `--script` flags, which runs them in sequence against the same
+  instance (and is how the CI workflow runs a multi-script `scripts:` input on web-dom).
 - Steps for capabilities the web lacks (the native file pickers) carry
   `skip_on: [web-dom]` in the walkthrough; the runner drops them for this target
   (DESIGN.md Appendix C). The HTTP demo runs unskipped: the dev server answers the
