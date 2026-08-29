@@ -136,6 +136,9 @@ pub fn root() -> impl Piece {
         // On the shapes that show one pane at a time, this is what says whether the editor is up:
         // the host pushes it when the signal goes true and pops back to the list when it clears.
         .detail_visible(pages::detail_open())
+        // The pushed editor's bar names the item it shows — live, following the name field as
+        // the user types — instead of repeating the section title.
+        .detail_title(pages::detail_title)
         // These three act on the LIST, so they ride the list pane's own navigation bar on the
         // phones — where a window toolbar does not exist — and the desktop split ignores them
         // because the toolbar above already carries the same commands

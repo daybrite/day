@@ -69,6 +69,17 @@ flow:
   - input: { id: field-notes, text: "Notes persist with the item." }
   - screenshot: editor
 
+  # On a phone the editor is a PUSHED page with a navigation bar, a back button, and the item's
+  # name as its title (https://daybrite.dev/docs/navigation). Back pops to the list — the tab
+  # and the selection survive. The desktops keep the editor beside the list; nothing to pop.
+  - nav_back: { only_on: [uikit, mdc] }
+  - wait_idle: { only_on: [uikit, mdc] }
+  - assert_route: { route: navigate, only_on: [uikit, mdc] }
+  - assert_visible: { id: item-list, only_on: [uikit, mdc] }
+  # Reopen it, so every platform leaves this section in the same state.
+  - select: { id: item-list, index: 0, only_on: [uikit, mdc] }
+  - wait_for: { id: field-name, only_on: [uikit, mdc] }
+
   # --- Done, and the filter -----------------------------------------------------------------
   # Finished items sort to the top of the list, and the toolbar's filter hides them entirely.
   # Both read one signal, so the button, the menu item and the list cannot disagree.

@@ -1380,6 +1380,205 @@ fn content_list_emulated_gates_detail_on_visibility() {
     );
 }
 
+/// The composed gated flow in a CHROME presentation (docs/navigation.md): a compact adaptive
+/// selector's list-backed tab is a NESTED navigation host — the list at its root, the detail a
+/// real push with a native back and the app's `detail_title` on its bar — not an in-place swap.
+#[test]
+fn composed_gated_detail_is_a_nested_stack_inside_a_tab() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let title = Signal::new("Item One".to_string());
+    let title_r = title;
+    let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(400.0, 700.0), {
+        move || {
+            selector(sel)
+                .title("Home")
+                .content_list(|| label("the-list"))
+                .content_list_for(|k: &String| k == "about")
+                .item("about", "About", || label("about-content"))
+                .item("extra", "Extra", || label("extra-content"))
+                .detail_visible(dv)
+                .detail_title(move || title_r.get())
+                .any()
+        }
+    });
+    let hosts = probe.find_by_kind("day.nav");
+    assert_eq!(
+        hosts[0].1.presentation,
+        Some(day_spec::props::NavPresentation::Tabs),
+    );
+    assert_eq!(hosts.len(), 2, "the list-backed tab minted its own host");
+    assert_eq!(
+        hosts[1].1.presentation,
+        Some(day_spec::props::NavPresentation::Stack),
+        "the nested host is a permanent stack",
+    );
+    assert_eq!(
+        hosts[1].1.text, "About",
+        "the nested bar wears the tab's title"
+    );
+    let nested = NodeId(hosts[1].1.node);
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "the-list"),
+        "the tab opens on its list",
+    );
+
+    // Opening a row PUSHES the detail, titled by the app's `detail_title`.
+    let mark = probe.log_len();
+    batch(|| dv.set(true));
+    flush_sync();
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav pushed title=\"Item One\"")),
+        "log: {:?}",
+        probe.log_since(mark),
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content")
+    );
+
+    // The title is reactive: it follows the state it reads while the detail is up.
+    batch(|| title.set("Item Two".into()));
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("nav title=\"Item Two\""))
+    );
+
+    // A native back pops the layer and writes the signal false.
+    probe.emit(
+        nested,
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert!(!dv.get_untracked(), "back closes the detail");
+    assert_eq!(sel.get_untracked(), "about", "the tab selection survives");
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content"),
+        "the popped layer is gone",
+    );
+
+    // `nav_back()` — and a dayscript back — reaches the layer first, then falls through.
+    batch(|| dv.set(true));
+    flush_sync();
+    assert!(nav_back());
+    flush_sync();
+    assert!(!dv.get_untracked());
+    assert_eq!(sel.get_untracked(), "about");
+}
+
+/// The same flow in a STACKED presentation: the destination's page carries the list, and the
+/// detail pushes onto the ENCLOSING host — one native stack, one back button, unwound in
+/// layers: detail, then the section, then the sidebar rows.
+#[test]
+fn composed_gated_detail_merges_onto_a_stacked_host() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(400.0, 600.0), {
+        move || content_list_selector(sel, Some(dv))
+    });
+    assert!(navigate("about"));
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.nav").len(),
+        1,
+        "no second host while stacked — the flow merges",
+    );
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        2,
+        "sidebar root + the section page holding the list",
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "the-list")
+    );
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "about-content"),
+        "the detail waits on detail_visible",
+    );
+
+    // Opening a row pushes the detail onto the same host, titled by its destination.
+    let host = NodeId(probe.find_by_kind("day.nav")[0].1.node);
+    let mark = probe.log_len();
+    batch(|| dv.set(true));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav pushed title=\"About\"")),
+        "log: {:?}",
+        probe.log_since(mark),
+    );
+
+    // Native back unwinds one layer at a time.
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert!(
+        !dv.get_untracked(),
+        "back closes the detail, not the section"
+    );
+    assert_eq!(sel.get_untracked(), "about");
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert_eq!(
+        sel.get_untracked(),
+        "",
+        "the next back deselects the section"
+    );
+
+    // Reopening the section with the signal still true pushes the detail DURING the section
+    // page's own build. The section must be presented before its content builds — a backend
+    // that presents pages in patch order would otherwise stack them inverted — which is what
+    // show()'s early Pushed patch guarantees: push(section), realize(detail), push(detail).
+    batch(|| dv.set(true));
+    flush_sync();
+    let mark = probe.log_len();
+    assert!(navigate("about"));
+    flush_sync();
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 3);
+    let log = probe.log_since(mark);
+    let first_push = log.iter().position(|l| l.contains("nav pushed"));
+    let detail_realize = log.iter().rposition(|l| l.contains("realize day.nav_page"));
+    assert!(
+        first_push.is_some_and(|p| detail_realize.is_some_and(|r| p < r)),
+        "the section page is presented before its content builds the detail; log: {log:?}",
+    );
+}
+
 #[test]
 fn stack_on_back_guard_intercepts_and_defers() {
     use std::cell::Cell;

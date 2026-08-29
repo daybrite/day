@@ -210,6 +210,12 @@ that do the same thing are one registered closure. The actions lower into `NavPr
 each carrying its `NavBarScope`; a backend that doesn't render them ignores the field, and one
 that can only draw a single button draws the first.
 
+A TABS presentation's chrome draws no bar of its own. A list-backed destination's nested
+navigation host (see [The content list](#the-content-list-three-panes)) carries the selector's
+bar actions instead — `RootPage`-scoped ones ride the list layer, `EveryPage` ones the pushed
+detail too — which is how a phone's tab gets its "+" button. A tab without a content list has
+no bar, and no bar actions.
+
 > [!NOTE]
 > A `stack()` that MERGES into an enclosing host (the phone case, where the whole chain is one
 > native navigation controller) has no bar of its own, and its bar actions are not drawn — the
@@ -525,18 +531,20 @@ breakpoints, what survives a re-presentation, and which backends morph today.
 > **Status: implemented** (2026-08). Native pane on macos-appkit (a real `contentList`
 > `NSSplitViewItem`) and ios-uikit (`UISplitViewController` triple-column, merging into the
 > stack at compact width); composed by the selector everywhere else, including the mock.
-> `Cap::NavContentList` carries the three-way answer.
+> `Cap::NavContentList` carries the three-way answer. Since 2026-08 the composed compact flow
+> is real push navigation: a list-backed tab is a nested navigation controller, not a swap.
 
 > [!IMPORTANT]
-> The pane needs a presentation with a COLUMN to put it in, so declare it on a sidebar-family
-> selector (`SelectorStyle::Sidebar`, the style every example here uses). A tab bar has nowhere
-> to place the list — on `ios-uikit` the page is dropped rather than drawn, and the destinations
-> that remain shift under the tabs — so an `Automatic` selector that resolves to `Tabs` on a
-> phone must not declare one. A phone still gets all three layers from the sidebar style: the
-> sections, the list, and the detail, as a push sequence.
+> A tab bar has nowhere to place the list as a COLUMN — on `ios-uikit` a `Pane::List` page
+> handed to a `.tabSidebar` controller becomes a stray tab — so a host presenting as tabs is
+> never given the native pane. The selector composes the flow instead, and with
+> `detail_visible` the list-backed tab is a navigation controller of its own: the list at the
+> tab's root under its own bar and title, the detail pushed over it with a native back. So an
+> `Automatic` selector declares the pane freely; a phone gets all three layers either way —
+> the sections, the list, and the detail.
 
-`.content_list(build)` gives a `selector(Sidebar)` the Mail shape: sidebar, content list,
-detail — mailboxes, message list, message. The list is built ONCE and stays resident for the
+`.content_list(build)` gives a selector the Mail shape: sidebar, content list, detail —
+mailboxes, message list, message. The list is built ONCE and stays resident for the
 host's life; its content follows the app's own signals (the sidebar selection scoping it, the
 row chosen from it), so switching sections re-scopes it without a rebuild.
 
@@ -546,6 +554,7 @@ selector(section).style(SelectorStyle::Sidebar)
     .content_list_width(400.0)                 // preferred; drag limits are the backend's
     .content_list_for(|k| k != "settings")     // full-page sections collapse the pane
     .detail_visible(reader_open)               // the compact push gate, two-way
+    .detail_title(move || open_title.get())    // the detail layer's bar, live
     .item(…)…
     .destination(…)                            // the DETAIL only — the list is not in here
 ```
@@ -554,13 +563,23 @@ selector(section).style(SelectorStyle::Sidebar)
   pane at EVERY presentation — a narrow window collapses the sidebar and keeps the list, as a
   narrow Mail.app does. `Emulated` (ios-uikit): a real column while expanded that MERGES into
   the navigation stack when the host collapses. `Unsupported` (everything else): the selector
-  composes the list beside each list-backed destination while split, and in place of it while
-  stacked.
+  composes the list beside each list-backed destination while split, and as the root layer of
+  the gated push flow while compact.
 - **`detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
   ignore it (the detail pane is always on screen, showing the app's empty state until a row is
   chosen). Stacked, the content list is the top of the stack until the app writes `true` — a
   row was opened — the detail pushes then, and the platform's back writes `false` on the way
-  out. Without it a stacked host behaves classically (the detail pushes on selection).
+  out. In a chrome presentation (a tab bar, a rail) the same flow runs INSIDE the tab: the
+  destination's page is a nested navigation host — a `UINavigationController` in the tab, a
+  Material toolbar over the fragment back stack — so the tab gets a navigation bar, a title,
+  and a native back, and the selector's bar actions ride that bar (a tabs chrome otherwise
+  draws none). Without `detail_visible` a stacked host behaves classically (the detail pushes
+  on selection).
+- **`detail_title`** names the DETAIL layer's navigation bar: the pushed editor on a phone,
+  the detail page's bar wherever the toolkit titles one. Reactive like every title — a closure
+  reading your own state retitles the live bar (`NavPatch::Title`) as that state changes, so
+  the bar can carry the open item's name. Unset, the detail layer keeps its destination's
+  title.
 - **`content_list_for`** collapses the pane per destination (`NavPatch::ListVisible`): a
   settings page takes the whole detail area, and selecting a list-backed section brings the
   pane back.

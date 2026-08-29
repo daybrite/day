@@ -769,10 +769,12 @@ selector(section)                  // sidebar / tabs / segmented, per SelectorSt
     .content_list(build)           //   the Mail shape's middle column (2026-08): a resident
                                    //   Pane::List page — a real contentList split item on
                                    //   appkit, the uikit triple-column supplementary column,
-                                   //   composed beside/in place of the detail elsewhere
+                                   //   composed beside the detail elsewhere
                                    //   (Cap::NavContentList); .content_list_for(pred) collapses
                                    //   it per destination, .detail_visible(sig) gates the
-                                   //   compact push flow two-way
+                                   //   compact push flow two-way — a nested nav host inside a
+                                   //   tab, a merged push while stacked — and
+                                   //   .detail_title(text) names the detail layer's bar, live
 stack(path, root)                  // push/pop navigation bound to a Vec<Route> signal
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
@@ -1898,6 +1900,17 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   The keyboard half rides `Decorate::focusable` — the canvas focus contract generalized to
 >   containers through the new `Toolkit::set_focusable` duty (appkit today).
 >   [docs/navigation.md](docs/navigation.md) and [docs/focus.md](docs/focus.md) are normative.
+> - **The composed gated detail is real push navigation** *(2026-08)* — where the pane is
+>   composed (`Cap::NavContentList` Unsupported, and every tabs presentation), a list-backed
+>   destination with `.detail_visible` no longer swaps list and detail in place. In a chrome
+>   presentation the destination's page is a NESTED nav host — a `UINavigationController`
+>   inside the tab, a Material toolbar over the fragment back stack — carrying the selector's
+>   bar actions (a tabs chrome draws none of its own); stacked, the detail pushes onto the
+>   enclosing host, the same merge a nested `stack()` performs. The native back writes the
+>   signal `false`; a pop-only route surface lets `nav_back()` close the layer first. The new
+>   `.detail_title(text)` names the detail layer's bar, reactively, on the native pane shapes
+>   too. To keep a mid-build inner push ordered, a stacked destination page is now PRESENTED
+>   (`NavPatch::Pushed`) before its content builds, not after.
 > - **Nav bar actions, plural and scoped** *(2026-08)* — `NavProps::bar_action: Option<_>` became
 >   `bar_actions: Vec<NavBarAction>`, and each action carries a `NavBarScope`. `bar_action` appends
 >   an `EveryPage` action (the old behavior, unchanged for existing callers); `list_action` appends

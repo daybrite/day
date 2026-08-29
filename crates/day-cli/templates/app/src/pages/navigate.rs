@@ -37,6 +37,24 @@ pub(crate) fn detail_open() -> Signal<bool> {
     DETAIL_OPEN.with(|s| *s)
 }
 
+/// The pushed editor's navigation-bar title — `selector(…).detail_title` in `lib.rs`
+/// (https://daybrite.dev/docs/navigation). The item being edited, by name, so the bar answers
+/// "what am I looking at" the way a native detail page does; the section's own title stands in
+/// while the name is empty (a just-created item) or nothing is selected. Reading the name
+/// through its field binding is what keeps the bar live as the user types into the name field.
+pub(crate) fn detail_title() -> String {
+    let name = selected()
+        .get()
+        .filter(|id| model::find(*id).is_some())
+        .map(|id| model::items().elem(id as u64).name().read())
+        .unwrap_or_default();
+    if name.is_empty() {
+        res::str::nav_navigate().format()
+    } else {
+        name
+    }
+}
+
 /// Open `id` in the editor — the one path every "show me this item" command takes. The layout
 /// is not this function's business: a wide window already has the editor beside the list, a
 /// narrow one pushes it, and the host decides which (https://daybrite.dev/docs/navigation).

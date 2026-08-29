@@ -822,6 +822,9 @@ pub struct Selector<S: Binding<K>, K: Route = String> {
     /// detail push in a stacked presentation with a content list, and what native back writes
     /// `false` into. `None` = the detail behaves classically (pushed on selection).
     detail_visible: Option<Signal<bool>>,
+    /// The navigation-bar title of the detail layer a content list opens
+    /// ([`Selector::detail_title`]). `None` = the destination's own title.
+    detail_title: Option<TextSource>,
 }
 
 /// A pending search declaration ([`Selector::searchable`] and its modifiers). The query and the
@@ -1064,6 +1067,7 @@ pub fn selector<K: Route, S: Binding<K>>(selection: S) -> Selector<S, K> {
         content_list_width: day_spec::NAV_LIST_WIDTH,
         content_list_pred: None,
         detail_visible: None,
+        detail_title: None,
     }
 }
 
@@ -1180,6 +1184,15 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     /// `false` on the way out.
     pub fn detail_visible(mut self, visible: Signal<bool>) -> Self {
         self.detail_visible = Some(visible);
+        self
+    }
+    /// The navigation-bar title of the DETAIL layer a content list opens (docs/navigation.md):
+    /// the editor a phone pushes over the list, the detail column's bar where the toolkit
+    /// titles one. Reactive like every title — pass a closure reading your own state to title
+    /// the page after the item it shows, and the native bar follows as that state changes.
+    /// Unset, the detail layer keeps its destination's title.
+    pub fn detail_title<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.detail_title = Some(t.into_text());
         self
     }
     /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
@@ -1501,6 +1514,349 @@ fn persist_selection<K: Route, S: Binding<K>>(restore: Option<String>, selection
     }
 }
 
+// ---------------------------------------------------------------------------
+// The composed gated detail (docs/navigation.md): where the toolkit has no content-list pane,
+// a list-backed destination with `detail_visible` is a real two-layer navigation flow rather
+// than an in-place swap. In a chrome presentation (a tab bar, a rail) the destination's page
+// is a nested navigation host of its own — the platform's stack controller inside the tab,
+// the list at its root, the detail pushed over it. In a stacked presentation the list renders
+// inline in the destination's (already pushed) page and the detail pushes onto the ENCLOSING
+// host, exactly as a merged `stack()`'s pages do. Both give the compact flow what the native
+// idiom always had: a navigation bar, a title, and a back that pops.
+// ---------------------------------------------------------------------------
+
+/// What the gated flow needs from its selector, cloneable into the `when` branches that build
+/// one shape or the other as the presentation changes.
+struct GatedDetail<K: Route> {
+    /// Whether the detail layer is up — the selector's `detail_visible` signal, two-way.
+    open: Signal<bool>,
+    /// Builds the content list, the root layer.
+    list: Rc<dyn Fn() -> AnyPiece>,
+    /// The selector's items: the detail content builder and the immersive flag.
+    items: Rc<SelItems<K>>,
+    key: K,
+    /// The destination's resolved title — the root layer's bar — and its live source.
+    title: String,
+    retitle: Option<TextSource>,
+    /// The pushed detail's title source (`Selector::detail_title`); `None` = `title`.
+    detail_title: Option<TextSource>,
+    /// The enclosing selector's host — the merge target while stacked.
+    host_cx: NavHostCx,
+    /// The selector's lowered bar actions, re-homed onto the nested host in a chrome
+    /// presentation, whose tabs chrome draws none of its own.
+    bar_actions: Vec<day_spec::props::NavBarAction>,
+}
+
+impl<K: Route> Clone for GatedDetail<K> {
+    fn clone(&self) -> Self {
+        GatedDetail {
+            open: self.open,
+            list: self.list.clone(),
+            items: self.items.clone(),
+            key: self.key.clone(),
+            title: self.title.clone(),
+            retitle: self.retitle.clone(),
+            detail_title: self.detail_title.clone(),
+            host_cx: self.host_cx.clone(),
+            bar_actions: self.bar_actions.clone(),
+        }
+    }
+}
+
+/// The gated flow's piece. The shape follows the LIVE presentation, so a morph between a tab
+/// bar and a stack rebuilds the right container.
+///
+/// The condition asks the FULL question — chrome rows AND a compact window — rather than
+/// leaning on the enclosing side-by-side `when` to have ruled the wide case out. The two
+/// react to the same signals, and their evaluation order in one flush is not promised: a
+/// `Stack → Rail` morph on a desktop flips both at once, and a condition that only asked
+/// "chrome?" would build a nested navigation host for the one evaluation before the outer
+/// branch replaces it — a whole native host realized and torn down in a single flush, which
+/// wedged Qt.
+fn gated_detail_piece<K: Route>(
+    cfg: GatedDetail<K>,
+    pres: Signal<day_spec::props::NavPresentation>,
+    window: RNode,
+) -> AnyPiece {
+    let (c1, c2) = (cfg.clone(), cfg);
+    AnyPiece::new(
+        when(
+            move || {
+                pres.get().rows_are_chrome()
+                    && !day_core::window_size_class(window).is_some_and(|c| c.prefers_split())
+            },
+            move || gated_detail_nested(c1.clone()),
+        )
+        .otherwise(move || gated_detail_merged(c2.clone())),
+    )
+}
+
+/// A chrome presentation's gated destination: a nested navigation host of its own — a
+/// `UINavigationController` inside the tab, a Material toolbar over the fragment back stack —
+/// which is what gives the tab a navigation bar, a title, and a native back. Standalone by
+/// construction: a resident page is a merge barrier (docs/navigation.md).
+fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
+    piece_fn(move |cx| {
+        use day_spec::props::{NavPageProps, NavPresentation, NavProps, Pane};
+        let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
+        let host = cx.native(
+            kinds::NAV,
+            &NavProps {
+                title: cfg.title.clone(),
+                // A permanent stack, like the `stack()` piece: the chrome above already
+                // adapts, so this host must never try to.
+                presentation: NavPresentation::Stack,
+                adaptive: false,
+                // The selector's own bar actions ride this bar (docs/navigation.md): the tabs
+                // chrome draws none, and this is the list's navigation bar the phones put a
+                // `list_action` on.
+                bar_actions: cfg.bar_actions.clone(),
+                search: None,
+                list_width: None,
+                list_visible: true,
+            },
+            Rc::new(NavLayout::stack(sizes.clone())),
+            Flex {
+                grow_w: true,
+                grow_h: true,
+                ..Default::default()
+            },
+            Boundary::Yes,
+        );
+        let owners: Rc<RefCell<Vec<PopOwner>>> = Rc::default();
+        let target = NavHostCx {
+            host,
+            sizes: sizes.clone(),
+            owners: owners.clone(),
+            split: Rc::new(Cell::new(false)),
+        };
+        let root_page = nav_page(
+            host,
+            &NavPageProps {
+                title: cfg.title.clone(),
+                pane: Pane::Detail,
+            },
+            &sizes,
+        );
+        // The list is a merge BARRIER, exactly like the native pane (docs/navigation.md): a
+        // stack inside it keeps its own container.
+        with_nav_host(None, || {
+            let mut pcx = BuildCx::new(root_page);
+            let _ = (cfg.list)().grow().build(&mut pcx);
+        });
+        // This host's one back dispatcher: the topmost owner — the detail layer's, or a
+        // stack's that merged inside the detail.
+        {
+            let owners = owners.clone();
+            cx.on(host, move |ev| match ev {
+                Event::NavBack { already_popped } => {
+                    let top = owners.borrow().last().cloned();
+                    if let Some(f) = top {
+                        f(*already_popped);
+                    }
+                }
+                Event::RouteRequested(route) => {
+                    let _ = day_core::navigate(route);
+                }
+                _ => {}
+            });
+        }
+        wire_gated_detail(&cfg, target);
+        host
+    })
+}
+
+/// A stacked presentation's gated destination: the list renders inline in the destination's
+/// own page and the detail pushes onto the ENCLOSING host — the same merge a nested `stack()`
+/// performs, so the whole chain stays one native stack with one back button
+/// (docs/navigation.md).
+fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
+    piece_fn(move |cx| {
+        let target = cfg.host_cx.clone();
+        // The list is a merge barrier here too — same rule as the native pane.
+        let node = with_nav_host(None, || (cfg.list)().grow().build(cx));
+        wire_gated_detail(&cfg, target);
+        node
+    })
+}
+
+/// Drive the detail layer from `detail_visible`, whichever host carries it: `true` pushes the
+/// destination's page onto `target`, `false` — and the native back, which writes it — pops.
+/// Registered in the CURRENT scope, so a section switch or a presentation morph tears the
+/// layer down with the shape that built it.
+fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
+    use day_spec::props::{NavPageProps, NavPatch, Pane};
+    /// The pushed layer: its page, and the scope its content lives in.
+    struct Layer {
+        scope: Scope,
+        page: RNode,
+    }
+    let layer: Rc<RefCell<Option<Layer>>> = Rc::default();
+    // Pops the toolkit already performed (an iOS swipe, the Android system back): the
+    // answering `Popped` is absorbed rather than re-issued, same as a stack's.
+    let native_popped: Rc<Cell<usize>> = Rc::default();
+    let open = cfg.open;
+    let owner_scope = Scope::current();
+
+    // The native back, while the detail is up: report it into the signal — the pop itself is
+    // performed by the binding below, so a back and a programmatic `false` are one path.
+    let owner: PopOwner = {
+        let native_popped = native_popped.clone();
+        Rc::new(move |already_popped: bool| {
+            if already_popped {
+                native_popped.set(native_popped.get() + 1);
+            }
+            open.set(false);
+        })
+    };
+
+    let detail_src = cfg.detail_title.clone();
+    let root_title = cfg.title.clone();
+    let push = {
+        let (layer, target, owner) = (layer.clone(), target.clone(), owner.clone());
+        let (items, key) = (cfg.items.clone(), cfg.key.clone());
+        let (detail_src, root_title) = (detail_src.clone(), root_title.clone());
+        move || {
+            if layer.borrow().is_some() {
+                return;
+            }
+            let title = detail_src
+                .as_ref()
+                .map(TextSource::initial)
+                .unwrap_or_else(|| root_title.clone());
+            let page = nav_page(
+                target.host,
+                &NavPageProps {
+                    title: title.clone(),
+                    pane: Pane::Detail,
+                },
+                &target.sizes,
+            );
+            // BEFORE the content builds, so a stack that merges inside the detail lands its
+            // owners on top of this one.
+            target.owners.borrow_mut().push(owner.clone());
+            let scope = owner_scope.enter(Scope::child);
+            let content = items.build_page(&key);
+            let tc = target.clone();
+            scope.enter(|| {
+                with_nav_host(Some(tc), || {
+                    let mut c = BuildCx::new(page);
+                    let _ = content.grow().build(&mut c);
+                });
+            });
+            // Out here for the usual reason: `immersive_of` can run app code, which must not
+            // happen inside `with_tree`.
+            let immersive = items.immersive_of(&key.key());
+            with_tree(|t| {
+                t.patch(
+                    target.host,
+                    Box::new(NavPatch::Pushed { title, immersive }),
+                    false,
+                );
+                t.mark_layout_dirty();
+                t.layout_if_needed();
+            });
+            *layer.borrow_mut() = Some(Layer { scope, page });
+        }
+    };
+    let pop = {
+        let (layer, target, native_popped) = (layer.clone(), target.clone(), native_popped.clone());
+        move || {
+            let taken = layer.borrow_mut().take();
+            let Some(l) = taken else {
+                return;
+            };
+            // Scope first: a merged inner stack's cleanup pops ITS pages (which sit on top
+            // natively) before this pops the detail itself — top-down, the order native
+            // stacks demand.
+            l.scope.dispose();
+            if native_popped.get() > 0 {
+                native_popped.set(native_popped.get() - 1);
+            } else {
+                with_tree(|t| t.patch(target.host, Box::new(NavPatch::Popped), false));
+            }
+            target.owners.borrow_mut().pop();
+            target.sizes.borrow_mut().remove(&l.page);
+            with_tree(|t| {
+                t.remove_subtree(l.page);
+                t.mark_layout_dirty();
+                t.layout_if_needed();
+            });
+        }
+    };
+    {
+        let (push, pop) = (push, pop.clone());
+        bind(
+            move || open.get(),
+            move |v: &bool| if *v { push() } else { pop() },
+        );
+    }
+
+    // The top layer's bar, live: the detail title while up — re-resolving as the state it
+    // reads changes — the destination's while down. Seeded with what the build just drew, and
+    // sent unconditionally: while the layer is down the enclosing top carries the same
+    // destination title, so the patch is a no-op there rather than a wrong name.
+    {
+        let (retitle, host) = (cfg.retitle.clone(), target.host);
+        let top_title = move || {
+            let root = || {
+                retitle
+                    .as_ref()
+                    .map_or_else(|| root_title.clone(), TextSource::resolve)
+            };
+            if open.get() {
+                detail_src.as_ref().map_or_else(root, TextSource::resolve)
+            } else {
+                root()
+            }
+        };
+        let seed = day_reactive::untrack(&top_title);
+        bind_seeded(seed, top_title, move |t: &String| {
+            with_tree(|tr| tr.patch(host, Box::new(NavPatch::Title(t.clone())), false));
+        });
+    }
+
+    // `nav_back()` and a dayscript back reach the layer FIRST: a pop-only route surface that
+    // claims the back while the detail is up and falls through outward otherwise. It adds no
+    // segments, so `current_route()` reads the same across every presentation.
+    {
+        let (o_push, o_pop) = (open, open);
+        register_route_surface(
+            move |k| {
+                if k.is_empty() && o_push.peek() {
+                    o_push.set(false);
+                    true
+                } else {
+                    false
+                }
+            },
+            move |_| {
+                if o_pop.peek() {
+                    o_pop.set(false);
+                    true
+                } else {
+                    false
+                }
+            },
+            String::new,
+            |_| false,
+            Vec::new,
+        );
+    }
+
+    // The layer's page can ride a host this scope does not own (the merged shape), so that
+    // host's teardown will not reach it — pop it, top-down, when this shape is left: a
+    // section switch, a presentation morph. Guarded for app teardown, like a merged stack.
+    owner_scope.on_cleanup(move || {
+        let alive = with_tree(|t| t.node_kind(target.host).is_some());
+        if alive {
+            pop();
+        } else if let Some(l) = layer.borrow_mut().take() {
+            l.scope.dispose();
+        }
+    });
+}
+
 fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{
         NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavPresentation, NavProps, Pane,
@@ -1695,6 +2051,11 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         .into_iter()
         .map(BarActionSpec::lower)
         .collect();
+    // Cloned for the composed gated flow below: its nested host re-homes them in a chrome
+    // presentation, where the tabs chrome draws none of its own (docs/navigation.md). The
+    // registered actions are shared — same dispatch ids, one closure each.
+    let gated_bar_actions = bar_actions.clone();
+    let detail_title = sel.detail_title;
     // Search over this surface (docs/search.md). Lowered to the host's props with its CURRENT
     // values; the live bindings below keep the field in step through targeted patches, so the
     // app writing the query never rebuilds (and refocuses) the field mid-word.
@@ -1910,9 +2271,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         });
     }
     // The COMPOSED content list (`Cap::NavContentList` Unsupported): every list-backed
-    // destination page carries the pane itself — beside the content while split, in place of
-    // it while stacked until `detail_visible` opens a row. The presentation is read through
-    // the SIGNAL, so a live morph re-arranges the page without the host's involvement.
+    // destination page carries the pane itself — beside the content while split, and as the
+    // root of a real two-layer push flow while compact (the gated detail above). The
+    // presentation is read through the SIGNAL, so a live morph re-arranges the page without
+    // the host's involvement.
     let compose: Option<DestFn<K>> = if let (Some(list), true) = (list_build.clone(), !native_list)
     {
         let pred = list_pred.clone();
@@ -1921,6 +2283,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         let items_c = items.clone();
         let pres = presentation_sig;
         let win = window;
+        let host_cx_g = host_cx.clone();
+        let detail_title_g = detail_title.clone();
         Some(Rc::new(move |key: &K| {
             if pred.as_ref().is_some_and(|p| !p(key)) {
                 return items_c.build_page(key);
@@ -1928,6 +2292,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             let (l1, l2) = (list.clone(), list.clone());
             let (i1, i2) = (items_c.clone(), items_c.clone());
             let (k1, k2) = (key.clone(), key.clone());
+            let (hc, dt) = (host_cx_g.clone(), detail_title_g.clone());
+            let ba = gated_bar_actions.clone();
             AnyPiece::new(
                 when(
                     move || {
@@ -1951,13 +2317,32 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 .otherwise(move || {
                     let (l, i, k) = (l2.clone(), i2.clone(), k2.clone());
                     match dv {
-                        Some(d) => AnyPiece::new(
-                            when(move || d.get(), {
-                                let (i, k) = (i.clone(), k.clone());
-                                move || i.build_page(&k).grow()
-                            })
-                            .otherwise(move || l().grow()),
-                        ),
+                        // The gated two-layer flow (docs/navigation.md): a nested navigation
+                        // host in a chrome presentation, a push onto the enclosing host in a
+                        // stacked one — either way a navigation bar, a title, and a native
+                        // back, where an in-place swap had none.
+                        Some(d) => {
+                            let retitle = i.static_title(&k.key());
+                            let title = retitle
+                                .as_ref()
+                                .map(TextSource::initial)
+                                .unwrap_or_else(|| k.title());
+                            gated_detail_piece(
+                                GatedDetail {
+                                    open: d,
+                                    list: l,
+                                    items: i,
+                                    key: k,
+                                    title,
+                                    retitle,
+                                    detail_title: dt.clone(),
+                                    host_cx: hc.clone(),
+                                    bar_actions: ba.clone(),
+                                },
+                                pres,
+                                win,
+                            )
+                        }
                         None => i.build_page(&k),
                     }
                 }),
@@ -2018,6 +2403,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         let (list_pred_s, list_in_stack_s) = (list_pred.clone(), list_in_stack.clone());
         let apply_list_visible_s = apply_list_visible.clone();
         let compose_s = compose.clone();
+        let detail_title_s = detail_title.clone();
         move |key: &str| {
             if current.borrow().as_deref() == Some(key) {
                 return;
@@ -2116,12 +2502,18 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 }
             }
             // A static item retitles on locale change (its TextSource); a data-driven key uses
-            // the resolved snapshot (its title tracks the items signal, not the locale).
-            let retitle = items.static_title(key);
+            // the resolved snapshot (its title tracks the items signal, not the locale). A
+            // list-backed destination on a host that places the pane natively IS the detail
+            // layer, so the app's `detail_title` names it where one is set — the layer shows
+            // an item, not the section (docs/navigation.md).
+            let (page_title, retitle) = match &detail_title_s {
+                Some(dt) if want => (dt.initial(), Some(dt.clone())),
+                _ => (title_now.clone(), items.static_title(key)),
+            };
             let page = nav_page(
                 host,
                 &NavPageProps {
-                    title: title_now.clone(),
+                    title: page_title.clone(),
                     pane: Pane::Detail,
                 },
                 &sizes,
@@ -2145,6 +2537,24 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     })
                 };
                 owners.borrow_mut().push(owner);
+                // Present the page BEFORE its content builds. Anything the content pushes
+                // onto this same host while building — a composed gated detail whose signal
+                // is already true, a merged stack's restored path — must land ABOVE this
+                // page, and a backend that presents pages in patch order (Android presents
+                // the most recently added) would otherwise show them inverted. `immersive_of`
+                // runs out here for the usual reason: it can run app code, which must not
+                // happen inside `with_tree`.
+                let immersive = items.immersive_of(&typed_key.key());
+                with_tree(|t| {
+                    t.patch(
+                        host,
+                        Box::new(NavPatch::Pushed {
+                            title: page_title.clone(),
+                            immersive,
+                        }),
+                        false,
+                    );
+                });
             }
             let scope = nav_scope.enter(Scope::child);
             let content = match &compose_s {
@@ -2181,21 +2591,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 node: page,
             });
             let at = resident.borrow().len() - 1;
-            // Built BEFORE the borrow, deliberately. `immersive_of` scans the item sources, and a
-            // data-driven `.items(…)` block is APP code — running it inside `with_tree` re-enters
-            // the tree borrow the moment that closure reads anything ambient (`day::size_class()`
-            // is the obvious one) and aborts the process. `with_tree`'s contract is that tree
-            // methods never run user code; constructing the patch out here is what keeps it true.
-            let patch: Box<dyn std::any::Any> = if chrome {
-                Box::new(NavPatch::Select(at))
-            } else {
-                Box::new(NavPatch::Pushed {
-                    title: title_now,
-                    immersive: items.immersive_of(&typed_key.key()),
-                })
-            };
+            // A stacked page was presented above, before its content; the resident case
+            // selects AFTER the build — the page must exist to be shown.
+            if chrome {
+                with_tree(|t| t.patch(host, Box::new(NavPatch::Select(at)), false));
+            }
             with_tree(|t| {
-                t.patch(host, patch, false);
                 t.mark_layout_dirty();
                 t.layout_if_needed();
             });
@@ -3561,6 +3962,7 @@ pub trait SelectorBuilder<K: Route>: Sized {
         map: impl Fn(&T) -> NavItem<K> + 'static,
     ) -> Self;
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
+    fn detail_title<M>(self, t: impl IntoText<M>) -> Self;
     fn local(self) -> Self;
     fn restore(self, key: impl Into<String>) -> Self;
     fn bar_action<M>(
@@ -3639,6 +4041,9 @@ impl<K: Route, S: Binding<K>> SelectorBuilder<K> for Selector<S, K> {
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
         Selector::destination(self, build)
+    }
+    fn detail_title<M>(self, t: impl IntoText<M>) -> Self {
+        Selector::detail_title(self, t)
     }
     fn local(self) -> Self {
         Selector::local(self)
@@ -3736,6 +4141,9 @@ impl<K: Route, Inner: SelectorBuilder<K> + Piece> SelectorBuilder<K> for Decorat
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.destination(build))
+    }
+    fn detail_title<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.detail_title(t))
     }
     fn local(self) -> Self {
         self.map_inner(|inner_piece| inner_piece.local())
