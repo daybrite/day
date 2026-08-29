@@ -239,7 +239,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, target: x86_64-pc-windows-msvc, runner: windows-11 }
+          - { arch: x86_64, target: x86_64-pc-windows-msvc, runner: windows-2025 }
           - { arch: aarch64, target: aarch64-pc-windows-msvc, runner: windows-11-arm }
     steps:
       - uses: actions/checkout@v7
@@ -476,7 +476,7 @@ jobs:
           - { toolkit: gtk,    combo: linux-gtk,     os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: qt,     combo: linux-qt,      os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: mdc,    combo: android-mdc,   os: ubuntu-24.04, rust_target: aarch64-linux-android,     clippy: "--lib" }
-          - { toolkit: xaml,   combo: windows-xaml,  os: windows-11, rust_target: "",                      clippy: "--all-targets" }
+          - { toolkit: xaml,   combo: windows-xaml,  os: windows-2025, rust_target: "",                      clippy: "--all-targets" }
     defaults:
       run:
         shell: bash
@@ -1477,7 +1477,7 @@ jobs:
   # matrix cannot switch shells per combo — the toolchains are split into two jobs.
   windows-xaml:
     name: day-windows-xaml
-    runs-on: windows-11
+    runs-on: windows-2025
     needs: [day-cli-windows]
     defaults:
       run:
@@ -1591,7 +1591,7 @@ jobs:
   windows-msys2:
     name: day-${{ matrix.combo }}
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact — skip on tags
-    runs-on: windows-11
+    runs-on: windows-2025
     needs: [day-cli-windows]
     continue-on-error: true
     strategy:
