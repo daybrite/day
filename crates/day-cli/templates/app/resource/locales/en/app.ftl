@@ -32,7 +32,6 @@ cmd_show_done = Show Finished
 cmd_sidebar = Toggle Sidebar
 
 # The item list and its editor.
-item_untitled = Untitled
 item_none = Select an item
 item_kind_note = Note
 item_kind_task = Task
