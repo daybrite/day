@@ -147,15 +147,19 @@ jobs:
   # lints run in the first-pass `clippy` job.
   # ===========================================================================
 
-  # --- day CLI: cross-compiled release builds, shared as artifacts ----------
+  # --- day CLI: release builds, shared as artifacts -------------------------
   # Runs right after the fast checks (fmt/msrv). SIX parallel jobs — one per (OS, arch) — because
   # this is the first phase everything else waits on, and one runner per architecture halves its
-  # wall-clock against building both in sequence on one runner. Each leg builds a single target
-  # (the non-native one cross-compiled) and uploads it as `day-<os>-<arch>` (e.g. day-macos-x86_64,
-  # day-linux-aarch64). Three job IDs with a two-arch matrix each, so the `needs:` below still name
-  # day-cli-macos / -linux / -windows and wait on both of that OS's legs.
+  # wall-clock against building both in sequence on one runner. Linux and Windows legs each run
+  # on hardware matching their arch (ubuntu-24.04-arm / windows-11-arm for aarch64); macOS
+  # x86_64 is the one remaining cross build, since GitHub retired its Intel runners. Each leg
+  # builds one target and uploads it as `day-<os>-<arch>` (e.g. day-macos-x86_64,
+  # day-linux-aarch64). Three job IDs with a two-arch matrix each, so the `needs:` below still
+  # name day-cli-macos / -linux / -windows and wait on both of that OS's legs. (The job KEYS
+  # keep the day-cli- prefix for those needs: edges; the displayed names are day-<os> because
+  # the legs test the framework, not just build the CLI.)
   #
-  # `fail-fast: false`: a broken cross-link on one architecture should not cancel the other, whose
+  # `fail-fast: false`: a broken build on one architecture should not cancel the other, whose
   # binary the per-platform jobs are waiting on.
   #
   # scripts/ci/scaffold-check.sh no longer runs here: it moved into the per-platform jobs below,
@@ -164,16 +168,15 @@ jobs:
   #
   # The host-portable test run (scripts/ci/host-test.sh — the whole workspace minus the toolkit
   # crates, NOT bare `cargo test`, whose default-members are the small quick-iteration set) rides
-  # the NATIVE-arch leg of each job (one run per OS — the
-  # same count the standalone `test (<os>)` jobs had, minus three runners' worth of checkout,
-  # toolchain, and queueing). It runs BEFORE the release build, so a red test fails the leg —
-  # and skips every job downstream of its artifact — without paying for the build first. The
-  # tag lane skips the test step (the tagged commit was already validated on main); the cross
-  # legs never run it (same OS, nothing new to learn).
+  # every leg whose runner matches its arch — both Linux legs, both Windows legs, and macOS
+  # aarch64; the macOS x86_64 cross leg cannot run its own binaries. It runs BEFORE the release
+  # build, so a red test fails the leg — and skips every job downstream of its artifact —
+  # without paying for the build first. The tag lane skips the test step (the tagged commit was
+  # already validated on main).
   day-cli-macos:
-    name: day-cli-macos (${{ matrix.arch }})
+    name: day-macos (${{ matrix.arch }})
     needs: [fmt, msrv]
-    runs-on: macos-latest # Apple silicon: aarch64 is the host arch, x86_64 the cross build
+    runs-on: macos-26 # Apple silicon: aarch64 is the host arch, x86_64 the cross build
     strategy:
       fail-fast: false
       matrix:
@@ -199,39 +202,27 @@ jobs:
           if-no-files-found: error
 
   day-cli-linux:
-    name: day-cli-linux (${{ matrix.arch }})
+    name: day-linux (${{ matrix.arch }})
     needs: [fmt, msrv]
-    runs-on: ubuntu-latest # x86_64 host; aarch64 is the cross build
+    runs-on: ${{ matrix.runner }} # each arch on matching hardware — both legs build AND test natively
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, target: x86_64-unknown-linux-gnu }
-          - { arch: aarch64, target: aarch64-unknown-linux-gnu }
+          - { arch: x86_64, target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04 }
+          - { arch: aarch64, target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }} # two runner arches share this job id; keep their caches apart
       - name: Test (host-portable crates)
-        if: ${{ matrix.arch == 'x86_64' && !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: bash
         run: scripts/ci/host-test.sh
-      # Cross to aarch64 needs a cross-linker (+ C cross-compiler for any build-script C) AND the
-      # aarch64 libc dev files — gcc-aarch64-linux-gnu ships the compiler/linker but NOT the target
-      # CRT startup objects (Scrt1.o/crti.o/crtn.o) + libc that the final link needs; those live in
-      # libc6-dev-arm64-cross. x86_64 is native to the ubuntu runner and skips all of it.
-      - name: Install the aarch64 cross-toolchain
-        if: matrix.arch == 'aarch64'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
-          {
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc"
-            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc"
-          } >> "$GITHUB_ENV"
       - name: Build the day CLI (release, ${{ matrix.target }})
         run: cargo build --locked --release -p day-cli --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v7
@@ -241,23 +232,25 @@ jobs:
           if-no-files-found: error
 
   day-cli-windows:
-    name: day-cli-windows (${{ matrix.arch }})
+    name: day-windows (${{ matrix.arch }})
     needs: [fmt, msrv]
-    runs-on: windows-latest # x86_64 host; aarch64 is the cross build (MSVC ships the cross linker)
+    runs-on: ${{ matrix.runner }} # each arch on matching hardware — both legs build AND test natively
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, target: x86_64-pc-windows-msvc }
-          - { arch: aarch64, target: aarch64-pc-windows-msvc }
+          - { arch: x86_64, target: x86_64-pc-windows-msvc, runner: windows-11 }
+          - { arch: aarch64, target: aarch64-pc-windows-msvc, runner: windows-11-arm }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }} # two runner arches share this job id; keep their caches apart
       - name: Test (host-portable crates)
-        if: ${{ matrix.arch == 'x86_64' && !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: bash
         run: scripts/ci/host-test.sh
       - name: Build the day CLI (release, ${{ matrix.target }})
@@ -290,7 +283,7 @@ jobs:
     name: release
     if: ${{ !cancelled() }}
     needs: [toolkit, day-cli-macos, day-cli-linux, day-cli-windows]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       id-token: write
@@ -392,7 +385,7 @@ jobs:
     # the propagation here means the real gate has to be spelled out: publish only when `release`
     # actually succeeded, on a semantic tag.
     if: ${{ !cancelled() && needs.release.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: release
     permissions:
       contents: read
@@ -467,8 +460,8 @@ jobs:
   # device-bound ones. These check the FRAMEWORK, not the app — inside the per-combo build jobs
   # they made every build job framework-shaped and unusable as the generic app pipeline
   # (daybrite/actions' build-day-app.yml). The OTHER framework check, the host-portable
-  # `cargo test`, rides the native-arch leg of each day-cli-<os> job above: one run per
-  # operating system, gating that OS's CLI artifact and everything downstream of it.
+  # test run (scripts/ci/host-test.sh), rides every arch-matching leg of the day-cli-<os>
+  # jobs above, gating that OS's CLI artifacts and everything downstream of them.
   toolkit:
     name: toolkit (${{ matrix.toolkit }})
     runs-on: ${{ matrix.os }}
@@ -483,7 +476,7 @@ jobs:
           - { toolkit: gtk,    combo: linux-gtk,     os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: qt,     combo: linux-qt,      os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: mdc,    combo: android-mdc,   os: ubuntu-24.04, rust_target: aarch64-linux-android,     clippy: "--lib" }
-          - { toolkit: xaml,   combo: windows-xaml,  os: windows-latest, rust_target: "",                      clippy: "--all-targets" }
+          - { toolkit: xaml,   combo: windows-xaml,  os: windows-11, rust_target: "",                      clippy: "--all-targets" }
     defaults:
       run:
         shell: bash
@@ -588,7 +581,7 @@ jobs:
 
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
-    name: ${{ matrix.combo }}
+    name: day-${{ matrix.combo }}
     # macos-26 (Tahoe image): the newest Apple Silicon runner generation with current Xcode;
     # bumped from macos-15 for build speed and to track the toolchain Day users actually run.
     runs-on: macos-26
@@ -735,7 +728,7 @@ jobs:
           if-no-files-found: warn
 
   ios-uikit:
-    name: ios-uikit
+    name: day-ios-uikit
     # macos-26: see the macos job note — also gives the walkthrough a current iOS Simulator runtime.
     runs-on: macos-26
     needs: [day-cli-macos]
@@ -868,7 +861,7 @@ jobs:
 
   # --- Linux desktop: qt / gtk ----------------------------------------------
   linux:
-    name: ${{ matrix.combo }}
+    name: day-${{ matrix.combo }}
     # Runs on tag pushes too (pack-only mode) — both legs pack a release .flatpak.
     runs-on: ubuntu-24.04
     needs: [day-cli-linux]
@@ -1074,7 +1067,7 @@ jobs:
   # the .so cross-builds for x86_64 via DAY_ANDROID_ABI. continue-on-error while
   # the known postMain flake (intermittent "main thread did not respond") is chased.
   android-mdc:
-    name: android-mdc
+    name: day-android-mdc
     runs-on: ubuntu-24.04
     needs: [day-cli-linux]
     # Best-effort on branch/PR runs while the postMain emulator flake is chased; on tag
@@ -1225,8 +1218,8 @@ jobs:
     # the guest reliably — ubuntu-under-TCG never rendered the first-boot keyguard. KVM removes the
     # TCG bottleneck, so x86_64 Linux should now be both far faster AND reliable. If KVM turns out
     # unavailable, set `DAY_OHOS_ACCEL=tcg,thread=multi` to force software emulation.)
-    name: harmony-arkui
-    runs-on: ubuntu-latest
+    name: day-harmony-arkui
+    runs-on: ubuntu-24.04
     continue-on-error: true
     needs: [day-cli-linux]
     timeout-minutes: 90
@@ -1477,14 +1470,14 @@ jobs:
           if-no-files-found: ignore
 
   # --- Windows desktop: xaml (MSVC) ----------------------------------------
-  # xaml uses MSVC + the Windows SDK cppwinrt headers (on windows-latest) and
+  # xaml uses MSVC + the Windows SDK cppwinrt headers (on windows-11) and
   # captures via RenderTargetBitmap. It runs on the default `bash` shell. It is a
   # SEPARATE job from windows-qt / windows-gtk because those need the msys2 shell:
   # the `matrix` context is not available in a step's `shell:` field, so a single
   # matrix cannot switch shells per combo — the toolchains are split into two jobs.
   windows-xaml:
-    name: windows-xaml
-    runs-on: windows-latest
+    name: day-windows-xaml
+    runs-on: windows-11
     needs: [day-cli-windows]
     defaults:
       run:
@@ -1596,9 +1589,9 @@ jobs:
   # against MSYS2 GTK 4.22 (clangarm64/gnullvm); both stay experimental
   # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
   windows-msys2:
-    name: ${{ matrix.combo }}
+    name: day-${{ matrix.combo }}
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact — skip on tags
-    runs-on: windows-latest
+    runs-on: windows-11
     needs: [day-cli-windows]
     continue-on-error: true
     strategy:
@@ -1735,7 +1728,7 @@ jobs:
   api-docs:
     name: rustdoc
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -1762,10 +1755,10 @@ jobs:
   # OPFS-only (docs/fs.md); the sensors step below stays on WebKit, which it works fine on.
   # ---------------------------------------------------------------------------
   web-dom:
-    name: web-dom
+    name: day-web-dom
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
     needs: [day-cli-linux]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -1819,7 +1812,7 @@ jobs:
         working-directory: showcase-src
         run: $DAY_BIN build --platform web-dom --profile release
       - name: Install walkthrough tools
-        # ubuntu-latest preinstalls neither: ImageMagick's `identify` is the validation
+        # ubuntu-24.04 preinstalls neither: ImageMagick's `identify` is the validation
         # script's Linux path, and without Noto CJK the zh-CN captures render tofu boxes
         # (the same pair the linux-gtk leg installs).
         run: |
@@ -1900,7 +1893,7 @@ jobs:
     # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those run
     # the release pipeline instead).
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - name: Check every internal doc is published

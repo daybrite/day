@@ -19,7 +19,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# day-sqlite-worker's native engine build (the vendored SQLite + musl shim, docs/persistence.md)
+# is a gcc/clang recipe with no MSVC port, and Windows has no native consumer — the engine's
+# product form is wasm32 (exercised by the web-dom combo) and its native form exists for the
+# unix test hosts. Skip it on Windows rather than carry a cl port nothing ships.
+windows_excludes=""
+case "$(uname -s)" in
+MINGW* | MSYS* | CYGWIN*) windows_excludes="--exclude day-sqlite-worker" ;;
+esac
+
+# $windows_excludes is unquoted on purpose: empty means no extra words, non-empty splits into
+# the two flag words (bash 3.2 on macOS mishandles empty arrays under `set -u`).
 exec cargo test --locked --workspace \
+    $windows_excludes \
     --exclude day-appkit \
     --exclude day-gtk \
     --exclude day-qt \

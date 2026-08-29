@@ -3662,9 +3662,11 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    failure killed the CLI artifact and with it every Linux-descended combo). `spelling` and
    `deny` sit the same way.
 2. **CLI builds** — the `day` binary in release for 3 OSes × 2 arches; artifacts feed every
-   later job (and the release lane). The native-arch leg of each OS runs the host-portable
-   test suite first (`scripts/ci/host-test.sh`: the whole workspace minus the toolkit crates)
-   — one run per operating system — so a failing host test fails that leg
+   later job (and the release lane). The Linux and Windows legs each run on hardware matching
+   their arch (`ubuntu-24.04-arm` / `windows-11-arm` for aarch64, 2026-08); macOS x86_64 is
+   the one remaining cross build, GitHub having retired its Intel runners. Every arch-matching
+   leg runs the host-portable test suite first (`scripts/ci/host-test.sh`: the whole workspace
+   minus the toolkit crates) — so a failing host test fails that leg
    before the release build spends anything, and every combo downstream of that binary skips.
    The script exists because a bare `cargo test` covers only `default-members`, the small
    quick-iteration set — which until 2026-08 silently left most of the workspace's tests

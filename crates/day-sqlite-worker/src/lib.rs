@@ -684,6 +684,18 @@ pub unsafe extern "C" fn day_sql_exec(ptr: *mut u8, len: usize) -> *const u8 {
 mod tests {
     use super::*;
 
+    /// The engine is compiled `SQLITE_THREADSAFE=0` — correct for the single-threaded worker,
+    /// but the test harness runs on parallel threads, and concurrent first-opens race
+    /// `sqlite3_initialize`'s unsynchronized VFS registration (a test then nondeterministically
+    /// fails with "no such vfs: day-opfs"; first caught on the Linux CI leg). Every test takes
+    /// this lock so the engine is only ever entered from one thread at a time, matching the
+    /// worker's contract. Poisoning is ignored: one failing test must not cascade.
+    static ENGINE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn engine() -> std::sync::MutexGuard<'static, ()> {
+        ENGINE.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn ask(req: Req) -> Reply {
         protocol::decode_reply(&handle_request(&protocol::encode_req(&req))).expect("well-formed")
     }
@@ -700,6 +712,7 @@ mod tests {
 
     #[test]
     fn memory_connection_round_trips_every_value_kind() {
+        let _engine = engine();
         let conn = Connection::open_memory().expect("open");
         conn.execute_batch("CREATE TABLE t (a, b, c, d, e)")
             .expect("create");
@@ -722,6 +735,7 @@ mod tests {
 
     #[test]
     fn batch_runs_multiple_statements_and_reports_the_failing_one() {
+        let _engine = engine();
         let conn = Connection::open_memory().expect("open");
         conn.execute_batch(
             "CREATE TABLE a (x); -- comment\nCREATE TABLE b (y);\nINSERT INTO a VALUES (1);",
@@ -740,6 +754,7 @@ mod tests {
 
     #[test]
     fn transactions_roll_back() {
+        let _engine = engine();
         let conn = Connection::open_memory().expect("open");
         conn.execute_batch("CREATE TABLE t (x); BEGIN; INSERT INTO t VALUES (1); ROLLBACK;")
             .expect("batch");
@@ -751,6 +766,7 @@ mod tests {
 
     #[test]
     fn fts5_and_rtree_are_compiled_in() {
+        let _engine = engine();
         let conn = Connection::open_memory().expect("open");
         conn.execute_batch(
             "CREATE VIRTUAL TABLE ft USING fts5(body);\
@@ -774,6 +790,7 @@ mod tests {
 
     #[test]
     fn dates_work_without_a_timezone_database() {
+        let _engine = engine();
         let conn = Connection::open_memory().expect("open");
         let mut out = Vec::new();
         conn.query(
@@ -794,6 +811,7 @@ mod tests {
 
     #[test]
     fn utc_breakdown_matches_known_dates() {
+        let _engine = engine();
         let tm = utc_breakdown(1_787_616_000); // 2026-08-25 00:00:00 UTC, a Tuesday
         assert_eq!(
             (tm.tm_year, tm.tm_mon, tm.tm_mday, tm.tm_wday, tm.tm_yday),
@@ -814,6 +832,7 @@ mod tests {
 
     #[test]
     fn opfs_database_persists_across_close_and_reopen() {
+        let _engine = engine();
         let conn = Connection::open_opfs("persist.db").expect("open");
         conn.execute_batch("CREATE TABLE t (x)").expect("create");
         for i in 0..100 {
@@ -833,6 +852,7 @@ mod tests {
 
     #[test]
     fn commits_leave_no_journal_behind() {
+        let _engine = engine();
         let conn = Connection::open_opfs("clean.db").expect("open");
         conn.execute_batch("CREATE TABLE t (x); BEGIN; INSERT INTO t VALUES (1); COMMIT;")
             .expect("batch");
@@ -851,6 +871,7 @@ mod tests {
 
     #[test]
     fn worker_protocol_full_round_trip() {
+        let _engine = engine();
         let conn = open("proto.db");
         assert_eq!(
             ask(Req::Batch {
@@ -911,6 +932,7 @@ mod tests {
 
     #[test]
     fn pool_verbs_export_import_and_list() {
+        let _engine = engine();
         let conn = open("source.db");
         assert_eq!(
             ask(Req::Batch {
@@ -990,6 +1012,7 @@ mod tests {
 
     #[test]
     fn two_databases_are_independent() {
+        let _engine = engine();
         let a = open("ind-a.db");
         let bconn = open("ind-b.db");
         assert_eq!(
@@ -1025,6 +1048,7 @@ mod tests {
 
     #[test]
     fn trace_stmt_sees_every_statement_with_parameters_expanded() {
+        let _engine = engine();
         use std::cell::RefCell;
         use std::rc::Rc;
         let seen: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
@@ -1052,12 +1076,14 @@ mod tests {
 
     #[test]
     fn malformed_requests_answer_an_error() {
+        let _engine = engine();
         let reply = protocol::decode_reply(&handle_request(&[9, 9, 9])).expect("well-formed");
         assert_eq!(reply, Reply::Err("malformed request".to_string()));
     }
 
     #[test]
     fn day_sql_exec_stages_a_length_prefixed_reply() {
+        let _engine = engine();
         let req = protocol::encode_req(&Req::List);
         let ptr = day_sql_alloc(req.len());
         // SAFETY: writing exactly len bytes into a day_sql_alloc(len) buffer, then handing

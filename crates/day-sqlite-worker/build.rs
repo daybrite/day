@@ -84,10 +84,28 @@ const C_SOURCE: [&str; 36] = [
 
 fn main() {
     println!("cargo::rerun-if-changed=vendor");
+    println!("cargo::rerun-if-changed=include");
+
+    // The hermetic recipe is written for gcc/clang dialects (`-include`, musl headers); there is
+    // no MSVC port, and no native Windows consumer either — day-persistence uses this crate only
+    // for the wasm driver, and a wasm build from a Windows host targets clang, not cl. Fail with
+    // the reason rather than letting cl.exe error on the first flag it does not know
+    // (scripts/ci/host-test.sh excludes this crate on Windows hosts for the same reason).
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        panic!(
+            "day-sqlite-worker's native engine build supports gcc/clang hosts only \
+             (wasm32 is the product form); exclude this crate when testing on MSVC targets"
+        );
+    }
 
     let mut cc = cc::Build::new();
     cc.warnings(false)
-        .flag("-Wno-macro-redefined")
+        .flag_if_supported("-Wno-macro-redefined")
+        // First on the include path: the crate's own hermetic <stdint.h>/<limits.h>
+        // (include/*.h). The compiler's copies are self-contained only when freestanding —
+        // hosted, both #include_next the libc's, and on glibc those headers read <features.h>,
+        // which the musl -I below shadows (no __GLIBC_USE), killing every translation unit.
+        .include("include")
         .include("vendor/shim")
         .include("vendor/shim/musl/arch/generic")
         .include("vendor/shim/musl/include")
