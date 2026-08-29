@@ -1,12 +1,5 @@
 fn main() {
-    day::launch(
-        day::WindowOptions {
-            // The catalog's name, not a literal — see `dayapp::window_title`.
-            title: dayapp::window_title(),
-            // A desktop-appropriate default size; mobile fills the screen regardless.
-            size: day::prelude::Size::new(960.0, 640.0),
-            ..Default::default()
-        },
-        dayapp::root,
-    );
+    // The same window description the platform shells open through `day_start!`, so every entry
+    // point performs the same launch ceremony — the locale catalog included (see `dayapp::window`).
+    day::launch(dayapp::window(), dayapp::root);
 }

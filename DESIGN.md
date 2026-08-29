@@ -2044,7 +2044,13 @@ decrement = Decrement
 > `day-l10n` with `day-fluent` as the app-facing API (`install_locales(default, &[(locale,
 > ftl_source)])` compiles the bundles in via `include_str!` — normally through the generated
 > `res::locales::install()`, [§18.5](#185-typed-resource-constants-docsresourcesmd); `set_locale`
-> switches live). The
+> switches live). **Registration moved into `launch` (2026-08)**: `WindowOptions::locales`
+> carries `(DEFAULT, CATALOG)` and `day::start` installs it immediately after the backend's
+> `locale_hints` reach day-l10n — the only ordering that resolves against the device's
+> languages, and early enough for `WindowOptions::title_fn` to take a window title from the
+> catalog. An app installing its own catalog before `launch` resolved against an empty hint
+> list and opened in `DEFAULT`. `day::resources!()` surfaces the generated module in the same
+> spirit: one line where the app used to write the `include!` itself. The
 > **preferred authoring surface is now the generated `res::str::key(args…)` functions**
 > ([§18.5](#185-typed-resource-constants-docsresourcesmd)) — typed, autocompleted, compile-checked keys — with `tr("…")` remaining for dynamic
 > keys. Keys are therefore **snake_case** (they must be Rust identifiers), not kebab-case as

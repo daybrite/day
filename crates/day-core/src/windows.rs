@@ -605,6 +605,9 @@ pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
             min_size: None,
             size_to_fit: true,
             app_name: None,
+            // Secondary windows: the app-launch ceremony belongs to `launch` alone.
+            locales: None,
+            title_fn: None,
         },
         build,
     );
@@ -680,6 +683,9 @@ pub fn open_new_window() -> Option<WindowHandle> {
             min_size: None,
             size_to_fit: false,
             app_name: None,
+            // Secondary windows: the app-launch ceremony belongs to `launch` alone.
+            locales: None,
+            title_fn: None,
         },
         WindowKind::Normal,
         move || build(),

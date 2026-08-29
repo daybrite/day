@@ -760,7 +760,15 @@ impl Toolkit for MockToolkit {
             w.text = p.title.clone();
             w.flag = p.presentation.is_split();
             w.presentation = Some(p.presentation);
-            detail = format!(" title={:?} presentation={:?}", p.title, p.presentation);
+            // The content-list pane's realize-time state, so a test can see the shape the host
+            // was BUILT with — the pane's initial visibility is settled here, not by a patch.
+            detail = match p.list_width {
+                Some(w) => format!(
+                    " title={:?} presentation={:?} list_width={w} list_visible={}",
+                    p.title, p.presentation, p.list_visible
+                ),
+                None => format!(" title={:?} presentation={:?}", p.title, p.presentation),
+            };
         } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
             w.text = p.title.clone();
             // The page's PANE, not the presentation drawing it — a selector's list page reads

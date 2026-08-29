@@ -9,28 +9,32 @@ use crate::pages::*;
 
 // The mobile / embedded entry point. Expands to the export each platform's shell binds against —
 // and to nothing at all on a plain cargo desktop build, where src/main.rs is the entry instead.
-day::day_start!(window_title(), root);
+// Both entries hand `launch` the SAME description, so they open the same window.
+day::day_start!(options: window(), root);
 
-/// The window (and web document) title, from the locale catalog rather than a literal — so it
-/// is translated with every other user-facing string and the app's name lives in ONE place.
+/// The window every entry point opens — `src/main.rs` on the desktop, the platform shells
+/// through the macro above.
 ///
-/// The catalog is installed HERE as well as in [`root`] on purpose: the entry points above
-/// evaluate this title before `root` runs, and a lookup with no catalog installed renders the
-/// key itself — `⟨app_title⟩` in the title bar. Re-registering is cheap and keeps the locale
-/// signal bindings already created (https://daybrite.dev/docs/localization).
-pub fn window_title() -> String {
-    res::locales::install();
-    res::str::app_title().format()
+/// Handing `launch` the locale catalog rather than installing it here is the whole point of the
+/// two fields below: the framework registers it after the OS's languages have reached day-l10n
+/// and before the first localized string is read, which is the only moment that produces the
+/// right answer. That is also what lets the TITLE come from the catalog — resolved once the
+/// catalog is up, so it is translated like everything else and the app's name lives in one
+/// place (https://daybrite.dev/docs/localization).
+pub fn window() -> day::WindowOptions {
+    day::WindowOptions {
+        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
+        title_fn: Some(|| res::str::app_title().format()),
+        // A desktop-appropriate default size; mobile fills the screen regardless.
+        size: day::prelude::Size::new(960.0, 640.0),
+        ..Default::default()
+    }
 }
 
-/// Typed constants for the files under `resource/`, generated at build time by `day-build` (§18.5):
-/// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`, `res::str::<key>()`, and
-/// the `res::locales` catalog. Reference bundled resources
-/// through these — `image(res::images::app_logo)` — so a typo is a compile error and the resource is
-/// guaranteed present. Drop a file into `resource/images/` and its constant appears on the next build.
-pub mod res {
-    include!(concat!(env!("OUT_DIR"), "/day_resources.rs"));
-}
+// Typed constants for everything under `resource/` (§18.5), generated at build time: this is
+// `res::images::<stem>`, `res::assets::<file>`, `res::fonts::<family>`, `res::str::<key>()` and
+// the `res::locales` catalog.
+day::resources!();
 
 /// Where the two settings live in `day::prefs`. Named once here because startup reads them
 /// before the UI exists and the Settings page writes them afterwards.
@@ -68,10 +72,11 @@ pub fn root() -> impl Piece {
     // `DAY_LOG=debug day launch -p …`, or install `env_logger`/`tracing` before `day::launch` and
     // Day steps aside.
     info!("{{title}} starting");
-    // Registers every locale under `resource/locales/` (generated, §18.5). To add a language,
-    // copy `resource/locales/en/` to e.g. `resource/locales/fr/` and translate it — this line
-    // already covers it.
-    res::locales::install();
+    // The locale catalog is already installed: `window()` hands it to `launch`, which registers
+    // it at the one moment that resolves against the device's languages. To add a language, copy
+    // `resource/locales/en/` to e.g. `resource/locales/fr/` and translate it — nothing here
+    // changes.
+    //
     // Re-apply the saved theme and language BEFORE anything is built, so the first frame is
     // already in the user's choices rather than flashing the defaults.
     day_piece_settings::apply_startup(THEME_KEY, LOCALE_KEY);
@@ -139,7 +144,11 @@ pub fn root() -> impl Piece {
         .list_action(res::vectors::filter, res::str::cmd_show_done(), || {
             crate::model::show_done().update(|v| *v = !*v)
         })
-        .list_action(res::vectors::check, res::str::cmd_done(), pages::done_selected)
+        .list_action(
+            res::vectors::check,
+            res::str::cmd_done(),
+            pages::done_selected,
+        )
         .list_action(res::vectors::add, res::str::cmd_add(), pages::new_item)
         .item_icon(
             Section::Welcome,

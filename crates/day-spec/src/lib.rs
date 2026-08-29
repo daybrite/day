@@ -3676,6 +3676,16 @@ pub mod props {
         /// [`crate::Cap::NavContentList`] `Unsupported` — the pieces layer composes there and
         /// the prop is never set.
         pub list_width: Option<f64>,
+        /// Whether that pane is SHOWING for the destination the host opens on
+        /// (`Selector::content_list_for`). Read at realize, like `list_width`, and for a
+        /// related reason: a backend whose pane is a real split item can only honor a
+        /// collapsed state reliably by setting it BEFORE the item joins the split. Told
+        /// afterwards — by `NavPatch::ListVisible`, on a window that has not been displayed
+        /// yet — AppKit reports the item collapsed and then lays it back out from its holding
+        /// priorities, and the app opens with a list beside a page that does not own one.
+        /// `true` on every host whose first destination has a list, and on hosts with no pane
+        /// at all, where it means nothing.
+        pub list_visible: bool,
     }
 
     /// Where a searchable surface's field should be drawn.
@@ -4724,6 +4734,11 @@ pub enum WindowOpenReply<H> {
     Unsupported,
 }
 
+/// An app's generated locale catalog: `(DEFAULT, CATALOG)`, exactly what `day-build` emits as
+/// `res::locales::{DEFAULT, CATALOG}` (§18.5). Carried in [`WindowOptions::locales`] so the
+/// framework can install it at the one moment that is correct.
+pub type AppLocales = (&'static str, &'static [(&'static str, &'static str)]);
+
 #[derive(Clone, Debug)]
 pub struct WindowOptions {
     pub title: String,
@@ -4741,6 +4756,21 @@ pub struct WindowOptions {
     /// to `title`; set it when `title` carries extra decoration you don't want in "About <name>"
     /// (e.g. the showcase's window title is "Day Showcase (AppKit)" but its app name is "Showcase").
     pub app_name: Option<String>,
+    /// The app's locale catalog, installed by `day::launch` (docs/localization.md).
+    ///
+    /// The ORDER is why this is the framework's job: the OS's languages reach day-l10n from the
+    /// live backend, and the catalog has to be registered AFTER that hint and BEFORE the first
+    /// localized string is read. An app that installs it itself — before `launch`, where there
+    /// is no backend yet — registers against an empty hint list and resolves to `DEFAULT`, so a
+    /// French device opens an English window.
+    pub locales: Option<AppLocales>,
+    /// The title, computed once the catalog above is installed — how a window title comes from
+    /// the catalog rather than a literal. Takes precedence over [`Self::title`], which stays the
+    /// fallback for the moment before (and for apps with nothing to translate).
+    ///
+    /// A plain `fn` rather than a closure: this struct is `Clone`, and the callers are a
+    /// non-capturing `|| res::str::app_title().format()`, which coerces.
+    pub title_fn: Option<fn() -> String>,
 }
 
 impl Default for WindowOptions {
@@ -4751,6 +4781,8 @@ impl Default for WindowOptions {
             min_size: None,
             size_to_fit: false,
             app_name: None,
+            locales: None,
+            title_fn: None,
         }
     }
 }

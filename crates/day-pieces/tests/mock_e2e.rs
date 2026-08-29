@@ -1156,6 +1156,59 @@ fn content_list_native_pane_and_visibility() {
     );
 }
 
+/// The FIRST destination is excluded from the content list — the scaffold's own shape, where
+/// Welcome opens on launch and has no list.
+///
+/// Every other test here starts on a destination that has one, so the pane's initial state was
+/// only ever exercised in the direction that happens to match its default. It defaults to shown,
+/// so an app whose first page is full-width opened with three columns: the sidebar, a list
+/// belonging to a section the user had not chosen, and the page squeezed into what was left.
+#[test]
+fn content_list_starts_collapsed_when_the_first_destination_is_excluded() {
+    let sel = Signal::new(String::new());
+    let probe = boot_content_list(day_spec::Support::Native, Size::new(1000.0, 700.0), {
+        move || {
+            selector(sel)
+                .style(SelectorStyle::Sidebar)
+                .title("Home")
+                .content_list(|| label("the-list"))
+                .content_list_for(|k: &String| k != "welcome")
+                .item("welcome", "Welcome", || label("welcome-content"))
+                .item("browse", "Browse", || label("browse-content"))
+                .any()
+        }
+    });
+    assert_eq!(
+        sel.get_untracked(),
+        "welcome",
+        "the split selects the first"
+    );
+    // Settled at REALIZE, not by a patch afterwards. The distinction is the whole bug: a split
+    // item told to collapse after it has joined the split, on a window not yet displayed, reports
+    // itself collapsed and is then laid back out from its holding priorities — so the app opened
+    // showing a list beside a page that does not own one.
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.contains("realize day.nav") && l.contains("list_visible=false")),
+        "the host must be BUILT with the pane hidden for a full-width first destination; \
+         log: {:?}",
+        probe.log(),
+    );
+
+    // And it comes back for a destination that does own a list.
+    let mark = probe.log_len();
+    assert!(navigate("browse"));
+    flush_sync();
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav list visible=true"))
+    );
+}
+
 /// `Cap::NavContentList` Emulated, stacked: the list interposes above the sidebar root
 /// (`NavPatch::ListInStack`) and the detail push waits on `detail_visible` — the phone flow.
 #[test]

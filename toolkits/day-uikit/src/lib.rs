@@ -4747,7 +4747,17 @@ mod imp {
                             );
                             // Every column side by side when there is room; UIKit still
                             // collapses to one stack at compact width.
-                            split_vc.setPreferredDisplayMode(if list_width.is_some() {
+                            //
+                            // `list_visible` is read here as well as `list_width`: a host whose
+                            // FIRST destination has no content list must open with two columns,
+                            // not three with an empty one. Expressed as the preferred mode rather
+                            // than a `hideColumn` at realize, because the mode is a preference
+                            // UIKit consults when it first lays the columns out, while the
+                            // imperative call is a transition on a controller that is not on
+                            // screen yet. `NavPatch::ListVisible` takes it from there.
+                            split_vc.setPreferredDisplayMode(if list_width.is_some()
+                                && p.list_visible
+                            {
                                 objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
                             } else {
                                 objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary

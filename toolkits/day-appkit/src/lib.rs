@@ -969,6 +969,17 @@ const NAV_HEADER_H: f64 = 34.0;
 const NAV_SIDEBAR_MIN_W: f64 = 160.0;
 const NAV_SIDEBAR_MAX_W: f64 = 400.0;
 
+/// The content-list width to place divider 1 at, once, the first time the pane is showing —
+/// `None` when the pane is collapsed or has already been placed. Latches on the way out, so the
+/// two callers (the first frame pass, and the patch that reveals the pane) cannot both spend it.
+fn take_list_placement(state: &mut NavState) -> Option<f64> {
+    if !state.list_visible || state.list_positioned {
+        return None;
+    }
+    state.list_positioned = true;
+    state.list_width
+}
+
 /// Drag limits for the content-list pane (`NavProps::list_width`, docs/navigation.md), around
 /// the app's preferred width — Mail's message-list proportions.
 const NAV_LIST_MIN_W: f64 = 220.0;
@@ -1008,6 +1019,16 @@ struct NavState {
     /// The app's requested content-list width (`NavProps::list_width`) — applied ONCE, at the
     /// first frame pass, by placing divider 1 (see `set_frame`).
     list_width: Option<f64>,
+    /// Whether the content-list pane is showing (`NavProps::list_visible`, then
+    /// `NavPatch::ListVisible`). Placing divider 1 for a pane that is collapsed is what re-opens
+    /// it, so both placement paths ask first.
+    list_visible: bool,
+    /// Whether divider 1 has been placed at the app's requested width yet. Separate from
+    /// `positioned` because the pane may not exist on screen when the first frame pass runs: an
+    /// app opening on a full-width destination has nothing to size then, and spending the
+    /// one-time placement there is what left the list at the solver's own width when it did
+    /// appear.
+    list_positioned: bool,
     /// Detail pages in stack order (the sidebar page is not in here in split mode; in stack
     /// mode `split == false`, the root page is here too, so push/pop visibility covers it).
     pages: Vec<Retained<NSView>>,
@@ -4722,6 +4743,14 @@ impl Toolkit for AppKit {
                 // as the sidebar page fills its own wrap, and the pane persists through every
                 // presentation (only `NavPatch::ListVisible` collapses it).
                 let list_width = props.downcast_ref::<NavProps>().and_then(|p| p.list_width);
+                // Set BEFORE the item joins the split, exactly as the sidebar's is below. A
+                // collapsed state applied afterwards — by `NavPatch::ListVisible`, on a window
+                // that has not been displayed — reports as collapsed and is then laid back out
+                // from the item's holding priorities, which is how an app whose first
+                // destination has no list opened with one beside it anyway.
+                let list_visible = props
+                    .downcast_ref::<NavProps>()
+                    .is_none_or(|p| p.list_visible);
                 let (list_wrap, list_item) = match list_width {
                     Some(w) => {
                         let wrap = view_of(DayFlipped::new(mtm));
@@ -4734,6 +4763,7 @@ impl Toolkit for AppKit {
                             item.setCanCollapse(true);
                             item.setMinimumThickness(NAV_LIST_MIN_W.min(w));
                             item.setMaximumThickness(NAV_LIST_MAX_W.max(w));
+                            item.setCollapsed(!list_visible);
                         }
                         (Some(wrap), Some(item))
                     }
@@ -4832,6 +4862,8 @@ impl Toolkit for AppKit {
                             pages: Vec::new(),
                             sidebar_page: None,
                             list_width,
+                            list_visible,
+                            list_positioned: false,
                             positioned: false,
                             presentation,
                             selected: 0,
@@ -5479,9 +5511,23 @@ impl Toolkit for AppKit {
                             // like a re-present, so the detail's frame is right the instant
                             // the patch returns rather than one layout pass later.
                             NavPatch::ListVisible(v) => {
+                                state.list_visible = *v;
                                 if let Some(item) = state.list_item.as_ref() {
                                     item.setCollapsed(!*v);
-                                    unsafe { state._split_vc.splitView().layoutSubtreeIfNeeded() };
+                                    let split = unsafe { state._split_vc.splitView() };
+                                    unsafe { split.layoutSubtreeIfNeeded() };
+                                    // First time this pane is actually on screen: give it the
+                                    // width the app asked for. The frame pass that would
+                                    // otherwise do it has already run, back when there was no
+                                    // pane to size.
+                                    if let Some(w) = take_list_placement(state) {
+                                        unsafe {
+                                            split.setPosition_ofDividerAtIndex(
+                                                day_spec::NAV_SIDEBAR_WIDTH + w,
+                                                1,
+                                            );
+                                        }
+                                    }
                                 }
                             }
                             // Never arrives here: the pane persists through every presentation
@@ -6175,24 +6221,30 @@ impl Toolkit for AppKit {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
                     .map(|s| {
-                        (!std::mem::replace(&mut s.positioned, true) && s.presentation.is_split())
-                            .then_some(s.list_width)
+                        if !s.presentation.is_split() {
+                            return (false, None);
+                        }
+                        let sidebar = !std::mem::replace(&mut s.positioned, true);
+                        // The list's divider waits for the pane to be SHOWING. Placing it while
+                        // the pane is collapsed re-opens it — which is how an app whose first
+                        // destination has no list opened with one beside it — and spends the one
+                        // placement the pane gets, leaving it at the solver's width later on.
+                        (sidebar, take_list_placement(s))
                     })
-                    .unwrap_or(None)
+                    .unwrap_or((false, None))
             });
             unsafe {
                 split.setFrame(r);
                 split.layoutSubtreeIfNeeded();
-                if let Some(list_width) = first {
+                if first.0 {
                     split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH, 0);
-                    // A triple split has a SECOND divider, and nothing else places it: left
-                    // alone, the controller's initial constraint pass lands it wherever the
-                    // solver liked, so the content list opened at an arbitrary width and the
-                    // detail pane got the leftovers until the first manual drag re-settled
-                    // them. Place it at the app's requested list width, once.
-                    if let Some(w) = list_width {
-                        split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH + w, 1);
-                    }
+                }
+                // A triple split has a SECOND divider, and nothing else places it: left alone,
+                // the controller's initial constraint pass lands it wherever the solver liked, so
+                // the content list opens at an arbitrary width and the detail pane gets the
+                // leftovers until the first manual drag re-settles them.
+                if let Some(w) = first.1 {
+                    split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH + w, 1);
                 }
             }
         } else {

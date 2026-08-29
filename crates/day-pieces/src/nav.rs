@@ -1706,6 +1706,23 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let typed: Rc<RefCell<Vec<K>>> = Rc::new(RefCell::new(typed0));
     let titles: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(titles0));
 
+    // The pane's state for the destination that opens first — the restored selection if there is
+    // one, else the first row, which is what the auto-select below will choose. The backend needs
+    // it at realize; see `NavProps::list_visible`.
+    let initial_list_visible = match sel.content_list_pred.as_ref() {
+        Some(pred) if native_list => {
+            let restored = selection.peek();
+            let first = if restored.key().is_empty() {
+                typed.borrow().first().cloned()
+            } else {
+                Some(restored)
+            };
+            first.as_ref().is_none_or(|k| pred(k))
+        }
+        _ => true,
+    };
+    list_shown.set(initial_list_visible);
+
     let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
     let host = cx.native(
         kinds::NAV,
@@ -1716,6 +1733,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             bar_actions,
             search,
             list_width: native_list.then_some(sel.content_list_width),
+            list_visible: initial_list_visible,
         },
         Rc::new(NavLayout {
             sizes: sizes.clone(),
@@ -2909,6 +2927,8 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                     search: None,
                     // A content list is a selector shape; a stack has no sidebar to sit beside.
                     list_width: None,
+                    // A stack never has a content-list pane, so this says nothing.
+                    list_visible: true,
                 },
                 Rc::new(NavLayout::stack(sizes.clone())),
                 Flex {

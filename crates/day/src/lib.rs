@@ -474,7 +474,7 @@ pub fn launch_external<P: day_spec::Platform, R: Piece>(
     root: impl FnOnce() -> R + 'static,
 ) {
     day_script::init();
-    day_core::launch_with(backend, options, move || AnyPiece::new(root()));
+    start(backend, options, root);
 }
 
 /// Start `backend`, seeding the ambient locale first.
@@ -491,10 +491,19 @@ pub fn launch_external<P: day_spec::Platform, R: Piece>(
 #[allow(dead_code)]
 fn start<P: day_spec::Platform, R: Piece>(
     backend: P,
-    options: WindowOptions,
+    mut options: WindowOptions,
     root: impl FnOnce() -> R + 'static,
 ) {
     day_fluent::add_launch_locales(&backend.locale_hints());
+    // The app's catalog, now that the hints are in: registering it here rather than inside the
+    // root builder is what lets a title — drawn before any piece exists — come out of the
+    // catalog too (docs/localization.md).
+    if let Some((default, catalog)) = options.locales {
+        day_fluent::install(default, catalog);
+    }
+    if let Some(f) = options.title_fn {
+        options.title = f();
+    }
     day_core::launch_with(backend, options, move || AnyPiece::new(root()));
 }
 
@@ -570,12 +579,48 @@ macro_rules! day_start {
     ($root:expr) => {
         $crate::day_start!("", $root);
     };
+    // The full description, shared with `src/main.rs` so both entry points open the same window
+    // and perform the same ceremony — `options: window()` rather than a bare title. The literal
+    // `options:` is what tells this arm apart from the title one below.
+    (options: $options:expr, $root:expr) => {
+        $crate::day_start_ios!(options: $options, $root);
+        $crate::day_start_macos!(options: $options, $root);
+        $crate::day_start_android!($root);
+        $crate::day_start_arkui!($root);
+        $crate::day_start_web!(options: $options, $root);
+    };
     ($title:expr, $root:expr) => {
         $crate::day_start_ios!($title, $root);
         $crate::day_start_macos!($title, $root);
         $crate::day_start_android!($root);
         $crate::day_start_arkui!($root);
         $crate::day_start_web!($title, $root);
+    };
+}
+
+/// Surface the resources `day-build` generated for this crate as `pub mod res` (§18.5).
+///
+/// ```ignore
+/// day::resources!();   // then: res::str::app_title(), res::images::logo, res::locales::CATALOG
+/// ```
+///
+/// Expands to the `include!` of `$OUT_DIR/day_resources.rs`, so the crate needs the `day-build`
+/// build script that writes it — an app with no `build.rs` has no `OUT_DIR` and should not call
+/// this. Kept separate from [`day_start!`] deliberately: entry points are per-target `cfg`,
+/// while `res` has to exist on every build, including the desktop one whose entry is
+/// `src/main.rs`.
+#[macro_export]
+macro_rules! resources {
+    () => {
+        /// Typed constants for the files under `resource/`, generated at build time by
+        /// `day-build` (§18.5): `res::images::<stem>`, `res::assets::<file>`,
+        /// `res::fonts::<family>`, `res::str::<key>()`, and the `res::locales` catalog.
+        /// Reference bundled resources through these — `image(res::images::app_logo)` — so a
+        /// typo is a compile error and the resource is guaranteed present. Drop a file into
+        /// `resource/images/` and its constant appears on the next build.
+        pub mod res {
+            include!(concat!(env!("OUT_DIR"), "/day_resources.rs"));
+        }
     };
 }
 
@@ -593,19 +638,22 @@ macro_rules! day_start_ios {
     ($root:expr) => {
         $crate::day_start_ios!("", $root);
     };
-    ($title:expr, $root:expr) => {
+    (options: $options:expr, $root:expr) => {
         /// iOS entry: the Runner's main.swift calls this from the app staticlib (§17.4).
         #[cfg(target_os = "ios")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_main() {
-            $crate::launch(
-                $crate::WindowOptions {
-                    title: ($title).into(),
-                    ..::core::default::Default::default()
-                },
-                $root,
-            );
+            $crate::launch($options, $root);
         }
+    };
+    ($title:expr, $root:expr) => {
+        $crate::day_start_ios!(
+            options: $crate::WindowOptions {
+                title: ($title).into(),
+                ..::core::default::Default::default()
+            },
+            $root
+        );
     };
 }
 
@@ -622,21 +670,24 @@ macro_rules! day_start_macos {
     ($root:expr) => {
         $crate::day_start_macos!("", $root);
     };
-    ($title:expr, $root:expr) => {
+    (options: $options:expr, $root:expr) => {
         /// macOS entry: the Runner's main.swift calls this from the app staticlib (§17.4).
         #[cfg(target_os = "macos")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_main() {
-            $crate::launch(
-                $crate::WindowOptions {
-                    title: ($title).into(),
-                    // The same desktop default the scaffold's src/main.rs uses.
-                    size: $crate::prelude::Size::new(960.0, 640.0),
-                    ..::core::default::Default::default()
-                },
-                $root,
-            );
+            $crate::launch($options, $root);
         }
+    };
+    ($title:expr, $root:expr) => {
+        $crate::day_start_macos!(
+            options: $crate::WindowOptions {
+                title: ($title).into(),
+                // The same desktop default the scaffold's src/main.rs uses.
+                size: $crate::prelude::Size::new(960.0, 640.0),
+                ..::core::default::Default::default()
+            },
+            $root
+        );
     };
 }
 
@@ -933,13 +984,22 @@ macro_rules! day_start_web {
     ($root:expr) => {
         $crate::day_start_web!("", $root);
     };
-    ($title:expr, $root:expr) => {
+    (options: $options:expr, $root:expr) => {
         /// Web entry: the host page's shim calls this from the app cdylib (§17.4).
         #[cfg(target_arch = "wasm32")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_dom_main() {
-            $crate::web::start($title, $root);
+            $crate::web::start($options, $root);
         }
+    };
+    ($title:expr, $root:expr) => {
+        $crate::day_start_web!(
+            options: $crate::WindowOptions {
+                title: ($title).into(),
+                ..::core::default::Default::default()
+            },
+            $root
+        );
     };
 }
 
@@ -960,7 +1020,10 @@ pub mod web {
     /// engine and its URL hash to the deep-link seam, arm the dayscript web transport when
     /// the serving `day launch` session invites it (`?dayscript=` token), and launch `root`
     /// into the host page's day root.
-    pub fn start<P: crate::Piece>(title: &str, root: impl FnOnce() -> P + 'static) {
+    pub fn start<P: crate::Piece>(
+        options: crate::WindowOptions,
+        root: impl FnOnce() -> P + 'static,
+    ) {
         day_dom::install_panic_hook();
         // Point the logger at the browser console BEFORE anything can log (docs/logging.md).
         // Installed here rather than inside day-dom because a backend depends only on day-spec —
@@ -983,13 +1046,7 @@ pub mod web {
         if let Some(token) = day_dom::dayscript_token() {
             day_script::web_init(token, day_dom::script_send);
         }
-        crate::launch(
-            crate::WindowOptions {
-                title: title.into(),
-                ..Default::default()
-            },
-            root,
-        );
+        crate::launch(options, root);
     }
 }
 
