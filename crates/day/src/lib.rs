@@ -585,8 +585,8 @@ macro_rules! day_start {
     (options: $options:expr, $root:expr) => {
         $crate::day_start_ios!(options: $options, $root);
         $crate::day_start_macos!(options: $options, $root);
-        $crate::day_start_android!($root);
-        $crate::day_start_arkui!($root);
+        $crate::day_start_android!(options: $options, $root);
+        $crate::day_start_arkui!(options: $options, $root);
         $crate::day_start_web!(options: $options, $root);
     };
     ($title:expr, $root:expr) => {
@@ -701,6 +701,12 @@ macro_rules! day_start_macos {
 #[macro_export]
 macro_rules! day_start_android {
     ($root:expr) => {
+        $crate::day_start_android!(
+            options: $crate::WindowOptions::default(),
+            $root
+        );
+    };
+    (options: $options:expr, $root:expr) => {
         // jni 0.22 native methods receive the FFI-safe `EnvUnowned`; `with_env` upgrades it to the
         // real `Env` (sharing the frame's `'local`, so the object args pass straight in) and wraps
         // the body in a `catch_unwind` so a panic never unwinds across the JNI boundary.
@@ -722,7 +728,7 @@ macro_rules! day_start_android {
                     let a = $crate::android::read_jstring(env, &autodrive);
                     let l = $crate::android::read_jstring(env, &locale);
                     let e = $crate::android::read_jstring(env, &env_blob);
-                    $crate::android::start(env, root, density, w, h, a, l, e, $root);
+                    $crate::android::start(env, root, density, w, h, a, l, e, $options, $root);
                     ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
                 })
                 .into_outcome();
@@ -910,6 +916,7 @@ pub mod android {
         autodrive: Option<String>,
         locale: Option<String>,
         env_blob: Option<String>,
+        options: crate::WindowOptions,
         root_piece: impl FnOnce() -> R + 'static,
     ) {
         // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
@@ -932,11 +939,13 @@ pub mod android {
         // Through `crate::start`, not `launch_with`: that is where the device's language
         // preference is read off the backend and handed to the localization engine, and this
         // entry is the app's only door on Android (docs/localization.md).
-        crate::start(
-            day_android::Android::new(),
-            crate::WindowOptions::default(),
-            root_piece,
-        );
+        // The app's OWN description, not a default: it carries the locale catalog, and
+        // `crate::start` is the only thing that installs it. Handed a default here, every
+        // localized string on Android rendered as its own key — `⟨welcome_title⟩` on screen —
+        // because the app stopped calling `res::locales::install()` itself when the catalog
+        // moved into `WindowOptions` (docs/localization.md). The window fields are inert on
+        // Android, where the Activity owns the surface and the label comes from the manifest.
+        crate::start(day_android::Android::new(), options, root_piece);
     }
 }
 
@@ -950,6 +959,9 @@ pub mod android {
 #[macro_export]
 macro_rules! day_start_arkui {
     ($root:expr) => {
+        $crate::day_start_arkui!(options: $crate::WindowOptions::default(), $root);
+    };
+    (options: $options:expr, $root:expr) => {
         /// HarmonyOS entry: the ArkUI shim's NAPI `start` calls this from the app cdylib (§17.4).
         #[cfg(target_env = "ohos")]
         #[unsafe(no_mangle)]
@@ -959,7 +971,7 @@ macro_rules! day_start_arkui {
             h: f64,
             density: f64,
         ) {
-            $crate::arkui::start(content, w, h, density, $root);
+            $crate::arkui::start(content, w, h, density, $options, $root);
         }
 
         /// Deep-link intake (docs/deep-links.md): the shim's NAPI `deepLink(uri)` calls this
@@ -1062,6 +1074,7 @@ pub mod arkui {
         w_vp: f64,
         h_vp: f64,
         density: f64,
+        options: crate::WindowOptions,
         root: impl FnOnce() -> R + 'static,
     ) {
         day_arkui::init(content, w_vp, h_vp, density);
@@ -1073,11 +1086,9 @@ pub mod arkui {
         // `crate::start` seeds the device's language preference before the root builds
         // (docs/localization.md); ArkUI's own hint list arrives once day-arkui implements
         // `locale_hints`.
-        crate::start(
-            day_arkui::ArkUi::new(),
-            crate::WindowOptions::default(),
-            root,
-        );
+        // The app's own description, for the same reason as Android above: the locale catalog
+        // travels in it, and nothing else installs one.
+        crate::start(day_arkui::ArkUi::new(), options, root);
     }
 
     /// A deep link from the ArkTS host (docs/deep-links.md): a cold `want.uri` (delivered
