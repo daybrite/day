@@ -56,6 +56,21 @@ fn main() {
     }
     println!("cargo:rerun-if-env-changed=PROFILE");
 
+    // Windows/MSVC reserves a 1 MiB main-thread stack; Linux and macOS give 8 MiB. An
+    // unoptimized build keeps every temporary of a large expression alive on the frame, and
+    // `mcp::tool_list`'s single `json!` catalog literal needs more than 1 MiB built that way —
+    // so `day mcp-server` answered `tools/list` on every host EXCEPT a debug Windows/MSVC one,
+    // where it died with "has overflowed its stack". The MCP tests spawn this binary and read
+    // its stdout, so the crash reached them as "closed stdout without replying" with no hint of
+    // a stack at all. Reserve the 8 MiB the other hosts already have so the binary behaves the
+    // same everywhere. Release links fine either way, and MinGW's 2 MiB default already clears
+    // it (the windows-gnu leg was green), so this is scoped to msvc.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+    {
+        println!("cargo:rustc-link-arg-bins=/STACK:8388608");
+    }
+
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
     let star = if profile == "debug" { "*" } else { "" };
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();

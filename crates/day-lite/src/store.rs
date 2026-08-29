@@ -169,7 +169,13 @@ impl Origin {
         let s = s.trim().trim_end_matches('/');
         if s.starts_with("https://") {
             Ok(Origin::Https(s.to_string()))
-        } else if s.starts_with('/') || s.starts_with("file://") {
+        // `starts_with('/')` alone is a POSIX-only test for "absolute": a Windows origin is
+        // `C:\…` (or a UNC `\\server\share`), which begins with neither `/` nor `file://` and so
+        // was reported as BadOrigin — the dev loop's local-directory origin could not be used on
+        // Windows at all. `Path::is_absolute` is the platform-aware form; the `/` test stays
+        // because on Windows a leading-slash path is rooted but NOT absolute, and dropping it
+        // would stop accepting an origin this has always taken.
+        } else if s.starts_with('/') || s.starts_with("file://") || Path::new(s).is_absolute() {
             let p = s.strip_prefix("file://").unwrap_or(s);
             Ok(Origin::Local(PathBuf::from(p)))
         } else {
