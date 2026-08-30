@@ -81,10 +81,12 @@ fn window_shell(primary: bool) -> impl Piece {
         // the system lists windows — the macOS Window menu and tab bar, the iPad app switcher,
         // the Android recents card — it labels them by this, so two windows sharing one title
         // are two windows the user cannot tell apart.
-        day::window_title(move || match scene.selected.get().and_then(|id| scene.find(id)) {
-            Some(item) if !item.name.is_empty() => item.name,
-            _ => res::str::app_title().format(),
-        });
+        day::window_title(
+            move || match scene.selected.get().and_then(|id| scene.find(id)) {
+                Some(item) if !item.name.is_empty() => item.name,
+                _ => res::str::app_title().format(),
+            },
+        );
         // Desktop-only by nature; the phones carry the same commands as list actions below.
         // Installed HERE rather than in `root()` because a toolbar belongs to the window being
         // built — from `root()`'s body every window would get the first one's bar

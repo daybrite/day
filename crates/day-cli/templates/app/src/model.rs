@@ -93,7 +93,11 @@ impl Ambient for Scene {
             .filter(|v| !v.is_empty());
         Scene {
             items: Store::new(Keyed::new(saved.unwrap_or_else(seed))),
-            show_done: Signal::new(day::prefs::get(SHOW_DONE_KEY).map(|v| v != "0").unwrap_or(true)),
+            show_done: Signal::new(
+                day::prefs::get(SHOW_DONE_KEY)
+                    .map(|v| v != "0")
+                    .unwrap_or(true),
+            ),
             section: Signal::new(Section::Welcome),
             selected: Signal::new(None),
             scroll_to: Signal::new(None),
@@ -164,13 +168,15 @@ impl Scene {
     }
 
     pub(crate) fn find(self, id: u32) -> Option<Item> {
-        self.items.with(|k| k.and_then(|k| k.get(id as u64).cloned()))
+        self.items
+            .with(|k| k.and_then(|k| k.get(id as u64).cloned()))
     }
 
     pub(crate) fn remove(self, id: u32) {
-        self.items.restructure("remove", Op::Delete, id as u64, |k| {
-            k.remove(id as u64);
-        });
+        self.items
+            .restructure("remove", Op::Delete, id as u64, |k| {
+                k.remove(id as u64);
+            });
     }
 
     pub(crate) fn toggle_done(self, id: u32) {

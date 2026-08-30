@@ -64,9 +64,10 @@ pub(crate) fn item_list_pane() -> impl Piece {
 /// below carries Delete too — a list that must be editable everywhere pairs the gesture with an
 /// explicit control, rather than assuming the gesture exists.
 fn item_list(scene: Scene) -> impl Piece {
-    list(scene.items.rows(move || scene.ordered_keys()), move |slot| {
-        row_view(scene, slot)
-    })
+    list(
+        scene.items.rows(move || scene.ordered_keys()),
+        move |slot| row_view(scene, slot),
+    )
     .row_height(RowHeight::Uniform(58.0))
     .on_select(move |it: Elem<Item>| scene.open(it.key() as u32))
     // Two-way selection. `on_select` writes the signal; this reads it back, so a row opened
@@ -161,8 +162,7 @@ fn row_view(scene: Scene, slot: ModelSlot<Item>) -> impl Piece {
         menu_item(res::str::cmd_done().format())
             .action(move || scene.toggle_done(slot.key() as u32)),
         menu_separator(),
-        menu_item(res::str::cmd_delete().format())
-            .action(move || scene.remove(slot.key() as u32)),
+        menu_item(res::str::cmd_delete().format()).action(move || scene.remove(slot.key() as u32)),
     ])
 }
 
