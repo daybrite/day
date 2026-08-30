@@ -632,12 +632,56 @@ mod tests {
         out
     }
 
-    /// A tap that cold-starts the process buffers a route, and the launch path sees it — without
-    /// this, `launch_deeplink()` would miss it and the app would open on its default screen.
+    /// The route-buffering assertions below describe the state a cold-start notification tap
+    /// arrives in: a process where NO backend has installed the main poster yet. They cannot run
+    /// beside the rest of this binary's tests.
+    ///
+    /// `day_reactive::install_main_poster` is a process-wide `OnceLock` that is never cleared, and
+    /// `present::task_tests` installs one — its executor wakers re-poll through `on_main`, so those
+    /// tests genuinely need it. Once installed, `request_route` takes its posting branch and the
+    /// inline poster runs `apply_route_request` immediately, draining the very buffer these
+    /// assertions are about. libtest gives no ordering guarantee between the two groups, so this
+    /// was a coin flip: the same commit passed on linux-aarch64 and failed on linux-x86_64.
+    ///
+    /// So they run in a CHILD process. This test re-executes the test binary selecting only the
+    /// ignored test below, which is the whole set of assertions; nothing else runs there, so no
+    /// poster exists and the precondition holds by construction rather than by luck.
     #[test]
-    fn requested_route_before_launch_is_visible_to_the_launch_path() {
+    fn route_buffering_before_launch() {
+        let exe = std::env::current_exe().expect("the running test binary has a path");
+        let out = std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+                "nav::tests::route_buffering_in_a_poster_free_process",
+            ])
+            .output()
+            .expect("re-run this test binary for the child case");
+        assert!(
+            out.status.success(),
+            "the poster-free route assertions failed in the child process:\n{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+    }
+
+    /// Every assertion that depends on no backend having started. Ignored so it runs only in the
+    /// child process [`route_buffering_before_launch`] spawns — see that test for why.
+    #[test]
+    #[ignore = "needs a process with no main poster; run by route_buffering_before_launch"]
+    fn route_buffering_in_a_poster_free_process() {
+        assert!(
+            !day_reactive::has_main_poster(),
+            "this test must run in a process where no backend installed the poster; \
+             it is meaningless otherwise, so failing loudly beats passing vacuously",
+        );
+
+        // A tap that cold-starts the process buffers a route, and the launch path sees it —
+        // without this, `launch_deeplink()` would miss it and the app would open on its default
+        // screen.
         route_test(|| {
-            let _ = take_requested_route(); // isolate from other tests in this process
             assert_eq!(launch_deeplink(), None);
             request_route("clock/timer");
             assert_eq!(launch_deeplink().as_deref(), Some("clock/timer"));
@@ -646,37 +690,25 @@ mod tests {
             assert_eq!(take_requested_route().as_deref(), Some("clock/timer"));
             assert_eq!(take_requested_route(), None);
         });
-    }
 
-    /// The newest tap wins: a user who taps a second notification before launch completes gets
-    /// the second destination, not the first.
-    #[test]
-    fn newest_requested_route_wins() {
+        // The newest tap wins: a user who taps a second notification before launch completes gets
+        // the second destination, not the first.
         route_test(|| {
-            let _ = take_requested_route();
             request_route("mail/inbox");
             request_route("clock/alarm");
             assert_eq!(take_requested_route().as_deref(), Some("clock/alarm"));
         });
-    }
 
-    /// An empty route is not a navigation request — `navigate("")` means "pop to root", which a
-    /// missing intent extra must never trigger.
-    #[test]
-    fn empty_requested_route_is_ignored() {
+        // An empty route is not a navigation request — `navigate("")` means "pop to root", which a
+        // missing intent extra must never trigger.
         route_test(|| {
-            let _ = take_requested_route();
             request_route("");
             assert_eq!(take_requested_route(), None);
         });
-    }
 
-    /// `request_route` must not panic when no backend has started, which is exactly the state a
-    /// cold-start notification tap arrives in (`on_main` panics without a poster).
-    #[test]
-    fn request_route_does_not_require_a_running_backend() {
+        // `request_route` must not panic when no backend has started, which is exactly the state a
+        // cold-start notification tap arrives in (`on_main` panics without a poster).
         route_test(|| {
-            assert!(!day_reactive::has_main_poster());
             request_route("some/route"); // would panic if it posted unconditionally
             let _ = take_requested_route();
         });
