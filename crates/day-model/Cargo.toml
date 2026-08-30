@@ -7,7 +7,7 @@ publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Per-property observable store: paths, triggers, the change log, and Field bindings."
+description = "Property observable store."
 repository.workspace = true
 license.workspace = true
 

@@ -7,7 +7,7 @@ publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "SQLite persistence for the observable model: driver trait, container, autosave fold."
+description = "SQLite persistence for the Day observable model."
 repository.workspace = true
 license.workspace = true
 
