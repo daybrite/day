@@ -75,6 +75,13 @@ impl Piece for When {
             Boundary::No,
         );
         let state: Rc<RefCell<Option<Scope>>> = Rc::new(RefCell::new(None));
+        // The scope this `when` is BUILT in, captured here because `mount` below runs from a
+        // reaction, and a reaction re-runs with no scope of its own — `Scope::child()` there
+        // would parent the incoming arm to the ROOT scope. That misplaces the arm in two ways:
+        // it is no longer owned by the subtree it visually belongs to, and an ambient value an
+        // ancestor provided is no longer above it, so `environment`/`Ambient::ambient` inside a
+        // re-mounted arm cannot see it (docs/state.md).
+        let owner = Scope::current();
         let When {
             cond,
             then,
@@ -104,7 +111,7 @@ impl Piece for When {
                 }
                 let arm = if on { Some(&then) } else { otherwise.as_ref() };
                 if let Some(arm) = arm {
-                    let scope = Scope::child();
+                    let scope = owner.enter(Scope::child);
                     scope.enter(|| {
                         let mut cx = BuildCx::new(anchor);
                         let _ = arm().build(&mut cx);
@@ -358,6 +365,10 @@ where
             },
             Boundary::No,
         );
+        // The scope this `each` is BUILT in. `sync` below runs from a reaction, where
+        // `Scope::child()` would parent a new row to the ROOT scope instead of to this piece —
+        // see the same capture in `When::build` for why that matters (docs/state.md).
+        let owner = Scope::current();
         let conn = Rc::new(source.connect());
         let rows: Rc<RefCell<Vec<EachRow<S::Slot>>>> = Rc::new(RefCell::new(Vec::new()));
         let build_row = Rc::new(build_row);
@@ -393,7 +404,7 @@ where
                         conn.rebind(&row.slot, index);
                         next.push(row);
                     } else {
-                        let scope = Scope::child();
+                        let scope = owner.enter(Scope::child);
                         let built = scope.enter(|| {
                             let slot = conn.slot_at(index)?;
                             let mut cx = BuildCx::new(anchor);
@@ -431,42 +442,6 @@ where
         watch(move || conn2.refresh(), move |new, _| sync(new));
         anchor
     })
-}
-
-// ---------------------------------------------------------------------------
-// @Environment — ambient values over day-reactive's scope context (§4.3). No backend work.
-// ---------------------------------------------------------------------------
-
-/// Provide an ambient value `T` to `content` and its ENTIRE descendant subtree (the SwiftUI
-/// `@Environment`/`.environment(_)` analog, layered over day-reactive's scope context). `content`
-/// — and any piece built within it — reads it back with [`environment`]. A thin, non-reactive
-/// wrapper: `T` is a snapshot captured here; for a value that must react, provide a `Signal<T>`
-/// (or a `Memo<T>`) and read it reactively inside the subtree.
-///
-/// ```ignore
-/// #[derive(Clone)] struct Theme { accent: Color }
-/// with_environment(Theme { accent: BLUE }, || my_screen())
-/// // deep inside my_screen():  let accent = environment::<Theme>().unwrap().accent;
-/// ```
-pub fn with_environment<T: Clone + 'static, P: Piece>(
-    value: T,
-    content: impl FnOnce() -> P + 'static,
-) -> impl Piece {
-    piece_fn(move |cx| {
-        // A child scope carrying `T`, entered for the whole of `content`'s construction AND build,
-        // so both `content`'s own body and every descendant piece's build resolve it via
-        // `use_context` (which walks scope → ancestors). Owned by the current build scope, so it is
-        // disposed with the enclosing subtree (e.g. a `when` arm) exactly like `when`/`each` scopes.
-        let scope = Scope::child();
-        scope.provide(value);
-        scope.enter(|| content().build(cx))
-    })
-}
-
-/// Read the nearest ambient `T` provided by an enclosing [`with_environment`], or `None` if none is
-/// in scope. Call it while constructing or building a piece within that subtree.
-pub fn environment<T: Clone + 'static>() -> Option<T> {
-    Scope::current().use_context::<T>()
 }
 
 // ---------------------------------------------------------------------------

@@ -101,6 +101,19 @@ public final class DayBridge {
         }
     }
 
+    /** The PRIMARY window's label in the recents switcher (docs/windows.md).
+     *
+     *  Android's answer to "list the app's windows" is one recents card per task, labeled by
+     *  its task description — so the main activity needs this for the same reason a secondary
+     *  one does. It has no `day.node` to be addressed by, hence its own entry point. */
+    public static void setPrimaryWindowTitle(String title) {
+        if (ctx instanceof android.app.Activity) {
+            android.app.Activity a = (android.app.Activity) ctx;
+            a.setTitle(title);
+            a.setTaskDescription(new android.app.ActivityManager.TaskDescription(title));
+        }
+    }
+
     // --- event kinds -----------------------------------------------------------
     // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-android's
     // bridge_kinds_parity test reads THIS block and asserts each value against the Rust enum —

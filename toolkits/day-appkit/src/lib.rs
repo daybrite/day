@@ -3814,6 +3814,11 @@ pub struct AppKit {
     content: Option<Handle>,
     secondary: Vec<SecondaryWin>,
     app_name: String,
+    /// Where the NEXT secondary window's top-left goes (docs/windows.md). macOS staggers new
+    /// windows rather than stacking them: `cascadeTopLeftFromPoint:` places the window and
+    /// answers the point after it, so threading that answer through here is the whole
+    /// mechanism. `None` until the primary exists — the cascade starts from its corner.
+    cascade: Option<NSPoint>,
 }
 
 impl AppKit {
@@ -3830,6 +3835,7 @@ impl AppKit {
             content: None,
             secondary: Vec::new(),
             app_name: "Day".into(),
+            cascade: None,
         }
     }
 
@@ -6650,7 +6656,35 @@ impl Toolkit for AppKit {
             prefs,
             Some(id),
         );
-        window.center();
+        if prefs {
+            // A settings panel is one-of-a-kind and centered, and it stays OUT of the Window
+            // menu — the macOS convention every stock app follows (docs/windows.md).
+            window.center();
+            unsafe { window.setExcludedFromWindowsMenu(true) };
+        } else {
+            // Stagger, don't stack. Without this every window opens at the same centered frame
+            // and the one underneath is invisible — which is exactly what two Day windows did.
+            //
+            // `cascadeTopLeftFromPoint:` puts the window AT the point it is given and answers
+            // the point for the one after, so the series has to be primed from the primary
+            // rather than seeded with its corner — seeding lands the first new window exactly
+            // on top of the primary, which is the bug this replaces.
+            let from = match self.cascade {
+                Some(p) => p,
+                None => self
+                    .window
+                    .as_ref()
+                    .map(|w| {
+                        let f = w.frame();
+                        let top_left = NSPoint::new(f.origin.x, f.origin.y + f.size.height);
+                        // Asking the primary to cascade from where it already is leaves it
+                        // there and answers the next slot — the offset the first new window wants.
+                        unsafe { w.cascadeTopLeftFromPoint(top_left) }
+                    })
+                    .unwrap_or(NSPoint::new(0.0, 0.0)),
+            };
+            self.cascade = Some(unsafe { window.cascadeTopLeftFromPoint(from) });
+        }
         window.makeKeyAndOrderFront(None);
         // Same macOS 26 quirk as the primary (`run`): a window ordered front before its
         // first turn drops pre-run layer displays — nudge every layer once.
@@ -6716,6 +6750,18 @@ impl Toolkit for AppKit {
             .find(|w| ptr_of(&w.content) == ptr_of(host))
         {
             w.window.setTitle(&NSString::from_str(title));
+            return;
+        }
+        // The PRIMARY window is retitlable too. It is an ordinary window (docs/windows.md), so
+        // `window_title` in the first window's shell and `set_title` on `initial_window()` both
+        // arrive here — and searching only the secondary list silently dropped them.
+        if self
+            .content
+            .as_ref()
+            .is_some_and(|c| ptr_of(c) == ptr_of(host))
+            && let Some(w) = self.window.as_ref()
+        {
+            w.setTitle(&NSString::from_str(title));
         }
     }
 
@@ -7001,8 +7047,10 @@ impl Platform for AppKit {
         register_bundled_fonts();
 
         // Default menu bar (standard app menu + Edit) so ⌘Q / Cut-Copy-Paste work before the app
-        // installs its own via `app_menu(...)`.
-        install_main_menu(mtm, &app, &self.app_name);
+        // installs its own via `app_menu(...)`. Rebuilt after `ready` for the items that depend
+        // on the app's registrations — see there.
+        let app_name = self.app_name.clone();
+        install_main_menu(mtm, &app, &app_name);
         // App activation / termination → day lifecycle events (docs/lifecycle.md).
         install_lifecycle_observers();
         install_appearance_observer();
@@ -7042,8 +7090,30 @@ impl Platform for AppKit {
         if day_core::windows::new_window_action_id() == 0 {
             unsafe { NSWindow::setAllowsAutomaticWindowTabbing(false, mtm) };
         }
+        // The DEFAULT menu bar was built before `root()` ran, so its registration-dependent
+        // items — Settings…/⌘, and File ▸ New Window — could not exist yet. Rebuild it now that
+        // they can. An app with its own `app_menu` model already replaced the whole bar and
+        // gets its items through the injection path instead.
+        if !day_core::has_app_menu() {
+            install_main_menu(mtm, &app, &app_name);
+        }
 
-        window.center();
+        // Reopen where the user left it (docs/windows.md). AppKit persists the frame under an
+        // autosave name and hands it back on request; `setFrameUsingName` answers false the
+        // first time, which is when centering is the right answer.
+        //
+        // NOT while a dayscript is driving or `DAY_WINDOW` has forced a size: a restored frame
+        // would make every captured screenshot's dimensions depend on where the developer last
+        // dragged the window, and the capture suites compare those across machines.
+        let deterministic =
+            std::env::var_os("DAY_SCRIPT").is_some() || std::env::var_os("DAY_WINDOW").is_some();
+        let autosave = NSString::from_str("day.main");
+        if deterministic || !unsafe { window.setFrameUsingName(&autosave) } {
+            window.center();
+        }
+        if !deterministic {
+            unsafe { window.setFrameAutosaveName(&autosave) };
+        }
         window.makeKeyAndOrderFront(None);
         app.activate();
         // The root was mounted before the window was shown (ready() runs first), and on
@@ -7368,6 +7438,47 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     app_menu.addItem(&quit);
     app_item.setSubmenu(Some(&app_menu));
     menubar.addItem(&app_item);
+
+    // File ▸ New Window / Close, when the app registered a new-window builder — the same
+    // zero-menu-code rule as Settings…/⌘, above (docs/windows.md). Without this an app that
+    // never calls `app_menu` gets the tab-bar "+" and the Window menu's tab commands but no
+    // File ▸ New Window, because the default menu bar has no File menu to put it in.
+    let new_window_id = day_core::windows::new_window_action_id();
+    if new_window_id != 0 {
+        let file_item = NSMenuItem::new(mtm);
+        let file_menu = unsafe {
+            NSMenu::initWithTitle(
+                NSMenu::alloc(mtm),
+                &NSString::from_str(&day_l10n::t("day-file")),
+            )
+        };
+        let new_window = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &NSString::from_str(&day_l10n::t("day-new-window")),
+                Some(sel!(fire:)),
+                &NSString::from_str("n"),
+            )
+        };
+        let target = menu_target(mtm);
+        let tobj: &objc2::runtime::AnyObject = target.as_ref();
+        unsafe { new_window.setTarget(Some(tobj)) };
+        new_window.setTag(new_window_id as isize);
+        file_menu.addItem(&new_window);
+        file_menu.addItem(&NSMenuItem::separatorItem(mtm));
+        // Nil-targeted, so it closes whatever window is key — the standard responder route.
+        let close = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &NSString::from_str(&day_l10n::t("day-close")),
+                Some(sel!(performClose:)),
+                &NSString::from_str("w"),
+            )
+        };
+        file_menu.addItem(&close);
+        file_item.setSubmenu(Some(&file_menu));
+        menubar.addItem(&file_item);
+    }
 
     let edit_item = NSMenuItem::new(mtm);
     let edit_menu = unsafe {

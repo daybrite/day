@@ -1736,9 +1736,13 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
             // owners on top of this one.
             target.owners.borrow_mut().push(owner.clone());
             let scope = owner_scope.enter(Scope::child);
-            let content = items.build_page(&key);
             let tc = target.clone();
             scope.enter(|| {
+                // The app's builder runs INSIDE this page's scope, like the presentation site
+                // further down: a page body runs app code — an ambient state read, a `Signal`,
+                // a registration — and all of it belongs to the page's lifetime rather than to
+                // whichever scope happened to be current when the push landed.
+                let content = items.build_page(&key);
                 with_nav_host(Some(tc), || {
                     let mut c = BuildCx::new(page);
                     let _ = content.grow().build(&mut c);
@@ -2557,11 +2561,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 });
             }
             let scope = nav_scope.enter(Scope::child);
-            let content = match &compose_s {
-                Some(c) => c(&typed_key),
-                None => items.build_page(&typed_key),
-            };
             scope.enter(|| {
+                // Inside the page's own scope — see the pushed-detail site above.
+                let content = match &compose_s {
+                    Some(c) => c(&typed_key),
+                    None => items.build_page(&typed_key),
+                };
                 // A resident page is a merge BARRIER: a `stack` inside a tab keeps its own native
                 // container rather than pushing onto the enclosing host, because the enclosing
                 // host is not a stack (docs/navigation.md).
@@ -3491,9 +3496,10 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                         &sizes,
                     );
                     let scope = nav_scope.enter(Scope::child);
-                    let content = (dest)(key);
                     let hc = host_cx.clone();
                     scope.enter(|| {
+                        // Inside the page's own scope — see the pushed-detail site above.
+                        let content = (dest)(key);
                         with_nav_host(Some(hc), || {
                             let mut c = BuildCx::new(page);
                             let _ = content.build(&mut c);

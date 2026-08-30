@@ -283,7 +283,7 @@ fn snake_ident(name: &str) -> String {
 }
 
 /// PascalCase from a snake_case stem.
-fn pascalize(snake: &str) -> String {
+pub(crate) fn pascalize(snake: &str) -> String {
     snake
         .split('_')
         .filter(|w| !w.is_empty())

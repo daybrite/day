@@ -2826,8 +2826,15 @@ impl Toolkit for Qt {
     }
 
     fn set_window_title(&mut self, host: &QtHandle, title: &str) {
-        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
-            unsafe { ffi::day_qt_window_set_title(w.win, cstr(title).as_ptr()) };
+        // The primary is an ordinary window (docs/windows.md): `day::window_title` in the FIRST
+        // window's shell lands here with the primary's own root, and searching only the
+        // secondary list would drop it.
+        let win = match self.secondary.iter().find(|w| w.content == host.0) {
+            Some(w) => w.win,
+            None => self.window,
+        };
+        if !win.is_null() {
+            unsafe { ffi::day_qt_window_set_title(win, cstr(title).as_ptr()) };
         }
     }
 }

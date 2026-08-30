@@ -26,12 +26,23 @@ val dayProguardFile = dayPieces["dayProguardFile"] as? String
 @Suppress("UNCHECKED_CAST")
 val pieceProguardFiles = (dayPieces["proguardFiles"] as? List<String>) ?: emptyList()
 
-// Day.toml identity/version, conveyed by `day build` / `day pack` (§17.5). Read generically with
-// scaffold fallbacks, so a bare `./gradlew` build still configures.
+// Day.toml identity/version, conveyed by `day build` / `day pack` (§17.5), read
+// generically so this file names no project of its own.
 val dayAppFile = rootProject.projectDir.resolve("../../build/day/android/day-app.properties")
 val dayApp = Properties().apply {
     if (dayAppFile.exists()) dayAppFile.inputStream().use { s -> load(s) }
 }
+
+// Day.toml identity, conveyed by `day build` / `day pack` (§17.5). REQUIRED rather than
+// defaulted: a plausible-looking fallback ships an APK under the wrong id or name, so an unset
+// value stops the build instead. This is also what keeps this file free of project-specific
+// values, so forking an app never means editing it.
+fun dayRequired(key: String): String = dayApp.getProperty(key)
+    ?: throw GradleException(
+        "day: `$key` is not set. build/day/android/day-app.properties is generated from " +
+        "Day.toml by the day CLI, so build through it (`day build -p android-mdc`, " +
+        "`day launch -p android-mdc`) rather than bare Gradle."
+    )
 
 // Release signing, resolved by `day pack` (Day.toml `signing.android` env refs, or its generated
 // dev keystore). Absent file ⇒ unsigned release build (a plain `day build --profile release`).
@@ -41,20 +52,19 @@ val daySigning = Properties().apply {
 }
 
 android {
-    // Day.toml [app] id, conveyed by `day build`; the literal is the fresh-checkout
-    // fallback that lets Android Studio open this project before a Day build has run.
-    namespace = dayApp.getProperty("namespace") ?: "{{id}}"
+    // Day.toml [app] id, conveyed by `day build` (see dayRequired above).
+    namespace = dayRequired("namespace")
     compileSdk = 35
     defaultConfig {
-        applicationId = dayApp.getProperty("applicationId") ?: "{{id}}"
+        applicationId = dayRequired("applicationId")
         minSdk = 24
         targetSdk = 35
-        versionCode = dayApp.getProperty("versionCode")?.toInt() ?: 1
+        versionCode = dayRequired("versionCode").toInt()
         // The app label — Day.toml [app] title, resolved per target (an [app.android] override
         // wins); the manifest references it as ${dayTitle}.
-        manifestPlaceholders["dayTitle"] = dayApp.getProperty("title") ?: "{{title}}"
-        manifestPlaceholders["dayScheme"] = dayApp.getProperty("scheme") ?: "{{scheme}}"
-        versionName = dayApp.getProperty("versionName") ?: "0.1.0"
+        manifestPlaceholders["dayTitle"] = dayRequired("title")
+        manifestPlaceholders["dayScheme"] = dayRequired("scheme")
+        versionName = dayRequired("versionName")
     }
     sourceSets {
         getByName("main") {

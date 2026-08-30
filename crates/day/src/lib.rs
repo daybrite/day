@@ -43,6 +43,7 @@ pub use day_spec::{KeyEvent, Modifiers};
 pub use day_core::{
     WindowHandle, focused_window, open_new_window, open_preferences, open_window,
     register_new_window, register_preferences, register_preferences_with, window_by_key,
+    window_title,
 };
 pub use day_spec::WindowKind;
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data

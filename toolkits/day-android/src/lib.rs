@@ -3223,19 +3223,30 @@ mod imp {
 
         fn set_window_title(&mut self, host: &AHandle, title: &str) {
             with_env(|env| {
-                if let Some(node) = secondary_node_of(env, host) {
-                    let Ok(jtitle) = env.new_string(title) else {
-                        return;
-                    };
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "setWindowTitle",
-                        "(JLjava/lang/String;)V",
-                        &[
-                            JValue::Long(node as i64),
-                            JValue::Object(&JObject::from(jtitle)),
-                        ],
-                    );
+                let Ok(jtitle) = env.new_string(title) else {
+                    return;
+                };
+                let jtitle = JObject::from(jtitle);
+                match secondary_node_of(env, host) {
+                    Some(node) => {
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setWindowTitle",
+                            "(JLjava/lang/String;)V",
+                            &[JValue::Long(node as i64), JValue::Object(&jtitle)],
+                        );
+                    }
+                    // The primary is an ordinary window (docs/windows.md) and gets a recents
+                    // card of its own, so it takes a label like any other — it just has no
+                    // `day.node` to be addressed by.
+                    None => {
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setPrimaryWindowTitle",
+                            "(Ljava/lang/String;)V",
+                            &[JValue::Object(&jtitle)],
+                        );
+                    }
                 }
             });
         }

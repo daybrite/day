@@ -69,6 +69,19 @@ day_reactive::tls_slots! {
     static PREFS_ACTION: Cell<u64> = const { Cell::new(0) };
     static NEW_WINDOW: RefCell<Option<Rc<dyn Fn() -> AnyPiece>>> = const { RefCell::new(None) };
     static NEW_WINDOW_ACTION: Cell<u64> = const { Cell::new(0) };
+
+    /// What the app asked `launch` for, so a window opened later can describe itself the same
+    /// way (docs/windows.md). Title above all: every platform's automatic window management
+    /// keys on it — the macOS Window menu and tab bar, the iPad app switcher, the Android
+    /// recents card — and an untitled window is simply absent from all of them.
+    static LAUNCH_OPTIONS: RefCell<Option<WindowOptions>> = const { RefCell::new(None) };
+}
+
+/// Record what the app handed `launch`, for [`open_new_window`] to inherit. Called once by
+/// `launch_with` with the options it is about to open the primary window with — already
+/// title-decorated, which is idempotent (`tag_title`).
+pub fn set_launch_options(options: &WindowOptions) {
+    LAUNCH_OPTIONS.with(|o| *o.borrow_mut() = Some(options.clone()));
 }
 
 /// A live secondary window (docs/windows.md). Cheap to clone; inert after close.
@@ -284,6 +297,25 @@ pub fn focused_window() -> Option<WindowHandle> {
     })
 }
 
+/// The scope owning the content of the window that currently has FOCUS — the scope an
+/// app-wide command should resolve per-window state through (docs/state.md).
+///
+/// Falls back to the app's primary window, which is the same rule [`focused_window`] states:
+/// a backend reports focus for the windows it opened, and "no record is focused" means the
+/// primary is key (on AppKit the primary's delegate carries no node and never emits
+/// `WindowFocused` at all, so that IS the primary's steady state). `None` only before boot
+/// and after the last window is gone.
+pub fn focused_scope() -> Option<Scope> {
+    WINDOWS.with(|w| {
+        let windows = w.borrow();
+        let focused = windows.iter().find(|r| r.focused);
+        let initial = INITIAL_WINDOW.with(|c| c.get());
+        focused
+            .or_else(|| windows.iter().find(|r| Some(r.root) == initial))
+            .map(|r| r.scope)
+    })
+}
+
 /// The tree root of the window registered under `key` — day-script's snapshot target.
 pub fn window_root_by_key(key: &str) -> Option<RNode> {
     WINDOWS.with(|w| {
@@ -349,14 +381,25 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
 
 fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier: Tier) {
     WINDOWS.with(|w| {
-        w.borrow_mut().push(WindowRecord {
+        let mut windows = w.borrow_mut();
+        // A window that just opened IS the key window — every platform orders it front. Seeding
+        // that here rather than waiting for `Event::WindowFocused` is what makes it TRUE for the
+        // first one: the toolkit makes the window key while creating it, which on AppKit fires
+        // `windowDidBecomeKey` before `wire_window_events` has installed a handler to hear it.
+        // Without this, a window opened by File ▸ New Window is never marked focused, and
+        // `focused_scope` — how an app-wide menu command finds the front window's state
+        // (docs/state.md) — resolves to the primary until the user clicks away and back.
+        for r in windows.iter_mut() {
+            r.focused = false;
+        }
+        windows.push(WindowRecord {
             root,
             key: key.map(str::to_string),
             kind,
             role: WindowRole::from(kind),
             scope,
             tier,
-            focused: false,
+            focused: true,
             on_close: Rc::default(),
         })
     });
@@ -667,9 +710,13 @@ pub fn register_new_window<P: Piece>(build: impl Fn() -> P + 'static) {
 /// File ▸ New Window path). `None` = no builder registered.
 pub fn open_new_window() -> Option<WindowHandle> {
     let build = NEW_WINDOW.with(|p| p.borrow().clone())?;
-    // The primary window's options are long gone; new windows describe themselves —
-    // the builder's content sets the title via the handle if it cares. Size mirrors the
-    // primary's CURRENT content size so a "duplicate window" lands familiar.
+    // Another window of THIS app, so it describes itself the way the app described its first
+    // one: same title, same minimum size, same display name. A window with no title is missing
+    // from the macOS Window menu and shows a blank tab, so inheriting is what makes File ▸ New
+    // Window produce something the platform can manage (docs/windows.md). Content that wants a
+    // title of its own says so with `window_title` from inside the window.
+    let launch = LAUNCH_OPTIONS.with(|o| o.borrow().clone());
+    // Size mirrors the primary's CURRENT content size so a "duplicate window" lands familiar.
     let size = with_tree(|t| {
         let root = t.root_node();
         t.node_frame(root).map(|f| f.size)
@@ -678,18 +725,47 @@ pub fn open_new_window() -> Option<WindowHandle> {
     Some(open_window(
         None,
         WindowOptions {
-            title: String::new(),
+            title: launch.as_ref().map(|o| o.title.clone()).unwrap_or_default(),
             size,
-            min_size: None,
+            min_size: launch.as_ref().and_then(|o| o.min_size),
             size_to_fit: false,
-            app_name: None,
+            app_name: launch.as_ref().and_then(|o| o.app_name.clone()),
             // Secondary windows: the app-launch ceremony belongs to `launch` alone.
             locales: None,
+            // Already resolved into `title` above — calling it again would re-run app code
+            // outside the launch sequence it was written for.
             title_fn: None,
         },
         WindowKind::Normal,
         move || build(),
     ))
+}
+
+/// Bind the title of the window this piece is BUILDING INTO to a reactive closure
+/// (docs/windows.md) — how a window comes to be named after what it shows.
+///
+/// The window-level counterpart to a navigation title. It matters more than it looks: the macOS
+/// Window menu, the tab bar, Mission Control, the iPad app switcher and the Android recents card
+/// all label a window by its title, so two windows that share one title are two windows the user
+/// cannot tell apart anywhere the system lists them.
+///
+/// ```ignore
+/// // inside a window's shell, so each window titles itself:
+/// day::window_title(move || match scene.selected.get() {
+///     Some(id) => scene.name_of(id),
+///     None => app_title(),
+/// });
+/// ```
+///
+/// Reactive like any binding: the title follows what the closure reads. Which window it targets
+/// is resolved ONCE, here, for the same reason `toolbar_reactive` captures it — the binding
+/// re-runs long after this build, when "the window being built" is no longer this one.
+pub fn window_title(f: impl Fn() -> String + 'static) {
+    let root = crate::toolbar::current_window();
+    day_reactive::bind(f, move |title| {
+        let title = crate::decorate_window_title(title);
+        with_tree(|t| t.set_native_window_title(root, &title));
+    });
 }
 
 /// The dispatch id of the auto Preferences menu action (0 = unregistered). Backends use it

@@ -27,12 +27,16 @@ const REF_ID: &str = "DA0000000000000000000006";
 /// The settings that move out of the pbxproj. Stripping them is what lets the xcconfig
 /// (and the Xcode Build Settings editor, and the generated include) take effect — a value
 /// left in a target's `buildSettings` would override all of those.
-const MOVED: [&str; 7] = [
+const MOVED: [&str; 8] = [
     "CODE_SIGNING_ALLOWED",
     "CODE_SIGN_IDENTITY",
     "CURRENT_PROJECT_VERSION",
     "MARKETING_VERSION",
     "PRODUCT_BUNDLE_IDENTIFIER",
+    // The app's name. Moving it is what leaves the pbxproj free of project-specific values:
+    // the product reference resolves through `$(PRODUCT_NAME)`, so renaming a fork is one
+    // line of DayApp.xcconfig and nothing inside the project file.
+    "PRODUCT_NAME",
     "TARGETED_DEVICE_FAMILY",
     "IPHONEOS_DEPLOYMENT_TARGET", // MACOSX_DEPLOYMENT_TARGET is appended per platform
 ];
@@ -80,6 +84,7 @@ struct Extracted {
     build: Option<String>,
     device_family: Option<String>,
     deployment: Option<String>,
+    name: Option<String>,
 }
 
 /// Migrate `platform/<platform>/` to the xcconfig split if it hasn't been already.
@@ -191,6 +196,7 @@ fn split_pbxproj(text: &str, deployment_key: &str) -> Result<(String, Extracted)
                 "PRODUCT_BUNDLE_IDENTIFIER" => extracted.id = Some(value),
                 "MARKETING_VERSION" => extracted.version = Some(value),
                 "CURRENT_PROJECT_VERSION" => extracted.build = Some(value),
+                "PRODUCT_NAME" => extracted.name = Some(value),
                 "TARGETED_DEVICE_FAMILY" => extracted.device_family = Some(value),
                 k if k == deployment_key => extracted.deployment = Some(value),
                 _ => {}
@@ -241,7 +247,13 @@ fn render_user_xcconfig(
         .id
         .clone()
         .unwrap_or_else(|| project.manifest.resolve(target_for(platform)).id);
-    let mut out = template.replace("{{id}}", &id);
+    // `{{pascal}}` is the scaffold's app name. A migrating project states its own in the
+    // pbxproj; without one, fall back to the package name in the scaffold's own spelling.
+    let name = extracted
+        .name
+        .clone()
+        .unwrap_or_else(|| crate::new::pascalize(&project.manifest.app.name.replace('-', "_")));
+    let mut out = template.replace("{{id}}", &id).replace("{{pascal}}", &name);
     let defaults = [
         (
             "MARKETING_VERSION = 0.1.0",
@@ -324,7 +336,9 @@ mod tests {
         // Moved settings are gone; untouched ones survive.
         assert!(!out.contains("MARKETING_VERSION"));
         assert!(!out.contains("IPHONEOS_DEPLOYMENT_TARGET"));
-        assert!(out.contains("PRODUCT_NAME = Example;"));
+        // The app's name moves too, so the project file carries no project-specific value.
+        assert!(!out.contains("PRODUCT_NAME"));
+        assert_eq!(ex.name.as_deref(), Some("Example"));
         assert!(out.contains("SDKROOT = iphoneos;"));
         // Extraction preserved the project's own values, unquoted.
         assert_eq!(ex.id.as_deref(), Some("com.example.app"));

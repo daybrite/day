@@ -277,6 +277,15 @@ fn resolve_resource_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Resolve a data-asset FILE (a `/`-relative path under `resource/assets/`) to its on-disk
+/// location, for consumers that must hand a native API a path rather than bytes: lottie-ios
+/// takes a filepath, and its by-name initializer would otherwise look only at the bundle root,
+/// where Day stages nothing. Same probe order as [`resource`]: `DAY_ASSET_ROOT` (dev /
+/// `day launch`), then the bundle-relative roots.
+pub fn resolve_asset_file(name: &str) -> Option<PathBuf> {
+    resolve_resource_path(name)
+}
+
 /// Resolve a data-asset DIRECTORY (an [`AssetDir`]'s `/`-relative path) to its on-disk
 /// location — for consumers whose local-content channel is a file URL, like the inline web
 /// view on the Apple backends (docs/webview.md). Same probe order as file resolution:

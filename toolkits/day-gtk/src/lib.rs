@@ -4911,6 +4911,22 @@ impl Toolkit for Gtk {
             .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
         {
             w.window.set_title(Some(title));
+            return;
+        }
+        // The primary is an ordinary window (docs/windows.md): `day::window_title` in the FIRST
+        // window's shell arrives with the primary's own content, and the GNOME window list and
+        // taskbars label a window by exactly this.
+        if self
+            .window_fixed
+            .as_ref()
+            .is_some_and(|f| f.upcast_ref::<gtk4::Widget>() == host)
+            && let Some(win) = self
+                .window_fixed
+                .as_ref()
+                .and_then(|f| f.root())
+                .and_then(|r| r.downcast::<gtk4::Window>().ok())
+        {
+            win.set_title(Some(title));
         }
     }
 

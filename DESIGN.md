@@ -70,6 +70,7 @@ the architecture-level view and the rationale.
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
+| app state — `Ambient` (per-window `scoped`, app-wide `app`, `ambient`/`focused`), the ambient environment | [docs/state.md](docs/state.md) | [§4.3](#43-scopes-and-disposal) |
 | canvas, shapes, gradients, gestures | [docs/shapes.md](docs/shapes.md) | [§11](#11-canvas) |
 | text & typography | [docs/text.md](docs/text.md), [docs/text-runs.md](docs/text-runs.md), [docs/markdown.md](docs/markdown.md) | [§6.4](#64-typography) |
 | localization — Fluent, `res::str` typed keys, locales | [docs/localization.md](docs/localization.md) | [§12](#12-localization-fluent), [§18.5](#185-typed-resource-constants-docsresourcesmd) |
@@ -795,8 +796,11 @@ line(a, b)  polygon(points)        // unit-point kinds over the existing Line/Po
     .at(fx, fy, fw, fh)            // fractional sub-rect placement (glyph composition)
 shape_group(shapes)  shape_group_fn(size_fn)      // many shapes, ONE canvas leaf (§3.6 there)
 
-// ambient environment
+// app state (§4.3, docs/state.md): the ambient environment, and the per-window /
+// app-wide state idiom over it
 with_environment(value, build_fn)   environment::<T>()
+focused_environment::<T>()          app_environment::<T>(make)
+trait Ambient { create; scoped(content); app(); ambient(); try_ambient(); focused() }
 ```
 
 The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.id_keyed()`,
@@ -3330,17 +3334,22 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
 
 ### §17.4 The build callback (flutter's pattern, exactly — including the details flutter learned the slow way)
 
-- **ios/**: the Runner target's Run-Script phase resolves the CLI, then calls the arg-less
-  **`"$DAY_BIN" xcode-backend build`** — plumbing that reads
+- **ios/**: the Runner target's Run-Script phase is one line, **`sh "$PROJECT_DIR/day-cli.sh"
+  xcode-backend build`** — arg-less plumbing that reads
   `CONFIGURATION`/`ARCHS`/`BUILT_PRODUCTS_DIR`/`PLATFORM_NAME` from
   Xcode's environment (flutter's `xcode_backend.sh` pattern; a fully-parameterized checked-in
-  invocation would fossilize flags into user projects). The resolution (2026-08) exists for
-  builds started from the Xcode GUI, which run on Xcode's own minimal PATH with no shell
-  profile: `DAY_BIN` (exported by `day build`) wins, then `command -v day`, then the standard
-  install locations (`~/.cargo/bin`, Homebrew, `/usr/local/bin`), with a named error rather
-  than sh's bare `day: command not found`. The scaffolded projects also carry a plain folder
-  reference to the app root (never in any build phase), so the Rust sources are browsable and
-  editable from inside Xcode. Inside: configuration→cargo-profile
+  invocation would fossilize flags into user projects). `day-cli.sh` sits beside the
+  `.xcodeproj` and is the one place each project resolves the CLI (2026-08): `DAY_BIN`
+  (exported by `day build`) wins, then `command -v day`, then the standard install locations
+  (`~/.cargo/bin`, Homebrew, `/usr/local/bin`), with a named error rather than sh's bare
+  `day: command not found`. It exists because a build started from the Xcode GUI runs on
+  Xcode's own minimal PATH with no shell profile; per-project rather than shared because the
+  template's target filter keys a file's platform off its `platform/<os>/` prefix, and each
+  Xcode project stays self-contained. It is invoked through `sh` since the scaffold writes
+  every file non-executable. `shortcuts.rs` `include_str!`s the same file when it injects a
+  phase into an older project, so the two can never drift. The scaffolded projects also carry
+  a plain folder reference to the app root (never in any build phase), so the Rust sources are
+  browsable and editable from inside Xcode. Inside: configuration→cargo-profile
   mapping by case-insensitive substring with a `DAY_BUILD_MODE` override (miette error listing
   accepted names); the space-separated `ARCHS` list is split, **one cargo build per (arch, sdk),
   `lipo`'d together** (a single `--arch "$ARCHS"` is wrong for universal builds); output is the

@@ -393,6 +393,10 @@ fn strings_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// The scaffold's own `day-cli.sh`, embedded so an injected phase and a fresh scaffold can
+/// never disagree about what the shim contains.
+const DAY_CLI_SHIM: &str = include_str!("../templates/app/platform/ios/day-cli.sh");
+
 /// Ensure the iOS scaffold's pbxproj carries the `stage-strings` script phase — scaffolds
 /// generated before it existed get it injected once, anchored on the template's deterministic
 /// object ids. A hand-restructured project that lost the anchors gets instructions instead of
@@ -419,32 +423,22 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
         || before.contains("DA0000000000000000000044")
     {
         return Err(format!(
-            "{}: can't add the `Stage Day Strings` build phase automatically — add a Run \
-             Script phase running `\"${{DAY_BIN:-day}}\" xcode-backend stage-strings` \
-             (docs/deep-links.md)",
+            "{}: can't add the `Stage Day Strings` build phase automatically. Add a Run \
+             Script phase running `/bin/sh \"$PROJECT_DIR/day-cli.sh\" xcode-backend \
+             stage-strings` (docs/deep-links.md)",
             pbxproj.display()
         ));
     }
-    // The scaffold's own phase text (templates/app/platform/ios/DayApp.xcodeproj), pbxproj-
-    // escaped programmatically: `day build` exports DAY_BIN, but a build from the Xcode GUI
-    // runs on Xcode's minimal PATH (no shell profile, no ~/.cargo/bin) and must find the CLI
-    // itself.
-    let script = r##"# Same resolution as the `Build Rust (day)` phase above (Xcode GUI builds have no
-# shell-profile PATH).
-if [ -z "${DAY_BIN:-}" ]; then DAY_BIN="$(command -v day || true)"; fi
-if [ -z "$DAY_BIN" ]; then
-  for c in "$HOME/.cargo/bin/day" /opt/homebrew/bin/day /usr/local/bin/day; do
-    if [ -x "$c" ]; then DAY_BIN="$c"; break; fi
-  done
-fi
-if [ -z "$DAY_BIN" ]; then
-  echo "error: the day CLI was not found — install it with 'cargo install day-cli', or set DAY_BIN in the scheme's run-script environment" >&2
-  exit 1
-fi
-"$DAY_BIN" xcode-backend stage-strings
-"##
-    .replace('"', "\\\"")
-    .replace('\n', "\\n");
+    // The phase runs the project's own shim rather than a bare `day` (a build started from the
+    // Xcode GUI has no ~/.cargo/bin on PATH). A project old enough to need this injection
+    // predates the shim, so write it.
+    let shim = project.root.join("platform/ios/day-cli.sh");
+    if !shim.exists() {
+        std::fs::write(&shim, DAY_CLI_SHIM).map_err(|e| format!("{}: {e}", shim.display()))?;
+    }
+    let script = "/bin/sh \"$PROJECT_DIR/day-cli.sh\" xcode-backend stage-strings\n"
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
     let block = format!(
         "\t\tDA0000000000000000000044 /* Stage Day Strings */ = {{\n\
          \t\t\tisa = PBXShellScriptBuildPhase;\n\

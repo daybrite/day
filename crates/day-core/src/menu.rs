@@ -204,6 +204,14 @@ pub fn app_menu_installed() -> bool {
 
 /// Re-forward the retained model through the injection pass — the self-heal for
 /// `register_preferences` running AFTER `app_menu` (docs/menus.md ordering note).
+/// Did the app install a menu model of its own (`app_menu`)? `false` means it is running on the
+/// backend's DEFAULT menu bar, which the backend builds before `root()` runs — so a backend that
+/// puts registration-dependent items there (Settings…, File ▸ New Window) has to rebuild it once
+/// the app's registrations are in. day-appkit does exactly that.
+pub fn has_app_menu() -> bool {
+    APP_MENU_MODEL.with(|m| !m.borrow().is_empty())
+}
+
 pub(crate) fn reinstall_app_menu() {
     let items = APP_MENU_MODEL.with(|m| m.borrow().clone());
     if !items.is_empty() {

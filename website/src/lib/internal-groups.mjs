@@ -49,6 +49,7 @@ export const groups = [
       ['accessibility', 'roles, per-backend attribute mapping, the audit'],
       ['lifecycle', 'app phases and their per-platform availability'],
       ['async', 'tasks, resources, and the runtime rules'],
+      ['state', 'where state lives: per-window and app-wide Ambient values, the focused-window rule'],
       ['model', 'the per-property observable store and the Observable derive'],
       ['persistence', 'SQLite storage for the model: ModelContainer, the Model derive, migrations'],
       ['resources', 'asset packaging and the zero-copy runtime path'],

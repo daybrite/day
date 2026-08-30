@@ -57,6 +57,10 @@ pub use nav::*;
 pub use shapes::*;
 pub use sources::*;
 pub use structure::*;
+// The ambient environment and the `Ambient` state trait (docs/state.md) live in day-core, so an
+// app's own `*-core` crate — which depends on day-core but not on day-pieces — can `impl Ambient`
+// for its view-model. Re-exported here so `day_pieces::environment` and the prelude are unchanged.
+pub use day_core::{Ambient, app_environment, environment, focused_environment, with_environment};
 pub use toolbar::*;
 
 pub mod prelude {
@@ -65,20 +69,21 @@ pub mod prelude {
     pub use crate::ToolbarEntry;
     pub use crate::routes;
     pub use crate::{
-        A11yBuilder, Alert, BackRequest, BackResponse, Binding, ButtonBuilder, ColumnBuilder,
-        Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileUrl, Form, FormSection, Grid,
-        GridRow, HAlign, Inspector, IntoFocusBinding, IntoFraction, IntoReactive, IntoText,
-        ItemSlot, LabelBuilder, Labeled, Link, List, MenuEntry, Modifier, NativeRef, NavItem,
-        OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath, RowBuilder,
-        RowFit, SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece, Stack, SwipeAction,
-        TextBuilder, VAlign, VectorWeight, When, ZStack, alert, app_menu, app_menu_reactive, arc,
-        button, canvas, capsule, circle, column, confirm, cover, current_route, divider, each,
-        ellipse, environment, form, frame_clock, grid, grid_row, image, inspector, item, items,
-        label, labeled, line, link, list, menu_item, menu_role, menu_separator, nav_back, nav_link,
-        nav_link_to, navigate, navigate_to, open_file, picker, polygon, progress, prompt,
-        rectangle, rounded_rectangle, route, route_param, route_params, row, save_file, scroll,
-        section, segment, selector, shape, shape_group, shape_group_fn, slider, spacer, spinner,
-        stack, sub_menu, swipe_action, text_area, text_field, toggle, toolbar, toolbar_button,
+        A11yBuilder, Alert, Ambient, BackRequest, BackResponse, Binding, ButtonBuilder,
+        ColumnBuilder, Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileUrl, Form,
+        FormSection, Grid, GridRow, HAlign, Inspector, IntoFocusBinding, IntoFraction,
+        IntoReactive, IntoText, ItemSlot, LabelBuilder, Labeled, Link, List, MenuEntry, Modifier,
+        NativeRef, NavItem, OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route,
+        RoutePath, RowBuilder, RowFit, SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece,
+        Stack, SwipeAction, TextBuilder, VAlign, VectorWeight, When, ZStack, alert,
+        app_environment, app_menu, app_menu_reactive, arc, button, canvas, capsule, circle, column,
+        confirm, cover, current_route, divider, each, ellipse, environment, focused_environment,
+        form, frame_clock, grid, grid_row, image, inspector, item, items, label, labeled, line,
+        link, list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to,
+        navigate, navigate_to, open_file, picker, polygon, progress, prompt, rectangle,
+        rounded_rectangle, route, route_param, route_params, row, save_file, scroll, section,
+        segment, selector, shape, shape_group, shape_group_fn, slider, spacer, spinner, stack,
+        sub_menu, swipe_action, text_area, text_field, toggle, toolbar, toolbar_button,
         toolbar_flexible_space, toolbar_label, toolbar_menu, toolbar_reactive, toolbar_segmented,
         toolbar_separator, toolbar_sidebar_toggle, toolbar_space, toolbar_toggle, vector, when,
         with_environment, zstack,

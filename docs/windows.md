@@ -31,6 +31,50 @@ navigation state, and dayscript therefore work across windows with no window par
 element ids stay globally unique, and a control in one window can drive a label in another
 through ordinary signals.
 
+## Titles: what the platform manages windows BY
+
+Every platform's automatic window management identifies a window by its **title**, and supplies
+no fallback when there isn't one. On macOS an untitled window is skipped when AppKit builds the
+Window menu and shows a blank tab in a tab group; on iPad it is an unlabeled card in the app
+switcher; on Android an unlabeled recents entry; on GTK/Qt/Windows an unlabeled entry in the
+window list or taskbar. So a window with no title is not merely plain — it is missing from every
+place the system lists windows.
+
+Two rules keep that from happening:
+
+- A window opened by File ▸ New Window **inherits the app's launch `WindowOptions`** — the title,
+  minimum size, and display name the app handed `launch`. An app needs no code for this; a new
+  window is another window of the same app and describes itself that way.
+- `day::window_title(|| …)` binds the title of the window the calling piece is BUILDING INTO, so
+  a window names itself after what it shows. Reactive like any binding, and window-scoped: the
+  target is resolved once, at build, exactly as `toolbar_reactive` resolves its own.
+
+```rust
+fn window_shell() -> impl Piece {
+    Scene::scoped(|scene| {
+        day::window_title(move || match scene.selected.get() {
+            Some(id) => scene.name_of(id),
+            None => app_title(),
+        });
+        my_ui(scene)
+    })
+}
+```
+
+Two windows sharing one title are two windows the user cannot tell apart in the Window menu, the
+tab bar, Mission Control, or the app switcher — so title them by content wherever there is content
+to name. `WindowHandle::set_title` remains the imperative form for a window you hold a handle to.
+
+**Placement is the platform's, not the app's.** macOS staggers each new window from the last
+(`cascadeTopLeftFromPoint:`) rather than centering it — two centered windows hide each other — and
+remembers the primary window's frame between launches under an autosave name. That restore is
+turned off while `DAY_SCRIPT` or `DAY_WINDOW` is set, so captured screenshots keep the size the
+script asked for instead of the size the developer last dragged. Every other desktop leaves
+placement to its window manager, which is that platform's convention.
+
+`WindowKind::Preferences` is centered and kept OUT of the macOS Window menu, the convention stock
+apps follow.
+
 ## Opening windows
 
 ```rust
@@ -107,9 +151,23 @@ stay deterministic), while live picker changes always apply.
 
 `day::register_new_window(|| shell())` names the builder behind `menu_role(MenuRole::NewWindow)`
 (File ▸ New Window, ⌘N/Ctrl+N; lowers disabled when unregistered) and the macOS tab-bar "+"
-(`newWindowForTab:`). Each call opens an independent `Normal` window; give each its own nav
-signals, and mark secondary shells' routed navs `.local()` so `navigate()` stays unambiguous
-(the showcase's `window_root(primary)` is the pattern).
+(`newWindowForTab:`). Each call opens an independent `Normal` window, and mark secondary shells'
+routed navs `.local()` so `navigate()` stays unambiguous (the showcase's `window_root(primary)`
+is the pattern; so is the scaffold's `window_shell(primary)`).
+
+Because the builder runs again per window, whatever state that shell reaches for decides whether
+the windows are actually independent — a `thread_local!` gives all of them one selection.
+[docs/state.md](state.md) is the whole story: `T::scoped(…)` for per-window state, `T::ambient()`
+to read it back anywhere below, and `T::focused()` for the app-wide menu bar, whose items belong
+to no window and have to resolve the front one when they run. The same shell should call
+`day::window_title` (above), so the windows it builds are distinguishable everywhere the system
+lists them.
+
+> [!NOTE]
+> A live retitle reaches AppKit, GTK, Qt, XAML, UIKit and Android — primary window included.
+> `day-arkui` takes the trait's default, so an OpenHarmony window keeps the title it was opened
+> with; the inherited launch title makes that correct rather than blank, but it does not follow
+> content yet.
 
 On macOS, day-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
 Bring All to Front) registered as `NSApp.windowsMenu`, so AppKit appends the open-window

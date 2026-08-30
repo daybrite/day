@@ -43,6 +43,24 @@ fn boot_with_env(
     probe
 }
 
+/// Boot with a named window, for the tests that assert what a window is CALLED. The mock
+/// backend is deliberately untagged (`debug_title_tag`), so the title asserts verbatim.
+fn boot_titled(title: &str, root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    day_core::launch_with(
+        mock,
+        WindowOptions {
+            title: title.into(),
+            size: Size::new(400.0, 600.0),
+            ..Default::default()
+        },
+        root,
+    );
+    probe
+}
+
 /// Boot a mock that CAN present split panes, in a window of `size` — so the launch size class
 /// decides the presentation exactly as it does on a real toolkit (docs/size-classes.md).
 fn boot_splittable(size: Size, root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
@@ -6249,4 +6267,340 @@ fn tree_data_edits_reload_and_flattener_walks_expanded_rows() {
         4
     );
     let _ = rig.sel;
+}
+
+// ---------------------------------------------------------------------------
+// Ambient state (docs/state.md): per-window `scoped`, app-wide `app`, and the
+// focused-window resolution an app-wide menu bar commands through.
+// ---------------------------------------------------------------------------
+
+/// A window's state, in the shape the scaffold uses: a `Copy` struct of handles.
+#[derive(Clone, Copy)]
+struct Scene {
+    label: Signal<String>,
+}
+
+impl Ambient for Scene {
+    fn create() -> Self {
+        Scene {
+            label: Signal::new(String::from("fresh")),
+        }
+    }
+}
+
+/// One shell, used for BOTH windows — the `register_new_window` shape. Nothing about it names
+/// a window, and that is the point: `scoped` gives whichever window builds it its own `Scene`.
+fn scene_shell() -> AnyPiece {
+    Scene::scoped(|scene| {
+        // Resolved through the ENVIRONMENT rather than the value `scoped` handed us, so this
+        // asserts the lookup lands on THIS window's instance — and at build time, which is
+        // where `ambient()` is defined to work.
+        let looked_up = Scene::ambient();
+        column((
+            label(move || scene.label.read()),
+            label(move || looked_up.label.read()),
+        ))
+        .any()
+    })
+    .any()
+}
+
+#[test]
+fn scoped_ambient_gives_each_window_its_own_state() {
+    let probe = boot(scene_shell);
+    day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        scene_shell,
+    );
+    flush_sync();
+
+    // Four labels: two per window, all still on the value `create()` made.
+    let texts = |p: &MockProbe| -> Vec<String> {
+        p.find_by_kind("day.label")
+            .iter()
+            .map(|(_, w)| w.text.clone())
+            .collect()
+    };
+    assert_eq!(texts(&probe), ["fresh", "fresh", "fresh", "fresh"]);
+
+    // Writing the SECOND window's scene must not move the first window's labels.
+    probe.emit(probe.windows()[0].node, Event::WindowFocused(true));
+    flush_sync();
+    let second = day_core::focused_scope().expect("a focused window");
+    let scene = second
+        .use_context::<Scene>()
+        .expect("window 2 provides a Scene");
+    scene.label.set(String::from("two"));
+    flush_sync();
+    assert_eq!(
+        texts(&probe),
+        ["fresh", "fresh", "two", "two"],
+        "the two windows share one Scene"
+    );
+}
+
+#[test]
+fn ambient_resolves_inside_a_nav_destination() {
+    // The scaffold's load-bearing case: `.destination(…)` and `.item_icon(…, page)` take bare
+    // `fn() -> impl Piece`, so those page functions can only reach window state through
+    // `ambient()`. That works only if the nav builds its destinations INSIDE the providing
+    // scope — assert it rather than assume it.
+    day_pieces::routes! { enum Sec { One => "one", Two => "two" } }
+    fn page() -> AnyPiece {
+        label(move || Scene::ambient().label.read())
+            .id("dest")
+            .any()
+    }
+    let probe = boot(|| {
+        Scene::scoped(|_scene| {
+            let sec = Signal::new(Sec::One);
+            selector(sec)
+                // Both shapes the scaffold uses: a static item with its own builder, and the
+                // `.items(…)` + `.destination(…)` fallback the settings row goes through.
+                .item(Sec::One, "One", page)
+                .items(
+                    move || vec![Sec::Two],
+                    |s: &Sec| day_pieces::item(*s, "Two"),
+                )
+                .destination(|_: &Sec| page())
+                .any()
+        })
+        .any()
+    });
+    flush_sync();
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(_, w)| w.text.clone())
+        .collect();
+    assert!(
+        texts.iter().any(|t| t == "fresh"),
+        "a nav destination could not see the ambient Scene: {texts:?}"
+    );
+}
+
+#[test]
+fn ambient_survives_a_when_remount_and_a_late_each_row() {
+    // `when` and `each` mount their subtrees from a REACTION, and a reaction re-runs with no
+    // scope of its own. A child scope taken there lands under the ROOT scope rather than under
+    // the piece — which puts the new arm/row outside the subtree an ancestor provided into, so
+    // the very same code that worked on the first build panics on the second.
+    let show = Signal::new(false);
+    let rows: Signal<Vec<(u64, &'static str)>> = Signal::new(vec![(1, "a")]);
+    let probe = boot(move || {
+        Scene::scoped(move |_scene| {
+            column((
+                when(
+                    move || show.get(),
+                    || label(move || Scene::ambient().label.read()).id("arm"),
+                ),
+                each(
+                    day_pieces::items(move || rows.get(), |t: &(u64, &str)| t.0),
+                    |slot: ItemSlot<(u64, &'static str), u64>| {
+                        let scene = Scene::ambient();
+                        label(move || format!("{} {}", slot.field(|t| t.1), scene.label.read()))
+                    },
+                ),
+            ))
+            .any()
+        })
+        .any()
+    });
+    flush_sync();
+
+    // A `when` arm mounted long after the build.
+    batch(|| show.set(true));
+    flush_sync();
+    let texts = |p: &MockProbe| -> Vec<String> {
+        p.find_by_kind("day.label")
+            .iter()
+            .map(|(_, w)| w.text.clone())
+            .collect()
+    };
+    assert!(
+        texts(&probe).iter().any(|t| t == "fresh"),
+        "a re-mounted `when` arm lost the ambient Scene: {:?}",
+        texts(&probe)
+    );
+
+    // An `each` row inserted long after the build.
+    batch(|| rows.update(|v| v.push((2, "b"))));
+    flush_sync();
+    assert!(
+        texts(&probe).iter().any(|t| t == "b fresh"),
+        "a late `each` row lost the ambient Scene: {:?}",
+        texts(&probe)
+    );
+}
+
+#[test]
+fn app_ambient_is_one_instance_everywhere() {
+    #[derive(Clone, Copy)]
+    struct Prefs {
+        n: Signal<i64>,
+    }
+    impl Ambient for Prefs {
+        fn create() -> Self {
+            Prefs { n: Signal::new(0) }
+        }
+    }
+    let probe = boot(|| label(move || Prefs::app().n.read().to_string()).any());
+    flush_sync();
+    // Asked for again from OUTSIDE any window — a menu action's position — and it is the same
+    // instance, so the write lands on the label the first call created.
+    Prefs::app().n.set(7);
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "7"),
+        "Prefs::app() handed out a second instance"
+    );
+}
+
+#[test]
+fn a_freshly_opened_window_is_the_focused_one() {
+    // No `Event::WindowFocused` anywhere in this test, deliberately. A toolkit makes a window
+    // key while CREATING it — before day-core has a handler installed to hear about it — so a
+    // registry that only learns focus from events never marks a just-opened window as key, and
+    // File ▸ New Window followed straight away by a menu command sends it to the wrong window.
+    let probe = boot(scene_shell);
+    day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        scene_shell,
+    );
+    flush_sync();
+
+    Scene::focused()
+        .expect("a focused scene")
+        .label
+        .set("new".into());
+    flush_sync();
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(_, w)| w.text.clone())
+        .collect();
+    assert_eq!(
+        texts,
+        ["fresh", "fresh", "new", "new"],
+        "the command went to the primary instead of the window that just opened"
+    );
+}
+
+#[test]
+fn focused_ambient_follows_the_key_window_and_falls_back_to_the_primary() {
+    let probe = boot(scene_shell);
+    day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        scene_shell,
+    );
+    flush_sync();
+    let second_node = probe.windows()[0].node;
+
+    // The secondary reports focus, so an app-wide command resolves to ITS scene.
+    probe.emit(second_node, Event::WindowFocused(true));
+    flush_sync();
+    Scene::focused()
+        .expect("a focused scene")
+        .label
+        .set("hit".into());
+    flush_sync();
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(_, w)| w.text.clone())
+        .collect();
+    assert_eq!(texts, ["fresh", "fresh", "hit", "hit"]);
+
+    // It resigns; nothing else claims focus. That is the primary being key (on AppKit the
+    // primary never emits WindowFocused at all), so the command falls back to the primary.
+    probe.emit(second_node, Event::WindowFocused(false));
+    flush_sync();
+    Scene::focused()
+        .expect("a focused scene")
+        .label
+        .set("main".into());
+    flush_sync();
+    let texts: Vec<String> = probe
+        .find_by_kind("day.label")
+        .iter()
+        .map(|(_, w)| w.text.clone())
+        .collect();
+    assert_eq!(texts, ["main", "main", "hit", "hit"]);
+}
+
+// ---------------------------------------------------------------------------
+// Window identity (docs/windows.md): a New Window describes itself like the app,
+// and `window_title` names a window after what it shows.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_new_window_inherits_the_app_title() {
+    // An untitled window is absent from the macOS Window menu, shows a blank tab, and reaches
+    // the iPad app switcher and the Android recents card with no label — so File ▸ New Window
+    // opening one is not a cosmetic problem. It describes itself like the app that opened it.
+    let probe = boot_titled("Day Rise", || label("main").any());
+    day_core::register_new_window(|| label("second").any());
+    let handle = day_core::open_new_window().expect("a builder is registered");
+    flush_sync();
+
+    assert!(handle.is_open());
+    assert_eq!(probe.windows().len(), 1);
+    assert_eq!(probe.windows()[0].title, "Day Rise");
+}
+
+#[test]
+fn window_title_names_the_window_it_is_built_into() {
+    let primary_name = Signal::global(String::from("primary"));
+    let second_name = Signal::global(String::from("second"));
+    let probe = boot_titled("App", move || {
+        day_core::window_title(move || primary_name.read());
+        label("main").any()
+    });
+    day_core::open_window(
+        None,
+        win_options("placeholder", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        move || {
+            day_core::window_title(move || second_name.read());
+            label("in window").any()
+        },
+    );
+    flush_sync();
+    assert_eq!(probe.windows()[0].title, "second");
+
+    // Reactive, and window-scoped: writing one window's title source leaves the other alone.
+    // (The primary's title is the toolkit's own window, not a `probe.windows()` entry — what
+    // matters here is that the SECONDARY did not follow it.)
+    second_name.set(String::from("Item 6"));
+    flush_sync();
+    assert_eq!(probe.windows()[0].title, "Item 6");
+
+    probe.clear_log();
+    primary_name.set(String::from("Welcome"));
+    flush_sync();
+    assert_eq!(
+        probe.windows()[0].title,
+        "Item 6",
+        "the primary's title binding retitled the secondary window"
+    );
+    // The primary is an ordinary window and must be retitlable too. `probe.windows()` lists only
+    // the secondaries, so the duty log is where that shows — and a backend that searches only its
+    // secondary list drops this silently, which is what day-appkit did.
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("set_window_title") && l.contains("Welcome")),
+        "the primary window was never asked to retitle: {:?}",
+        probe.log()
+    );
 }

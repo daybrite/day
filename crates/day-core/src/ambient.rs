@@ -1,8 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Per-window ambient state (docs/size-classes.md): the facts a backend reports about a WINDOW
-//! rather than about the app — its [`SizeClass`] and its safe-area insets.
+//! Ambient state — values a piece reads without being handed them.
+//!
+//! Two families live here. The first is what a BACKEND reports about a window
+//! (docs/size-classes.md): its [`SizeClass`] and its safe-area insets. The second is what an
+//! APP provides for its own subtree (docs/state.md): [`with_environment`] / [`environment`],
+//! and the [`Ambient`] trait over them that carries per-window and app-wide state.
+//!
+//! They sit together because they answer the same question from opposite ends, and because the
+//! app half belongs BELOW day-pieces: an app's `*-core` crate holds its view-model and has to be
+//! able to `impl Ambient` for it, which the orphan rule forbids when the trait lives one crate
+//! further up.
 //!
 //! Both are reactive, so a piece that reads one re-runs when the backend reports a new value, and
 //! both are keyed by window root for the same reason [`crate::toolbar`] is: one process can show
@@ -16,8 +25,11 @@
 
 use std::cell::RefCell;
 
-use day_reactive::Signal;
+use day_reactive::{Scope, Signal};
 use day_spec::SizeClass;
+
+use crate::build::Piece;
+use crate::{AnyPiece, piece_fn};
 
 use crate::tree::{RNode, with_tree};
 
@@ -189,4 +201,177 @@ pub(crate) fn forget_window(root: RNode) {
 /// Reset every window's ambient state (tests — pairs with `uninstall_tree`).
 pub fn reset_ambient() {
     AMBIENT.with(|m| m.borrow_mut().clear());
+}
+// ---------------------------------------------------------------------------
+// @Environment — ambient values over day-reactive's scope context (§4.3). No backend work.
+// ---------------------------------------------------------------------------
+
+/// Provide an ambient value `T` to `content` and its ENTIRE descendant subtree (the SwiftUI
+/// `@Environment`/`.environment(_)` analog, layered over day-reactive's scope context). `content`
+/// — and any piece built within it — reads it back with [`environment`]. A thin, non-reactive
+/// wrapper: `T` is a snapshot captured here; for a value that must react, provide a `Signal<T>`
+/// (or a `Memo<T>`) and read it reactively inside the subtree.
+///
+/// ```ignore
+/// #[derive(Clone)] struct Theme { accent: Color }
+/// with_environment(Theme { accent: BLUE }, || my_screen())
+/// // deep inside my_screen():  let accent = environment::<Theme>().unwrap().accent;
+/// ```
+pub fn with_environment<T: Clone + 'static, P: Piece>(
+    value: T,
+    content: impl FnOnce() -> P + 'static,
+) -> impl Piece {
+    piece_fn(move |cx| {
+        // A child scope carrying `T`, entered for the whole of `content`'s construction AND build,
+        // so both `content`'s own body and every descendant piece's build resolve it via
+        // `use_context` (which walks scope → ancestors). Owned by the current build scope, so it is
+        // disposed with the enclosing subtree (e.g. a `when` arm) exactly like `when`/`each` scopes.
+        let scope = Scope::child();
+        scope.provide(value);
+        scope.enter(|| content().build(cx))
+    })
+}
+
+/// Read the nearest ambient `T` provided by an enclosing [`with_environment`], or `None` if none is
+/// in scope. Call it while constructing or building a piece within that subtree.
+pub fn environment<T: Clone + 'static>() -> Option<T> {
+    Scope::current().use_context::<T>()
+}
+
+/// The ambient `T` of the window that currently has FOCUS (docs/state.md) — SwiftUI's
+/// `@FocusedValue`.
+///
+/// [`environment`] answers "what did MY ancestors provide", which is the right question inside a
+/// piece and the wrong one inside an app-wide menu action: a desktop menu bar is one bar for the
+/// whole app, and its commands act on the front window. This resolves through that window's own
+/// scope instead of the calling scope, so `File ▸ New Item` adds to the list the user is
+/// looking at. `None` ⇒ no window is open, or the front one provides no `T`.
+pub fn focused_environment<T: Clone + 'static>() -> Option<T> {
+    crate::windows::focused_scope()?.use_context::<T>()
+}
+
+/// The app-wide `T`: created on the reactive ROOT scope the first time it is asked for, and
+/// returned unchanged by every later call (docs/state.md).
+///
+/// The counterpart to [`with_environment`]'s subtree scope — state that belongs to the APP
+/// rather than to a window or a page, reachable from every window, every menu action, and every
+/// task, and alive for as long as the process. `make` runs at most once.
+pub fn app_environment<T: Clone + 'static>(make: impl FnOnce() -> T) -> T {
+    let root = Scope::root();
+    if let Some(existing) = root.use_context::<T>() {
+        return existing;
+    }
+    // Created IN the root scope, not merely stored there: signals inside `T` must outlive
+    // whatever window happened to ask for it first.
+    let value = root.enter(make);
+    root.provide(value.clone());
+    value
+}
+
+/// State an ancestor provides once and any descendant reads back BY TYPE — SwiftUI's
+/// `@EnvironmentObject`, and Day's answer to "where does app state live?" (docs/state.md).
+///
+/// Implement it on a `Copy` struct of HANDLES. `Signal`, `Memo`, `Trigger` and `Store` are all
+/// `Copy` and all cheap, so the struct is a bundle of pointers that rides into closures without
+/// `Rc` or `clone()` ceremony:
+///
+/// ```ignore
+/// #[derive(Clone, Copy)]
+/// struct Scene { selected: Signal<Option<u32>>, items: Store<Keyed<Item>> }
+///
+/// impl Ambient for Scene {
+///     fn create() -> Self { Scene { selected: Signal::new(None), items: Store::new(..) } }
+/// }
+///
+/// // one per window — File ▸ New Window gets its own:
+/// Scene::scoped(|scene| my_shell(scene))
+/// // anywhere below it:
+/// let scene = Scene::ambient();
+/// // in an app-wide menu action, which belongs to no window:
+/// menu_item("New").action(|| if let Some(s) = Scene::focused() { s.add() })
+/// ```
+///
+/// The alternative — a `thread_local!` holding `Signal::global` — is one instance for the whole
+/// process, which is indistinguishable from correct until the app opens a second window
+/// (docs/windows.md) and both windows start sharing a selection.
+pub trait Ambient: Clone + 'static {
+    /// A fresh instance. Called once per providing site: once per window for [`Ambient::scoped`],
+    /// once per process for [`Ambient::app`].
+    fn create() -> Self;
+
+    /// One instance owned by the scope this piece BUILDS in, provided to `content` and
+    /// everything under it. The per-window idiom: call it from a window's shell and each window
+    /// gets its own.
+    ///
+    /// Creation is deferred to build time, which is what makes that true — a piece's
+    /// construction runs in the CALLER's scope, and only its build runs inside the window's
+    /// (`day_core::launch_with` for the primary, `open_window` for the rest). Creating the state
+    /// eagerly would hand every window the first one's.
+    ///
+    /// It provides on the CURRENT scope rather than a fresh child, and at a window's root that
+    /// scope is the window's own. That is what lets [`Ambient::focused`] find it: a context
+    /// lookup walks ancestors, so a value tucked into a child of the window scope would be
+    /// invisible to anything resolving from the window down — including every app-wide menu
+    /// command.
+    fn scoped<P: Piece>(content: impl FnOnce(Self) -> P + 'static) -> AnyPiece
+    where
+        Self: Sized,
+    {
+        AnyPiece::new(piece_fn(move |cx| {
+            let scope = Scope::current();
+            let value = Self::create();
+            scope.provide(value.clone());
+            content(value).build(cx)
+        }))
+    }
+
+    /// The one app-wide instance, created on first use and alive for the whole process. Visible
+    /// from every window, menu action, and task — no `with_environment` needed.
+    fn app() -> Self
+    where
+        Self: Sized,
+    {
+        app_environment(Self::create)
+    }
+
+    /// The nearest instance an ancestor provided, panicking when there is none. The read a piece
+    /// writes when the value is a precondition of it existing at all — like
+    /// `@EnvironmentObject`, which likewise traps rather than rendering something wrong.
+    ///
+    /// A BUILD-TIME read, like [`environment`]: call it in a piece's body and capture the value
+    /// in whatever closures need it. Calling it *inside* a reactive closure works on the first
+    /// run and panics on the next, because a re-running reaction is no longer inside the scope
+    /// that provided the value.
+    fn ambient() -> Self
+    where
+        Self: Sized,
+    {
+        Self::try_ambient().unwrap_or_else(|| {
+            let t = std::any::type_name::<Self>();
+            panic!(
+                "day: no ambient `{t}` in scope. Provide one above this piece with \
+                 `{t}::scoped(…)` (per window) or `{t}::app()` (app-wide). If there IS one, \
+                 this read is running too late: `ambient()` resolves while a piece BUILDS, so \
+                 read it in the piece's body and capture the value rather than calling it \
+                 inside a reactive closure (docs/state.md)."
+            )
+        })
+    }
+
+    /// [`Ambient::ambient`] without the panic.
+    fn try_ambient() -> Option<Self>
+    where
+        Self: Sized,
+    {
+        environment::<Self>()
+    }
+
+    /// The instance belonging to the window that currently has focus — what an app-wide menu
+    /// command acts on. See [`focused_environment`].
+    fn focused() -> Option<Self>
+    where
+        Self: Sized,
+    {
+        focused_environment::<Self>()
+    }
 }

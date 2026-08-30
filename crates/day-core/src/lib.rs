@@ -42,9 +42,10 @@ pub mod tree_driver;
 pub mod windows;
 
 pub use ambient::{
-    override_size_class, reset_ambient, restore_reported_size_class, safe_area, set_safe_area,
-    set_size_class, set_window_safe_area, set_window_size_class, size_class, window_safe_area,
-    window_size_class, window_size_class_untracked,
+    Ambient, app_environment, environment, focused_environment, override_size_class, reset_ambient,
+    restore_reported_size_class, safe_area, set_safe_area, set_size_class, set_window_safe_area,
+    set_window_size_class, size_class, window_safe_area, window_size_class,
+    window_size_class_untracked, with_environment,
 };
 pub use anim::{current_anim, with_animation};
 pub use build::*;
@@ -60,7 +61,8 @@ pub use list::{
     list_try_delete, list_try_reorder, list_try_swipe,
 };
 pub use menu::{
-    dispatch_menu_action, register_menu_action, register_scoped_menu_action, set_app_menu,
+    dispatch_menu_action, has_app_menu, register_menu_action, register_scoped_menu_action,
+    set_app_menu,
 };
 pub use nav::*;
 pub use present::*;
@@ -79,9 +81,9 @@ pub use day_spec::resource::{
 };
 pub use tree::*;
 pub use windows::{
-    WindowHandle, finish_window_open, focused_window, open_new_window, open_preferences,
-    open_window, register_new_window, register_preferences, register_preferences_with,
-    window_by_key,
+    WindowHandle, finish_window_open, focused_scope, focused_window, open_new_window,
+    open_preferences, open_window, register_new_window, register_preferences,
+    register_preferences_with, window_by_key, window_title,
 };
 
 /// The app-wide layout direction (docs/localization): mirrors every horizontal placement in
@@ -620,6 +622,9 @@ pub fn launch_with<P: Platform>(
     {
         options.size = day_spec::Size::new(w, h);
     }
+    // Remember what the app asked for, so File ▸ New Window can open another window of the same
+    // app rather than an untitled one the platform cannot list (docs/windows.md).
+    windows::set_launch_options(&options);
     // Reactive plumbing rides the platform's main-loop poster. Both doors CONTAIN panics (the
     // `pump_events` rationale, tree.rs): posted closures run inside native main-loop trampolines
     // (a glib idle, a GCD block) that ABORT the process on unwind (`panic_cannot_unwind`) — so a

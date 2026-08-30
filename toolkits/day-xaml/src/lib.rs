@@ -2734,8 +2734,10 @@ impl Toolkit for Xaml {
     }
 
     fn set_window_title(&mut self, host: &WinHandle, title: &str) {
-        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
-            unsafe { ffi::day_xaml_window_set_title2(w.win, cstr(title).as_ptr()) };
+        // `window_token` covers the primary too — it is an ordinary window (docs/windows.md),
+        // and `day::window_title` in the FIRST window's shell arrives here like any other.
+        if let Some(win) = self.window_token(host) {
+            unsafe { ffi::day_xaml_window_set_title2(win, cstr(title).as_ptr()) };
         }
     }
 

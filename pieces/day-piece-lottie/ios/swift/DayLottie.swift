@@ -10,17 +10,30 @@
 import UIKit
 import Lottie
 
-/// Create a LottieAnimationView for the bundled animation `name` (`name.json` in the app bundle) and
-/// return it as a +1-retained pointer — the Rust caller takes ownership (wraps it as Retained<UIView>).
+/// Create a LottieAnimationView for the bundled animation and return it as a +1-retained pointer —
+/// the Rust caller takes ownership (wraps it as Retained<UIView>).
+///
+/// `path` is the animation resolved from the project's `resource/assets/`, which `day build` stages
+/// into the bundle's `assets/` subdirectory. It is preferred because `LottieAnimationView(name:)`
+/// searches only the bundle ROOT, where Day stages nothing — an app relying on that would have to
+/// add a second copy of the JSON to its Xcode project by hand. `name` remains the fallback for the
+/// projects that did exactly that.
 @_cdecl("day_lottie_new")
 public func day_lottie_new(
     _ namePtr: UnsafePointer<CChar>,
+    _ pathPtr: UnsafePointer<CChar>,
     _ looping: Bool,
     _ autoplay: Bool,
     _ speed: Double
 ) -> UnsafeMutableRawPointer {
     let name = String(cString: namePtr)
-    let view = LottieAnimationView(name: name)
+    let path = String(cString: pathPtr)
+    let view: LottieAnimationView
+    if !path.isEmpty, let animation = LottieAnimation.filepath(path) {
+        view = LottieAnimationView(animation: animation)
+    } else {
+        view = LottieAnimationView(name: name)
+    }
     view.contentMode = .scaleAspectFit
     view.loopMode = looping ? .loop : .playOnce
     view.animationSpeed = CGFloat(speed)

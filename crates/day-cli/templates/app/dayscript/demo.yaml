@@ -105,3 +105,21 @@ flow:
   - assert_visible: { id: theme-picker, skip_on: [appkit, gtk, qt, xaml, mdc] }
   - assert_visible: { id: language-picker, skip_on: [appkit, gtk, qt, xaml] }
   - screenshot: settings
+
+  # --- A second window ----------------------------------------------------------------------
+  # File ▸ New Window builds the SAME shell a second time (https://daybrite.dev/docs/windows),
+  # and `Scene::scoped` hands that build its own document, filter and selection
+  # (https://daybrite.dev/docs/state). What this leg covers is the whole second-shell build —
+  # a per-window state bug shows up here as a panic rather than a wrong pixel. Desktop only;
+  # where windows are unsupported the same piece presents as a fullscreen cover instead.
+  #
+  # LAST in the file, deliberately: element ids resolve across the whole tree, and a second
+  # copy of this shell duplicates every one of them.
+  #
+  # The screenshot is the PRIMARY window — a capture targets one window, and a New Window has
+  # no key to name it by. That the two windows are actually INDEPENDENT is a desktop check by
+  # hand (open one, select different rows in each); no walkthrough can assert it.
+  - menu: { key: day-new-window, only_on: [appkit, gtk, qt, xaml] }
+  - wait_idle: { only_on: [appkit, gtk, qt, xaml] }
+  - assert_visible: { id: item-list, only_on: [appkit, gtk, qt, xaml] }
+  - screenshot: { name: after-new-window, only_on: [appkit, gtk, qt, xaml] }
