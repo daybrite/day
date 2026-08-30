@@ -22,7 +22,7 @@ uuid = { version = "1", default-features = false }
 uuid = { version = "1", default-features = false, features = ["std", "rng", "v4", "v7"] }
 
 [dev-dependencies]
-day-macros = { path = "../day-macros", version = "=0.3.1" }
+day-macros = { path = "../day-macros", version = "=0.3.2" }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-spec = { workspace = true }

@@ -50,7 +50,7 @@ day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 # `persistence`: SQLite codecs only — no engine, no driver, so this never drags rusqlite in.
-day-persistence = { path = "../../crates/day-persistence", version = "=0.3.1", default-features = false, optional = true }
+day-persistence = { path = "../../crates/day-persistence", version = "=0.3.2", default-features = false, optional = true }
 day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
