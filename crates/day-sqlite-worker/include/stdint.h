@@ -108,15 +108,22 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #define WINT_MIN (-__WINT_MAX__ - 1)
 #endif
 
-#define INT8_C(c) __INT8_C(c)
-#define INT16_C(c) __INT16_C(c)
-#define INT32_C(c) __INT32_C(c)
-#define INT64_C(c) __INT64_C(c)
-#define UINT8_C(c) __UINT8_C(c)
-#define UINT16_C(c) __UINT16_C(c)
-#define UINT32_C(c) __UINT32_C(c)
-#define UINT64_C(c) __UINT64_C(c)
-#define INTMAX_C(c) __INTMAX_C(c)
-#define UINTMAX_C(c) __UINTMAX_C(c)
+// The constant macros spell their suffixes here rather than deferring to the gcc-style
+// __INT64_C()/__UINT64_C() family, which is the ONE part of the predefine set that is not
+// universal: gcc defines it, clang only started to, and the clang 18 that Ubuntu 24.04 ships
+// (what the Linux CI runners compile this with) does not. There the deferral expanded
+// `UINT64_C(x)` into a call to an undeclared `__UINT64_C`, which failed every wasm build of
+// the amalgamation. `LL`/`ULL` is musl's spelling and satisfies the standard, which asks only
+// for a constant of at least the named width.
+#define INT8_C(c) c
+#define INT16_C(c) c
+#define INT32_C(c) c
+#define INT64_C(c) c##LL
+#define UINT8_C(c) c
+#define UINT16_C(c) c
+#define UINT32_C(c) c##U
+#define UINT64_C(c) c##ULL
+#define INTMAX_C(c) c##LL
+#define UINTMAX_C(c) c##ULL
 
 #endif
