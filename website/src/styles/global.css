@@ -3,7 +3,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 */
 
-/* day — design system. Dark, modern, with a warm "sunrise" brand gradient over a cool blue.
+/* day — design system. Dark, modern, with a warm "sunrise" accent over a cool blue.
    No external fonts or CSS deps: a strong system stack + spacing/color do the work. */
 
 :root {
@@ -27,8 +27,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --hover: rgba(255, 255, 255, 0.05);
   --hover-strong: rgba(255, 255, 255, 0.09);
 
-  --grad-day: linear-gradient(115deg, #ffc861 0%, #ff8f5e 38%, #6aa4ff 100%);
-  --grad-text: linear-gradient(115deg, #ffd07a 0%, #ff9e73 42%, #7fb2ff 100%);
+  /* The one warm accent: highlighted phrases in headings, and the primary button's fill. Both
+     wear the same color so an emphasized phrase and the button under it read as one voice, with
+     blue left to links, the brand mark, and the platform palette.
+     `--accent-ink` is what sits ON the accent, and the pair is chosen per theme for contrast: on
+     this near-black ground a bright amber carries near-black text at 11.6:1, while on white it
+     would be unreadable, so the light palette swaps in a deep amber under white text. */
+  --accent: #ffc24b;
+  --accent-ink: #14120c;
 
   /* Per-target platform accents, used wherever the site names a platform (landing grid,
      gallery captions, hero carousel, docs prose). The palette is the iOS system palette
@@ -104,7 +110,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --hover: rgba(15, 25, 48, 0.05);
   --hover-strong: rgba(15, 25, 48, 0.09);
 
-  --grad-text: linear-gradient(115deg, #e08a00 0%, #f9703e 42%, #2f6fde 100%);
+  /* Deep amber rather than the dark theme's bright one: 5.0:1 on white, both as heading text and
+     as a button fill under white ink. It sits a shade redder than `--sun` above, close enough
+     that an amber eyebrow over an accented heading still reads as one family. */
+  --accent: #b45309;
+  --accent-ink: #ffffff;
   --shadow: 0 18px 46px -22px rgba(20, 33, 66, 0.26);
 
   /* The iOS palette's LIGHT variants — the shades Apple tuned for white backgrounds. */
@@ -185,22 +195,11 @@ code, pre { font-family: var(--mono); }
 }
 .lead { color: var(--muted); font-size: 1.12rem; max-width: 62ch; }
 
-/* Gradient text. Guarded with @supports so engines that can't clip a background to the glyphs
-   (some older Chromium-based WebView / QtWebEngine builds) fall back to a solid, readable color
-   instead of painting the gradient as a filled rectangle over now-invisible text. The gradient
-   background and the transparent fill are applied ONLY inside the @supports block, so a
-   non-supporting engine never receives a background to mis-paint. */
-.grad-text {
-  color: var(--brand-strong);
-}
-@supports ((-webkit-background-clip: text) or (background-clip: text)) {
-  .grad-text {
-    background-image: var(--grad-text);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-  }
+/* The highlighted phrase inside a heading. A plain color, so it needs no `background-clip: text`
+   and the @supports guard that used to sit here for engines that cannot clip a background to the
+   glyphs (some older Chromium-based WebView / QtWebEngine builds). */
+.accent-text {
+  color: var(--accent);
 }
 
 /* ---- buttons ---- */
@@ -218,12 +217,18 @@ code, pre { font-family: var(--mono); }
   white-space: nowrap;
 }
 .btn:hover { transform: translateY(-1px); }
+/* The glow is mixed from the accent rather than written as a fixed warm rgba, so it stays the
+   button's own color in both themes instead of casting a dark-theme amber under a light-theme
+   fill. */
 .btn-primary {
-  background: var(--grad-day);
-  color: #14120c;
-  box-shadow: 0 12px 30px -12px rgba(255, 160, 90, 0.6);
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 12px 30px -12px color-mix(in srgb, var(--accent) 60%, transparent);
 }
-.btn-primary:hover { color: #14120c; box-shadow: 0 16px 40px -12px rgba(255, 160, 90, 0.75); }
+.btn-primary:hover {
+  color: var(--accent-ink);
+  box-shadow: 0 16px 40px -12px color-mix(in srgb, var(--accent) 75%, transparent);
+}
 .btn-ghost {
   background: var(--hover);
   border-color: var(--border);
