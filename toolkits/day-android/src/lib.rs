@@ -2877,9 +2877,16 @@ mod imp {
             );
         }
 
-        fn move_child(&mut self, parent: &AHandle, child: &AHandle, _to: usize) {
-            self.remove(parent, child);
-            self.insert(parent, child, 0);
+        fn move_child(&mut self, parent: &AHandle, child: &AHandle, to: usize) {
+            call_void(
+                "moveChild",
+                "(Landroid/view/View;Landroid/view/View;I)V",
+                &[
+                    JValue::Object(parent.0.as_obj()),
+                    JValue::Object(child.0.as_obj()),
+                    JValue::Int(to as i32),
+                ],
+            );
         }
 
         fn measure(&mut self, h: &AHandle, kind: PieceKind, p: Proposal) -> Size {

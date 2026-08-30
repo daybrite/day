@@ -4360,6 +4360,12 @@ pub trait Toolkit: Sized + 'static {
     // tree
     fn insert(&mut self, parent: &Self::Handle, child: &Self::Handle, index: usize);
     fn remove(&mut self, parent: &Self::Handle, child: &Self::Handle);
+    /// Put `child` at index `to` among `parent`'s native children — day's z-order resync, which
+    /// walks the whole sibling row and asks for every position in turn. A child already AT `to`
+    /// must therefore cost nothing: a backend that re-parents unconditionally pays for the
+    /// untouched siblings too, and where re-parenting means detach-then-add (no ViewGroup move
+    /// primitive on Android) the detach resigns the focus of everything inside the subtree —
+    /// which is how a text field being typed into loses the keyboard (docs/focus.md).
     fn move_child(&mut self, parent: &Self::Handle, child: &Self::Handle, to: usize);
 
     // geometry (§7): frames are in the nearest realized native ancestor's space, in points.

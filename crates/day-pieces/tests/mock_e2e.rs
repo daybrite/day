@@ -515,6 +515,59 @@ fn each_keyed_diff_touches_only_changes() {
 }
 
 #[test]
+fn each_rerun_without_a_reorder_leaves_the_native_children_alone() {
+    // An `each` re-runs its diff whenever its source closure's tracked reads wake it, which is
+    // far more often than the ORDER changes: a projection that reads its store coarsely re-runs
+    // for every keystroke in a field that store also feeds. Re-inserting the rows on each of
+    // those is churn everywhere, and on a backend whose `move_child` detaches first it also
+    // drops the keyboard focus of the field being typed into (docs/focus.md).
+    let bump = Signal::new(0u32);
+    let items: Signal<Vec<(u64, String)>> = Signal::new(vec![
+        (1, "one".into()),
+        (2, "two".into()),
+        (3, "three".into()),
+    ]);
+    let probe = boot(move || {
+        column((each(
+            day_pieces::items(
+                move || {
+                    bump.get(); // the coarse read the order does not depend on
+                    items.get()
+                },
+                |t: &(u64, String)| t.0,
+            ),
+            move |slot: ItemSlot<(u64, String), u64>| label(move || slot.field(|t| t.1.clone())),
+        ),))
+        .any()
+    });
+
+    probe.clear_log();
+    batch(|| bump.set(1));
+    flush_sync();
+    assert!(
+        !probe.log().iter().any(|l| l.starts_with("move ")),
+        "same order, so nothing to move: {:?}",
+        probe.log()
+    );
+
+    // A real reorder still resyncs, and lands in the source's order.
+    probe.clear_log();
+    batch(|| items.update(|v| v.swap(0, 2)));
+    flush_sync();
+    assert!(
+        probe.log().iter().any(|l| l.starts_with("move ")),
+        "a changed order must resync: {:?}",
+        probe.log()
+    );
+    let order: Vec<String> = container_of_labels(&probe)
+        .children
+        .iter()
+        .map(|c| probe.widget(MockHandle(*c)).text)
+        .collect();
+    assert_eq!(order, ["three", "two", "one"]);
+}
+
+#[test]
 fn spacer_takes_remaining_space() {
     let probe = boot(|| {
         // Row inside a fixed 400-wide window: label 16 + spacer + label 24 → spacer 360.

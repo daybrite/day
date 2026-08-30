@@ -964,6 +964,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn reorder_children(&mut self, parent: RNode, order: Vec<RNode>) {
+        // Nothing moved — and the resync below is not free. `each` re-runs its diff whenever the
+        // source closure's tracked reads wake it, which is far more often than the ORDER changes:
+        // a projection that reads its store coarsely re-runs for every keystroke in a field that
+        // store also feeds. Re-inserting every native descendant on each of those is churn on the
+        // backends that can re-parent cheaply, and on the ones whose `move_child` detaches first
+        // (android, arkui) it also drops the keyboard focus of a text field inside the subtree
+        // (docs/focus.md) — the field a user was typing into loses focus per character.
+        if self.nodes.get(parent).is_some_and(|p| p.children == order) {
+            return;
+        }
         if let Some(p) = self.nodes.get_mut(parent) {
             p.children = order;
         }

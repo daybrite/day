@@ -1004,6 +1004,36 @@ public final class DayBridge {
         View target = contentOf(parent);
         if (target instanceof ViewGroup) ((ViewGroup) target).addView(child);
     }
+
+    /**
+     * Put an existing child at `index` among its siblings — Day's z-order resync
+     * (Toolkit::move_child), which walks the whole sibling row and asks for each position in
+     * turn.
+     *
+     * A ViewGroup has no move primitive, so the fallback is remove-then-add — and that DETACHES:
+     * {@link ViewGroup#removeView} unfocuses the view and everything under it, so a moved subtree
+     * containing the field the user is typing into loses its focus and the soft keyboard
+     * (docs/focus.md). Hence the two rules here: a child already at `index` is left alone, and one
+     * that has to move is re-added AT that index rather than appended — appending would make the
+     * caller's next position wrong and drag every later sibling through a detach as well.
+     */
+    public static void moveChild(View parent, View child, int index) {
+        // See addChild: a presented cover shell is native-owned and keeps its own z-order.
+        if (child instanceof DayCover && ((DayCover) child).presented) return;
+        View target = contentOf(parent);
+        if (target instanceof ViewGroup && child.getParent() == target) {
+            ViewGroup g = (ViewGroup) target;
+            if (g.indexOfChild(child) == index) return;
+            g.removeView(child);
+            g.addView(child, Math.max(0, Math.min(index, g.getChildCount())));
+            return;
+        }
+        // Not a plain child of this group: a nav page, a tab page, a presented cover. Those route
+        // through their host, which owns their order itself.
+        removeChild(child);
+        addChild(parent, child);
+    }
+
     public static void removeChild(View child) {
         // See addChild: a presented cover shell is native-owned.
         if (child instanceof DayCover && ((DayCover) child).presented) return;
