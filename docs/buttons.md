@@ -46,7 +46,7 @@ loss than a colored rectangle that no longer behaves like a button anywhere.
 | `.tint(color)` | A filled button in an app-chosen color |
 
 `.tint()` wins over `.bordered()` and `.prominent()`, being the more specific ask. It takes a
-reactive color, so a button can recolour with app state without being rebuilt:
+reactive color, so a button can recolor with app state without being rebuilt:
 
 ```rust
 button("Record").tint(move || if recording.get() { RUST } else { SLATE })

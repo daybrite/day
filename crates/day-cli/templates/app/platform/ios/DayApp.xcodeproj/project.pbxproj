@@ -18,6 +18,7 @@
 		DA0000000000000000000003 /* {{pascal}}.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = {{pascal}}.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DA0000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		DA0000000000000000000006 /* DayApp.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = DayApp.xcconfig; sourceTree = "<group>"; };
+		DA0000000000000000000007 /* {{pascal}} */ = {isa = PBXFileReference; lastKnownFileType = folder; name = {{pascal}}; path = "../.."; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -35,6 +36,7 @@
 		DA0000000000000000000010 = {
 			isa = PBXGroup;
 			children = (
+				DA0000000000000000000007 /* {{pascal}} */,
 				DA0000000000000000000011 /* Runner */,
 				DA0000000000000000000005 /* Assets.xcassets */,
 				DA0000000000000000000006 /* DayApp.xcconfig */,
@@ -140,7 +142,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${DAY_BIN:-day}\" xcode-backend build\n";
+			shellScript = "# `day build` exports DAY_BIN. A build started from the Xcode GUI instead runs with Xcode's\n# own minimal PATH — no shell profile, so no ~/.cargo/bin — and resolves the CLI here:\n# PATH first, then the standard install locations.\nif [ -z \"${DAY_BIN:-}\" ]; then DAY_BIN=\"$(command -v day || true)\"; fi\nif [ -z \"$DAY_BIN\" ]; then\n  for c in \"$HOME/.cargo/bin/day\" /opt/homebrew/bin/day /usr/local/bin/day; do\n    if [ -x \"$c\" ]; then DAY_BIN=\"$c\"; break; fi\n  done\nfi\nif [ -z \"$DAY_BIN\" ]; then\n  echo \"error: the day CLI was not found — install it with 'cargo install day-cli', or set DAY_BIN in the scheme's run-script environment\" >&2\n  exit 1\nfi\n\"$DAY_BIN\" xcode-backend build\n";
 		};
 		DA0000000000000000000044 /* Stage Day Strings */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -155,7 +157,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\"${DAY_BIN:-day}\" xcode-backend stage-strings\n";
+			shellScript = "# Same resolution as the `Build Rust (day)` phase above (Xcode GUI builds have no\n# shell-profile PATH).\nif [ -z \"${DAY_BIN:-}\" ]; then DAY_BIN=\"$(command -v day || true)\"; fi\nif [ -z \"$DAY_BIN\" ]; then\n  for c in \"$HOME/.cargo/bin/day\" /opt/homebrew/bin/day /usr/local/bin/day; do\n    if [ -x \"$c\" ]; then DAY_BIN=\"$c\"; break; fi\n  done\nfi\nif [ -z \"$DAY_BIN\" ]; then\n  echo \"error: the day CLI was not found — install it with 'cargo install day-cli', or set DAY_BIN in the scheme's run-script environment\" >&2\n  exit 1\nfi\n\"$DAY_BIN\" xcode-backend stage-strings\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

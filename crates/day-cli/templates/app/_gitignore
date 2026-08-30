@@ -26,6 +26,10 @@ DerivedData/
 platform/android/.gradle/
 platform/android/**/build/
 platform/android/local.properties
+# Android Studio writes its project model into the Gradle root it opens. The Xcode counterpart
+# (xcuserdata/) is above; this is the same thing for the other IDE, and without it the first
+# person to open platform/android in Studio leaves a dozen untracked files behind.
+platform/android/.idea/
 
 # The website is generated from repo data: the daysite template clone (local preview) and the
 # synthesized data files. Only website/site.toml and website/theme.css are source.

@@ -1085,10 +1085,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # No setup-java — Gradle runs on the runner's default preinstalled JDK (Day accepts 17+;
-      # Gradle 9.6 supports 17…26). setup-gradle pins the Gradle version; the JDK is the runner's.
+      # Gradle 9.7 supports 17…26). setup-gradle pins the Gradle version; the JDK is the runner's.
+      # Keep this in step with the scaffold's gradle-wrapper.properties (the template comment
+      # names this pin) so a scaffolded app and the framework agree on one Gradle.
       - uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "9.6.1"
+          gradle-version: "9.7.1"
           add-job-summary: "never"
       - uses: taiki-e/install-action@v2
         with:

@@ -333,6 +333,12 @@ pub fn tool_version(key: &str) -> Option<String> {
         "day" => Some(env!("DAY_VERSION_LONG").to_string()),
         "xcode" => probe("xcodebuild", &["-version"]),
         "clang" => probe("clang", &["--version"]),
+        // PATH's gradle, which is what `day build` runs UNLESS the app carries a `./gradlew`
+        // (`pack::android::gradle_program`). This function is keyed only by tool name and is shared
+        // by `day pack` (record) and `day rebuild` (verify), so both sides probe the same thing and
+        // verification stays consistent — but for a project with a wrapper, the version recorded
+        // here is not necessarily the one that built the artifact. Fixing that means threading the
+        // project into both sides.
         "gradle" => probe("gradle", &["--version"]).or_else(|| probe("gradle", &["-v"])),
         "java" => probe("javac", &["-version"]),
         "ndk" => std::env::var("ANDROID_NDK_HOME")

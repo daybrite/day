@@ -19,6 +19,34 @@ use crate::targets::Target;
 
 const DEV_KEYSTORE_PASS: &str = "day-dev-only"; // dev keystore: local installs only, never distribution
 
+/// The Gradle to run for an app: its own `./gradlew` when it carries one, else `gradle` from PATH.
+///
+/// A wrapper pins the Gradle version inside the project (`gradle/wrapper/gradle-wrapper.properties`),
+/// and that pin is what an IDE already obeys. Preferring the wrapper here is what makes `day build`
+/// and Android Studio compile the app with the SAME Gradle, instead of each using whichever one it
+/// happens to find — a difference that shows up as a build that works in one and not the other.
+///
+/// Returned as an ABSOLUTE path on purpose. `Command`'s program lookup is not consistently relative
+/// to `current_dir` across platforms — on Unix the child chdirs before `exec`, on Windows the
+/// program is resolved in the parent's directory — so a literal `./gradlew` would silently mean
+/// two different files. Joining it onto the directory removes the question.
+///
+/// Presence alone decides. A `gradlew` without its executable bit fails with a permission error
+/// naming the file, which is a better answer than quietly building with a different Gradle than
+/// the one the project asked for.
+pub(crate) fn gradle_program(android_dir: &Path) -> PathBuf {
+    let wrapper = android_dir.join(if cfg!(windows) {
+        "gradlew.bat"
+    } else {
+        "gradlew"
+    });
+    if wrapper.is_file() {
+        wrapper
+    } else {
+        PathBuf::from("gradle")
+    }
+}
+
 /// Day.toml → `build/day/android/day-app.properties` (applicationId, versionCode, versionName,
 /// title). Written on every android build (`day build` too) so the Gradle scaffold never goes
 /// stale (§17.5). Identity is RESOLVED for the android target, so `[app.android]` /
@@ -93,8 +121,9 @@ pub fn pack(
     if formats.iter().any(|f| f == "aab") && opts.profile == Profile::Release {
         status("Building", "android-mdc (gradle bundleRelease)");
         let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
-        let mut cmd = Command::new("gradle");
-        cmd.current_dir(project.root.join("platform/android"))
+        let android_dir = project.root.join("platform/android");
+        let mut cmd = Command::new(gradle_program(&android_dir));
+        cmd.current_dir(&android_dir)
             .env("DAY_BIN", &day_bin)
             .env("DAY_PROJECT_ROOT", &project.root)
             .env("DAY_PROFILE", opts.profile.as_str())
@@ -319,4 +348,74 @@ fn latest_build_tools() -> Option<PathBuf> {
         .collect();
     versions.sort();
     versions.pop()
+}
+
+#[cfg(test)]
+mod gradle_tests {
+    use super::gradle_program;
+    use std::path::{Path, PathBuf};
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("day-gradlew-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir"); // test-only setup
+        dir
+    }
+
+    /// Without a wrapper, PATH's `gradle` — the behavior every project had before wrappers were
+    /// consulted at all.
+    #[test]
+    fn no_wrapper_means_path_gradle() {
+        let dir = scratch("bare");
+        assert_eq!(gradle_program(&dir), Path::new("gradle"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A wrapper wins, and comes back ABSOLUTE. A relative `./gradlew` would be resolved against
+    /// day's own working directory on Windows rather than the project's, so the two platforms would
+    /// run different files from identical code.
+    #[test]
+    fn a_wrapper_wins_and_is_absolute() {
+        let dir = scratch("wrapped");
+        let name = if cfg!(windows) {
+            "gradlew.bat"
+        } else {
+            "gradlew"
+        };
+        std::fs::write(dir.join(name), "#!/bin/sh\n").expect("write wrapper"); // test-only setup
+        let found = gradle_program(&dir);
+        assert_eq!(found, dir.join(name));
+        assert!(found.is_absolute(), "{} must be absolute", found.display());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The wrapper is a FILE. A directory of that name is not a launcher, and treating it as one
+    /// would replace a working PATH build with a permission error.
+    #[test]
+    fn a_directory_named_gradlew_is_not_a_wrapper() {
+        let dir = scratch("dir");
+        let name = if cfg!(windows) {
+            "gradlew.bat"
+        } else {
+            "gradlew"
+        };
+        std::fs::create_dir_all(dir.join(name)).expect("make dir"); // test-only setup
+        assert_eq!(gradle_program(&dir), Path::new("gradle"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The OTHER platform's wrapper name is not this platform's launcher: a `gradlew.bat` beside a
+    /// Unix build is not runnable there, and vice versa.
+    #[test]
+    fn the_other_platforms_wrapper_is_ignored() {
+        let dir = scratch("crossname");
+        let other = if cfg!(windows) {
+            "gradlew"
+        } else {
+            "gradlew.bat"
+        };
+        std::fs::write(dir.join(other), "").expect("write wrapper"); // test-only setup
+        assert_eq!(gradle_program(&dir), Path::new("gradle"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

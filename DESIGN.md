@@ -3330,10 +3330,17 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
 
 ### §17.4 The build callback (flutter's pattern, exactly — including the details flutter learned the slow way)
 
-- **ios/**: the Runner target's Run-Script phase is exactly **`"$DAY_BIN" xcode-backend build`** —
-  arg-less plumbing that reads `CONFIGURATION`/`ARCHS`/`BUILT_PRODUCTS_DIR`/`PLATFORM_NAME` from
+- **ios/**: the Runner target's Run-Script phase resolves the CLI, then calls the arg-less
+  **`"$DAY_BIN" xcode-backend build`** — plumbing that reads
+  `CONFIGURATION`/`ARCHS`/`BUILT_PRODUCTS_DIR`/`PLATFORM_NAME` from
   Xcode's environment (flutter's `xcode_backend.sh` pattern; a fully-parameterized checked-in
-  invocation would fossilize flags into user projects). Inside: configuration→cargo-profile
+  invocation would fossilize flags into user projects). The resolution (2026-08) exists for
+  builds started from the Xcode GUI, which run on Xcode's own minimal PATH with no shell
+  profile: `DAY_BIN` (exported by `day build`) wins, then `command -v day`, then the standard
+  install locations (`~/.cargo/bin`, Homebrew, `/usr/local/bin`), with a named error rather
+  than sh's bare `day: command not found`. The scaffolded projects also carry a plain folder
+  reference to the app root (never in any build phase), so the Rust sources are browsable and
+  editable from inside Xcode. Inside: configuration→cargo-profile
   mapping by case-insensitive substring with a `DAY_BUILD_MODE` override (miette error listing
   accepted names); the space-separated `ARCHS` list is split, **one cargo build per (arch, sdk),
   `lipo`'d together** (a single `--arch "$ARCHS"` is wrong for universal builds); output is the
@@ -3358,6 +3365,12 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   checks), `outputs.upToDateWhen { false }`, `ExecOperations` only inside `@TaskAction`, invoking
   the arg-less `"$DAY_BIN" gradle-backend build`. A tested Gradle/AGP version matrix is published;
   CI builds the scaffold with `--configuration-cache` ([§20](#20-continuous-integration)).
+  The scaffold also commits `gradle/wrapper/gradle-wrapper.properties`, pinning the Gradle version
+  the app builds with; `day build` runs the app's own `./gradlew` when it has one and falls back to
+  `gradle` on PATH otherwise, so the CLI and an IDE build with the same Gradle. Only the properties
+  are committed, not `gradlew` and its jar: an IDE resolves the distribution from the properties
+  alone. Without that file an IDE writes its own, pinned to AGP's declared minimum — a milestone
+  build newer Android Studio then refuses to sync against.
 - **Freshness and fresh clones**: both callback entrypoints regenerate conveyance from `Day.toml`
   first (content-hashed, [§17.5](#175-metadata-conveyance-daytoml--each-build-system)); because Xcode reads xcconfig *before* the phase runs, drift is
   detected and that build fails with "metadata changed — build again". `settings.gradle.kts`

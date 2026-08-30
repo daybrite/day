@@ -251,7 +251,26 @@ fn cargo_metadata_inner(
     all_features: bool,
 ) -> Result<Metadata, String> {
     let manifest = project.root.join("Cargo.toml");
-    let mut cmd = Command::new("cargo");
+    // Resolve cargo the way the build commands do (day_toolchain: RUSTUP_HOME-aware, plus the
+    // toolchain's bin dir on the child's PATH — the raw toolchain cargo finds `rustc` through
+    // PATH), never from the ambient environment alone: an Xcode GUI script phase runs on
+    // Xcode's minimal PATH with no ~/.cargo/bin, where this call failed — and because every
+    // metadata consumer degrades rather than fails, that surfaced as feature_union quietly
+    // dropping every optional piece, i.e. ⟨kind⟩ placeholders on GUI builds only. The ambient
+    // PATH stays as fallback and tail.
+    let mut cmd = match crate::mobile::rustup_cargo() {
+        Ok((cargo, bin)) => {
+            let mut cmd = Command::new(cargo);
+            let home = std::env::var("HOME").unwrap_or_default();
+            let path = std::env::var("PATH").unwrap_or_default();
+            cmd.env(
+                "PATH",
+                format!("{}:{home}/.cargo/bin:{path}", bin.display()),
+            );
+            cmd
+        }
+        Err(_) => Command::new("cargo"),
+    };
     // Run from the project root, like every build command: cargo discovers `.cargo/config.toml`
     // (the `day patch` table) from the CURRENT DIRECTORY, not the manifest path. Without this,
     // `day` invoked from outside the project resolves the graph without the patch table — a crate

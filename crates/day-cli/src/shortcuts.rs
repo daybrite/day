@@ -425,7 +425,28 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
             pbxproj.display()
         ));
     }
-    let block = "\t\tDA0000000000000000000044 /* Stage Day Strings */ = {\n\
+    // The scaffold's own phase text (templates/app/platform/ios/DayApp.xcodeproj), pbxproj-
+    // escaped programmatically: `day build` exports DAY_BIN, but a build from the Xcode GUI
+    // runs on Xcode's minimal PATH (no shell profile, no ~/.cargo/bin) and must find the CLI
+    // itself.
+    let script = r##"# Same resolution as the `Build Rust (day)` phase above (Xcode GUI builds have no
+# shell-profile PATH).
+if [ -z "${DAY_BIN:-}" ]; then DAY_BIN="$(command -v day || true)"; fi
+if [ -z "$DAY_BIN" ]; then
+  for c in "$HOME/.cargo/bin/day" /opt/homebrew/bin/day /usr/local/bin/day; do
+    if [ -x "$c" ]; then DAY_BIN="$c"; break; fi
+  done
+fi
+if [ -z "$DAY_BIN" ]; then
+  echo "error: the day CLI was not found — install it with 'cargo install day-cli', or set DAY_BIN in the scheme's run-script environment" >&2
+  exit 1
+fi
+"$DAY_BIN" xcode-backend stage-strings
+"##
+    .replace('"', "\\\"")
+    .replace('\n', "\\n");
+    let block = format!(
+        "\t\tDA0000000000000000000044 /* Stage Day Strings */ = {{\n\
          \t\t\tisa = PBXShellScriptBuildPhase;\n\
          \t\t\talwaysOutOfDate = 1;\n\
          \t\t\tbuildActionMask = 2147483647;\n\
@@ -435,8 +456,9 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
          \t\t\toutputPaths = (\n\t\t\t);\n\
          \t\t\trunOnlyForDeploymentPostprocessing = 0;\n\
          \t\t\tshellPath = /bin/sh;\n\
-         \t\t\tshellScript = \"\\\"${DAY_BIN:-day}\\\" xcode-backend stage-strings\\n\";\n\
-         \t\t};\n";
+         \t\t\tshellScript = \"{script}\";\n\
+         \t\t}};\n"
+    );
     let after = before
         .replace(
             phase_ref,

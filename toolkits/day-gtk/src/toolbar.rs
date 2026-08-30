@@ -25,7 +25,7 @@ use adw::prelude::*;
 use crate::{Gtk, Handle, emit};
 
 /// The freedesktop icon names a standard symbol can draw as, best first. Symbolic variants,
-/// because that is what a header bar wants: they recolour with the theme, in dark mode and on
+/// because that is what a header bar wants: they recolor with the theme, in dark mode and on
 /// selection. More than one name per symbol because icon themes vary in how complete they are —
 /// a bare Adwaita install on a non-Linux host is missing a good number of these.
 fn icon_candidates(s: Symbol) -> &'static [&'static str] {

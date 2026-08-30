@@ -1794,8 +1794,9 @@ pub fn build_android(
     };
     status("Building", &format!("{} (gradle {task})", target.name));
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
-    let mut cmd = Command::new("gradle");
-    cmd.current_dir(project.root.join("platform/android"))
+    let android_dir = project.root.join("platform/android");
+    let mut cmd = Command::new(crate::pack::android::gradle_program(&android_dir));
+    cmd.current_dir(&android_dir)
         .env("DAY_BIN", &day_bin)
         .env("DAY_PROJECT_ROOT", &project.root)
         .env("DAY_PROFILE", profile.as_str())

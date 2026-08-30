@@ -96,7 +96,7 @@ Android, pixel recolor on GTK, a `QPainter` `SourceIn` fill over the rendered gl
 painted with the tint on web (a tinted glyph is a masked element, not an `<img>` — the browser
 cannot recolor an image's own pixels), SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI, and a brush
 on the `Path` shapes on XAML — composed over the geometry when the glyph is realized, so one
-staged glyph serves every tint at every size with no second asset and no recoloured copy.
+staged glyph serves every tint at every size with no second asset and no recolored copy.
 `None` (and every raster `image(…)`) means "as authored".
 
 **A tint can follow a signal.** `.tint(…)` takes a plain color or anything reactive; a change

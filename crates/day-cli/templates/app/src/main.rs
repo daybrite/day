@@ -1,5 +1,4 @@
 fn main() {
-    // The same window description the platform shells open through `day_start!`, so every entry
-    // point performs the same launch ceremony — the locale catalog included (see `dayapp::window`).
+    // The same window + root the mobile shells open through `day_start!` in src/lib.rs.
     day::launch(dayapp::window(), dayapp::root);
 }

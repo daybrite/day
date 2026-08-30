@@ -2,15 +2,12 @@
 name = "{{name}}"
 version = "0.1.0"
 edition = "2024"
-# Generates typed resource constants (`res::images::…`, `res::assets::…`, `res::fonts::…`) from the
-# files under `resource/` on every build — see build.rs and src/lib.rs (§18.5).
+# Generates typed `res::` constants from `resource/` (see build.rs).
 build = "build.rs"
 
 [features]
-# The default `mock` backend lets bare `cargo build` / rust-analyzer compile out of the box;
-# `day build` always passes `--no-default-features --features <backend>`, stripping it. Without a
-# default no backend is selected at all, and `day::launch` — gated behind every backend feature —
-# is configured out, so `cargo clippy --all-targets` cannot compile the bin.
+# `mock` keeps bare cargo and rust-analyzer compiling; `day build` overrides it with
+# `--no-default-features --features <backend>` (https://daybrite.dev/docs/project-structure).
 default = ["mock"]
 appkit = ["day/appkit"]
 gtk = ["day/gtk"]
@@ -22,21 +19,16 @@ arkui = ["day/arkui"]
 dom = ["day/dom"]
 mock = ["day/mock"]
 
-# rlib for the desktop bin; the mobile pipeline requests the iOS staticlib / Android cdylib
-# explicitly via `cargo rustc --crate-type` (a desktop cdylib blows past the windows-gnu PE
-# export cap).
+# rlib for the desktop bin; the mobile pipeline requests staticlib/cdylib via `cargo rustc`.
 [lib]
-# A CONSTANT name, not the package's. Every artifact Day stages is named after the LIB target —
-# `libdayapp.a` for the iOS/macOS staticlib, `libdayapp.so` for the Android cdylib, and the
-# `dayapp::` path `src/main.rs` imports — so none of them move when the package is renamed.
-# Renaming this app is a one-line edit to `[package] name` above (DESIGN.md §17.5).
+# A constant lib name: staged artifacts and the `dayapp::` import never move on a package rename.
 name = "dayapp"
 crate-type = ["rlib"]
 
 [dependencies]
 {{day_dep}}
 {{day_piece_deps}}
-# The item list is persisted as one JSON blob under a single `day::prefs` key (src/model.rs).
+# The item list persists as one JSON blob in `day::prefs` (src/model.rs).
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
