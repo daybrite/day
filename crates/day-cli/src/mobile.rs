@@ -735,40 +735,29 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
     Ok(())
 }
 
-/// Day.toml `[window]` → the iOS `Info.plist` (docs/size-classes.md "Declaring a minimum size").
+/// The iPad orientation set, in the iOS `Info.plist` (docs/size-classes.md).
 ///
-/// Two keys Day owns and reads back at runtime: `DayWindowMinWidth` / `DayWindowMinHeight`, which
-/// day-uikit applies to `UIWindowScene.sizeRestrictions.minimumSize` when the app has not set
-/// `WindowOptions.min_size` itself. Written here rather than into the generated xcconfig because
-/// `INFOPLIST_KEY_*` only applies when Xcode GENERATES the plist, and the scaffold ships one
-/// (`GENERATE_INFOPLIST_FILE = NO`) — a key set there would vanish without a word.
+/// iPadOS 26 warns that "support for all orientations will soon be required": an iPad window is
+/// resizable and freely rotatable, so an app that pins orientations is refusing sizes the system
+/// will hand it anyway. Written only when the app declares no set of its own — a developer who
+/// pinned orientations deliberately keeps them — and only once, since it is a constant rather
+/// than a value derived from Day.toml.
 ///
-/// The orientation keys ride along for the same reason iPadOS 26 warns about them: an iPad app
-/// that does not support all four is heading for a hard stop. They are written only when the
-/// app declares none of its own — a developer who pinned orientations by hand keeps them.
+/// The window MINIMUM deliberately does not come through here. It rides the generated xcconfig
+/// as `DAY_WINDOW_MIN_WIDTH`/`_HEIGHT`, which the checked-in plist references with `$(…)` the way
+/// it already references `$(DAY_URL_SCHEME)` — see `xcconfig::write_generated`. Writing a
+/// Day.toml-derived VALUE into this tracked file made every `[window]` edit dirty the working
+/// tree, and a build that dirties the tree is one CI will not pack from.
 pub(crate) fn sync_window_keys(project: &Project) -> Result<(), String> {
     let Some(plist) = app_info_plist(project) else {
         return Ok(());
     };
-    let win = &project.manifest.window;
     let before =
         std::fs::read_to_string(&plist).map_err(|e| format!("{}: {e}", plist.display()))?;
 
-    let mut want = std::collections::BTreeMap::new();
-    want.insert(
-        "DayWindowMinWidth".to_string(),
-        format!("{}", win.min_width.round() as i64),
-    );
-    want.insert(
-        "DayWindowMinHeight".to_string(),
-        format!("{}", win.min_height.round() as i64),
-    );
-    let after = crate::plist::apply_string_keys(&before, &want, &Default::default())
-        .map_err(|e| format!("{}: {e}", plist.display()))?;
-
     // All four iPad orientations, unless the app already named its own set.
-    let after = if after.contains("UISupportedInterfaceOrientations~ipad") {
-        after
+    let after = if before.contains("UISupportedInterfaceOrientations~ipad") {
+        before.clone()
     } else {
         let all = [
             "UIInterfaceOrientationPortrait".to_string(),
@@ -776,7 +765,7 @@ pub(crate) fn sync_window_keys(project: &Project) -> Result<(), String> {
             "UIInterfaceOrientationLandscapeLeft".to_string(),
             "UIInterfaceOrientationLandscapeRight".to_string(),
         ];
-        crate::plist::apply_array_key(&after, "UISupportedInterfaceOrientations~ipad", Some(&all))
+        crate::plist::apply_array_key(&before, "UISupportedInterfaceOrientations~ipad", Some(&all))
             .map_err(|e| format!("{}: {e}", plist.display()))?
     };
 

@@ -41,9 +41,9 @@
 		<true/>
 	</dict>
 	<key>DayWindowMinHeight</key>
-	<string>400</string>
+	<string>$(DAY_WINDOW_MIN_HEIGHT)</string>
 	<key>DayWindowMinWidth</key>
-	<string>320</string>
+	<string>$(DAY_WINDOW_MIN_WIDTH)</string>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
