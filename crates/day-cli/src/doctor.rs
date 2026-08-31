@@ -287,18 +287,24 @@ fn uikit_group() -> Group {
             // thing that needs an Xcode floor rather than just "an Xcode": simulators became
             // drivable through `devicectl` in 26.6, and there is no other way to turn one
             // without a GUI session. Advisory, not required — everything else works below it.
+            //
+            // This ENUMERATES rather than asking `--help`, because those two answers came apart
+            // on a CI runner: `--help` succeeded while `list devices` printed zero bytes, so the
+            // probe reported a working devicectl right before the boot step failed on it. Asking
+            // the subcommand whether it exists tests the binary; asking it for devices tests
+            // CoreDevice, which is the part that was actually broken.
             Probe::new(
                 "simulator orientation",
                 run_line(
                     "bash",
                     &[
                         "-c",
-                        "xcrun devicectl device orientation --help >/dev/null 2>&1 && \
-                         xcodebuild -version | head -1",
+                        "xcrun devicectl list devices -j - --quiet 2>/dev/null \
+                         | grep -q '\"devices\"' && xcodebuild -version | head -1",
                     ],
                 ),
-                "capture in landscape needs Xcode 26.6+ (`xcode-select -s`); \
-                 without it, drop `--orientation`",
+                "capture in landscape needs Xcode 26.6+ (`xcode-select -s`) with a devicectl that \
+                 can list devices; without it, drop `--orientation`",
             )
             .need(Need::Launch),
         ],
