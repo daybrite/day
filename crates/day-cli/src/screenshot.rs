@@ -197,6 +197,11 @@ fn iso_utc_now() -> String {
 pub struct TargetEntry {
     pub file: String,
     pub variant: String,
+    /// The `--device` slug this capture was taken on, when the run named one — the extra path
+    /// level under the target (docs/screenshots.md). `None` for a single-device project, which
+    /// keeps the index of every app that does not use device profiles byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
     pub shot: String,
     /// The run's actual `--locale`, when one was passed — ground truth the variant name only
     /// approximates.
@@ -225,6 +230,7 @@ struct TargetIndex {
 pub fn target_entry(
     path: &Path,
     variant: &str,
+    device: Option<&str>,
     shot: &str,
     locale: Option<&str>,
     meta: Option<&ShotMeta>,
@@ -234,6 +240,7 @@ pub fn target_entry(
     Some(TargetEntry {
         file: path.file_name()?.to_string_lossy().into_owned(),
         variant: variant.to_string(),
+        device: device.map(str::to_string),
         shot: shot.to_string(),
         locale: locale.map(str::to_string),
         title: meta.and_then(|m| m.title.clone()),
@@ -246,8 +253,12 @@ pub fn target_entry(
     })
 }
 
-/// Upsert `entries` into `<screenshots_root>/<target>/gallery.json`, keyed by (variant, file).
-/// Entries whose files no longer exist are dropped, so a trimmed walkthrough trims the index.
+/// Upsert `entries` into `<screenshots_root>/<target>/gallery.json`, keyed by
+/// (device, variant, file). Entries whose files no longer exist are dropped, so a trimmed
+/// walkthrough trims the index.
+///
+/// The index stays ONE file per target even when captures come from several devices: a device is
+/// a dimension of a capture, like its theme and its locale, not a separate target.
 pub fn record_target_entries(screenshots_root: &Path, target: &str, entries: Vec<TargetEntry>) {
     if entries.is_empty() {
         return;
@@ -264,16 +275,20 @@ pub fn record_target_entries(screenshots_root: &Path, target: &str, entries: Vec
         if let Some(slot) = index
             .screenshots
             .iter_mut()
-            .find(|s| s.variant == e.variant && s.file == e.file)
+            .find(|s| s.device == e.device && s.variant == e.variant && s.file == e.file)
         {
             *slot = e;
         } else {
             index.screenshots.push(e);
         }
     }
-    index
-        .screenshots
-        .retain(|e| target_dir.join(&e.variant).join(&e.file).exists());
+    index.screenshots.retain(|e| {
+        let mut p = target_dir.clone();
+        if let Some(d) = &e.device {
+            p = p.join(d);
+        }
+        p.join(&e.variant).join(&e.file).exists()
+    });
     if let Ok(json) = serde_json::to_string_pretty(&index) {
         let _ = std::fs::write(&path, json + "\n");
     }
@@ -380,6 +395,59 @@ pub struct IndexOptions {
     pub out: Option<PathBuf>,
 }
 
+/// A capture's path under its target directory — with the device level when it has one.
+fn capture_path(tdir: &Path, device: Option<&str>, variant: &str, file: &str) -> PathBuf {
+    let mut p = tdir.to_path_buf();
+    if let Some(d) = device {
+        p = p.join(d);
+    }
+    p.join(variant).join(file)
+}
+
+/// Every `(device, variant, dir)` under a target directory, sorted.
+///
+/// Distinguishes a device level from a variant level by CONTENT: a directory whose children are
+/// all directories is a device holding variants; one that holds files is a variant holding
+/// captures. An empty directory counts as a variant, which contributes nothing either way.
+fn variant_dirs(tdir: &Path) -> Vec<(Option<String>, String, PathBuf)> {
+    fn subdirs(p: &Path) -> Vec<(String, PathBuf)> {
+        let mut v: Vec<(String, PathBuf)> = std::fs::read_dir(p)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.path().is_dir())
+                    .filter_map(|e| e.file_name().to_str().map(|n| (n.to_string(), e.path())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        v.sort();
+        v
+    }
+    fn holds_only_dirs(p: &Path) -> bool {
+        let mut any = false;
+        let Ok(rd) = std::fs::read_dir(p) else {
+            return false;
+        };
+        for e in rd.flatten() {
+            any = true;
+            if !e.path().is_dir() {
+                return false;
+            }
+        }
+        any
+    }
+    let mut out = Vec::new();
+    for (name, dir) in subdirs(tdir) {
+        if holds_only_dirs(&dir) {
+            for (vname, vdir) in subdirs(&dir) {
+                out.push((Some(name.clone()), vname, vdir));
+            }
+        } else {
+            out.push((None, name, dir));
+        }
+    }
+    out
+}
+
 /// Merge capture trees into the unified `gallery.json` (the file app sites publish at
 /// `<host>/gallery/gallery.json` and site builds parse). Returns the path written.
 pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> {
@@ -423,26 +491,22 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             // The per-target index leads — in ITS order, which is the dayscript's declaration
             // order. Files stay the truth: an entry whose file is gone contributes nothing.
             for e in &known.screenshots {
-                if tdir.join(&e.variant).join(&e.file).exists()
+                if capture_path(&tdir, e.device.as_deref(), &e.variant, &e.file).exists()
                     && !list
                         .iter()
-                        .any(|x| x.variant == e.variant && x.file == e.file)
+                        .any(|x| x.device == e.device && x.variant == e.variant && x.file == e.file)
                 {
                     list.push(e.clone());
                 }
             }
             // Then the tree walk backfills captures no index describes (bare, derived facts).
-            let Ok(variants) = std::fs::read_dir(&tdir) else {
-                continue;
-            };
-            let mut vnames: Vec<String> = variants
-                .flatten()
-                .filter(|v| v.path().is_dir())
-                .filter_map(|v| v.file_name().to_str().map(str::to_string))
-                .collect();
-            vnames.sort();
-            for vname in vnames {
-                let vdir = tdir.join(&vname);
+            //
+            // A target's children are either variant directories (`dark-fr/`) or DEVICE
+            // directories that each hold variants (`ipad/dark-fr/`, docs/screenshots.md). The
+            // two are told apart by what is inside: a directory holding only directories is a
+            // device level. Guessing from the NAME would be worse — a device slug and a variant
+            // name are both free-form, and `ipad` reads exactly like a variant.
+            for (device, vname, vdir) in variant_dirs(&tdir) {
                 let Ok(files) = std::fs::read_dir(&vdir) else {
                     continue;
                 };
@@ -453,11 +517,22 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                     .collect();
                 fnames.sort();
                 for fname in fnames {
-                    if list.iter().any(|e| e.variant == vname && e.file == fname) {
+                    if list.iter().any(|e| {
+                        e.device.as_deref() == device.as_deref()
+                            && e.variant == vname
+                            && e.file == fname
+                    }) {
                         continue; // an earlier tree already provided it
                     }
                     let shot = fname.trim_end_matches(".png").to_string();
-                    if let Some(e) = target_entry(&vdir.join(&fname), &vname, &shot, None, None) {
+                    if let Some(e) = target_entry(
+                        &vdir.join(&fname),
+                        &vname,
+                        device.as_deref(),
+                        &shot,
+                        None,
+                        None,
+                    ) {
                         list.push(e);
                     }
                 }
@@ -551,7 +626,14 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 .and_then(|m| m.caption.as_ref())
                 .and_then(|c| c.resolve(for_locale))
                 .map(str::to_string);
-            let path = format!("gallery/{platform}/{}/{}", e.variant, e.file);
+            // The DEVICE level, where the capture has one, is part of the published path as well
+            // as its own field: a consumer that only reads `path` still resolves the right image,
+            // and one that groups by device does not have to parse it back out
+            // (docs/screenshots.md).
+            let path = match &e.device {
+                Some(d) => format!("gallery/{platform}/{d}/{}/{}", e.variant, e.file),
+                None => format!("gallery/{platform}/{}/{}", e.variant, e.file),
+            };
             screenshots.push(serde_json::json!({
                 "file": e.file,
                 "path": path,
@@ -560,6 +642,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 "title": title,
                 "caption": caption,
                 "platform": platform,
+                "device": e.device,
                 "os": os,
                 "toolkit": toolkit,
                 "variant": e.variant,
@@ -692,8 +775,15 @@ mod tests {
         png.extend(2u32.to_be_bytes());
         png.extend(3u32.to_be_bytes());
         std::fs::write(vdir.join("home.png"), &png).unwrap();
-        let entry =
-            target_entry(&vdir.join("home.png"), "light", "home", Some("en"), None).unwrap();
+        let entry = target_entry(
+            &vdir.join("home.png"),
+            "light",
+            None,
+            "home",
+            Some("en"),
+            None,
+        )
+        .unwrap();
         assert_eq!((entry.width, entry.height), (Some(2), Some(3)));
         record_target_entries(&dir, "macos-appkit", vec![entry.clone()]);
         // Upsert replaces rather than duplicates; a vanished file is pruned.
@@ -707,6 +797,7 @@ mod tests {
         let ghost = TargetEntry {
             file: "gone.png".into(),
             variant: "light".into(),
+            device: None,
             shot: "gone".into(),
             locale: None,
             title: None,
@@ -723,6 +814,61 @@ mod tests {
         )
         .unwrap();
         assert!(idx.screenshots.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A device level and a device-less level coexist in one target's tree and one index.
+    ///
+    /// The tree walk tells them apart by CONTENT, not by name — `ipad/` holds directories, so it
+    /// is a device; `light/` holds captures, so it is a variant. Getting that wrong either hides
+    /// every device capture or invents a device called "light", and both look like an empty
+    /// gallery column rather than an error.
+    #[test]
+    fn a_device_level_and_a_plain_variant_coexist() {
+        let dir = std::env::temp_dir().join(format!("day-shots-dev-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let plain = dir.join("ios-uikit/light");
+        let ipad = dir.join("ios-uikit/ipad/dark");
+        std::fs::create_dir_all(&plain).unwrap();
+        std::fs::create_dir_all(&ipad).unwrap();
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+        png.extend(b"IHDR");
+        png.extend(2u32.to_be_bytes());
+        png.extend(3u32.to_be_bytes());
+        std::fs::write(plain.join("home.png"), &png).unwrap();
+        std::fs::write(ipad.join("home.png"), &png).unwrap();
+
+        let found = variant_dirs(&dir.join("ios-uikit"));
+        assert!(
+            found.contains(&(None, "light".to_string(), plain.clone())),
+            "the plain variant was not seen as one: {found:?}"
+        );
+        assert!(
+            found.contains(&(Some("ipad".to_string()), "dark".to_string(), ipad.clone())),
+            "the device level was not seen as one: {found:?}"
+        );
+
+        // Both survive an upsert, because the key includes the device.
+        let a = target_entry(&plain.join("home.png"), "light", None, "home", None, None).unwrap();
+        let b = target_entry(
+            &ipad.join("home.png"),
+            "dark",
+            Some("ipad"),
+            "home",
+            None,
+            None,
+        )
+        .unwrap();
+        record_target_entries(&dir, "ios-uikit", vec![a, b]);
+        let idx: TargetIndex = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("ios-uikit/gallery.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            idx.screenshots.len(),
+            2,
+            "same shot, same file, different device — one must not evict the other"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

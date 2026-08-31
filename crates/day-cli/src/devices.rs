@@ -159,14 +159,202 @@ pub fn list(only: Option<&str>, json: bool) -> Result<i32, CliError> {
 ///
 /// iOS is the case that forces this: `simctl install` cannot reach a shut-down simulator, so
 /// selecting one has always meant leaving the editor to run `xcrun simctl boot` by hand.
-pub fn boot(target: &str, id: &str) -> Result<i32, CliError> {
+/// Put a booted simulator into `portrait` or `landscape` (docs/screenshots.md).
+///
+/// Driven through Simulator.app's `Device ▸ Orientation` menu, which is the only route there is:
+/// `simctl` has no rotate command, and the `SimulatorWindowOrientation` preference turns out to
+/// describe the app's WINDOW rather than the device — set before a headless boot it leaves the
+/// framebuffer in portrait, which was measured, not assumed. So this needs the machine's GUI
+/// session; GitHub's macOS runners have one.
+///
+/// Clicked, then VERIFIED against the framebuffer's own dimensions and retried, because a single
+/// click is not reliable: it lands only once the app is frontmost, and the menu is rebuilt as the
+/// device becomes ready. Verified, it took one try every time across repeated switches.
+fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
+    let (item, want_landscape) = match orientation.trim().to_ascii_lowercase().as_str() {
+        "portrait" => ("Portrait", false),
+        "landscape" | "landscape-left" => ("Landscape Left", true),
+        "landscape-right" => ("Landscape Right", true),
+        other => {
+            return Err(CliError::usage(format!(
+                "unknown orientation {other:?} — portrait, landscape, landscape-right"
+            )));
+        }
+    };
+    crate::ops::status("Orienting", &format!("{orientation} ({item})"));
+    let script = format!(
+        "tell application \"Simulator\" to activate\n\
+         delay 0.5\n\
+         tell application \"System Events\" to tell process \"Simulator\" to \
+         click menu item \"{item}\" of menu 1 of menu item \"Orientation\" of menu 1 \
+         of menu bar item \"Device\" of menu bar 1"
+    );
+    for attempt in 1..=6 {
+        let _ = Command::new("osascript").args(["-e", &script]).output();
+        std::thread::sleep(std::time::Duration::from_millis(1500));
+        if let Some(landscape) = framebuffer_is_landscape(udid)
+            && landscape == want_landscape
+        {
+            return Ok(());
+        }
+        if attempt == 6 {
+            return Err(CliError::failure(format!(
+                "could not put the simulator into {orientation}. This needs a GUI session \
+                 (Simulator.app must be able to come to the front); a headless session cannot \
+                 rotate a simulator."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Is the device's current framebuffer wider than it is tall? `None` when it cannot be captured.
+///
+/// The screenshot IS the check: it is what a capture run will produce, so it cannot disagree with
+/// what the gallery ends up showing the way a queried setting could.
+fn framebuffer_is_landscape(udid: &str) -> Option<bool> {
+    let path = std::env::temp_dir().join(format!("day-orient-{udid}.png"));
+    let ok = Command::new("xcrun")
+        .args(["simctl", "io", udid, "screenshot"])
+        .arg(&path)
+        .output()
+        .ok()?
+        .status
+        .success();
+    if !ok {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    // PNG IHDR: width and height at bytes 16..24.
+    if bytes.len() < 24 || &bytes[12..16] != b"IHDR" {
+        return None;
+    }
+    let w = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+    Some(w > h)
+}
+
+/// What `day devices boot` was asked for: an explicit id, or a device to resolve.
+pub struct BootSpec<'a> {
+    pub id: Option<&'a str>,
+    pub device: Option<&'a str>,
+    pub os: Option<&'a str>,
+    pub wait: bool,
+    pub orientation: Option<&'a str>,
+}
+
+/// Resolve `--device`/`--os` to a simulator UDID.
+///
+/// `device` matches as a NAME PREFIX and `os` as a MAJOR VERSION taking the newest point release
+/// installed, because runner images rotate both: an exact "iPhone 15" on "iOS 26.2" starts failing
+/// the day the image moves, and the failure looks like a broken app rather than a stale pin. An
+/// unmatched request is an error listing what the machine does have — silently taking some other
+/// device would capture the wrong form factor under this profile's name.
+fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, String), CliError> {
+    let out = Command::new("xcrun")
+        .args(["simctl", "list", "devices", "available", "--json"])
+        .output()
+        .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .map_err(|e| CliError::failure(format!("simctl: {e}")))?;
+    // `devices` is keyed by runtime identifier ("com.apple.CoreSimulator.SimRuntime.iOS-26-5").
+    let mut best: Option<(String, String, String)> = None;
+    let mut have: Vec<String> = Vec::new();
+    for (runtime, list) in json["devices"].as_object().into_iter().flatten() {
+        let pretty = runtime_label(runtime);
+        for d in list.as_array().into_iter().flatten() {
+            let (Some(name), Some(udid)) = (d["name"].as_str(), d["udid"].as_str()) else {
+                continue;
+            };
+            have.push(format!("{name} ({pretty})"));
+            if !name.starts_with(device) {
+                continue;
+            }
+            if let Some(want) = os
+                && !runtime_matches(&pretty, want)
+            {
+                continue;
+            }
+            // Newest runtime wins, so `os=iOS 26` lands on the highest 26.x present.
+            let better = best
+                .as_ref()
+                .is_none_or(|(_, _, r)| pretty.as_str() > r.as_str());
+            if better {
+                best = Some((udid.to_string(), name.to_string(), pretty.clone()));
+            }
+        }
+    }
+    best.ok_or_else(|| {
+        // List the devices of the OS FAMILY that was asked for. Naming every simulator on the
+        // machine buries an iOS request under a page of watchOS and tvOS devices, which makes the
+        // list unreadable exactly when someone is reading it to find the right name.
+        let family = os
+            .and_then(|o| o.split_whitespace().next())
+            .unwrap_or("iOS")
+            .to_ascii_lowercase();
+        let mut listed: Vec<String> = have
+            .iter()
+            .filter(|d| d.to_ascii_lowercase().contains(&family))
+            .cloned()
+            .collect();
+        if listed.is_empty() {
+            listed = have;
+        }
+        listed.sort();
+        listed.dedup();
+        let want = match os {
+            Some(o) => format!("no simulator named \"{device}…\" on {o} is available"),
+            None => format!("no simulator named \"{device}…\" is available"),
+        };
+        CliError::failure(format!(
+            "{want}. This machine has:\n  {}",
+            listed.join("\n  ")
+        ))
+    })
+}
+
+/// Does runtime `have` ("iOS 26.5") satisfy `want` ("iOS 26", "iOS 26.5", "26")? Compared by
+/// dotted components, so a request with fewer of them is a prefix match on the version.
+fn runtime_matches(have: &str, want: &str) -> bool {
+    let split = |s: &str| {
+        let s = s.trim();
+        match s.split_once(char::is_whitespace) {
+            Some((name, ver)) => (name.to_ascii_lowercase(), ver.trim().to_string()),
+            None => (String::new(), s.to_string()),
+        }
+    };
+    let (hn, hv) = split(have);
+    let (wn, wv) = split(want);
+    if !wn.is_empty() && wn != hn {
+        return false;
+    }
+    let hp: Vec<&str> = hv.split('.').collect();
+    let wp: Vec<&str> = wv.split('.').collect();
+    wp.len() <= hp.len() && wp.iter().zip(&hp).all(|(w, h)| w == h)
+}
+
+pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
     let t = crate::targets::find(target)
         .ok_or_else(|| CliError::usage(format!("unknown target {target}")))?;
     match t.kind {
         TargetKind::IosSim => {
-            crate::ops::status("Booting", &format!("simulator {id}"));
+            let (udid, name) = match (spec.id, spec.device) {
+                (Some(id), _) => (id.to_string(), id.to_string()),
+                (None, Some(device)) => {
+                    let (udid, name, runtime) = resolve_simulator(device, spec.os)?;
+                    crate::ops::status("Device", &format!("{name} ({runtime}) — {udid}"));
+                    (udid, name)
+                }
+                (None, None) => {
+                    return Err(CliError::usage(
+                        "name a device: an id, or --device \"iPad Pro\"".to_string(),
+                    ));
+                }
+            };
+            crate::ops::status("Booting", &format!("simulator {name}"));
             let out = Command::new("xcrun")
-                .args(["simctl", "boot", id])
+                .args(["simctl", "boot", &udid])
                 .output()
                 .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
             let err = String::from_utf8_lossy(&out.stderr);
@@ -179,11 +367,27 @@ pub fn boot(target: &str, id: &str) -> Result<i32, CliError> {
                 )));
             }
             // Without the UI the simulator boots headless, which is rarely what someone watching
-            // for their app to appear wants. Best-effort: a failure here is not a failed boot.
+            // for their app to appear wants — and an orientation needs it (see below). Best-effort
+            // otherwise: a failure here is not a failed boot.
             let _ = Command::new("open").args(["-a", "Simulator"]).status();
+            if spec.wait {
+                let st = Command::new("xcrun")
+                    .args(["simctl", "bootstatus", &udid, "-b"])
+                    .status()
+                    .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
+                if !st.success() {
+                    return Err(CliError::failure(format!("{name} never finished booting")));
+                }
+            }
+            if let Some(o) = spec.orientation {
+                set_orientation(&udid, o)?;
+            }
             Ok(0)
         }
         TargetKind::Android => {
+            let id = spec.id.or(spec.device).ok_or_else(|| {
+                CliError::usage("name an AVD: `day devices boot -p android-mdc <AVD>`".to_string())
+            })?;
             let sdk = day_toolchain::android_sdk_dir();
             let exe = if cfg!(windows) {
                 "emulator.exe"

@@ -350,20 +350,26 @@ pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> 
     ))
 }
 
-/// Where a run's screenshots land: `build/day/screenshots/<target>/<subdir>/`. The subdir is
-/// the `--variant` name when given (themed/localized capture sets: light / dark / fr), else
-/// the locale, else "default".
+/// Where a run's screenshots land: `build/day/screenshots/<target>[/<device>]/<subdir>/`. The
+/// subdir is the `--variant` name when given (themed/localized capture sets: light / dark / fr),
+/// else the locale, else "default".
+///
+/// The DEVICE level is inserted only when `--device` named one, so a run that does not use it
+/// writes exactly where it always has — every existing script, site build and local capture tree
+/// is unaffected. Where it is used, it separates form factors that would otherwise overwrite each
+/// other: one target, one script, an iPhone tree and an iPad tree (docs/screenshots.md).
 fn shot_dir(
     project: &Project,
     target: &Target,
     locale: Option<&str>,
     variant: Option<&str>,
+    device: Option<&str>,
 ) -> PathBuf {
-    project
-        .root
-        .join("build/day/screenshots")
-        .join(target.name)
-        .join(variant.or(locale).unwrap_or("default"))
+    let mut dir = project.root.join("build/day/screenshots").join(target.name);
+    if let Some(device) = device {
+        dir = dir.join(device);
+    }
+    dir.join(variant.or(locale).unwrap_or("default"))
 }
 
 /// Device-level capture fallback for targets whose in-process snapshot is unsupported.
@@ -542,6 +548,7 @@ pub fn run_scripts(
     scripts: &[PathBuf],
     locale: Option<&str>,
     variant: Option<&str>,
+    device: Option<&str>,
     keep_alive: bool,
     attached: bool,
 ) -> Result<ScriptRun, ScriptError> {
@@ -603,7 +610,7 @@ pub fn run_scripts(
         }
     };
 
-    let dir = shot_dir(project, target, locale, variant);
+    let dir = shot_dir(project, target, locale, variant, device);
     let _ = std::fs::create_dir_all(&dir);
 
     let mut run = ScriptRun {
@@ -876,6 +883,7 @@ pub fn run_scripts(
                     if let Some(entry) = crate::screenshot::target_entry(
                         &path,
                         vname,
+                        device,
                         name,
                         locale,
                         Some(&shot_meta),
@@ -962,12 +970,47 @@ fn write_gallery(root: &Path) {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        for variant in dirs(&target) {
-            let vname = variant
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
+        // A target's children are variant directories, or DEVICE directories that each hold
+        // variants (`ios-uikit/ipad/dark/`, docs/screenshots.md). Both are walked, and a device
+        // is named in the heading beside its variant so two form factors of the same capture
+        // set are distinguishable at a glance.
+        let levels: Vec<(Option<String>, PathBuf)> = dirs(&target)
+            .into_iter()
+            .flat_map(|d| {
+                let name = d
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                let inner = dirs(&d);
+                let has_png = std::fs::read_dir(&d)
+                    .map(|rd| {
+                        rd.flatten()
+                            .any(|e| e.path().extension().is_some_and(|x| x == "png"))
+                    })
+                    .unwrap_or(false);
+                if !inner.is_empty() && !has_png {
+                    inner
+                        .into_iter()
+                        .map(|v| (Some(name.clone()), v))
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![(None, d)]
+                }
+            })
+            .collect();
+        for (device, variant) in levels {
+            let vname = match &device {
+                Some(d) => format!(
+                    "{d} · {}",
+                    variant.file_name().unwrap_or_default().to_string_lossy()
+                ),
+                None => variant
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            };
             let mut pngs: Vec<PathBuf> = std::fs::read_dir(&variant)
                 .map(|rd| {
                     rd.flatten()

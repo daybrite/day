@@ -276,6 +276,17 @@ enum Cmd {
         /// of the same script run (e.g. `--variant dark --env DAY_THEME=dark`)
         #[arg(long)]
         variant: Option<String>,
+        /// Device slug for the capture tree: saves shots under
+        /// `build/day/screenshots/<target>/<device>/<variant>/` instead of omitting the level.
+        /// What lets one target's captures come from more than one FORM FACTOR without
+        /// colliding — an iPhone run and an iPad run of the same script write disjoint paths,
+        /// and the published gallery gives each its own column (docs/screenshots.md).
+        /// Orthogonal to `--variant`: theme and locale still vary underneath it.
+        ///
+        /// A LABEL, not a device selector — `--ios-simulator` picks what to launch on, and
+        /// already answers to `--device`, which is why this one is spelled out.
+        #[arg(long = "device-slug")]
+        device: Option<String>,
         /// Reuse the previous build's artifact instead of building (errors if none exists).
         /// For runs whose variants share one binary — theme and locale are runtime inputs —
         /// e.g. CI capture loops that pay xcodebuild/hvigor once, then launch per variant.
@@ -749,9 +760,27 @@ pub enum DevicesCmd {
         /// Which target's device to start
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// The device's id from `day devices list` — a simulator UDID or an AVD name
+        /// The device's id from `day devices list` — a simulator UDID or an AVD name.
+        /// Omit it and name the device with `--device` instead.
         #[arg(value_name = "ID")]
-        id: String,
+        id: Option<String>,
+        /// Pick the device by NAME PREFIX instead of by id: `--device "iPad Pro"` takes the
+        /// first iPad Pro the machine has. What CI wants — runner images retire exact device
+        /// names every few months, and a pinned one starts failing the day the image moves.
+        #[arg(long, value_name = "NAME", conflicts_with = "id")]
+        device: Option<String>,
+        /// Narrow `--device` to an OS version: `--os "iOS 26"` takes the newest 26.x installed.
+        /// Matched as a major version for the same reason `--device` is a prefix.
+        #[arg(long, value_name = "VERSION", requires = "device")]
+        os: Option<String>,
+        /// Wait until the device has finished booting, rather than returning once the boot has
+        /// been asked for. What a script that installs onto it next needs.
+        #[arg(long)]
+        wait: bool,
+        /// Start the simulator in this orientation (`portrait` or `landscape`) — the form factor
+        /// half of a capture profile (docs/screenshots.md). iOS simulators only.
+        #[arg(long, value_name = "ORIENTATION")]
+        orientation: Option<String>,
     },
 }
 
@@ -1097,8 +1126,25 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             cmd: DevicesCmd::List { platform },
         } => crate::devices::list(platform.as_deref(), cli.format == OutputFormat::Json),
         Cmd::Devices {
-            cmd: DevicesCmd::Boot { platform, id },
-        } => crate::devices::boot(platform.as_str(), id.as_str()),
+            cmd:
+                DevicesCmd::Boot {
+                    platform,
+                    id,
+                    device,
+                    os,
+                    wait,
+                    orientation,
+                },
+        } => crate::devices::boot(
+            platform.as_str(),
+            &crate::devices::BootSpec {
+                id: id.as_deref(),
+                device: device.as_deref(),
+                os: os.as_deref(),
+                wait,
+                orientation: orientation.as_deref(),
+            },
+        ),
         Cmd::Ohos {
             cmd:
                 OhosCmd::Emulator {
@@ -1310,6 +1356,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             record,
             scripts,
             variant,
+            device,
             skip_build,
             locales,
             themes,
@@ -1471,6 +1518,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             &scripts,
                             run_spec.locale.as_deref(),
                             capture.variant.as_deref(),
+                            device.as_deref(),
                             keep_alive,
                             spec.attached,
                         ) {
