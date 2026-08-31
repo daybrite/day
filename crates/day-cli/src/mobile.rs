@@ -735,6 +735,58 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
     Ok(())
 }
 
+/// Day.toml `[window]` → the iOS `Info.plist` (docs/size-classes.md "Declaring a minimum size").
+///
+/// Two keys Day owns and reads back at runtime: `DayWindowMinWidth` / `DayWindowMinHeight`, which
+/// day-uikit applies to `UIWindowScene.sizeRestrictions.minimumSize` when the app has not set
+/// `WindowOptions.min_size` itself. Written here rather than into the generated xcconfig because
+/// `INFOPLIST_KEY_*` only applies when Xcode GENERATES the plist, and the scaffold ships one
+/// (`GENERATE_INFOPLIST_FILE = NO`) — a key set there would vanish without a word.
+///
+/// The orientation keys ride along for the same reason iPadOS 26 warns about them: an iPad app
+/// that does not support all four is heading for a hard stop. They are written only when the
+/// app declares none of its own — a developer who pinned orientations by hand keeps them.
+pub(crate) fn sync_window_keys(project: &Project) -> Result<(), String> {
+    let Some(plist) = app_info_plist(project) else {
+        return Ok(());
+    };
+    let win = &project.manifest.window;
+    let before =
+        std::fs::read_to_string(&plist).map_err(|e| format!("{}: {e}", plist.display()))?;
+
+    let mut want = std::collections::BTreeMap::new();
+    want.insert(
+        "DayWindowMinWidth".to_string(),
+        format!("{}", win.min_width.round() as i64),
+    );
+    want.insert(
+        "DayWindowMinHeight".to_string(),
+        format!("{}", win.min_height.round() as i64),
+    );
+    let after = crate::plist::apply_string_keys(&before, &want, &Default::default())
+        .map_err(|e| format!("{}: {e}", plist.display()))?;
+
+    // All four iPad orientations, unless the app already named its own set.
+    let after = if after.contains("UISupportedInterfaceOrientations~ipad") {
+        after
+    } else {
+        let all = [
+            "UIInterfaceOrientationPortrait".to_string(),
+            "UIInterfaceOrientationPortraitUpsideDown".to_string(),
+            "UIInterfaceOrientationLandscapeLeft".to_string(),
+            "UIInterfaceOrientationLandscapeRight".to_string(),
+        ];
+        crate::plist::apply_array_key(&after, "UISupportedInterfaceOrientations~ipad", Some(&all))
+            .map_err(|e| format!("{}: {e}", plist.display()))?
+    };
+
+    if after == before {
+        return Ok(()); // touch only when changed — keeps Xcode's incremental build warm
+    }
+    std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
+    Ok(())
+}
+
 /// An installed provisioning profile that covers a given app id.
 pub(crate) struct InstalledProfile {
     pub name: String,
@@ -826,6 +878,9 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
     sync_usage_descriptions(project, false)?;
+    // Day.toml [window] → the minimum-size keys day-uikit reads back, and the iPad orientation
+    // set iPadOS 26 wants declared (docs/size-classes.md).
+    sync_window_keys(project)?;
     // Day.toml [[shortcuts]] → UIApplicationShortcutItems, through the same plist editor as
     // the keys above; localized titles are staged into the bundle by the `stage-strings`
     // script phase, which older scaffolds get injected here.

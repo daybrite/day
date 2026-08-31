@@ -64,6 +64,15 @@ android {
         // wins); the manifest references it as ${dayTitle}.
         manifestPlaceholders["dayTitle"] = dayRequired("title")
         manifestPlaceholders["dayScheme"] = dayRequired("scheme")
+        // Day.toml [window] → the activities' <layout> element: how small a window may be dragged
+        // and how big it opens in desktop windowing (docs/size-classes.md). A manifest is a
+        // build-time declaration, so these cannot ride WindowOptions the way the iOS minimum does.
+        // Defaulted rather than dayRequired: an app whose day CLI predates the [window] minimum
+        // still builds, with the same numbers Day.toml would have defaulted to.
+        manifestPlaceholders["dayWidth"] = dayApp.getProperty("windowWidth") ?: "960"
+        manifestPlaceholders["dayHeight"] = dayApp.getProperty("windowHeight") ?: "640"
+        manifestPlaceholders["dayMinWidth"] = dayApp.getProperty("windowMinWidth") ?: "320"
+        manifestPlaceholders["dayMinHeight"] = dayApp.getProperty("windowMinHeight") ?: "400"
         versionName = dayRequired("versionName")
     }
     sourceSets {

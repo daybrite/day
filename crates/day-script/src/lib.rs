@@ -430,6 +430,23 @@ pub enum Step {
         #[serde(default)]
         height: Option<String>,
     },
+    /// Change the window's REAL geometry, and wait until the app has reported the new size
+    /// (docs/size-classes.md). The runner performs the resize — a device's window belongs to the
+    /// system, not to the app — and this half is the barrier: without it the next step races the
+    /// platform's own resize animation.
+    ///
+    /// `size_class:`'s complement, and the difference is the point: that step reports a class the
+    /// window is not actually at, so a screenshot after it shows the new layout at the old size.
+    /// This one moves the pixels.
+    Resize {
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        /// `resize: auto` — back to the device's own geometry.
+        #[serde(default)]
+        restore: bool,
+    },
 }
 
 /// `size_class:`'s `width:` spelling → the class. Kebab-case, matching how the docs name them.
@@ -1642,6 +1659,51 @@ fn exec(step: Step) -> Reply {
                 // binding, and the backend's re-home runs inside it.
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
+            }
+            Step::Resize {
+                width,
+                height,
+                restore,
+            } => {
+                // The runner has already asked the platform to resize; this half waits for the
+                // app to have SEEN it. Everything downstream — the re-present, a piece rebuilding
+                // off `size_class()` — rides the report, so acknowledging before it landed would
+                // hand the next step the old layout.
+                if !with_tree(|t| t.ui_idle()) {
+                    return Err(Reply::fail("ui transitions still settling", true));
+                }
+                day_reactive::flush_sync();
+                let (Some(w), Some(h)) = (width, height) else {
+                    // `resize: auto`, or a resize with no dimensions to check against: the
+                    // runner restored the device's own geometry and there is nothing to assert.
+                    let _ = restore;
+                    return Ok(Reply::ok());
+                };
+                // Compared as a WIDTH CLASS, and only that.
+                //
+                // Two reasons, both learned from the first run of this step. What reaches day-core
+                // is the safe-area-inset CONTENT size, not the window's: a window resized to 900dp
+                // tall reports about 830 once the status bar, the navigation bar and the app bar
+                // are taken out, so asserting the height class fails a resize that was letter
+                // perfect. And width is what the step exists to control — every re-presentation
+                // decision reads `SizeClass::width` (`prefers_split`, the Tabs/Rail/Split ladder),
+                // while height enters into none of them. Top and bottom chrome is also exactly
+                // where the insets are, so height is the axis the content size distorts most.
+                let want = day_spec::SizeClass::from_size(w, h).width;
+                let have = day_core::size_class();
+                if have.map(|c| c.width) == Some(want) {
+                    Ok(Reply::ok())
+                } else {
+                    // Retryable: a platform resize is animated, and the report lands when it ends.
+                    Err(Reply::fail(
+                        format!(
+                            "resize to {w}x{h} wants width {want:?}, window reports {have:?} \
+                             (a width within a few points of a breakpoint can fall the other \
+                             side of it once safe-area insets come out — aim for mid-bucket)"
+                        ),
+                        true,
+                    ))
+                }
             }
             Step::DeepLink { url } => {
                 day_reactive::flush_sync();

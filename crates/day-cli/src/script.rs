@@ -104,6 +104,11 @@ fn parse_flow(
             serde_json::Value::Number(n) if op == "pause" => {
                 step.insert("secs".into(), serde_json::Value::Number(n.clone()));
             }
+            // `- resize: auto` — the same spelling `size_class: { width: auto }` uses for
+            // "back to what the device actually is".
+            serde_json::Value::String(s) if op == "resize" && s == "auto" => {
+                step.insert("restore".into(), serde_json::Value::Bool(true));
+            }
             serde_json::Value::Null => {}
             other => {
                 return Err(format!("step {op}: unsupported params {other}"));
@@ -114,6 +119,162 @@ fn parse_flow(
         steps.push((op.clone(), step));
     }
     Ok(steps)
+}
+
+/// Perform a `resize:` step's REAL geometry change, host-side (docs/size-classes.md).
+///
+/// A mobile window belongs to the system: there is no in-app call that resizes it, which is why
+/// this half is the runner's. Where the platform gives the host no lever either, the step FAILS —
+/// loudly, naming what to do instead. A silent pass would be worse than useless: the assertions
+/// after it would all hold at the old size and the walkthrough would report a resize it never did.
+fn apply_resize(target: &crate::targets::Target, step: &serde_json::Value) -> Result<(), String> {
+    let restore = step
+        .get("restore")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let dims = (
+        step.get("width").and_then(|v| v.as_f64()),
+        step.get("height").and_then(|v| v.as_f64()),
+    );
+    let (w, h) = match (restore, dims) {
+        (true, _) => (0.0, 0.0),
+        (false, (Some(w), Some(h))) if w > 0.0 && h > 0.0 => (w, h),
+        _ => {
+            return Err(
+                "needs `width:` and `height:` in points, or `resize: auto` to restore".into(),
+            );
+        }
+    };
+
+    match target.kind {
+        // `wm size` resizes the DISPLAY, which is the one lever that reaches a full-screen
+        // activity — and it delivers exactly the configuration change this feature is about
+        // (`screenLayout`, `smallestScreenSize`), so it tests the manifest as well as the layout.
+        // Points are dp here, which is what Day's breakpoints are in.
+        TargetKind::Android => {
+            let density = adb_density().unwrap_or(1.0);
+            let mut cmd = adb_for_script();
+            if restore {
+                cmd.args(["shell", "wm", "size", "reset"]);
+            } else {
+                cmd.args([
+                    "shell",
+                    "wm",
+                    "size",
+                    &format!("{}x{}", (w * density).round(), (h * density).round()),
+                ]);
+            }
+            let out = cmd.output().map_err(|e| format!("adb: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "adb wm size failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            // `wm size` returns as soon as the request is queued, not once the display has
+            // reconfigured — and a display reconfiguration is a heavier thing than a window
+            // resize: SurfaceFlinger reallocates buffers and every visible surface redraws.
+            // Screenshots taken before that finished came out TORN, the same page composited
+            // twice side by side, which reads as a layout bug and is not one.
+            //
+            // So wait for the display itself, then give the compositor a beat. The engine half
+            // of the step is the other barrier — it waits for the app to have seen the new
+            // size — but it can only ask about Day's own state, not about the surface.
+            android_await_display(if restore { None } else { Some((w, h)) });
+            Ok(())
+        }
+        // No public API resizes a simulator scene, and Xcode 27's Device Hub drag is not
+        // scriptable. iOS coverage for a width-class crossing comes from running the same
+        // walkthrough on an iPhone AND an iPad device instead (docs/size-classes.md).
+        TargetKind::IosSim => Err(
+            "ios-uikit cannot be resized from the host — no simctl or public API does it. \
+             Run this walkthrough on an iPad device as well, or gate the step with \
+             `skip_on: [ios-uikit]`"
+                .into(),
+        ),
+        TargetKind::HarmonyOs => Err(
+            "harmony-arkui cannot be resized from the host yet — gate the step with \
+             `skip_on: [harmony-arkui]`"
+                .into(),
+        ),
+        // The desktops and the web own their windows, so both could take a real resize; neither
+        // is wired yet, and saying so beats passing a step that moved nothing.
+        TargetKind::Desktop | TargetKind::Web => Err(format!(
+            "`resize:` is not implemented for {} yet — gate the step with `skip_on: [{}]`",
+            target.name, target.name
+        )),
+    }
+}
+
+/// Wait until `wm size` reports the display we asked for, then let the compositor catch up.
+///
+/// `want` is `Some((w, h))` in dp for a resize, `None` for a restore (wait for the override to be
+/// gone). Bounded and best-effort: the engine half of the step is the assertion that matters, so a
+/// device that never reports the expected line should not hang the run.
+fn android_await_display(want: Option<(f64, f64)>) {
+    let density = adb_density().unwrap_or(1.0);
+    let expected = want.map(|(w, h)| {
+        format!(
+            "{}x{}",
+            (w * density).round() as i64,
+            (h * density).round() as i64
+        )
+    });
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        let out = adb_for_script().args(["shell", "wm", "size"]).output();
+        let text = out
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let override_line = text
+            .lines()
+            .find(|l| l.trim_start().starts_with("Override"));
+        let settled = match (&expected, override_line) {
+            (Some(want), Some(line)) => line.contains(want.as_str()),
+            (None, None) => true,
+            _ => false,
+        };
+        if settled {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    // The display is reconfigured; every visible surface still has to redraw at the new size.
+    std::thread::sleep(Duration::from_millis(800));
+}
+
+/// `adb`, pinned to the same device the engine forward went to.
+fn adb_for_script() -> Command {
+    let serial = std::env::var("ANDROID_SERIAL").ok().or_else(|| {
+        crate::mobile::android_devices()
+            .first()
+            .map(|d| d.serial.clone())
+    });
+    let mut cmd = Command::new("adb");
+    if let Some(serial) = serial {
+        cmd.args(["-s", &serial]);
+    }
+    cmd
+}
+
+/// The device's display density, so a resize expressed in dp (what Day's breakpoints are in)
+/// reaches `wm size`, which speaks pixels.
+fn adb_density() -> Option<f64> {
+    let out = adb_for_script()
+        .args(["shell", "wm", "density"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // "Physical density: 420" plus an "Override density: 320" line when one is set; the
+    // override is what the window actually uses.
+    let pick = |label: &str| {
+        text.lines()
+            .find(|l| l.trim_start().starts_with(label))
+            .and_then(|l| l.rsplit(':').next())
+            .and_then(|v| v.trim().parse::<f64>().ok())
+    };
+    let dpi = pick("Override density").or_else(|| pick("Physical density"))?;
+    Some(dpi / 160.0)
 }
 
 /// Sleep for `total`, returning early with a reason if the engine connection closes meanwhile.
@@ -525,6 +686,16 @@ pub fn run_scripts(
                     });
                 }
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} pause {secs}s");
+                continue;
+            }
+            // `resize` is runner-side FIRST, then engine: a device's window belongs to the
+            // system, so only the host can change it — and the engine half that follows is what
+            // waits for the app to have seen the new geometry (docs/size-classes.md).
+            if op == "resize"
+                && let Err(why) = apply_resize(target, &step)
+            {
+                run.steps_failed += 1;
+                eprintln!("  {ERROR}✗{ERROR:#} resize — {why}");
                 continue;
             }
             // `expect_exit` is runner-side: a prior step triggered an intentional exit/crash, so

@@ -10,12 +10,29 @@
         android:theme="@style/AppTheme"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true">
+        <!-- Multi-instance (API 35+): lets the system UI offer "open a second window" for an app
+             that has more than one (docs/windows.md). Older platforms skip unknown <property>. -->
+        <property
+            android:name="android.window.PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI"
+            android:value="true" />
         <activity
             android:name="dev.daybrite.day.bridge.DayActivity"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale|keyboardHidden">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|locale|fontScale|navigation|touchscreen|layoutDirection">
+            <!-- Resizability (docs/size-classes.md). `screenLayout` and `smallestScreenSize` are
+                 the two that split-screen and desktop windowing actually change: without them the
+                 activity is DESTROYED and recreated the moment the window crosses a size bucket.
+                 `resizeableActivity` is deliberately absent — it already defaults to true at
+                 targetSdk 24+, and API 36 ignores it on any display 600dp or wider.
+                 The <layout> numbers come from Day.toml [window] via manifestPlaceholders. -->
+            <layout
+                android:minWidth="${dayMinWidth}dp"
+                android:minHeight="${dayMinHeight}dp"
+                android:defaultWidth="${dayWidth}dp"
+                android:defaultHeight="${dayHeight}dp"
+                android:gravity="center" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -29,11 +46,21 @@
             </intent-filter>
         </activity>
         <!-- Secondary day windows (docs/windows.md): document-style instances, one per
-             open window — their own recents entries; side-by-side in split-screen/freeform. -->
+             open window — their own recents entries; side-by-side in split-screen/freeform.
+             Same configChanges as the primary: this activity cannot be recreated at all, since
+             its node has already been adopted and nativeStartWindow would answer false and
+             finish() it (docs/size-classes.md). -->
         <activity
             android:name="dev.daybrite.day.bridge.DayWindowActivity"
             android:exported="false"
             android:taskAffinity=""
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize" />
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|locale|fontScale|navigation|touchscreen|layoutDirection">
+            <layout
+                android:minWidth="${dayMinWidth}dp"
+                android:minHeight="${dayMinHeight}dp"
+                android:defaultWidth="${dayWidth}dp"
+                android:defaultHeight="${dayHeight}dp"
+                android:gravity="center" />
+        </activity>
     </application>
 </manifest>

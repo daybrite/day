@@ -23,6 +23,15 @@ day_reactive::tls_slots! {
     static APP_MENU_IDS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
 }
 
+/// Forget every menu action and the last-installed app menu — a RE-MOUNT (docs/appearance.md).
+/// The closures a previous mount registered capture that mount's reactive graph, which has just
+/// been disposed; keeping them would leave the menu bar invoking a dead tree.
+pub fn reset_menus() {
+    ACTIONS.with(|a| a.borrow_mut().clear());
+    APP_MENU_MODEL.with(|m| m.borrow_mut().clear());
+    APP_MENU_IDS.with(|i| i.borrow_mut().clear());
+}
+
 /// Register an app closure for a menu item and return its dispatch id (nonzero). The `day-pieces`
 /// menu builder calls this while lowering a menu tree to the [`day_spec::MenuItem`] model.
 /// Move the closure registered under `from` onto `to`, dropping `from`.

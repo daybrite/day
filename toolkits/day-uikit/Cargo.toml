@@ -28,6 +28,10 @@ objc2-quartz-core = { version = "0.3", features = ["CADisplayLink"] }
 objc2-ui-kit = { version = "0.3", features = [
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
     "UIScene", "UIWindowScene", "UISceneSession", "UISceneConfiguration", "UISceneOptions", "UISceneDefinitions",
+    # The scene's own geometry (docs/size-classes.md) — iOS 26 deprecated
+    # `UIWindowScene.coordinateSpace` in favour of `effectiveGeometry.coordinateSpace`, and a
+    # resizable window is exactly where measuring the SCREEN instead goes wrong.
+    "UIWindowSceneGeometry",
     # Deep-link + launcher-shortcut intake at the scene delegate (docs/deep-links.md).
     "UIApplicationShortcutItem", "UIOpenURLContext", "block2",
     # Window capture (docs/window-image.md): UIGraphicsImageRenderer + UIImagePNGRepresentation.

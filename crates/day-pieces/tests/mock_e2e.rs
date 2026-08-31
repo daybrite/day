@@ -6604,3 +6604,180 @@ fn window_title_names_the_window_it_is_built_into() {
         probe.log()
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Resizable windows (docs/size-classes.md). Every mobile platform now resizes app windows freely,
+// so the geometry a window reports is live data rather than a launch constant — and the two
+// things that can go wrong with it are invisible to a screenshot: a window reading ANOTHER
+// window's size, and a re-present that rebuilds pages instead of re-homing them.
+// ---------------------------------------------------------------------------------------------
+
+/// A selector whose presentation is left automatic, so it follows whatever class its window is in.
+fn adaptive_shell() -> AnyPiece {
+    selector(Signal::new("one".to_string()))
+        .item("one", "One", || label("one-content"))
+        .item("two", "Two", || label("two-content"))
+        .any()
+}
+
+#[test]
+fn two_windows_hold_two_size_classes_at_once() {
+    // The whole reason the signal is keyed by window root. One process can show a narrow window
+    // beside a wide one — Stage Manager, iPad split view, Android split-screen, two desktop
+    // windows — and a single global would lay the second one out for the first one's size.
+    let probe = boot(adaptive_shell);
+    day_core::open_window(
+        Some("second"),
+        win_options("second", 1200.0, 800.0),
+        day_spec::WindowKind::Normal,
+        adaptive_shell,
+    );
+    flush_sync();
+    let secondary = day_core::windows::window_root_by_key("second").expect("the second window");
+
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(390.0, 844.0)),
+    );
+    probe.resize_window(probe.windows()[0].node, Size::new(1200.0, 800.0));
+    flush_sync();
+
+    assert_eq!(
+        day_core::size_class().map(|c| c.width),
+        Some(day_spec::WidthClass::Compact),
+        "the primary took the second window's class"
+    );
+    assert_eq!(
+        day_core::window_size_class(secondary).map(|c| c.width),
+        Some(day_spec::WidthClass::Large),
+        "the second window took the primary's class"
+    );
+}
+
+#[test]
+fn resizing_one_window_leaves_the_others_class_alone() {
+    // What `DayHolderView` got wrong on ios-uikit: it reported EVERY scene's geometry against the
+    // primary window's node and re-framed the primary's root view, so dragging a secondary
+    // window's edge re-bucketed the wrong window. Both windows still look plausible afterwards,
+    // which is why this is a test rather than a screenshot.
+    let probe = boot(adaptive_shell);
+    day_core::open_window(
+        Some("second"),
+        win_options("second", 1200.0, 800.0),
+        day_spec::WindowKind::Normal,
+        adaptive_shell,
+    );
+    flush_sync();
+    let secondary = day_core::windows::window_root_by_key("second").expect("the second window");
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(390.0, 844.0)),
+    );
+    flush_sync();
+    let before = day_core::size_class();
+
+    probe.resize_window(probe.windows()[0].node, Size::new(700.0, 900.0));
+    flush_sync();
+
+    assert_eq!(
+        day_core::size_class(),
+        before,
+        "resizing the second window changed the first window's class"
+    );
+    assert_eq!(
+        day_core::window_size_class(secondary).map(|c| c.width),
+        Some(day_spec::WidthClass::Medium),
+        "the resized window never reported its own new class"
+    );
+}
+
+#[test]
+fn a_resize_within_one_class_notifies_nothing() {
+    // Dragging a window edge in Android desktop windowing delivers a resize per frame. Only a
+    // BUCKET change may notify, or every frame of that drag would re-present the navigation.
+    let probe = boot(adaptive_shell);
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(700.0, 900.0)),
+    );
+    flush_sync();
+    let runs = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let seen = runs.clone();
+    day_reactive::Scope::root().enter(|| {
+        day_reactive::Effect::new(move || {
+            let _ = day_core::size_class();
+            seen.set(seen.get() + 1);
+        })
+    });
+    flush_sync();
+    let baseline = runs.get();
+
+    for w in [710.0, 750.0, 800.0, 839.0] {
+        probe.emit(
+            day_spec::WINDOW_NODE,
+            day_spec::Event::WindowResized(Size::new(w, 900.0)),
+        );
+    }
+    flush_sync();
+    assert_eq!(
+        runs.get(),
+        baseline,
+        "a resize inside one bucket woke a reader of the class"
+    );
+
+    // …and crossing 840 does.
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(900.0, 900.0)),
+    );
+    flush_sync();
+    assert!(
+        runs.get() > baseline,
+        "crossing the 840 breakpoint did not notify"
+    );
+}
+
+#[test]
+fn a_window_that_crosses_a_breakpoint_re_presents_without_rebuilding() {
+    // The promise re-presenting exists for: the host changes shape, the PAGES do not. A rebuild
+    // would drop every scroll offset, text selection and focused field — and would pass a naive
+    // screenshot check while doing it, which is why the walkthroughs assert surviving state too.
+    let builds = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let counted = builds.clone();
+    let probe = boot(move || {
+        let counted2 = counted.clone();
+        selector(Signal::new("one".to_string()))
+            .item("one", "One", move || {
+                counted.set(counted.get() + 1);
+                label("one-content")
+            })
+            .item("two", "Two", move || {
+                counted2.set(counted2.get() + 1);
+                label("two-content")
+            })
+            .any()
+    });
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(1200.0, 800.0)),
+    );
+    flush_sync();
+    let after_wide = builds.get();
+    assert!(after_wide > 0, "no page was ever built");
+
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(390.0, 844.0)),
+    );
+    flush_sync();
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(1200.0, 800.0)),
+    );
+    flush_sync();
+    assert_eq!(
+        builds.get(),
+        after_wide,
+        "crossing the breakpoint rebuilt the page instead of re-homing it"
+    );
+}

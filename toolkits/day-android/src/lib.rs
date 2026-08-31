@@ -1075,6 +1075,25 @@ mod imp {
     /// A JNI up-call entry: contained, so a startup failure logs instead of aborting.
     pub fn init(env: &mut Env, root: JObject, density_: f32, w: i32, h: i32) {
         day_spec::ffi_guard::contain((), || {
+            // A RE-MOUNT (docs/appearance.md): an activity recreation calls this a second time
+            // with a brand-new view hierarchy. Everything below maps a NATIVE VIEW POINTER (or a
+            // host id) to something owned by the tree that is going away, and `LIST_SOURCES` in
+            // particular holds closures that captured the previous mount's state. Left in place,
+            // a callback from a stale view — or a recycled pointer that now means something else
+            // — dispatches into the old graph and reads signals that were disposed with it.
+            //
+            // Cleared unconditionally rather than behind a "did we already start" flag: `init`
+            // means "a tree is being mounted here", and on a first launch these are empty anyway.
+            LIST_SOURCES.with(|m| m.borrow_mut().clear());
+            LIST_NODE.with(|m| m.borrow_mut().clear());
+            LIST_CELLS.with(|m| m.borrow_mut().clear());
+            LIST_SELECTED.with(|m| m.borrow_mut().clear());
+            NAV_MENU_ROWS.with(|m| m.borrow_mut().clear());
+            NAV_SUITES.with(|m| m.borrow_mut().clear());
+            LABEL_NODE.with(|m| m.borrow_mut().clear());
+            // Secondary windows do not survive the primary's recreation — their activities were
+            // torn down with it, so the day-side records are stale global refs.
+            SECONDARY.with(|m| m.borrow_mut().clear());
             if let Ok(vm) = env.get_java_vm() {
                 let _ = JAVA_VM.set(vm);
             }

@@ -1222,11 +1222,17 @@ public final class DayBridge {
             case 1: night = android.app.UiModeManager.MODE_NIGHT_YES; break;
             default: night = android.app.UiModeManager.MODE_NIGHT_AUTO; break;
         }
-        um.setApplicationNightMode(night);
         // A DayNight theme picks its variant when the activity's theme is RESOLVED, which is at
         // creation. The uiMode change alone leaves every view — and every view inflated after it —
         // on the colors chosen at startup, so the appearance has to be re-resolved by recreating.
-        // Day's tree is rebuilt from `onCreate`, the same path a cold start takes.
+        // Day's tree is rebuilt from `onCreate`, the same path a cold start takes, and since 2026-08
+        // that path is a real RE-MOUNT (docs/appearance.md) rather than a second launch.
+        //
+        // Day performs this recreation ITSELF, and both halves of that were measured rather than
+        // assumed (docs/appearance.md "What was tried"): an app-level `setApplicationNightMode`
+        // does not make the platform recreate the activity, so dropping this call leaves the app
+        // unchanged; and posting it to the next main-loop turn instead of calling it inline makes
+        // the new activity resolve LIGHT, losing the setting altogether.
         if (ctx instanceof android.app.Activity) ((android.app.Activity) ctx).recreate();
     }
 

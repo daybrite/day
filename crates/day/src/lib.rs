@@ -922,6 +922,24 @@ pub mod android {
     ) {
         // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
         day_android::redirect_stdio_to_logcat();
+        // A SECOND launch in one process: the activity was RECREATED (docs/appearance.md).
+        // Two paths do it — a light/dark switch calls `recreate()` deliberately, and any
+        // configuration change the manifest does not claim recreates incidentally — and both
+        // re-enter here with day-core already mounted.
+        //
+        // Re-mount rather than refuse. Refusing left the process alive with no tree behind the
+        // new activity: a black, unresponsive window, and — because the dayscript engine socket
+        // belongs to the process rather than the activity — a walkthrough that stayed green
+        // against it. Building a second tree over the first was no better; the previous window's
+        // reactive graph was never disposed, so its navigation host re-registered itself on top
+        // of the new one.
+        //
+        // `prepare_remount` disposes what the last mount built and clears what `root()` is about
+        // to register again, leaving root-scope state (`Signal::global`, `Ambient::app()`) alone.
+        let remount = day_core::is_mounted();
+        if remount {
+            day_core::prepare_remount();
+        }
         if let Some(a) = autodrive {
             unsafe { std::env::set_var("DAY_AUTODRIVE", a) };
         }
@@ -936,7 +954,12 @@ pub mod android {
             }
         }
         day_android::init(env, root, density, w, h);
-        day_script::init();
+        // The dayscript engine belongs to the PROCESS, not the activity: its listener survives a
+        // recreation and keeps serving against whatever tree is mounted. Re-running `init` only
+        // tried to bind the same port again ("Address already in use"), so the re-mount skips it.
+        if !remount {
+            day_script::init();
+        }
         // Through `crate::start`, not `launch_with`: that is where the device's language
         // preference is read off the backend and handed to the localization engine, and this
         // entry is the app's only door on Android (docs/localization.md).

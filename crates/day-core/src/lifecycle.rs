@@ -29,6 +29,14 @@ day_reactive::tls_slots! {
         RefCell::new(std::collections::HashSet::new());
 }
 
+/// Forget every registered handler — a RE-MOUNT (docs/appearance.md): the app's `root()` is
+/// about to run again and re-register, and handlers left from the previous mount would fire a
+/// second time for every phase.
+pub fn reset_handlers() {
+    HANDLERS.with(|h| h.borrow_mut().clear());
+    WARNED.with(|w| w.borrow_mut().clear());
+}
+
 /// Register `f` to run whenever the app reaches `phase`. Handlers run in registration order, in a
 /// reactive batch (signal writes coalesce into one UI update). Register early — before `launch`, or
 /// at the top of the root builder — so `WillLaunch`/`DidLaunch` handlers are in place when they fire.

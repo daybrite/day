@@ -400,6 +400,122 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
 
 /// Cross-reference every dayscript `screenshot:` step's localized `title:`/`caption:` locale
 /// keys against the app's translation locales (see the caller's comment for the rules).
+/// The `android:configChanges` tokens a Day activity must claim to survive being resized
+/// (docs/size-classes.md).
+///
+/// `screenLayout` and `smallestScreenSize` are the two that matter and the two that were missing:
+/// entering split-screen or dragging a desktop-windowing edge across a size bucket changes both,
+/// and an activity that has not claimed them is DESTROYED and recreated. day-android does not
+/// survive a second `nativeStart` in one process, so what the user sees is an app that comes back
+/// without whatever it installed once at startup. The rest are here because a resizable window
+/// crosses them too — a window dragged to another display changes `density`, an accessibility
+/// text-size change `fontScale`.
+const ANDROID_CONFIG_CHANGES: &[&str] = &[
+    "screenSize",
+    "screenLayout",
+    "smallestScreenSize",
+    "orientation",
+    "keyboardHidden",
+    // Claimed, even though a light/dark switch DOES need the activity recreated: an app-level
+    // `setApplicationNightMode` does not make the platform recreate it, so day-android performs
+    // that recreation itself (docs/appearance.md). Unclaiming this was tried and measured — the
+    // theme change then did nothing at all.
+    "uiMode",
+    "density",
+    "locale",
+    "fontScale",
+    "layoutDirection",
+];
+
+/// Every Day activity in the app's manifest claims the config changes a resize delivers, and
+/// declares a `<layout>` minimum (docs/size-classes.md).
+///
+/// This is a per-app checked-in file that nothing else validates — `day build` cannot fix it,
+/// because an app may legitimately add activities of its own, and the Gradle manifest merger has
+/// no opinion about which config changes an activity ought to claim. Android 16 ignores
+/// `resizeableActivity` on any display 600dp or wider, so "the window will never be resized" has
+/// stopped being an option an app can choose.
+fn check_android_resizability(project: &Project, findings: &mut Vec<Finding>) {
+    let rel = "platform/android/app/src/main/AndroidManifest.xml";
+    let path = project.root.join(rel);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return; // an app with no android target has nothing to check
+    };
+
+    for (name, label) in [
+        ("dev.daybrite.day.bridge.DayActivity", "the main activity"),
+        (
+            "dev.daybrite.day.bridge.DayWindowActivity",
+            "the secondary-window activity",
+        ),
+    ] {
+        // The activity's own element, from its `android:name` to the end of its opening tag.
+        let Some(at_name) = text.find(name) else {
+            continue; // an app without secondary windows declares no DayWindowActivity
+        };
+        let open_start = text[..at_name].rfind("<activity").unwrap_or(at_name);
+        let Some(open_len) = text[open_start..].find('>') else {
+            continue;
+        };
+        let open_tag = &text[open_start..open_start + open_len];
+        let line = text[..open_start].matches('\n').count() + 1;
+        let at = || Location {
+            file: rel.to_string(),
+            line,
+            column: 1,
+        };
+
+        let declared: Vec<&str> = open_tag
+            .split_once("android:configChanges=\"")
+            .and_then(|(_, rest)| rest.split_once('"'))
+            .map(|(v, _)| v.split('|').map(str::trim).collect())
+            .unwrap_or_default();
+        let missing: Vec<&str> = ANDROID_CONFIG_CHANGES
+            .iter()
+            .copied()
+            .filter(|t| !declared.contains(t))
+            .collect();
+        if !missing.is_empty() {
+            findings.push(
+                Finding {
+                    code: "day::lint::android-not-resizable",
+                    message: format!(
+                        "{rel}: {label} does not claim {} in android:configChanges, so Android \
+                         DESTROYS and recreates it when the window is resized (split-screen, \
+                         desktop windowing). Add: {}",
+                        missing.join(", "),
+                        ANDROID_CONFIG_CHANGES.join("|")
+                    ),
+                    ..Default::default()
+                }
+                .located(at()),
+            );
+        }
+
+        // The `<layout>` element is what multi-window reads for a minimum and a default size;
+        // without it the system picks, and it picks small.
+        let body_end = text[open_start..]
+            .find("</activity>")
+            .map(|i| open_start + i)
+            .unwrap_or(text.len());
+        if !text[open_start..body_end].contains("<layout") {
+            findings.push(
+                Finding {
+                    code: "day::lint::android-no-window-layout",
+                    message: format!(
+                        "{rel}: {label} declares no <layout> element, so multi-window and \
+                         desktop windowing have no minimum or default size to honor. Add one \
+                         reading the Day.toml [window] placeholders (${{dayMinWidth}}dp, \
+                         ${{dayMinHeight}}dp, ${{dayWidth}}dp, ${{dayHeight}}dp)"
+                    ),
+                    ..Default::default()
+                }
+                .located(at()),
+            );
+        }
+    }
+}
+
 fn check_screenshot_locales(
     root: &Path,
     dir: &Path,
@@ -779,6 +895,9 @@ fn collect(project: &Project) -> Vec<Finding> {
             );
         }
     }
+
+    // --- Android window resizability (docs/size-classes.md) ---
+    check_android_resizability(project, &mut findings);
 
     // --- Permission declarations (docs/permissions.md) ---
     // The backstop for the whole declaration pipeline: an undeclared permission reports Restricted

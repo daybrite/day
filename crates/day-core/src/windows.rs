@@ -417,6 +417,15 @@ fn wire_window_events(root: RNode) {
                 Event::WindowResized(size) => {
                     let s = *size;
                     with_tree(|t| t.set_root_size(root, s));
+                    // …and re-bucket THIS window (docs/size-classes.md). The primary's rail does
+                    // the same in `launch_with`; without it here a secondary window relayouts at
+                    // its new size but keeps the class it opened at, so dragging the second
+                    // window from narrow to wide never re-presented its navigation. Invisible
+                    // until a window could be resized at all, which on the phones it now can.
+                    crate::ambient::set_window_size_class(
+                        root,
+                        day_spec::SizeClass::from_size(s.width, s.height),
+                    );
                 }
                 Event::WindowFocused(f) => {
                     let f = *f;
@@ -797,6 +806,19 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
 
 /// Reset the registry + registrations (tests — pairs with `uninstall_tree`).
 pub fn reset_windows() {
+    // Deliberately does NOT dispose each record's content scope, which is a change that was
+    // made and then REVERTED after it broke navigation (docs/appearance.md "What was tried").
+    //
+    // Disposing looks right — the reactive graph a window built otherwise outlives it, and on an
+    // Android re-mount that showed up as the previous window's navigation host re-registering
+    // over the new one's ("two routed one-of-N surfaces … at the same navigation level"). But
+    // the disposal cascade runs app cleanup that reads signals the same cascade has already
+    // disposed; the panic is contained, the disposal stops half-way, and the REBUILD that
+    // follows registers no routes at all. The symptom is an app whose tab bar draws and whose
+    // tabs do nothing.
+    //
+    // Leaking the old graph is the lesser fault: it warns, and the app works. Disposing safely
+    // needs the cascade to tear down in dependency order, which is its own piece of work.
     WINDOWS.with(|w| w.borrow_mut().clear());
     INITIAL_WINDOW.with(|c| c.set(None));
     crate::toolbar::reset_toolbars();

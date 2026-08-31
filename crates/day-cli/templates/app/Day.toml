@@ -8,6 +8,12 @@ title = "{{title}}"
 build = 1
 targets = [{{targets_toml}}]
 
+# The window's geometry in points (https://daybrite.dev/docs/size-classes). `width`/`height` are
+# the desktop default and the size a desktop-windowing Android window opens at; the minimum is
+# how small the system may make it. `day build` carries all four into the Android manifest's
+# <layout> element and the iOS Info.plist, so declare them here rather than in either.
 [window]
 width = 960
 height = 640
+min_width = 320
+min_height = 400

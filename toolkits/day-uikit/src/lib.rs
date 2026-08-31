@@ -294,10 +294,110 @@ mod imp {
         })
     }
 
+    /// Is this device running at least `major`.0?
+    ///
+    /// day-uikit deploys to iOS 15 and is built against a much newer SDK, so anything newer than
+    /// the floor has to be asked for at runtime. objc2 compiles the call whatever the SDK
+    /// version; the OS is what decides whether the selector exists, and an unrecognized selector
+    /// is a crash, not a no-op.
+    ///
+    /// Cached: `NSProcessInfo` is a lookup per call otherwise, and the answer cannot change
+    /// while the process runs.
+    fn os_at_least(major: isize) -> bool {
+        thread_local! {
+            static VERSION: isize = objc2_foundation::NSProcessInfo::processInfo()
+                .operatingSystemVersion()
+                .majorVersion;
+        }
+        VERSION.with(|v| *v >= major)
+    }
+
+    /// The scene entry a given view lives in, applied to `f` — matched by the view's WINDOW,
+    /// which is the one identity every view in a scene shares all the way up the hierarchy.
+    ///
+    /// `with_key_scene` answers "whichever window the user is typing into"; this answers "the
+    /// window this view is in", which is what a resize report needs — a background window being
+    /// resized alongside the key one must still report against itself. `None` before the view
+    /// has been added to a window.
+    fn with_scene_of<R>(view: &UIView, f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
+        let window = view.window()?;
+        let wp = Retained::as_ptr(&window) as usize;
+        SCENES.with(|s| {
+            let scenes = s.borrow();
+            scenes
+                .iter()
+                .find(|e| Retained::as_ptr(&e.window) as usize == wp)
+                .map(f)
+        })
+    }
+
     /// The root node id the keyboard/resize rail should report against for the key window:
     /// a secondary's own root, or `WINDOW_NODE` for the primary.
     fn key_scene_target(entry: &SceneEntry) -> NodeId {
         entry.node.unwrap_or(WINDOW_NODE)
+    }
+
+    /// The space this SCENE has, in points — never the screen's (docs/size-classes.md).
+    ///
+    /// `scene.screen().bounds()` is the display, and a scene has not filled the display since
+    /// iPad multitasking; as of iPadOS 26 every iPad window is freely resizable, and an iPhone
+    /// app on an iPad or mirrored to a Mac is a resizable window too. Measuring the screen made
+    /// the LAUNCH snapshot wrong — the first size class was the display's, so a nav host resolved
+    /// its presentation for a window that size and then visibly corrected itself once
+    /// `DayHolderView` ran.
+    ///
+    /// The scene's own coordinate space is right on every version this backend supports; iOS 26
+    /// moved it behind `effectiveGeometry` and deprecated the direct property, so both spellings
+    /// are here — the same value, asked for the way the running OS wants it asked.
+    fn scene_bounds(scene: &objc2_ui_kit::UIWindowScene) -> CGRect {
+        use objc2_ui_kit::UICoordinateSpace;
+        let space = if os_at_least(26) {
+            scene.effectiveGeometry().coordinateSpace(mtm())
+        } else {
+            #[allow(deprecated)]
+            scene.coordinateSpace()
+        };
+        let bounds = space.bounds();
+        // A scene that has not been placed yet reports zero; the screen is the best guess left,
+        // and the first layout pass corrects it either way.
+        if bounds.size.width > 0.0 && bounds.size.height > 0.0 {
+            bounds
+        } else {
+            scene.screen().bounds()
+        }
+    }
+
+    /// Ask the system not to shrink this window below what the app can draw
+    /// (docs/size-classes.md). `sizeRestrictions` is `nil` wherever the platform does not let a
+    /// window be resized at all (every iPhone), which is why this is a nil-check and not a
+    /// version gate.
+    ///
+    /// Apple documents the minimum as a PREFERENCE satisfied on a best-effort basis, so this
+    /// buys a floor the system usually honors, never one the app may rely on: laying out
+    /// sensibly at whatever size arrives is still the app's job.
+    fn apply_size_restrictions(scene: &objc2_ui_kit::UIWindowScene, min: Option<Size>) {
+        let Some(min) = min.or_else(plist_min_window_size) else {
+            return;
+        };
+        let Some(restrictions) = (unsafe { scene.sizeRestrictions() }) else {
+            return;
+        };
+        unsafe { restrictions.setMinimumSize(CGSize::new(min.width, min.height)) };
+    }
+
+    /// `Day.toml [window] min_width/min_height`, carried into the bundle's `Info.plist` by
+    /// `day build` (`mobile::sync_window_keys`). The fallback when the app set no
+    /// `WindowOptions.min_size` of its own, so one Day.toml declaration reaches both platforms.
+    fn plist_min_window_size() -> Option<Size> {
+        fn key(name: &str) -> Option<f64> {
+            let bundle = objc2_foundation::NSBundle::mainBundle();
+            let value = unsafe { bundle.objectForInfoDictionaryKey(&NSString::from_str(name)) }?;
+            let s = value.downcast::<NSString>().ok()?;
+            s.to_string().trim().parse::<f64>().ok()
+        }
+        let w = key("DayWindowMinWidth")?;
+        let h = key("DayWindowMinHeight")?;
+        (w > 0.0 && h > 0.0).then(|| Size::new(w, h))
     }
 
     /// Build one Day window into `scene`: UIWindow + DayRootVC + DayHolderView + the
@@ -306,12 +406,38 @@ mod imp {
     fn build_scene_window(
         mtm: MainThreadMarker,
         scene: &objc2_ui_kit::UIWindowScene,
+        min_size: Option<Size>,
     ) -> (Retained<UIWindow>, Retained<UIView>, CGRect) {
-        let bounds = scene.screen().bounds();
+        apply_size_restrictions(scene, min_size);
+        let bounds = scene_bounds(scene);
+        if *DIAG_NAV {
+            let screen = scene.screen().bounds();
+            // The scene's own size versus the display's — they are DIFFERENT on any iPad running
+            // iPadOS 26, which opens apps windowed, and the gap is what makes measuring the
+            // screen a bug rather than a shortcut (docs/size-classes.md). `min` echoes back the
+            // `sizeRestrictions` the app just asked for, read back off the restrictions object
+            // itself (iOS 13+) rather than off the geometry, whose `minimumSize` turns out not to
+            // exist until iOS 27 — a reminder that an SDK header's availability annotation is a
+            // compile-time promise, not a runtime one. 0x0 means no minimum took.
+            log::debug!(
+                "DAYDIAG scene {}x{} (screen {}x{})",
+                bounds.size.width,
+                bounds.size.height,
+                screen.size.width,
+                screen.size.height,
+            );
+        }
         let window = unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), scene) };
         let vc: Retained<UIViewController> = DayRootVC::new(mtm).into_super();
         let holder = DayHolderView::new(mtm);
         unsafe { holder.setFrame(bounds) };
+        // The holder tracks its window rather than keeping the frame it was built with: a scene
+        // resized before its first layout pass (a restored window, a drag that starts during
+        // launch) would otherwise hold the launch size until something else invalidated it.
+        holder.setAutoresizingMask(
+            objc2_ui_kit::UIViewAutoresizing::FlexibleWidth
+                | objc2_ui_kit::UIViewAutoresizing::FlexibleHeight,
+        );
         let root_view = unsafe { UIView::initWithFrame(UIView::alloc(mtm), bounds) };
         // RTL locales (docs/localization): force the semantic content attribute on the
         // window AND the day content roots — see the module docs.
@@ -339,16 +465,37 @@ mod imp {
             window.setRootViewController(Some(&vc));
             window.makeKeyAndVisible();
         }
-        // Safe area as root padding (§7.7): valid once the window is key.
+        // Safe area as root padding (§7.7): valid once the window is key. The window's OWN
+        // bounds, not the ones the holder was built with — `makeKeyAndVisible` is where a scene
+        // that is smaller than it first reported settles.
+        let bounds = window.bounds();
         let insets = unsafe { window.safeAreaInsets() };
         let inner = CGRect::new(
             CGPoint::new(insets.left, insets.top),
             CGSize::new(
-                bounds.size.width - insets.left - insets.right,
-                bounds.size.height - insets.top - insets.bottom,
+                (bounds.size.width - insets.left - insets.right).max(0.0),
+                (bounds.size.height - insets.top - insets.bottom).max(0.0),
             ),
         );
         unsafe { root_view.setFrame(inner) };
+        if *DIAG_NAV {
+            let min = unsafe { scene.sizeRestrictions() }
+                .map(|r| unsafe { r.minimumSize() })
+                .unwrap_or(CGSize::new(0.0, 0.0));
+            log::debug!(
+                "DAYDIAG launch window {}x{} safe(t{} b{} l{} r{}) -> root {}x{} min {}x{}",
+                bounds.size.width,
+                bounds.size.height,
+                insets.top,
+                insets.bottom,
+                insets.left,
+                insets.right,
+                inner.size.width,
+                inner.size.height,
+                min.width,
+                min.height,
+            );
+        }
         (window, root_view, inner)
     }
 
@@ -2092,21 +2239,30 @@ mod imp {
         #[ivars = ()]
         struct DayHolderView;
 
-        /// The window root's content holder. UIKit resizes it on rotation (and iPad
-        /// multitasking) and runs this layout pass — Day's size-change rail: re-pin the day
-        /// root to the CURRENT safe area and emit `WindowResized`, the same shape as
-        /// Android's configuration-change delivery (§9). Launch computes the initial frame;
-        /// this fires only when the BASE frame really changed, so the keyboard rail's
-        /// shrunken root (which alters the frame but not the base) is never stomped.
+        /// The window root's content holder. UIKit resizes it on rotation, on iPad
+        /// multitasking, and — since iPadOS 26 — on every drag of a resizable window's edge,
+        /// then runs this layout pass. That is Day's size-change rail: re-pin the day root to
+        /// the CURRENT safe area and emit `WindowResized`, the same shape as Android's
+        /// configuration-change delivery (§9). It fires only when the BASE frame really
+        /// changed, so the keyboard rail's shrunken root (which alters the frame but not the
+        /// base) is never stomped.
+        ///
+        /// Everything here is resolved through THIS holder's own scene, never the primary's
+        /// statics (docs/size-classes.md). One process can hold two windows at two sizes —
+        /// Stage Manager, two side-by-side iPad windows — and reporting a secondary's geometry
+        /// against `WINDOW_NODE` re-framed the primary's root view and re-bucketed the wrong
+        /// window's size class.
         impl DayHolderView {
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
                 // The WindowResized report dispatches day-core's relayout — contained (§8.5).
                 day_spec::ffi_guard::contain((), || {
-                    // Before launch has published the root, its own frame computation owns
-                    // this (it runs once the window is key) — nothing to re-pin yet.
-                    let Some(root) = ROOT_VIEW.with(|r| r.borrow().clone()) else {
+                    // Before this holder's window is in a scene — or before launch published
+                    // its root — the launch frame computation owns this; nothing to re-pin.
+                    let Some((root, base, target)) = with_scene_of(self, |e| {
+                        (e.root_view.clone(), e.base_frame.get(), key_scene_target(e))
+                    }) else {
                         return;
                     };
                     let bounds = self.bounds();
@@ -2118,7 +2274,6 @@ mod imp {
                             (bounds.size.height - insets.top - insets.bottom).max(0.0),
                         ),
                     );
-                    let base = ROOT_BASE_FRAME.with(|f| f.get());
                     if inner.origin.x == base.origin.x
                         && inner.origin.y == base.origin.y
                         && inner.size.width == base.size.width
@@ -2126,11 +2281,17 @@ mod imp {
                     {
                         return;
                     }
-                    ROOT_BASE_FRAME.with(|f| f.set(inner));
+                    // Stored before `emit`, and with the registry borrow already dropped: the
+                    // report re-enters day-core, which reads scenes back.
+                    with_scene_of(self, |e| e.base_frame.set(inner));
+                    if target == WINDOW_NODE {
+                        ROOT_BASE_FRAME.with(|f| f.set(inner));
+                    }
                     unsafe { root.setFrame(inner) };
                     if *DIAG_NAV {
                         log::debug!(
-                            "DAYDIAG holder bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
+                            "DAYDIAG holder node={:?} bounds={}x{} safe(t{} b{} l{} r{}) -> inner=({},{} {}x{})",
+                            target,
                             bounds.size.width,
                             bounds.size.height,
                             insets.top,
@@ -2144,7 +2305,7 @@ mod imp {
                         );
                     }
                     emit(
-                        WINDOW_NODE,
+                        target,
                         Event::WindowResized(Size::new(inner.size.width, inner.size.height)),
                     );
                 });
@@ -4525,8 +4686,17 @@ mod imp {
                 // `.tabSidebar` (docs/navigation.md): ONE `UITabBarController` that draws a tab
                 // bar when compact and a sidebar when not — what SwiftUI's `.sidebarAdaptable`
                 // compiles down to, and the container adaptive navigation exists for.
-                | Cap::NavTabs
+                //
+                // Native on every version this backend deploys to, which was worth MEASURING
+                // rather than reasoning about. `UITabBarController.mode` is annotated
+                // `API_AVAILABLE(ios(18.0))`, so the obvious move is to answer `Unsupported`
+                // below 18 and let the resolver fall back. That made iOS 15.5 and 17.5 worse,
+                // not safer: the fallback lowers a different host shape and broke the scaffold's
+                // walkthrough on both, while the unguarded call ran clean on both. Apple shipped
+                // the selector before annotating it. An app on iOS 15 therefore gets a plain tab
+                // bar — what it would have drawn anyway — and only the sidebar half is new.
                 | Cap::NavTabsAdaptive
+                | Cap::NavTabs
                 | Cap::NavSplit
                 | Cap::Appearance => Support::Native,
                 // Derived from the control's font: UIKit publishes baselines only as constraint
@@ -4628,8 +4798,16 @@ mod imp {
                     // presentation for Day to drive — the controller decides, and reports once.
                     if p.presentation == day_spec::props::NavPresentation::Tabs {
                         let tabbar = unsafe { UITabBarController::new(mtm) };
-                        unsafe {
-                            tabbar.setMode(objc2_ui_kit::UITabBarControllerMode::TabSidebar);
+                        // `mode` is annotated `ios(18.0)` but responds on 15.5 and 17.5, which is
+                        // measured, not assumed (docs/size-classes.md). Guard on whether the
+                        // object ANSWERS the selector rather than on a version number: that is
+                        // the fact the call actually depends on, it needs no table of which OS
+                        // shipped what, and it degrades to a plain tab bar — an iOS 17 app's own
+                        // shape — instead of dying, on any runtime that really lacks it.
+                        if tabbar.respondsToSelector(objc2::sel!(setMode:)) {
+                            unsafe {
+                                tabbar.setMode(objc2_ui_kit::UITabBarControllerMode::TabSidebar);
+                            }
                         }
                         if let Some(root_vc) = &root_vc {
                             unsafe {
@@ -7874,8 +8052,12 @@ mod imp {
                     // Secondary day window? The request's NSUserActivity names the root node.
                     let node = scene_activity_node(options);
                     if PENDING.with(|p| p.borrow().is_some()) && node.is_none() {
-                        // The primary scene: build the window and mount the day tree.
-                        let (window, root_view, inner) = build_scene_window(mtm, win_scene);
+                        // The primary scene: build the window and mount the day tree. The
+                        // parked launch options carry the app's own minimum window size;
+                        // read WITHOUT taking, since the take below is what mounts the tree.
+                        let min =
+                            PENDING.with(|p| p.borrow().as_ref().and_then(|(_, o, _)| o.min_size));
+                        let (window, root_view, inner) = build_scene_window(mtm, win_scene, min);
                         WINDOW.with(|w| *w.borrow_mut() = Some(window.clone()));
                         ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
                         ROOT_BASE_FRAME.with(|f| f.set(inner));
@@ -7908,7 +8090,10 @@ mod imp {
                         return;
                     };
                     PENDING_WINDOWS.with(|p| p.borrow_mut().retain(|(n, _)| *n != node));
-                    let (window, root_view, inner) = build_scene_window(mtm, win_scene);
+                    // A secondary window is the same app at the same minimum; day-core hands
+                    // `open_new_window` the launch options, so `None` here falls back to the
+                    // Day.toml value the primary used (docs/size-classes.md).
+                    let (window, root_view, inner) = build_scene_window(mtm, win_scene, None);
                     let size = Size::new(inner.size.width, inner.size.height);
                     let raw = Retained::as_ptr(&root_view) as *mut std::ffi::c_void
                         as day_spec::RawHandle;

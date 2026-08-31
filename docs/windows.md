@@ -223,7 +223,14 @@ currently also answers the primary for per-window captures, a noted follow-up.)
 `Toolkit::open_window(id, options, kind) -> WindowOpenReply<Handle>` creates and shows the
 native window, wires ITS events to `id` (`WindowResized` in content points, `WindowClosed`
 after the platform committed the close, `WindowFocused` on key changes), and answers the
-CONTENT container handle, the same contract as `ready`'s root. Backends whose window
+CONTENT container handle, the same contract as `ready`'s root.
+
+**`WindowResized` must carry `id`, not the primary's node.** It is what re-buckets that window's
+size class ([docs/size-classes.md](size-classes.md)), so a backend that reports every window's
+geometry against the primary re-lays-out the wrong window — which is what day-uikit's holder view
+did, invisibly, until iPadOS made two windows at two sizes an ordinary thing. day-core relayouts
+*and* re-buckets on receipt, so a secondary window dragged from narrow to wide re-presents its
+navigation exactly as the primary does. Backends whose window
 creation is asynchronous (a scene, an activity, an ability) answer `Pending` and complete
 later through `day_core::finish_window_open(id, raw, size)`, the type-erased `RawHandle`
 adoption seam list cells use; day-core parks the record (build deferred) and a close before

@@ -51,18 +51,30 @@ pub(crate) fn gradle_program(android_dir: &Path) -> PathBuf {
 /// title). Written on every android build (`day build` too) so the Gradle scaffold never goes
 /// stale (§17.5). Identity is RESOLVED for the android target, so `[app.android]` /
 /// `[app.android-mdc]` overrides in Day.toml flow into the APK.
+///
+/// The window block rides here too, as manifest placeholders for the activity's `<layout>` element
+/// (docs/size-classes.md). Those four numbers are what multi-window and desktop windowing read to
+/// decide how small the window may go and how big it opens, and a manifest is a BUILD-time
+/// declaration — there is no runtime call that sets them, which is why they cannot ride
+/// `WindowOptions` the way the iOS minimum does.
 pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let resolved = project.manifest.resolve("android-mdc");
+    let win = &project.manifest.window;
     let content = format!(
-        "applicationId={}\nnamespace={}\nversionCode={}\nversionName={}\ntitle={}\nscheme={}\n",
+        "applicationId={}\nnamespace={}\nversionCode={}\nversionName={}\ntitle={}\nscheme={}\n\
+         windowWidth={}\nwindowHeight={}\nwindowMinWidth={}\nwindowMinHeight={}\n",
         resolved.id,
         resolved.id,
         resolved.build.min(i32::MAX as u64),
         resolved.version,
         resolved.title,
-        resolved.scheme()
+        resolved.scheme(),
+        win.width.round() as i64,
+        win.height.round() as i64,
+        win.min_width.round() as i64,
+        win.min_height.round() as i64,
     );
     let path = dir.join("day-app.properties");
     // Content-hashed write: only touch the file when it changed (keeps Gradle up-to-date checks warm).

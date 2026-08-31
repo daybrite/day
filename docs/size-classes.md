@@ -175,6 +175,78 @@ Traps worth knowing, all found the hard way and all silent:
   layout collapses into garbage. This is what the `Stack`-is-literal lowering rule exists for —
   the nested host realizes as a plain navigation controller instead.
 
+## Resizable windows on the phones
+
+Both mobile platforms now resize app windows freely, and both vendors have stopped treating it as
+optional. Android 16 (API 36) **ignores** `screenOrientation`, `resizeableActivity`,
+`minAspectRatio` and `maxAspectRatio` on any display 600dp or wider — tablets, open foldables, and
+desktop windowing on every form factor — and the temporary opt-out property
+(`PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY`) is removed in API 37. iPadOS 26 deprecated
+`UIRequiresFullScreen` and made every iPad window resizable; iOS 27 extends that to iPhone apps on
+iPad and to iPhone Mirroring on the Mac.
+
+Day needed little for this, because the class is **derived in day-core from
+`Event::WindowResized`** and every backend already emitted one. What it needed was for that
+geometry to be the window's own, and for the app to still be there afterwards.
+
+### Android: survive the resize
+
+Entering split-screen, or dragging a desktop-windowing edge across a size bucket, changes
+`screenLayout` and `smallestScreenSize`. An activity that has not claimed those in
+`android:configChanges` is **destroyed and recreated** — and day-android does not survive a second
+`nativeStart` in one process, so the app comes back missing whatever it installed once at startup.
+The scaffold's manifest claims them, `day lint` fails a manifest that does not
+(`day::lint::android-not-resizable`), and `day::android::start` refuses a second launch with a
+message naming the fix rather than half-relaunching into an undiagnosable state.
+
+The `<layout>` element carries the window's minimum and its desktop-windowing default, and
+`PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI` (API 35+) is what lets the system UI offer a second
+window for an app that supports one. `resizeableActivity` is deliberately not declared: it already
+defaults to true at `targetSdk` 24+, and API 36 ignores it.
+
+### iOS: measure the scene, not the screen
+
+`UIScreen`'s bounds are the display. A scene has not filled the display since iPad multitasking,
+and on iPadOS 26 it usually does not even at launch — measured on an iPad Pro 13-inch, a Day app
+opens into a **635×1376pt window on a 1032×1376pt screen**. Sizing the window from the screen made
+the first size class wrong by 397 points, so a nav host resolved a three-column split for a window
+that had room for two and then corrected itself once the first layout pass ran.
+
+day-uikit takes its launch geometry from the scene's own coordinate space —
+`effectiveGeometry.coordinateSpace` on iOS 26+, the direct property below it, the same value either
+way. `DayHolderView` reports every later change against **its own scene**, which matters as soon as
+there are two windows: reporting a secondary's geometry against the primary re-framed the wrong
+window's root view and re-bucketed the wrong window's class.
+
+### Declaring a minimum size
+
+One declaration, two layers — Android wants it in the manifest at build time, iOS wants it at run
+time:
+
+```toml
+[window]
+width = 960          # also the desktop-windowing default size
+height = 640
+min_width = 320
+min_height = 400
+```
+
+`day build` writes the `<layout>` element's attributes and the iOS `Info.plist` keys day-uikit
+reads back for `UIWindowScene.sizeRestrictions`. An app that sets `WindowOptions.min_size` in Rust
+still wins over both. On iOS the minimum is a **preference the system satisfies on a best-effort
+basis** — laying out sensibly at whatever size arrives is still the app's job.
+
+### What still works on an older OS
+
+Nothing here raises a floor. Android's `minSdk` stays 24 and everything used is API 24+ except the
+multi-instance `<property>` (API 35+, and older platforms skip unknown tags). iOS deploys to 15.0
+and needs no gated API on the critical path, because the class comes from geometry rather than from
+UIKit traits: the scene's coordinate space reads the same from iOS 15 to iOS 27. The one API
+newer than the floor — `UITabBarController.mode`, annotated `ios(18.0)` — is guarded on
+`respondsToSelector:` rather than on a version number, which is the fact the call actually depends
+on. It turns out to respond on iOS 15.5 and 17.5 as well; gating it on the version instead made
+those releases *worse*, because the resolver's fallback lowers a different host shape.
+
 ## Row fit policies
 
 A `row` keeps its children on one line no matter what. That is the right contract for a label
@@ -242,9 +314,29 @@ dayscript's `size_class:` step reports a class the way a backend would, without 
 
 Everything downstream runs its real path — the host re-presents, a piece reading
 `day::size_class()` rebuilds. What it does not change is the window's pixels, so a screenshot
-after this step shows the new layout at the old size. Where the geometry itself is under test,
-drive a real resize from the runner instead: Playwright's `setViewportSize` on web, the
-simulator's rotation on iOS.
+after this step shows the new layout at the old size.
+
+Where the geometry itself is under test, `resize:` moves it:
+
+```yaml
+- resize: { width: 1100, height: 900 }        # real points
+- assert_visible: { id: content-list }
+- resize: auto                                # back to the device's own geometry
+```
+
+The runner performs the resize and the engine half waits until the app has reported the new class,
+so the next step cannot race the platform's resize animation. It is asserted as a **width class**:
+what reaches day-core is the safe-area-inset CONTENT size, so a window resized to 900pt tall
+reports about 830 once the status bar, the navigation bar and the app bar come out — and width is
+what every re-presentation decision reads anyway. Aim for mid-bucket sizes; a width within a few
+points of a breakpoint can fall the other side of it once insets are taken out.
+
+Only android-mdc has a host-side lever today (`adb shell wm size`, which is also what delivers the
+configuration change the manifest has to survive). Everywhere else the step **fails** rather than
+passing one that moved nothing — no public API resizes an iOS simulator scene, and Xcode's
+free-resize is not scriptable. iOS coverage for a width crossing therefore comes from running the
+same walkthrough on an iPhone *and* an iPad, which is worth doing regardless: on iPadOS 26 an iPad
+app opens **windowed**, so its scene is materially narrower than its screen.
 
 Release the override with `width: auto` once the sweep is over. A forced class that outlives the
 steps it was written for follows the script into everything after it: a phone left on `expanded`

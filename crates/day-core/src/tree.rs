@@ -2024,6 +2024,46 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
     TREE.with(|t| *t.borrow_mut() = Some(tree));
 }
 
+/// Tear the current mount down so the app can be built again in the same process
+/// (docs/appearance.md "Surviving a recreation").
+///
+/// Android is the one platform that needs this: an activity recreation — which a light/dark
+/// switch performs deliberately, and which any configuration change the manifest does not claim
+/// performs incidentally — destroys the window and calls the app's entry point a second time.
+/// Everywhere else launch happens exactly once by construction.
+///
+/// What this resets is everything an app's `root()` REGISTERS, because `root()` is about to run
+/// again and register it all a second time: the window registry and its content scopes, the
+/// navigation controllers, the per-window ambient signals, the lifecycle handlers, the menu
+/// actions. What it deliberately does NOT touch is state that lives on the ROOT reactive scope —
+/// `Signal::global`, `Ambient::app()` — which is exactly the state an app expects to outlive a
+/// window, and which is what makes a recreation cheap rather than a cold start (docs/state.md).
+///
+/// One thing it cannot reset is an app's own `std::sync::Once`: a one-time install guarded that
+/// way will not re-run, so a `Once` in `root()` is the pattern to avoid on Android.
+pub fn prepare_remount() {
+    // Drop in-flight reactive work FIRST. Anything already queued was scheduled by the mount
+    // that is about to be disposed, and running it afterwards reads signals that no longer
+    // exist ("read of disposed Signal"). This also re-roots the scope stack, which matters more
+    // than it looks: left pointing at a disposed scope, every `Signal::new` in the rebuild is
+    // born dead and the new tree panics on its own state.
+    day_reactive::recover_from_panic();
+    uninstall_tree();
+    // Tearing the old tree down can schedule cleanup of its own; go back to idle before rebuilding.
+    day_reactive::recover_from_panic();
+    crate::lifecycle::reset_handlers();
+    crate::menu::reset_menus();
+}
+
+/// Is a tree installed on this thread — has the app already launched?
+///
+/// The one caller that is not a test is Android's `nativeStart`, which an activity recreation can
+/// re-enter after the app is already up (docs/appearance.md). Everywhere else launch happens
+/// exactly once by construction.
+pub fn is_mounted() -> bool {
+    TREE.with(|t| t.borrow().is_some())
+}
+
 /// Reset the thread-local tree + queues (tests).
 pub fn uninstall_tree() {
     crate::nav::clear_controllers();

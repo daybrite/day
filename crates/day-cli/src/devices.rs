@@ -196,6 +196,15 @@ pub fn boot(target: &str, id: &str) -> Result<i32, CliError> {
             } else {
                 exe.to_string()
             };
+            // An emulator only forwards the host's keystrokes to the guest when its AVD says it
+            // has a hardware keyboard, and `avdmanager create avd` writes `hw.keyboard=no`
+            // (Android Studio's wizard writes `yes`, which is why AVDs made in the GUI type fine
+            // and AVDs made at a terminal do not). The emulator has no flag to override it —
+            // `-use-keycode-forwarding` changes how keys are translated, not whether the guest
+            // has a keyboard at all — so the AVD is the only place to fix it. Left alone, the app
+            // under development answers every keystroke with Android's on-screen keyboard and no
+            // text field ever fills, which reads as the APP swallowing input.
+            enable_hw_keyboard(id);
             crate::ops::status("Booting", &format!("emulator {id}"));
             // Detached on purpose: the emulator outlives this command, the way `day launch`
             // expects to find it later. Its own window is where its output belongs.
@@ -224,6 +233,69 @@ pub fn boot(target: &str, id: &str) -> Result<i32, CliError> {
             "{target} has no device to boot — `day devices` covers {}",
             MOBILE.join(", ")
         ))),
+    }
+}
+
+/// Point an AVD at a hardware keyboard, so the keys typed on this machine reach the app.
+///
+/// A no-op when the AVD already says `hw.keyboard=yes` (every AVD Android Studio made) or when
+/// its config cannot be found or rewritten — the emulator still boots either way, and a boot that
+/// refused to start over a preferences file would be the worse trade. The value lives in the AVD,
+/// so this is a one-time repair per AVD rather than something every boot pays for.
+///
+/// The AVD's directory comes from its `<name>.ini` (`path=`), which is where the SDK tools record
+/// it — an AVD may live outside the AVD home, and `avdmanager --path` puts it wherever it is told.
+fn enable_hw_keyboard(avd: &str) {
+    let home = std::env::var_os("ANDROID_AVD_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                .join(".android")
+                .join("avd")
+        });
+    let dir = std::fs::read_to_string(home.join(format!("{avd}.ini")))
+        .ok()
+        .and_then(|ini| {
+            ini.lines().find_map(|l| {
+                l.strip_prefix("path=")
+                    .map(|p| std::path::PathBuf::from(p.trim()))
+            })
+        })
+        .unwrap_or_else(|| home.join(format!("{avd}.avd")));
+    let cfg = dir.join("config.ini");
+    let Ok(text) = std::fs::read_to_string(&cfg) else {
+        return;
+    };
+    // The key is written both spaced and unspaced depending on which tool wrote the file, so
+    // match on the key rather than on a literal line.
+    let mut seen = false;
+    let mut out: Vec<String> = text
+        .lines()
+        .map(|line| match line.split_once('=') {
+            Some((k, v)) if k.trim() == "hw.keyboard" => {
+                seen = true;
+                if v.trim() == "yes" {
+                    line.to_string()
+                } else {
+                    "hw.keyboard=yes".to_string()
+                }
+            }
+            _ => line.to_string(),
+        })
+        .collect();
+    if seen && text.lines().eq(out.iter().map(String::as_str)) {
+        return; // already yes — nothing to say and nothing to write
+    }
+    if !seen {
+        out.push("hw.keyboard=yes".to_string());
+    }
+    let mut body = out.join("\n");
+    body.push('\n');
+    if std::fs::write(&cfg, body).is_ok() {
+        crate::ops::status(
+            "Enabling",
+            &format!("hardware keyboard for {avd} (hw.keyboard=yes) — typing reaches the app"),
+        );
     }
 }
 

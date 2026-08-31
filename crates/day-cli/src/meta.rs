@@ -610,6 +610,13 @@ pub fn slug(raw: &str) -> String {
     }
 }
 
+/// `[window]`: the app's window geometry, in points/dp.
+///
+/// One declaration, two layers (docs/size-classes.md "Declaring a minimum size"). The MINIMUM has
+/// to reach the platform at two different moments: Android wants it in the manifest at BUILD time
+/// (`<layout android:minWidth>`, which is what desktop windowing and split-screen honor), iOS
+/// wants it at RUN time (`UIWindowScene.sizeRestrictions`). `day build` conveys these values into
+/// both, so an app states them once here rather than in two platform files that drift.
 #[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Window {
@@ -617,6 +624,13 @@ pub struct Window {
     pub width: f64,
     #[serde(default = "default_h")]
     pub height: f64,
+    /// The narrowest the app can usefully be drawn. Below this a platform that honors it stops
+    /// shrinking the window; where a platform treats it as a preference (iOS says so explicitly)
+    /// the app still has to lay out sensibly at whatever it gets.
+    #[serde(default = "default_min_w")]
+    pub min_width: f64,
+    #[serde(default = "default_min_h")]
+    pub min_height: f64,
 }
 
 impl Default for Window {
@@ -624,6 +638,8 @@ impl Default for Window {
         Window {
             width: default_w(),
             height: default_h(),
+            min_width: default_min_w(),
+            min_height: default_min_h(),
         }
     }
 }
@@ -633,6 +649,16 @@ fn default_w() -> f64 {
 }
 fn default_h() -> f64 {
     640.0
+}
+/// The narrowest phone Day targets is 320dp (an iPhone SE is 320pt, a small Android phone the
+/// same), so a window narrower than that is one no app in this family has ever been laid out for.
+fn default_min_w() -> f64 {
+    320.0
+}
+/// Android's own `<layout>` minimum floor for a freeform window is 220dp; 400 keeps a compact
+/// window tall enough for a nav bar, one row of content and a keyboard.
+fn default_min_h() -> f64 {
+    400.0
 }
 
 pub struct Project {

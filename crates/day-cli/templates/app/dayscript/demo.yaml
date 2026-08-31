@@ -123,3 +123,27 @@ flow:
   - wait_idle: { only_on: [appkit, gtk, qt, xaml] }
   - assert_visible: { id: item-list, only_on: [appkit, gtk, qt, xaml] }
   - screenshot: { name: after-new-window, only_on: [appkit, gtk, qt, xaml] }
+
+  # --- Surviving a theme change ---------------------------------------------------------------
+  # android-mdc only, because it is the only backend where changing the appearance RECREATES the
+  # activity: the tree is torn down and the app is built again in the same process
+  # (https://daybrite.dev/docs/appearance). Everywhere else this is a repaint and proves nothing.
+  #
+  # This block exists because a framework change once broke exactly it, and nothing caught it: a
+  # fresh install never re-mounts, so every other step here — and every mock test — stayed green
+  # while the rebuilt app came back with a navigation bar whose tabs did nothing. The assertion
+  # that matters is the NAVIGATE AFTER, not the theme itself.
+  - navigate: { route: settings, only_on: [mdc] }
+  - wait_idle: { only_on: [mdc] }
+  - select: { id: theme-picker, index: 1, only_on: [mdc] }
+  - pause: { secs: 4, only_on: [mdc] }
+  # The routes must still resolve — this is the step that fails when a re-mount registers none.
+  - navigate: { route: navigate, only_on: [mdc] }
+  - wait_idle: { only_on: [mdc] }
+  - assert_visible: { id: item-list, only_on: [mdc] }
+  - navigate: { route: settings, only_on: [mdc] }
+  - wait_idle: { only_on: [mdc] }
+  - assert_visible: { id: language-picker, only_on: [mdc] }
+  # Put the appearance back, so a re-run starts where this one did.
+  - select: { id: theme-picker, index: 2, only_on: [mdc] }
+  - pause: { secs: 4, only_on: [mdc] }
