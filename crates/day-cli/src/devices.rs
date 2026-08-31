@@ -161,78 +161,112 @@ pub fn list(only: Option<&str>, json: bool) -> Result<i32, CliError> {
 /// selecting one has always meant leaving the editor to run `xcrun simctl boot` by hand.
 /// Put a booted simulator into `portrait` or `landscape` (docs/screenshots.md).
 ///
-/// Driven through Simulator.app's `Device ▸ Orientation` menu, which is the only route there is:
-/// `simctl` has no rotate command, and the `SimulatorWindowOrientation` preference turns out to
-/// describe the app's WINDOW rather than the device — set before a headless boot it leaves the
-/// framebuffer in portrait, which was measured, not assumed. So this needs the machine's GUI
-/// session; GitHub's macOS runners have one.
+/// `devicectl device orientation set` is the actuator: absolute rather than a relative rotate,
+/// and it works with no Simulator.app and no GUI session — which is the whole point, because the
+/// route it replaced (clicking Simulator.app's `Device ▸ Orientation` through AppleScript) failed
+/// outright on a CI runner. `simctl` has never had a rotate command, and the
+/// `SimulatorWindowOrientation` preference describes the app's WINDOW rather than the device: set
+/// before a headless boot it leaves the framebuffer in portrait. Both were measured.
 ///
-/// Clicked, then VERIFIED against the framebuffer's own dimensions and retried, because a single
-/// click is not reliable: it lands only once the app is frontmost, and the menu is rebuilt as the
-/// device becomes ready. Verified, it took one try every time across repeated switches.
+/// Read back with `orientation get` rather than by measuring a screenshot, which is a trap worth
+/// recording: an iPhone's SPRINGBOARD does not rotate, so a correctly-turned iPhone still
+/// screenshots portrait at the home screen. Checking pixels there reports a working rotation as
+/// broken. `deviceOrientationNonFlat` is the device's own answer and is exact, so it also tells
+/// `portrait` from `portraitUpsideDown`, which an aspect-ratio check never could.
 fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
-    let (item, want_landscape) = match orientation.trim().to_ascii_lowercase().as_str() {
-        "portrait" => ("Portrait", false),
-        "landscape" | "landscape-left" => ("Landscape Left", true),
-        "landscape-right" => ("Landscape Right", true),
+    let want = match orientation.trim().to_ascii_lowercase().as_str() {
+        "portrait" => "portrait",
+        "portrait-upside-down" => "portraitUpsideDown",
+        "landscape" | "landscape-left" => "landscapeLeft",
+        "landscape-right" => "landscapeRight",
         other => {
             return Err(CliError::usage(format!(
-                "unknown orientation {other:?} — portrait, landscape, landscape-right"
+                "unknown orientation {other:?} — portrait, landscape, landscape-right, \
+                 portrait-upside-down"
             )));
         }
     };
-    crate::ops::status("Orienting", &format!("{orientation} ({item})"));
-    let script = format!(
-        "tell application \"Simulator\" to activate\n\
-         delay 0.5\n\
-         tell application \"System Events\" to tell process \"Simulator\" to \
-         click menu item \"{item}\" of menu 1 of menu item \"Orientation\" of menu 1 \
-         of menu bar item \"Device\" of menu bar 1"
-    );
-    for attempt in 1..=6 {
-        let _ = Command::new("osascript").args(["-e", &script]).output();
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-        if let Some(landscape) = framebuffer_is_landscape(udid)
-            && landscape == want_landscape
-        {
+    crate::ops::status("Orienting", orientation);
+    let out = Command::new("xcrun")
+        .args([
+            "devicectl",
+            "device",
+            "orientation",
+            "set",
+            "--device",
+            udid,
+            want,
+            "--quiet",
+        ])
+        .output()
+        .map_err(|e| {
+            CliError::failure(format!(
+                "could not run `devicectl` ({e}) — setting a simulator's orientation needs it, \
+                 and it comes with Xcode"
+            ))
+        })?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(CliError::failure(format!(
+            "devicectl could not set the orientation to {orientation}: {}\n\
+             (this needs an Xcode whose devicectl drives SIMULATORS — 26.6 and newer do)",
+            err.trim()
+        )));
+    }
+    // Confirm the device really turned. devicectl exits zero on an Xcode too old to drive
+    // simulators, so the exit code alone does not distinguish "done" from "ignored".
+    for attempt in 1..=5 {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        if device_orientation(udid).as_deref() == Some(want) {
             return Ok(());
         }
-        if attempt == 6 {
+        if attempt == 5 {
             return Err(CliError::failure(format!(
-                "could not put the simulator into {orientation}. This needs a GUI session \
-                 (Simulator.app must be able to come to the front); a headless session cannot \
-                 rotate a simulator."
+                "devicectl accepted `orientation set {want}` but the device reports {:?}.\n\
+                 This Xcode is {}; simulator orientation needs 26.6 or newer. Select one with \
+                 `xcode-select -s` or `DEVELOPER_DIR=…`, or drop `--orientation`.",
+                device_orientation(udid).unwrap_or_else(|| "nothing".into()),
+                xcode_version().unwrap_or_else(|| "of an unknown version".into())
             )));
         }
     }
     Ok(())
 }
 
-/// Is the device's current framebuffer wider than it is tall? `None` when it cannot be captured.
-///
-/// The screenshot IS the check: it is what a capture run will produce, so it cannot disagree with
-/// what the gallery ends up showing the way a queried setting could.
-fn framebuffer_is_landscape(udid: &str) -> Option<bool> {
-    let path = std::env::temp_dir().join(format!("day-orient-{udid}.png"));
-    let ok = Command::new("xcrun")
-        .args(["simctl", "io", udid, "screenshot"])
-        .arg(&path)
+/// The selected Xcode's marketing version (`26.6`), for an error that has to name it. `None` when
+/// `xcodebuild` cannot be run at all — on a machine without Xcode nothing here was going to work.
+fn xcode_version() -> Option<String> {
+    let out = Command::new("xcodebuild").arg("-version").output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let first = text.lines().next()?;
+    first.split_whitespace().nth(1).map(str::to_string)
+}
+
+/// The device's own current orientation (`portrait`, `landscapeLeft`, …), ignoring face-up and
+/// face-down. `None` when devicectl cannot answer.
+fn device_orientation(udid: &str) -> Option<String> {
+    let out = Command::new("xcrun")
+        .args([
+            "devicectl",
+            "device",
+            "orientation",
+            "get",
+            "--device",
+            udid,
+            "-j",
+            "-",
+            "--quiet",
+        ])
         .output()
-        .ok()?
-        .status
-        .success();
-    if !ok {
+        .ok()?;
+    if !out.status.success() {
         return None;
     }
-    let bytes = std::fs::read(&path).ok()?;
-    let _ = std::fs::remove_file(&path);
-    // PNG IHDR: width and height at bytes 16..24.
-    if bytes.len() < 24 || &bytes[12..16] != b"IHDR" {
-        return None;
-    }
-    let w = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
-    let h = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
-    Some(w > h)
+    let doc: Value = serde_json::from_slice(&out.stdout).ok()?;
+    doc.get("result")?
+        .get("deviceOrientationNonFlat")?
+        .as_str()
+        .map(str::to_string)
 }
 
 /// What `day devices boot` was asked for: an explicit id, or a device to resolve.
@@ -252,21 +286,44 @@ pub struct BootSpec<'a> {
 /// unmatched request is an error listing what the machine does have — silently taking some other
 /// device would capture the wrong form factor under this profile's name.
 fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, String), CliError> {
+    // `devicectl list devices`, not `simctl list devices`: one command, one stable JSON schema,
+    // and every field this needs already in it — the OS version as a plain `"26.5"`, and
+    // `hardware.reality` telling a simulator from a physical device. simctl keys its output by
+    // runtime IDENTIFIER ("com.apple.CoreSimulator.SimRuntime.iOS-26-5"), which has to be
+    // unpicked back into a version before it can be matched against `--os "iOS 26"`.
     let out = Command::new("xcrun")
-        .args(["simctl", "list", "devices", "available", "--json"])
+        .args([
+            "devicectl",
+            "list",
+            "devices",
+            "--omit-deprecated-fields-in-json",
+            "-j",
+            "-",
+            "--quiet",
+        ])
         .output()
-        .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
+        .map_err(|e| CliError::failure(format!("devicectl: {e}")))?;
     let json: serde_json::Value = serde_json::from_slice(&out.stdout)
-        .map_err(|e| CliError::failure(format!("simctl: {e}")))?;
-    // `devices` is keyed by runtime identifier ("com.apple.CoreSimulator.SimRuntime.iOS-26-5").
+        .map_err(|e| CliError::failure(format!("devicectl: {e}")))?;
     let mut best: Option<(String, String, String)> = None;
     let mut have: Vec<String> = Vec::new();
-    for (runtime, list) in json["devices"].as_object().into_iter().flatten() {
-        let pretty = runtime_label(runtime);
-        for d in list.as_array().into_iter().flatten() {
-            let (Some(name), Some(udid)) = (d["name"].as_str(), d["udid"].as_str()) else {
-                continue;
-            };
+    for d in json["result"]["devices"].as_array().into_iter().flatten() {
+        let props = &d["properties"];
+        let hw = &props["hardware"];
+        // Simulators only: `--ios-simulator` is what this resolves for, and a physical device
+        // reached the same way would be installed onto by accident.
+        if hw["reality"].as_str() != Some("simulated") || hw["platform"].as_str() != Some("iOS") {
+            continue;
+        }
+        let (Some(name), Some(udid)) = (props["state"]["name"].as_str(), d["identifier"].as_str())
+        else {
+            continue;
+        };
+        {
+            let version = props["software"]["osVersionNumber"]["stringValue"]
+                .as_str()
+                .unwrap_or("?");
+            let pretty = format!("iOS {version}");
             have.push(format!("{name} ({pretty})"));
             if !name.starts_with(device) {
                 continue;

@@ -283,11 +283,31 @@ fn uikit_group() -> Group {
                 "boot a simulator: `xcrun simctl boot <device>` (or open Simulator.app)",
             )
             .need(Need::Launch),
+            // Orientation (`day devices boot --orientation`, docs/screenshots.md) is the one
+            // thing that needs an Xcode floor rather than just "an Xcode": simulators became
+            // drivable through `devicectl` in 26.6, and there is no other way to turn one
+            // without a GUI session. Advisory, not required — everything else works below it.
+            Probe::new(
+                "simulator orientation",
+                run_line(
+                    "bash",
+                    &[
+                        "-c",
+                        "xcrun devicectl device orientation --help >/dev/null 2>&1 && \
+                         xcodebuild -version | head -1",
+                    ],
+                ),
+                "capture in landscape needs Xcode 26.6+ (`xcode-select -s`); \
+                 without it, drop `--orientation`",
+            )
+            .need(Need::Launch),
         ],
         setup: "iOS (UIKit) cross-compiles via an Xcode script phase and runs on the Simulator.\n\
                 Needs: full Xcode (`xcode-select -s /Applications/Xcode.app`), the simulator Rust\n\
                 target `rustup target add aarch64-apple-ios-sim`, and a booted simulator to launch\n\
-                (`xcrun simctl boot <device>`). iOS builds only on a macOS host.",
+                (`xcrun simctl boot <device>`). Capturing in a chosen ORIENTATION additionally\n\
+                needs Xcode 26.6 or newer, whose `devicectl` can drive simulators. iOS builds\n\
+                only on a macOS host.",
     }
 }
 

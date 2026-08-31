@@ -333,10 +333,20 @@ points of a breakpoint can fall the other side of it once insets are taken out.
 
 Only android-mdc has a host-side lever today (`adb shell wm size`, which is also what delivers the
 configuration change the manifest has to survive). Everywhere else the step **fails** rather than
-passing one that moved nothing — no public API resizes an iOS simulator scene, and Xcode's
-free-resize is not scriptable. iOS coverage for a width crossing therefore comes from running the
+passing one that moved nothing. iOS coverage for a width crossing therefore comes from running the
 same walkthrough on an iPhone *and* an iPad, which is worth doing regardless: on iPadOS 26 an iPad
 app opens **windowed**, so its scene is materially narrower than its screen.
+
+> [!NOTE]
+> **The iOS lever may be arriving.** `devicectl device appResize set --preferred-size <W>x<H>`
+> exists, and a booted iOS 27 iPhone simulator advertises the capability behind it
+> (`com.apple.coredevice.feature.resizableappmanagement`); `devicectl device info displays` shows
+> such a device carrying a second display literally named **Resizable**. It is not usable yet:
+> `appResize start` answers *"There is no foreground application to move to the resizable
+> display"* even with the app launched and frontmost — through `simctl launch` and
+> `devicectl device process launch` alike, headless and with Simulator.app running. Capabilities
+> are only reported for BOOTED devices, which is why a survey of shut-down simulators finds
+> nothing. Whoever picks this up starts there rather than from scratch.
 
 Release the override with `width: auto` once the sweep is over. A forced class that outlives the
 steps it was written for follows the script into everything after it: a phone left on `expanded`
