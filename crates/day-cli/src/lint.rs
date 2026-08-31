@@ -964,7 +964,21 @@ fn collect(project: &Project) -> Vec<Finding> {
             && let Ok(plan) = crate::permissions::resolve(&project.manifest, "ios", &[])
         {
             let have = crate::plist::read_string_keys(&text);
-            let want = crate::permissions::apple_keys(&plan, false);
+            let mut want = crate::permissions::apple_keys(&plan, false);
+            // Day.toml `[window]`'s minimum is written into the same file by the same build
+            // (`mobile::sync_window_keys`), so it goes stale the same way — and the failure it
+            // causes is remote and confusing: `day build` rewrites a TRACKED file, and CI's
+            // assert-pristine job then refuses to pack, saying only that the working tree is
+            // dirty. Naming it here turns that into a local lint line.
+            let win = &project.manifest.window;
+            want.insert(
+                "DayWindowMinWidth".to_string(),
+                format!("{}", win.min_width.round() as i64),
+            );
+            want.insert(
+                "DayWindowMinHeight".to_string(),
+                format!("{}", win.min_height.round() as i64),
+            );
             let missing: Vec<&String> = want
                 .iter()
                 .filter(|(k, v)| have.get(*k) != Some(*v))
@@ -975,7 +989,9 @@ fn collect(project: &Project) -> Vec<Finding> {
                     code: "day::lint::stale-manifest",
                     message: format!(
                         "platform/ios/Runner/Info.plist is missing or out of date for {} — run \
-                         `day build -p ios-uikit` to regenerate it",
+                         `day build -p ios-uikit` to regenerate it, and COMMIT the result: it is \
+                         a tracked file, so a build that rewrites it leaves the tree dirty and \
+                         CI refuses to pack from it",
                         missing
                             .iter()
                             .map(|k| k.as_str())
