@@ -288,11 +288,15 @@ fn uikit_group() -> Group {
             // drivable through `devicectl` in 26.6, and there is no other way to turn one
             // without a GUI session. Advisory, not required — everything else works below it.
             //
-            // This ENUMERATES rather than asking `--help`, because those two answers came apart
-            // on a CI runner: `--help` succeeded while `list devices` printed zero bytes, so the
-            // probe reported a working devicectl right before the boot step failed on it. Asking
-            // the subcommand whether it exists tests the binary; asking it for devices tests
-            // CoreDevice, which is the part that was actually broken.
+            // This looks for a SIMULATED device rather than asking `--help` or grepping for the
+            // `"devices"` key, both of which passed on a CI runner that could not turn a
+            // simulator: `--help` only proves the binary exists, and `"devices"` matches the empty
+            // array a CoreDevice without simulator support returns. Each weaker form reported ✓
+            // moments before the boot step failed on the very thing it had vouched for.
+            //
+            // Reports the macOS version, because that is what gates this — see CORE_DEVICE_FLOOR
+            // in devices.rs. Xcode's devicectl execs a system framework, so the Xcode version this
+            // used to print was answering a question nobody asked.
             Probe::new(
                 "simulator orientation",
                 run_line(
@@ -300,11 +304,11 @@ fn uikit_group() -> Group {
                     &[
                         "-c",
                         "xcrun devicectl list devices -j - --quiet 2>/dev/null \
-                         | grep -q '\"devices\"' && xcodebuild -version | head -1",
+                         | grep -q '\"simulated\"' && echo \"macOS $(sw_vers -productVersion)\"",
                     ],
                 ),
-                "capture in landscape needs Xcode 26.6+ (`xcode-select -s`) with a devicectl that \
-                 can list devices; without it, drop `--orientation`",
+                "capture in landscape needs macOS 26.6+ (its CoreDevice drives simulators; \
+                 Xcode's version does not matter); without it, drop `--orientation`",
             )
             .need(Need::Launch),
         ],
@@ -312,8 +316,8 @@ fn uikit_group() -> Group {
                 Needs: full Xcode (`xcode-select -s /Applications/Xcode.app`), the simulator Rust\n\
                 target `rustup target add aarch64-apple-ios-sim`, and a booted simulator to launch\n\
                 (`xcrun simctl boot <device>`). Capturing in a chosen ORIENTATION additionally\n\
-                needs Xcode 26.6 or newer, whose `devicectl` can drive simulators. iOS builds\n\
-                only on a macOS host.",
+                needs macOS 26.6 or newer, whose CoreDevice lets `devicectl` drive simulators —\n\
+                the Xcode version does not affect it. iOS builds only on a macOS host.",
     }
 }
 

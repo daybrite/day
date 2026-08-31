@@ -196,7 +196,7 @@ fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
     match rotate(udid, want, orientation) {
         Ok(()) => Ok(()),
         // A failed rotation TO portrait leaves the device where it already was: portrait is where
-        // a simulator boots, so the requested state holds and the captures are honestly labelled.
+        // a simulator boots, so the requested state holds and the captures are honestly labeled.
         // Warn and carry on rather than failing a build over a rotation that changes nothing.
         //
         // Landscape gets the opposite treatment on purpose — there the device really is still in
@@ -241,13 +241,13 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(CliError::failure(format!(
-            "devicectl could not set the orientation to {orientation}: {}\n\
-             (this needs an Xcode whose devicectl drives SIMULATORS — 26.6 and newer do)",
-            err.trim()
+            "devicectl could not set the orientation to {orientation}: {}\n{}",
+            err.trim(),
+            CORE_DEVICE_FLOOR
         )));
     }
-    // Confirm the device really turned. devicectl exits zero on an Xcode too old to drive
-    // simulators, so the exit code alone does not distinguish "done" from "ignored".
+    // Confirm the device really turned. A CoreDevice that does not drive simulators can still
+    // exit zero, so the exit code alone does not distinguish "done" from "ignored".
     for attempt in 1..=5 {
         std::thread::sleep(std::time::Duration::from_millis(600));
         if device_orientation(udid).as_deref() == Some(want) {
@@ -255,24 +255,44 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
         }
         if attempt == 5 {
             return Err(CliError::failure(format!(
-                "devicectl accepted `orientation set {want}` but the device reports {:?}.\n\
-                 This Xcode is {}; simulator orientation needs 26.6 or newer. Select one with \
-                 `xcode-select -s` or `DEVELOPER_DIR=…`, or drop `--orientation`.",
+                "devicectl accepted `orientation set {want}` but the device reports {:?}.\n{}",
                 device_orientation(udid).unwrap_or_else(|| "nothing".into()),
-                xcode_version().unwrap_or_else(|| "of an unknown version".into())
+                CORE_DEVICE_FLOOR
             )));
         }
     }
     Ok(())
 }
 
-/// The selected Xcode's marketing version (`26.6`), for an error that has to name it. `None` when
-/// `xcodebuild` cannot be run at all — on a machine without Xcode nothing here was going to work.
-fn xcode_version() -> Option<String> {
-    let out = Command::new("xcodebuild").arg("-version").output().ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let first = text.lines().next()?;
-    first.split_whitespace().nth(1).map(str::to_string)
+/// What actually gates simulator orientation, spelled out wherever it is reported.
+///
+/// Not the Xcode version, which is the trap this text exists to stop anyone re-learning: Xcode's
+/// `devicectl` is a 12-line shell wrapper that `exec`s
+/// `/Library/Developer/PrivateFrameworks/CoreDevice.framework/…/devicectl`, a SYSTEM framework
+/// that no Xcode ships or upgrades. So a machine with the newest Xcode and an older macOS has an
+/// older devicectl, and selecting a different Xcode changes nothing. Measured across two Xcodes on
+/// one host: both report devicectl 642.15, because both exec the same system binary.
+///
+/// macOS 26.6 (CoreDevice 642.15) drives simulators. macOS 26.5 does not — it answers
+/// `orientation set` with "The specified device was not found" for a simulator that is booted and
+/// visible to simctl, and rejects `--omit-deprecated-fields-in-json` outright. GitHub's
+/// `macos-26` runner image was still on 26.5.2 when this was written.
+const CORE_DEVICE_FLOOR: &str = "Turning a simulator needs macOS 26.6 or newer — its CoreDevice, not its Xcode: Xcode's \
+     `devicectl` execs the system framework, so no `xcode-select` changes this. Drop \
+     `--orientation` on an older host.";
+
+/// Whether devicectl can see this simulator at all, which is the precondition for turning it.
+///
+/// Asked BEFORE booting, because booting costs minutes on a CI runner and the answer does not
+/// depend on it: shut-down simulators appear in the listing too (72 of them on the host this was
+/// measured on). A run that cannot rotate should learn it in a second, not after a three-minute
+/// boot it is about to waste.
+fn devicectl_sees(udid: &str) -> bool {
+    devicectl_simulators().is_ok_and(|list| {
+        sims_from_devicectl(&list)
+            .iter()
+            .any(|(_, id, _)| id == udid)
+    })
 }
 
 /// The device's own current orientation (`portrait`, `landscapeLeft`, …), ignoring face-up and
@@ -325,35 +345,33 @@ pub struct BootSpec<'a> {
 /// tooling fault into "no simulator matched", which sends the reader hunting for the wrong thing.
 fn devicectl_simulators() -> Result<Vec<Value>, String> {
     let out = Command::new("xcrun")
-        .args([
-            "devicectl",
-            "list",
-            "devices",
-            "--omit-deprecated-fields-in-json",
-            "-j",
-            "-",
-        ])
+        .args(["devicectl", "list", "devices", "-j", "-"])
         .output()
-        .map_err(|e| format!("could not run it: {e}"))?;
+        .map_err(|e| format!("could not be run: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         let err = err.trim();
+        let code = out
+            .status
+            .code()
+            .map_or_else(|| "abnormally".to_string(), |c| c.to_string());
         return Err(if err.is_empty() {
-            format!("it exited {}", out.status)
+            format!("exited {code}")
         } else {
-            format!("it exited {}: {err}", out.status)
+            format!("exited {code}: {err}")
         });
     }
     if out.stdout.iter().all(u8::is_ascii_whitespace) {
         let err = String::from_utf8_lossy(&out.stderr);
         let err = err.trim();
         return Err(if err.is_empty() {
-            "it printed nothing".to_string()
+            "printed nothing".to_string()
         } else {
-            format!("it printed no JSON: {err}")
+            format!("printed no JSON: {err}")
         });
     }
-    let json: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("bad JSON: {e}"))?;
+    let json: Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("printed bad JSON: {e}"))?;
     Ok(json["result"]["devices"]
         .as_array()
         .cloned()
@@ -378,7 +396,7 @@ fn simulators() -> Result<Vec<Sim>, CliError> {
         // which has no second source.
         crate::ops::status(
             "Warning",
-            &format!("devicectl could not list devices ({why}); using simctl instead"),
+            &format!("devicectl {why} — using simctl to find simulators instead"),
         );
         simctl_simulators()
     };
@@ -391,7 +409,7 @@ fn simulators() -> Result<Vec<Sim>, CliError> {
     // produces. Treating it as "this machine has none" would report a missing device when the
     // real fault is the tool, so simctl gets the same chance to answer.
     if sims.is_empty() {
-        return fallback("it listed no iOS simulators".to_string());
+        return fallback("listed no iOS simulators".to_string());
     }
     Ok(sims)
 }
@@ -549,6 +567,21 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     ));
                 }
             };
+            // Ask before the boot, not after it: on a host whose CoreDevice cannot drive
+            // simulators this is the difference between a one-second answer and a three-minute
+            // boot that ends in "The specified device was not found".
+            let turnable = spec.orientation.is_none() || devicectl_sees(&udid);
+            if !turnable {
+                crate::ops::status(
+                    "Warning",
+                    &format!(
+                        "devicectl cannot see this simulator, so it cannot be turned to {} — \
+                         capturing in the orientation it boots in instead. {}",
+                        spec.orientation.unwrap_or_default(),
+                        CORE_DEVICE_FLOOR
+                    ),
+                );
+            }
             crate::ops::status("Booting", &format!("simulator {name}"));
             let out = Command::new("xcrun")
                 .args(["simctl", "boot", &udid])
@@ -576,7 +609,9 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     return Err(CliError::failure(format!("{name} never finished booting")));
                 }
             }
-            if let Some(o) = spec.orientation {
+            if let Some(o) = spec.orientation
+                && turnable
+            {
                 set_orientation(&udid, o)?;
             }
             Ok(0)
