@@ -28,7 +28,7 @@ emitted, so the framework's own diagnostics and yours land in the same place, in
 
 ## Why not `println!`
 
-Because it does not work everywhere, and where it fails it fails **silently**.
+Because it does not work everywhere, and where it fails it fails silently.
 
 On `wasm32-unknown-unknown` — the target `web-dom` builds — Rust's standard library has no
 stdout to write to. Its implementation accepts your bytes and drops them:
@@ -40,12 +40,12 @@ fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
 }
 ```
 
-No error, no panic, no output. An app whose diagnostics are `println!` is simply mute in a
-browser, and there is no fd to redirect the way Android redirects fd 1 and 2 into logcat.
+The call reports success and writes nothing. An app whose diagnostics are `println!` is mute in
+a browser, and there is no fd to redirect the way Android redirects fd 1 and 2 into logcat.
 
-`println!` has a second problem even on native targets: it **panics** when the write fails, and a
+`println!` has a second problem even on native targets: it panics when the write fails, and a
 closed stderr pipe is routine when `day launch` tears an app down. A panic raised inside a native
-trampoline — an event callback, a GCD or glib block — unwinds into non-Rust frames and aborts the
+trampoline (an event callback, a GCD or glib block) unwinds into non-Rust frames and aborts the
 process, turning a clean exit into a spurious crash. Day's logger never panics on a failed write.
 
 ## Where the lines go
@@ -57,8 +57,8 @@ process, turning a clean exit into a spurious crash. Day's logger never panics o
 | Android | stderr, which day-android redirects into **logcat** (stdout at INFO, stderr at ERROR) |
 | **web-dom** | the browser's **JavaScript console** |
 
-On the web each level maps to the matching console method — `error!` to `console.error`, `warn!`
-to `console.warn`, `info!` to `console.info`, `debug!` and `trace!` to `console.debug` — so
+On the web each level maps to the matching console method (`error!` to `console.error`, `warn!`
+to `console.warn`, `info!` to `console.info`, `debug!` and `trace!` to `console.debug`), so
 devtools' own level filter applies to Day's output the way it does to the page's.
 
 Lines are formatted `LEVEL target: message`:
@@ -68,20 +68,20 @@ INFO  my_app: importing 412 rows
 WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 ```
 
-The target names the crate and module that emitted the line, which is what tells you whether a
+The target names the crate and module that emitted the line, which tells you whether a
 complaint is yours, a piece's, or a backend's.
 
 ## Color
 
-On a terminal the level column is colored — red `ERROR`, yellow `WARN`, green `INFO`, blue
-`DEBUG`, cyan `TRACE`. That is `env_logger`'s palette rather than a new one, so the colors carry
-the meaning they already have elsewhere in Rust. The message stays plain: color across a whole
-line is noise at `INFO`, and an uncolored message stays greppable.
+On a terminal the level column is colored: red `ERROR`, yellow `WARN`, green `INFO`, blue
+`DEBUG`, cyan `TRACE`. That is `env_logger`'s palette, so the colors carry the meaning they
+already have elsewhere in Rust. The message stays plain: color across a whole line is noise at
+`INFO`, and an uncolored message stays greppable.
 
 The escapes are written only where they render. Day checks whether the destination is a color
-terminal instead of assuming, so color drops out on its own when output is redirected to a file,
-when `NO_COLOR` or `TERM=dumb` is set, and on the targets where no terminal is involved — logcat,
-Xcode's console, the browser. On Windows it enables the console's VT processing first, so older
+terminal, so color drops out on its own when output is redirected to a file, when `NO_COLOR` or
+`TERM=dumb` is set, and on the targets where no terminal is involved (logcat, Xcode's console,
+the browser). On Windows it enables the console's VT processing first, so older
 consoles show color rather than raw escapes.
 
 Under `day launch` the app's stderr is a pipe, so the app itself writes none. **`day-cli` colors
@@ -97,15 +97,15 @@ The prefix takes the level's color too, so scanning the left column finds the er
 
 The VS Code extension's **Run** button shows exactly this, and needed no change of its own to get
 it: it runs `day launch` as a VS Code task in an integrated terminal, which is a terminal like any
-other. Its **debug** path (F5) is different — it spawns `day launch` with pipes and forwards the
-text to the Debug Console, so the color is stripped there and the output is plain.
+other. Its **debug** path (F5) spawns `day launch` with pipes and forwards the text to the Debug
+Console, so the color is stripped there and the output is plain.
 
-Note that `day.extraEnv` will not change that. Those entries are passed through as `day launch
---env`, which sets the environment of **the app**, not of the CLI doing the coloring.
+`day.extraEnv` does not change that. Those entries are passed through as `day launch --env`,
+which sets the environment of the app, not of the CLI doing the coloring.
 
 A forwarded line with no level keeps the older per-stream color, blue for stdout and yellow for
 stderr: a stray `println!`, a Qt warning, a raw logcat line. Colored output is a presentation
-choice, so it never changes routing — an `ERROR` an app wrote to stdout is still forwarded to
+choice, so it never changes routing; an `ERROR` an app wrote to stdout is still forwarded to
 stdout.
 
 ## Choosing a level
@@ -134,8 +134,8 @@ level at runtime with `day::set_log_level(log::LevelFilter::Trace)`.
 
 ## Using a different logger
 
-Day's logger is a default, not a policy. `log` allows exactly one logger per process and the first
-registration wins, so **install yours before `day::launch`** and Day will step aside:
+Day's logger is only a default. `log` allows exactly one logger per process and the first
+registration wins, so **install yours before `day::launch`** and Day steps aside:
 
 ```rust
 fn main() {
@@ -144,20 +144,20 @@ fn main() {
 }
 ```
 
-That is the whole customization story. Day calls `log::set_logger` and ignores the `Err` that says
-someone got there first — no feature flag to set, no call to opt out of, and every `info!` already
-written keeps working because they are `log`'s macros, not Day's.
+There is nothing else to configure. Day calls `log::set_logger` and ignores the `Err` that says
+someone got there first, and every `info!` already written keeps working because the macros are
+`log`'s.
 
-Two consequences worth knowing:
+Two consequences follow.
 
 - **Per-target filtering comes with the logger you choose.** Day's default has a single global
   level; `env_logger` gives you `RUST_LOG=warn,day_uikit=debug` and the ability to silence one
   noisy backend.
 - **`tracing` users** can bridge with `tracing-log` and receive Day's output as tracing events.
 
-### `env_logger`, worked
+### `env_logger` as the logger
 
-`env_logger` is the one to reach for on a desktop-focused app, and it is a two-line change:
+`env_logger` suits a desktop-focused app, and it is a two-line change:
 
 ```toml
 # Cargo.toml
@@ -173,8 +173,8 @@ fn main() {
 }
 ```
 
-The per-target filter is the real reason to switch — one backend turned up without the rest of the
-app coming with it:
+The per-target filter is the main reason to switch. It turns one backend up without the rest of
+the app coming along:
 
 ```sh
 RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -p linux-gtk
@@ -183,16 +183,16 @@ RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -p linux-gtk
 `RUST_LOG` replaces `DAY_LOG` once you do this. `DAY_LOG` is read by Day's own logger, and that
 logger is no longer installed.
 
-Day does **not** adopt `env_logger` as its default, because it writes ANSI
-text to stderr on every target. On Android that means every line lands in logcat at **ERROR**,
-because day-android maps fd 2 to that level; on web-dom it means the lines are discarded, since
-std's stdio on wasm accepts bytes and drops them; on iOS it means escape codes in the Xcode
-console. Day's default exists to route per platform. `env_logger` is the right choice when your
-app targets desktops, and the wrong one to impose on the other six targets.
+Day does not adopt `env_logger` as its default, because it writes ANSI text to stderr on every
+target. On Android that means every line lands in logcat at `ERROR`, because day-android maps
+fd 2 to that level; on web-dom it means the lines are discarded, since std's stdio on wasm
+accepts bytes and drops them; on iOS it means escape codes in the Xcode console. Day's default
+exists to route per platform. `env_logger` fits an app that targets desktops; the other six
+targets need the per-platform routing.
 
 ## Writing a logger
 
-The trait is `log::Log`. Day's own web-dom implementation is the whole shape:
+The trait is `log::Log`. Day's own web-dom implementation shows the shape:
 
 ```rust
 pub fn console_sink(level: log::Level, line: &str) {
@@ -200,16 +200,15 @@ pub fn console_sink(level: log::Level, line: &str) {
 }
 ```
 
-A backend that needs its own destination installs a **sink** — a `fn(log::Level, &str)` that
-receives the already-formatted line — through `day_core::set_log_sink`, rather than replacing the
+A backend that needs its own destination installs a **sink**, a `fn(log::Level, &str)` that
+receives the already-formatted line, through `day_core::set_log_sink` instead of replacing the
 logger. That keeps the format and the level filtering in one place. The facade wires web-dom's in
 `day::web::start`.
 
-Day does not ship `console_log` or `wasm-logger` for the browser, though both exist: each requires
-`web-sys` (and `wasm-logger` `wasm-bindgen`), which the web-dom backend deliberately does without
-— its whole shim is numeric ids across `extern "C"`, with no bundler and no npm
-([docs/web.md](web.md)). Routing a formatted line to `console.*` is one call, so the dependency
-would buy nothing and cost the toolchain.
+Day does not ship `console_log` or `wasm-logger` for the browser: each requires `web-sys` (and
+`wasm-logger` requires `wasm-bindgen`), while the web-dom backend's shim is numeric ids across
+`extern "C"`, built without a bundler ([docs/web.md](web.md)). Routing a formatted line to
+`console.*` is one call, so the dependency would add a toolchain for no gain.
 
 ## What Day itself logs
 

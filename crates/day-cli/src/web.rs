@@ -60,6 +60,7 @@ pub fn build_web(
     let cargo_dir = crate::ops::cargo_dir(project, target, profile);
 
     let mut cmd = Command::new("cargo");
+    crate::patch::apply_day_src(&mut cmd);
     cmd.current_dir(&project.root)
         .env("CARGO_TARGET_DIR", &cargo_dir)
         // The app's lib as a cdylib (the same shape as Android/HarmonyOS): `day_start_web!` exports

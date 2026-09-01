@@ -30,18 +30,18 @@ set_locale("fr");                               // every visible string updates
 
 ### Who installs the catalog, and when
 
-`launch` does, and the timing is the reason. The OS's languages reach day-l10n from the LIVE
+`launch` does, and the timing is the reason. The OS's languages reach day-l10n from the live
 backend, and the catalog has to be registered after that hint and before the first localized
 string is read. An app that calls `res::locales::install()` itself before `launch` registers
-against an empty hint list and resolves to `DEFAULT` — a French device opens an English window.
+against an empty hint list and resolves to `DEFAULT`, so a French device opens an English window.
 Calling it from the root builder is late in a different way: the window, and its title, already
 exist.
 
 So `WindowOptions::locales` carries the catalog and `WindowOptions::title_fn` computes the
-title once it is installed. Both entry points — `src/main.rs` and the `day_start!` platform
-shells — hand `launch` the same `WindowOptions`, so they cannot drift. `install_locales` stays
-public for a second catalog or a different fallback; an app that registers one itself simply
-does it after `launch` is running.
+title once it is installed. Both entry points (`src/main.rs` and the `day_start!` platform
+shells) hand `launch` the same `WindowOptions`, so they cannot drift. `install_locales` stays
+public for a second catalog or a different fallback; an app that registers one itself does so
+after `launch` is running.
 
 ## The catalog is the directory (§18.5)
 
@@ -70,7 +70,7 @@ resource/locales/ar/app.ftl         res::locales::install()
 
 The underlying call is still public and unchanged: `install_locales(default, &[(tag, source)])`
 takes any list an app assembles itself (locales fetched at runtime, a subset chosen per build).
-The generated catalog is the zero-maintenance default, not a replacement.
+The generated catalog is the default and needs no maintenance.
 
 ## Adding a language: `day localize add`
 
@@ -96,8 +96,7 @@ translated:
 # TODO: translate — 6 starter string(s) translated; the rest copied from en/ by `day localize add ja-JP`.
 ```
 
-A tag the table does not carry simply gets the English copy, so the fallback is the old behavior
-rather than a failure.
+A tag the table does not carry gets the English copy, so the fallback is the old behavior.
 
 ## Checked keys: `res::str::…()` (§18.5)
 
@@ -136,18 +135,18 @@ label(res::str::nav_home())                      // 0-param keys are nullary fun
 
 ## Keyboard shortcuts: localizable, but stable by default
 
-Shortcut LETTERS are not translated the way labels are. The modern convention — Apple's and
-Microsoft's alike — keeps ⌘C/⌘S/⌘G the same characters in every language: they bind to the
-COMMAND, not to the translated word (French macOS quits with ⌘Q and saves with ⌘S, whatever
+Shortcut letters are not translated the way labels are. The convention Apple and Microsoft
+both follow keeps ⌘C/⌘S/⌘G the same characters in every language: they bind to the command
+rather than to the translated word (French macOS quits with ⌘Q and saves with ⌘S, whatever
 "Quitter" and "Enregistrer" start with), because cross-application muscle memory and
-documentation outweigh mnemonic spelling. What DOES vary is the keyboard itself, and that is
-the operating system's job, not the translator's: macOS remaps a key equivalent the current
-layout cannot type and MIRRORS directional pairs (⌘[ / ⌘]) under right-to-left languages —
-day-appkit opts every chorded item into both behaviors.
+documentation outweigh mnemonic spelling. The keyboard layout does vary, and the operating
+system handles that: macOS remaps a key equivalent the current layout cannot type and mirrors
+directional pairs (⌘[ / ⌘]) under right-to-left languages. day-appkit opts every chorded item
+into both behaviors.
 
-For the rare case where a locale genuinely needs a different letter, the shortcut key is
-catalog data like any other string: a Fluent **attribute** on the command's own message, so
-the translator sees the two together —
+For the rare locale that needs a different letter, the shortcut key is catalog data like any
+other string: a Fluent **attribute** on the command's own message, so the translator sees the
+two together:
 
 ```ftl
 menu_group = Group
@@ -163,12 +162,12 @@ menu_item(res::str::menu_group().format())
     .shortcut(Shortcut { key: res::str::menu_group_key().format(), primary: true, ..Default::default() })
 ```
 
-A locale that omits `.key` inherits the default locale's through the ordinary fallback chain
-— which is the point: shortcuts stay stable across languages unless a locale deliberately
-overrides, and the coverage lint does not demand the attribute anywhere. It does count the
-attribute as *referenced* under either spelling — `res::str::menu_group_key()` in Rust and
-`menu_group.key` in the catalog are the same key — so a shortcut is never reported as both an
-unknown key and an unused one at once. Modifier schemes
+A locale that omits `.key` inherits the default locale's through the ordinary fallback chain,
+so shortcuts stay stable across languages unless a locale overrides one, and the coverage lint
+does not demand the attribute anywhere. It does count the attribute as *referenced* under
+either spelling (`res::str::menu_group_key()` in Rust and `menu_group.key` in the catalog are
+the same key), so a shortcut is never reported as both an unknown key and an unused one at
+once. Modifier schemes
 (primary/shift/alt) are command semantics and stay in code. Role items
 (`menu_role(MenuRole::Copy)`, [docs/menus.md](menus.md)) keep the platform's own system
 shortcuts and never localize them.
@@ -259,10 +258,10 @@ models for exactly those scripts: `matches_search_in("ja", "日本語入力", "�
 `"語"` (mid-word) is false. Punctuation and spaces are not word starts, so the `&` in
 "Canvas & shapes" is not somewhere a search can begin.
 
-**Case folding**, not `to_lowercase`: folding is the operation Unicode defines for caseless
-matching. `Straße` matches `STRASSE`, and `Σ`/`σ`/`ς` match each other. Turkish and Azerbaijani
-get the Turkic variant, which keeps the dotted and dotless I apart: in `tr`, `i` does *not*
-match `Irmak`, and `ı` does; in `en`, `i` matches it.
+**Case folding** is used rather than `to_lowercase`, because folding is the operation Unicode
+defines for caseless matching. `Straße` matches `STRASSE`, and `Σ`/`σ`/`ς` match each other.
+Turkish and Azerbaijani get the Turkic variant, which keeps the dotted and dotless I apart: in
+`tr`, `i` does *not* match `Irmak`, and `ı` does; in `en`, `i` matches it.
 
 Because the word start at offset 0 is a candidate like any other, a multi-word query works with
 no separate rule: `canvas &` matches "Canvas & shapes".
@@ -279,8 +278,8 @@ next section.
 ## Locale data
 
 The icu4x components ship `compiled_data` for every locale, and a Day app embeds it as-is. That
-sounds expensive and mostly is not: the tables that dominate — script-keyed segmentation
-dictionaries and normalization data — are the same size whatever locales an app declares, and
+sounds expensive and mostly is not: the tables that dominate (script-keyed segmentation
+dictionaries and normalization data) are the same size whatever locales an app declares, and
 only the locale-keyed material (collation tailorings, date patterns, decimal symbols, timezone
 names) scales. Measured on the showcase (4 declared locales, macos-gtk release): all-locale data
 costs 650 KB of an 11.3 MB binary, 165 KB of it after compression. Components the app never
@@ -289,7 +288,7 @@ on individual icu4x components rather than the `icu` meta-crate.
 
 `day build` used to thin this data to the declared locale set by running icu4x's datagen
 (2026-08: removed). Thinning saved those 650 KB per app, and cost the CLI 57% of its dependency
-graph, 19% of its compile time, and 2 MB of its own binary — a wasm interpreter among them, to
+graph, 19% of its compile time, and 2 MB of its own binary, including a wasm interpreter to
 run one trie builder. An app that needs the smaller data can still bake its own directory and set
 `ICU4X_DATA_DIR`, which icu4x honors directly.
 
@@ -314,7 +313,7 @@ phone set to `fr-CA` reaches an app that ships `fr`.
 
 > [!NOTE]
 > A locale the user picks in-app (`set_locale`, or a settings piece that persists one) overrides
-> all of this on the next launch — it is stored by the app, not by Day.
+> all of this on the next launch; it is stored by the app, not by Day.
 
 ## Two layers: the app catalog and the core catalog
 
@@ -385,7 +384,7 @@ but not direction):
 
 - **Day's layout engine mirrors every horizontal placement** in the place pass (`day-core`):
   rows reverse, `leading` means right, padding swaps sides, the form label column right-aligns.
-  No layout implementation knows about direction. Leaf CONTENT (canvas drawing, text runs) is
+  No layout implementation knows about direction. Leaf content (canvas drawing, text runs) is
   not mirrored. Children whose frames are native-owned (nav pages in splitter panes /
   nav-controller views) place via `place_child_native` and are never mirrored.
 - **Each toolkit enables its native RTL mode** for widget-internal behavior: AppKit registers

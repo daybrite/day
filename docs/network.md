@@ -70,7 +70,7 @@ Every field is best-effort; the platforms report different amounts of detail:
 - **Windows**: `GetNetworkConnectivityHint` (Windows 10 2004+, blind like the rest of the xaml
   backend) gives a connectivity level (`online` = internet or constrained-internet access) and a cost
   (`expensive`) but no transport, so `kind` is `Other` when online. The symbol is resolved at runtime
-  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; `status()` just
+  via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; `status()`
   returns `None` there.
 
 A snapshot is a point-in-time poll; a change-notification rail (`SCNetworkReachability` callbacks,

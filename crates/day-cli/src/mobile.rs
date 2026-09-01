@@ -226,9 +226,8 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     let (cargo, bin) =
         rustup_cargo().map_err(|e| CliError::env(format!("day xcode-backend: {e}")))?;
     let name = project.manifest.app.name.clone();
-    let target_dir = project
-        .root
-        .join("build/day/cargo")
+    let target_dir = crate::ops::build_root(&project)
+        .join("cargo")
         .join(target_dir_name)
         .join(profile.as_str());
     // One `cargo rustc` per requested arch (macOS universal Release builds ask for two).
@@ -238,6 +237,9 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     let ident = name.replace('-', "_");
     for triple in &triples {
         let mut cmd = Command::new(&cargo);
+        // `--day-src` reaches this process through DAY_SRC_DIR, set as an xcodebuild build
+        // setting by the porcelain — the same route DAY_BIN takes to get here.
+        crate::patch::apply_day_src(&mut cmd);
         // Sanitize Xcode's script-phase env: SDKROOT points at the build SDK (poisoning
         // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
         // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an
@@ -574,7 +576,7 @@ pub fn build_macos_xcode(
     };
     // Absolute for the same reason as iOS (see build_ios_for): SwiftPM package products
     // must land in the same tree as the app target's.
-    let symroot = absolute(&project.root.join("build/day/macos-appkit"))?;
+    let symroot = absolute(&crate::ops::build_root(project).join("macos-appkit"))?;
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     // The xcconfig split (§17.4) — same order rationale as prepare_ios.
     crate::xcconfig::ensure_split(project, "macos")?;
@@ -607,8 +609,13 @@ pub fn build_macos_xcode(
     }
     cmd.arg(format!("SYMROOT={}", symroot.display()))
         .arg(format!("DAY_BIN={}", day_bin.display()))
-        .arg(oso_prefix_setting(&project.root))
-        .arg("build");
+        .arg(oso_prefix_setting(&project.root));
+    // Carries `--day-src` across to the `day xcode-backend build` script phase, which runs the
+    // cargo half in its own process and would otherwise resolve the app's declared day.
+    if let Some(setting) = crate::patch::day_src_setting() {
+        cmd.arg(setting);
+    }
+    cmd.arg("build");
     let out = crate::ops::run_capture(&mut cmd, "xcodebuild")?;
     if !out.status.success() {
         return Err(format!("xcodebuild failed:\n{}", diagnose_xcodebuild(&out)));
@@ -918,7 +925,7 @@ pub fn build_ios_for(
     // whose resource bundle the app copies) would land their products in different trees and the copy
     // would fail with "no such file … .bundle". `project.root` is absolute (see meta::find_project),
     // but absolutize here too so this invariant is enforced at the one place that actually matters.
-    let symroot = absolute(&project.root.join("build/day/ios-uikit"))?;
+    let symroot = absolute(&crate::ops::build_root(project).join("ios-uikit"))?;
     let sdk = if physical {
         "iphoneos"
     } else {
@@ -954,6 +961,10 @@ pub fn build_ios_for(
             .arg(format!("SYMROOT={}", symroot.display()))
             .arg(format!("DAY_BIN={}", day_bin.display()))
             .arg(oso_prefix_setting(&project.root));
+        // As on macOS: the cargo half runs in the xcode-backend process, which reads this.
+        if let Some(setting) = crate::patch::day_src_setting() {
+            cmd.arg(setting);
+        }
         if let Some(f) = &floor {
             cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
         }
@@ -1718,11 +1729,11 @@ fn build_android_so(
     let (cargo, bin) = rustup_cargo()?;
     let name = project.manifest.app.name.clone();
     let ndk_home = find_ndk()?;
-    let target_dir = project
-        .root
-        .join("build/day/cargo/android-mdc")
+    let target_dir = crate::ops::build_root(project)
+        .join("cargo/android-mdc")
         .join(profile.as_str());
     let mut cmd = Command::new(&cargo);
+    crate::patch::apply_day_src(&mut cmd);
     cmd.current_dir(&project.root)
         .env(
             "PATH",
@@ -1850,6 +1861,10 @@ pub fn build_android(
         .env("DAY_PROJECT_ROOT", &project.root)
         .env("DAY_PROFILE", profile.as_str())
         .args([task, "--console=plain"]);
+    // Gradle's own callbacks into `day` inherit this, the same way they inherit DAY_BIN.
+    if let Some(dir) = crate::patch::day_src_dir() {
+        cmd.env(crate::patch::DAY_SRC_DIR_ENV, dir);
+    }
     // Day narrates the phase and surfaces gradle's tail on failure, so gradle runs quiet by default.
     // `--verbose` drops `-q` so it emits its full build log, forwarded live by `run_capture`.
     if !crate::ops::verbose() {

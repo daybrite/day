@@ -42,7 +42,7 @@ natural-size leaf (`Flex::default()`, and each backend's default `measure` retur
 indicator's fitting size), so it takes exactly the space the control wants; wrap it in `.frame(w, h)`
 only if you want to reserve a fixed region (e.g. to keep surrounding layout stable while it toggles).
 
-There is deliberately no determinate mode here; that is day's built-in `progress(fraction)`
+There is no determinate mode here, because that is day's built-in `progress(fraction)`
 ([docs/progress.md](progress.md)). This piece covers the indeterminate "work of unknown extent" spinner.
 
 ## Per-backend native realization
@@ -76,7 +76,7 @@ There is deliberately no determinate mode here; that is day's built-in `progress
   busy `QProgressBar` is a horizontal moving-chunk bar rather than a ring; that's what Qt provides
   natively.)
 - **Android**: a framework `android.widget.ProgressBar`, whose default style is a circular
-  indeterminate spinner, so the piece adds no Gradle dependencies and no permissions. A default
+  indeterminate spinner, so the piece needs no Gradle dependency or permission. A default
   indeterminate `ProgressBar` always animates while `VISIBLE`; the closest to a stopped-but-present
   spinner is `INVISIBLE` (which keeps the layout box so surrounding layout does not jump). `.large`
   scales the drawable via `setScaleX/Y`. The Java factory
@@ -84,8 +84,8 @@ There is deliberately no determinate mode here; that is day's built-in `progress
   folded into the app's Gradle build via `[package.metadata.day.android]`, using only day-android's
   public `DayBridge.ctx`.
 - **XAML**: this crate's own C++/WinRT shim wraps a `Windows.UI.Xaml.Controls.ProgressRing` (UWP
-  system XAML, no WinAppSDK), boxed via day-xaml-sys's `day_xaml_box` seam like the media / picker
-  / webview XAML pieces. `IsActive` runs/stops it; `.large` sets Width/Height. Written blind
+  system XAML, no WinAppSDK), boxed via day-xaml-sys's `day_xaml_box` functions like the media /
+  picker / webview XAML pieces. `IsActive` runs/stops it; `.large` sets Width/Height. Written blind
   (Windows-only, built in CI); creation degrades to a `TextBlock` on any unexpected throw.
 - **mock**: the feature exists (so an app can enable `day-piece-activity/mock` uniformly per
   backend) but registers no renderer; the activity kind falls back to day's placeholder leaf.

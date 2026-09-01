@@ -13,11 +13,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Rust's UI ecosystem is healthy, and almost all of it makes one of two bets Day doesn't: draw
-every pixel yourself (Iced, Slint, egui, Xilem), or ship a web stack and let the browser draw
-(Tauri, Leptos, Dioxus). Day takes the third road — every Piece becomes the platform's own
-widget, an `NSButton` or a `MaterialButton` or a `<button>` — which is why this page exists: if
-you have already picked one of the others, the differences are structural, not stylistic.
+Rust UI frameworks take one of three approaches: their own renderer (Iced, Slint, egui, Xilem),
+a web stack in a browser or web view (Tauri, Leptos, Dioxus), or the platform's own widgets,
+which is Day's: every Piece becomes an `NSButton`, a `MaterialButton`, or a `<button>`. This
+page shows the same job written in each, so a team that already knows one of them can see where
+Day differs.
 
 This is the abbreviated version, one section per framework with the same job written both ways.
 The [other guides in this section](/docs/day-for-flutter) go deeper, and
@@ -34,19 +34,18 @@ these is the better tool.
 | **Iced** | 0.14 | its own renderer (wgpu or tiny-skia) | desktop, wasm | the Elm architecture: message in, state out |
 | **Leptos** | 0.8 | the browser's DOM | web (client and server) | fine-grained signals |
 
-Two consequences run through everything below. A framework that draws its own pixels owns text
-input, scrolling physics, accessibility, and IME — and has to re-implement each of them per
-platform. A framework that ships a webview inherits all of that from the browser, at the cost of
-a boundary between your Rust and your UI. Day has neither the renderer nor the boundary, and pays
-for that with a smaller widget vocabulary and a look it doesn't control.
+A framework with its own renderer implements text input, scrolling physics, accessibility, and
+IME itself. A framework in a web view gets those from the browser and puts a boundary between
+Rust and the UI. Day uses the platform's widgets for all of them, with a smaller widget
+vocabulary and a look it leaves to the platform.
 
 ## Tauri
 
-[Tauri](https://tauri.app) is the most-used Rust UI project by a wide margin, and the least like
+[Tauri](https://tauri.app) is the most widely used Rust UI project and the one least like
 Day: your interface is a web app in the OS's webview (WKWebView, WebView2, WebKitGTK), and Rust
 is the backend it talks to. Tauri 2 added iOS and Android, so the reach is comparable to Day's.
-The differences are the language boundary — every call is a serialized `invoke` across process
-lines — and permissions, which Tauri models explicitly in capability files.
+The differences are the language boundary (every call is a serialized `invoke` across process
+lines) and permissions, which Tauri models explicitly in capability files.
 
 <Compare lhs="Tauri 2">
 
@@ -86,7 +85,7 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-The Tauri half is only the Rust half. The UI is separate:
+The Tauri code above is only the Rust half. The UI is separate:
 
 ```js
 // src/main.js — the other side of the boundary
@@ -99,8 +98,8 @@ document.querySelector('#inc').addEventListener('click', async () => {
 ```
 
 Reading a file shows the same split. Tauri routes it through a plugin and a capability the app
-declares up front; Day calls a [part](/docs/parts) in-process, with the sandbox in the API
-instead of in a config file.
+declares up front; Day calls a [part](/docs/parts) in-process, and the API itself enforces the
+sandbox through relative, app-scoped paths.
 
 <Compare lhs="Tauri 2">
 
@@ -141,11 +140,11 @@ own controls, one language end to end, and a compact native binary.
 
 ## Slint
 
-[Slint](https://slint.dev) is the closest thing to Day in ambition — a native-feeling UI from one
-description, from microcontrollers up to desktop — and the furthest in method. UIs are written
+[Slint](https://slint.dev) is the closest to Day in ambition (a native-feeling UI from one
+description, from microcontrollers up to desktop) and the furthest in method. UIs are written
 in a `.slint` DSL that compiles to Rust (or C++, or JS bindings), and Slint renders the result
 itself, so a Slint app looks like a Slint app on every platform. Its runtime fits in well under a
-megabyte, which is why it reaches hardware Day never will.
+megabyte, so it also targets embedded hardware and microcontrollers, which Day does not.
 
 <Compare lhs="Slint 1.17">
 
@@ -244,8 +243,8 @@ look, and you would rather write Rust than a second language for the UI.
 
 [Iced](https://iced.rs) brings the Elm architecture to Rust: state, a `Message` enum, an `update`
 that folds messages into state, and a `view` that renders state into widgets. It draws with wgpu
-(or tiny-skia on machines without a GPU path). The result is enviably predictable — every state
-change has a name — and the tradeoff is that a keystroke is a message, a variant, a match arm,
+(or tiny-skia on machines without a GPU path). Every state change has a name, which makes the
+result predictable, and the tradeoff is that a keystroke is a message, a variant, a match arm,
 and a re-`view` of that part of the tree.
 
 <Compare lhs="Iced 0.14">
@@ -292,8 +291,8 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-Asynchronous work is where the two models diverge hardest. Iced keeps `update` pure by returning
-a `Task` the runtime performs, delivering the result as another message. Day awaits inline and
+The two models diverge most on asynchronous work. Iced keeps `update` pure by returning a
+`Task` the runtime performs, delivering the result as another message. Day awaits inline and
 writes the signal, because the continuation already lands on the UI thread.
 
 <Compare lhs="Iced 0.14">
@@ -333,12 +332,12 @@ signal than name every transition.
 
 ## Leptos
 
-[Leptos](https://leptos.dev) is the closest relative Day has in this list, and it doesn't draw
-UI at all: it's a full-stack web framework whose reactive core is the same idea as Day's. Signals
-that track their readers, memos that recompute only when their inputs change, effects that clean
-up with their scope. The counter is nearly line-for-line; what differs is the target — Leptos
-patches DOM nodes in a browser (with SSR and hydration), Day patches native widgets on nine
-backends, one of which is also the DOM.
+[Leptos](https://leptos.dev) is the closest relative Day has in this list. It is a full-stack
+web framework whose reactive core is the same idea as Day's: signals that track their readers,
+memos that recompute only when their inputs change, and effects that clean up with their scope.
+The counter is nearly line-for-line, and the target differs: Leptos patches DOM nodes in a
+browser (with SSR and hydration), and Day patches native widgets on nine backends, one of which
+is also the DOM.
 
 <Compare lhs="Leptos 0.8">
 
@@ -393,20 +392,19 @@ label(move || format!("{:.2} €", total.get()))
 
 </Compare>
 
-The differences that matter are outside the reactive core: Leptos has server functions,
-hydration, and the whole CSS toolbox; Day has native controls, and its `web-dom` backend is one
-target among many rather than the point. If your product is a website, Leptos is the right
-framework and Day is the wrong one — and if it's an app that also wants a web build,
-[`web-dom`](/docs/platforms/web-dom) is that build.
+The differences lie outside the reactive core: Leptos has server functions, hydration, and
+the whole CSS toolbox; Day has native controls, and its `web-dom` backend is one target among
+many. If your product is a website, Leptos is the right framework. If it's an app that also
+wants a web build, [`web-dom`](/docs/platforms/web-dom) is that build.
 
-## The rest, at a glance
+## Other Rust UI projects
 
 | Project | Version | Shape |
 |---|---|---|
-| [egui](https://github.com/emilk/egui) | 0.36 | Immediate mode: the UI is re-declared every frame, drawn by egui. Unbeatable for tools, debug overlays, and anything in a game loop; a poor fit where the app should feel like the platform. |
-| [Dioxus](https://dioxuslabs.com) | 0.7 | React-shaped RSX plus signals, rendering to a webview on desktop and mobile, the DOM on web, with a native renderer (Blitz) in progress. The closest thing to "React in Rust". |
-| [Xilem](https://github.com/linebender/xilem) / Masonry | 0.4 | The Linebender group's current toolkit — successor to their discontinued Druid — drawing with Vello on the GPU. Pre-1.0 and moving; the architecture (a view tree diffed against a retained widget tree) is worth reading. |
-| [gtk4-rs](https://gtk-rs.org) / [cxx-qt](https://github.com/KDAB/cxx-qt) | — | Bindings, not frameworks: real native widgets, one toolkit each, and you write the app per platform. Day uses gtk4-rs for its own GTK backend, so this is less a competitor than a layer Day sits on. |
+| [egui](https://github.com/emilk/egui) | 0.36 | Immediate mode: the UI is re-declared every frame, drawn by egui. It fits tools, debug overlays, and anything in a game loop, and fits less well where the app should look like the platform. |
+| [Dioxus](https://dioxuslabs.com) | 0.7 | React-shaped RSX plus signals, rendering to a webview on desktop and mobile, the DOM on web, with a native renderer (Blitz) in progress. It is the closest thing to React in Rust. |
+| [Xilem](https://github.com/linebender/xilem) / Masonry | 0.4 | The Linebender group's current toolkit (the successor to their discontinued Druid), drawing with Vello on the GPU. It is pre-1.0 and changing; the architecture diffs a view tree against a retained widget tree. |
+| [gtk4-rs](https://gtk-rs.org) / [cxx-qt](https://github.com/KDAB/cxx-qt) | — | Toolkit bindings: real native widgets, one toolkit each, and you write the app per platform. Day uses gtk4-rs for its own GTK backend, so gtk4-rs is a layer Day builds on. |
 
 ## Where to go next
 

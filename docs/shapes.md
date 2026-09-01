@@ -28,11 +28,11 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 
 - are bound to signals (geometry and style),
 - are identified (`.id`) and accessible (`.a11y`),
-- are interactive through the (eventual) gesture seam, with path-precise hit testing,
+- are interactive through the gesture events, with path-precise hit testing,
 - are animatable,
 - are built atop the internal canvas API (so they work on all six backends day one),
-- read naturally for Day and Rust: a single data-oriented `shape` piece parameterised by kind
-  rather than a zoo of node types.
+- read naturally for Day and Rust: a single data-oriented `shape` piece parameterized by kind
+  rather than one node kind per shape.
 
 ### What Day already gives us (the substrate)
 
@@ -45,7 +45,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 - `Draw::fill(Shape, Color)`, `Draw::stroke(Shape, Color, f64)`, `Draw::text(...)`.
 - `Color { r,g,b,a }` (rgba/hex), a `LinearGradient` via `.fill_linear(...)`, or a `RadialGradient` via `.fill_radial(...)` (angular is a later phase).
 - `Decorate` blanket impl → `.id/.id_keyed/.a11y/.frame/.padding/.any` for every Piece.
-- Reserved seams: `AnimSpec { duration_ms }` threaded through `update`/`set_frame`; and
+- Reserved hooks: `AnimSpec { duration_ms }` threaded through `update`/`set_frame`; and
   §8.4's "day-driven frame-clock ticker for canvas only", the exact hook shape animation needs.
 
 ### Prior art consulted
@@ -54,7 +54,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
   proposed size; `.fill(ShapeStyle)`, `.stroke(_, lineWidth:)`, `.trim(from:to:)`, `.rotation()`;
   `Path` for arbitrary geometry; `Canvas` for dense immediate-mode drawing.
 - **floem**: shapes are drawn in the render pass; no separate node per shape (dense-draw model).
-- **hop/** (this workspace): proved a native `ShapeSpec` pipeline with `Shape.fill(gradient)` and
+- **hop/** (this workspace): shipped a native `ShapeSpec` pipeline with `Shape.fill(gradient)` and
   `LinearGradient/RadialGradient/AngularGradient` native on all four toolkits, and painted-path
   transforms (rotate/scale/offset are path-only, matching SwiftCrossUI). Directly informs §7–§8.
 - **pane/ DESIGN2.md** (this workspace): "style-as-data struct args" over the SwiftUI modifier
@@ -66,19 +66,18 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 engine assigns; a `Rectangle` fills it; `RoundedRectangle`'s corner is the only extra parameter.
 You size a shape with `.frame(w, h)` (or a bounded parent), exactly like SwiftUI. This is more
 composable than "circle of radius r": shapes drop into stacks, grow/shrink with layout, and animate
-their frame for free. (The user's `radius = 1.0` sketch is absolute; we deliberately choose the
-frame-relative model and recover absolute sizing via `.frame(d, d)`.)
+their frame for free. (The user's `radius = 1.0` sketch is absolute; the frame-relative model
+recovers absolute sizing via `.frame(d, d)`.)
 
 **D2: One piece, parameterised by a data `ShapeKind`.** There is no separate node kind per shape.
-Rust's enum-with-fields is the "params bag": type-safe and cleaner than a mutable params closure.
+Rust's enum-with-fields is the "params bag": type-safe, and simpler than a mutable params closure.
 Convenience free functions (`circle()`, `rounded_rectangle(12.0)`) give SwiftUI ergonomics; the
 unified `shape(kind)` gives the data-oriented form. Both construct the same `ShapePiece`.
 
 **D3: Render atop canvas; the renderer is an implementation detail behind a stable API.** v1
 lowers a `ShapePiece` to the existing canvas display-list (zero backend work, works everywhere,
 free reactivity, free unit tests). The same API can later lower hot or native-fidelity shapes to a
-native `SHAPE` leaf (Proposal B, §9), a capability-gated choice with no API change. Lead with
-canvas.
+native `SHAPE` leaf (Proposal B, §9), a capability-gated choice with no API change.
 
 **D4: Reactivity is free.** Because the canvas closure re-runs on tracked reads, every shape
 parameter and style may be a value, a `Signal`, or a closure with no per-prop binding code, a
@@ -86,10 +85,10 @@ strict simplification over native leaves. Shape params are stored as a small `Re
 
 **D5: Interaction is path-precise and day-side.** The shape knows its path, so on a `Tap(point)`
 from its canvas leaf, Day tests the point against the path in Rust before firing `.on_tap`. That
-needs no backend change and is more correct than bounding-box hit testing.
+needs no backend change and is more precise than bounding-box hit testing.
 
 **D6: Two animation paths; shapes use the canvas one.** Day has (i) backend-executed animation for
-native widgets (the `AnimSpec` seam) and (ii) a day-driven canvas frame-clock (§8.4). Shapes
+native widgets (the `AnimSpec` parameter) and (ii) a day-driven canvas frame-clock (§8.4). Shapes
 animate by interpolating params CPU-side and re-recording per frame, the same way SwiftUI renders
 shape animation. The shape API is animation-ready now; the frame-clock engine lands via §8.4.
 
@@ -128,10 +127,10 @@ impl ShapeKind {
 `resolve` maps each kind to the existing `day_spec::Shape`, so no `day-spec` change is required,
 including for `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops every backend already
 replays. `line((fx, fy), (fx, fy))` and `polygon([(fx, fy), …])` are the tuple-friendly sugar.
-Line/Polygon semantics, deliberately different from the closed kinds:
+Line and Polygon semantics differ from the closed kinds:
 
 - **Unit-point geometry, unclamped:** Points resolve as fractions of the rect (like gradient
-  `UnitPoint`s) and may sit outside 0..1; a glyph's flourish can poke past its box on purpose.
+  `UnitPoint`s) and may sit outside 0..1; a glyph's flourish can extend past its box.
 - **No stroke-half inset:** closed kinds inset by `stroke/2` so a centered stroke stays inside the
   frame (SwiftUI `strokeBorder` behavior); Line and Polygon resolve exactly at their authored
   points, and a stroked segment touching the frame edge may clip on the clipping backends
@@ -254,8 +253,8 @@ impl Piece for ShapePiece {
 `redraw(node, closure)` is the `canvas()` recording harness (a `Trigger` on `FrameChanged` + a
 `bind` that records → `replay`) factored out so both `canvas()` and `shape()` share it.
 
-That is the entire v1 renderer. No `day-spec`, `day-core`, or backend changes for the five
-built-in kinds with solid fill/stroke. `.id`, `.a11y`, `.frame`, `.padding` come from `Decorate`
+That is the entire v1 renderer; the five built-in kinds with solid fill/stroke need no
+`day-spec`, `day-core`, or backend changes. `.id`, `.a11y`, `.frame`, `.padding` come from `Decorate`
 unchanged. Reactivity, diffing, and native replay come from the canvas machinery unchanged.
 
 ### 3.5 Reference example: re-express the gauge
@@ -308,12 +307,12 @@ shape_group([
 Groups reuse the whole shape pipeline: each child is the same `ShapePiece` description
 (fill/stroke/inset/rotate/scale/offset/`.at`, all reactive; a tracked read in any child
 re-records the group), and both composites lower through the same `canvas_leaf` as `canvas()` and
-standalone shapes. Two intentional limits: child `.on_tap`/`.on_drag` are **not** wired inside a
-group (put gestures on the group via `Decorate::on_tap`), and a group has no per-child identity;
-it is one leaf.
+standalone shapes. Groups have two limits: child `.on_tap`/`.on_drag` are not wired inside a
+group (put gestures on the group via `Decorate::on_tap`), and a group has no per-child identity,
+because it is one leaf.
 
-Density guidance: **a backdrop is a shape; a glyph is a group; hundreds of shapes is a
-`canvas()`** (the §4 escape hatch, unchanged).
+As a rule of density, a backdrop is a shape, a glyph is a group, and hundreds of shapes are a
+`canvas()` (the §4 escape hatch, unchanged).
 
 ## 4. Reactivity, identity, accessibility
 
@@ -322,12 +321,12 @@ Density guidance: **a backdrop is a shape; a glyph is a group; hundreds of shape
   is correct: a shape is a handful of ops. (For hundreds of shapes, drop to a single `canvas()`, one
   view with one op-list. That's the documented escape hatch, mirroring SwiftUI `Shape` vs `Canvas`.)
 - **Identity / a11y**: `Decorate` already applies `set_id`/`set_a11y` to the shape's canvas node.
-  Nothing new. Shapes participate in dayscript locators and the a11y tree like any leaf.
+  Nothing new is needed. Shapes participate in dayscript locators and the a11y tree like any leaf.
 
-## 5. Animation (the headline seam)
+## 5. Animation
 
-Shapes animate by interpolating parameters and re-recording per frame (the canvas path of
-§8.4, not the native-widget `AnimSpec` path). Design:
+Shapes animate by interpolating parameters and re-recording per frame, on the canvas path of
+§8.4 rather than the native-widget `AnimSpec` path:
 
 ```rust
 pub struct Animation { pub curve: Curve, pub duration_ms: u32, pub delay_ms: u32 }
@@ -356,11 +355,11 @@ already works today.
 
 ## 6. Interaction & gestures
 
-The shape's canvas leaf is a real native view; when the gesture seam emits `Event::Tap/LongPress`
-for it, the shape does path-precise hit testing in Rust (D5) via `Geometry::contains(point)`
-before firing `.on_tap`/`.on_long_press`. Bounding-box fallback if a kind has no cheap containment.
-This is more correct than SwiftUI's default (which needs `.contentShape` to get precise
-hit testing) and needs no backend work beyond the gesture events Day already plans.
+The shape's canvas leaf is a real native view; when the event channel delivers
+`Event::Tap/LongPress` for it, the shape does path-precise hit testing in Rust (D5) via
+`Geometry::contains(point)` before firing `.on_tap`/`.on_long_press`. A kind with no cheap
+containment test falls back to its bounding box. This needs no backend work beyond the gesture
+events Day already plans.
 
 ## 7. Gradients & `ShapeStyle` (linear + radial: DONE; angular: later)
 
@@ -377,8 +376,7 @@ canvas layer must grow: a `Fill(Shape, Paint)`/`Stroke(Shape, Paint, StrokeStyle
 just Color) + per-backend gradient replay (CGGradient, cairo pattern, QGradient/QConicalGradient,
 Android shaders, XAML brushes). hop already implemented this on four toolkits (linear and radial
 native everywhere; angular native on Qt, hand-rendered as a wedge fan elsewhere), so the recipe is
-known. It benefits raw `canvas()` too. Gradients are a canvas-layer feature, still not a new node
-kind.
+known. It benefits raw `canvas()` too. Gradients are a canvas-layer feature and add no node kind.
 
 ## 8. Arbitrary paths & custom shapes (phase 2)
 
@@ -410,8 +408,7 @@ natively per backend (CAShapeLayer / GtkSnapshot / QGraphics / android.graphics 
 **Recommendation: A now, B as a transparent optimization later.** Because the public API
 (`shape`/`ShapeKind`/`Paint`) is renderer-agnostic (D3), a future `ShapePiece::build` may lower to a
 native `SHAPE` leaf for shapes that need native fidelity (drop shadows, `Material`, smooth native
-morphs), chosen by capability or a `.native()` hint, with no change to user code. Ship A;
-keep B in the pocket.
+morphs), chosen by capability or a `.native()` hint, with no change to user code.
 
 ## 10. Phasing
 

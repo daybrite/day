@@ -1,6 +1,6 @@
 ---
 title: Styling
-description: "Fonts, colors, and appearance in a framework whose widgets are drawn by the platform — including what you can't restyle."
+description: "Fonts, colors, and appearance in a framework whose widgets are drawn by the platform, including what you can't restyle."
 order: 14
 section: Concepts
 ---
@@ -17,12 +17,12 @@ where you control every pixel.
 **You style content and space; the platform styles controls.** Fonts, text
 color, padding, backgrounds, corner radii, and everything you draw in a `canvas` are yours.
 Button chrome, focus rings, slider tracks, scrollbar appearance, selection highlights: those
-belong to the platform, and Day leaves them there rather than reimplementing them.
+belong to the platform, and Day leaves them to it.
 
 ## Text
 
-Fonts are semantic-first. Instead of hardcoding point sizes, pick a role and let each platform
-map it to its own text-style system:
+Fonts are chosen by role. Pick a role instead of a point size, and each platform maps it to its
+own text-style system:
 
 ```rust
 label(tr("title")).font(Font::Title)
@@ -33,8 +33,7 @@ label("legalese").italic()
 
 The semantic roles (`LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`,
 `Body`, `Callout`, `Footnote`, `Caption`, `Caption2`) resolve to the platform's typography
-scale, which is what
-keeps text looking correct next to native controls. `Font::System(18.0)` is the escape hatch when
+scale, so text matches the platform's native controls. `Font::System(18.0)` is the escape hatch when
 you need an exact size, and `Font::custom(res::fonts::family, 18.0)` renders a font you bundle
 in the project's `resource/fonts/` directory ([resources guide](/docs/resources)).
 
@@ -56,15 +55,15 @@ label(move || status.get().to_string())
     .background(move || if error.get() { RED_TINT } else { Color::CLEAR })
 ```
 
-There is no `theme::` token module, by design. Default appearance is native by construction:
-text, controls, separators, and window grounds take the platform's own dynamic colors inside
-each backend (`NSColor.labelColor`, Material surface attributes, QPalette roles), so dark/light
+There is no `theme::` token module, because the default appearance is already native: text,
+controls, separators, and window grounds take the platform's own dynamic colors inside each
+backend (`NSColor.labelColor`, Material surface attributes, QPalette roles), so dark/light
 tracking needs no app-side tokens. The semantic roles that must cross the spec do so as typed
 values: `SurfaceRole` for grouped-card surfaces, `Font` for typography. Colors *you* specify
-are deliberate: a hardcoded `Color::hex(0xFFFFFF)` background is white in both modes, so an app
-that wants dark-mode-aware custom colors carries its own palette and switches it itself. If you
-can avoid custom colors on large surfaces, do; the platform's defaults are already right. For
-screenshots and CI, `DAY_THEME=light|dark` forces the appearance on every backend.
+are applied as given: a hardcoded `Color::hex(0xFFFFFF)` background is white in both modes, so
+an app that wants dark-mode-aware custom colors carries its own palette and switches it itself.
+If you can avoid custom colors on large surfaces, do; the platform's defaults are already right.
+For screenshots and CI, `DAY_THEME=light|dark` forces the appearance on every backend.
 
 ## Reusable style: the Modifier trait
 
@@ -105,29 +104,27 @@ content.padding(pad)
 ```
 
 An earlier design sketched a `per_toolkit(12.0).uikit(16.0).qt(8.0)` value type for this; it
-never shipped, and `cfg!` branches are the settled idiom. The philosophy holds either way:
-where platforms diverge, Day gives you a targeted override rather than pretending the
-divergence away.
+never shipped, and `cfg!` branches are the settled idiom. Either way, where platforms diverge,
+Day gives you a targeted override.
 
 Piece-specific style hooks exist where a control has real variants (`button(...).style(...)`
 takes a `ButtonStyle`, `selector(...).style(SelectorStyle::Sidebar)` picks sidebar vs. tab
 presentation), and these map to native variants, not custom drawing.
 
-## What you can't restyle (on purpose)
+## What you can't restyle
 
 There is no portable API to recolor a slider track, restyle a scrollbar, or reshape a checkbox.
 If a property can't be honored by a toolkit, Day logs it once in debug rather than silently
-approximating it with custom drawing. That constraint is the flip side of every Day control
-behaving, and updating with the OS, exactly like a native one.
+approximating it with custom drawing. The same constraint lets every Day control behave, and
+update with the OS, exactly like a native one.
 
 When a *specific platform* offers the knob you want (an AppKit bezel style, XAML tick marks),
-[tweaks](/docs/tweaks) reach the real native widget and set it, per toolkit, without leaving the
-native-widget premise. And when you truly need fully custom visuals, that's what
-[`canvas`](/docs/internal/shapes) and [composite pieces](/docs/tutorial-composite-piece) are for:
-draw your own leaf, keep native behavior around it.
+[tweaks](/docs/tweaks) reach the real native widget and set it, per toolkit. When you need fully
+custom visuals, draw your own leaf with [`canvas`](/docs/internal/shapes) or a
+[composite piece](/docs/tutorial-composite-piece) and keep native behavior around it.
 
 If your product requires a heavily branded design system on every pixel (custom controls
-everywhere, identical on all platforms), a renderer-based framework will fight you less. Day is
+everywhere, identical on all platforms), a renderer-based framework is the better fit. Day is
 for apps that want to look like they belong on each platform. That choice is the subject of
 [Why Day](/docs/benefits).
 

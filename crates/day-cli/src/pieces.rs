@@ -276,6 +276,11 @@ fn cargo_metadata_inner(
     // `day` invoked from outside the project resolves the graph without the patch table — a crate
     // that exists only in the local checkout fails resolution, and every metadata consumer
     // (feature union, piece staging) silently degrades to "no contributions".
+    // The feature union must be resolved against the SAME day the build links. Resolving without
+    // the `--day-src` patch reports the piece features of whatever day the manifest names, and a
+    // piece whose renderer feature goes missing renders as a `⟨kind⟩` placeholder — the exact
+    // silent degradation the paragraph above describes, from a different cause.
+    crate::patch::apply_day_src(&mut cmd);
     cmd.current_dir(&project.root)
         .args(["metadata", "--format-version", "1"])
         .arg("--manifest-path")

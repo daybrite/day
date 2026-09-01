@@ -55,7 +55,7 @@ cx.leaf("day.button", &ButtonProps { title: "Save" })
   └─ mark ancestors needs_measure
 ```
 
-That index computation is the subtle part: Day's tree has structure (columns, padding wrappers)
+The index computation is subtle because Day's tree has structure (columns, padding wrappers)
 that the native view hierarchy doesn't, so native children of a container are the *flattened*
 in-order native descendants. Keeping those indices right during `each` reorders is one of the
 jobs the mock-toolkit golden tests pin down.
@@ -79,14 +79,14 @@ doesn't. Size-affecting patches queue incremental relayout
 ([how that works](/docs/layout#incremental-relayout)); everything else is done after one native
 call.
 
-## Events flow in through a trampoline
+## Event delivery
 
 Backends register native callbacks once per widget and translate them to a uniform
 `(NodeId, Event)` stream. On AppKit, for instance, a Rust-defined Objective-C class holds the
 node id and is set as the widget's target; its action method classifies the sender (switch →
-`ToggleChanged`, slider → `ValueChanged`, button → `Pressed`) and emits. The contract for every
-backend's sink is *enqueue only*: no user code runs inside the native callback, which keeps
-re-entrancy problems (a handler mutating the tree mid-native-dispatch) structurally impossible.
+`ToggleChanged`, slider → `ValueChanged`, button → `Pressed`) and emits. Every backend's sink
+only enqueues; user code runs after the native callback returns, which makes re-entrancy
+problems (a handler mutating the tree mid-native-dispatch) impossible.
 
 ```text
 user clicks NSButton
@@ -97,11 +97,11 @@ user clicks NSButton
       └─ count.update(|c| *c += 1)      … and we're in the reactivity story
 ```
 
-Two-way controls (text fields especially) are more careful than they look: the native widget is
-the source of truth while focused, writes are origin-tagged so a signal update echoing back
-doesn't clobber what the user is typing, and programmatic writes during IME composition are
-deferred until composition ends. This is the kind of edge you get to *not* think about because
-the framework's controlled-input path owns it.
+Two-way controls (text fields especially) take extra care: while the field is focused, the native
+widget holds the authoritative value, writes are origin-tagged so a signal update echoing back
+doesn't overwrite what the user is typing, and programmatic writes during IME composition are
+deferred until composition ends. The framework's controlled-input path handles all of this, so
+your code never sees it.
 
 ## The turn
 
@@ -117,9 +117,9 @@ native event(s)
        release queue drains               (widgets disposed this turn are freed)
 ```
 
-One turn, at most one layout pass, and native mutations grouped where the toolkit wants them.
-There is no per-frame tick: an idle Day app runs no code, which is the runtime-profile claim in
-concrete form.
+Each turn runs at most one layout pass and groups native mutations where the toolkit wants them.
+There is no per-frame tick, so an idle Day app runs no code, which is the runtime-profile claim
+in concrete form.
 
 ## Drawing: canvas as a display list
 
@@ -147,14 +147,15 @@ probe.clear_log();
 probe.emit(button_node, Event::Pressed);            // synthesize the click
 
 let muts = probe.mutations();
-assert_eq!(muts.len(), 1);                          // ONE native mutation for the click
+assert_eq!(muts.len(), 1);                          // one native mutation for the click
 assert!(muts[0].contains("update day.label"));
 assert!(probe.measure_calls() <= 6);                // relayout stayed on the label's path
 ```
 
-Those assertions are the interesting part: the framework's core promises (one click, one native
-mutation; bounded measure calls per layout pass) are written down as golden tests over the op
-log, so the fine-grained guarantee is checked in CI. Your own component tests run the same way: no simulator, no display server, milliseconds per test.
+Those assertions record the framework's core promises (one click, one native mutation; bounded
+measure calls per layout pass) as golden tests over the op log, so CI checks the fine-grained
+guarantee. Your own component tests run the same way, in an ordinary `cargo test` process that
+takes milliseconds per test.
 
 ## Teardown
 
@@ -162,7 +163,7 @@ When structure changes (`when` flips, an `each` row leaves), the subtree's scope
 (bindings and handlers die with it), and the nodes go onto a release queue drained at the turn
 boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like
 Qt's `deleteLater`). A signal write racing a disposed binding is a checked no-op. The ownership
-story is short enough to state completely: the scope owns the reactive machinery, the tree owns
+model is short enough to state completely: the scope owns the reactive machinery, the tree owns
 the handles, and both are torn down together, once, at a safe point.
 
 ---

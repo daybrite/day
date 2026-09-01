@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 import PlatformShots from '../../../components/PlatformShots.astro';
 
 `ios-uikit` renders real `UINavigationController` pushes, a real `UITabBarController`, and system
-text handling — driven from Rust through [`objc2`](https://docs.rs/objc2). The scaffold is a
+text handling, driven from Rust through [`objc2`](https://docs.rs/objc2). The scaffold is a
 checked-in Xcode project whose build phase calls back into `day`, so Xcode, `day launch` and CI all
 build the same way.
 
@@ -30,12 +30,12 @@ day launch -p ios-uikit          # boots a Simulator and installs
 ```
 
 `day doctor --toolkit uikit` verifies Xcode, the Simulator runtimes and the Rust iOS targets.
-Opening `platform/ios/Runner.xcodeproj` in Xcode works too — ⌘R builds the same Rust library
+Opening `platform/ios/Runner.xcodeproj` in Xcode works too; ⌘R builds the same Rust library
 through the project's build phase.
 
-`day build` also generates a local SwiftPM package at `build/day/ios/DayPieces` — the Swift shims
+`day build` also generates a local SwiftPM package at `build/day/ios/DayPieces` (the Swift shims
 pieces contribute, their SwiftPM dependencies, and the generated
-[SwiftUI embedding](/docs/internal/swiftui) glue — which the checked-in Xcode project links. A
+[SwiftUI embedding](/docs/internal/swiftui) glue), which the checked-in Xcode project links. A
 piece's `platform` metadata key raises the deployment floor: `day build` prints a `Raising`
 status and passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild. That setting does not reach
 ⌘R builds inside Xcode, so for IDE work raise the value in the pbxproj by hand.
@@ -55,14 +55,13 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
 - **Development is Simulator-first.** Device debugging works but gets far less use than the
   Simulator path.
 - **Declare permissions before you use them.** A gated API without its `NS*UsageDescription` key
-  terminates the app on first use. Day generates those keys from your `[permissions]` table —
-  `day lint` fails the build when one is missing, which is the difference between a CI failure and
-  a crash on a tester's phone.
+  terminates the app on first use. Day generates those keys from your `[permissions]` table, and
+  `day lint` fails the build when one is missing, so the mistake surfaces in CI.
 - **No combo box.** `day-piece-combobox` has no UIKit arm, because iOS has no native combo-box
   control; it renders as a placeholder. Use `picker().menu()`.
 - **No menu bar.** iOS has no persistent menu bar, so `set_app_menu` is a no-op;
   context menus work (`UIContextMenuInteraction`).
-- **Window screenshots** aren't implemented in-process — the walkthrough uses
+- **Window screenshots** aren't implemented in-process; the walkthrough uses
   `simctl io booted screenshot` instead.
 - **Dynamic Type is live**: labels set `adjustsFontForContentSizeCategory`, so text rescales with
   the user's system setting and your layout has to tolerate it.
@@ -106,7 +105,7 @@ The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is t
 | *external* `map()` | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
 | *external* `lottie()` | `LottieAnimationView` ([lottie-ios](https://github.com/airbnb/lottie-ios), via SwiftPM) |
 
-Day has no checkbox, radio, stepper or table piece — `toggle` is the only boolean control, radio
+Day has no checkbox, radio, stepper or table piece: `toggle` is the only boolean control, radio
 behavior is `picker().inline()`, and `list` is the only collection.
 
 **Text measurement** is UIKit's own `sizeThatFits:` on the realized view, so wrapping matches what

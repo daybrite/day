@@ -63,7 +63,7 @@ The contract points:
 | macOS / iOS | `~/Library/Application Support/day/day-fs/` (the iOS sandbox `HOME` makes this the app container) |
 | Linux | `$XDG_DATA_HOME/day/day-fs/` (else `~/.local/share/day/day-fs/`) |
 | Windows | `%APPDATA%\day\day-fs\` |
-| web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports). OPFS is the ONLY store: a context without it — a pre-OPFS browser, or a private-browsing/ephemeral session, which WebKit gives no storage backing — answers `Unsupported` (no `getDirectory` at all) or `Io` (present but broken), never a silent alternate store |
+| web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports). OPFS is the only store: a context without it (a pre-OPFS browser, or a private-browsing/ephemeral session, which WebKit gives no storage backing) answers `Unsupported` (no `getDirectory` at all) or `Io` (present but broken), never a silent alternate store |
 | anything else | `FsError::Unsupported` |
 
 `DAY_DATA_DIR` wins everywhere when set; the mobile hosts export it (DayActivity on Android,
@@ -76,12 +76,12 @@ into `Io`, except `NotFoundError` → `NotFound` and a context without OPFS → 
 
 ## What it shows about the extension system
 
-The third part to ride the day-dom shim (after prefs and http), and the second to complete back
-into wasm with the request-id pattern. Native needs no platform code at all: one `std::fs`
-backend over an env-resolved root covers six targets, with the mobile hosts contributing a
-single `DAY_DATA_DIR` line each.
+This is the third part to ride the day-dom shim (after prefs and http), and the second to
+complete back into wasm with the request-id pattern. Native needs no platform code at all: one
+`std::fs` backend over an env-resolved root covers six targets, with the mobile hosts
+contributing a single `DAY_DATA_DIR` line each.
 
-## v2 notes (deliberately out of scope)
+## v2 notes (out of scope)
 
 Streaming reads/writes (today a file is one buffer; see the memory-efficiency rule before
 storing anything huge), append, rename, recursive remove, file metadata (size/mtime), and

@@ -8,7 +8,7 @@ description: "The canvas piece records a display list each backend replays throu
 
 # Canvas
 
-The `canvas` piece records a display list — a `Vec<DrawOp>` — that each backend replays with its
+The `canvas` piece records a display list (a `Vec<DrawOp>`) that each backend replays with its
 own native 2-D API: CoreGraphics on Apple, cairo on GTK, `QPainter` on Qt, `android.graphics` on
 Android, `OH_Drawing` on HarmonyOS, XAML shapes on Windows, and Canvas2D on the web. The closure
 re-records on any tracked read and on `FrameChanged`, and replay is equality-gated, so a canvas
@@ -53,13 +53,13 @@ the opposite way. `FillRule::EvenOdd` makes any contour inside another a hole re
 winding, which is what PDF's `f*` and SVG's `fill-rule: evenodd` mean.
 
 `smooth_polyline(&points, tension)` fits a Catmull-Rom spline through points and emits it as
-cubics. It passes through every point, so it is a drawing of the data rather than a fit to it —
-though a spline still implies values BETWEEN the samples, which is why Day Tradr smooths its
+cubics. It passes through every point, so it is a drawing of the data rather than a fit to it.
+A spline still implies values between the samples, which is why Day Tradr smooths its
 sparklines and not the chart someone reads prices off.
 
 ### From SVG
 
-`build_path!` parses SVG path data at COMPILE time and emits the `PathBuilder` chain, so a path
+`build_path!` parses SVG path data at compile time and emits the `PathBuilder` chain, so a path
 costs the same at runtime as writing the chain by hand and there is no string left in the binary:
 
 ```rust
@@ -70,7 +70,7 @@ The whole SVG 1.1 grammar is accepted: relative commands, `H`/`V`, the smooth fo
 elliptical arcs, implicit command repetition, and SVG's number syntax (`1e2`, `.5.5`, `10-5`).
 Malformed data is a compile error naming the offending character. Arcs are converted to cubics by
 the macro, because an arc is the one SVG command with no counterpart in the 2-D APIs Day draws
-through — converting once at build time beats converting in nine backends at draw time.
+through; converting once at build time is cheaper than converting in nine backends at draw time.
 
 ## Strokes
 
@@ -88,9 +88,9 @@ style, so a line that wants round ends has to ask for it.
 
 ## Clipping
 
-`clip` INTERSECTS the current clip, and the only way to widen it again is `restore` — every
-native 2-D context works this way, so there is deliberately no "unclip". `clipped(shape, f)` wraps
-the save/clip/restore for you.
+`clip` intersects the current clip, and the only way to widen it again is `restore`. Every
+native 2-D context works this way, so there is no "unclip". `clipped(shape, f)` wraps the
+save/clip/restore for you.
 
 ## What each backend can and cannot do
 
@@ -98,8 +98,8 @@ Everything above works on every backend except where noted.
 
 | Backend | Limitation |
 | --- | --- |
-| **web-dom** | A GRADIENT STROKE paints the gradient across the path's interior rather than only the stroked band. Canvas2D has no "convert stroke to path", so there is no region to clip to. Reads correctly for thin lines; diverges as the width grows. |
-| **xaml** | CLIPPING IS RECTANGULAR. `UIElement.Clip` accepts only a `RectangleGeometry`, so a path, ellipse or polygon clip degrades to its bounding box — content is still confined, just less tightly. Escaping this means moving the canvas to `Windows.UI.Composition`, whose `CompositionGeometricClip` does take a path. |
+| **web-dom** | A gradient stroke paints the gradient across the path's interior rather than only the stroked band. Canvas2D has no "convert stroke to path", so there is no region to clip to. It looks correct for thin lines and diverges as the width grows. |
+| **xaml** | Clipping is rectangular: `UIElement.Clip` accepts only a `RectangleGeometry`, so a path, ellipse or polygon clip degrades to its bounding box, and content is still confined, just less tightly. Escaping this means moving the canvas to `Windows.UI.Composition`, whose `CompositionGeometricClip` does take a path. |
 | **appkit** | Quadratic segments are elevated to cubics, exactly (`NSBezierPath`'s own quadratic API is macOS 14+). No visual difference. |
 | **gtk**, **arkui** | Same quadratic elevation, for the same reason: cairo and `OH_Drawing` have cubics. |
 | **qt**, **android**, **xaml** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
@@ -115,7 +115,8 @@ content belongs in a `label` piece, which does.
 
 ## Interaction
 
-A canvas is a real native view, so it takes the ordinary gestures — and two of them report WHERE:
+A canvas is a real native view, so it takes the ordinary gestures, and two of them report where
+the press landed:
 
 ```rust
 canvas(draw)
@@ -124,15 +125,15 @@ canvas(draw)
     .frame(width, height)
 ```
 
-Both points are in the canvas's own coordinate space, origin at its top-leading corner, which is
-what lets a drawn control turn "the user pressed here" into a value — a color wheel, a map, a
-waveform scrubber. `on_tap` (no location) stays for the common case.
+Both points are in the canvas's own coordinate space, origin at its top-leading corner, which
+lets a drawn control (a color wheel, a map, a waveform scrubber) turn "the user pressed here"
+into a value. `on_tap` (no location) stays for the common case.
 
 Wire both when a press should count as a pick: a press that never moves is a tap on some backends
 and a zero-length drag on others, and since both handlers write the same value, a backend that
-reports both costs nothing. Put them on the canvas **before** any wrapping decorator — `.frame`
-and `.corner_radius` build layout nodes of their own, and a point in a wrapper's space is not a
-point in the canvas's.
+reports both costs nothing. Put them on the canvas **before** any wrapping decorator, because
+`.frame` and `.corner_radius` build layout nodes of their own, and a point in a wrapper's space
+is not a point in the canvas's.
 
 The reference use is `day-piece-colorpicker`'s composed panel
 ([docs/colorpicker.md](colorpicker.md)): its saturation/brightness field, hue strip and opacity
@@ -140,8 +141,8 @@ strip are three canvases that read their value straight out of the press locatio
 
 ### Zoom and pan
 
-Two continuous gestures serve a canvas that is a viewport onto something larger — a drawing, a
-map, a timeline:
+Two continuous gestures serve a canvas that is a viewport onto something larger (a drawing, a
+map, a timeline):
 
 ```rust
 canvas(draw)
@@ -149,17 +150,17 @@ canvas(draw)
     .on_pan(move |g| scroll_by(g.delta))
 ```
 
-`Pinch.scale` is CUMULATIVE — the total magnification since the gesture began, `1.0` meaning
-unchanged — so a handler applies it to the zoom it captured at `DragPhase::Began` rather than
-multiplying every event in. `Pan.delta` is INCREMENTAL — each event carries only the movement
-since the previous one, as a content displacement (pan by `+= delta` and content follows the
-fingers) — because desktop wheels produce lone `Changed` events with no began/ended bracket to
+`Pinch.scale` is cumulative (the total magnification since the gesture began, with `1.0` meaning
+unchanged), so a handler applies it to the zoom it captured at `DragPhase::Began` rather than
+multiplying every event in. `Pan.delta` is incremental (each event carries only the movement
+since the previous one, as a content displacement: pan by `+= delta` and content follows the
+fingers), because desktop wheels produce lone `Changed` events with no began/ended bracket to
 accumulate across. Both carry a `location` in canvas coordinates for anchoring the zoom under
 the fingers; a backend that cannot know it (GTK's scroll controller) reports `Point::ZERO`.
 
 Where they come from: trackpad magnify and two-finger scroll on macOS (a plain mouse wheel also
 pans), `GtkGestureZoom` and the scroll controller on GTK, native zoom gestures and wheel events
-on Qt, and pinch plus a two-finger pan recognizer on iOS — one-finger drags still go to
+on Qt, and pinch plus a two-finger pan recognizer on iOS; one-finger drags still go to
 `.on_drag`, so selection and panning coexist. The remaining backends do not deliver these
 events yet; apps that offer zoom controls in a toolbar or menu (as Day-Sketch does) lose no
 capability there, only the gesture shortcut.

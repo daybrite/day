@@ -16,8 +16,8 @@ route grammar, absolute/relative addressing, query params, and how a pending lin
 with `.restore` are specified in [docs/navigation.md](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
 and are not repeated here.
 
-Each section below is marked **Shipped** or **Planned**. Planned sections are design, not
-description; they change with review.
+Each section below is marked **Shipped** or **Planned**. Planned sections describe a design
+that may change with review.
 
 ## The URL model — Shipped
 
@@ -27,16 +27,16 @@ description; they change with review.
 
 The host + path after `://` is the day route string, verbatim. Query params ride through to
 `route_param(..)`/`route_params()`. `day new` derives `<scheme>` from the app name (letters
-and digits only, lowercased — `Field Notes` ⇒ `fieldnotes`) and writes it into every host
+and digits only, lowercased: `Field Notes` ⇒ `fieldnotes`) and writes it into every host
 project that registers schemes.
 
-URL parsers treat the first segment as a HOST and lowercase it on the component-based
+URL parsers treat the first segment as a host and lowercase it on the component-based
 intakes (NSURL, android.net.Uri), so a deep-linked surface's first-segment keys must be
-lowercase — which day's route-key convention already is. Later segments pass through
+lowercase, which day's route-key convention already requires. Later segments pass through
 case-preserved.
 
 Short schemes collide: nothing stops another app from claiming `fieldnotes://`, and the OS
-resolves the tie, not day (see the per-platform notes). Apps that care should set an explicit,
+resolves the tie (see the per-platform notes). Apps that care should set an explicit,
 longer scheme. *Planned:* a `scheme = "…"` key under `[app]` in Day.toml, conveyed to each
 host project the same way the id is; today the scheme is fixed at scaffold time.
 
@@ -44,9 +44,9 @@ host project the same way the id is; today the scheme is fixed at scaffold time.
 
 However a link arrives, the behavior inside the app is the same:
 
-- **Cold start** (the link launched the app): the route is recorded before the tree mounts —
-  `DAY_DEEPLINK` in the environment where launch environments exist, or
-  `day_core::set_launch_deeplink` from the platform entry where they don't — and navigates one
+- **Cold start** (the link launched the app): the route is recorded before the tree mounts
+  (`DAY_DEEPLINK` in the environment where launch environments exist, or
+  `day_core::set_launch_deeplink` from the platform entry where they don't) and navigates one
   turn after the first mount. It wins over `.restore`.
 - **Warm delivery** (the app was running): the platform layer emits `RouteRequested(route)`
   to the active nav host, which navigates immediately.
@@ -75,10 +75,9 @@ day-uikit takes them: cold from the connection options' `URLContexts` (and a qui
 `shortcutItem`), warm from `scene:openURLContexts:` (and
 `windowScene:performActionForShortcutItem:`), every arm one call into
 `day_core::request_route`. The app-delegate `application:openURL:options:` intake remains for
-the pre-scene path. One lesson is encoded in the code rather than repeated: `URLContexts` is
-declared non-null but a plain launch returns nil, so the cold arm reads it through a
-nullable send — the strict binding panicked on every ordinary launch until the dayscript
-walkthrough caught it. Concerns:
+the pre-scene path. `URLContexts` is declared non-null but a plain launch returns nil, so the
+cold arm reads it through a nullable send; the strict binding panicked on every ordinary
+launch until the dayscript walkthrough caught it. Concerns:
 
 1. **Scheme exclusivity does not exist.** If two installed apps claim one scheme, iOS picks
    one, silently. The fix at the platform level is Universal Links (below).
@@ -98,18 +97,18 @@ Concerns:
    of the user. Verified App Links (an `assetlinks.json` on the app's domain, same daysite
    hosting story as iOS) bypass it for `https` links.
 2. **Intent extras are not the URL.** Only the `data` URI is treated as a link; anything else
-   in the intent is ignored by design — see the security note above.
+   in the intent is ignored, per the delivery contract above.
 
 ### HarmonyOS — Shipped
 
 The module's `skills` declare a `uris` entry with the app scheme, and both temperatures are
 one call: the ArkTS host forwards a cold `want.uri` (in `onCreate`, before `start()`) and a
 warm `onNewWant` one to the shim's `deepLink(uri)`, which lands in `day_core::request_route`
-— buffered until the first mount, applied on the UI thread after it. A want with no URI
-carries `want.uri` as an EMPTY string, not undefined, so the ability also reads the
+(buffered until the first mount, applied on the UI thread after it). A want with no URI
+carries `want.uri` as an empty string rather than undefined, so the ability also reads the
 `parameters["day.uri"]` fallback a `[[shortcuts]]` want uses through `||`, never `??`. Verified on the Oniro
-emulator with `aa start -U "<scheme>://<route>"`, cold and warm. One concern: `aa start -U`
-is also the only local delivery tool — there is no system browser in the emulator image to
+emulator with `aa start -U "<scheme>://<route>"`, cold and warm. One concern is that `aa start
+-U` is also the only local delivery tool, since the emulator image has no system browser to
 exercise link-from-a-page flows.
 
 ### macOS — Planned, with one structural caveat
@@ -119,19 +118,19 @@ runtime needs the Apple Event handler (`kAEGetURL`) registered at startup, emitt
 cold/warm paths as iOS. Two macOS-specific concerns:
 
 1. **Launch Services registers bundles, not binaries.** macos-appkit always builds as the
-   Xcode `.app` now, so every `day launch` produces a bundle a scheme can reach — the caveat
-   is only for anyone running the raw executable out of `Contents/MacOS` by hand.
-2. **Stale copies shadow each other.** Launch Services indexes every copy of the bundle it
-   has seen — a Debug build in `build/day/`, a packed copy in `/Applications` — and picks one
+   Xcode `.app` now, so every `day launch` produces a bundle a scheme can reach; the caveat
+   applies only to anyone running the raw executable out of `Contents/MacOS` by hand.
+2. **Old copies shadow each other.** Launch Services indexes every copy of the bundle it
+   has seen (a Debug build in `build/day/`, a packed copy in `/Applications`) and picks one
    by its own rules. During development, `open <url>` may target a copy other than the one
-   just built. Worth a `day doctor` note when the handler lands.
+   just built. A `day doctor` note should cover this when the handler lands.
 
-### Windows — Planned, the largest lift
+### Windows — Planned, the most work
 
-Nothing ships. The pieces, in order of effort:
+Nothing ships yet. The pieces, in order of effort, are:
 
-1. **Packaged (MSIX):** a `uap:Protocol` extension in the generated manifest — small, and the
-   store-grade path.
+1. **Packaged (MSIX):** a `uap:Protocol` extension in the generated manifest, which is small
+   and the store-grade path.
 2. **Unpackaged (dev + NSIS):** protocol registration is an `HKCU` registry ProgId written at
    install or first run; `day launch` dev builds would self-register on start, which is a
    machine-state write day currently never does. This deserves an explicit opt-in.
@@ -139,7 +138,7 @@ Nothing ships. The pieces, in order of effort:
    another copy of the app. Packaged apps can use `AppInstance` redirection; unpackaged needs
    a named mutex + pipe in the C++/WinRT shim. This is the bulk of the work.
 
-### Linux — Planned, with one honest limit
+### Linux — Planned, with one limit
 
 Registration is two lines in the generated `.desktop` file (`MimeType=x-scheme-handler/<scheme>;`
 plus `DBusActivatable=true`), and both packers already generate that file. Delivery concerns:
@@ -178,14 +177,14 @@ label = "nav_menus"    # a Fluent message id from resource/locales/
 ```
 
 `day build` resolves each label in **every** locale (a missing translation, a multi-line
-message, or a placeable is a build error — the native launcher renders the conveyed string
-with no formatter behind it) and writes the platform's native declaration:
+message, or a placeable is a build error, because the native launcher renders the conveyed
+string with no formatter behind it) and writes the platform's native declaration:
 
 - **Android** — nothing is committed: `res/xml/day_shortcuts.xml` plus per-locale string
   resources are staged into `build/day/android/res` (already a scaffold res srcDir), and the
   `<meta-data android:name="android.app.shortcuts">` rides the day-pieces overlay manifest,
   merged into the launcher activity by name. The shortcut intent is VIEW + the URL, so
-  activation IS the shipped intent-filter intake. Verified on the emulator: the shortcut
+  activation goes through the shipped intent-filter intake. Verified on the emulator: the shortcut
   service parses both demo shortcuts with locale-resolved labels (`dumpsys shortcut`), and
   the declared intent cold-launches onto the right page.
 - **iOS** — `UIApplicationShortcutItems` is written into the committed `Info.plist` (the same
@@ -194,27 +193,27 @@ with no formatter behind it) and writes the platform's native declaration:
   into pre-existing scaffolds on first use) stages `<locale>.lproj/InfoPlist.strings` into
   the built bundle, keyed by that default text so an unlocalized device falls back to
   readable English. A quick action's type string is the URL itself; the scene delegate feeds
-  it — warm via `performActionForShortcutItem`, cold via the connection options — into
-  `day_core::request_route`. Conveyance is verified in the built bundle; the tap itself
-  cannot be automated on a simulator (no touch injection, and `simctl openurl` sits behind a
-  confirmation dialog), so OS-delivered activation rides on the same rail the walkthrough
-  and the other platforms prove.
+  it into `day_core::request_route`, warm via `performActionForShortcutItem` and cold via the
+  connection options. Conveyance is verified in the built bundle; the tap itself cannot be
+  automated on a simulator (no touch injection, and `simctl openurl` sits behind a
+  confirmation dialog), so OS-delivered activation relies on the same intake path the
+  walkthrough and the other platforms exercise.
 - **HarmonyOS** — a generated `$profile:shortcuts_config` plus an `ohos.ability.shortcuts`
   metadata entry on the ability, labels merged into each locale's `string.json`
   (`day_shortcut_` prefix is the ownership marker, `base/` carries the default locale). The
   want carries the URL in `parameters["day.uri"]`; EntryAbility forwards it through the same
   `deepLink` call a `uris` launch uses. Verified cold and warm on the Oniro emulator with
   the exact want the profile declares (`aa start … --ps day.uri <url>`); the emulator's
-  stock launcher renders no shortcut panel for ANY app, so the panel UI itself needs real
+  stock launcher renders no shortcut panel for any app, so the panel UI itself needs real
   hardware.
 - **macOS / Windows / Linux** — not yet: their surfaces (dock menu, jump list, `.desktop`
-  Actions) stay gated on the missing intake above. Declaring `[[shortcuts]]` today conveys
-  nothing there and breaks nothing.
+  Actions) stay gated on the missing intake above. Declaring `[[shortcuts]]` today is safe
+  there and has no effect.
 
-Limits worth knowing: launchers show at most about four entries (`day lint` warns past
-four); per-shortcut icons are not conveyed yet (the platforms render their default glyph);
-and on OpenHarmony `want.uri` arrives as an empty string on non-URI launches, which is why
-the ability checks `want.uri || parameters["day.uri"]`, not `??`.
+Launchers show at most about four entries (`day lint` warns past four), per-shortcut icons
+are not conveyed yet (the platforms render their default glyph), and on OpenHarmony
+`want.uri` arrives as an empty string on non-URI launches, which is why the ability checks
+`want.uri || parameters["day.uri"]` rather than `??`.
 
 ## Testing — Shipped pieces, plus a dayscript plan
 
@@ -222,21 +221,21 @@ What works today: the dayscript step below on every backend; `DAY_DEEPLINK=route
 launch …` for the cold env path; `xcrun simctl openurl booted <url>`,
 `adb shell am start -a android.intent.action.VIEW -d <url>`, and
 `hdc shell aa start -U <url>` for real OS delivery on the mobile targets; on web-dom the URL
-hash is the whole story and Playwright drives it. A HarmonyOS launcher-shortcut tap is
-simulated exactly by `aa start -b <bundle> -a EntryAbility --ps day.uri <url>` — the same
+hash is the entire intake and Playwright drives it. A HarmonyOS launcher-shortcut tap is
+simulated exactly by `aa start -b <bundle> -a EntryAbility --ps day.uri <url>`, the same
 want the generated profile declares. On an iOS 16/17 simulator `simctl openurl` sits behind
 an "Open in …?" confirmation SpringBoard shows headlessly, so automated openurl runs need a
 tap the simulator cannot inject; a device, or an XCUITest runner, gets past it.
 
 **`deep_link: { url: "scheme://route?x=1" }` — Shipped.** An in-process step: the URL maps to
 its route through the same `day_spec::route_of_url` every platform intake uses, then
-navigates — a warm delivery minus the OS. It proves the app's routing, param handling, and
-back-stack seeding identically on every backend including mock — cheap enough for every
-app's walkthrough — and deliberately does NOT prove OS registration. `day lint` validates
-the URL's route against the app's declared keys, the same check `navigate:` gets.
+navigates: a warm delivery without the OS. It proves the app's routing, param handling, and
+back-stack seeding identically on every backend including mock (cheap enough for every
+app's walkthrough), and it does not prove OS registration. `day lint` validates the URL's
+route against the app's declared keys, the same check `navigate:` gets.
 
-*Planned:* the second tier — the launch runner delivering the URL from outside (the commands
-above) with the script asserting via `assert_route`. That proves registration and intake,
+*Planned:* the second tier, in which the launch runner delivers the URL from outside (the
+commands above) and the script asserts via `assert_route`. That proves registration and intake,
 costs a per-platform runner arm, and belongs in the per-target CI jobs rather than every
 walkthrough. The split matters because tier-1 failures are app bugs and tier-2 failures are
 packaging bugs; a single step doing both would leave every failure ambiguous.

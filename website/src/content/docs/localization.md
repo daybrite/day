@@ -12,9 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day localizes with [Mozilla Fluent](https://projectfluent.org/), a message format built for the
 grammar problems that `printf`-style formats handle badly: plurals, gender, and languages that
-reorder everything. Localization is designed into Day's core rather than added on top: the
-locale is a reactive signal, every built-in string mechanism goes through it, and the test
-tooling understands it.
+reorder everything. Localization runs through Day's core: the locale is a reactive signal,
+every built-in string mechanism goes through it, and the test tooling understands it.
 
 ## Files and setup
 
@@ -88,8 +87,8 @@ set_locale("fr");          // every tr() binding re-runs; layout reflows for new
 let l = locale().get();    // read (reactively, if inside a binding)
 ```
 
-A locale switch is an ordinary reactive update: no restart, no tree rebuild. Longer German
-strings or shorter Chinese ones change measured text sizes, and
+A locale switch is an ordinary reactive update; the tree stays mounted and every `tr()` binding
+re-runs. Longer German strings or shorter Chinese ones change measured text sizes, and
 [incremental relayout](/docs/layout#incremental-relayout) handles the reflow. Layout *direction*
 is the exception: it's fixed at startup, so an LTR↔RTL switch fully applies on the next launch.
 
@@ -117,8 +116,8 @@ from a locale.
 - **What's covered:** your UI strings, and OS-facing metadata (the app's display name and
   similar) conveyed into platform manifests at build time.
 - **What isn't:** text inside out-of-process UI (native file dialogs, permission prompts) follows
-  the *system* locale, not your in-app override; every framework shares this limit, but you'll
-  notice it when testing with `--locale`.
+  the *system* locale, not your in-app override; every framework shares this limit, and it shows
+  up when you test with `--locale`.
 - **RTL:** layout mirroring is built into the layout engine (leading/trailing resolve at
   placement) and exercised: the showcase ships an Arabic locale, CI captures screenshots in en,
   fr, ar, and zh-CN, and a dedicated `rtl-check` dayscript verifies the mirroring. There's no

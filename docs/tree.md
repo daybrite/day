@@ -12,71 +12,71 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > [!IMPORTANT]
 > **Status: M0 + M1 + M2 + M3 + M5 shipped (2026-08), M4's ArkUI half shipped
-> (2026-08), M6 shipped.** The seam, driver, flattener, `tree()` piece, mock
-> probes, THREE native backends — AppKit `NSOutlineView`, GTK
+> (2026-08), M6 shipped.** `TreeSource`, the driver, the flattener, the `tree()` piece, mock
+> probes, three native backends (AppKit `NSOutlineView`, GTK
 > `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, and UIKit's list-layout
-> `UICollectionView` over one diffable SECTION snapshot — and the COMPOSED tree (M2, on
-> web-dom, the qt toolkit, Android and ArkUI) are implemented and proven by the mock e2e
-> suite and Day Sketch's layer panel: ONE `dayscript/tree.yaml` passes verbatim on
+> `UICollectionView` over one diffable section snapshot), and the composed tree (M2, on
+> web-dom, the qt toolkit, Android and ArkUI) are implemented and exercised by the mock e2e
+> suite and Day Sketch's layer panel: one `dayscript/tree.yaml` passes verbatim on
 > macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
 > (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
 > seven. The Showcase's `Section::Tree` demo + `day-tweak-tree-style` shipped as M5's
 > other half: its own `dayscript/tree.yaml` (53 steps) passes verbatim on the same seven
-> targets, with per-row context menus proven by real browser right-clicks on web-dom.
-> XAML's composed flip is CODE-COMPLETE but awaits CI (nothing on this development Mac
-> can compile or run it — see M4's as-built notes). M3's as-built notes:
+> targets, with per-row context menus checked by real browser right-clicks on web-dom.
+> XAML's composed flip is code-complete but awaits CI (nothing on this development Mac
+> can compile or run it; see M4's as-built notes). M3's as-built notes:
 >
 > - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
->   but not yet `Cap::TreeMove` — the dayscript `tree_move:` step drives the seam on every
->   target regardless, which is what the walkthrough parity proves. Their native drag halves
+>   but not yet `Cap::TreeMove`; the dayscript `tree_move:` step drives `TreeSource` on every
+>   target regardless, which is what the walkthrough parity covers. Their native drag halves
 >   are the next tree work.
-> - GTK rebuilds its `TreeListModel` per Reload (deferred to an idle — GTK binds
->   synchronously, the `schedule_list_resize` rule) and restores disclosure + selection
+> - GTK rebuilds its `TreeListModel` per Reload (deferred to an idle because GTK binds
+>   synchronously, per the `schedule_list_resize` rule) and restores disclosure + selection
 >   top-down from token records; rows report disclosure through `TreeListRow`'s `expanded`
 >   notify, and the factory's unbind hook is where `recycle` clears a hidden row's ids.
-> - UIKit owns disclosure END TO END: the outline-disclosure accessory carries a custom
->   action handler that only EMITS `TreeExpanded`, and the patch re-applies the section
->   snapshot — a native tap and the `expand:` step share one path by construction. Cells are
+> - UIKit owns disclosure end to end: the outline-disclosure accessory carries a custom
+>   action handler that only emits `TreeExpanded`, and the patch re-applies the section
+>   snapshot; a native tap and the `expand:` step share one path. Cells are
 >   `DayTreeListCell`s that pin their self-sizing height to the uniform row height and
 >   re-lay day content at the content view's own width per layout pass.
 > - The iOS walkthrough wraps its `insp-tab` asserts in `only_on: [uikit]` inspector-sheet
->   toggles: a FULLSCREEN modal removes the presenting view from the window, and a detached
->   `UICollectionView` never creates cells — so the tree sections run with the sheet closed.
+>   toggles: a full-screen modal removes the presenting view from the window, and a detached
+>   `UICollectionView` never creates cells, so the tree sections run with the sheet closed.
 >   Visibility toggles only; the undo history stays the same depth on every target.
 > - The tree grew **`.row_context_menu(|key| …)`** (2026-08): per-row summon-time context
->   menus, served natively on all three backends — see [docs/menus.md](menus.md) "Dynamic
+>   menus, served natively on all three backends; see [docs/menus.md](menus.md) "Dynamic
 >   context menus". Day Sketch's rows and its canvas share one selection menu through it.
-> - A composed LEADING inspector pane stays a side pane at EVERY width (no compact-sheet
->   re-homing): a layer panel beside a narrow canvas beats a modal that detaches the window
->   — see [docs/inspector.md](inspector.md). As-built deltas
+> - A composed leading inspector pane stays a side pane at every width, with no re-homing
+>   into a compact sheet: a layer panel beside a narrow canvas beats a modal that detaches the
+>   window; see [docs/inspector.md](inspector.md). As-built deltas
 > from the text below, applied where implementation decided differently:
 >
-> - The pane-edge enum shipped as **`PaneEdge`** (`Trailing`/`Leading`) on `InspectorProps` —
+> - The pane-edge enum shipped as **`PaneEdge`** (`Trailing`/`Leading`) on `InspectorProps`;
 >   day's `Edges` was already the gesture-defer bitset.
 > - Selection reports through a dedicated **`Event::TreeSelection(Vec<u64>)`** (full token
 >   set), not the list's index-addressed `SelectionSet`.
 > - `TreeSource` grew **`layout_cell(cell, width)`**: indentation makes every tree cell's
->   width per-row, so the cell's own native layout pass re-lays the Day row — a seam the
+>   width per-row, so the cell's own native layout pass re-lays the Day row, a hook the
 >   list never needed.
 > - The piece grew **`.expandable(|key| …)`** (the branch/leaf rule; default "has children
->   right now") and **`.row_id(|key| …)`** (per-row dayscript ids, re-applied on recycle —
->   what `expand:`/`tree_move:` resolve rows by). `.on_activate` and the four delegate hooks
->   (`row_height_for`/`can_expand`/`can_select`/`is_group_row`) are NOT yet built — they land
+>   right now") and **`.row_id(|key| …)`** (per-row dayscript ids, re-applied on recycle,
+>   which `expand:`/`tree_move:` resolve rows by). `.on_activate` and the four delegate hooks
+>   (`row_height_for`/`can_expand`/`can_select`/`is_group_row`) are not yet built; they land
 >   with the backends that consume them.
 > - The dayscript `type_ahead:` step is not yet built (AppKit's native type-select answers
 >   from `.type_ahead` regardless); `expand:` addresses rows by `.row_id` string, not token.
 > - The expansion echo rule sharpened: with an app-owned `.expanded` signal, the piece's
->   native-state record moves only when a PATCH applies — a native disclosure and the
+>   native-state record moves only when a patch applies; a native disclosure and the
 >   dayscript `expand:` event then share one path, and redundant patches no-op natively.
 > - `Subcontrol` + the accessors shipped for **AppKit only** so far (`with_native_subcontrol`,
 >   `.appkit_subcontrol`); `.row_tweak` and the other backends' accessors land with M2+.
-> - AppKit rows draw the modern ROUNDED selection through their own `NSTableRowView`
->   subclass rather than `NSTableViewStyle::Inset` — the style pads by making the table
->   wider than its clip, which fights day's fixed-frame layout. The outline itself is a
->   `DayOutlineView` that pins its width to the clip on EVERY layout pass (a table sizes
+> - AppKit rows draw the modern rounded selection through their own `NSTableRowView`
+>   subclass rather than `NSTableViewStyle::Inset`; the style pads by making the table
+>   wider than its clip, which does not fit day's fixed-frame layout. The outline itself is a
+>   `DayOutlineView` that pins its width to the clip on every layout pass (a table sizes
 >   itself from its columns and autoresizing only tracks deltas, so occasional deferred
 >   syncs left windows where a stale width drew a clipped pill). And tree cell anchors use
->   a CENTERING layout (`CellCenter`), not the list's `PassThrough`: row content hugs its
+>   a centering layout (`CellCenter`), not the list's `PassThrough`: row content hugs its
 >   own height, and pinning a 16pt row to the top of a 28pt cell read as misalignment.
 
 A tree is a list that nests: rows at several depths, disclosure controls that open and close
@@ -95,7 +95,7 @@ Day Sketch keeps its scene in one table of nodes, each with a `parent` and a fra
 tree, and the app wants it on the leading edge of the window:
 
 - every node listed, groups nesting their members, in the canvas's own back-to-front order;
-- selection synchronized both ways, because the canvas and the tree read one selection signal —
+- selection synchronized both ways, because the canvas and the tree read one selection signal:
   click a row, the shape's handles appear; shift-click two shapes, both rows highlight;
 - drag a row onto a group to reparent it, or between two rows to restack it, which is the same
   `parent` + `z` write the Arrange menu already makes, and one undo unit.
@@ -104,8 +104,8 @@ Nothing about that is specific to Day Sketch. It is what every tree does.
 
 ## What each toolkit brings
 
-The question that decides the design is not "does this platform have a tree widget" but "can
-its tree widget host a row that Day built". Day rows are real native subtrees bound into
+The question that decides the design is whether each platform's tree widget can host a row
+that Day built. Day rows are real native subtrees bound into
 recycled cells ([docs/list.md](list.md)), so a tree that paints its rows through a delegate is
 a worse fit than a flat list that hosts child views.
 
@@ -115,16 +115,16 @@ a worse fit than a flat list that hosts child views.
 | **UIKit** | `UICollectionView` list, `.sidebar` appearance | yes — `UICollectionViewListCell` hosts a content view | **native**, but a different widget from Day's `UITableView` list: new realize, new data source |
 | **GTK 4** | `GtkListView` + `GtkTreeListModel` + `GtkTreeExpander` | yes — the list-item factory binds arbitrary widgets | **native**; `GtkTreeView` is deprecated at the 4.10 API level Day targets, so the model-based path is also the current one |
 | **XAML (WinUI)** | `TreeView` / `TreeViewNode` | yes — items are content controls | **native**; a better fit than `ListView` was, since content hosting is the thing WinUI's tree does well |
-| **Qt** | `QTreeView` | awkwardly — rows are painted by delegates; arbitrary widgets need `setIndexWidget` per row, which defeats virtualization | **emulated** to start, but see the [note on Qt](#the-note-on-qt) — Day's Qt list already declines to virtualize |
-| **Android** | none | — | **emulated**; Material has no tree, and the platform idiom IS a flat `RecyclerView` with indentation and a chevron |
+| **Qt** | `QTreeView` | awkwardly; rows are painted by delegates, and arbitrary widgets need `setIndexWidget` per row, which defeats virtualization | **emulated** to start, but see the [note on Qt](#the-note-on-qt); Day's Qt list already declines to virtualize |
+| **Android** | none | — | **emulated**; Material has no tree, and the platform idiom is a flat `RecyclerView` with indentation and a chevron |
 | **ArkUI** | `TreeView` + `TreeController` (`@ohos.arkui.advanced`, API 10+) | yes — `NodeParam.container` is a builder slot, which can hold a `ContentSlot` Day mounts a row into | **native**, through Day's existing ArkTS bridge; see [below](#arkui-reaching-an-arkts-component-from-the-c-node-api) |
 | **web-dom** | none | — | **emulated**; the browser has no tree element, only `role="tree"` and the ARIA pattern |
 | **mock** | simulated | yes | drives the tests, as it does for `list` |
 
 Five toolkits carry a real tree that will host Day's rows. Two have no tree at all, and one
-has a tree its cell model fights. That split decides the architecture. The seam is
-hierarchical, so the native trees drive it directly, and ONE flattener in `day-core` turns the
-same seam into indented rows for the rest — not three hand-rolled imitations.
+has a tree whose cell model does not host arbitrary widgets. That split decides the
+architecture. `TreeSource` is hierarchical, so the native trees drive it directly, and one
+flattener in `day-core` turns the same source into indented rows for the rest.
 
 An "emulated" verdict here means the tree *semantics* are Day's; it does not mean no native
 widget. Qt's emulated tree still scrolls a real Qt container of real Qt row widgets, Android's
@@ -134,23 +134,23 @@ real to tweak.
 
 ### What the native trees give away for free
 
-Worth naming, because the emulation has to earn each one back:
+The emulation has to provide each of these itself:
 
 - **Expand and collapse**, animated, with the platform's own disclosure glyph and indent step.
 - **Keyboard**: left/right to close and open a row, arrows through the visible rows, type-select.
 - **Accessibility**: `NSOutlineView` reports rows with a disclosure level to VoiceOver; WinUI's
   `TreeView` reports expand state to Narrator. A flat list of indented rows announces as a flat
-  list of rows unless Day says otherwise — see [Accessibility](#accessibility).
+  list of rows unless Day says otherwise; see [Accessibility](#accessibility).
 - **Drop targeting**: `NSOutlineView` hands the app `(parent item, child index)` and a sentinel
   for "onto this row", which is exactly the vocabulary a reparent needs. GTK and the emulation
   compute that themselves from the pointer's position in the row.
-- **Spring-loading**: hovering a collapsed group during a drag opens it. Native on AppKit;
-  a timer everywhere else, and a v2 item.
+- **Spring-loading**: hovering a collapsed group during a drag opens it. It is native on
+  AppKit, a timer everywhere else, and a v2 item.
 
 ### ArkUI: reaching an ArkTS component from the C node API
 
 Day's ArkUI backend speaks the **C node API** (`ARKUI_NODE_*`), whose list vocabulary has no
-tree in it — which is what made this look like a gap at first. `TreeView` lives one layer up,
+tree in it, so this looked like a gap at first. `TreeView` lives one layer up,
 in the ArkTS advanced component set, and Day already crosses that layer twice: the app's
 `@Entry` page mounts Day's native tree through a `NodeContent`/`ContentSlot`, gives every
 pushed navigation page its own per-page `NodeContent`, and answers up-calls from Rust for
@@ -159,63 +159,65 @@ back).
 
 A tree uses the same two mechanisms:
 
-- **Structure** comes from `TreeController` — `addNode(NodeParam { parentNodeId, currentNodeId,
-  isFolder, … })` per node, then `buildDone()` — driven from Rust over the existing bridge.
+- **Structure** comes from `TreeController` (`addNode(NodeParam { parentNodeId, currentNodeId,
+  isFolder, … })` per node, then `buildDone()`), driven from Rust over the existing bridge.
 - **Row content** comes from `NodeParam.container`, a builder slot ("set subcomponent binded on
   tree item"). It holds a `ContentSlot` bound to a per-node `NodeContent`, keyed by node id
   exactly as `navContents` keys pages today, and Day mounts the row's C-API subtree into it.
 - **Events** arrive through `TreeListener`: `NODE_CLICK` for selection and `NODE_MOVE` with
-  `CallbackParam { currentNodeId, parentNodeId, childIndex }` — which is precisely the
-  `(node, parent, index)` commit this design's seam is shaped around.
+  `CallbackParam { currentNodeId, parentNodeId, childIndex }`, which is the
+  `(node, parent, index)` commit `TreeMoves` is shaped around.
 
-Two honest costs. `TreeController` builds nodes imperatively with no cell reuse, so ArkUI's
+There are two costs. `TreeController` builds nodes imperatively with no cell reuse, so ArkUI's
 tree does not recycle and `Cap::ListRecycling` should say so; a layer panel is fine, a
 hundred-thousand-row tree is not. And the listener fires *after* a move, so `move_guard`
-cannot run live there — the same drop-time verdict Day's ArkUI list reorder already documents.
-The component also ships its own add/delete/rename affordances (`NODE_ADD`, `NODE_DELETE`,
-`NODE_MODIFY`, `editIcon`), which Day either suppresses or maps deliberately.
+cannot run live there; that is the same drop-time verdict Day's ArkUI list reorder already
+documents. The component also ships its own add/delete/rename affordances (`NODE_ADD`,
+`NODE_DELETE`, `NODE_MODIFY`, `editIcon`), which Day either suppresses or maps onto its own
+options.
 
 ### The note on Qt
 
 `QTreeView` renders through delegates, so hosting a Day-built row means `setIndexWidget` per
 row, which Qt documents as inappropriate for large models because it defeats virtualization.
-That reads like a disqualification until you notice that **Day's Qt list already declines to
-virtualize** — it builds a real widget per row into an emulated scroller. On that basis a
-`QTreeView` with per-row index widgets costs what Qt's list costs today and buys native
-expansion, indentation, keyboard handling and `QAccessible::Tree`. It is worth a spike before
-the emulated path is written off as Qt's permanent answer; the seam does not change either way.
+That would disqualify it, except that **Day's Qt list already declines to virtualize**: it
+builds a real widget per row into an emulated scroller. On that basis a `QTreeView` with
+per-row index widgets costs what Qt's list costs today and buys native expansion, indentation,
+keyboard handling and `QAccessible::Tree`. A spike is due before the emulated path is fixed as
+Qt's permanent answer; `TreeSource` does not change either way.
 
-## Core built-in, not a satellite piece
+## Why the tree is a core built-in
 
 Day has two places a piece can live: `crates/day-pieces` with a `kinds::…` of its own, or a
 satellite crate that registers per-backend renderers through `renderer!`
-([docs/extending.md](extending.md)). Satellites are the default answer — the stepper, the color
-picker and the web view are all satellites — so the burden is on the tree to justify core.
+([docs/extending.md](extending.md)). Satellites are the default answer (the stepper, the color
+picker and the web view are all satellites), so the tree has to justify living in core.
 
 It clears it on four counts, three of which a satellite cannot reach at all:
 
 | Needs | Reachable from a satellite? |
 |---|---|
-| A pull seam the backend calls synchronously (`children_len`, `child_token`, `bind_row`) | **yes, awkwardly** — the props struct can carry `Rc<dyn Fn…>` closures, so a satellite could ship its own seam without a `Toolkit` duty |
-| Binding a Day row into a native cell (cell-anchor adoption, `BuiltRow`, scope ownership) | **no** — `Tree::install_list` and the cell machinery are day-core's; `install_tree` has to sit beside it |
-| `Cap::Tree` / `Cap::TreeMove`, `Role::Tree` / `Role::TreeItem` | **no** — both enums live in day-spec, and a satellite cannot add variants |
-| dayscript `expand:` / `tree_move:` steps | **no** — `Step` lives in day-script, and the walkthrough has to drive expansion and moves on every target |
+| A pull source the backend calls synchronously (`children_len`, `child_token`, `bind_row`) | **yes, awkwardly**; the props struct can carry `Rc<dyn Fn…>` closures, so a satellite could ship its own source struct without a `Toolkit` duty |
+| Binding a Day row into a native cell (cell-anchor adoption, `BuiltRow`, scope ownership) | **no**; `Tree::install_list` and the cell machinery are day-core's, and `install_tree` has to sit beside it |
+| `Cap::Tree` / `Cap::TreeMove`, `Role::Tree` / `Role::TreeItem` | **no**; both enums live in day-spec, and a satellite cannot add variants |
+| dayscript `expand:` / `tree_move:` steps | **no**; `Step` lives in day-script, and the walkthrough has to drive expansion and moves on every target |
 
-The seam alone would not settle it. The cell machinery, the capability and a11y vocabulary, and
-the test steps do: three of the four are spec-and-core edits whatever crate the piece nominally
-lives in, and a satellite that needs three core edits to work is a core piece wearing a costume.
+The source alone would not settle it. The cell machinery, the capability and a11y vocabulary,
+and the test steps do: three of the four are spec-and-core edits whatever crate the piece
+nominally lives in, and a satellite that needs three core edits to work is a core piece in all
+but name.
 
 `kinds::TREE` therefore joins `builtin_kinds!` beside `kinds::LIST`, and the piece ships in
-`day-pieces` — with the same consequence every new builtin kind has: the backends whose realize
-matches are exhaustive stop compiling until each names the kind, which is the checklist, not a
-surprise.
+`day-pieces`, with the same consequence every new builtin kind has: the backends whose realize
+matches are exhaustive stop compiling until each names the kind. That compile error is the
+checklist.
 
 ## Authoring
 
 The row builder is `list`'s: an `ItemSlot`/`ModelSlot` bound once per physical cell and rebound
 as cells recycle, so a ten-thousand-node tree builds only what it shows. What changes is the
 source, which is hierarchical, and the identity, which is a **token**, not a row index. A tree
-cannot key rows by position — expanding one row renumbers everything below it — and every
+cannot key rows by position, because expanding one row renumbers everything below it, and every
 native API here agrees: `NSOutlineView` keys by item, diffable snapshots by identifier,
 `GtkTreeListRow` by item, `TreeViewNode` by content, `TreeController` by node id.
 
@@ -258,8 +260,8 @@ step with the tree for free. `expanded` works the same way: the user's disclosur
 
 ### A store-backed tree
 
-A day-model store passes through a tracked *children projection* — the tree counterpart of
-`store.rows(projection)` — mapping a parent key (`None` = root) to its ordered child keys:
+A day-model store passes through a tracked *children projection* (the tree counterpart of
+`store.rows(projection)`) mapping a parent key (`None` = root) to its ordered child keys:
 
 ```rust
 // Day Sketch: the scene store IS the tree. children_of already exists for the canvas.
@@ -288,7 +290,7 @@ tree(model::nodes().tree(model::children_of), |slot: ModelSlot<Node>| {
 showing it, a change the projection reads re-runs only the projection, and a recycled cell
 leaves no observation claims behind.
 
-### Maintenance: the flows an app actually runs
+### Maintenance: the flows an app runs
 
 **Edits reload; expansion and selection survive.** A store write (or a change the `branches`
 items closure reads) refreshes the snapshot and applies `TreePatch::Reload`; the expansion set
@@ -303,7 +305,7 @@ model::selection().set(vec![id]);      // …and the new row is selected via the
 reveal.set(Some(id));                  // …and scrolled into view, ancestors expanded:
 ```
 
-**Reveal.** `.reveal(Signal<Option<K>>)` is `list`'s `scroll_to_row` grown up for a tree:
+**Reveal.** `.reveal(Signal<Option<K>>)` is the tree form of `list`'s `scroll_to_row`:
 setting it expands every ancestor of the token (through the same expansion signal, so the app
 sees the change), then scrolls the row into view. "Find in canvas → show in layers" is one
 signal write.
@@ -329,10 +331,10 @@ menu_item(tr("move_to_group")).action(move || {
 });
 ```
 
-## The seam: `TreeSource`
+## `TreeSource`: how the backend pulls the hierarchy
 
 Recycling trees pull, exactly as recycling lists do, so the tree extends the same synchronous
-seam `list` added ([docs/list.md](list.md)) rather than inventing a second one:
+source `list` established with `ListSource` ([docs/list.md](list.md)):
 
 ```rust
 pub struct TreeSource {
@@ -361,7 +363,7 @@ pub struct TreeMoves {
 }
 ```
 
-`index: Option<usize>` is the whole drop vocabulary: `Some(i)` drops between rows, `None`
+`index: Option<usize>` expresses every drop: `Some(i)` drops between rows, `None`
 drops onto the parent. It maps to `NSOutlineViewDropOnItemIndex` without translation, to a
 diffable snapshot's `append(to:)`, to `GtkTreeListRow`'s child model, to a `TreeViewNode`'s
 `Children.Insert`, and to `TreeController`'s move callback.
@@ -381,7 +383,7 @@ and wrap each row in an indent plus a disclosure control built from ordinary Day
 
 That is one implementation of expansion, indentation, keyboard handling and drop targeting,
 shared by Qt, Android and web-dom, exercised by the mock backend's tests. A bug fixed in the
-flattener is fixed on three platforms — and the flattener is written kind-agnostic
+flattener is fixed on three platforms. The flattener is written kind-agnostic
 (rows-with-depth over any token tree), because it is the seed of the shared composed tier
 described in [Stepping back](#stepping-back-what-the-tree-stresses-in-days-architecture).
 
@@ -401,8 +403,8 @@ So Day writes the keyboard once, in `day-core`, and each backend opts out of the
 widget already does. The emulated handler is a focus-scoped key reader on the tree node:
 
 - **Up/Down** move the cursor within the flattened visible rows; **Shift** extends the selection.
-- **Left** collapses an open row, or moves to the parent when the row is already closed —
-  the behavior every tree has, and the one people reach for to climb out of a group.
+- **Left** collapses an open row, or moves to the parent when the row is already closed,
+  the behavior every tree has for climbing out of a group.
 - **Right** opens a closed row, or moves to its first child.
 - **Home/End** jump to the first and last visible row; **Page** keys move by the viewport.
 - **Enter** activates (`on_activate`), **Space** toggles selection under `multi_select`.
@@ -412,32 +414,31 @@ widget already does. The emulated handler is a focus-scoped key reader on the tr
 first label. AppKit and XAML answer their own type-select callbacks from that closure;
 everywhere else `day-core` keeps a small buffer that appends printable keys, resets after
 ~800 ms of silence, and selects the first visible row whose text starts with it, wrapping from
-the cursor. One source of truth, two implementations of the mechanics.
+the cursor. One closure supplies the text; two implementations handle the mechanics.
 
 ## Customization: three layers, and what each one owns
 
-Tree views are the most configurable control on every desktop toolkit, and no portable API is
-going to span `NSOutlineView`'s style, row-size, group-row, autosave and disclosure options
-*plus* GTK's factories *plus* WinUI's node templates. Trying produces the worst of both: an API
-too wide to implement everywhere and still too narrow for anyone who cares. So the tree splits
-its surface deliberately.
+Tree views are among the most configurable controls on every desktop toolkit, and no portable
+API is going to span `NSOutlineView`'s style, row-size, group-row, autosave and disclosure
+options *plus* GTK's factories *plus* WinUI's node templates. Trying produces the worst of
+both: an API too wide to implement everywhere and still too narrow for anyone who cares. So the
+tree splits its surface into three layers.
 
 | Layer | What belongs there | Reaches |
 |---|---|---|
-| **Portable API** | what every tree has and an app would otherwise fake: expansion, selection, moves, indent, row height, keyboard, type-ahead | all nine targets |
+| **Portable API** | what every tree has and an app would otherwise build by hand: expansion, selection, moves, indent, row height, keyboard, type-ahead | all nine targets |
 | **Hooks** | the per-row *decisions* native trees express as delegate callbacks: may this row expand, may it be selected, how tall is it, is it a group row | all nine, mapped to each toolkit's callback or run by the emulation |
 | **Tweaks** | everything else — the platform's own vocabulary, on the real widget | one toolkit at a time, no-op elsewhere |
 
-The dividing rule: **if a knob changes what the tree MEANS, it is portable; if it changes how
-one platform DRAWS it, it is a tweak.** Row height changes meaning (rows overlap or clip if a
+The dividing rule: **if a knob changes what the tree means, it is portable; if it changes how
+one platform draws it, it is a tweak.** Row height changes meaning (rows overlap or clip if a
 backend ignores it), so it is portable. `NSTableViewStyle::SourceList` changes appearance, so
-it is a tweak, and an app that wants it on Windows asks WinUI for its own equivalent rather
-than Day inventing a lowest common denominator of both.
+it is a tweak, and an app that wants it on Windows asks WinUI for its own equivalent.
 
 ### Why hooks exist as their own layer
 
 A tweak reaches the widget. It cannot reach the widget's *delegate*, because Day owns that
-object — day-appkit's sidebar already installs a `DayNavMenuData` as both
+object: day-appkit's sidebar already installs a `DayNavMenuData` as both
 `NSOutlineViewDataSource` and `NSOutlineViewDelegate`, and an app that assigned its own would
 tear the tree's data out from under Day. Yet the delegate is exactly where AppKit puts
 `outlineView(_:heightOfRowByItem:)`, `shouldExpandItem:`, `shouldSelectItem:` and
@@ -455,20 +456,20 @@ tree(source, row)
 
 AppKit answers its delegate methods from these; GTK sets the row widget's height request and
 `sensitive`; UIKit's list configuration reads them per item; WinUI applies them to the node's
-container; and the emulation consults them in the flattener. One vocabulary, five native
-implementations, one fallback — and an app that sets none of them gets a plain tree.
+container; and the emulation consults them in the flattener. That is one vocabulary with five
+native implementations and one fallback; an app that sets none of them gets a plain tree.
 
 ### What the tweak system reaches today, and what it does not
 
 [Tweaks](tweaks.md) hand a closure the node's native handle plus its concrete class, per
 toolkit, typed on AppKit/UIKit/GTK/Android and raw on Qt/XAML/ArkUI. For a tree that covers
-most of the interesting surface immediately, because most of `NSOutlineView`'s fiddliness is
-*properties*. Four things it does not cover, all of which the tree makes acute:
+most of the interesting surface immediately, because most of `NSOutlineView`'s configuration
+is *properties*. It does not cover four things, all of which the tree makes acute:
 
 1. **A composite backing exposes only its outer handle.** Day's sidebar realizes an
    `NSOutlineView` inside an `NSScrollView` and returns the scroll view as the node's handle,
    so `with_native` hands a tweak the scroller, and reaching the tree means guessing
-   `documentView()`. The tweaks doc's own rule — match the class, do not assume it — cannot be
+   `documentView()`. The tweaks doc's own rule (match the class, do not assume it) cannot be
    followed when the class you want is not the one you are given. This is not new to the tree:
    `list` and `text_area` are composite on the same backends today.
 2. **No handle for a row.** Rows are native cells the backend creates (`NSTableRowView`,
@@ -483,11 +484,10 @@ most of the interesting surface immediately, because most of `NSOutlineView`'s f
 ### The three additions this plan makes
 
 **Native subcontrols** (`day-spec`, each backend's `ext`). A *subcontrol* is one addressable
-widget within a composite backing — Qt's own name for exactly this concept
-(`QStyle::SubControl`), and chosen here because the natural word, "part", already means a
-headless platform-service package in Day (`parts/day-part-*`, DESIGN.md §15) and must not be
-overloaded. A kind whose backing is composite reports its subcontrols, and the accessors take
-one:
+widget within a composite backing. The word is Qt's own name for this concept
+(`QStyle::SubControl`), chosen here because the natural word, "part", already means a
+headless platform-service package in Day (`parts/day-part-*`, DESIGN.md §15). A kind whose
+backing is composite reports its subcontrols, and the accessors take one:
 
 ```rust
 day_appkit::with_native_subcontrol(node, Subcontrol::Content, |view, class, mtm| …)
@@ -497,14 +497,13 @@ button("x").appkit_subcontrol(Subcontrol::Content, |…| …)    // the Decorate
 `Subcontrol::Host` is today's behavior and stays the default; `Subcontrol::Content` is the
 widget inside the scroller; `Subcontrol::Header` is the header view where one exists. Each kind
 documents its subcontrols per toolkit in the same table that documents its native class, so the
-mapping is *reported* rather than guessed — the property that makes Day's tweaks stronger than
-introspection libraries in the first place. This lands with the tree and retrofits `list` and
+mapping is *reported* rather than guessed. This lands with the tree and retrofits `list` and
 `text_area` in the same change.
 
 **Row tweaks** (`day-pieces`, `day-core`). The tree and the list gain
-`.row_tweak(|native_row, class, RowInfo|)`, invoked when a cell is bound — after the row's
+`.row_tweak(|native_row, class, RowInfo|)`, invoked when a cell is bound: after the row's
 content exists, with the cell's own handle and the row's token, depth, expansion and selection
-state. It runs on every bind, which is what makes it correct for recycled cells.
+state. It runs on every bind, so it stays correct for recycled cells.
 
 **web-dom joins the tweak system.** The tweaks table stops at seven toolkits; the browser is
 missing. The emulated tree makes that a real gap, and CSS is the web's native customization
@@ -519,10 +518,10 @@ day_dom::with_element(node, Subcontrol::Host, |el| {
 
 ### Deep customization per toolkit
 
-What follows is the litmus test for the whole design: for each toolkit, the fiddly
-platform-specific configuration its tree users actually reach for, written against this plan's
-API. Every snippet compiles only under its own backend's feature and is a silent no-op
-everywhere else; delete all of them and the tree still works on all nine targets, just plainer.
+What follows tests the design: for each toolkit, the platform-specific configuration its
+tree users reach for, written against this plan's API. Every snippet compiles only under its
+own backend's feature and is a silent no-op everywhere else; delete all of them and the tree
+still works on all nine targets, only plainer.
 
 #### AppKit — `NSOutlineView` in an `NSScrollView`
 
@@ -578,8 +577,8 @@ tree(layers, row)
 Subcontrols: `Host` = the `UICollectionView` itself (it is its own scroller). Rows are
 `UICollectionViewListCell`. One UIKit-specific rule: the *list configuration* (sidebar
 appearance, separators, swipe providers) is consumed when the layout is created, so those
-choices are build-time — they ride `TreeProps` hints and the packaged style tweak below, not a
-post-mount poke. Post-mount tweaks get everything that is a live property:
+choices are build-time and ride `TreeProps` hints and the packaged style tweak below.
+Post-mount tweaks get everything that is a live property:
 
 ```rust
 use day_uikit::{Subcontrol, UikitExt};
@@ -615,8 +614,8 @@ tree(src, row)
 #### GTK — `GtkListView` + `GtkTreeListModel` in a `GtkScrolledWindow`
 
 Subcontrols: `Host` = `GtkScrolledWindow`, `Content` = `GtkListView`. The row handle
-`.row_tweak` receives is the `GtkTreeExpander` the factory wrapped the Day content in — which
-is exactly the widget GTK's own tree knobs live on.
+`.row_tweak` receives is the `GtkTreeExpander` the factory wrapped the Day content in, which
+is the widget GTK's own tree options live on.
 
 ```rust
 use day_gtk::{GtkExt, Subcontrol};
@@ -648,8 +647,8 @@ tree(src, row)
 
 #### XAML (WinUI) — `TreeView` / `TreeViewNode`
 
-Raw tier, as all XAML tweaks are: the accessor hands the borrowed ABI pointer and the class,
-and the app's own C++/WinRT does the work (compiled by the crate's `build.rs`, exactly as
+XAML tweaks are all raw tier: the accessor hands the borrowed ABI pointer and the class,
+and the app's own C++/WinRT does the work (compiled by the crate's `build.rs`, as
 `day-tweak-slider-tickmarks` does). Subcontrols: `Host` = the `TreeView`. Rows are
 `TreeViewItem`s.
 
@@ -689,15 +688,15 @@ extern "C" void layers_row_style(void* abi, const char* cls, int is_group) {
 }
 ```
 
-WinUI's deeper theming — `TreeViewItemBackgroundSelected` and the other lightweight-styling
-resource keys — stays available through the app's own resource dictionary, outside Day
-entirely, which is the correct place for it.
+WinUI's deeper theming (`TreeViewItemBackgroundSelected` and the other lightweight-styling
+resource keys) stays available through the app's own resource dictionary, outside Day
+entirely.
 
 #### ArkUI — the ArkTS `TreeView`
 
-The component's public surface is deliberately small — `TreeView { treeController }` plus
-`NodeParam` per node — so "deep customization" on HarmonyOS is mostly *per-node*, and it
-crosses the bridge rather than a widget pointer. The arkui extension exposes exactly that:
+The component's public surface is small (`TreeView { treeController }` plus `NodeParam` per
+node), so deep customization on HarmonyOS is mostly *per-node*, and it crosses the bridge
+rather than a widget pointer. The arkui extension exposes that:
 
 ```rust
 // The NodeParam fields Day does not consume itself, per token, re-sent on reload:
@@ -710,20 +709,20 @@ day_arkui::tree_ext::node_params(node, |token| NodeParamExtras {
 ```
 
 `.arkui_raw` still works, but it reaches the row's *mounted Day subtree* (the `ContentSlot`
-host), not the ArkTS component — the component has no C-node handle to hand out. An app that
+host), not the ArkTS component; the component has no C-node handle to hand out. An app that
 needs more than `NodeParam` offers replaces the ArkTS component wholesale through the piece
-extension mechanism (`[package.metadata.day.ohos]`, [docs/extending.md](extending.md)), which
-is the platform's own escape hatch, not a Day invention.
+extension mechanism (`[package.metadata.day.ohos]`, [docs/extending.md](extending.md)), the
+platform's own extension point.
 
 #### The emulated targets: Qt, Android, web-dom
 
-The tree logic is Day's here, and that inverts the customization story in the app's favor: the
+The tree logic is Day's here, which moves customization into the app's own code: the
 disclosure, the indent and the row chrome are ordinary Day pieces, so the *row builder and the
-piece's own options* are the deep-customization surface — no FFI required for anything the
-emulation draws. What remains native is the host, and the host is still tweakable:
+piece's own options* are the deep-customization surface, and nothing the emulation draws needs
+FFI. What remains native is the host, and the host is still tweakable:
 
 **Qt.** Rows are real `QWidget`s Day built; the host is the emulated scroller. Host-level
-polish goes through `qt_raw`; row-level polish is just Rust in the row builder, with
+polish goes through `qt_raw`; row-level polish is plain Rust in the row builder, with
 `row_tweak` available for the row *container* (per-depth stylesheets, for instance):
 
 ```rust
@@ -744,8 +743,8 @@ tree(src, row)
 
 If the [QTreeView spike](#the-note-on-qt) lands, `Subcontrol::Content` starts answering with
 the `QTreeView` and the native knobs (`setAnimated`, `setRootIsDecorated`,
-`setUniformRowHeights`, `::branch` stylesheets) become reachable exactly as on AppKit —
-which is the point of naming subcontrols rather than classes.
+`setUniformRowHeights`, `::branch` stylesheets) become reachable as on AppKit, because
+subcontrols are named by role rather than by class.
 
 **Android.** The tree flattens onto the same native `RecyclerView` the `list` piece uses, so
 host tweaks are ordinary JNI tweaks and rows are Day-built `ViewGroup`s:
@@ -762,8 +761,8 @@ tree(src, row)
     })
 ```
 
-**web-dom.** The emitted structure carries stable hooks — `day-tree` on the host,
-`day-tree-row` with `data-depth` per row, and the full ARIA tree attributes — so a stylesheet
+**web-dom.** The emitted structure carries stable hooks (`day-tree` on the host,
+`day-tree-row` with `data-depth` per row, and the full ARIA tree attributes), so a stylesheet
 in `resource/assets` restyles everything CSS can reach, and the new `with_element` accessor
 covers the dynamic remainder:
 
@@ -786,14 +785,14 @@ tree(src, row).dom(|el| {
 Anything reusable becomes a crate, as the tweaks doc prescribes. `.tree_style(SourceList |
 Plain | Inset)` maps to `NSTableViewStyle` on AppKit, the sidebar list configuration on UIKit
 (a build-time hint, per the note above), `.navigation-sidebar` on GTK, `TreeViewItem` template
-resources on XAML, a stylesheet on Qt, a class on web-dom — and nothing at all on Android and
-ArkUI, where "nothing at all" is a documented no-op, not a silent surprise.
+resources on XAML, a stylesheet on Qt, a class on web-dom, and a documented no-op on Android
+and ArkUI.
 
 ## Selection
 
 `.on_selection(Fn(Vec<K>))` reports the full selected set on every change; `.selected(Fn() ->
 Vec<K>)` writes app state back into the native selection without an echo. Point both at one
-signal and selection is two-way — which is how Day Sketch's canvas and layer panel stay in
+signal and selection is two-way; that is how Day Sketch's canvas and layer panel stay in
 step without either knowing about the other.
 
 ## Expansion
@@ -810,9 +809,9 @@ after the reload.
 ## Moving nodes
 
 `.movable(true)` turns on the platform's drag; `move_guard` answers **while the drag is
-live**, so the affordance reflects the verdict before the user lets go — the same contract as
-`list`'s `reorder_guard`, and the reason a guard must stay pure. The refusals every tree
-needs: a node cannot move into itself, into its own descendant, or into a leaf.
+live**, so the affordance reflects the verdict before the user lets go; that is the same
+contract as `list`'s `reorder_guard`, and the reason a guard must stay pure. Every tree needs
+the same refusals: a node cannot move into itself, into its own descendant, or into a leaf.
 
 `on_move` is the commit. In Day Sketch it writes `parent` and a fractional `z` between the new
 neighbors, in one undo unit, which is the same write the Arrange menu makes.
@@ -821,24 +820,24 @@ neighbors, in one undo unit, which is the same write the Arrange menu makes.
 
 The emulated path has to say what the native trees say for themselves, so this ships with the
 piece rather than after it: `Role::Tree` and `Role::TreeItem` join the a11y vocabulary,
-carrying level, position in set, set size, and expanded state — `aria-level`/`aria-expanded` on
+carrying level, position in set, set size, and expanded state (`aria-level`/`aria-expanded` on
 web, `AccessibilityNodeInfo` collection-item info plus expand/collapse actions on Android,
-`ARKUI_ACCESSIBILITY` attributes on ArkUI, `QAccessible::Tree` on Qt. `a11y_audit` then holds
+`ARKUI_ACCESSIBILITY` attributes on ArkUI, `QAccessible::Tree` on Qt). `a11y_audit` then holds
 every backend to the same expectation.
 
 ## Driving it from dayscript
 
-- `expand: { id, key, expanded }` — open or close a row.
-- `tree_move: { id, key, parent, index }` — guard, then commit, with no native gesture; a
+- `expand: { id, key, expanded }`: open or close a row.
+- `tree_move: { id, key, parent, index }`: guard, then commit, with no native gesture; a
   denied move fails the step, the way `reorder:` does.
-- `type_ahead: { id, text }` — feed the buffer and assert where the cursor lands, since the
+- `type_ahead: { id, text }`: feed the buffer and assert where the cursor lands, since the
   native type-select callbacks are not reachable from a synthetic key event on every backend.
 - Rows carry ids, so `tap`, `assert_text` and `assert_missing` already work on them, and
   `key: { key: ArrowDown }` drives the keyboard on the emulated path.
 
 ## Implementation plan
 
-Mock-first, as `list` was: the driver is proven headlessly before a single native tree exists,
+Mock-first, as `list` was: the driver is tested headlessly before a single native tree exists,
 so every backend after the first is a rendering problem rather than a semantics problem.
 
 ### M0 — spec, piece, driver, mock (SHIPPED 2026-08)
@@ -850,12 +849,12 @@ a no-op; `Subcontrol`. The `Builtin::ALL` length test moves by one, and the back
 exhaustive realize matches gain a fallthrough arm in the same commit so the workspace keeps
 compiling.
 
-*day-core* (`src/tree_driver.rs`, beside `list.rs`): `TreeDriver` — `children_len`,
+*day-core* (`src/tree_driver.rs`, beside `list.rs`): `TreeDriver` (`children_len`,
 `child_token`, `expandable`, `build(token, RNode) -> BuiltRow`, `type_select_text`, optional
-`moves` — plus `install_tree`, `tree_reload`, `tree_set_expanded`, `tree_set_selected`,
+`moves`) plus `install_tree`, `tree_reload`, `tree_set_expanded`, `tree_set_selected`,
 `tree_reveal`, and `tree_try_move` for dayscript and the mock. The **flattener** lives here,
 kind-agnostic and memoised per (reload, expansion) generation. The cell-anchor half of
-`list.rs` — `BoundCell`, `CellStep`, scope ownership — is lifted into a shared module both
+`list.rs` (`BoundCell`, `CellStep`, scope ownership) is lifted into a shared module both
 drivers use rather than copied, and gains the row-bind hook `.row_tweak` rides.
 
 *Tweak surface* (`day-spec` + every backend's `ext`): `Subcontrol`, `with_native_subcontrol`,
@@ -867,8 +866,8 @@ change, since they have been composite all along.
 implementations (`branches(items, key, parent)` and the store adapter
 `Store::tree(children_projection)`), and the builder: `.expanded`, `.selected`,
 `.on_selection`, `.multi_select`, `.movable`, `.on_move`, `.move_guard`, `.on_activate`,
-`.type_ahead`, `.reveal`, `.indent`, plus the hooks — `.row_height_for`, `.can_expand`,
-`.can_select`, `.is_group_row` — and `.row_tweak`.
+`.type_ahead`, `.reveal`, `.indent`, plus the hooks (`.row_height_for`, `.can_expand`,
+`.can_select`, `.is_group_row`) and `.row_tweak`.
 
 *day-mock*: a simulated viewport plus `MockProbe::{tree_rows, tree_expand, tree_can_move,
 tree_move, tree_type_ahead}`.
@@ -885,15 +884,15 @@ is consulted by the flattener; `.row_tweak` fires on each bind and rebind with t
 
 `NSOutlineView` over the existing view-based row path, so `makeView`/`viewFor` reach
 `bind_row` unchanged. `outlineView(_:child:ofItem:)` / `isItemExpandable` /
-`numberOfChildrenOfItem` map one-to-one onto the seam; `expandItem`/`collapseItem` apply
+`numberOfChildrenOfItem` map one-to-one onto `TreeSource`; `expandItem`/`collapseItem` apply
 `TreePatch::Expand`, and the `ItemDidExpand`/`ItemDidCollapse` notifications emit
 `Event::TreeExpanded`. Drag reuses the table's pasteboard pipeline, with
-`validateDrop(proposedItem:proposedChildIndex:)` answering from `can_move` — including
+`validateDrop(proposedItem:proposedChildIndex:)` answering from `can_move`, including
 `NSOutlineViewDropOnItemIndex` for a drop *onto* a row, which is what `index: None` means.
 Type-select answers from `type_select_text`.
 
-This is also where the tweak additions earn their keep: the node's handle is the
-`NSScrollView`, so `Subcontrol::Content` is what hands a tweak the `NSOutlineView`, and
+This is also where the tweak additions first matter: the node's handle is the
+`NSScrollView`, so `Subcontrol::Content` hands a tweak the `NSOutlineView`, and
 `.row_tweak` receives the `NSTableRowView`. The four delegate hooks land here first, since
 AppKit is the backend with the richest delegate to route them to.
 
@@ -904,155 +903,156 @@ compiles and visibly changes the rendering.
 
 ### M2 — the shared emulation, on web-dom and Qt (SHIPPED 2026-08 — see the as-built notes)
 
-Both already emulate `list`, so they are the cheapest proof that one flattener serves three
+Both already emulate `list`, so they are the cheapest check that one flattener serves three
 backends. Rows come from the flattener; each row's Day subtree gets an indent and a disclosure
 control built from ordinary pieces.
 
-**As built (2026-08).** The emulation landed one level higher than planned: in the PIECE, not
-in each backend. `TreePiece::build` branches on `capability(Cap::Tree)` — `Native` takes the
+**As built (2026-08).** The emulation landed one level higher than planned: in the piece, not
+in each backend. `TreePiece::build` branches on `capability(Cap::Tree)`: `Native` takes the
 attach path above, anything else takes `build_composed`, which flattens the connection's
 visible rows (a DFS descending only into expanded rows, tracked against the shape read and
 the expansion signal) onto the existing [`list`] piece. So the composed tree costs a backend
-NOTHING: web-dom and the qt toolkit answer `Cap::Tree` `Emulated`, and the same code would
+nothing: web-dom and the qt toolkit answer `Cap::Tree` `Emulated`, and the same code would
 render on any backend with the list machinery. Per row:
 
 - **Indent** is a layout (`TreeIndent`) reading the row's depth from a `Cell` the rebind
-  watch writes before the cell's relayout — a recycled cell re-indents without rebuilding.
+  watch writes before the cell's relayout, so a recycled cell re-indents without rebuilding.
 - **Disclosure** is a chevron label (`▸`/`▾`, tracked against the expansion state) with an
   `on_tap` that flips the app's `.expanded` signal (or the piece's internal set). The
   dayscript `expand:` step emits the same `Event::TreeExpanded` the native backends do, and
-  the handler routes it into the same signal — one echo-free path for both.
-- **Selection rides the list's own machinery** — `.selected_rows` / `.on_selection` with
-  tokens translated to keys — so multi-select, shift/ctrl clicks and the painted highlight
-  are the list backend's, not re-implemented.
-- **The row shell is a NATIVE transparent container**, not a layout-only node: the row's
+  the handler routes it into the same signal, one echo-free path for both.
+- **Selection rides the list's own machinery** (`.selected_rows` / `.on_selection` with
+  tokens translated to keys), so multi-select, shift/ctrl clicks and the painted highlight
+  come from the list backend.
+- **The row shell is a native transparent container**, not a layout-only node: the row's
   dayscript id lands as a real a11y identifier, and `.row_context_menu` (lowered onto the
-  ordinary `.context_menu_fn` decorator, key read AT SUMMON) needs an element to arm its
+  ordinary `.context_menu_fn` decorator, key read at summon) needs an element to arm its
   listener on ([docs/menus.md](menus.md) "Dynamic context menus").
-- **The driver still installs** on the returned node — `expand:`/`tree_move:` resolve rows
-  and route moves through the same guard → commit seam, which is what lets ONE
-  `tree.yaml` pass verbatim on native and composed backends alike.
+- **The driver still installs** on the returned node: `expand:`/`tree_move:` resolve rows
+  and route moves through the same guard → commit path, so one `tree.yaml` passes verbatim
+  on native and composed backends alike.
 
-Pool honesty: an emulated list that SHRANK hides pooled cells in place, so
-`ListSource::recycle` now clears a hidden cell's element ids (`list_recycle_cell` — the
+Pool cleanup: an emulated list that shrank hides pooled cells in place, so
+`ListSource::recycle` now clears a hidden cell's element ids (`list_recycle_cell`, the
 list twin of the tree's recycle rule); web-dom and qt call it as they hide. Qt also honors
-`.edge(PaneEdge::Leading)` now (the splitter's panel pane goes FIRST) — the layers pane was
+`.edge(PaneEdge::Leading)` now (the splitter's panel pane goes first); the layers pane was
 the first leading inspector a qt target ever showed.
 
-Deliberate deltas, still open: a disclosure click also selects its row (the tap reaches the
+Known deltas, still open: a disclosure click also selects its row (the tap reaches the
 cell-click machinery too); keyboard navigation and type-ahead do not exist on composed trees;
 the ARIA tree pattern (`role="tree"`, `aria-level`, …) and the `day-tree`/`data-depth` class
-hooks are NOT emitted yet; **"day-dom joins the tweak system"** (`with_element`, `add_class`,
-`set_style`) was not taken in this pass; and there is no drag-to-move — `Cap::TreeMove` stays
-`Unsupported`, with `tree_move:` driving the seam synthetically. Verified by tree.yaml 87/87
+hooks are not emitted yet; **"day-dom joins the tweak system"** (`with_element`, `add_class`,
+`set_style`) was not taken in this pass; and there is no drag-to-move (`Cap::TreeMove` stays
+`Unsupported`, with `tree_move:` driving `TreeSource` synthetically). Verified by tree.yaml 87/87
 on web-dom and macos-qt plus a real-pointer browser suite (chevron clicks, row and canvas
 right-clicks through the composed menu, drag-move) against the live server.
 
 ### M3 — GTK and UIKit (SHIPPED 2026-08 — native drag pending on both; see the status alert)
 
 GTK: `GtkListView` over a `GtkTreeListModel` whose `create_model_func` pulls children lazily
-from the seam, each row wrapped in a `GtkTreeExpander`; selection through
+from `TreeSource`, each row wrapped in a `GtkTreeExpander`; selection through
 `GtkMultiSelection`; drag on the existing `GtkDragSource`/`GtkDropTarget` rows, with Day
 computing into-versus-between from the pointer.
 
 UIKit: `UICollectionView` with `UICollectionLayoutListConfiguration(appearance: .sidebar)`, an
-`NSDiffableDataSourceSectionSnapshot` built from the seam, `.outlineDisclosure` accessories,
+`NSDiffableDataSourceSectionSnapshot` built from `TreeSource`, `.outlineDisclosure` accessories,
 and `sectionSnapshotHandlers.willExpandItem`/`willCollapseItem` for the expansion events.
-Reorder rides the collection's drag and drop delegates. The list-configuration knobs are
-build-time on this backend — `TreeProps` hints, per the customization note.
+Reorder rides the collection's drag and drop delegates. The list-configuration options are
+build-time on this backend (`TreeProps` hints, per the customization note).
 
 ### M4 — XAML and ArkUI (both COMPOSED 2026-08: ArkUI verified locally, XAML CI-pending — see the as-built notes)
 
-XAML: WinUI `TreeView` with `TreeViewNode`s mirrored from the seam, `CanReorderItems` for the
-drag, native type-ahead, the raw subcontrol/row tweak channel from the examples above.
+XAML: WinUI `TreeView` with `TreeViewNode`s mirrored from `TreeSource`, `CanReorderItems` for
+the drag, native type-ahead, the raw subcontrol/row tweak channel from the examples above.
 
 ArkUI: the ArkTS `TreeView` driven through the bridge described
-[above](#arkui-reaching-an-arkts-component-from-the-c-node-api) — `TreeController.addNode` per
+[above](#arkui-reaching-an-arkts-component-from-the-c-node-api): `TreeController.addNode` per
 node with a per-node `NodeContent` in `NodeParam.container`, `TreeListener` for `NODE_CLICK`
 and `NODE_MOVE`, and `tree_ext::node_params` for the per-node extras. This lands last of the
-natives because it is the most unusual and wants the seam settled.
+natives because it is the most unusual and needs `TreeSource` settled first.
 
-**As built (2026-08, the XAML half — CI-pending).** XAML also joined through the COMPOSED
+**As built (2026-08, the XAML half — CI-pending).** XAML also joined through the composed
 tree: `Cap::Tree` answers `Emulated` over its emulated list (which already honored
 `multi_select` + `ListPatch::Selected`), `list_populate` clears hidden pooled cells' ids
 through `ListSource::recycle` (the same shape qt took), and `day_xaml_inspector_new` gained
-a `leading` flag mapping `.edge(PaneEdge::Leading)` to `SplitViewPanePlacement::Left` — the
-same ignored-edge bug qt had, fixed by inspection. Every edit mirrors a walkthrough-proven
-qt twin and parses (edition-aware rustfmt), but NOTHING here is verified: this Mac cannot
-type-check the crate (the cppwinrt build script needs the Windows SDK), so the WinUI
-`TreeView` native form stays open work AND the composed form's proof is the CI walkthrough —
-`dayscript/tree.yaml` joined Day Sketch's CI script list in the same change, which also
-closes M1's "tree.yaml not wired into CI" leftover across all eight targets.
+a `leading` flag mapping `.edge(PaneEdge::Leading)` to `SplitViewPanePlacement::Left`, the
+same ignored-edge bug qt had, fixed by inspection. Every edit mirrors a qt twin the
+walkthrough covers, and parses (edition-aware rustfmt), but nothing here is verified: this
+Mac cannot type-check the crate (the cppwinrt build script needs the Windows SDK), so the
+WinUI `TreeView` native form stays open work, and the CI walkthrough is what checks the
+composed form (`dayscript/tree.yaml` joined Day Sketch's CI script list in the same change,
+which also closes M1's "tree.yaml not wired into CI" leftover across all eight targets).
 
-**As built (2026-08, the ArkUI half).** ArkUI joined through the COMPOSED tree instead of
-the ArkTS `TreeView` — `Cap::Tree` answers `Emulated` and the M2 piece runs unchanged; the
+**As built (2026-08, the ArkUI half).** ArkUI joined through the composed tree instead of
+the ArkTS `TreeView`: `Cap::Tree` answers `Emulated` and the M2 piece runs unchanged; the
 ArkTS-native form above stays open work. What the NodeAdapter list machinery had to gain
 (each found by the walkthrough, each a general list fix):
 
 - **Reloads re-bind for real.** `SetTotalNodeCount` alone diffs by item id (the index), so
-  a list that changed ABOVE its tail kept every untouched cell's old binding — and one that
+  a list that changed above its tail kept every untouched cell's old binding, and one that
   shrank to empty stopped firing ADD at all. `day_ark_list_reload` now bumps a per-list
-  GENERATION salted into `GET_NODE_ID` and calls `ReloadAllItems`: every reload renames the
+  generation salted into `GET_NODE_ID` and calls `ReloadAllItems`: every reload renames the
   rows, the adapter re-adds them, and the pool + day-core's cell cache make that cheap
-  rebinds. The reload is POSTED out of the day-core borrow (the M1 deferred-mutation rule —
+  rebinds. The reload is posted out of the day-core borrow (the M1 deferred-mutation rule:
   a bind pulled under the borrow skips and never retries) and coalesced per drain.
 - **Selection**: cells report taps as `SelectionChanged` (resolved through the adapter's
-  row map — cells carry no day node id) and `ListPatch::Selected` paints the accent at 20%
+  row map, since cells carry no day node id) and `ListPatch::Selected` paints the accent at 20%
   alpha, at bind and on sync, echo-free.
 - **Recycle**: `REMOVE_NODE_FROM_ADAPTER` clears the pooled cell's dayscript ids.
-- **Programmatic-set echo cells (§4.4)**: ArkUI fires onChange for PROGRAMMATIC text/slider
-  sets, and the echoes were re-writing app state — on Day Sketch, every selection change
-  sealed phantom "style" undo units, so the SECOND undo of any pair popped junk instead of
-  history. Text/slider sets now record the value; a matching event is swallowed as the echo.
-- day-arkui also gained a **hilog sink** (`day::arkui::start` installs it) — the `log`
+- **Programmatic-set echo cells (§4.4)**: ArkUI fires onChange for programmatic text/slider
+  sets, and the echoes were re-writing app state: on Day Sketch, every selection change
+  sealed phantom "style" undo units, so the second undo of any pair popped a phantom unit
+  instead of history. Text/slider sets now record the value; a matching event is swallowed
+  as the echo.
+- day-arkui also gained a **hilog sink** (`day::arkui::start` installs it); the `log`
   facade previously went nowhere on OHOS.
 
 Verified on the local OHOS emulator: tree.yaml 89/89, real `uitest uiInput` row taps moving
 the selection tree→canvas with the painted highlight following. demo.yaml runs 315/321
-there: the six failures are all the Edit ▸ Paste chain — this image denies
+there: the six failures are all the Edit ▸ Paste chain, because this image denies
 `ohos.permission.READ_PASTEBOARD` (USER_GRANT, SYSTEM_BASIC), a day-part-clipboard platform
-matter unrelated to trees. **Known issue, open**: the disclosure chevron's LABEL never
+matter unrelated to trees. **Known issue, open**: the disclosure chevron's label never
 renders on ArkUI (its reserved 18vp box lays out, siblings in the same cell bind and update
-correctly, the closure computes the right glyph — but this one label's text never reaches
+correctly, and the closure computes the right glyph, but this one label's text never reaches
 the native node after pooled-cell rebinds), so disclosure is currently reachable through
-selection-driven reveals and the seam but not by a finger on the chevron; it needs its own
-session. The chevron glyphs are now `▶`/`▼` everywhere — HarmonyOS Sans ships no glyph for
-the small `▸`/`▾` forms. The Showcase tree demo (M5) surfaced a second symptom of the same
-pooled-rebind defect: a recycled cell's NAME label keeps a stale narrow measure, wrapping
-short file names mid-word after expand/collapse cycles — freshly bound rows are fine. Both
-belong to the one rebind-apply investigation.
+selection-driven reveals and `TreeSource` but not by a finger on the chevron; it needs its
+own session. The chevron glyphs are now `▶`/`▼` everywhere, because HarmonyOS Sans ships no
+glyph for the small `▸`/`▾` forms. The Showcase tree demo (M5) surfaced a second symptom of
+the same pooled-rebind defect: a recycled cell's name label keeps a stale narrow measure,
+wrapping short file names mid-word after expand/collapse cycles; freshly bound rows are fine.
+Both belong to the one rebind-apply investigation.
 
 ### M5 — Android, the Showcase page, and the style crate (SHIPPED 2026-08)
 
 Android joins the emulation (the flattener over the existing `RecyclerView` list machinery,
 `ItemTouchHelper` for the drag, `AccessibilityNodeInfo` collection-item info plus
-expand/collapse actions). The Showcase gains its page — see below — and
+expand/collapse actions). The Showcase gains its page (see below), and
 `day-tweak-tree-style` ships with whatever coverage the backends built so far support.
 
-**As built (2026-08, the Android half).** Because M2 landed the emulation in the PIECE,
-Android's cost was the list gaps, not a tree: `Cap::Tree` answers `Emulated` and the
+**As built (2026-08, the Android half).** Because M2 landed the emulation in the piece,
+Android's cost was the list gaps rather than a tree: `Cap::Tree` answers `Emulated` and the
 composed build runs unchanged. What the RecyclerView machinery gained with it:
 
-- **`ListPatch::Selected`** — recorded per list, painted onto the visible holders (the theme
-  accent at 20% alpha as the cell BACKGROUND, under the ripple foreground) and inherited by
-  newly bound holders, with no selection-event echo. Taps still report single selection —
-  the touch idiom — and the round trip through the app's signal highlights the row.
-- **`onViewRecycled` → `ListSource::recycle`** — a pooled holder's day content keeps its
+- **`ListPatch::Selected`**: recorded per list, painted onto the visible holders (the theme
+  accent at 20% alpha as the cell background, under the ripple foreground) and inherited by
+  newly bound holders, with no selection-event echo. Taps still report single selection
+  (the touch idiom), and the round trip through the app's signal highlights the row.
+- **`onViewRecycled` → `ListSource::recycle`**: a pooled holder's day content keeps its
   views but sheds its dayscript ids (the same rule every other backend follows), keyed by
   the per-cell GlobalRef `nativeListBind` binds with.
 
-Day Sketch grew the phone ergonomics in the same change: a COMPACT window starts with the
+Day Sketch grew the phone ergonomics in the same change: a compact window starts with the
 layers pane closed (the canvas needs the room), the tool row carries a Layers toggle, and
 `tree.yaml` opens the pane up front on the phone targets (89 steps; the two open-toggle
 steps are `only_on: [uikit, mdc]`). Verified on the emulator: tree.yaml 89/89 and demo.yaml
-321/321, a cold-start check of the compact default, and REAL `adb input` taps — a row tap
-moving the selection tree→canvas, a chevron tap collapsing and re-expanding (dayscript
-injects events, so only real taps prove the recognizers; the inner chevron listener wins
-over the cell's click, so a disclosure tap does NOT re-target the selection — Android and
-iOS get this right where the web's bubbling cannot). Still open on Android: the
+321/321, a cold-start check of the compact default, and real `adb input` taps: a row tap
+moving the selection tree→canvas, and a chevron tap collapsing and re-expanding (dayscript
+injects events, so only real taps exercise the recognizers; the inner chevron listener wins
+over the cell's click, so a disclosure tap does not re-target the selection, whereas on
+web-dom the click bubbles to the cell and does). Still open on Android: the
 `ItemTouchHelper` drag half (`Cap::TreeMove` stays `Unsupported`), the
 `AccessibilityNodeInfo` expand/collapse actions, and row context menus (no
-`set_context_menu_fn` wiring — a long-press summon would need the composed presenter's
+`set_context_menu_fn` wiring; a long-press summon would need the composed presenter's
 `Event::ContextMenu`).
 
 ### M6 — Day Sketch (leading pane, layer panel and walkthrough SHIPPED 2026-08)
@@ -1063,12 +1063,12 @@ The leading pane and the layer panel, covered below.
 
 A new `Section::Tree` beside `Section::List`: a `routes!` variant, a `source_file()` arm, a
 `Dest { … page: tree_page }`, `src/pages/tree.rs`, a nav vector icon, and strings in all four
-locales the Showcase ships (`en`, `fr`, `ar`, `zh-CN` — no raw literals).
+locales the Showcase ships (`en`, `fr`, `ar`, `zh-CN`, with no raw literals).
 
 The page shows one tree deep enough to be interesting and small enough to read: a mock project
 with folders, files and a nested folder, each row a disclosure plus an icon plus a name, and
 below it a live readout of the current selection, expansion set and last move. Controls beside
-it exercise the API rather than decorating it: a multi-select toggle, an "expand all" and
+it exercise the API: a multi-select toggle, an "expand all" and
 "collapse all" pair driving the expansion signal, a `move_guard` switch that refuses drops
 into one particular folder (so the denied affordance is visible on every platform), and a
 reveal field.
@@ -1077,33 +1077,33 @@ The page also demonstrates the three customization layers in one place, since th
 of this design an app author has to understand: the portable options drive the controls, one
 hook (`can_select` on folders) is toggleable, and a `day-tweak-tree-style` line sits in the
 source under a comment explaining that it changes the macOS and Windows rendering and no-ops
-on the rest — the Showcase's usual job of being the worked example.
+on the rest, the Showcase's usual job of being the worked example.
 
-The walkthrough leg — `dayscript/tree.yaml`, joining the per-target list in the Showcase's
-CI — asserts what no screenshot can: expanding a folder reveals exactly its children,
+The walkthrough leg (`dayscript/tree.yaml`, joining the per-target list in the Showcase's
+CI) asserts what no screenshot can: expanding a folder reveals exactly its children,
 collapsing hides their ids, `tree_move` reparents and the readout agrees, a guarded move fails
 the step, type-ahead lands on the expected row, and `assert_no_placeholders` holds on every
 target.
 
 **As built (2026-08).** `src/pages/tree.rs`: a nine-node mock project behind one
 `Signal<Vec<FileNode>>`, `branches(items, key, parent)` deriving the hierarchy, and every
-portable option driven from real controls — Expand/Collapse All writing the app-owned
+portable option driven from real controls: Expand/Collapse All writing the app-owned
 expansion set, a Reveal button (`.reveal` targeting a leaf under two collapsed ancestors),
-Add File into the selected folder, a Multi-select toggle that REBUILDS the tree with the
+Add File into the selected folder, a Multi-select toggle that rebuilds the tree with the
 other flag (a build-time option, swapped through `when(...).otherwise(...)`), a Lock toggle
-arming the `move_guard` (docs/ refuses drops while locked — the native no-drop cursor on
-macOS), `.type_ahead` from the names, and summon-time `.row_context_menu` menus (folders:
+arming the `move_guard` (docs/ refuses drops while locked, showing the native no-drop cursor
+on macOS), `.type_ahead` from the names, and summon-time `.row_context_menu` menus (folders:
 New File; files: Duplicate; both: Move Up/Down through sibling swaps, Delete of the
 subtree). Readouts mirror `on_selection`, the node count, and exactly what `on_move` was
 handed. Deltas from the plan above: the toggleable hook shipped as the Lock/`move_guard`
-switch (`can_select` does not exist yet — see M1's notes); the reveal "field" is a button
-with a fixed deep target; the walkthrough cannot assert a DENIED move or type-ahead
-(dayscript has no assert-this-step-fails form and no `type_ahead:` step — the deny verdict
+switch (`can_select` does not exist yet; see M1's notes); the reveal "field" is a button
+with a fixed deep target; the walkthrough cannot assert a denied move or type-ahead
+(dayscript has no assert-this-step-fails form and no `type_ahead:` step; the deny verdict
 and type-select stay pointer checks); and the tweak line ships as
-`.tree_style(TreeStyle::sidebar())` — `tweaks/day-tweak-tree-style`, AppKit clearing the
+`.tree_style(TreeStyle::sidebar())` from `tweaks/day-tweak-tree-style`, AppKit clearing the
 scroll/outline backgrounds via `Subcontrol::Content` (plus an `alternating_rows` option),
 GTK adding Adwaita's `navigation-sidebar` class, a documented no-op elsewhere. Two traps
-worth keeping: `.id("demo-tree")` must chain on the TREE builder itself — after `.height`
+to remember: `.id("demo-tree")` must chain on the tree builder itself; after `.height`
 it tags the wrapper and every `expand:`/`tree_move:` step fails with "no tree at this
 node"; and `assert_text` against argumented Fluent messages must go through `key:`+`args:`
 (the runner formats them with the same bidi isolates the label carries). Verified locally:
@@ -1126,11 +1126,11 @@ collapsible.
 
 **The source.** Day Sketch's scene is already a tree: `children_of(parent)` ordered by `z` is
 the children projection, `expandable` is `kind == NodeKind::Group`, and the row is a kind
-glyph, the node's name and a fill swatch — the [store-backed example](#a-store-backed-tree)
+glyph, the node's name and a fill swatch, the [store-backed example](#a-store-backed-tree)
 above, verbatim.
 
 **Selection.** The tree binds `.selected(|| model::selection().get())` and
-`.on_selection(|keys| model::selection().set(keys))` — the same signal the canvas reads, so
+`.on_selection(|keys| model::selection().set(keys))`, the same signal the canvas reads, so
 the two stay in step without either knowing the other exists, and undo's transient selection
 restoration already flows to both.
 
@@ -1145,64 +1145,64 @@ and open, type-ahead jumps by node name.
 **Walkthrough.** The demo script gains a section that expands the group made earlier in the
 run, asserts its two children appear, selects a row and asserts the canvas frame readout
 changes, drags a shape into the group with `tree_move` and asserts the count and the group's
-bounds, then undoes it — proving canvas and layer panel share one model rather than two.
+bounds, then undoes it, showing that canvas and layer panel share one model.
 
 ## Stepping back: what the tree stresses in Day's architecture
 
-Designing this piece is also a test of the framework, and it is worth recording what the test
-found, because the conclusions outlive the piece.
+Designing this piece also tested the framework, and the findings are recorded here because
+they outlive the piece.
 
-**Tweaks are constitutionally shallow, and that is their virtue.** The tweak model assumes one
+**Tweaks are shallow, and that keeps them safe.** The tweak model assumes one
 node ↔ one widget, behavior-in-properties, and mount-once lifetime. A tree breaks all three,
 and each addition above patches exactly one: subcontrols address the composite backing, row
 tweaks address cells Day does not own, hooks address behavior that lives in a delegate rather
-than in properties. The first two are still tweak-shaped. The hooks are not tweaks at all —
-and calling them "deep customization via tweaks" would misfile them. Depth comes from the seam
-and the hooks; the hatch stays shallow so it stays safe.
+than in properties. The first two are still tweak-shaped. The hooks are not tweaks at all,
+and calling them "deep customization via tweaks" would misfile them. Depth comes from
+`TreeSource` and the hooks; the tweak hatch stays shallow so it stays safe.
 
 **The policy rung already existed, unnamed.** `list` grew `reorder_guard` and `delete_guard`;
 `nav` grew `on_back`; this piece needs `can_expand`, `can_select`, `row_height_for`,
-`move_guard`. All the same shape: pure, synchronous, called inside a native callback, Day
-answering the platform's question by asking the app. The extension ladder in
-[docs/tweaks.md](tweaks.md) documents styling / tweaks / native pieces; the fourth rung —
-policy — has been growing piecemeal since `list` shipped. When the tree lands, the ladder
+`move_guard`. All have the same shape: pure, synchronous, called inside a native callback,
+with Day answering the platform's question by asking the app. The extension ladder in
+[docs/tweaks.md](tweaks.md) documents styling / tweaks / native pieces; the fourth rung,
+policy, has been growing piecemeal since `list` shipped. When the tree lands, the ladder
 should name it.
 
 **Tokens are the corrected identity contract.** `ListSource` addresses rows by index
 (`bind_row(usize, …)`, guards over `(from, to)`); the tree cannot, and every native tree API
 agrees with the tree. That leaves two contracts in the codebase. This plan does not migrate
-`list`, but the mismatch is a known debt, and new collection kinds should follow the token
-seam.
+`list`, but the mismatch is a known debt, and new collection kinds should address rows by
+token.
 
 **The emulations are converging on one composed tier.** web-dom and Qt each carry their own
-emulated list; the flattener here is deliberately kind-agnostic so it becomes shared substrate
-rather than a third copy. The composed colorpicker and stepper prove the wider pattern: for
-complex kinds, one Rust reference implementation as the guaranteed floor, native upgrades
-where a platform genuinely offers more. That inversion — a working composed fallback instead
-of a `⟨kind⟩` placeholder — is right for containers and wrong for buttons, and the boundary
-between those is a decision Day should make once, on purpose.
+emulated list; the flattener here is kind-agnostic so it can become shared substrate rather
+than a third copy. The composed colorpicker and stepper show the wider pattern: for complex
+kinds, one Rust reference implementation as the guaranteed floor, native upgrades where a
+platform offers more. That inversion (a working composed fallback instead of a `⟨kind⟩`
+placeholder) is right for containers and wrong for buttons, and the boundary between those is
+a decision Day should make once.
 
-None of this reopens the macro-architecture. The retained tree, capability honesty, mock-first
-drivers and the per-toolkit asset pipeline all held under this design's weight — and the
-platforms' independent agreement on the `(parent, index)` drop vocabulary is direct evidence
-the portable semantic core is real. The corrections are all one level down, in the collection
-middle layer — subcontrols, hooks, row tweaks, the shared flattener — and this piece is the
-deliberate first step through them rather than another accretion.
+None of this reopens the macro-architecture. The retained tree, capability reporting,
+mock-first drivers and the per-toolkit asset pipeline all held under this design, and the
+platforms' independent agreement on the `(parent, index)` drop vocabulary supports the
+portable semantic core. The corrections are all one level down, in the collection middle
+layer (subcontrols, hooks, row tweaks, the shared flattener), and this piece is the first
+step through them.
 
 ## Risks worth deciding early
 
 - **Token stability becomes a requirement.** `list` tolerates index churn; a tree does not.
   Sources whose keys move break expansion and selection, so the docs must say it and the mock
-  tests must prove it.
+  tests must check it.
 - **Reload granularity.** v1 reloads the whole tree on a data change, as `list` does. Large
   trees under frequent edits will want the keyed diff (`TreePatch::Splice`) sooner than lists
   did, because a reload also disturbs expansion.
 - **Recycling is not universal.** AppKit, UIKit, GTK and XAML reuse cells; ArkUI's
   `TreeController` does not, and Qt's index-widget path would not either. `Cap::ListRecycling`
-  has to answer honestly per backend, and the docs have to say which trees stay small.
+  has to answer accurately per backend, and the docs have to say which trees stay small.
 - **Two natives cannot guard a drag live.** ArkUI reports a move after the fact; the emulated
   path can be as live as Day makes it. `move_guard`'s contract must therefore be "consulted as
-  early as the platform allows", with the per-backend table saying where that is — the same
+  early as the platform allows", with the per-backend table saying where that is, the same
   shape `list`'s reorder guard already documents.
 - **Two identity contracts until `list` migrates.** The tree is token-addressed; `list` is
   index-addressed. Both are correct alone, and the pair is a wart: shared machinery has to
@@ -1216,9 +1216,9 @@ deliberate first step through them rather than another accretion.
   the layout is created, so style choices there ride `TreeProps` hints rather than post-mount
   tweaks. The packaged style crate has to front both channels, and the docs have to say which
   knob rides which.
-- **What v1 leaves out, on purpose.** Dragging a multi-row selection as one unit;
+- **What v1 leaves out.** Dragging a multi-row selection as one unit;
   spring-loading a collapsed row under a hovering drag (native on AppKit, a timer elsewhere);
   columns beside the disclosure, which is where a tree becomes a tree *table* and wants
   `NSOutlineView`'s and `GtkColumnView`'s column machinery; and lazy children that arrive
-  asynchronously, which the seam's synchronous `children_len` cannot express and which a file
+  asynchronously, which `TreeSource`'s synchronous `children_len` cannot express and which a file
   browser eventually needs.

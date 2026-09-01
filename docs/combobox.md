@@ -12,12 +12,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > **Status: implemented** as `day-piece-combobox`, an external Day Piece (like
 > `day-piece-searchfield`) registered link-time into each backend's renderer slice without
-> touching day. One API: free-form text entry PLUS a native dropdown of suggestions, bound
-> two-way to a `Signal<String>` (the text IS the value) with a reactive
+> touching day. One API: free-form text entry plus a native dropdown of suggestions, bound
+> two-way to a `Signal<String>` (the text is the value) with a reactive
 > `Signal<Vec<String>>` item list. Reworked 2026-07 from a selection-only dropdown (an
-> `NSPopUpButton`-style control bound to an index) into the real thing; `picker`
-> ([docs/picker.md](picker.md)) is now the one-of-N control, the combo box is for values that need not be
-> in the list.
+> `NSPopUpButton`-style control bound to an index) into an editable combo box; `picker`
+> ([docs/picker.md](picker.md)) is now the one-of-N control, and the combo box is for values
+> that need not be in the list.
 
 ## Authoring
 
@@ -50,8 +50,8 @@ emit it: a native pick already arrives as text).
 |---|---|---|---|---|---|---|
 | `NSComboBox` | `GtkComboBoxText` with entry | editable `QComboBox` | `AutoCompleteTextView` | editable `ComboBox` (1809+) | — placeholder | — placeholder |
 
-iOS and HarmonyOS have no native combo-box control, so the piece deliberately carries **no
-renderer** there: day renders its placeholder leaf, and the showcase adds a footnote saying why.
+iOS and HarmonyOS have no native combo-box control, so the piece carries **no renderer**
+there: day renders its placeholder leaf, and the showcase adds a footnote saying why.
 Use `picker` or `text_field` on those platforms. The change plumbing per backend:
 
 - **AppKit**: one per-node delegate serves both halves,
@@ -69,7 +69,7 @@ Use `picker` or `text_field` on those platforms. The change plumbing per backend
   `src/lib-xaml-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim is a
   `QComboBox` with `setEditable(true)` + `NoInsert`; `editTextChanged` is the single change
   path, and programmatic setters sit in `blockSignals`. The XAML shim boxes an editable
-  `ComboBox` through the `day_xaml_box` / `day_xaml_unbox` seam. Documented divergence: XAML's
+  `ComboBox` through the `day_xaml_box` / `day_xaml_unbox` functions. Documented divergence: XAML's
   `ComboBox` has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
@@ -85,7 +85,7 @@ The showcase **Controls** page (`controls.rs` `flavor_block`) binds a `combo_box
 signal with a localized three-item list, an **Add** button that pushes the typed text into the
 items, and a readout mirroring the signal. The walkthrough drives all three behaviors: `select`
 index 2 (menu path, asserted by localized key), `input` a literal that is in no list (free-form
-path), then Add + `select` index 3 (an index that exists only after the add), proving the
+path), then Add + `select` index 3 (an index that exists only after the add), which shows the
 reactive item list round-trips. Runs on macOS-AppKit, GTK, Qt, iOS-sim (placeholder + synthetic
 steps), and the Android emulator. Rust is clippy-clean (`-D warnings`) and `cargo fmt`-clean for
 every backend feature.

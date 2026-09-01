@@ -11,15 +11,15 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Grid: design & implementation
 
 > **Status: implemented.** `grid()`/`grid_row()` (`day_pieces`), the `.grid_span`/`.grid_align`
-> cell modifiers, and `GridLayout` (`day_core`) ship with zero backend work: a grid is the same
-> dumb native panel as `column`/`row`, laid out entirely by shared Rust (§7 of DESIGN.md).
+> cell modifiers, and `GridLayout` (`day_core`) ship with no backend work: a grid is the same
+> plain native panel as `column`/`row`, laid out entirely by shared Rust (§7 of DESIGN.md).
 > Demonstrated by the showcase "Grid" section (basics → sizing → spanning → composite → stress)
 > and consumed by Day Skies' 10-day forecast and detail cards. This is the SwiftUI `Grid`/
 > `GridRow` analogue for Day.
 
 ## 1. Goal
 
-Kill the hand-tuned-width idiom. Before grids, a table-shaped layout was a `column` of `row`s with
+A grid replaces the hand-tuned-width idiom. Before grids, a table-shaped layout was a `column` of `row`s with
 `.width(104.0)`-style constants keeping columns aligned across rows, and `spacer().width(40.0)`
 placeholders holding empty cells open. A grid derives the columns from the cells:
 
@@ -32,7 +32,8 @@ grid((
 ```
 
 Each column is as wide as its widest cell; the `grow_w` bar column takes whatever is left; the
-`spacer()` is an inert empty cell that still occupies its column. No constants, no placeholders.
+`spacer()` is an inert empty cell that still occupies its column. The rows need no width
+constants or placeholders.
 
 ## 2. API
 
@@ -71,11 +72,11 @@ Semantics:
 - **A spanning cell** (`.grid_span(n)`) is measured once; if it needs more than its spanned
   columns provide, the deficit distributes in one shot: onto the spanned flexible columns if
   any, else evenly across the spanned columns.
-- **A bare (non-row) child is a full-width cell** spanning every column, SwiftUI's exact rule.
+- **A bare (non-row) child is a full-width cell** spanning every column, SwiftUI's rule.
   Dividers and section-spanning cards need no modifier.
 - **`spacer()` in a row is an inert empty cell**: it occupies its column, contributes no width,
-  and is never placed. This diverges from stacks (where a spacer greedily pushes content apart)
-  on purpose: a grid has explicit gutters, so push-apart spacers have no meaning here.
+  and is never placed. This diverges from stacks (where a spacer pushes content apart)
+  because a grid has explicit gutters, so push-apart spacers have no meaning here.
 - **`when`/`each` groups expand inline** at both levels: at grid level they produce rows, inside
   a row they produce cells (the `StackLayout::flatten` recursion), so reactive row sets reflow
   and renegotiate columns for free.
@@ -94,7 +95,7 @@ with `is_row` set, carrying a horizontal `StackLayout` that only runs when the r
 inside a grid; a stray `grid_row` degrades to a plain `row`. `.grid_span`/`.grid_align` build
 their piece and merge facts onto its root node (`TreeOps::set_grid_facts`): no wrapper node.
 
-**Ordering rule (the `.grow` rule, same class):** grid modifiers go LAST in the chain. They mark
+**Ordering rule (the `.grow` rule, same class):** grid modifiers go last in the chain. They mark
 the node the grid will see; a later wrapper (`.padding`, `.frame`) would hide the facts:
 `label("x").padding(4.0).grid_span(2)` works, `label("x").grid_span(2).padding(4.0)` does not.
 A `day lint` rule (wrapper node carrying non-default `GridFacts` under a grid) is a candidate
@@ -151,18 +152,19 @@ future lazy grid (§7).
   stacks have; a per-column minimum-width floor is a possible v2.
 - Cell gestures/ids work as usual (cells are ordinary pieces); rows have no identity.
 
-## 7. Deferred (deliberately)
+## 7. Deferred
 
-- **Per-column alignment via any cell** (SwiftUI `gridColumnAlignment`): position-dependent
-  spooky action; per-cell `.grid_align` written in the row covers real layouts.
+- **Per-column alignment via any cell** (SwiftUI `gridColumnAlignment`): one cell would change
+  the alignment of every cell in its column, an effect at a distance; per-cell `.grid_align`
+  written in the row covers real layouts.
 - **`gridCellUnsizedAxes`**: a third sizing mode whose interaction with flexible columns is
   subtle; `grow_w`/`grow_h` + spans cover the motivating cases.
 - **`UnitPoint` cell anchors, numeric layout priority / weighted distribution, explicit column
   templates**.
 - **Baseline alignment between cells.** Day does have a baseline concept now
   ([docs/baseline.md](baseline.md)) and rows use it, but a grid would have to reconcile one baseline per row
-  across cells that span rows — `grid_row(..).align(VAlign::FirstBaseline)` therefore reads as
+  across cells that span rows, so `grid_row(..).align(VAlign::FirstBaseline)` reads as
   `Center` for the moment.
-- **Lazy/adaptive grid** — SwiftUI itself splits eager `Grid` from `LazyVGrid`. A future
+- **Lazy/adaptive grid.** SwiftUI itself splits eager `Grid` from `LazyVGrid`. A future
   `vgrid(grid_items, …)` needs viewport-driven realization (the `list` machinery), a different
   data flow entirely; nothing in this design blocks it.

@@ -33,7 +33,7 @@ field fills its row, so constrain it with `.frame(w, h)` if you need a fixed wid
 
 The signal is a controlled input (§4.4): a per-build **echo guard** remembers the last value that
 arrived from the native control so `bind_seeded` does not patch that same value straight back (which
-some toolkits would re-emit as a change → a feedback loop). The programmatic-sync side is additionally
+some toolkits would re-emit as a change, causing a feedback loop). The programmatic-sync side is additionally
 guarded per backend (see the table).
 
 ## Per-backend native realization
@@ -57,7 +57,7 @@ code. The change plumbing per backend:
   `src/lib-xaml-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim wraps a `QLineEdit`
   (`setClearButtonEnabled(true)` + a leading `edit-find` action) and wraps programmatic `setText` in
   `blockSignals`. The XAML shim boxes its `AutoSuggestBox` into a Day handle through the
-  `day_xaml_box` / `day_xaml_unbox` seam that `day-xaml-sys` exports, the same mechanism the
+  `day_xaml_box` / `day_xaml_unbox` functions that `day-xaml-sys` exports, the same mechanism the
   picker/media XAML shims use, so a piece never touches day-xaml's private handle wrapper.
 - **Android**: carries its own Java factory
   (`android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`), folded into the app's Gradle build

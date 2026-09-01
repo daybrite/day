@@ -10,19 +10,20 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day's core widget vocabulary is small on purpose, and the framework expects to be extended. The
-extension model has one organizing idea: **an extension is an ordinary Cargo crate**. You depend
+Day keeps its core widget vocabulary small and expects to be extended. The extension model has
+one organizing idea: **an extension is an ordinary Cargo crate**. You depend
 on it, it registers itself, and the build tooling aggregates whatever native baggage it brings.
 Nothing about extending Day involves forking it or editing generated projects.
 
-There are three tiers, ordered by cost. Use the cheapest one that works, and note that when you
-only need to *configure* an existing widget rather than build a new one, that's not an extension
-tier at all but a [tweak](/docs/tweaks), which is cheaper than everything below.
+There are three tiers, ordered by cost; pick the lowest one that covers your need. When you
+only need to *configure* an existing widget, use a [tweak](/docs/tweaks), which is cheaper than
+every tier below and is not an extension at all.
 
 ## Tier 0: composite pieces, pure composition
 
-A composite piece is Rust code that arranges existing Pieces. No native code, no registration;
-it works on every target automatically because it bottoms out in Pieces that already do.
+A composite piece is Rust code that arranges existing Pieces. It needs no native code or
+registration, and it works on every target automatically because it bottoms out in Pieces that
+already do.
 
 ```rust
 pub fn rating(value: Signal<usize>) -> Rating { … }   // a row of tappable canvas stars
@@ -72,18 +73,18 @@ day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
 ```
 
 The `renderer!` macro places an entry in the backend's link-time registry (a `linkme`
-distributed slice), so the app that depends on your crate gets your renderer with zero
-configuration: no plugin manifest, no runtime discovery, and an app that *doesn't* enable your
-crate's feature for a given toolkit compiles none of it.
+distributed slice), so the app that depends on your crate gets your renderer through the linker
+alone, with no manifest to write, and an app that doesn't enable your crate's feature for a given
+toolkit compiles none of it.
 
 Two companion macros round this out. `day_pieces::glue_modules!(appkit, gtk, …)` declares the
-feature-and-target-gated module index binding each `lib-<toolkit>.rs` — the one-liner every
-shipped piece uses instead of a hand-written `#[cfg]`/`#[path]` block. And web is the one
+feature-and-target-gated module index binding each `lib-<toolkit>.rs`, the one-liner every
+shipped piece uses in place of a hand-written `#[cfg]`/`#[path]` block. Web is the one
 exception to link-time registration: `linkme` has no wasm32 implementation, so a web-dom
 renderer uses `dom_renderer!` and registers at runtime from the piece's own constructor.
 
-A piece that implements some toolkits and not others renders a labeled placeholder on the rest
-(visible rather than a crash), so coverage can grow toolkit by toolkit. The
+A piece that implements some toolkits and not others renders a labeled placeholder on the rest,
+so the gap is visible and coverage can grow toolkit by toolkit. The
 [native piece tutorial](/docs/tutorial-native-piece) walks through all six desktop/mobile
 backends for one control.
 
@@ -131,8 +132,8 @@ registration, adapted to Cargo.)
 
 The original design reserved a third tier for pieces implemented in a platform's own language
 (Swift, Kotlin, C++) behind **dayffi**, a versioned C ABI. It was never built, and it is now
-retired: none of it turned out to be needed (DESIGN.md §15.3). What shipped instead is the
-ladder above — tweaks, then composition, then Rust renderers — plus **native halves**: the
+retired, because none of it turned out to be needed (DESIGN.md §15.3). Day shipped the ladder
+above (tweaks, then composition, then Rust renderers) plus **native halves**: the
 crate ships its own Swift, Java, ArkTS, or C++ sources, declares them under
 `[package.metadata.day.<platform>]`, and its tier-1 Rust renderer adopts the views those shims
 create.
@@ -154,7 +155,7 @@ renderer, or registry (plus the same Cargo-metadata mechanism when Android needs
 ```text
 does it render anything?
  ├─ no  → part
- └─ yes → is it an EXISTING widget that just needs configuring?
+ └─ yes → is it an existing widget that just needs configuring?
            ├─ yes → tweak                      (/docs/tweaks — cheapest of all)
            └─ no  → can you build it from existing pieces (incl. canvas)?
                      ├─ yes → composite piece  (works everywhere, free)
@@ -164,6 +165,6 @@ does it render anything?
                                    └─ Kotlin → Compose leg not built yet
 ```
 
-Whichever tier, the packaging story is identical: publish a crate. Consumers add one dependency
-line, and localization files and assets inside your crate aggregate into their app under your
-package's namespace.
+Whichever tier you pick, you package it the same way, by publishing a crate. Consumers add one
+dependency line, and localization files and assets inside your crate aggregate into their app
+under your package's namespace.

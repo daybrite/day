@@ -19,8 +19,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 ## The typed path
 
-Write a normal SwiftPM package inside the app repo — its own module, its own transitive SwiftPM
-dependencies, testable with `swift test`:
+Write a normal SwiftPM package inside the app repo. It has its own module and its own transitive
+SwiftPM dependencies, and `swift test` tests it:
 
 ```
 swiftui/
@@ -54,13 +54,14 @@ pub mod swiftui {
 Every top-level `public struct … : View` in the package whose first `public init` uses only
 supported parameter types gets two generated halves:
 
-- **Rust** (day-build, from the app's `build.rs` — works on every host, no Swift toolchain): a
+- **Rust** (day-build, from the app's `build.rs`; it works on every host without a Swift
+  toolchain): a
   constructor mirroring the Swift identity verbatim, `crate::swiftui::Hello(name)`. Each argument
   takes a constant, a `Signal`, or a closure (`IntoReactive`); reactive arguments re-invoke the
   view's initializer live, and SwiftUI diffing preserves the view's `@State` across those updates.
 - **Swift glue** (`day build`, staged into the generated `DayPieces` module): an
   `@objc(DayView_MyViews_Hello)` provider that decodes the JSON params and calls the real
-  initializer — so a mis-parsed signature fails the Swift compile with a readable error instead of
+  initializer, so a mis-parsed signature fails the Swift compile with a readable error instead of
   shipping.
 
 A renamed view or a changed parameter is then a Rust compile error at the call site, the same
@@ -74,10 +75,10 @@ with a build warning naming the reason:
 
 - a **top-level**, **non-generic** `public struct` whose declaration's inheritance clause names
   `View` (conformance added in an `extension` is not seen);
-- its **first `public init`** — the exported constructor, by contract, so a reordered overload
-  cannot silently switch what the binding calls — has parameters typed only `String`, `Int`,
-  `Double`, or `Bool`, with no default values, no attributes (`@ViewBuilder`), no `inout`, and no
-  variadics.
+- its **first `public init`** (the exported constructor, by contract, so a reordered overload
+  cannot silently switch what the binding calls) has parameters typed only `String`, `Int`,
+  `Double`, or `Bool`, each a plain parameter without a default value, an attribute
+  (`@ViewBuilder`), `inout`, or a variadic marker.
 
 Exported view names must be unique across the app's packages (`crate::swiftui` is flat).
 Views the subset cannot express are still embeddable through the provider escape hatch below.
@@ -107,10 +108,10 @@ swiftui("hello")                  // resolves @objc(DayView_hello) — dots beco
 
 `DaySwiftUIProvider` and the `DayView_<name>` lookup live in the shim `day-piece-swiftui` stages
 into the generated `DayPieces` module (`apple/swift/DaySwiftUI.swift`). Resolution is one
-`NSClassFromString` call — no registration API, no startup scan — and the same string contract a
-future Jetpack Compose leg can satisfy with `Class.forName`, which is why the naming carries no
+`NSClassFromString` call at mount, so nothing registers at startup. The same string contract lets
+a future Jetpack Compose leg resolve with `Class.forName`, which is why the naming carries no
 Apple-specific structure. `day_piece_swiftui::support()` reports `Native` only on macos-appkit and
-ios-uikit; gate UI on it (never on backend-feature `cfg`s — `target_os = "macos"` also covers
+ios-uikit; gate UI on it (never on backend-feature `cfg`s: `target_os = "macos"` also covers
 macos-gtk and macos-qt, which have no AppKit view tree).
 
 ## Params and `@State`
@@ -125,7 +126,7 @@ not different types per branch).
 
 ## State retention across unmount (`.state_key`)
 
-Leaving the piece's branch — a tab switch, a `when()` going false, a page navigation — disposes
+Leaving the piece's branch (a tab switch, a `when()` going false, a page navigation) disposes
 the node, and with it the hosting view and every `@State` it owned; the next mount starts fresh.
 When the view should hold its state instead, give it a key:
 
@@ -134,12 +135,12 @@ crate::swiftui::BenchGridsView(…)     // or swiftui("…")
     .state_key("bench-grids")
 ```
 
-The shim retains the hosting view under the key and hands the SAME instance back on the next
-mount — sliders, scroll positions, `@State`/`@StateObject` all survive — after re-invoking the
+The shim retains the hosting view under the key and hands the same instance back on the next
+mount (sliders, scroll positions, and `@State`/`@StateObject` all survive) after re-invoking the
 provider's body with that mount's params, so data that changed while unmounted (a locale switch)
-still lands. Two rules:
+still lands. Keys have these constraints:
 
-- **At most one live instance per key.** Two mounted pieces sharing a key would fight over one
+- **At most one live instance per key.** Two mounted pieces sharing a key would contend for one
   native view; give each usage its own key.
 - **A key pins its hosting view for the app's lifetime.** Meant for the handful of views that
   want persistence (a settings pane, a benchmark tab), not per-row list content.
@@ -156,15 +157,15 @@ tabs keep their parameters across tab switches and page revisits alike.
 | ownership | shim returns +1-retained; Rust takes it as `Retained<NSView>` | same, `Retained<UIView>` |
 | build | generated SwiftPM package at `build/day/macos/DayPieces`, referenced by the `platform/macos/` scaffold and built by its xcodebuild | the existing `build/day/ios/DayPieces` package, built by the scaffold's xcodebuild |
 
-The hosting view is an ordinary native handle to Day: framed, measured (`fill_measure` — it fills
+The hosting view is an ordinary native handle to Day: framed, measured (`fill_measure`: it fills
 what it is offered; constrain with `.frame`), snapshotted, and disposed like a built-in.
-`UIHostingController` is intentionally not parented to a view controller, so UIKit appearance
+`UIHostingController` is not parented to a view controller in v1, so UIKit appearance
 callbacks do not fire inside the hosted view.
 
 ### The macOS leg
 
 macos-appkit builds through the `platform/macos/DayApp.xcodeproj` host project (DESIGN §16.5),
-whose pbxproj references the generated `DayPieces` package directly — the same shape as iOS.
+whose pbxproj references the generated `DayPieces` package directly, the same shape as iOS.
 `day build` regenerates `build/day/macos/DayPieces` (staged shims + generated glue +
 `Package.swift`) before every xcodebuild, touching only files whose bytes changed so the Swift
 incremental build stays warm, and writes it even when nothing contributes Swift: the pbxproj's
@@ -172,12 +173,12 @@ package reference must resolve, so an empty package still exists. xcodebuild com
 the package with the Runner; the installed binary uses the OS Swift dylibs (macOS ≥ 10.14.4).
 `day pack -p macos-appkit` needs nothing extra: the Swift code is inside the bundle's binary and
 codesign/notarize are unchanged. (The retired bare-cargo build carried its own `swift build`
-prepass and `cargo rustc` link — gone with that path, 2026-08.)
+prepass and `cargo rustc` link; both went with that path in 2026-08.)
 
 ### Deployment floors
 
 The generated packages default to iOS 15 / macOS 13; a contribution's `platform` key raises the
-floor (the max across contributions wins). On iOS the raise must also reach the app target —
+floor (the max across contributions wins). On iOS the raise must also reach the app target;
 `day build` passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild, which covers the app and
 the SwiftPM package targets without editing the scaffold. Command-line settings do not apply to
 ⌘R builds inside Xcode, so for IDE work raise `IPHONEOS_DEPLOYMENT_TARGET` in
@@ -186,15 +187,15 @@ the SwiftPM package targets without editing the scaffold. Command-line settings 
 ## Failure behavior
 
 A missing provider class, or params the generated `Decodable` cannot decode, hosts a visible
-`⟨name?⟩` error view (and logs the expected class name) — never a crash, never a silent blank,
-matching Day's placeholder-leaf convention. Views the scan skips are reported as build warnings
-with the reason.
+`⟨name?⟩` error view (and logs the expected class name), matching Day's placeholder-leaf
+convention, so the failure shows on screen instead of crashing or rendering blank. Views the scan
+skips are reported as build warnings with the reason.
 
-Troubleshooting "provider not found": (1) the class name — it must be exactly
-`@objc(DayView_<name>)`, dots mapped to underscores; (2) the staging — the file's dir or package
-must be declared under `[package.metadata.day.ios/macos]`; (3) stripping — on macOS the
-`-force_load` covers this, on iOS check `nm <app> | grep DayView_` and file a bug if the class is
-absent.
+If a provider is not found, check three things: (1) the class name must be exactly
+`@objc(DayView_<name>)`, with dots mapped to underscores; (2) the file's dir or package must be
+declared under `[package.metadata.day.ios/macos]`; (3) stripping, where on macOS the
+`-force_load` covers this, and on iOS you check `nm <app> | grep DayView_` and file a bug if the
+class is absent.
 
 ## v1 limits
 
@@ -202,12 +203,12 @@ absent.
 - Params flow one way (Rust → Swift). Events out of the hosted view need the escape hatch plus an
   app-defined channel for now.
 - The scan takes the first public init only, and no default arguments.
-- No `UIViewController` parenting on iOS.
+- The hosted view has no `UIViewController` parent on iOS.
 - `.state_key` retention has no eviction: each key holds its hosting view until the app exits.
 
 ## Compose (planned, not built)
 
-Nothing here is Apple-shaped by accident: the `DayView_<name>` naming, the JSON params channel,
-and the piece front-end all transfer to an android-mdc leg hosting Jetpack Compose views
+The `DayView_<name>` naming, the JSON params channel, and the piece front-end all transfer to an
+android-mdc leg hosting Jetpack Compose views
 (`Class.forName` + `AbstractComposeView`). That leg does not exist yet; this note records the
 constraint that it must stay possible.

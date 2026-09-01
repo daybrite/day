@@ -89,7 +89,7 @@ The build has two halves with different tool needs:
    component of the public SDK, which downloads without a Huawei account. Point `OHOS_NDK_HOME` at it.
    `hdc` (for install/launch) sits in the SDK's sibling `toolchains/` dir; `day` finds it there
    automatically, or you can put it on `PATH`.
-2. **Packaging the `.hap`** needs `hvigor` + `ohpm`. These are NOT in the public SDK; they ship with
+2. **Packaging the `.hap`** needs `hvigor` + `ohpm`. These are not in the public SDK; they ship with
    the OpenHarmony **command-line-tools** (bundled with DevEco Studio, or the Linux-x64 bundle at
    `repo.huaweicloud.com/harmonyos/ohpm/<ver>/`). Put their `bin/` on `PATH`.
 
@@ -141,7 +141,7 @@ hdc shell aa start -b dev.daybrite.showcase -a EntryAbility
 
 (Opening `platform/harmony/` in DevEco Studio and pressing Run ▶ with auto-sign does all of 2–4 too.)
 
-In practice you don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
+You don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
 
 ```bash
@@ -164,8 +164,8 @@ all connected devices, building whatever ABIs they need.
 
 ## Status
 
-`harmony-arkui` is a **first-class, non-experimental** target. Pieces render as real ArkUI Native
-NodeAPI nodes, verified on the Oniro emulator:
+`harmony-arkui` is a maintained target. Pieces render as ArkUI Native NodeAPI nodes, verified
+on the Oniro emulator:
 
 - **Nav shell** (`selector`) — a scrollable list that pushes detail pages.
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
@@ -223,7 +223,7 @@ TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmo
    `-device virtio-gpu-pci` with `-display none`: a headless framebuffer the apps can foreground on
    and `uitest screenCap` can capture.
 
-Declaring the app OpenHarmony (via the compileSdkType patch) is what lets it install: the emulator
+Declaring the app OpenHarmony (via the compileSdkType patch) lets it install: the emulator
 enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign
 verification for OpenHarmony-declared apps on devices without Huawei OH code signing.
 
@@ -239,30 +239,31 @@ must be a **host-platform** SDK: hvigor spawns its native tools (`syscap_tool`, 
 `es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
 `spawn ENOEXEC` at `SyscapTransform`.
 
-Six facts the scripted channel depends on (each was a silent total failure until diagnosed):
+The scripted channel depends on the following facts, each of which was a silent total failure
+until diagnosed:
 
-- **The default hdc forward port 55555 is often already occupied** — GitHub's macOS runners hold
-  it, and so do some local services; QEMU then dies instantly ("Could not set up host
+- **The default hdc forward port 55555 is often already occupied**, since GitHub's macOS runners
+  hold it, and so do some local services; QEMU then dies instantly ("Could not set up host
   forwarding rule"), leaving no reachable target and blank screenshot sets. `day ohos emulator
   launch` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
   finds it), and exports `DAY_OHOS_TARGET` through `GITHUB_ENV` so later CI steps target it too.
 
-- **`ohos.permission.INTERNET` is required for the LOOPBACK dayscript socket** — without it in
+- **`ohos.permission.INTERNET` is required for the loopback dayscript socket**; without it in
   `module.json5` the engine's `TcpListener::bind` fails silently and no scripted run can ever
   connect (the Android manifest needs the same permission for the same reason).
 - **The ability is a singleton**: a second `aa start` foregrounds the existing process, whose
-  engine (if any) listens on the PREVIOUS run's port. `day launch` force-stops the bundle
+  engine (if any) listens on the previous run's port. `day launch` force-stops the bundle
   before every start so each run's engine params take effect.
 - **The keyguard returns whenever the display sleeps** and `aa start` is refused while it shows;
   `day launch` wakes + swipe-unlocks (uitest + uinput) around every launch retry.
-- **ArkUI Navigation diffs the old and new stacks by destination name** — a same-turn pop+push
+- **ArkUI Navigation diffs the old and new stacks by destination name**, so a same-turn pop+push
   of two destinations with the same generic name collapses into "page is not change — don't
-  transition", leaving the OLD (already-detached, empty) destination on screen for good. The
+  transition", leaving the old (already-detached, empty) destination on screen for good. The
   host page pushes each Day page under a unique `day-page-<key>` name, and dayscript-driven
   sessions push/pop **without** transition animation (ArkUI drops an operation issued across an
   in-flight transition; scripted bursts outrun one).
-- **`uitest screenCap` trails the UI tree** — the TCG guest's RenderService composites a pushed
-  page seconds after it has laid out, so a shot taken right after a navigation shows the
+- **`uitest screenCap` trails the UI tree**, because the TCG guest's RenderService composites a
+  pushed page seconds after it has laid out, so a shot taken right after a navigation shows the
   previous page. The runner waits for `ui_idle` (the pushed destination's first area report),
   sleeps `DAY_OHOS_SHOT_SETTLE_MS` (default 4000) before capturing, and re-captures when a shot
   comes out byte-identical to the run's previous one (the first push after app start can lag

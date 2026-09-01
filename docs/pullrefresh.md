@@ -63,26 +63,26 @@ The piece's node accepts `Event::ToggleChanged` as a synthetic begin/end, so the
 
 | Target | Tier | Mechanism |
 |---|---|---|
-| ios-uikit | **Native** | A passthrough host view attaches a `UIRefreshControl` to the descendant `UIScrollView` when day mounts it (`didAddSubview:` — covers `list()`: a `UITableView` IS a `UIScrollView`). |
+| ios-uikit | **Native** | A passthrough host view attaches a `UIRefreshControl` to the descendant `UIScrollView` when day mounts it (`didAddSubview:`, which covers `list()`, since a `UITableView` is a `UIScrollView`). |
 | android-mdc | **Native** | This crate's `DayPullRefresh extends SwipeRefreshLayout` (AndroidX, added to Gradle via `[package.metadata.day.android]`); the scrollable mounts directly into it. |
 | harmony-arkui | **Native** | `ARKUI_NODE_REFRESH` created by this crate's own NDK shim; pull events via `NODE_REFRESH_ON_REFRESH`, indicator via `NODE_REFRESH_REFRESHING`. |
-| macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from ELASTIC scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
-| gtk | Emulated | Overlay + `GtkScrolledWindow::edge-overshot` (Top) — GTK's purpose-built overshoot signal. |
-| qt / xaml | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; XAML's `RefreshContainer` is touch-only — native tier is a follow-up for touch devices). |
+| macos-appkit | Emulated | Spinner-chip overlay + the pull gesture from elastic scrolling: the clip view's bounds go negative during a trackpad rubber-band; crossing ~60 pt begins a refresh. |
+| gtk | Emulated | Overlay + `GtkScrolledWindow::edge-overshot` (Top), GTK's purpose-built overshoot signal. |
+| qt / xaml | Emulated | Overlay + programmatic only (desktop Qt has no elastic overscroll; XAML's `RefreshContainer` is touch-only; a native tier is a follow-up for touch devices). |
 | mock | Emulated | Composition path; drives the piece's tests via `ToggleChanged`. |
 
 The emulated indicator is the built-in `spinner()` in a floating chip, shown while `refreshing`:
-pure composition (`when` + overlay container), no per-backend code.
+pure composition (`when` + overlay container) with no per-backend code.
 
 ## The container-piece recipe
 
-On the wrap-based platforms the realized node IS the native refresh wrapper and day mounts the
+On the wrap-based platforms the realized node is the native refresh wrapper and day mounts the
 scrollable **as a Day child inside it**; see [docs/extending.md](extending.md) ("Container pieces") for the
 `cx.native` + fill-layout + `cx.under` recipe this piece establishes.
 
 ## Limits
 
-- The wrapped child should BE the scrollable (`scroll(...)` or `list(...)`). If the child's
+- The wrapped child should be the scrollable (`scroll(...)` or `list(...)`). If the child's
   realized view isn't scroll-backed, the pull gesture is inert (the overlay + programmatic path
   still work).
 - iOS: a programmatic begin shows the control's spinner without auto-revealing it (UIKit's

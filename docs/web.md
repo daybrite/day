@@ -11,11 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Web: the web-dom backend (§9)
 
 Day's ninth backend renders in a browser. The DOM is the toolkit: a Day `button` is a real
-`<button>`, a slider is `<input type="range">`, a dialog is `<dialog>`: semantic HTML plus ARIA,
-never widgets painted onto a canvas. The backend is `toolkits/day-dom`, the target name is
+`<button>`, a slider is `<input type="range">`, and a dialog is `<dialog>`, all semantic HTML
+plus ARIA. The backend is `toolkits/day-dom`, the target name is
 `web-dom`, and the feature is `dom`. Status: **experimental**
 ([Tier 3](https://daybrite.dev/docs/platforms#support-tiers)); the capability subset below is
-real, and gaps are listed, not hidden.
+implemented, and the known gaps are listed at the end.
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -28,7 +28,7 @@ The Rust target is the whole toolchain for a UI-only app. An app with the `persi
 also needs a C compiler with a wasm32 backend: day-persistence's web driver compiles the bundled
 SQLite to WebAssembly ([docs/persistence.md](persistence.md)). Open-source LLVM clang has the
 backend; Apple's Xcode clang does not, so `day build` probes plain `clang`, then Homebrew LLVM
-(`brew install llvm` is enough — the keg is probed directly, no PATH setup), then
+(`brew install llvm` is enough; the keg is probed directly, without any PATH setup), then
 [swift.org toolchains](https://www.swift.org/install/), and exports the first wasm-capable one
 as `CC_wasm32_unknown_unknown` for the build. Setting that variable (or `CC`) yourself picks
 the compiler, honored as-is. `day doctor --toolkit dom` reports which compiler the build will
@@ -36,9 +36,10 @@ use.
 
 ## Architecture
 
-The same trampoline shape as the Android and HarmonyOS backends, with JavaScript in place of
-Java/C. A plain ES-module shim owns every real DOM call; Rust holds numeric element ids and
-crosses the boundary with `extern "C"` imports. No wasm-bindgen, no bundler, no npm.
+It has the same trampoline shape as the Android and HarmonyOS backends, with JavaScript in place
+of Java/C. A plain ES-module shim owns every real DOM call; Rust holds numeric element ids and
+crosses the boundary with `extern "C"` imports. The shim is plain JavaScript that the page loads
+directly, so the toolchain is rustc alone.
 
 ```
 index.html                        app.wasm (Rust cdylib)
@@ -53,7 +54,7 @@ index.html                        app.wasm (Rust cdylib)
   layout stays day-core-owned `position:absolute` frames, with two exceptions below.
 - **`crates/day-cli/resources/web/`** — `shim.js` (the DOM half: element table, event dispatch,
   canvas replay, dialogs, text measurement, the day-sql channel), `day-sql-worker.js` (SQLite
-  over OPFS for day-persistence — [docs/persistence.md](persistence.md)), `day.css` (control
+  over OPFS for day-persistence, [docs/persistence.md](persistence.md)), `day.css` (control
   styling, light + dark via CSS
   custom properties), `index.html` (fetches and instantiates the wasm). The trio lives in the CLI
   rather than beside the toolkit because `day build` embeds it with `include_str!` (so an
@@ -62,22 +63,22 @@ index.html                        app.wasm (Rust cdylib)
 - **`day::day_start_web!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
   instantiated. Emits nothing off wasm32, like the other entry macros (§17.4). Apps reach it
   through `day::day_start!("App Name", root)`, which expands to this macro and to every other
-  platform's entry — one line in `lib.rs` covering all of them.
+  platform's entry, one line in `lib.rs` covering all of them.
 - **Logging** ([docs/logging.md](logging.md)) — `day_dom_log(level, ptr, len)` is the console
-  seam: `error!`/`warn!`/`info!`/`debug!` land on the matching `console.*` method, so devtools'
+  bridge: `error!`/`warn!`/`info!`/`debug!` land on the matching `console.*` method, so devtools'
   level filter applies to Day's output. This is the only sink a page has, because std's stdout on
-  `wasm32-unknown-unknown` accepts bytes and DROPS them — a bare `println!` in a Day app is
-  silent here, which is why the framework and the scaffold both log through `log`. Hand-rolled
-  rather than `console_log`/`wasm-logger`: both need `web-sys`, and one of them `wasm-bindgen`,
-  which this backend does without.
+  `wasm32-unknown-unknown` accepts bytes and drops them, so a bare `println!` in a Day app is
+  silent here, which is why the framework and the scaffold both log through `log`. It is
+  hand-rolled rather than `console_log`/`wasm-logger`, because both need `web-sys` and one of
+  them `wasm-bindgen`, which this backend does not use.
 
-Two places where the browser, not day-core, owns geometry:
+The browser owns geometry in two places:
 
 - **Scrolling** maps to `overflow:auto` containers (DP-8's hybrid, as proposed): day children
   are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
 - **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
   size back through a ResizeObserver as `Event::FrameChanged`, the DayNavPage contract
-  ([docs/navigation.md](navigation.md)). Split-vs-stack for a `selector(Sidebar)` is decided ONCE at launch from
+  ([docs/navigation.md](navigation.md)). Split-vs-stack for a `selector(Sidebar)` is decided once at launch from
   the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize; a
   window widened past the threshold stays a stack until reload.
 
@@ -88,7 +89,7 @@ patches.
 **Typography is rem-based, scaled per form factor.** The style ramp (`font_rem` in day-dom) is the
 Apple text-style ratios with `Body` = 1, and a step becomes a length through one multiplier:
 day-dom emits `calc(<step>rem * var(--day-text-scale))`, so day.css's `--day-text-scale` is the only
-place the size is decided — nothing in Rust to keep in step with it. Controls (and the picker
+place the size is decided, with nothing in Rust to keep in step with it. Controls (and the picker
 measurer, `measure_str`) take the same expression at `Body`, as on every native toolkit, where a
 button's caption and a label are one size.
 
@@ -96,23 +97,23 @@ The scale differs by pointer type, because a point means different things on a d
 
 | | `--day-text-scale` | `1rem` | `Body` |
 |---|---|---|---|
-| desktop (default) | 0.8125 = 13/16 | the browser's font-size preference (`html` is pinned at `font-size: 100%`) | 13px — one CSS pixel per Apple point, the size AppKit gives a desktop app |
+| desktop (default) | 0.8125 = 13/16 | the browser's font-size preference (`html` is pinned at `font-size: 100%`) | 13px, one CSS pixel per Apple point, the size AppKit gives a desktop app |
 | `pointer: coarse` | 1 | `-apple-system-body`, which on iOS *is* Dynamic Type | 17px on iOS and tracking "Larger Text"; 16px where the keyword is unknown (Android has no Dynamic Type to track) |
 
 Before 2026-08 one scale of 1.12 served both, which put a desktop browser on the phone ramp: `Body`
 came out at 17.9px and the whole UI read about a third larger than the same app on macOS. Nothing
-may redefine `html`'s size outside that media query — 1rem *is* the reader's preference, which is
-how web-dom delivers the accessibility text scaling [docs/text.md](text.md) promises, and page zoom applies on
+may redefine `html`'s size outside that media query, because 1rem *is* the reader's preference;
+that is how web-dom delivers the accessibility text scaling [docs/text.md](text.md) promises, and page zoom applies on
 top of it. Chrome metrics that wrap text (the sidebar row's padding and icon) are in `em` for the
 same reason: they follow the font instead of pinning a desktop row size onto a touch device.
 
-Canvas draw-op text is the deliberate exception: it renders in the app's coordinate space, where
+Canvas draw-op text is the exception, because it renders in the app's coordinate space, where
 scaling text but not geometry would corrupt drawings.
 
 ## The main loop, timers, and `day::sleep`
 
-The browser owns the loop; wasm has one thread and no `std::thread`, no `Instant`, no
-`SystemTime`, no process environment. Three seams make Day code run unchanged:
+The browser owns the loop; wasm has one thread, and `std::thread`, `Instant`, `SystemTime`,
+and the process environment are all absent. Three substitutions make Day code run unchanged:
 
 - `Platform::post` queues a microtask; `Platform::request_frame` is `requestAnimationFrame`
   (animation clocks tick per frame, and CSS transitions carry opacity/transform/color).
@@ -161,26 +162,26 @@ paths (`#mail/inbox/msg-42` works like `navigate("mail/inbox/msg-42")`).
 
 `day launch -p web-dom --script …` and `day drive` work like every other target. The engine
 runs inside the wasm; the page opens a WebSocket to the dev server's `/dayscript`, and the
-server bridges it to the plain TCP protocol the runner already speaks (§14.5): one script,
-every platform. Differences from native, all internal:
+server bridges it to the plain TCP protocol the runner already speaks (§14.5), so one script
+runs on every platform. The differences from native are all internal:
 
 - The engine's implicit bounded wait reschedules through the delayed poster instead of
   sleeping (one thread, no `Instant`); replies arrive when the step settles.
 - The in-page `screenshot` step reports unsupported (a DOM cannot rasterize itself), so the
   runner captures through the **`DAY_WEB_DRIVER`** browser instead: set it to a command line
-  (e.g. `node $(day web driver)` — the CLI's bundled headless-Playwright driver) and `day` spawns it as
+  (e.g. `node $(day web driver)`, the CLI's bundled headless-Playwright driver) and `day` spawns it as
   `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
-  the control port. The bundled driver opens a throwaway PERSISTENT profile
+  the control port. The bundled driver opens a throwaway persistent profile
   (`launchPersistentContext`), not Playwright's default ephemeral context; WebKit gives an
   ephemeral session no OPFS backing, and day-part-fs is OPFS-only ([docs/fs.md](fs.md)). Its engine
   comes from `DAY_WEB_DRIVER_BROWSER` (`webkit` default, `chromium`, `firefox`): macOS WebKit
-  has OPFS and is the local default, but Playwright's LINUX WebKit (the WPE port) ships no
+  has OPFS and is the local default, but Playwright's Linux WebKit (the WPE port) ships no
   OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
   runs fail at the first screenshot; interactive `day launch` never needs one.
 - Storage lasts exactly as long as the launch: the driver's profile is created for the run
   and removed at quit, and the loopback origin's port changes per launch, so no OPFS state
   survives from one `day launch` to the next the way a native target's on-disk store does.
-  Scripts that hand state onward — a seed script before a walkthrough — must ride one
+  Scripts that hand state onward (a seed script before a walkthrough) must ride one
   launch as repeated `--script` flags, which runs them in sequence against the same
   instance (and is how the CI workflow runs a multi-script `scripts:` input on web-dom).
 - Steps for capabilities the web lacks (the native file pickers) carry
@@ -204,13 +205,13 @@ Known gaps, in rough order of interest:
   standard placeholder. `day-piece-media` now renders a real `<video>` ([docs/media.md](media.md)): the browser
   supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
   `.muted(true)`. `day-piece-colorpicker` renders `<input type="color">`
-  ([docs/colorpicker.md](colorpicker.md)) — the browser's own picker, which on desktop IS the system
+  ([docs/colorpicker.md](colorpicker.md)), the browser's own picker, which on desktop is the system
   chooser; its value is 8-bit `#rrggbb`, and the `alpha` attribute is set but honored only where the
-  browser has shipped it. The seam is open for the others: day-dom exposes a RUNTIME renderer registry
+  browser has shipped it. The registry is open for the others: day-dom exposes a runtime renderer registry
   (`day_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
   use, because `#[distributed_slice]` does not compile for wasm32; a piece self-registers from its
   own constructor. A piece that needs to report back asks for the shim's listeners with
-  `Dom::listen(&handle, listen::INPUT)` — the same wiring the built-in kinds get, exposed for
+  `Dom::listen(&handle, listen::INPUT)`, the same wiring the built-in kinds get, exposed for
   pieces alongside `element` / `set_attr` / `call`. Parts other than prefs, http, sensors and location (battery,
   clipboard, haptics…) answer their unavailable tier. `day-part-sensors` streams the accelerometer
   and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; [docs/sensors.md](sensors.md)),
@@ -224,19 +225,19 @@ Known gaps, in rough order of interest:
 
 ## Serving and static hosting
 
-The dist directory is self-contained static files: no server component, no build tooling on
-the host. The only reason `day launch` runs a server at all is that browsers refuse to
-instantiate wasm from `file:` URLs; any static host works, including GitHub Pages. One
+The dist directory is self-contained static files that any host can serve as they are. The only
+reason `day launch` runs a server at all is that browsers refuse to instantiate wasm from `file:`
+URLs; any static host works, including GitHub Pages. One
 capability rides on response headers rather than files: the day-sql worker's
 SharedArrayBuffer channel ([docs/persistence.md](persistence.md)) exists only on
 cross-origin-isolated pages, so `day launch` sends `Cross-Origin-Opener-Policy: same-origin`
 and `Cross-Origin-Embedder-Policy: require-corp`, and a static host must send the same two
 headers for file databases to persist. A host that cannot set headers (GitHub Pages) still
-serves the app — day-persistence reports `durable: false` there and file opens refuse
+serves the app; day-persistence reports `durable: false` there and file opens refuse
 loudly, while everything else works unchanged. The shim
 prefers `instantiateStreaming` (which requires the `application/wasm` MIME type) and falls
 back to a buffered instantiate on hosts that serve wasm as something else, so a plain
-directory listing on a dumb server still boots. Every asset reference in the dist is
+directory listing on a minimal server still boots. Every asset reference in the dist is
 **relative** (`day.css`, `./shim.js`, `app.wasm`, `assets/…`), so it serves correctly from a
 subpath (a project-Pages URL like `https://<user>.github.io/<repo>/`) with no `<base>` tag.
 
@@ -283,7 +284,7 @@ and every other HTTP call work anywhere.
 
 The showcase publishes its own web-dom build at
 **`https://showcase.daybrite.dev/webapp/`**, from the `daybrite/Day-Showcase` repository's CI
-rather than from this one — the app is a separate project, and daybrite.dev links to it. This
+rather than from this one, because the app is a separate project; daybrite.dev links to it. This
 repository's `web-dom` job still builds the dist and drives the walkthrough against it, as the wasm
 build test; it just does not publish the result. To see a local build, `day build --platform web-dom`
 in a showcase checkout and serve `build/day/cargo/web-dom/*/dist/`, or `day launch -p web-dom`.
@@ -292,6 +293,6 @@ Query parameters the host page reads: `theme=light|dark` (else the OS preference
 `locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`.
 A browser sandbox has no process environment, so `day launch --env K=V` forwards each pair
 as `?K=V` (percent-encoded) and `day::env("K")` reads it back through the shim. The shim's
-page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz` — the last carries the
+page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`; the last carries the
 browser's IANA zone for day-part-timezone, overridable as `?tz=` for testing) and the reserved
 `theme`, `locale`, and `dayscript` names shadow same-named app keys; avoid those as env names.

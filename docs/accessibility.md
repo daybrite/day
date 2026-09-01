@@ -14,9 +14,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > decorative/identifier) now reaches native accessibility APIs on all five backends, and the
 > dayscript `a11y_audit` step verifies it in-process on the apple targets.
 
-Native-first: every interactive Piece is a native control, so screen readers, switch access, and
-keyboard navigation work at the level the platform provides before Day adds anything. Day's job is
-to (a) not break it, (b) provide one uniform annotation API, (c) verify it landed.
+Every interactive Piece is a native control, so screen readers, switch access, and keyboard
+navigation work at the level the platform provides before Day adds anything. Day's job is to keep
+that working, provide one uniform annotation API, and verify it landed.
 
 ## Authoring
 

@@ -13,8 +13,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: implemented** as `store/` in a project, `day store init` / `day store stage`, the
 > `day::lint::store-*` checks, and a `distribute` job in day's own CI. What is verified: the
 > generated trees parse under real fastlane 2.237 (`fastlane lanes` lists the lanes), the artifact
-> globs resolve to `build/day/dist`, and the lint rules are unit-tested. What is NOT verified: an
-> actual upload — no App Store Connect or Play credentials exist yet, so no listing has been
+> globs resolve to `build/day/dist`, and the lint rules are unit-tested. What is not verified: an
+> actual upload; no App Store Connect or Play credentials exist yet, so no listing has been
 > accepted by either store. Screenshots are not generated or uploaded yet.
 
 An app's store listing is localized user-facing copy, so it lives beside the app's other localized
@@ -26,21 +26,21 @@ store/<locale>/name.txt   # one directory per locale, keyed the same as resource
 ```
 
 `day store stage` turns that into the two layouts the stores expect, under
-`build/day/store/<target>/` — generated, never checked in, because a build must not write into a
+`build/day/store/<target>/`, generated and never checked in, because a build must not write into a
 tracked directory ([§20.3](../DESIGN.md#203-reproducible-build-verification)).
 
-## Why one source and not two fastlane trees
+## Why one source feeds both stores
 
 The stores agree on almost nothing. They disagree about what the fields are called
 (`name` / `title`, `description` / `full_description`), how long they may be (release notes: 4000
 characters on the App Store, **500** on Play), which fields exist at all (keywords are Apple-only,
-the short description is Google-only), and how a locale is spelled — `zh-CN` here is `zh-Hans` to
+the short description is Google-only), and how a locale is spelled: `zh-CN` here is `zh-Hans` to
 Apple and `zh-CN` to Google, and Google still writes Hebrew with the pre-1989 code `iw`.
 
 Authoring two parallel trees means writing the 4000-character description twice, in two spellings of
 every locale, and keeping them in step by hand. That is the same argument that makes `resource/` fan
 out to per-platform resources instead of being authored per platform, and `[permissions]` fan out to
-manifests and plists. One source, generated outward.
+manifests and plists. One source is generated outward.
 
 ## The fields
 
@@ -62,9 +62,9 @@ checked against 500 rather than 4000. Play's changelog is keyed by versionCode, 
 `changelogs/<[app] build>.txt`.
 
 `store/app.toml` carries what is not localized: `bundle-id`, `apple-category`, `copyright`,
-`contact-email`, `review-notes`. There is deliberately no Play category — Google Play's category is
-set in the Play Console and `supply` cannot write it, so recording one here would be a value that
-silently never reached the store.
+`contact-email`, `review-notes`. There is no Play category, because Google Play's category is
+set in the Play Console and `supply` cannot write it; recording one here would be a value that
+never reached the store.
 
 ## What `day lint` checks
 
@@ -73,13 +73,13 @@ silently never reached the store.
 | `store-missing` | the app ships to a store and has no `store/` at all |
 | `store-missing-locale` | the app is translated into a locale the listing is not |
 | `store-orphan-locale` | a listing for a locale the app is not translated into |
-| `store-unmapped-locale` | a tag neither store knows — an upload under it is dropped silently |
+| `store-unmapped-locale` | a tag neither store knows; an upload under it is dropped silently |
 | `store-default-locale` | no listing in the app's default locale, which both stores require |
 | `store-missing-field` | a field the targeted store rejects the listing without |
 | `store-too-long` | over the limit, naming the store whose limit binds |
 | `store-placeholder` | still the scaffold's `TODO`, which would upload verbatim |
 | `store-bad-url` | a URL field that is not `https://` |
-| `store-bad-keywords` | spaces after the commas — Apple counts them against the 100 |
+| `store-bad-keywords` | spaces after the commas; Apple counts them against the 100 |
 | `store-whitespace` | leading or trailing whitespace |
 
 The locale checks compare against `resource/locales/`, so the listing and the app cannot drift
@@ -123,7 +123,7 @@ Credentials come from the environment, never from a checked-in file:
 | App Store | `DAY_ASC_KEY_ID`, `DAY_ASC_ISSUER`, `DAY_ASC_KEY` (path to the `.p8`) |
 | Google Play | `SUPPLY_JSON_KEY` (path to the service-account JSON) |
 
-Note that the Fastfile finds the artifact by glob rather than by name: `day pack` names an unsigned
+The Fastfile finds the artifact by glob rather than by name: `day pack` names an unsigned
 device build `<stem>-ios-uikit-unsigned.ipa` and a signed one `<stem>-ios-uikit.ipa`, and a lane
 that hardcoded either would break on the day signing was configured. `<stem>` is the app's own
 (`[app] artifact` in `Day.toml`, else a slug of its title), which is the other reason for the glob.
@@ -132,7 +132,7 @@ that hardcoded either would break on the day signing was configured. `<stem>` is
 
 day's own workflow has a `distribute` job (tag pushes only) that stages the listing, then runs
 `validate` followed by `upload`. Each leg **skips itself** when its credentials are absent rather
-than failing — the secrets are optional by design, so a fork still gets a green run — and always
+than failing (the secrets are optional, so a fork still gets a green run), and always
 uploads the generated tree as an artifact, so what was sent to the store is reviewable after the
 fact.
 
@@ -141,7 +141,8 @@ fact.
 - **Screenshots:** both stores take them per locale and per device class, and the dayscript
   walkthrough already captures exactly that shape (`build/day/screenshots/<target>/<variant>/`).
   Wiring those into `fastlane/screenshots/` is the obvious next step and is not built.
-- **Review information** beyond notes and an email: no demo account fields, no phone number.
+- **Review information** beyond notes and an email: the demo-account fields and the phone number
+  are missing.
 - **Age rating / content declarations**, which both stores require before a first submission and
   neither accepts from `supply`/`deliver` in full.
 - **No listing has been uploaded.** Everything here is verified up to the point where a credential

@@ -30,7 +30,7 @@ cd my-app
 day launch -p android-mdc         # installs on every connected device/emulator, right ABI each
 ```
 
-Android Studio works as well — the Gradle scaffold calls back (`day gradle-backend build`) so a
+Android Studio works as well; the Gradle scaffold calls back (`day gradle-backend build`) so a
 build started from the IDE rebuilds the Rust `.so` the same way.
 
 ```sh
@@ -44,13 +44,13 @@ day pack -p android-mdc           # release-signed .apk + .aab
   pages; selector items marked [`.immersive()`](/docs/navigation) keep the floating scrim bar,
   other pages get an opaque `colorPrimary` bar. Content pads itself by `day::safe_area()`
   ([Layout](/docs/layout)). Without the opt-in, everything renders below the bars as before.
-- **Accessibility annotations are partial** — see [the current limits](/docs/accessibility#current-limits).
+- **Accessibility annotations are partial**; see [the current limits](/docs/accessibility#current-limits).
 - **Process death is a cold start** unless your app persists its own state. Day does not restore a
   navigation stack for you.
 - **No map piece.** `day-piece-map` has no Android arm (it would pull in a Google Play services
   dependency); it renders as a placeholder.
 - **Runtime permissions are yours to request.** Day generates the manifest entries from your
-  `[permissions]` table, and `day-part-permissions` performs the request — but Android's
+  `[permissions]` table, and `day-part-permissions` performs the request, but Android's
   never-asked and permanently-denied states are indistinguishable without app-side persistence.
 - **The emulator leg in CI tolerates flakes**; the build itself gates hard.
 
@@ -58,8 +58,8 @@ day pack -p android-mdc           # release-signed .apk + .aab
 
 The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
 
-Both Material Components and framework `android.widget` classes are in play, and which one you get
-matters — the table is explicit about it.
+Both Material Components and framework `android.widget` classes are in play; the table names
+which one each piece uses.
 
 | Day piece | Android class |
 |---|---|
@@ -101,6 +101,6 @@ matters — the table is explicit about it.
 **Text measurement** is Android's own `View.measure` with an `AT_MOST` width probe, so `TextView`
 does the actual line breaking.
 
-**Gradle dependencies** come from the pieces you use — Lottie and SwipeRefreshLayout each
+**Gradle dependencies** come from the pieces you use: Lottie and SwipeRefreshLayout each
 contribute their own coordinate, and Day merges them into the app module. You never edit Gradle
 per piece.

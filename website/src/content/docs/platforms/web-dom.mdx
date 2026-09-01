@@ -12,16 +12,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`web-dom` compiles your app to WebAssembly and drives **real DOM elements** — a `<button>` is the
-browser's button, `<dialog>` its modal, `<input type="range">` its slider. There is no canvas
-renderer and no reimplemented widget set. It needs no wasm-bindgen, bundler, or npm step; the
-output is a plain ES module plus a `.wasm` file.
+`web-dom` compiles your app to WebAssembly and drives **real DOM elements**: a `<button>` is the
+browser's button, `<dialog>` its modal, and `<input type="range">` its slider, so the browser lays
+out and draws every control. The build runs through cargo and the `day` CLI, and the output is a
+plain ES module plus a `.wasm` file.
 
 <PlatformShots platform="web-dom" shots={["home", "controls", "canvas", "text"]} />
 
 > [!WARNING] Experimental ([Tier 3](/docs/platforms#support-tiers))
 > This is the newest backend and the
-> only one whose gaps are large enough to plan around. The list below is exhaustive as of today;
+> only one whose gaps are large enough to plan around. The list below is complete as of today;
 > the [live Showcase build](https://showcase.daybrite.dev/webapp/) the app deploys from its own
 > repository is this backend running, so you can judge it yourself.
 
@@ -37,7 +37,7 @@ cd my-app
 day launch -p web-dom     # builds, serves over loopback, opens your browser
 ```
 
-`day build -p web-dom` writes a self-contained `dist/` — `index.html`, the shim, the stylesheet,
+`day build -p web-dom` writes a self-contained `dist/`: `index.html`, the shim, the stylesheet,
 your `.wasm`, and any bundled images and fonts. **There is no `day pack` for web**, because
 `dist/` is already the deployable artifact: copy it to any static host.
 
@@ -51,21 +51,23 @@ sensors require a secure context.
 
 ## Caveats and special considerations
 
-This backend is a subset. What's missing:
+This backend covers a subset of what the native backends do. The following are missing or
+reduced:
 
 - **Most external pieces have no web arm** and render a `⟨kind⟩` placeholder: web view, map,
   Lottie, search field, combo box, date and time pickers, activity indicator, remote image. Only
-  `media()` is implemented, as a `<video>`. Pull-to-refresh has no web arm either — its spinner
+  `media()` is implemented, as a `<video>`. Pull-to-refresh has no web arm either: its spinner
   overlay and programmatic refresh work, but there is no pull gesture.
-- **`media()` needs a URL, not a file path**, and autoplay only starts when muted — both are
-  browser policy, not Day's.
-- **No file dialogs**, no context menus, and no application menu bar. `cover()` presents as a
-  fixed-position overlay (no transition, programmatic dismissal only).
-- **The list is emulated**, not recycled: one element per row, created eagerly. Long lists cost.
+- **`media()` needs a URL, not a file path**, and autoplay only starts when muted; both are
+  browser policy.
+- **File dialogs, context menus, and the application menu bar have no web arm.** `cover()`
+  presents as a fixed-position overlay (no transition, programmatic dismissal only).
+- **The list is emulated**: one element per row, created eagerly, with no recycling, so long
+  lists cost memory and time.
 - **Split navigation is decided once at launch** from the viewport width (≥ 700px), and does not
   re-evaluate on resize.
-- **Accessibility is thinner here than on native.** Semantics come from the real tags Day uses —
-  `<button>`, `<input>`, `<select>`, `<progress>`, `<textarea>`, `<dialog>` — and `aria-label`
+- **Accessibility is thinner here than on native.** Semantics come from the real tags Day uses
+  (`<button>`, `<input>`, `<select>`, `<progress>`, `<textarea>`, `<dialog>`), and `aria-label`
   flows through from `.a11y(...)`. But where a piece realizes as a `<div>` (label, tabs, navigation,
   the nav menu, segmented and radio pickers, the spinner), there is **no compensating ARIA role**.
   If you are shipping to an accessibility requirement, use a native target or budget for tweaks.
@@ -75,7 +77,7 @@ This backend is a subset. What's missing:
   (no cross-browser API).
 - **Piece registration differs.** `linkme`'s distributed slices don't compile for wasm, so web-dom
   keeps a runtime registry and a piece registers itself from its constructor. A piece needs an
-  explicit `dom` feature to appear at all — see [extending](/docs/extending).
+  explicit `dom` feature to appear at all; see [extending](/docs/extending).
 
 ## What each piece becomes
 
@@ -99,17 +101,17 @@ The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is t
 | `list` | scrolling `<div>` of absolutely positioned cells |
 | `nav` / `nav_menu` / `tabs` | `<div>`s (with `<button>`s for the tab strip and back control) |
 | `image` | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) |
-| `vector` | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG — day-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
+| `vector` | [`<img>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/img) loading the staged SVG: day-dom requests `.svg` for names in the page's vector list, and the browser renders it at display size; the raster PNG sits beside it as the older-host fallback |
 | `canvas` | [`<canvas>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/canvas), display list replayed on a 2-D context |
 | dialogs / alerts / prompts | [`<dialog>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/dialog) via `showModal()` |
 | *external* `media()` | [`<video>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video) |
 
 **Text measurement** uses a hidden offscreen element with the same computed font and a `max-width`,
-measured with `getBoundingClientRect()` — real browser wrapping metrics, cached per element and
-width.
+measured with `getBoundingClientRect()`, which gives real browser wrapping metrics, cached per
+element and width.
 
 **Typography is rem-based**: `Font::Body` is 1rem, the other styles follow the Apple text-style
-ratios, and custom point sizes map to `pt/16` rem — so if you raise your browser's default font
+ratios, and custom point sizes map to `pt/16` rem, so if you raise your browser's default font
 size, every Day font scales with it (canvas drawing text excepted, since it lives in the app's
 coordinate space).
 

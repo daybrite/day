@@ -46,9 +46,9 @@ loader (`fileURLWithPath` vs `URLWithString`, `QUrl::fromUserInput`, `Uri.parse`
 loads when the view is created. (Web is the exception on paths: a page can only fetch a URL, so
 web-dom needs an http(s) one; see the Web note below.) Transport is imperative with `Copy` `Trigger`s: `.play()` /
 `.pause()` resume and pause, and `.load()` re-reads the bound url and plays it (track switching). There
-is deliberately no two-way "playing" binding in v1: native chrome mutates play state behind
-day's back, so state readback would need an observer rail on every backend (the `Event::custom`
-channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()`/`.a11y()`/
+is no two-way "playing" binding in v1, because native chrome mutates play state without day's
+involvement, so state readback would need an observer rail on every backend (the `Event::custom`
+channel is where it would be added later). `Media` implements `Piece`, so `.id()`/`.a11y()`/
 `.frame()` chain via `Decorate`. It's a growing leaf (`Flex { grow_w, grow_h }` +
 `day_pieces::fill_measure`), so put it last in a `column` and it fills the remaining space.
 
@@ -81,8 +81,8 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
   `cargo:warning`, so the app still builds/launches/screenshots. `QVideoWidget` ships no chrome,
   so `.controls` is a no-op on Qt; use the triggers. Linux CI wants `qt6-multimedia-dev`; Homebrew's
   Qt ships the AVFoundation `darwinmediaplugin`, so playback works on macos-qt out of the box.
-- **Android**: framework `VideoView` + `MediaController` (native seek/play chrome for free), with
-  zero Gradle dependencies; `looping`/`muted` are applied in `onPrepared` (they live on the underlying
+- **Android**: framework `VideoView` + `MediaController` (native seek/play chrome), with
+  no Gradle dependencies; `looping`/`muted` are applied in `onPrepared` (they live on the underlying
   `MediaPlayer`, which re-prepares on every load). The piece contributes
   `android.permission.INTERNET` via `[package.metadata.day.android] permissions`. Known VideoView
   limits: audio-only files play against a black surface; androidx.media3/ExoPlayer (HLS/DASH,
@@ -92,13 +92,13 @@ channel is the seam if it's wanted later). `Media` implements `Piece`, so `.id()
   Homebrew's gtk4 ships no media backend, so on macos-gtk GtkVideo shows its own "no media backend"
   error UI (the same caveat class as webkitgtk, a Linux-first backend). GtkVideo's overlay controls
   cannot be hidden, so `.controls(false)` is a no-op.
-- **Web**: the one backend where the player is *less* work than the native arms. The browser
-  supplies transport chrome, buffering, scrubbing, fullscreen, captions and picture-in-picture, and
-  every `MediaProps` field is an attribute of the same name. Two web-only rules follow from browser
-  policy, not from day: a **file path will not load** (a page can only fetch a URL, and a
-  cross-origin one needs CORS; serve it from the app's own `dist/` or use a permissive remote), and
-  **autoplay with sound is blocked** until the user has interacted with the page, so `.muted(true)`
-  is what makes `.autoplay(true)` actually start. Registration is the other difference: `linkme`'s
+- **Web**: the browser supplies most of the player. It provides transport chrome, buffering,
+  scrubbing, fullscreen, captions, and picture-in-picture, and every `MediaProps` field is an
+  attribute of the same name. Browser policy adds two web-only rules. A **file path will not
+  load** (a page can only fetch a URL, and a cross-origin one needs CORS; serve it from the app's
+  own `dist/` or use a permissive remote), and **autoplay with sound is blocked** until the user
+  has interacted with the page, so `.autoplay(true)` starts only with `.muted(true)`.
+  Registration is the other difference: `linkme`'s
   `#[distributed_slice]` does not compile for `wasm32-unknown-unknown`, so day-dom keeps a runtime
   registry (`day_dom::register_renderer`) and `media()` registers the renderer on its first call,
   which always precedes the node being realized.

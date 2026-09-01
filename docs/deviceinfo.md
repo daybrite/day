@@ -1,6 +1,6 @@
 ---
 title: "Device info"
-description: "Device identity — OS, version, model, form factor — as a headless capability crate."
+description: "Device identity (OS, version, model, form factor) as a headless capability crate."
 ---
 
 <!--
@@ -67,7 +67,8 @@ Every field is best-effort; each platform reports what it can:
   off the main thread the OS fields fall back to `"Unknown"`. `is_simulator` is definitive from the `sim`
   target ABI, with the simulator's `SIMULATOR_UDID` / `SIMULATOR_DEVICE_NAME` env as a fallback.
 - **Windows**: `RtlGetVersion` (ntdll) reports the actual running version (`major.minor.build`), unlike
-  the Win32 `GetVersionExW`, which lies for Windows 8+ without a compatibility manifest. `system_name` is
+  the Win32 `GetVersionExW`, which reports an older version on Windows 8+ without a compatibility
+  manifest. `system_name` is
   `"Windows"`; `model` is a best-effort `"PC"` (there is no cheap portable hardware-model source). Written
   blind, like the rest of the xaml backend.
 - **Linux**: no single portable API is guaranteed, so the crate reads the two files every desktop distro

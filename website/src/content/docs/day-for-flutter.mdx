@@ -27,7 +27,7 @@ system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere i
 | Flutter | Day |
 |---|---|
 | `Widget` subclass | a plain function returning a Piece |
-| `StatelessWidget` | any function — there's no class hierarchy |
+| `StatelessWidget` | any function; Day has no widget class hierarchy |
 | `StatefulWidget` + `State` | a function that creates `Signal`s |
 | `setState(() { … })` | `count.set(…)` / `count.update(…)` |
 | `build()` re-runs on change | nothing re-runs; one binding patches one widget |
@@ -38,7 +38,7 @@ system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere i
 | `pubspec.yaml` | `Cargo.toml` (package) + `Day.toml` (app manifest) |
 | assets section in pubspec | the `resource/` directory, by convention |
 | ARB files + `intl` codegen | Fluent `.ftl` files + generated `res::str` functions |
-| platform channels | [parts](/docs/parts) — direct FFI, no message codec |
+| platform channels | [parts](/docs/parts), called over direct FFI |
 | `flutter build apk` / `ipa` | `day pack -p android-mdc` / `-p ios-uikit` |
 | hot reload | none — `day relaunch` rebuilds and relaunches |
 
@@ -90,16 +90,17 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-The Day version needs no `State` class and no `BuildContext`, and `const` optimization doesn't
-exist because nothing rebuilds. `Signal<T>` is `Copy`, so moving it
-into two closures needs no `.clone()` ceremony. The function runs once; after that, updates flow
-through the signal graph. [Reactivity](/docs/reactivity) explains the machinery.
+The Day version keeps its state in a `Signal` inside a plain function, so there is no `State`
+class or `BuildContext`, and `const` optimization has no equivalent because nothing rebuilds.
+`Signal<T>` is `Copy`, so it moves into both closures without a `.clone()`. The function runs
+once; after that, updates flow through the signal graph. [Reactivity](/docs/reactivity)
+explains the machinery.
 
 ## Form controls: controllers vs. two-way signals
 
-Flutter's text input wants a `TextEditingController` you create, dispose, and listen to. Day's
-input Pieces bind a signal directly: edits write the signal, signal writes update the widget,
-with no echo loop.
+Flutter's text input takes a `TextEditingController` you create, dispose, and listen to. Day's
+input Pieces bind a signal directly: edits write the signal, and signal writes update the
+widget. Each write carries its origin, so the two directions don't echo.
 
 <Compare lhs="Flutter">
 
@@ -148,8 +149,8 @@ column((
 
 </Compare>
 
-There is nothing to dispose: every signal and handler belongs to a scope, and when the page that
-created it goes away, the scope tears it all down.
+Every signal and handler belongs to a scope, and when the page that created it goes away, the
+scope tears it all down, so there is nothing to dispose.
 
 ## Lists
 
@@ -185,15 +186,15 @@ list(
 
 </Compare>
 
-The second argument is the key function: the job Flutter's `Key`s do, made mandatory so
-reconciliation is always by identity, never by index.
+The second argument is the key function, the job Flutter's `Key`s do. It is required, so
+reconciliation is always by identity.
 
 ## Navigation
 
 go_router declares routes as configuration. Day models navigation as state you own: a `selector`
 projects a one-of-N signal onto a sidebar or tabs, and a `stack` projects a `Vec<String>` path
 onto the platform's push/pop container (`UINavigationController` on iOS, the Android back
-stack), so the edge-swipe and back button come from the OS, not a package.
+stack), so the edge-swipe and back button come from the OS.
 
 <Compare lhs="Flutter">
 
@@ -238,10 +239,10 @@ enums that make the keys compile-checked.
 
 ## Adaptive layout
 
-Flutter hands you the window size and leaves the decision to you: read `MediaQuery.sizeOf`, pick
-your own breakpoints, and swap `NavigationRail` for `NavigationBar` yourself. Day buckets the
-window into [size classes](/docs/internal/size-classes) — Android's numbers, used verbatim on
-every backend — and a `selector` re-presents itself when the window crosses one.
+In Flutter you read `MediaQuery.sizeOf`, pick your own breakpoints, and swap `NavigationRail`
+for `NavigationBar` yourself. Day buckets the window into
+[size classes](/docs/internal/size-classes) (Android's numbers, used verbatim on every
+backend), and a `selector` re-presents itself when the window crosses one.
 
 <Compare lhs="Flutter">
 
@@ -272,9 +273,9 @@ let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
 
 </Compare>
 
-The class belongs to a window, not the app, so a second window in a different size gets its own
-answer — Stage Manager, Android split-screen, or a desktop window someone is dragging narrower as
-they read.
+The class is per window, so a second window in a different size gets its own answer, whether
+in Stage Manager, in Android split-screen, or in a desktop window someone is dragging narrower
+as they read.
 
 ## Styling: decoration vs. modifiers
 
@@ -316,9 +317,9 @@ column((
 Each framework limits styling differently. Flutter can restyle anything because it draws
 everything. Day styles
 content and space (fonts, colors, padding, backgrounds, canvas drawing) and leaves control
-chrome (slider tracks, focus rings, checkbox shapes) to the platform on purpose.
+chrome (slider tracks, focus rings, checkbox shapes) to the platform, so controls match the OS.
 [Styling](/docs/styling) lists what you can restyle and what stays native. If your design
-system needs every pixel identical on every platform, Flutter fights you less.
+system needs every pixel identical on every platform, Flutter is the better fit.
 
 ## State management
 
@@ -352,7 +353,7 @@ std::thread::spawn(move || {
 ```
 
 For async, `day::task` runs a future whose continuations land on the UI thread, so completions
-are plain signal writes: the role a `FutureBuilder` plays, without the builder.
+are plain signal writes; this covers the role a `FutureBuilder` plays.
 
 ## Package configuration
 
@@ -410,8 +411,8 @@ height = 640
 
 </Compare>
 
-The Day side has no assets or fonts list: files under `resource/` are found
-by convention, so adding an image never touches a manifest. Dependencies are ordinary Cargo
+Files under `resource/` are found by convention, so the Day side has no assets or fonts
+list, and adding an image never touches a manifest. Dependencies are ordinary Cargo
 dependencies; a package with native platform code (the equivalent of a plugin) declares its
 per-platform pieces in its own crate metadata, and `day build` folds them into the app's Xcode
 and Gradle builds. The app never re-declares plugin wiring. Day can also embed your own SwiftUI
@@ -454,8 +455,7 @@ you can't pass a string. Adding a language is adding a `resource/locales/<lang>/
 switching languages live re-renders every string. See [Localization](/docs/localization).
 
 Images and data files follow the same by-convention model, and land in each platform's native
-resource store (asset catalogs on iOS, `res/drawable-*` on Android, GResource on GTK) rather
-than a custom bundle format:
+resource store (asset catalogs on iOS, `res/drawable-*` on Android, GResource on GTK):
 
 ```rust
 image(res::images::wave)                       // resource/images/wave.png, wave@2x.png…
@@ -499,10 +499,10 @@ my-app/
 
 </Compare>
 
-The philosophy is the same; Day moves the configuration out: per-app settings live in
-`Day.toml`, so the scaffolds rarely change. Where
-Flutter uses flavors and per-platform folders for variant config, any `Day.toml` app property
-can be overridden per platform, per toolkit, or per target (most specific wins):
+The layout is the same, and Day moves per-app settings into `Day.toml`, so the host scaffolds
+rarely change. Where Flutter uses flavors and per-platform folders for variant config, any
+`Day.toml` app property can be overridden per platform, per toolkit, or per target (most
+specific wins):
 
 ```toml
 [app]
@@ -516,12 +516,12 @@ title = "Field Notes Mobile"        # only iOS sees this
 id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
-Desktop targets need no host project at all: the Cargo binary is the app. And there's a target
-Flutter doesn't have: `harmony-arkui` for HarmonyOS, plus `web-dom`, which compiles the same
-crate to WebAssembly driving real DOM elements rather than a canvas.
+On desktop targets the Cargo binary is the app, with no host project. Day also targets
+`harmony-arkui` for HarmonyOS and `web-dom`, which compiles the same crate to WebAssembly
+driving real DOM elements.
 
-Maturity differs by target, and the docs say so rather than implying parity: each `(OS,
-toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from [Tier
+Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
+today: each `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from [Tier
 1](/docs/platforms#support-tiers) (thoroughly tested, shipping apps) down to [Tier
 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
@@ -541,11 +541,10 @@ platform's own tools, and writes an installable artifact plus checksum to `build
 | Windows | `flutter build windows` (then package yourself) | `day pack -p windows-xaml` → `.msix` + NSIS installer |
 | doctor | `flutter doctor` | `day doctor` |
 
-Day has no hot reload. A change is a Rust rebuild
-(incremental, a few seconds on a warm build), but not sub-second stateful patching, and losing
-that you feel on every edit. The replacement loop is `day relaunch` to apply changes, plus
-[dayscript](/docs/dayscript) to script the app to the screen you're iterating on instead of
-clicking back to it.
+Day has no hot reload. A change is a Rust rebuild (incremental, a few seconds on a warm build)
+and a relaunch, and the app's state does not survive it the way it does under hot reload. The
+replacement loop is `day relaunch` to apply changes, plus [dayscript](/docs/dayscript) to
+script the app to the screen you're iterating on so you don't click back to it.
 
 Signing config lives in `Day.toml` with secrets as `${ENV_VAR}` references. A missing variable
 degrades that platform to a dev-signed artifact with a warning instead of failing the build.
@@ -556,4 +555,4 @@ degrades that platform to a dev-signed artifact with a warning instead of failin
 - [Getting started](/docs/getting-started) — install, scaffold, first launch.
 - [API tour](/docs/api-tour) — the whole authoring surface in one pass.
 - [Reactivity](/docs/reactivity) — signals in depth; the no-rebuild model.
-- [Why Day](/docs/benefits) — the frank comparison, including when to keep Flutter.
+- [Why Day](/docs/benefits) compares the approaches and says when to keep Flutter.

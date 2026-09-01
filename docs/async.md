@@ -25,7 +25,7 @@ contract for every `day-*` crate and the recommended shape for apps:
    or event handlers. `day::task(async { … })` is the one explicit bridge from a sync action
    into a sequential flow.
 2. **`day::task` is the only executor for signal-touching futures.** Its futures run on the UI
-   thread, so after an `.await` they read and write signals directly: no `Setter`, no
+   thread, so after an `.await` they read and write signals directly, without a `Setter` or
    marshaling. Futures that never touch signals may run anywhere.
 3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
    plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
@@ -61,8 +61,8 @@ completed-or-aborted. Task ids are never reused, so stale handles are harmless.
 
 ## `Resource` and `Load` (day::reactive)
 
-The declarative layer: a tracked `source` whose value feeds an async `fetcher`; the result
-lands in a `Signal<Load<T>>`.
+`Resource` is the declarative layer: a tracked `source` whose value feeds an async `fetcher`,
+and the result lands in a `Signal<Load<T>>`.
 
 ```rust
 use day::reactive::{Load, Resource};
@@ -84,9 +84,9 @@ stations.refetch();                                         // force, even if re
 - **Disposal is clean.** The owning scope's death aborts the in-flight fetch; a late write
   hits the disposed-signal no-op.
 - The fetcher runs on the main-loop executor, so it may read and write signals after its
-  awaits, and its source value needs no `Send` bound. §4.5's `MaybeSend` seam collapsed for
+  awaits, and its source value needs no `Send` bound. §4.5's `MaybeSend` bound was removed for
   this reason. See the DESIGN status note.
-- Namespacing: the prelude's `Resource` is the ASSET handle ([docs/resources.md](resources.md)), which
+- Namespacing: the prelude's `Resource` is the asset handle ([docs/resources.md](resources.md)), which
   predates this type; the async one lives at `day::reactive::Resource`, or depend on
   `day-reactive` directly.
 
@@ -101,13 +101,13 @@ its previous in-flight task on re-tap).
 - day-reactive reaches the executor through an installed hook (`install_spawner`, the
   poster/scheduler pattern) because day-core depends on day-reactive, not the reverse.
   `day_core::launch_with` wires it on every backend (including mock). The spawner returns an
-  abort closure that MUST be a no-op after completion: the spawner polls eagerly, so a
+  abort closure that must be a no-op after completion: the spawner polls eagerly, so a
   synchronously-ready fetcher finishes before `Resource` can store the abort.
 - `FetchFuture` ([docs/http.md](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
   its `Drop` runs the platform cancel. It has no executor dependency; any executor can await
   it, including a test's `block_on`.
 
-## Testing seams
+## Test hooks
 
 - **day-core executor tests**: install an inline poster once
   (`day_reactive::install_main_poster(|f| f())`) and every wake re-polls synchronously on the

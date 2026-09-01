@@ -62,7 +62,7 @@ the creating scope is disposed.
 
 On the web this matters most, because a reload is part of normal life there. The showcase's
 Controls page binds its counter, name field, volume, and toggle on wasm only, so a reload keeps
-them while native launches start fresh on purpose:
+them while native launches start fresh:
 
 ```rust
 #[cfg(target_arch = "wasm32")]
@@ -109,7 +109,7 @@ outcome into signals; the future resumes on the UI thread, so those are plain si
 
 `list(dir)` returns the entry names directly under `dir`, sorted, with directories suffixed
 `/`; `list("")` is the root, and a never-written directory lists as empty, the ordinary
-first-run state, not an error. Removing a missing path is `FsError::NotFound`.
+first-run state, with no error. Removing a missing path is `FsError::NotFound`.
 
 Where the files land:
 

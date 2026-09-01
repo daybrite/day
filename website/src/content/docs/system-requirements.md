@@ -12,14 +12,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Every Day app builds from one Rust toolchain plus the SDK of whichever platform you target. This
 page lists what each development host needs, and what each target adds on top. Where an official
-installer or guide exists, this page links to it rather than restating it — those instructions
-change, and theirs is the copy that stays current.
+installer or guide exists, this page links to it, because those instructions change and theirs
+is the copy that stays current.
 
 ## Check with day doctor
 
 `day doctor` probes this host and prints what is present, what is missing, and the command that
-fixes each miss. It is the source of truth; everything below is a written-out version of the same
-checks.
+fixes each miss. Everything below is a written-out version of the same checks.
 
 ```bash
 day doctor                       # every toolkit buildable on this host
@@ -28,8 +27,8 @@ day doctor --toolkit android     # focus one toolkit, with full setup instructio
 
 Bare `day doctor` treats a missing toolkit as a warning and exits 0, because you only need the
 toolkits you build for. Naming a toolkit with `--toolkit` turns its misses into errors and prints
-that toolkit's setup text. To go further and prove the answer, `day checkup` scaffolds a throwaway
-app and builds (and packs) it for each target — see [CLI & projects](/docs/cli).
+that toolkit's setup text. For a full check, `day checkup` scaffolds a throwaway app and builds
+(and packs) it for each target; see [CLI & projects](/docs/cli).
 
 ## Every host
 
@@ -60,7 +59,7 @@ Nothing else is universal. The rest depends on which targets you build.
 
 Apple's toolkits build only on macOS, and XAML only on Windows, because both compile against SDKs
 that ship with the host OS. GTK and Qt are portable, so a macOS or Windows machine can build and
-run them for development even though `linux-gtk` and `linux-qt` are what you ship.
+run them for development even though you ship `linux-gtk` and `linux-qt`.
 
 ## macOS
 
@@ -116,8 +115,8 @@ rustup default stable-msvc
 ```
 
 For `windows-qt` and `windows-gtk`, install [MSYS2](https://www.msys2.org) and build with a **GNU**
-Rust toolchain — MSVC cannot link MSYS2's import libraries, and the C++ shims are built from
-pkg-config's flags, which an online-installer Qt does not ship:
+Rust toolchain, because MSVC cannot link MSYS2's import libraries, and the C++ shims are built
+from pkg-config's flags, which an online-installer Qt does not ship:
 
 ```bash
 pacman -S mingw-w64-x86_64-qt6-base                              # Qt
@@ -132,9 +131,9 @@ On ARM64 hosts, use the CLANGARM64 environment's `mingw-w64-clang-aarch64-` pack
 
 ## Linux
 
-Day requires library versions rather than distro versions: **GTK 4.10 with libadwaita 1.5**, and
-**Qt 6**. Any distribution whose repositories carry those development packages works. Continuous
-integration builds on Ubuntu 24.04.
+Day's minimums are library versions: **GTK 4.10 with libadwaita 1.5**, and **Qt 6**. Any
+distribution whose repositories carry those development packages works. Continuous integration
+builds on Ubuntu 24.04.
 
 ```bash
 # Debian / Ubuntu
@@ -142,18 +141,18 @@ sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
 sudo apt install qt6-base-dev pkg-config                      # linux-qt
 ```
 
-The GTK minimums are real rather than cautious. Day builds navigation on `AdwNavigationView` and
+The GTK minimums are hard requirements. Day builds navigation on `AdwNavigationView` and
 `AdwOverlaySplitView`, and its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`;
-none of those exist in earlier releases. **Debian 12 ships GTK 4.8 and cannot build `linux-gtk`** —
+none of those exist in earlier releases. **Debian 12 ships GTK 4.8 and cannot build `linux-gtk`**;
 run `-p linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor`
-reports the installed versions against these minimums, so check it before a build rather than
-after one fails inside `gdk4-sys`.
+reports the installed versions against these minimums, so run it first; a version miss otherwise
+surfaces as a build failure inside `gdk4-sys`.
 
 Fedora, Arch, and openSUSE ship the same libraries under their own names; check
 [GTK's installation page](https://www.gtk.org/docs/installations/linux) and
 [Qt's](https://doc.qt.io/qt-6/linux.html) for the equivalents.
 
-`pkg-config` is how Day finds both toolkits, so it is required rather than convenient.
+Day finds both toolkits through `pkg-config`, so it is required.
 
 ## Optional: web views
 
@@ -166,14 +165,15 @@ is unaffected.
 | GTK | `libwebkitgtk-6.0-dev` (Debian/Ubuntu), `mingw-w64-x86_64-webkitgtk6` (MSYS2) | [WebKitGTK](https://webkitgtk.org) 6 |
 | Qt | `qt6-webengine-dev` (Debian/Ubuntu) | [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html) |
 
-Two gaps are worth knowing before you go looking for them. Homebrew's `webkitgtk` vends the GTK 3
+Two toolkit combinations have no web view package. Homebrew's `webkitgtk` vends the GTK 3
 API and has no bottle, so `macos-gtk` builds without a web view. MSYS2 ships no Qt 6 WebEngine, so
 `windows-qt` does too.
 
 ## Optional: packaging tools
 
-None of these are needed to build or run an app — only to produce an installable artifact with
-`day pack`. [Packaging & distribution](/docs/packaging) covers the formats themselves.
+These are needed only to produce an installable artifact with `day pack`; building and running
+an app needs none of them. [Packaging & distribution](/docs/packaging) covers the formats
+themselves.
 
 | Target | Tool | Install |
 |---|---|---|
@@ -195,9 +195,9 @@ the Android SDK, an NDK, and a JDK regardless of which host you are on.
    [command-line tools](https://developer.android.com/tools). Day finds it at the platform default
    (`~/Library/Android/sdk` on macOS, `%LOCALAPPDATA%\Android\Sdk` on Windows, `~/Android/Sdk` on
    Linux); set `ANDROID_HOME` if yours is elsewhere.
-2. Install an **NDK** — `sdkmanager --install "ndk;<version>"`, or Android Studio's SDK Manager
-   under *SDK Tools*. Day uses the newest one under `<sdk>/ndk` unless `ANDROID_NDK_HOME` says
-   otherwise.
+2. Install an **NDK** with `sdkmanager --install "ndk;<version>"`, or from Android Studio's SDK
+   Manager under *SDK Tools*. Day uses the newest one under `<sdk>/ndk` unless
+   `ANDROID_NDK_HOME` says otherwise.
 3. Install a **JDK, version 17 or newer** (`brew install openjdk@21`, or
    [Adoptium](https://adoptium.net)). The Gradle build uses `$JAVA_HOME`, so set it if the `java`
    on your `PATH` is older.
@@ -220,17 +220,17 @@ adb devices                 # confirm it is listed as `device`
 ```
 
 The `day` CLI has no Android-emulator command of its own; use Android Studio or the SDK's own
-tools. Match the emulator's ABI to an installed Rust target — an x86_64 system image needs
+tools. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
 `x86_64-linux-android`. Set `ANDROID_SERIAL` when more than one device or emulator is attached, so
 `day launch` and `day drive` act on the one you mean.
 
-A booted emulator is needed only to run an app, not to build one.
+A booted emulator is needed only to run an app.
 
 ## iOS
 
 `ios-uikit` builds on a macOS host with full Xcode, as covered above. Xcode installs one iOS
 simulator runtime; add others from Xcode's settings under *Platforms* (or *Components*, depending
-on your Xcode version) — Apple documents the flow in
+on your Xcode version); Apple documents the flow in
 [Installing additional simulator runtimes](https://developer.apple.com/documentation/xcode/installing-additional-simulator-runtimes).
 
 ```bash
@@ -265,8 +265,8 @@ finds it there or on `PATH`.
 
 ### Setting up an emulator
 
-Day runs the [Oniro](https://oniroproject.org) OpenHarmony emulator directly under QEMU, with no
-DevEco Studio and no account:
+Day runs the [Oniro](https://oniroproject.org) OpenHarmony emulator directly under QEMU, from a
+public image download:
 
 ```bash
 brew install qemu                        # or your distro's qemu-system-x86_64
@@ -285,14 +285,14 @@ render there. It works on a physical device.
 
 ## Web
 
-`web-dom` needs one thing:
+`web-dom` needs only the wasm target:
 
 ```bash
 rustup target add wasm32-unknown-unknown
 ```
 
 `day build -p web-dom` writes a self-contained static site, and `day launch -p web-dom` serves it
-and opens a browser. Rust is the whole toolchain; there is no Node.js or bundler step.
+and opens a browser. Rust and the `day` CLI are the entire toolchain.
 
 ## What your apps require
 

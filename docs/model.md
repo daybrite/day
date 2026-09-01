@@ -12,10 +12,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 `day-model` is a store whose writes wake only the readers of the field that changed. With one
 `Signal<Vec<Item>>`, every observer re-runs when any field of any element changes; `bind`'s
-equality gate keeps the native side precise, so what is wasted is compute — every row's closures
+equality gate keeps the native side precise, so the waste is compute; every row's closures
 re-run and re-clone on every keystroke, and the waste grows with the list. Here each
-(element, field) is its own dependency node: editing one item's name re-runs one closure, not a
-hundred.
+(element, field) is its own dependency node: editing one item's name re-runs one closure instead
+of every row's.
 
 Enable it with the `day` facade's `model` feature:
 
@@ -43,30 +43,30 @@ pub struct Item {
 ```
 
 The derive generates an `ItemFields` trait with one typed accessor per field, implemented for
-**every** `Source<Item>` — so `store.name()`, `store.elem(id).name()` and
-`item.address().city()` all work — plus `Identified` from the `#[obs(key)]` field and an
+**every** `Source<Item>` (so `store.name()`, `store.elem(id).name()` and
+`item.address().city()` all work), plus `Identified` from the `#[obs(key)]` field and an
 `Item::OBSERVED_FIELDS` list for tests. Import the trait (`use crate::model::ItemFields;`)
 where the accessors are called.
 
-Two rules are deliberate. The key is **always explicit**: a struct that happens to carry an `id`
+Two rules apply. The key is **always explicit**: a struct that happens to carry an `id`
 that is not its key would make inference a trap, and a keyed collection over a struct with no
 `#[obs(key)]` is a compile error naming `Identified`. And field ids come from field **names**,
 so no hand-assigned index can ever collide.
 
 ## Keys and ids
 
-A key field is an integer, a `Uuid`, or a `String` — whatever implements `AsKey`. Integers are
-their own path handle: no interner, no lock, no allocation, exactly what integer keys always
-cost. Wide keys intern process-globally to a handle on first use, so paths stay 12 bytes and
-every collection index stays `u64`-keyed; a handle, once minted, is stable for the process's
+A key field is an integer, a `Uuid`, or a `String`, whatever implements `AsKey`. Integers are
+their own path handle, so an integer key costs nothing beyond the value itself. Wide keys intern
+process-globally to a handle on first use, so paths stay 12 bytes and every collection index
+stays `u64`-keyed; a handle, once minted, is stable for the process's
 life (undo records and long-lived ids rely on it) and reverses through `Key::of_handle`. The
-interner is global rather than thread-local on purpose: a background transaction's reindex must
+interner is global rather than thread-local, because a background transaction's reindex must
 mint the same handles the main thread resolves. `interned_keys()` reports its size.
 
 **`Uuid` is the default to teach**, and `Uuid::now_v7()` the way to mint one: v7 is
 time-ordered, so inserts cluster at the B-tree's edge instead of scattering pages, ids sort by
-creation, and uniqueness holds across devices — which is what makes merge and sync tractable
-later. The one honest cost is that a v7 id carries its creation instant, so do not expose one
+creation, and uniqueness holds across devices, which makes merge and sync tractable
+later. The cost is that a v7 id carries its creation instant, so do not expose one
 where that matters. `day_model::Uuid` re-exports `uuid::Uuid`, so a model file needs no `uuid`
 dependency of its own. (Generation is native-target only until the web pipeline's entropy
 import lands; the type works everywhere, and a web build receives ids rather than minting
@@ -74,8 +74,8 @@ them.)
 
 `ModelId<M>` is the typed surface: `Copy`, 8 bytes, opaque, and what `elem`, query results,
 list slots and destinations all speak, so a wrong-model id is a compile error rather than a
-wrong row. Everything converts into one — a raw handle from `keys()`, an integer literal, a
-`Uuid`, a `&str` — so `store.elem(5)`, `store.elem(uuid)` and `store.elem(id)` are all just
+wrong row. Everything converts into one (a raw handle from `keys()`, an integer literal, a
+`Uuid`, a `&str`), so `store.elem(5)`, `store.elem(uuid)` and `store.elem(id)` are all
 `elem`. `ModelId::key()` recovers the real key for display or a deep link; `Debug` prints it.
 
 ```rust
@@ -94,7 +94,7 @@ assert_eq!(ids[0].key().as_uuid(), Some(id));
 
 Integer keys reserve the top bit (`1 << 63` and up is the interned-handle space); a debug build
 refuses a key at or above it rather than letting it alias a wide handle. Two rows sharing a key
-is an app bug the index cannot represent — the documented behavior is that the index resolves to
+is an app bug the index cannot represent; the documented behavior is that the index resolves to
 the last one, and under persistence the fold's upsert coalesces them to one stored row.
 
 ## The store
@@ -116,12 +116,12 @@ collection case:
 - `restructure(label, op, key, f)` — the structural write. The `Op` (`Insert`/`Delete`/`Move`)
   and the key ride the change log so a persistence layer can tell an insert from a delete; the
   UI, which only re-reads `keys()`, does not care.
-- `update(label, f)` — mutate the whole value; every reader wakes. The coarse hammer, right for
+- `update(label, f)` — mutate the whole value; every reader wakes. It is the coarse option, right for
   wholesale loads.
 
 ## Fields are bindings
 
-`it.name()` is a `Field`: `Copy`, itself a `Source` (so fields nest to any depth, precisely —
+`it.name()` is a `Field`: `Copy`, itself a `Source` (so fields nest to any depth, and
 a write to `address.city` does not wake a reader of `address.postcode`), and a `Binding`, so
 every two-way control takes it directly:
 
@@ -135,21 +135,21 @@ day_piece_datetime::date_picker(it.date().map(date_of, iso_of))   // converted, 
 `.map(to, from)` converts on both sides with plain `fn`s (an ISO string as a date, `#RRGGBB` as
 a `Color`) and the result is still `Copy` and still a binding. Reads track the **most specific
 path touched**: `field.with(f)` wakes only for that field, `source.with(f)` is the coarse
-subscription that wakes for anything under it. Precision is something a reader opts into by what
-it reads — writes never need to know.
+subscription that wakes for anything under it. A reader opts into precision by what it reads;
+writes never need to know.
 
 **Observation belongs to computations.** A tracked read inside a binding, memo or watch claims
-its path for exactly that computation's current run, released when it re-tracks or dies — the
-same per-run bookkeeping day-reactive keeps for its own sources. Outside any computation — a
-build seeding an initial value, an event handler — a tracked read subscribes nothing and
+its path for exactly that computation's current run, released when it re-tracks or dies, the
+same per-run bookkeeping day-reactive keeps for its own sources. Outside any computation (a
+build seeding an initial value, an event handler), a tracked read subscribes nothing and
 therefore claims nothing: no trigger is created at all, because nothing could ever wake through
 it.
 
 ## Driving a list
 
-A store IS a row source ([docs/list.md](list.md)): `list(store, row)` shows the collection in its own
-order, and `list(store.rows(projection), row)` orders it through a **key projection** — a
-tracked read of key ids that reads only the fields the ORDER depends on. The row builder
+A store is a row source ([docs/list.md](list.md)): `list(store, row)` shows the collection in its own
+order, and `list(store.rows(projection), row)` orders it through a **key projection**, a
+tracked read of key ids that reads only the fields the order depends on. The row builder
 receives a `ModelSlot`, itself a `Source`, so the derive's accessors hang off it and follow the
 row across cell recycling:
 
@@ -163,14 +163,13 @@ list(items.rows(model::ordered_keys), |slot: ModelSlot<Item>| {
 .on_select(|it: Elem<Item>| … )
 ```
 
-The costs land where they should: a field edit patches the one control showing it (no reload,
-no rebind, nothing cloned); a change the projection reads re-runs only the projection and
-reloads natively; and a cell scrolled across the whole collection leaves no claims behind —
+The costs land where they should: a field edit patches only the control showing it; a change the
+projection reads re-runs only the projection and reloads natively; and a cell scrolled across the whole collection leaves no claims behind.
 `day-pieces/tests/model_rows.rs` measures all three.
 
 ## Deleted rows
 
-Reading a field of a deleted row returns the field's `Default` — never a panic — and
+Reading a field of a deleted row returns the field's `Default` (never a panic), and
 `elem.exists()` is the **tracked** guard: it re-runs its reader when the row is deleted or comes
 back. A write to a gone row is a silent no-op and announces nothing.
 
@@ -181,7 +180,7 @@ when(move || it.exists(), page(it), gone_notice())
 ## Threads
 
 `Store` is `Send + Sync` (when `T` is). A worker edits through a transaction; the write lock is
-the atomicity — a reader never sees half of one:
+the atomicity, so a reader never sees half of one:
 
 ```rust
 let mut tx = store.transact();
@@ -196,7 +195,7 @@ components, re-established on arrival.
 
 ## The change log
 
-Every write announces `(path components, field label, operation)` — observable headlessly, with
+Every write announces `(path components, field label, operation)`, observable headlessly with
 no UI at all:
 
 ```rust
@@ -207,22 +206,22 @@ assert_eq!(log, vec!["name"]);
 ```
 
 `record_changes` yields the full `Change` records; `record_values` additionally captures each
-write's **prior and new value** (the form an undo unit needs — one clone per write while a
-consumer asks, nothing when none does). Where those are scoped test seams,
-`install_change_sink(f)` registers a STANDING consumer of every announced change until
-`remove_change_sink` — how [day-persistence](persistence.md)'s container watches the stores it
-loaded; `store.store_id()` names a store the way a change's first path component does.
+write's **prior and new value** (the form an undo unit needs: one clone per write while a
+consumer asks, nothing when none does). Those two are scoped test hooks;
+`install_change_sink(f)` registers a standing consumer of every announced change until
+`remove_change_sink`, which is how [day-persistence](persistence.md)'s container watches the
+stores it loaded; `store.store_id()` names a store the way a change's first path component does.
 `observed_paths()` and `interned_nodes()` expose the cost of observation itself, so a test can
 assert that triggers and interner slots are reclaimed when the scopes observing them die.
 
 Changes can also flow the other way. `with_author("name", f)` stamps every change announced
 inside `f` with an author tag (`None` is the user), so consumers can tell an import, a replay
-or a merge from the user's own edits — and decline their own echoes.
-`store.merge_row(key, value, &["field", …])` feeds one row's new value in from OUTSIDE the
-app's editing — another connection's committed write, an import — replacing the stored row and
+or a merge from the user's own edits, and decline their own echoes.
+`store.merge_row(key, value, &["field", …])` feeds one row's new value in from outside the
+app's editing (another connection's committed write, an import), replacing the stored row and
 announcing exactly the named fields, so their readers wake and nothing else does. An absent
-row announces nothing (an insert is `restructure`'s job); how a persistence container uses the
-pair is [persistence.md](persistence.md)'s external-changes section.
+row announces nothing (an insert is `restructure`'s job); [persistence.md](persistence.md)'s external-changes
+section describes how a persistence container uses the pair.
 
 ## Sessions and undo
 
@@ -240,20 +239,20 @@ has an undo system ([docs/persistence.md](persistence.md) has the platform table
 
 ### Transient UI state
 
-`stack.set_transient_context(capture, restore)` rides UI state that is not model data — a
-selection, a scroll position — along the history. `capture` runs as each unit seals and its
+`stack.set_transient_context(capture, restore)` rides UI state that is not model data (a
+selection, a scroll position) along the history. `capture` runs as each unit seals and its
 snapshot belongs to that point of history; undo restores the snapshot of the unit history
-lands ON (the previous unit's, or the base snapshot taken at install once the stack empties),
+lands on (the previous unit's, or the base snapshot taken at install once the stack empties),
 and redo restores the redone unit's own. Changing the UI state *between* units records
-nothing and restores nowhere: it is not history. That asymmetry is the point — select shape
+nothing and restores nowhere, because it is not history. The asymmetry matters: select shape
 A, move it, select shape B, move it, undo, and the selection lands on A, the state as it
-stood when A's move sealed, not on the transient switch to B. Snapshots live only in the
+stood when A's move sealed, rather than on the transient switch to B. Snapshots live only in the
 stack's memory, so nothing persists; and because `capture` runs at seal, a selection write
 made in the same turn as its operation (place-then-select) is part of that unit's snapshot.
-One rule for `restore`: write plain signals, never a watched store — a store write inside a
+`restore` must write plain signals, never a watched store, because a store write inside a
 restore would fork history from inside a replay.
 
-## Costs, and where they go
+## Costs
 
 - A trigger exists only where something looked; unobserved paths cost nothing to write.
 - Triggers are refcounted by observing scope and reclaimed when the last one dies; interner
@@ -264,6 +263,6 @@ restore would fork history from inside a replay.
   and once per nested struct, not per read.
 
 The scaffold's own editor (`day new`, `src/pages/detail.rs`) is the worked example: each form
-control binds a field accessor directly, and the model file's one coarse `watch` is the whole
-persistence story. When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
+control binds a field accessor directly, and the model file's one coarse `watch` handles all of
+its persistence. When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
 is the next step: the same store, loaded from and autosaved to SQLite.

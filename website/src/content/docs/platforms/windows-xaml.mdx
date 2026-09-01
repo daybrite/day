@@ -19,9 +19,9 @@ There is no framework runtime for your users to install.
 <PlatformShots platform="windows-xaml" shots={["home", "controls", "dates", "grid"]} />
 
 > [!QUESTION] Which XAML?
-> This backend uses **system XAML** — the `Windows.UI.Xaml` stack that ships
-> inside Windows 10 and 11 — not WinUI 3 / the Windows App SDK. That is why the target is named
-> `windows-xaml` rather than after a XAML release: many control names exist in both namespaces
+> This backend uses **system XAML**, the `Windows.UI.Xaml` stack that ships
+> inside Windows 10 and 11, and not WinUI 3 / the Windows App SDK. That is why the target is named
+> `windows-xaml` and not after a XAML release: many control names exist in both namespaces
 > with different behavior (this `ProgressRing` is the UWP dotted ring, not WinUI 3's arc; `Pivot`
 > doesn't exist in WinUI 3 at all). The links below point at the UWP `Windows.UI.Xaml` API
 > reference accordingly.
@@ -42,7 +42,8 @@ day launch -p windows-xaml
 `day doctor --toolkit xaml` checks the SDK and toolchain.
 
 A Windows machine can also build `windows-qt` and `windows-gtk` for development
-([Tier 4](/docs/platforms#support-tiers)) — the same codebase against three desktop toolkits.
+([Tier 4](/docs/platforms#support-tiers)); that runs the same codebase against three desktop
+toolkits.
 Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
 [getting started](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host) has the recipe.
 
@@ -50,25 +51,25 @@ Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
 day pack -p windows-xaml     # .msix plus an NSIS -setup.exe
 ```
 
-The NSIS installer is per-user: no elevation, a normal Add/Remove Programs entry, and a silent
-`/S` mode for managed deployment.
+The NSIS installer is per-user: it runs without elevation, adds a normal Add/Remove Programs
+entry, and offers a silent `/S` mode for managed deployment.
 
 ## Caveats and special considerations
 
 - **Less real-application use** than the Apple, Linux, and Android targets. It builds and runs
   the full UI walkthrough in CI on every push, but no large app ships on it yet.
 - **The web view needs the WebView2 Runtime.** Day hosts a
-  [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) composition visual —
-  not the legacy EdgeHTML `WebView`. The runtime ships with Windows 11 and current Windows 10; if
-  it is absent, the piece shows its URL-label fallback instead of failing.
+  [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) composition visual
+  (the legacy EdgeHTML `WebView` is not used). The runtime ships with Windows 11 and current
+  Windows 10; if it is absent, the piece shows its URL-label fallback instead of failing.
 - **No native segmented control exists in system XAML**, so `picker().segmented()` is a horizontal
   row of radio buttons.
-- **The inline time picker falls back to a flyout** — system XAML has no inline clock.
+- **The inline time picker falls back to a flyout**, because system XAML has no inline clock.
 - **Text-area read-only and spell-check are native** (`TextBox.IsReadOnly` /
   `IsSpellCheckEnabled`). `.selectable(false)` is emulated, because `TextBox` has no
   selection-enable property: the shim collapses each selection as it is reported and suppresses
   the context menu.
-- **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
+- **Lottie and map have no XAML arm**; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - **Radial gradients in a `canvas` are synthesized** into a bitmap brush, because system XAML has
   `LinearGradientBrush` but no `RadialGradientBrush` (that type is XAML-only).
@@ -117,16 +118,16 @@ after forcing layout when a templated control reports zero before the island's f
 ## Qt and GTK on a Windows host
 
 `windows-xaml` is the target you ship on Windows. But GTK and Qt are themselves portable, so the
-same machine can also run `windows-qt` and `windows-gtk` — useful for checking a change against
-three desktop toolkits before it reaches CI, and for teams standardizing on one toolkit across
-Linux and Windows. Both are development combos ([Tier 4](/docs/platforms#support-tiers)):
+same machine can also run `windows-qt` and `windows-gtk`, which is useful for checking a change
+against three desktop toolkits before it reaches CI, and for teams standardizing on one toolkit
+across Linux and Windows. Both are development combos ([Tier 4](/docs/platforms#support-tiers)):
 `day pack` refuses them (bundling a toolkit into a Windows installer is deferred), and
 `windows-gtk` has no accessibility tree.
 
 Each needs two things: the toolkit's development libraries from [MSYS2](https://www.msys2.org),
-and **a second Rust toolchain whose ABI matches them**. That second half is the step that trips
-people up. MSYS2 ships GNU-format import libraries (`libgtk-4.dll.a`, `libQt6Widgets.dll.a`) which
-MSVC's `link.exe` cannot read — so the `*-pc-windows-msvc` toolchain, the correct one for
+and **a second Rust toolchain whose ABI matches them**. MSYS2 ships GNU-format import libraries
+(`libgtk-4.dll.a`, `libQt6Widgets.dll.a`) which MSVC's `link.exe` cannot read, so the
+`*-pc-windows-msvc` toolchain, the correct one for
 `windows-xaml`, cannot link either of these targets. Install the GNU toolchain *alongside* your
 default and select it per shell; don't `rustup default` it away from MSVC.
 
@@ -156,7 +157,7 @@ pacman -S --needed \
 ```
 
 Drop the `qt6-base` line, or the `gtk4`/`libadwaita` line, if you only want one of the two.
-`pkgconf` is what `day doctor` and the toolkit build scripts probe with, and the compiler both
+`day doctor` and the toolkit build scripts probe through `pkgconf`, and the compiler both
 links the final binary and builds Qt's small C++ shim.
 
 ### Add the Rust toolchain
@@ -168,7 +169,7 @@ rustup toolchain install stable-aarch64-pc-windows-gnullvm   # x86-64: stable-x8
 ### Build and run
 
 Every `day` command for these two targets wants the MSYS2 `bin` directory on `PATH` and that
-toolchain selected. `PATH` earns its place twice: the build resolves `pkg-config` and the compiler
+toolchain selected. `PATH` matters twice: the build resolves `pkg-config` and the compiler
 through it, and the app loads the GTK/Qt DLLs through it at run time.
 
 ```powershell
@@ -180,13 +181,14 @@ day launch -p windows-qt
 day launch -p windows-gtk
 ```
 
-Setting `RUSTUP_TOOLCHAIN` per shell is the whole trick: a shell without it still builds
-`windows-xaml` against MSVC, which is what that target needs. Nothing else has to change — no
-`PKG_CONFIG_PATH`, no `CC`/`CXX`, no `.cargo/config.toml`. `day doctor` will still warn about
-`flatpak-builder` and `linuxdeploy`; those are Linux packaging tools and don't apply here.
+Setting `RUSTUP_TOOLCHAIN` per shell is the only switch: a shell without it still builds
+`windows-xaml` against MSVC, which that target needs. `PATH` and `RUSTUP_TOOLCHAIN` are the only
+two settings involved; `PKG_CONFIG_PATH`, `CC`/`CXX`, and `.cargo/config.toml` stay untouched.
+`day doctor` will still warn about `flatpak-builder` and `linuxdeploy`; those are Linux
+packaging tools and don't apply here.
 
-One exception, and it bites on CI images more than on laptops: if *another* MinGW is already on
-`PATH` (a standalone `C:\mingw64`, or the one some CI runners ship), the GNU toolchain will link
+There is one exception, seen on CI images more than on laptops: if a different MinGW is already
+on `PATH` (a standalone `C:\mingw64`, or the one some CI runners ship), the GNU toolchain will link
 through that one instead and fail to find MSYS2's `-lQt6Widgets` / `-lglib-2.0`. Putting MSYS2's
 `bin` first, as above, is usually enough; pin it outright if not:
 
@@ -196,23 +198,23 @@ $env:CC  = "C:/msys64/mingw64/bin/gcc.exe"
 $env:CXX = "C:/msys64/mingw64/bin/g++.exe"
 ```
 
-Budget for the first build: these targets compile a whole native backend from scratch — roughly
-9 minutes for GTK and 13 for Qt on a debug build of the showcase, an app of some size (Qt pays for
-its C++ shim on top). After that you're back to incremental compiles: editing one of the
-showcase's own source files and relaunching is about 20 seconds.
+The first build is long, because these targets compile a whole native backend from scratch:
+roughly 9 minutes for GTK and 13 for Qt on a debug build of the showcase, an app of some size (Qt
+pays for its C++ shim on top). After that you're back to incremental compiles; editing one of the
+showcase's own source files and relaunching takes about 20 seconds.
 
 ### What to expect
 
-- **Neither toolkit has a web engine on Windows.** MSYS2 packages no Qt 6 WebEngine and no
-  WebKitGTK 6 — both embed a browser engine that doesn't build under MinGW. So `webview()` shows
-  its URL-label fallback on `windows-qt` and renders Day's placeholder leaf on `windows-gtk`.
-  Everything else — including the external `combobox()`, `search_field()`, `date_picker()`,
-  `time_picker()`, `media()` and `activity()` pieces — draws a real native widget.
+- **Neither toolkit has a web engine on Windows.** MSYS2 packages neither Qt 6 WebEngine nor
+  WebKitGTK 6, because both embed a browser engine that doesn't build under MinGW. So `webview()`
+  shows its URL-label fallback on `windows-qt` and renders Day's placeholder leaf on `windows-gtk`.
+  Everything else, including the external `combobox()`, `search_field()`, `date_picker()`,
+  `time_picker()`, `media()`, and `activity()` pieces, draws a real native widget.
 - **Custom bundled fonts don't reach Pango on `windows-gtk`**, so labels asking for a bundled
   family fall back to the default face. The app logs each one at startup.
 - **Toolchains behave differently under the two linkers.** Day registers piece renderers through
   [`linkme`](https://docs.rs/linkme) statics, and MinGW's GNU `ld` is known to dead-strip some of
   them, leaving those pieces as placeholders. The clang/`lld` toolchain used by `CLANGARM64` +
   `gnullvm` keeps them: a full sweep of the showcase there reports no dropped renderers beyond the
-  genuinely-absent GTK web view. If pieces render as placeholders on an x86-64 MinGW build, that
-  linker is why — see [Platform support](/docs/platforms).
+  GTK web view, which has no Windows build. If pieces render as placeholders on an x86-64 MinGW
+  build, that linker is the cause; see [Platform support](/docs/platforms).

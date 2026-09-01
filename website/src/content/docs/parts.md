@@ -1,6 +1,6 @@
 ---
 title: Device capabilities (parts)
-description: "Headless platform capabilities — battery, clipboard, preferences, sensors, network, permissions, location — as ordinary crates with per-OS implementations."
+description: "Headless platform capabilities (battery, clipboard, preferences, sensors, network, permissions, location) as ordinary crates with per-OS implementations."
 order: 25
 section: Guides
 ---
@@ -10,10 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A **part** is Day's name for a headless platform capability: no UI, just functions whose
-implementation differs per operating system. Battery level, the clipboard, preference storage,
-sensors: the things every cross-platform app eventually needs and every platform spells
-differently.
+A **part** is Day's name for a headless platform capability: a set of functions with no UI
+whose implementation differs per operating system. Battery level, the clipboard, preference
+storage, and sensors are the things every cross-platform app eventually needs and every platform
+spells differently.
 
 Parts are ordinary crates. You add one to `Cargo.toml`, call plain functions, and the right
 platform code runs because each function's body dispatches on `#[cfg(target_os)]`: IOKit on
@@ -41,7 +41,7 @@ plugin registry or runtime lookup; the target selects the implementation at comp
 
 ## Using parts
 
-The APIs are small on purpose. Some examples, verbatim from the crates:
+The APIs are small. Here are some examples, verbatim from the crates:
 
 ```rust
 // Battery
@@ -75,7 +75,7 @@ column((
 Returns are `Option`/`bool` rather than panics: a desktop without a battery reports `None`, a
 denied clipboard read reports `None`, and your UI decides what that means. Check each part's
 reference page for the per-platform support matrix; not every capability exists everywhere, and
-each function's reference lists per-platform support rather than implying uniform coverage.
+each function's reference lists its per-platform support.
 
 ## Writing your own
 
@@ -87,11 +87,11 @@ you write a part. The pattern scales from trivial to involved:
 - Android usually needs a small Java shim; a part can carry its own Java sources, Android
   resources, Gradle dependencies, ProGuard keep rules, and even manifest components (a
   `BroadcastReceiver` for a scheduled notification), all declared in Cargo metadata and
-  aggregated into the app's Gradle project by `day build` — no manual scaffold edits.
+  aggregated into the app's Gradle project by `day build`, so the scaffold needs no manual edits.
 - The same channel covers the other platforms: system frameworks and Swift for iOS and macOS
   (`[package.metadata.day.ios]` / `[package.metadata.day.macos]`), ArkTS sources for HarmonyOS.
 - Or write the platform half **inline in your Rust file**, one arm per platform, and let the build
-  generate both sides of the call — see below.
+  generate both sides of the call (see below).
 - Permissions a part needs (say, vibration) are declared in the part's metadata and merged into
   each platform's manifest the same way.
 
@@ -129,11 +129,11 @@ day_bridge::bridge! {
 ```
 
 The build generates the Swift adapter, the JNI binding, the ES module, or the C translation unit,
-plus the Rust that calls it — and the crate still compiles with plain `cargo test` on a machine
+plus the Rust that calls it. The crate still compiles with plain `cargo test` on a machine
 with none of those toolchains, because the last arm answers everywhere else.
 `day-part-speech` carries six languages in one file this way; the
 [bridge reference](/docs/internal/bridge) is the contract, and
 [speech](/docs/internal/speech) is the worked example.
 
-One boundary worth respecting: parts are for *headless* capabilities. The moment your capability
-needs to render something, it's a [piece](/docs/extending), and a different set of tools applies.
+Parts are for *headless* capabilities only. The moment your capability needs to render
+something, it's a [piece](/docs/extending), and a different set of tools applies.

@@ -39,7 +39,7 @@ HarmonyOS, web) come from one repository.
 | `useEffect` | `Effect::new` / `bind` / `watch` (no dependency array) |
 | re-render + reconciliation | no re-render; one binding patches one widget |
 | Context | `with_environment` / `environment::<T>()` |
-| Redux / Zustand / Jotai | signals in plain Rust — module statics, structs |
+| Redux / Zustand / Jotai | signals in plain Rust (module statics, structs) |
 | `<FlatList>` | `list` (recycling), `each` (keyed) |
 | React Navigation | `selector`, `stack`, and string routes |
 | `useWindowDimensions()` + your own breakpoints | `size_class()`, and a `selector` that re-presents itself |
@@ -85,10 +85,10 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-Both wire the tap the same way; what follows it differs. React re-runs `Counter`, builds new
-element
-trees, and diffs them against the shadow tree before committing to native views. Day re-runs the
-one closure inside `label` and calls one native setter. The function itself never runs again, so
+Both wire the tap the same way and differ in what follows it. React re-runs `Counter`, builds
+new element trees, and diffs them against the shadow tree before committing to native views.
+Day re-runs the one closure inside `label` and calls one native setter. The function itself
+never runs again, so
 `memo()` and `useCallback` have no equivalent, and stale closures can't happen: a closure that
 reads a signal reads the current value.
 
@@ -134,15 +134,14 @@ column((
 
 </Compare>
 
-(`Slider` isn't in RN core anymore; it lives in `@react-native-community/slider`. Day ships
-sliders, toggles, progress, pickers, and a recycling list as built-ins. There's no
-split between "core" and "community" widgets.)
+(`Slider` lives in `@react-native-community/slider`, outside RN core. Day ships sliders,
+toggles, progress, pickers, and a recycling list as built-ins.)
 
 ## Lists
 
-`FlatList` maps to `list`: both virtualize, both want a key. Day's rows recycle real native
-cells (`UITableView`-style), and the key function is a required argument rather than an optional
-`keyExtractor`. Reconciliation is always by identity.
+`FlatList` maps to `list`: both virtualize, and both want a key. Day's rows recycle real
+native cells (`UITableView`-style), and the key function is a required argument, where
+`keyExtractor` is optional, so reconciliation is always by identity.
 
 <Compare lhs="React Native">
 
@@ -171,9 +170,9 @@ list(
 ## Navigation
 
 React Navigation's stack keeps navigation state inside the navigator; you drive it through the
-imperative `navigation` prop. Day inverts that: the path is your signal, and the native
-container (`UINavigationController`, the Android back stack) is reconciled to it. The back
-gesture and hardware back button write pops into your state, not the other way around.
+imperative `navigation` prop. In Day the path is your signal, and the native container
+(`UINavigationController`, the Android back stack) is reconciled to it. The back gesture and
+hardware back button write pops into your state.
 
 <Compare lhs="React Native">
 
@@ -206,17 +205,17 @@ nav_back();
 
 </Compare>
 
-Deep links need no separate `linking` config: the same route strings serve navigation, the
-`DAY_DEEPLINK` launch variable, and [dayscript](/docs/dayscript) test assertions. See
-[Navigation](/docs/navigation).
+The same route strings serve navigation, the `DAY_DEEPLINK` launch variable, and
+[dayscript](/docs/dayscript) test assertions, so deep links need no separate `linking` config.
+See [Navigation](/docs/navigation).
 
 ## Adaptive layout
 
 React Native gives you `useWindowDimensions()` and leaves the breakpoints to you (or to a library
 like react-native-paper's adaptive components). Day buckets the window into
-[size classes](/docs/internal/size-classes) — Android's numbers, used verbatim on every backend —
-and a `selector` re-presents itself when the window crosses one, on a tablet, in split-screen, or
-in a resized desktop window.
+[size classes](/docs/internal/size-classes) (Android's numbers, used verbatim on every
+backend), and a `selector` re-presents itself when the window crosses one, on a tablet, in
+split-screen, or in a resized desktop window.
 
 <Compare lhs="React Native">
 
@@ -247,14 +246,14 @@ let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
 
 </Compare>
 
-The class belongs to a window rather than the app, so an app showing two windows at different
-sizes gets a per-window answer instead of one global that is wrong for the smaller one.
+The class is per window, so an app showing two windows at different sizes gets a separate
+answer for each.
 
 ## Styling and layout
 
-RN styles are flexbox via Yoga. Day also owns its layout engine, but with the
-proposal/negotiation protocol (parent proposes, child chooses) instead of flexbox, closer to
-SwiftUI than to CSS. The daily vocabulary translates directly:
+RN styles are flexbox via Yoga. Day also owns its layout engine; it uses a proposal protocol
+(parent proposes, child chooses), closer to SwiftUI than to CSS. The daily vocabulary
+translates directly:
 
 <Compare lhs="React Native">
 
@@ -311,9 +310,9 @@ let total = Memo::new(move || items.with(|v| v.iter().map(|i| i.price).sum::<f64
 label(move || format!("{:.2} €", total.get()))
 ```
 
-For app-wide state, skip the store library: signals in a module or struct are already
-observable from any Piece. Async looks like the `async`/`await` you know, with continuations on
-the UI thread so completions are plain writes:
+For app-wide state, signals in a module or struct are already observable from any Piece, so a
+store library has no role. Async is `async`/`await`, with continuations on the UI thread so
+completions are plain writes:
 
 <Compare lhs="React Native">
 
@@ -348,10 +347,10 @@ day::task(async move {
 
 The `cancelled` flag on the left is unnecessary on the right: writes to a signal whose page was
 disposed are silent no-ops, so a late completion can't touch a closed page. Cancelling the work
-itself is explicit — `day::task` returns a `TaskHandle`, and `handle.abort()` drops the future
+itself is explicit: `day::task` returns a `TaskHandle`, and `handle.abort()` drops the future
 and cancels the in-flight request; nothing auto-cancels on page teardown. HTTP goes through
-each platform's own networking stack ([`day-part-http`](/docs/parts)). System proxies, VPN
-routing, and certificate stores apply, with no `fetch` polyfill in between.
+each platform's own networking stack ([`day-part-http`](/docs/parts)), so system proxies, VPN
+routing, and certificate stores apply.
 
 ## Package configuration
 
@@ -393,20 +392,19 @@ targets = ["ios-uikit", "android-mdc", "macos-appkit"]
 
 </Compare>
 
-Cargo resolves and builds everything, including packages with native halves; there is no
-separate bundler and no autolinking step. A package that needs platform code, the Turbo Module
-case, is a [part](/docs/parts) (headless capability) or a [piece](/docs/extending) (a widget):
-it declares its Swift, Java, or C++ in its own crate metadata, and `day build` folds that into
-the app's platform builds. Calls into it are ordinary Rust function calls compiled together with
-your app: no codegen'd specs, no serialization boundary.
+Cargo resolves and builds everything, including packages with native halves, in one step. A
+package that needs platform code, the Turbo Module case, is a [part](/docs/parts) (headless
+capability) or a [piece](/docs/extending) (a widget): it declares its Swift, Java, or C++ in
+its own crate metadata, and `day build` folds that into the app's platform builds. Calls into
+it are ordinary Rust function calls compiled together with your app, typed end to end.
 
 ## Resources and localization
 
 Metro resolves `require('./logo.png')` at bundle time and picks `@2x`/`@3x` variants; Day stages
 `resource/images/` into each platform's native store (asset catalogs, `res/drawable-*`,
 GResource), and the platform picks the density. References are generated constants
-(`image(res::images::wave)`), so a renamed or deleted file is a compile error — Metro's
-can't-miss guarantee, enforced by the Rust compiler.
+(`image(res::images::wave)`), so a renamed or deleted file is a compile error, the same
+guarantee Metro gives at bundle time.
 
 <Compare lhs="React Native">
 
@@ -476,10 +474,9 @@ field-notes/
 
 </Compare>
 
-Both projects carry `android/` and `ios/` directories; the difference is what lives in them.
-Day's hosts are thin shells that load the Rust library. App-level configuration (id, title,
-version, window, permissions, signing) lives in `Day.toml`, with per-platform overrides instead
-of edits to the native projects:
+Both projects carry `android/` and `ios/` directories. Day's hosts are thin shells that load
+the Rust library, and app-level configuration (id, title, version, window, permissions,
+signing) lives in `Day.toml`, with per-platform overrides:
 
 ```toml
 [app]
@@ -493,8 +490,8 @@ title = "Field Notes Mobile"        # only iOS sees this
 id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
-That's the role `app.json` plays in Expo, except it covers all eight primary targets, desktop
-included, and there's no eject: the hosts are already in your repository, already minimal.
+That's the role `app.json` plays in Expo, extended to all eight primary targets, desktop
+included. The hosts are already in your repository, so there is nothing to eject.
 
 ## Building and shipping
 
@@ -508,15 +505,15 @@ included, and there's no eject: the hosts are already in your repository, alread
 | web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving real DOM elements |
 | environment check | `npx react-native doctor` | `day doctor` |
 
-Maturity differs by target, and these docs say so rather than implying parity: every
-`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
+today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
 [Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
-You give up Fast Refresh and the npm ecosystem's size, and you write
-Rust instead of TypeScript. You ship one compiled binary per platform, with no bundled JS
-engine. One repository covers mobile, desktop, and web; UI tests run the same script everywhere;
-packaging produces signed artifacts directly rather than handing off to fastlane. Signing secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to
+You give up Fast Refresh and the size of the npm ecosystem, and you write Rust instead of
+TypeScript. You ship one compiled binary per platform. One repository covers mobile, desktop,
+and web, UI tests run the same script everywhere, and `day pack` produces signed artifacts
+directly. Signing secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to
 a dev-signed build with a warning rather than failing. [Packaging](/docs/packaging) has the
 full table.
 
@@ -525,4 +522,4 @@ full table.
 - [Getting started](/docs/getting-started) — install, scaffold, first launch.
 - [API tour](/docs/api-tour) — the whole authoring surface in one pass.
 - [Reactivity](/docs/reactivity) — why there are no dependency arrays.
-- [Why Day](/docs/benefits) — the frank comparison, including when RN is the better fit.
+- [Why Day](/docs/benefits) compares the approaches and says when React Native fits better.

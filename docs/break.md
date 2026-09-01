@@ -17,8 +17,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > hosts). The Android uncaught-exception layer and on-device verification track in DESIGN.md §8.5.
 > This file is the normative reference for the whole design.
 
-day-break is Day's answer to Crashlytics / Sentry / Bugsnag / Backtrace, built on one principle:
-**the user is fully informed and nothing leaves the device without an explicit action.** It
+day-break is Day's crash reporter, in the role Crashlytics, Sentry, Bugsnag, or Backtrace play
+elsewhere. Its one principle is that **the user is fully informed and nothing leaves the device
+without an explicit action.** It
 registers standard crash handlers, writes a report when the app dies abnormally, and on the *next*
 launch lets the app show the user exactly what would be sent and ask whether to send it, through
 a transport the app chooses (a REST endpoint, a GitHub-issue flow, or a `mailto:` the user sends).
@@ -87,12 +88,13 @@ is recorded as a **non-fatal** `contained` report, distinct from a crash. Set
 
 ### Signal-handler discipline
 
-A signal handler is async-signal-safe: no allocation, no locks. Everything risky happens at
+A signal handler is async-signal-safe, so it does not allocate or take locks. Everything risky
+happens at
 `init` (open the report fd, allocate the alternate stack, capture the ASLR slide and monotonic
 epoch, save previous dispositions). The handler only formats integers into a fixed stack buffer,
 `write(2)`s them, and **chains**: it restores the previous disposition and either re-raises
 (abort/trap) or returns so the faulting instruction re-executes and the OS crash reporter still
-runs. This etiquette preserves Android ART's `libsigchain` and HarmonyOS FaultLoggerd, so the
+runs. This chaining preserves Android ART's `libsigchain` and HarmonyOS FaultLoggerd, so the
 platform's own tombstone/faultlog is still produced alongside day-break's report.
 
 ## The report (schema 1)
@@ -120,7 +122,8 @@ parses JSON; reconciliation on the next launch turns the kv artifacts into the J
 }
 ```
 
-No user data beyond the fields listed. `signal` is present only for `kind: "signal"`.
+The report carries no user data beyond the fields listed. `signal` is present only for
+`kind: "signal"`.
 
 ### App identity and symbolication
 
@@ -161,14 +164,14 @@ Built-ins:
   (`day-part-http`), off the UI thread. This is also the shape a **GitHub-issue proxy** takes: run
   a small server that accepts the report JSON and opens an issue with your repo token held
   server-side (never on the device); the device just POSTs to it.
-- **`GithubIssueReporter`** — zero-infrastructure: opens
+- **`GithubIssueReporter`** — needs no server; it opens
   `https://github.com/<owner>/<repo>/issues/new?title=…&body=…` (truncated to URL limits) in the
   browser via the `open_url` toolkit duty; the user reviews and submits the issue themselves.
 - **`EmailReporter`** — opens `mailto:dev@example.com?subject=…&body=…` (also `open_url`); the
   user sends the mail. Body is truncated; the full report is attached/inlined per app choice.
 
-All three keep the human in the loop; `GithubIssueReporter` and `EmailReporter` require zero
-backend and hand the final submit to the user.
+All three keep the human in the loop; `GithubIssueReporter` and `EmailReporter` require no
+server and hand the final submit to the user.
 
 ## Testing
 
@@ -177,4 +180,4 @@ chaining in-process, plus a **subprocess crash harness** (`tests/crash.rs`) that
 test binary to actually panic / abort / segfault a child and asserts the finalized report (run on
 macOS and Linux CI hosts). On-device capture (Android UEH, iOS/HarmonyOS signals) is verified
 through the showcase "Crash Reporting" page and its dayscript ([`docs/agent.md`](agent.md)), which uses the
-`expect_exit` step to tolerate the intentional crash.
+`expect_exit` step to tolerate the crash the script triggers.

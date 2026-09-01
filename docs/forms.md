@@ -13,8 +13,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: implemented** in `day-pieces` (portable: no per-backend renderer code beyond the
 > section-card surface below). A settings-style grouped form: `form` holds `section` cards, and
 > `labeled` rows inside them share one right-aligned label column across the whole form, with
-> their controls starting on a common left edge. That's the aligned-labels look every settings
-> UI converges on.
+> their controls starting on a common left edge. This is the aligned-labels look that settings
+> UIs on every platform use.
 
 ## Authoring
 
@@ -39,7 +39,7 @@ form((
   `labeled` rows are just the ones that participate in alignment. A `section` also works
   standalone, outside any `form`.
 - `labeled(text, control)` — one form row: the label sits right-aligned in the form-wide column,
-  on the same text BASELINE as the control ([docs/baseline.md](baseline.md) — centered instead when either side
+  on the same text baseline as the control ([docs/baseline.md](baseline.md); centered instead when either side
   has no baseline, e.g. a toggle, or on a toolkit that reports none); the control starts at the
   column edge + 12. A control marked `.grow()`
   (text fields, sliders, or a `row(( … ))` wrapper) stretches to the row's remaining width;
@@ -67,14 +67,14 @@ theming with no app code:
 `form` plants a shared `Rc<Cell<f64>>` column width in the environment; each `LabeledLayout`
 registers its label's unconstrained width during **measure** and reads back the running max in
 **place**. Within one layout pass the enclosing stacks measure every child before placing any,
-so by place time the max is final; alignment is consistent with no invalidation dances. Rows
+so by place time the max is final; alignment is consistent with no invalidation pass needed. Rows
 report the *proposed* width as their size (labels align form-wide, controls may stretch), so a
 growing column width never changes a row's measured size and can't oscillate the pass.
 
 Vertically the row asks both children for their first text baseline ([docs/baseline.md](baseline.md)) and shifts
 each down to the deeper of the two, so the label meets the control's inset text instead of the
 middle of its box. The row is then as tall as that shared baseline plus the deepest descent below
-it. When either side reports no baseline the row centers both, exactly as it always did.
+it. When either side reports no baseline the row centers both, as before.
 
 ## Verification
 

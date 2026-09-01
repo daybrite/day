@@ -32,8 +32,8 @@ widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(Pick
 
 ### Options that come from data
 
-The labels are fixed by default. When they are not — a list of open documents, a tab that names
-its own contents — `.options_reactive(f)` recomputes them:
+The labels are fixed by default. When they are not (a list of open documents, a tab that names
+its own contents), `.options_reactive(f)` recomputes them:
 
 ```rust
 picker(tab_labels(), tab)                    // seeds the control
@@ -43,12 +43,12 @@ picker(tab_labels(), tab)                    // seeds the control
 
 `f` runs like any other reactive read, so it re-fires when the signals it touches change, and the
 new labels patch the native items in place: the pop-up refills, the segmented control relabels and
-grows or shrinks its buttons, the radio group does the same. The SELECTED INDEX is preserved where
-it still exists and clamped to the last option otherwise — a shrinking list cannot leave a native
+grows or shrinks its buttons, the radio group does the same. The selected index is preserved where
+it still exists and clamped to the last option otherwise, so a shrinking list cannot leave a native
 control with nothing chosen. The app still owns the value: write a valid index to the binding when
 the count changes under it.
 
-Reach for it only when the options really do change. Rebuilding a native menu costs more than
+Use it only when the options change. Rebuilding a native menu costs more than
 moving a mark, and a picker whose choices are constant should stay constant.
 
 ## Per-backend native realization
@@ -63,14 +63,14 @@ HarmonyOS has no segmented control, so ArkUI renders every style as the native `
 wheel, the platform's option-selection idiom. The Qt and XAML renderers each carry a C++ shim in the
 matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
 `toolkits/day-xaml-sys/src/shim-picker.cpp`); the XAML shim boxes its XAML element into a Day handle
-through the `day_xaml_box`/`day_xaml_unbox` seam. Android's Java factory
+through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory
 (`toolkits/day-android/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
 All backends report selection through `Event::SelectionChanged(i64)`; programmatic selection is
 echo-guarded per backend so it never loops.
 
 ## Verification
 
-The showcase **Controls** page (`controls.rs` `pickers_section`) shows all three styles bound to ONE
+The showcase **Controls** page (`controls.rs` `pickers_section`) shows all three styles bound to one
 shared selection signal, each with a live value label. Rendering and correct initial selection are
 screenshot-verified on all 5 local targets (AppKit, GTK, Qt, iOS-sim, Android-emu); a mock-backend
 test (`crates/day-pieces/tests/mock_e2e.rs` `picker_and_text_area_are_built_in`) asserts the two-way

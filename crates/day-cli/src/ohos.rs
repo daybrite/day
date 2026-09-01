@@ -821,9 +821,8 @@ pub fn build_ohos(
             .map_err(|e| format!("clearing {}: {e}", libs_root.display()))?;
     }
     for (triple, abi) in ohos_build_arches() {
-        let target_dir = project
-            .root
-            .join("build/day/cargo/harmony-arkui")
+        let target_dir = crate::ops::build_root(project)
+            .join("cargo/harmony-arkui")
             .join(abi)
             .join(profile.as_str());
         let linker_var = format!(
@@ -832,6 +831,7 @@ pub fn build_ohos(
         );
         status("Building", &format!("{} (cargo cdylib {abi})", target.name));
         let mut cmd = Command::new(&cargo);
+        crate::patch::apply_day_src(&mut cmd);
         crate::ops::apply_app_identity(&mut cmd, project);
         cmd.current_dir(&project.root)
             .env(

@@ -13,8 +13,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 import PlatformShots from '../../../components/PlatformShots.astro';
 
 `macos-appkit` is Day's most exercised target and the one its own development runs on. AppKit is
-driven directly through [`objc2`](https://docs.rs/objc2) — there is no C or Objective-C shim
-between your Rust and `NSButton`.
+driven directly through [`objc2`](https://docs.rs/objc2); your Rust calls `NSButton` with no C or
+Objective-C shim in between.
 
 <PlatformShots platform="macos-appkit" shots={["home", "controls", "canvas", "menus"]} />
 
@@ -39,13 +39,13 @@ day pack -p macos-appkit            # without signing config: ad-hoc codesign, m
 day pack -p macos-appkit --formats dmg
 ```
 
-Signing and notarization happen when the credentials are configured — see
+Signing and notarization happen when the credentials are configured; see
 [packaging](/docs/packaging). Without them, `day pack` ad-hoc codesigns and warns that the result
-is dev-signed: installable locally, not distributable. `--no-sign` is the only way to get a truly
-unsigned artifact.
+is dev-signed: installable locally, and not for distribution. `--no-sign` is the only way to get
+an artifact with no signature at all.
 
-When a dependency contributes Swift under `[package.metadata.day.macos]` — the
-[SwiftUI embedding](/docs/internal/swiftui) shim, or an app's own local SwiftPM package —
+When a dependency contributes Swift under `[package.metadata.day.macos]` (the
+[SwiftUI embedding](/docs/internal/swiftui) shim, or an app's own local SwiftPM package),
 `day build` generates a `DayPieces` SwiftPM package under `build/day/macos/`. An app carrying
 the `platform/macos/DayApp.xcodeproj` scaffold builds through xcodebuild, which references that
 package; on the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) `day build` runs
@@ -54,15 +54,15 @@ contributions needs no Swift toolchain either way.
 
 ## Caveats and special considerations
 
-- **`day launch` runs a bare binary, not a bundle.** Anything the OS gates on bundle identity —
-  TCC permission prompts, some system services — only works from `day pack` output. Develop with
-  `launch`, verify permission flows against a packed build.
+- **`day launch` runs a bare binary, not a bundle.** Anything the OS gates on bundle identity
+  (TCC permission prompts, some system services) only works from `day pack` output. Develop with
+  `launch`, and verify permission flows against a packed build.
 - **No Lottie.** `day-piece-lottie` ships UIKit and Android arms only.
-- **Pull-to-refresh is emulated**, not native: the piece observes `NSScrollView`'s elastic
-  overscroll rather than using a native refresh control (macOS has none).
+- **Pull-to-refresh is emulated**: the piece observes `NSScrollView`'s elastic overscroll,
+  because macOS has no native refresh control.
 - **Screenshots capture offscreen** (`cacheDisplayInRect:`), which cannot sample video layers or
-  `NSVisualEffectView` materials — an `AVPlayerView` comes out black in `day pack` captures and in
-  the gallery. That is a capture limitation, not a rendering one.
+  `NSVisualEffectView` materials, so an `AVPlayerView` comes out black in `day pack` captures and
+  in the gallery. The view itself renders correctly on screen.
 
 ## What each piece becomes
 
@@ -110,9 +110,9 @@ Day has no checkbox, radio, stepper or table piece: `toggle` is the only boolean
 behavior is `picker().inline()`, and `list` is the only collection. See
 [pieces](/docs/pieces) for the full vocabulary.
 
-**Text measurement** goes through AppKit itself — `cellSizeForBounds:` for labels, TextKit's layout
-manager for the text area, and `fittingSize` for everything else — so wrapping and hyphenation are
-the system's, not a reimplementation.
+**Text measurement** goes through AppKit itself (`cellSizeForBounds:` for labels, TextKit's layout
+manager for the text area, and `fittingSize` for everything else), so wrapping and hyphenation are
+the system's own.
 
 ## Reaching AppKit directly
 

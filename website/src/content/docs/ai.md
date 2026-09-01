@@ -10,10 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day treats an AI agent as a full developer: every launch embeds the
+Day treats an AI agent as a full developer. Every launch embeds the
 [dayscript](/docs/dayscript) engine, and the `day` CLI exposes it as MCP tools an agent can
-call: build, relaunch, tap, type, assert, screenshot. The agent doesn't guess whether its
-change worked; it drives the running app and looks at the pixels, on every platform you target.
+call to build, relaunch, tap, type, assert, and screenshot. The agent drives the running app and
+checks the result on screen, on every platform you target.
 
 This guide walks that loop end to end with [Claude Code](https://claude.com/claude-code) in a
 plain terminal: scaffold an app, have the agent add a weather page, script the page with
@@ -37,7 +37,7 @@ day launch -p macos-appkit
 ```
 
 You get a running native app with adaptive navigation, an editable list, localized strings, a
-dayscript walkthrough (`dayscript/demo.yaml`), and, most importantly here, an `AGENTS.md` that teaches
+dayscript walkthrough (`dayscript/demo.yaml`), and an `AGENTS.md` that teaches
 any coding agent the project's conventions: where pages live, how routes register, that every
 control gets a stable `.id()`, and that new strings go into *every* locale.
 
@@ -50,9 +50,9 @@ claude
 
 `day mcp-server` (docs: [agent surface](/docs/internal/agent)) exposes ten tools:
 `day_metadata`, `day_build`, `day_launch`, `day_relaunch`, `day_drive`, `day_screenshot`, and
-friends. The important two are `day_relaunch`, which returns compile errors *inside the tool
-result* so the agent fixes and retries on its own, and `day_drive`, whose screenshots come back
-as images the agent can actually see.
+friends. The two this loop depends on are `day_relaunch`, which returns compile errors *inside
+the tool result* so the agent fixes and retries on its own, and `day_drive`, whose screenshots
+come back as images the agent can read.
 
 ## 3. Add a weather page, by prompt
 
@@ -66,8 +66,8 @@ In the Claude Code session:
 
 Watch the loop the scaffolded `AGENTS.md` prescribes: `day_metadata` first, then the edits, a
 `day_relaunch` (fixing anything the compiler says), then a `day_drive` that navigates to the
-page and hands back a screenshot. The page it lands on will be a normal Day page. The shape to
-expect, abridged:
+page and hands back a screenshot. The page it lands on will be a normal Day page. Abridged, it
+should look like this:
 
 ```rust
 pub(crate) fn weather_page() -> impl Piece {
@@ -89,8 +89,8 @@ pub(crate) fn weather_page() -> impl Piece {
 ```
 
 If the result isn't right, say so in the same session ("the temperature should update when the
-city changes") and the agent re-drives the app to prove the fix. You never leave the terminal,
-and you never take its word for it.
+city changes") and the agent re-drives the app to show the fix. You never leave the terminal,
+and every claim comes back with a screenshot.
 
 ## 4. Script it: dayscript
 
@@ -133,8 +133,8 @@ the `assert_*` steps by hand afterward.
 
 ## 5. Put it in CI
 
-A minimal GitHub workflow that builds the app headlessly and runs the script on every push:
-the Linux leg is the cheapest always-on regression gate:
+A minimal GitHub workflow that builds the app headlessly on Linux, the cheapest runner, and runs
+the script on every push:
 
 ```yaml
 name: ci
@@ -161,7 +161,7 @@ jobs:
           path: build/day/screenshots
 ```
 
-A failed assertion is a red build; the uploaded captures show reviewers what the app actually
+A failed assertion is a red build; the uploaded captures show reviewers what the app
 looked like. From here, add targets to the matrix as your app grows (`day new`'s scaffold works
 unchanged on all twelve), or adopt the fuller multi-platform workflow Day itself publishes in
 [`daybrite/actions`](https://github.com/daybrite/actions).

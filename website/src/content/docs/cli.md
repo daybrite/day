@@ -24,6 +24,7 @@ day icon                     # generate every platform's app-icon set from one m
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
+day launch  --day-src <path|url>  # run this app against another day, for one build
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign    --check          # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
@@ -35,7 +36,7 @@ day checkup                  # doctor, then scaffold + build + pack a throwaway 
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
 day clean                    # remove all build artifacts (build/, target/, gradle/hvigor outputs); --dry-run lists them
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
-day drive -p <t> --steps-json '…'   # drive a RUNNING app with dayscript steps
+day drive -p <t> --steps-json '…'   # drive a running app with dayscript steps
 day patch --local <checkout> # build against a local day checkout (--check: no day crate from git)
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
 day version                  # print the CLI version, build profile, and git ref (always the commit)
@@ -79,10 +80,10 @@ day new app my-app --template ./my-template          # a local directory
 day new app my-app --template https://github.com/you/tpl#v1   # a git repo (optional #ref)
 ```
 
-`day new --describe` prints the questions themselves — every kind's fields, their options, and the
-flag each one fills — as a versioned JSON document. It takes no project, which is the point: it is
-what an editor reads to build its own New Project dialog without copying the target list into a
-second place. The VS Code extension's wizard is rendered entirely from it.
+`day new --describe` prints the questions themselves (every kind's fields, their options, and the
+flag each one fills) as a versioned JSON document. It takes no project, so an editor can read it
+to build its own New Project dialog without copying the target list into a second place. The VS
+Code extension's wizard is rendered entirely from it.
 
 ```bash
 day new --describe | jq '.kinds[] | {id, fields: [.fields[].id]}'
@@ -132,7 +133,7 @@ somewhere you name instead of the cache, and `day stop --project <that path>` en
 run.
 
 Each ref gets its own checkout, and a build tree runs to a couple of GB per target, so
-`Day-Rise.git` and `Day-Rise.git@main` cost twice what one of them does — pick a spelling and keep
+`Day-Rise.git` and `Day-Rise.git@main` cost twice what one of them does; pick a spelling and keep
 to it. `day clean` works on projects, not on this cache; to reclaim the space, delete the printed
 directory, or all of them at once:
 
@@ -144,7 +145,7 @@ For a repository holding more than one Day project, `--project` selects one by i
 repo; without it, an ambiguous repository lists what it found.
 
 `--script` works too, and a relative path that isn't in your current directory is looked up in the
-checkout — so a repository's own walkthrough runs by the name it has there:
+checkout, so a repository's own walkthrough runs by the name it has there:
 
 ```bash
 day launch --git https://github.com/daybrite/Day-Showcase.git --script dayscript/walkthrough.yaml
@@ -153,22 +154,59 @@ day launch --git https://github.com/daybrite/Day-Showcase.git --script dayscript
 `--git` builds and runs code from a URL. Pass URLs you trust, the same way you would with
 `cargo install --git`.
 
+### Trying another version of Day itself
+
+`--day-src` points the app's `day` dependencies somewhere else for **one build**. It takes a path
+to a day checkout, or a git URL with an optional `@<ref>` — a branch, a tag, a commit, or someone
+else's fork. It's on `day build` and `day launch` both, since answering "does this branch fix the
+bug?" means building with each version and looking at both:
+
+```bash
+day launch --day-src ../day                                               # a local checkout
+day launch --day-src https://github.com/daybrite/day.git@experimental-nav  # a branch
+day launch --day-src https://github.com/someone/day.git@fix-482            # a PR fork
+```
+
+Nothing in your project changes. `day patch` writes `.cargo/config.toml` and every later build
+uses it until you delete it; `--day-src` computes the same `[patch]` table, hands it to one cargo
+run, and leaves the project exactly as it found it — `Cargo.lock` included, which cargo rewrites
+during the build and which the CLI puts back afterwards. Use `day patch` when you're developing
+the framework and the app together for a while, and `--day-src` when you want one look.
+
+Each day-src gets its own build tree under `build/day/day-src/<slug>/`, so two versions can be
+compared without either one's compile throwing away the other's:
+
+```text
+     Day src https://github.com/daybrite/day.git @ main
+    Checkout ~/Library/Caches/day/git/github.com/daybrite/day/main
+     Patched 33 day crate(s) → https://github.com/daybrite/day.git @ main
+   Launching macos-appkit
+```
+
+Both apps can run at once, and in a debug build each window's title says which framework it came
+from — `Day Rise (0.1.0+main-2d77edbf/appkit)` beside `Day Rise (0.1.0+day-4aea8304/appkit)`.
+Switching back to a version you've already built is an incremental compile, not a fresh one.
+
+There are two limits. On Android and HarmonyOS only the Rust half is isolated; Gradle and
+hvigor keep their own shared build directories, so the packaging step re-runs when you switch. And
+`day pack` takes no `--day-src`, so a shipped artifact always records the framework that built it.
+
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 
 ```bash
 # run a dayscript walkthrough after launch, capturing localized screenshots
 day launch -p macos-gtk --script dayscript/walkthrough.yaml --locale fr
 
-# capture VARIANTS of the same walkthrough: `--variant` names the screenshot subdirectory
+# capture variants of the same walkthrough: `--variant` names the screenshot subdirectory
 # (build/day/screenshots/<target>/<variant>/) and DAY_THEME forces the theme on every backend
 day launch -p macos-gtk --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 
-# variant loops share ONE binary (theme and locale are runtime inputs): build once, then
+# variant loops share one binary (theme and locale are runtime inputs): build once, then
 # `--skip-build` reuses the artifact — on iOS this pays xcodebuild once instead of per variant
 day build -p ios-uikit
 day launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 
-# --record captures what YOU do into a replayable dayscript: drive the app by hand, and the file
+# --record captures what you do into a replayable dayscript: drive the app by hand, and the file
 # is rewritten continuously (see the dayscript "Recording" guide)
 day launch -p macos-appkit --record recording.yaml
 ```
@@ -206,8 +244,8 @@ day devices boot -p android-mdc Pixel_9_API_36
 
 Booted simulators, attached phones, running emulators and reachable hdc targets come back under
 `devices`; simulators and AVDs that exist but are not running come back under `bootable`. A target
-whose toolchain is missing says so — `available: false` with a note — instead of looking like
-nothing is plugged in.
+whose toolchain is missing reports `available: false` with a note, instead of looking like nothing
+is plugged in.
 
 `day devices boot` starts one of the `bootable` entries. That matters most on iOS, where an app
 cannot be installed onto a shut-down simulator: booting one is the step between "none running" and
@@ -218,7 +256,7 @@ being able to launch at all.
 one run. `--device` is an accepted alias for `--ios-simulator`.
 
 Whichever device a run names is also the one its dayscript talks to and its screenshots come
-from — the port forward and the capture follow the selection rather than whichever device
+from; the port forward and the capture follow the selection rather than whichever device
 enumerated first.
 
 ```bash
@@ -251,7 +289,7 @@ day launch -p ios-uikit --ios-device "iPhone 13 mini" --script dayscript/demo.ya
 day launch -p ios-uikit --ios-device "iPhone 13 mini" -p macos-appkit
 ```
 
-Every target narrates the same way. Day reports each step itself, and the tools underneath it
+Every target reports the same way. Day reports each step itself, and the tools underneath it
 (`adb`, `devicectl`, `simctl`) stay quiet unless they fail, at which point their output is the
 diagnostic. The two-phone command above prints:
 
@@ -263,8 +301,8 @@ diagnostic. The two-phone command above prints:
    Launching android-mdc (dev.daybrite.showcase) on 19091FDF600BAY (arm64-v8a)
 ```
 
-and then streams both apps' stdout and stderr, each line prefixed with the target it came from —
-`[ios-uikit]`, `[android-mdc]` — so two phones running at once read apart. Ctrl-C stops the run
+and then streams both apps' stdout and stderr, each line prefixed with the target it came from
+(`[ios-uikit]`, `[android-mdc]`), so two phones running at once read apart. Ctrl-C stops the run
 and takes the log watchers with it.
 
 ### What a physical iOS device needs
@@ -272,9 +310,9 @@ and takes the log watchers with it.
 Naming `--ios-device` changes the build, not just where it lands: the `iphoneos` SDK instead of
 the simulator's, and code signing, which a simulator build does not do at all. Day signs the
 bundle after the build against a **development provisioning profile** installed for the app's
-bundle id — the profile supplies both the signing identity (matched by fingerprint, so a machine
-holding several development certificates picks the right one) and the entitlements, which is what
-keeps the signature from claiming something its profile does not grant.
+bundle id. The profile supplies both the signing identity (matched by fingerprint, so a machine
+holding several development certificates picks the right one) and the entitlements, so the
+signature cannot claim something its profile does not grant.
 
 So the prerequisites are a paired device and a profile that covers this app and lists that device.
 Install one by double-clicking the `.mobileprovision`; without a match, the launch stops and says
@@ -282,7 +320,7 @@ so rather than falling back to a simulator. Push is the case where the two halve
 if `Day.toml` declares `notifications`, the build fails when the profile has no `aps-environment`,
 instead of installing an app that cannot register.
 
-One error is worth recognizing on sight, because Apple reports it as `RequestDenied`:
+One error deserves a mention, because Apple reports it as `RequestDenied`:
 
 ```
 [ios-uikit] the device is locked — unlock it and run again (iOS will not launch an app onto a locked screen)
@@ -292,7 +330,7 @@ Installing works on a locked phone; launching does not.
 
 ## Checking the machine
 
-`day doctor` reports what each toolkit needs and what's missing. `day checkup` proves the answer by
+`day doctor` reports what each toolkit needs and what's missing. `day checkup` tests the answer by
 doing the work: it runs the doctor checks, then for every target this machine supports it scaffolds
 a throwaway app in a temporary directory, builds it, and packages it. Each target's build time and
 packaged size are printed at the end.
@@ -306,17 +344,18 @@ day checkup --day-version 0.2.0               # check that release, not the CLI 
 
 Run it with no arguments and a target whose prerequisites are missing is skipped, with the same fix
 line `day doctor` would print. Name targets with `-p` and a missing prerequisite is an error
-instead — you said those targets work here. `--strict` fails the run on any target this machine
-could have checked but isn't set up for (a target that only builds on another OS is never counted).
-That is what the scheduled workflow in the `day` repository uses to check each platform-toolkit pair
+instead, since you said those targets work here. `--strict` fails the run on any target this
+machine could have checked but isn't set up for (a target that only builds on another OS is never
+counted).
+The scheduled workflow in the `day` repository uses it to check each platform-toolkit pair
 against a freshly installed CLI. Under GitHub Actions the per-target table goes to the job summary.
 
-Nothing is left behind: the scaffolded projects are deleted at the end unless you pass `--keep`.
+The scaffolded projects are deleted at the end unless you pass `--keep`.
 
 ### Checking a specific version of Day
 
-`--day-version` picks which Day the checkup is about. It sets both halves — the `day` CLI that
-scaffolds, builds, and packs, and the `day` your app depends on — so you never test one against the
+`--day-version` picks which Day the checkup is about. It sets both halves (the `day` CLI that
+scaffolds, builds, and packs, and the `day` your app depends on), so you never test one against the
 other:
 
 ```bash
@@ -341,10 +380,10 @@ crates.io yet; with `--registry` it pins the crates.io version instead.
 ## The conventional project
 
 A Day project is a normal Cargo package plus a small `Day.toml`: the project marker and the
-home of everything Day-specific. Two rules prevent drift: `name` and `version` are **derived
-from Cargo.toml's `[package]`** (never restated, so identity can't drift), and any `[app]`
-property can be **overridden per platform, per toolkit, or per target** (`[app.ios]`,
-`[app.qt]`, `[app.macos-appkit]`), with the most specific table winning. The build tool reads
+home of everything Day-specific. `name` and `version` are **derived from Cargo.toml's
+`[package]`** and never restated, so identity can't drift. Any `[app]` property can be
+**overridden per platform, per toolkit, or per target** (`[app.ios]`, `[app.qt]`,
+`[app.macos-appkit]`), with the most specific table winning. The build tool reads
 the resolved values when it derives platform metadata (an Android build's label and
 applicationId, for example).
 
@@ -387,19 +426,19 @@ plain text files named for what they are — `name.txt`, `subtitle.txt`, `short.
 way `resource/locales/` is. `day new app` scaffolds it for any app with a mobile target, and
 `day store init` adds it to an existing one.
 
-The two stores disagree about nearly everything: field names, length limits (release notes: 4000
-characters on the App Store, 500 on Google Play), which fields exist, and how a locale is spelled
-(`zh-CN` here is `zh-Hans` to Apple). `day store stage` resolves all of it, generating a ready-to-run
+The two stores differ in field names, length limits (release notes: 4000 characters on the App
+Store, 500 on Google Play), which fields exist, and how a locale is spelled (`zh-CN` here is
+`zh-Hans` to Apple). `day store stage` resolves all of it, generating a ready-to-run
 fastlane project per target under `build/day/store/<target>/`, with `validate` and `upload` lanes.
 `day pack` runs the same generation, so a packaged build already has its listing beside it.
 
-`day lint` holds the listing to the stores' rules before an upload can reject it — length limits per
-store, required fields, URL format, leftover `TODO` placeholders, and locale parity with the app's
-own translations, so translating the app into a new language asks for the listing to follow. See
+`day lint` checks the listing against the stores' rules before an upload can reject it: length
+limits per store, required fields, URL format, leftover `TODO` placeholders, and locale parity with
+the app's own translations, so a new app locale also requires a listing in that locale. See
 [Store listings](/docs/internal/store) for the full field table and the credential variables.
 
 In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one
-rule by design: the listing text it ships is still `TODO`. Pass `--allow store-placeholder` to let
+rule, because the listing text it ships is still `TODO`. Pass `--allow store-placeholder` to let
 that one code stand while every other rule still fails the run. An allowed code is still reported,
 as one line carrying its count and a sample, so an `--allow` nobody has revisited stays visible.
 
@@ -415,15 +454,14 @@ warning day::lint::unused-key        resource/locales/en: history_hint is never 
 
 A finding is an **error** when it names something that does not exist, or that will misbehave once
 the app runs: a route nothing declares navigates nowhere, an undeclared permission terminates the
-app on iOS, an unknown target in `Day.toml` is simply not read. Coverage gaps and store copy are
+app on iOS, an unknown target in `Day.toml` is not read. Coverage gaps and store copy are
 **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what CI
 does.
 
-One rule that would pass that test stays a warning anyway. `unknown-key` — a `tr("…")` with no
-message, which renders the key itself on screen — is found by scanning for the literal after
-`tr("`, and that is a two-character name: it turns up inside other identifiers, and what follows
-it is not always a key. An error is a claim held to the standard of the evidence behind it, and a
-text scan is weaker evidence than a parse.
+One rule that would pass that test stays a warning anyway. `unknown-key` (a `tr("…")` with no
+message, which renders the key itself on screen) is found by scanning for the literal after
+`tr("`, and that two-character name turns up inside other identifiers, where what follows it is
+not always a key. A text scan is weaker evidence than a parse, so the finding stays a warning.
 
 Some findings come with a repair. `day lint --fix` applies them and reports each one:
 
@@ -434,14 +472,14 @@ fixed   day::lint::store-bad-keywords   store/en/keywords.txt: Remove the spaces
 ```
 
 A rule proposes a fix only where there is one right answer and applying it cannot lose anything you
-wrote — trimming stray whitespace around a store field, dropping the spaces in a keyword list.
-Anything that would need a decision, or that would put words in your mouth, reports and waits for
-you. A code you passed to `--allow` is never rewritten.
+wrote (trimming stray whitespace around a store field, dropping the spaces in a keyword list).
+Anything that would need a decision, or that would add text you did not write, reports and waits
+for you. A code you passed to `--allow` is never rewritten.
 
-`day lint --json` emits a versioned envelope instead of the report — every finding with its place,
-its severity, and its fix — which is what the
+`day lint --json` emits a versioned envelope instead of the report (every finding with its place,
+its severity, and its fix); the
 [VS Code extension](/docs/getting-started#2-install-the-day-extension-for-vs-code) draws its
-squiggles and quick fixes from:
+squiggles and quick fixes from it:
 
 ```json
 {

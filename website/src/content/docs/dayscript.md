@@ -13,12 +13,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 **dayscript** is Day's automation language: a YAML file of steps that drives and asserts a
 *running* app. One script taps buttons, types text, navigates, asserts what's on screen, and
 captures screenshots, identically on macOS, iOS, Android, Linux, Windows, and OpenHarmony,
-because it addresses your UI by the stable ids you gave your Pieces, not by pixels or platform
-selectors.
+because it addresses your UI by the stable ids you gave your Pieces.
 
-It resembles Maestro, with one structural difference: the engine is compiled into your app and
-executes steps as real Day events, which makes the same script portable across all targets and
-makes waits deterministic instead of sleep-based.
+It resembles Maestro, but the engine is compiled into your app and executes steps as real Day
+events, which makes the same script portable across all targets and makes waits deterministic
+instead of sleep-based.
 
 ## A script
 
@@ -67,22 +66,22 @@ keys instead of literal strings, so the same script passes in every language.
 | Exit | `expect_exit` (the app must terminate within `within` seconds; always the last step) |
 
 `input`, `assert_text`, and `toolbar` accept a Fluent `key` (with `args`) in place of literal
-text, resolved in the run's locale — that is what keeps one script passing in every language.
+text, resolved in the run's locale, so one script passes in every language.
 
 `nav_back` reads the window's width class the same way the app does. A window wide enough to keep
 the detail beside the list never pushed a page, so the step passes there without moving anything,
-while a compact window still fails when it finds nothing to pop. That is what lets one script drive
-a phone and a tablet, since the same build stacks on one and splits on the other.
+while a compact window still fails when it finds nothing to pop. One script can therefore drive a
+phone and a tablet, since the same build stacks on one and splits on the other.
 
-Every locating step waits (bounded, five seconds by default) rather than failing instantly, which
-removes the sleep-tuning that makes UI tests flaky. Acting steps synthesize Day events on the
+Every locating step waits (bounded, five seconds by default) rather than failing instantly, so
+scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the
 main thread between flushes, so they are deterministic and behave identically on every toolkit.
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
 
 Any step can be gated per target: `skip_on:` drops it on the named targets or toolkits
 (`skip_on: [web-dom]`), and `only_on:` is its mirror, for a step whose expectations differ per
-target — an `assert_no_placeholders` allow list, say. One walkthrough then covers every backend
+target (an `assert_no_placeholders` allow list, say). One walkthrough then covers every backend
 without forking per platform.
 
 ## How it works
@@ -103,8 +102,8 @@ day launch --script …          your app process
 
 A `tap` runs the same action path a user's tap would; `input` goes through the controlled-text
 machinery; `screenshot` asks the toolkit for a native window snapshot. Because steps interleave
-with the reactive turn, "wait until idle" has a real definition (no pending reactive work, no
-dirty layout) rather than a timeout heuristic.
+with the reactive turn, "wait until idle" has a real definition (the reactive queue is empty and
+layout is clean) rather than a timeout heuristic.
 
 ## What it's for beyond tests
 
@@ -115,8 +114,8 @@ The same scripts serve several jobs:
   One launch covers the whole appearance matrix: `day launch --themes light,dark --locales
   en,fr,ar` builds once and runs the script per theme × locale, naming each variant's
   screenshot directory after it.
-- **Iteration:** with no hot reload, `--script goto-settings.yaml` after each relaunch puts you
-  back on the screen you're editing. Cheap and surprisingly effective.
+- **Iteration:** Day has no hot reload, so `--script goto-settings.yaml` after each relaunch puts
+  you back on the screen you're editing.
 - **Accessibility audits:** the `a11y_audit` step diffs the native accessibility tree against
   your declarations ([details](/docs/accessibility#auditing-the-native-tree)).
 - **Agent verification:** AI coding agents use dayscript to check their own work: write a
@@ -125,8 +124,8 @@ The same scripts serve several jobs:
 ## Recording
 
 You don't have to write a script from scratch. `day::record` captures the taps, edits, selections,
-and navigation an app receives and turns them back into a dayscript — the reverse of playback,
-riding the one point every backend funnels its events through, so it needs no per-toolkit code.
+and navigation an app receives and turns them back into a dayscript. It observes the one point
+every backend funnels its events through, so it needs no per-toolkit code.
 
 Record headlessly from the CLI:
 
@@ -143,18 +142,18 @@ day launch -p android-mdc --script recording.yaml
 
 Or record and replay inside the app. `day::record::start_into(buffer)` streams the script into a
 `Signal<String>` you can bind a `text_area` to; `day::play_script(&yaml)` replays one in-process
-through the same engine `--script` drives. The showcase's **Scripting** page is a working example —
-Record, move around, Stop, edit, Play. `exclude_prefix` keeps a UI's own record and stop controls
+through the same engine `--script` drives. The showcase's **Scripting** page is a working example
+(Record, move around, Stop, edit, Play). `exclude_prefix` keeps a UI's own record and stop controls
 out of its recording.
 
-The recorder is honest about the same blind spots the engine has. It captures actions on elements
-you gave ids, not positional taps, slider drags, or native OS chrome, so a recording is a starting
-point you edit — not a pixel-exact replay.
+The recorder skips the same gestures the engine cannot inject. It captures actions on elements
+you gave ids; positional taps, slider drags, and native OS chrome are not recorded, so a recording
+is a starting point you edit rather than a pixel-exact replay.
 
 ### Logging actions without recording
 
-The same observer can narrate instead of capture. `day::record::log_actions(true)` — or
-`DAY_LOG_ACTIONS=1` on any Day app, no rebuild — echoes every action to stdout in the same
+The same observer can log instead of capture. `day::record::log_actions(true)`, or
+`DAY_LOG_ACTIONS=1` on any Day app without a rebuild, echoes every action to stdout in the same
 vocabulary and keeps nothing:
 
 ```text
@@ -164,17 +163,17 @@ dayscript ▸ select unit-picker = 1  "Units"
 ```
 
 Nothing accumulates, so it is cheap to leave on for an app's whole life, and it reads as the script
-a recording would have written — useful for watching what a walkthrough will capture before you
-record it, and for making a bug report say what was actually pressed. The Showcase turns it on at
-launch; `DAY_LOG_ACTIONS=0` silences it. Logging and recording are independent: start a recording
+a recording would have written. That is useful for watching what a walkthrough will capture before
+you record it, and for making a bug report say what was actually pressed. The Showcase turns it on
+at launch; `DAY_LOG_ACTIONS=0` silences it. Logging and recording are independent: start a recording
 underneath a log and each action still prints once, with the prefix naming the mode
 (`day record ▸`).
 
 ## Limits
 
 dayscript can only see what Day owns. It cannot type through the native IME, verify the software
-keyboard, drive OS permission prompts or file dialogs, or assert native animations. Those blind
-spots exist; the project's practice is scripted coverage for everything Day-side plus a short
-a manual pass per platform for the native seams. Unit-level testing below the UI has a separate
-tool: the [mock toolkit](/docs/rendering#the-mock-toolkit) runs your Pieces headlessly in
-`cargo test`.
+keyboard, drive OS permission prompts or file dialogs, or assert native animations. The project's
+practice is scripted coverage for everything Day-side plus a short manual pass per platform for
+those native surfaces: text input, the keyboard, OS dialogs, and animations. Unit-level testing
+below the UI has a separate tool: the [mock toolkit](/docs/rendering#the-mock-toolkit) runs your
+Pieces headlessly in `cargo test`.

@@ -43,9 +43,9 @@ SwiftUI-like terseness where it doesn't. The rule, in priority order:
    `.frame(w, h)`, rect `(x, y, w, h)`.
 
 Scope: the rule binds the **app-facing surface** (day-pieces, Day umbrella, day-core's
-`BuildCx`/nav API). Engine seams (the `Toolkit` trait, `TreeOps`, FFI shims) prefer the
-same, but a documented `bool` parameter is acceptable where changing it would ripple
-through every backend for internal call sites only.
+`BuildCx`/nav API). The engine's internal interfaces (the `Toolkit` trait, `TreeOps`, FFI
+shims) prefer the same, but a documented `bool` parameter is acceptable where changing it
+would ripple through every backend for internal call sites only.
 
 ## Typed builders and erasure
 
@@ -61,27 +61,27 @@ A builder method must not throw away the piece's type. Two rules follow from tha
 2. **A piece's own builders go in a `*Builder` trait, forwarded through `Decorated`.**
    `Label`'s inherent methods are the implementation; `LabelBuilder` re-declares them and
    `impl<P: LabelBuilder + Piece> LabelBuilder for Decorated<P>` forwards each through
-   `Decorated::map_inner`. That is what makes `label(…).padding(8.0).font(…)` resolve, so a
+   `Decorated::map_inner`. That forwarding makes `label(…).padding(8.0).font(…)` resolve, so a
    piece never imposes a "typed modifiers first" ordering rule on its callers. Name the trait
-   after the piece (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`) — `*Style`
+   after the piece (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`); `*Style`
    names belong to the value enums (`PickerStyle`, `SelectorStyle`).
 
-Erasure stays explicit and one-way: `.any()` at the boundary that genuinely needs a single
-`AnyPiece` — a `PieceVec`, an `-> AnyPiece` signature, a stored piece. It is free on a piece
+Erasure stays explicit and one-way: `.any()` at a boundary that needs a single `AnyPiece` (a
+`PieceVec`, an `-> AnyPiece` signature, a stored piece). It is free on a piece
 that is already erased (`AnyPiece::any` is inherent and returns `self`). A build-time branch
 between two piece types uses `Either<A, B>` rather than erasing both arms; a branch on a
 signal uses `when(…).otherwise(…)`.
 
 **Deferring to build time is not such a boundary.** A constructor whose body must wait for the
 build (it reads an ambient `environment`, a scope, or the laid-out size) defers through
-`piece_fn`, which returns the concrete `PieceFn<F>` — so `canvas`, `frame_clock`, `shape_group`,
+`piece_fn`, which returns the concrete `PieceFn<F>`, so `canvas`, `frame_clock`, `shape_group`,
 `shape_group_fn`, `each` and `with_environment` return `impl Piece` and cost no box. Where the
 deferred piece is worth a name, it defers inside its own `build` instead and stays a struct:
 `labeled` reads the enclosing form's shared label column at build time and still returns
 `Labeled<P>`. **No constructor in day-pieces returns `AnyPiece`.**
 
-`form` and `labeled` were the last two that did, until 2026-08-24. Both halves of the reasoning
-turned out to be worth less than the exception. The first was that form rows are collected more
+`form` and `labeled` were the last two that did, until 2026-08-24. Neither half of the reasoning
+justified the exception. The first was that form rows are collected more
 often than consumed inline — across day and eleven app repos, 10 of ~170 `labeled` call sites
 needed a uniform type, because rows go into `section((…))` tuples and `PieceSeq` accepts
 heterogeneous tuples. The second was that erasing bounds monomorphization, which is true but

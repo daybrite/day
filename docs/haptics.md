@@ -26,13 +26,13 @@ if day_part_haptics::is_supported() {
 }
 ```
 
-`play(Haptic)` is **fire-and-forget**: no return value, it never blocks, never errors, and never
+`play(Haptic)` is **fire-and-forget**: it returns nothing, never blocks, never errors, and never
 panics. `is_supported() -> bool` reports whether the platform has a haptic engine wired here (it is
 API availability, not a live hardware probe; a Simulator still reports `true`). Where support is
 `false`, `play` is a no-op.
 
-`Haptic` is modeled on iOS's three feedback-generator families so the same call maps to a sensible
-native pattern everywhere:
+`Haptic` is modeled on iOS's three feedback-generator families so the same call maps to a native
+pattern everywhere:
 
 | Style | Meaning |
 |---|---|
@@ -62,7 +62,7 @@ plain `main` that uses it with no Day framework at all.
   The Simulator has no Taptic engine, so the calls are silently ignored there.
 - **macOS**: `NSHapticFeedbackManager` offers only three patterns, so the seven styles fold onto
   them: Light/Selection → `Alignment` (the subtlest snap), Medium/Heavy → `LevelChange` (a firmer
-  detent), Success/Warning/Error → `Generic`. A Mac without a Force Touch trackpad simply feels
+  detent), Success/Warning/Error → `Generic`. A Mac without a Force Touch trackpad feels
   nothing; the call is harmless.
 - **Android**: a Java shim (`DayHaptics.java`) resolves the `Vibrator` (via `VibratorManager` on
   API 31+), and on API 29+ plays a predefined `VibrationEffect`: `EFFECT_TICK` (Light/Selection),

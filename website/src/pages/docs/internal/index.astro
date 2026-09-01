@@ -8,7 +8,7 @@ import { groups, orderedIds } from '../../../lib/internal-groups.mjs';
 
 // The internal reference docs are the repo's top-level `docs/*.md`, symlinked into
 // src/content/internal (see content.config.ts). They have no frontmatter, so titles/descriptions
-// are derived from the filename / body. `docs/` remains the single source of truth.
+// are derived from the filename / body. `docs/` remains the only copy.
 const entries = await getCollection('internal');
 const byId = new Map(entries.map((e) => [e.id, e]));
 
@@ -41,8 +41,8 @@ const total = entries.length;
   <p class="lead">
     These are Day's <strong>framework internal docs</strong>: the design and reference notes that
     live in the repository's <code>docs/</code> folder, rendered here for easy reading. They are
-    written for contributors and framework authors, and are the source of truth for how each
-    subsystem works. If you are building an app, start with the curated
+    written for contributors and framework authors, and describe how each subsystem
+    works in full. If you are building an app, start with the curated
     <a href={url('docs/overview')}>Documentation</a> instead.
   </p>
 

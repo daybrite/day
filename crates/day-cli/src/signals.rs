@@ -31,8 +31,30 @@ struct Child {
 
 static CHILDREN: Mutex<Vec<Child>> = Mutex::new(Vec::new());
 static REMOTE_STOPS: Mutex<Vec<Vec<String>>> = Mutex::new(Vec::new());
+/// Files to put back on the way out: path → contents before this run touched it, or `None` when
+/// the file did not exist. `--day-src` registers `Cargo.lock` here, because cargo rewrites it to
+/// record the patched sources and a flag that promises to change nothing must not leave a tracked
+/// file modified by an interrupt (`crate::patch`).
+type Restore = (std::path::PathBuf, Option<Vec<u8>>);
+static RESTORES: Mutex<Vec<Restore>> = Mutex::new(Vec::new());
 /// Held for the whole of [`kill_all`]; see there.
 static TEARDOWN: Mutex<()> = Mutex::new(());
+
+/// Restore `path` to `before` if this process is interrupted. Paired with [`forget_restore`],
+/// which the normal path calls once it has done the restoring itself.
+pub fn register_restore(path: &std::path::Path, before: Option<&[u8]>) {
+    if let Ok(mut r) = RESTORES.lock() {
+        r.retain(|(p, _)| p != path);
+        r.push((path.to_path_buf(), before.map(<[u8]>::to_vec)));
+    }
+}
+
+/// Drop a registration — the guard restored the file itself on the way out of the build.
+pub fn forget_restore(path: &std::path::Path) {
+    if let Ok(mut r) = RESTORES.lock() {
+        r.retain(|(p, _)| p != path);
+    }
+}
 
 /// Track a spawned child so it is killed on interrupt (and by [`kill_all`]).
 pub fn register_child(pid: u32) {
@@ -125,6 +147,15 @@ pub fn kill_all() {
                 .stderr(std::process::Stdio::null())
                 .status();
         }
+    }
+    // Last, once nothing is still running that could write the file again: a cargo killed
+    // mid-build may still be flushing its lockfile while its pid is being signaled.
+    let restores = RESTORES
+        .lock()
+        .map(|mut r| std::mem::take(&mut *r))
+        .unwrap_or_default();
+    for (path, before) in restores {
+        crate::patch::restore(&path, before.as_deref());
     }
 }
 

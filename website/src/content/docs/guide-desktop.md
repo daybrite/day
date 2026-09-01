@@ -23,7 +23,7 @@ menu_item("Save").key("s").action(save)     // ⌘S on macOS, Ctrl+S everywhere 
 
 **Works on:** context menus render natively everywhere (`NSMenu`, `GtkPopoverMenu`, `QMenu`,
 `UIMenu`, Android `PopupMenu`, XAML `MenuFlyout`). The app menu is a menu bar on the four
-desktop backends and the app-bar overflow (⋮) on Android; on iPhone it is a no-op by design;
+desktop backends and the app-bar overflow (⋮) on Android; on iPhone it is a no-op, since
 touch platforms have no global menu bar. Toolbars exist only where the platform has them:
 `Cap::Toolbar` is `Native` on the four desktop backends and `Unsupported` everywhere else.
 Secondary windows work on every backend: native windows on the desktops, iPad, Android, and
@@ -56,11 +56,11 @@ app_menu(vec![
 ]);
 ```
 
-Three things to notice:
+Roles, the `.key` shorthand, and bar roles each follow a convention.
 
 - **Roles are the platform's own items.** `menu_role(MenuRole::Copy)` emits the native Edit ▸
   Copy: correct localized label, default shortcut, automatic enable/disable, and focus
-  targeting: it copies from whatever control has focus, with no wiring. Custom `menu_item`s
+  targeting, so it copies from whatever control has focus with no wiring. Custom `menu_item`s
   run your closure instead.
 - **`.key("s")` is the primary modifier** (⌘ on Apple, Ctrl elsewhere), so one spec reads
   right on every desktop. For anything else, build a `Shortcut`: `Shortcut::new("s").shift()`
@@ -73,10 +73,10 @@ Three things to notice:
   standard order. The tag identifies the slot, not the title; Day's catalog and yours may
   translate the same menu name differently, and a bar matched on titles would show both.
 
-Where the bar lands: the system menu bar on macOS (Day prepends the standard App menu with
-About and Quit, so your submenus start at File), a bar at the top of the window on GTK and
-Windows, a `QMenuBar` on Qt (the native global bar on `macos-qt`), and the app-bar overflow on
-Android. Android allows one level of submenu; deeper ones flatten.
+The bar lands in the system menu bar on macOS (Day prepends the standard App menu with
+About and Quit, so your submenus start at File), in a bar at the top of the window on GTK and
+Windows, in a `QMenuBar` on Qt (the native global bar on `macos-qt`), and in the app-bar
+overflow on Android. Android allows one level of submenu; deeper ones flatten.
 
 `app_menu` resolves labels once, in the install-time locale. If your app has a runtime
 language picker, install with `app_menu_reactive(builder)` instead; the builder re-runs on a
@@ -101,8 +101,8 @@ behavior, and passing an empty `Vec` removes the menu.
 
 ## 3. Put commands in the window toolbar
 
-A toolbar is window chrome, not a piece: it doesn't live in the tree, and Day doesn't lay it
-out. Probe for it first, the way the showcase's Toolbars page does, and put the same commands
+A toolbar belongs to the window chrome. It doesn't live in the piece tree, and Day doesn't lay
+it out. Probe for it first, the way the showcase's Toolbars page does, and put the same commands
 in the content where there is no bar:
 
 ```rust
@@ -116,23 +116,23 @@ if capability(Cap::Toolbar) == Support::Native {
 }
 ```
 
-The vocabulary: `toolbar_button(id, label)` for a command, `toolbar_toggle(id, label, signal)`
+The items are `toolbar_button(id, label)` for a command, `toolbar_toggle(id, label, signal)`
 for a two-state button bound two-way, `toolbar_menu(id, label, entries)` for a pull-down built
 from the same `MenuEntry`s the menu bar takes, `toolbar_label(id, text)` for static text, and
-`toolbar_separator()` / `toolbar_space()` / `toolbar_flexible_space()` for the gaps. Modifiers:
-`.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(bool)`, and
+`toolbar_separator()` / `toolbar_space()` / `toolbar_flexible_space()` for the gaps. The
+modifiers are `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(bool)`, and
 `.enabled_when(f)`.
 
-Search is not a toolbar item. Declare it on the navigation surface it filters — 
-`selector(section).searchable(query)` — and Day draws the field where the platform puts search,
-which lets it move into the navigation list on a window too narrow for a sidebar without your code
+Search has no toolbar item. Declare it on the navigation surface it filters, with
+`selector(section).searchable(query)`, and Day draws the field where the platform puts search.
+That lets it move into the navigation list on a window too narrow for a sidebar without your code
 changing.
 
 There is no leading/trailing property: items before the first `toolbar_flexible_space()` pack
 to the leading edge and the rest to the trailing edge, and each backend expresses that with
 its own layout. `.icon(Symbol::Refresh)` names what the icon means; each backend draws its
 platform's own glyph (an SF Symbol on macOS, a freedesktop name on GTK and Qt, a Segoe Fluent
-glyph on Windows), which is the only way one icon looks native on four desktops.
+glyph on Windows), which is how one icon looks native on four desktops.
 
 Per desktop, the bar is an `NSToolbar` in the unified title-bar style on macOS; on GTK the
 items pack into the window's `AdwHeaderBar`, because in GNOME the header bar is the toolbar;
@@ -140,8 +140,8 @@ on Qt it is a real `QToolBar` that takes its icon size and style from the user's
 Windows it is a `CommandBar`, whose one limit is that search fields, labels, and fixed spaces
 always render on the leading side.
 
-Two rules keep a live bar stable. Use `toolbar_reactive(builder)` when the item list or its
-labels derive from state, each pass replaces the bar. Keep the values that change often out
+Use `toolbar_reactive(builder)` when the item list or its labels derive from state; each pass
+replaces the bar. Keep the values that change often out
 of that builder: a toggle's signal, a search field's signal, and `.enabled_when(…)` patch the
 one item in place, so a command greying out never disturbs a search in progress. On mobile,
 the counterpart for a single app-wide command is the navigation bar's trailing
@@ -169,7 +169,7 @@ opened it. Close is asynchronous everywhere: the title-bar button, a platform ge
 
 All of this works on every backend. Where the toolkit cannot open windows (iPhone, web, and
 the `Preferences` kind on all mobile), the content presents as a fullscreen cover in the
-primary window instead: same API, same keys, same close path. That tier has no native title
+primary window instead, with the same API, keys, and close path. That tier has no native title
 bar or close button, so probe `Cap::MultiWindow` and give cover-tier content its own close
 affordance (the system back button closes it on Android).
 
@@ -189,12 +189,12 @@ day::register_new_window(|| {
 });
 ```
 
-`register_preferences_with` enables the Settings item with zero menu code: on macOS,
+`register_preferences_with` alone enables the Settings item: on macOS,
 "Settings…" with ⌘, in the App menu directly under About; on GTK, Qt, and Windows, a
 Preferences item with Ctrl+comma, injected into your first menu if you didn't place a
 `menu_role(MenuRole::Preferences)` yourself. The window opens under the singleton key
 `day.preferences`, so reopening focuses it, and `day::open_preferences()` opens the same
-surface from anywhere, a toolbar gear, say. On the cover tier it presents fullscreen.
+surface from anywhere, such as a toolbar gear. On the cover tier it presents fullscreen.
 
 `register_new_window` names the builder behind `menu_role(MenuRole::NewWindow)` (File ▸ New
 Window with ⌘N/Ctrl+N) and the macOS tab-bar "+". Each call opens an independent `Normal`

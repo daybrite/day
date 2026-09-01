@@ -102,6 +102,17 @@ fn path_start(url: &str) -> usize {
     0
 }
 
+/// Whether a spec's URL names a REMOTE repository rather than a local path.
+///
+/// `--git` never has to ask — a repository URL is the only thing it takes. `--day-src` does: it
+/// accepts a directory first, and a bare word that is neither a directory nor a URL should be
+/// reported as a typo rather than handed to `git clone` to fail on minutes later.
+pub fn looks_remote(url: &str) -> bool {
+    // A scheme (`https://`, `ssh://`, `git://`) or scp-like `[user@]host:path`. `path_start`
+    // already draws that line for the ref parser, and a local path leaves it at 0.
+    url.contains("://") || path_start(url) > 0
+}
+
 // --- Where the checkout lives --------------------------------------------------------------------
 
 /// The environment variable's value, if it is set and absolute. A relative cache root would put
@@ -247,16 +258,12 @@ fn sanitize(segment: &str) -> String {
 
 // --- Clone, update, and locate ---------------------------------------------------------------
 
-/// Put the repository on disk and return the Day project directory inside it — what the caller
-/// hands to [`crate::meta::find_project`] as if the user had `cd`'d there.
+/// Put the repository on disk and return its ROOT.
 ///
-/// `dir` is `--dir` (clone here instead of the cache); `project` is the global `--project`, which
-/// under `--git` selects a project *within* the checkout by repo-relative path.
-pub fn prepare(
-    spec: &Spec,
-    dir: Option<&Path>,
-    project: Option<&Path>,
-) -> Result<PathBuf, CliError> {
+/// `dir` is `--dir` (clone here instead of the cache). Separate from [`prepare`] because not every
+/// repository day clones holds an app: `--day-src` clones the FRAMEWORK, which has no `Day.toml`
+/// anywhere in it and would fail the project lookup [`prepare`] adds on top.
+pub fn checkout(spec: &Spec, dir: Option<&Path>) -> Result<PathBuf, CliError> {
     require_git()?;
     let dest = match dir {
         Some(d) if d.is_absolute() => d.to_path_buf(),
@@ -278,6 +285,20 @@ pub fn prepare(
     } else {
         clone(&dest, spec)?;
     }
+    Ok(dest)
+}
+
+/// Put the repository on disk and return the Day project directory inside it — what the caller
+/// hands to [`crate::meta::find_project`] as if the user had `cd`'d there.
+///
+/// `project` is the global `--project`, which under `--git` selects a project *within* the
+/// checkout by repo-relative path.
+pub fn prepare(
+    spec: &Spec,
+    dir: Option<&Path>,
+    project: Option<&Path>,
+) -> Result<PathBuf, CliError> {
+    let dest = checkout(spec, dir)?;
     status("Checkout", &display_path(&dest));
     project_in(&dest, &spec.url, project)
 }
@@ -552,7 +573,7 @@ fn describe(spec: &Spec) -> String {
 
 /// A path with the home directory folded back to `~`, so the `Checkout` line stays short enough
 /// to read and short enough to paste.
-fn display_path(path: &Path) -> String {
+pub fn display_path(path: &Path) -> String {
     let shown = env_abs("HOME")
         .or_else(|| env_abs("USERPROFILE"))
         .and_then(|home| {

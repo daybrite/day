@@ -8,7 +8,7 @@ description: "Several styles inside one label: the runs API over attributed text
 
 # Styled runs
 
-One label, several styles:
+One label can carry several styles:
 
 ```rust
 let (text, runs) = TextBuilder::new()
@@ -55,17 +55,17 @@ would produce a different wrong answer per platform, and a range splitting a mul
 would panic on `str` slicing in some backends and render mojibake in others. Runs that fail the
 check are dropped with a warning and the text renders unstyled.
 
-Text and runs travel together, in `LabelPatch::Runs(String, Vec<TextRun>)` — a range only means
-something against a particular string, so patching one without the other would be a bug waiting
-for the next edit.
+Text and runs travel together, in `LabelPatch::Runs(String, Vec<TextRun>)`, because a range only
+means something against a particular string; patching one without the other would break on the
+next edit.
 
 `FontSpec::monospace` asks for the platform's fixed-pitch face. It rides the ordinary font path,
 so it works on a whole label (`label("…").monospace()`) as well as on a run.
 
 `FontSpec::scale` is a **relative** size: it multiplies whatever the semantic style resolves to, so
 a run at `1.4` still tracks the reader's text-size setting. `Font::System(pt)` is the absolute form
-and does not — which is why an editor's size control moves `scale`, and why an imported document's
-`font-size: 14px` is the thing that lands in `Font::System`.
+and does not, which is why an editor's size control moves `scale` and an imported document's
+`font-size: 14px` lands in `Font::System`.
 
 A label's runs are the character half of [`StyledText`](texteditor.md), the document type
 `.markdown()` produces and [`day-piece-texteditor`](texteditor.md) edits. The same runs render in
@@ -112,7 +112,7 @@ or CJK in the string makes the two disagree.
 | `Underline::Dotted` | GTK draws a single rule (Pango has no dotted); Android draws a single rule |
 | `Underline::Wavy` | GTK draws the spell-check squiggle (`Underline::Error`); Android draws a single rule |
 | `background` | everywhere except where noted below; XAML needs a `TextHighlighter`, since a `Run` has no background |
-| `scale` | GTK takes an ABSOLUTE Pango size in 1/1024 pt — the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label EMPTY. Qt takes points too: its CSS subset ignores a percentage |
+| `scale` | GTK takes an absolute Pango size in 1/1024 pt; the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label empty. Qt takes points too: its CSS subset ignores a percentage |
 
 Everything else draws on all eight.
 
@@ -126,7 +126,7 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 | Android | a `ClickableSpan` + `LinkMovementMethod` |
 | XAML | `Hyperlink.Click` |
 | web-dom | the anchor's click, with its navigation cancelled |
-| AppKit | **not yet** — an `NSTextField` cannot hit-test a link, so this needs the same swap to a text view that UIKit does |
+| AppKit | **not yet**; an `NSTextField` cannot hit-test a link, so this needs the same swap to a text view that UIKit does |
 | ArkUI | **not yet** |
 
 Every one of these reports the target to the app rather than opening it itself, so a label's
@@ -134,21 +134,21 @@ Every one of these reports the target to the app rather than opening it itself, 
 in a paragraph is normally expected to do. Where activation is missing the run still draws as a
 link; the tap does nothing.
 
-Three more things worth knowing:
+Some backend details affect how runs are built.
 
 **GTK renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
-express a link and the markup dialect can. The catch is that a `GtkLabel`'s attribute list
-*overrides* the attributes its markup parsed — a base weight attribute spanning the label
-silently defeats a `<b>` run. So a label with runs carries no attribute list at all, and its base
+express a link and the markup dialect can. A `GtkLabel`'s attribute list *overrides* the
+attributes its markup parsed, so a base weight attribute spanning the label silently defeats a
+`<b>` run. So a label with runs carries no attribute list at all, and its base
 font arrives as a wrapping `<span>`. It also measures from that markup: `label.text()` is the
 markup with its tags stripped, and measuring it would size every run at the base font.
 
-**Qt does not resolve a generic `monospace` family from a style attribute** — it rendered
-proportional — so the fixed face comes from `<code>` instead.
+**Qt does not resolve a generic `monospace` family from a style attribute** (it rendered
+proportional), so the fixed face comes from `<code>` instead.
 
 **A label with a link on iOS is a `UITextView`.** UIKit reserves both selection and link hit
-testing for text-input views, so `.selectable()` rebuilds the label as a read-only text view — and
-a label that arrives WITH a link run is built as one from the start. That swap carries the
+testing for text-input views, so `.selectable()` rebuilds the label as a read-only text view, and
+a label that arrives with a link run is built as one from the start. That swap carries the
 attributed text across rather than the plain string. A link that first appears in a later patch
 cannot upgrade the backing, since `patch` has no way to hand back a new handle: seed the text with
 its link, or mark the label `.selectable()`.
@@ -156,8 +156,8 @@ its link, or mark the label `.selectable()`.
 ## Markdown
 
 [markdown.md](./markdown.md) covers `.markdown()`, which parses inline markdown at run time and
-produces exactly these runs — the ergonomic way to get them when the text is a translated string
-or something a user typed.
+produces exactly these runs; it is the convenient way to get them when the text is a translated
+string or something a user typed.
 
 ## What `Cap` answers
 

@@ -32,20 +32,20 @@ pages.
 |---|---|
 | `struct MyView: View` + `body` | a plain function returning a Piece |
 | `@State private var count` | `let count = Signal::new(…)` |
-| `@Binding` | pass the `Signal` itself — it's `Copy` |
+| `@Binding` | pass the `Signal` itself; it's `Copy` |
 | `@Observable` class / `ObservableObject` | a struct holding `Signal`s and `Memo`s |
 | `body` re-evaluated on change | nothing re-runs; one binding patches one widget |
 | `VStack` / `HStack` / `ZStack` / `Spacer` | `column` / `row` / `zstack` / `spacer()` |
 | `.font(.title)` / `.padding()` | `.font(Font::Title)` / `.padding(16.0)` |
 | `List` / `ForEach(id:)` | `list` / `each` — the key function is required |
 | `NavigationSplitView` | `selector(…).style(SelectorStyle::Sidebar)` |
-| `NavigationStack(path:)` | `stack(path, root)` — same idea, a path signal |
+| `NavigationStack(path:)` | `stack(path, root)`, driven by a path signal |
 | `@Environment(\.horizontalSizeClass)` | `size_class()` — five width buckets, one table on every backend |
 | `.environment` / `@Environment` | `with_environment` / `environment::<T>()` |
 | `Task { }` + `@MainActor` | `day::task` — continuations land on the UI thread |
 | String Catalogs (`.xcstrings`) | Fluent `.ftl` + generated `res::str` functions |
 | asset catalogs | the `resource/` directory, staged per platform |
-| Xcode project + SPM | `Cargo.toml` + `Day.toml`, no IDE requirement |
+| Xcode project + SPM | `Cargo.toml` + `Day.toml`, editable in any editor |
 | Archive → Organizer → notarize / upload | `day pack -p <target>` |
 
 ## The same counter in both
@@ -84,12 +84,12 @@ fn counter() -> impl Piece {
 
 The structure is nearly identical, but the runtime behavior differs. SwiftUI re-evaluates `body` when
 `count` changes and diffs the result; Day re-runs only the label's closure and sets one native
-string. The distinction you notice day to day is that *you* mark what's dynamic: a closure
-makes text live, a bare value doesn't. In exchange, an update's cost is proportional to what
-observes the change, never to the size of the view. [Reactivity](/docs/reactivity) explains the
-model.
+string. The difference you notice day to day is that you mark what's dynamic yourself: a
+closure makes text live, and a bare value doesn't. In exchange, an update's cost is proportional
+to the number of readers of the changed value and independent of the size of the view.
+[Reactivity](/docs/reactivity) explains the model.
 
-## Bindings without the `$`
+## Passing signals as bindings
 
 SwiftUI splits state into `@State` (ownership) and `$binding` (projection). A `Signal` is both:
 it's a `Copy` handle, so "passing a binding" is passing the signal.
@@ -132,7 +132,7 @@ fn settings_form() -> impl Piece {
 </Compare>
 
 Where you'd reach for `@Observable`, group signals in a plain struct and pass it around. Every
-field is independently observable, and there's no macro or conformance:
+field is independently observable, and the struct needs no macro or conformance:
 
 ```rust
 #[derive(Clone, Copy)]
@@ -167,9 +167,9 @@ list(
 
 `list` recycles native cells the way `List` does; `each` is the non-recycling `ForEach`
 equivalent for short collections. The `id:` key path becomes an explicit key function, and rows
-keep their own state across reorders by key, as you'd expect.
+keep their own state across reorders by key.
 
-## Navigation: the same shapes
+## Navigation
 
 Day's two navigation Pieces line up with the two SwiftUI containers you already use, down to
 binding a path collection for push/pop:
@@ -209,12 +209,12 @@ navigate("album-42");
 `NSSplitView` source list on macOS, and the platform's own idiom elsewhere (a pushing list on
 phones, libadwaita's split view on GTK). On top of the signals sits a thin route layer:
 `navigate("library/album-42")`, `current_route()`, and `DAY_DEEPLINK` cover programmatic
-navigation, state restoration, and deep links with one set of strings: the job
-`onOpenURL` and scene restoration do separately. See [Navigation](/docs/navigation).
+navigation, state restoration, and deep links with one set of strings, the job `onOpenURL` and
+scene restoration do separately. See [Navigation](/docs/navigation).
 
 ## Size classes
 
-The idea is Apple's, and Day keeps it — with a finer table and one number for every platform.
+Day keeps Apple's size-class idea, with a finer table and one number for every platform.
 `@Environment(\.horizontalSizeClass)` answers `.compact` or `.regular`; `day::size_class()`
 answers a `WidthClass` of `Compact`, `Medium`, `Expanded`, `Large`, or `ExtraLarge`, from
 [one breakpoint table](/docs/internal/size-classes) (Android's) applied on every backend. So a
@@ -256,8 +256,8 @@ size gets its own answer.
 
 Day uses SwiftUI's layout algorithm: parents propose sizes, children choose, text is measured by
 the platform (height-for-width), and layout re-enters at boundaries rather than from the root.
-`Spacer` pushes, `.frame` fixes, padding wraps. Modifier ordering works the same way:
-padding before background pads inside the fill.
+`Spacer` pushes, `.frame` fixes a size, and padding wraps. Modifier ordering works the same
+way: padding before background pads inside the fill.
 
 <Compare lhs="SwiftUI">
 
@@ -286,10 +286,10 @@ column((
 </Compare>
 
 The semantic font roles (`Title`, `Headline`, `Body`, `Caption`, …) map to each platform's
-typography scale (on Apple targets, the same text styles you use today). One gap:
-SwiftUI's semantic *colors* (`Color.primary`, automatic dark-mode adaptation for your own
-colors) don't have a Day equivalent yet. Native widget chrome follows the system appearance on
-its own, but hardcoded custom colors are yours to switch per appearance for now.
+typography scale (on Apple targets, the same text styles you use today). SwiftUI's semantic
+colors (`Color.primary`, automatic dark-mode adaptation for your own colors) have no Day
+equivalent yet. Native widget chrome follows the system appearance on its own, but hardcoded
+custom colors are yours to switch per appearance for now.
 [Styling](/docs/styling) lists what you can and can't restyle.
 
 ## Bringing SwiftUI views with you
@@ -317,7 +317,7 @@ crate::swiftui::AlbumChart(album_id, zoom)
 Each argument takes a constant, a `Signal`, or a closure; a reactive argument re-invokes the
 view's initializer live, and SwiftUI reconciles that like any parent-driven update, so the
 view's `@State` survives. A renamed view or a changed parameter is a Rust compile error at the
-call site — the same contract the generated `res::str` accessors give strings. Views the scan
+call site, the same contract the generated `res::str` accessors give strings. Views the scan
 can't express (delegates, `@ViewBuilder` content) go through the provider escape hatch:
 `swiftui("name")` resolves an `@objc(DayView_name)` provider class you write. The
 [SwiftUI embedding reference](/docs/internal/swiftui) covers the scanned subset, `.state_key`
@@ -349,13 +349,13 @@ day::task(async move {
 
 Cancellation is explicit: `day::task` returns a `TaskHandle`, and `handle.abort()` drops the
 future, which cancels an in-flight platform request. Tasks are not tied to the scope that
-spawned them; scope-tied cancellation is what `Resource`, the declarative fetch wrapper, adds
-on top.
+spawned them; `Resource`, the declarative fetch wrapper, adds scope-tied cancellation on top.
 
 ## Package configuration
 
 An Xcode project holds targets, build settings, signing, capabilities, and package
-dependencies. Day splits that into two small text files (both diffable, no `.pbxproj` merges):
+dependencies. Day splits that into two small text files, both plain text that diffs and merges
+cleanly:
 
 <Compare lhs="SwiftUI — Xcode + SPM">
 
@@ -467,8 +467,8 @@ field-notes/
 └── build/day/            # everything generated
 ```
 
-Per-platform configuration is a `Day.toml` override, not a target's build settings pane, and
-it extends to platforms Xcode doesn't build for:
+Per-platform configuration is a `Day.toml` override, and it extends to every target,
+including the ones without an Xcode project:
 
 ```toml
 [app]
@@ -482,9 +482,9 @@ title = "Field Notes Mobile"        # only iOS sees this
 id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
-One macOS difference: SwiftUI on the Mac adapts iOS-shaped views; Day's macOS target is an
-AppKit app (`NSButton`, `NSSplitView` source lists, real menu bar items) because AppKit is
-what Day's macOS toolkit speaks natively.
+On macOS, SwiftUI adapts iOS-shaped views, while Day's macOS target is an AppKit app
+(`NSButton`, `NSSplitView` source lists, real menu bar items), because Day's macOS toolkit is
+built on AppKit.
 
 ## Building and shipping
 
@@ -494,12 +494,12 @@ what Day's macOS toolkit speaks natively.
 | iterate | Previews / rebuild | `day relaunch --all-running` (no previews) |
 | macOS release | Archive → notarize → staple → DMG (your tooling) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
 | iOS release | Archive → Organizer / `xcodebuild -exportArchive` | `day pack -p ios-uikit` → `.ipa` (App Store Connect export) |
-| TestFlight / App Store upload | Organizer or Transporter | upload the `.ipa` with your usual tool — `day pack` stops at the artifact |
+| TestFlight / App Store upload | Organizer or Transporter | upload the `.ipa` with your usual tool; `day pack` stops at the artifact |
 | Android / Windows / Linux / HarmonyOS / web | — | `day pack -p android-mdc` / `-p windows-xaml` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` |
 | UI tests | XCUITest | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 
-Maturity differs by target, and these docs say so rather than implying parity: every
-`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
+today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
 [Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
@@ -513,4 +513,4 @@ build. [Packaging](/docs/packaging) has the details.
 - [Getting started](/docs/getting-started) — install, scaffold, first launch.
 - [API tour](/docs/api-tour) — the whole authoring surface in one pass.
 - [Layout](/docs/layout) — the negotiation protocol, from the other side.
-- [Why Day](/docs/benefits) — the frank comparison, including when SwiftUI alone is enough.
+- [Why Day](/docs/benefits) compares the approaches and says when SwiftUI alone is enough.

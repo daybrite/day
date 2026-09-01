@@ -14,7 +14,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > link-time into their slice; the other two get the same picker as everyone else, because the
 > **composed** idiom is built from ordinary Day pieces and a canvas and therefore needs no arm at
 > all. Verified on macos-appkit, macos-gtk, macos-qt, ios-uikit, android-mdc and web-dom; CI builds
-> every arm. The XAML arm is written against the Windows SDK and has not been run on Windows yet —
+> every arm. The XAML arm is written against the Windows SDK and has not been run on Windows yet;
 > see [Verification status](#verification-status).
 
 `color_picker(Signal<Color>)` is a **color well**: a swatch showing the current color that opens a
@@ -56,14 +56,13 @@ The value is Day's ordinary [`Color`](color.md), so the same signal drives `.tin
 - **`Composed`** — builds the picker out of ordinary Day pieces: a drawn swatch opening a
   [`cover`](cover.md) that holds a canvas saturation/brightness field, a hue strip, an opacity
   strip and a preset palette. Every part of it is Rust that already runs everywhere, so it is the
-  same picker on all nine targets — including the two that have no other option.
+  same picker on all nine targets, including the two that have no other option.
 - **`Automatic`** (default) — `Native` where the toolkit has a chooser, `Composed` where it does
   not.
 
 `day_piece_colorpicker::support()` reports which one `Automatic` will pick. It does not report
-whether the picker works — there is no target where it does not — so an app showing a "not
-supported here" banner from this answer would be wrong. Use it to say *which* picker the user
-gets.
+whether the picker works (it works on every target), so an app showing a "not supported here"
+banner from this answer would be wrong. Use it to say *which* picker the user gets.
 
 ## Per-toolkit realization
 
@@ -101,12 +100,12 @@ into.
 └──────────────────────────────┘
 ```
 
-Three details are decisions rather than accidents:
+Three details of the panel call for explanation:
 
-- **HSV is the panel's source of truth**, not the bound color. Deriving hue from RGB on every
-  change would lose it the moment brightness reached zero — black has no hue — so the sliders
-  would jump back to red as the user dragged into the corner. The panel seeds H/S/V once per
-  presentation and writes the color out.
+- **The panel keeps HSV as its own state**, separate from the bound color. Deriving hue from RGB
+  on every change would lose it the moment brightness reached zero (black has no hue), so the
+  sliders would jump back to red as the user dragged into the corner. The panel seeds H/S/V once
+  per presentation and writes the color out.
 - **The bound signal moves live**, as it does under every native chooser: the app sees the tint
   change while the user drags. `Cancel` puts back the color the panel opened on; `Done` keeps the
   pick.
@@ -114,15 +113,15 @@ Three details are decisions rather than accidents:
   carry press feedback and keyboard focus for free, but each toolkit applies a tint its own way:
   AppKit composites it through the bezel, Material draws a filled container with its own elevation,
   GTK and Qt route it through their themes, and the web takes CSS. The same color would read
-  differently on all nine. A canvas draws what the app asked for. That costs keyboard activation —
-  a drawn well takes a press, not a Return key — and carries a `Button` role and a label so a
-  screen reader still announces it correctly.
+  differently on all nine. A canvas draws what the app asked for. That costs keyboard activation
+  (a drawn well takes a press, not a Return key), and the well carries a `Button` role and a
+  label so a screen reader still announces it correctly.
 
-The panel presents in an `unrouted()` [`cover`](cover.md), which is what keeps a mounted picker out
-of the app's route space: `navigate("settings")` still goes to settings rather than opening a color
+The panel presents in an `unrouted()` [`cover`](cover.md), which keeps a mounted picker out of the
+app's route space: `navigate("settings")` still goes to settings rather than opening a color
 panel keyed `"settings"` (see that method for why the untyped route makes this a real hazard).
-Android's system back still dismisses the panel — that path is the cover's own `NavBack` handler,
-not the route adapter.
+Android's system back still dismisses the panel; that path is the cover's own `NavBack` handler
+rather than the route adapter.
 
 ## Alpha
 
@@ -130,9 +129,9 @@ not the route adapter.
 composed panel honors it everywhere. Among the native choosers there is one gap:
 `<input type="color">` gained an `alpha` attribute only recently and browsers are still shipping
 it, so the web arm sets the attribute and stays opaque where the browser has not implemented it.
-There is no reliable feature test that predicts the *UI* — a browser can accept the property and
-still draw an opaque-only picker — so the arm sets it and lets the value speak: an opaque pick
-simply arrives with `a = 1`.
+There is no reliable feature test that predicts the UI (a browser can accept the property and
+still draw an opaque-only picker), so the arm sets it and reads whatever value comes back; an
+opaque pick arrives with `a = 1`.
 
 With `.alpha(false)` (the default) the piece drops the alpha off any pick, so a chooser with a
 stray alpha channel cannot make an app's brand color half-transparent behind its back.
@@ -140,14 +139,14 @@ stray alpha channel cannot make an app's brand color half-transparent behind its
 ## Precision
 
 A pick crosses back to Rust as the component form `Color`'s `Display` writes and
-[`Color::parse`](color.md) reads — four floats, not a packed 32-bit ARGB — so the toolkits whose
-pickers really are float-precision (`NSColor`, `GdkRGBA`, `QColor::getRgbF`) lose nothing on the
+[`Color::parse`](color.md) reads, four floats rather than a packed 32-bit ARGB, so the toolkits
+whose pickers are float-precision (`NSColor`, `GdkRGBA`, `QColor::getRgbF`) lose nothing on the
 way. Three arms are 8-bit at the source and quantize regardless: XAML's `Windows.UI.Color`,
 `<input type="color">`'s `#rrggbb` value, and anything that round-trips through
 `android.graphics.Color`.
 
-Everything the *chooser* knew that `Color` cannot hold — a wide-gamut pick, which authoring model
-the user was in, a dynamic system color — is covered in [color.md](color.md), which also proposes
+Everything the *chooser* knew that `Color` cannot hold (a wide-gamut pick, which authoring model
+the user was in, a dynamic system color) is covered in [color.md](color.md), which also proposes
 what to do about it.
 
 ## Scripting
@@ -174,45 +173,45 @@ route key; the panel's own parts carry fixed ids:
 the drawn controls. They take a `tap` at a point, which is how the walkthrough proves
 `Decorate::on_tap_at` reports *where* a press landed (see [canvas.md](canvas.md)).
 
-## What this piece does NOT promise
+## What this piece does not promise
 
 - **Identical chrome across the native idiom.** AppKit's panel is a floating inspector, iOS's a
-  sheet, GTK's a dialog, XAML's a flyout. That difference IS the platform
+  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's own chrome
   (DESIGN.md [§2](../DESIGN.md)); `.composed()` is the escape hatch when an app wants one look.
 - **An embedded/inline style.** Three of the eight toolkits have nothing to embed, and a style that
   silently degrades on most backends is worse than one an app can reason about. The composed panel
   covers the case an inline picker was wanted for.
 - **Palettes, recent colors, or an eyedropper of Day's own.** The native choosers each bring their
   own; the composed panel offers `.presets(…)` and nothing more.
-- **Anything `Color` cannot carry** — see [color.md](color.md).
+- **Anything `Color` cannot carry**, covered in [color.md](color.md).
 
 ## Verification status
 
 The showcase's 572-step walkthrough passes on **macos-appkit, macos-gtk, macos-qt, ios-uikit,
 android-mdc and web-dom** with the Resources page driving both idioms. The composed panel was
-screenshot-reviewed on the first five — it draws the same field, strip, preview, palette and
-buttons on each — and on web-dom its steps pass but no screenshot was taken (that needs a
-`DAY_WEB_DRIVER` browser, [docs/web.md](web.md)). The native leaf's realize traffic is what
-`assert_no_placeholders` checks on every one of those targets, so the six native arms are known to
+screenshot-reviewed on the first five (it draws the same field, strip, preview, palette and
+buttons on each), and on web-dom its steps pass but no screenshot was taken (that needs a
+`DAY_WEB_DRIVER` browser, [docs/web.md](web.md)). `assert_no_placeholders` checks the native
+leaf's realize traffic on every one of those targets, so the six native arms are known to
 register and realize.
 
 The mock e2e (`pieces/day-piece-colorpicker/tests/mock.rs`) covers the leaf's event decode, the
 app-write patch, the alpha guard, and the composed panel's mount / pick / cancel / done cycle on
 every host.
 
-Not yet exercised: **harmony-arkui** (which gets the composed panel, and whose Rust is the same
-code the other eight run — but the OHOS emulator has not run it), and the *interaction* with each
-native chooser, which is an OS panel a script cannot drive.
+**harmony-arkui** has not been exercised (it gets the composed panel, and its Rust is the same
+code the other eight run, but the OHOS emulator has not run it), and neither has the *interaction*
+with each native chooser, which is an OS panel a script cannot drive.
 
 **windows-xaml** was written blind and has since been driven by hand on Windows 11, in Day-Sketch's
-inspector, with synthetic mouse input (nothing below is in CI — opening the flyout is the part no
-script reaches). Three of the four assumptions hold: `Button.Flyout` does carry a `ColorPicker`,
-`ColorChanged` does fire while the flyout is open and the pick reaches the app, and
+inspector, with synthetic mouse input (nothing below is in CI, because opening the flyout is the
+part no script reaches). Three of the four assumptions hold: `Button.Flyout` does carry a
+`ColorPicker`, `ColorChanged` does fire while the flyout is open and the pick reaches the app, and
 `day_xaml_measure` sizes the swatch button sanely. `IsAlphaEnabled` is still unconfirmed — the app
 the check ran in keeps its wells opaque and carries opacity on a slider of its own.
 
 The same check found a fifth thing the shim had assumed and should not have: `ColorPicker::Color`
-raises `ColorChanged`, so day writing a value IN — an inspector following a new selection — came
+raises `ColorChanged`, so day writing a value in (an inspector following a new selection) came
 straight back as if the user had picked it. The app then rewrote the value it had just sent, and
 that no-op write still sealed an undo unit, which swallowed the user's next Undo (Day-Sketch's
 walkthrough failed there). The shim now brackets the write with an echo guard, the way the GTK arm

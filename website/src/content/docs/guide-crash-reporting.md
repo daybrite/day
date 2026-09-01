@@ -73,7 +73,7 @@ non-fatal report, so you also see the almost-crashes.
 
 A report is versioned JSON: app id, version, and build; the day version and backend; OS,
 device model, and locale; the session id and uptime; the panic message and source location, or
-the signal's number and addresses; and a backtrace. Nothing else: the schema in
+the signal's number and addresses; and a backtrace. The schema in
 [the reference](/docs/internal/break) lists every field, and there is no user data beyond
 them. The signal handlers chain to the previous disposition, so the platform's own crash
 reporter (Android tombstones, HarmonyOS faultlogs) still runs alongside.
@@ -95,7 +95,7 @@ The ready-made surface is `day_break::consent_banner()` from the `ui` feature (o
 default): a piece that appears while reports are pending, shows the full report text, and
 offers send and discard. To build your own (the showcase's Crash Reporting page does),
 compose the queries: `pending()` is a reactive `Signal<Vec<ReportMeta>>`, newest first;
-`report_text(&meta)` is the full text, which is what the transport sends;
+`report_text(&meta)` is the full text the transport sends;
 `reporter_description()` is the transport's one-line disclosure; `send(&meta, |result| …)`
 uploads; `discard(&meta)` deletes. The showcase keeps its viewer current with one effect:
 
@@ -120,7 +120,7 @@ Three transports ship with the crate:
   GitHub-issue proxy takes: a small server accepts the JSON and opens the issue with your repo
   token held server-side, never on the device.
 - **`GithubIssueReporter::new(owner, repo)`** opens a prefilled new-issue page in the browser;
-  the user reviews and submits it themselves. No server needed.
+  the user reviews and submits it themselves, and GitHub is the only server involved.
 - **`EmailReporter::new(to)`** opens a prefilled `mailto:` compose (`.subject_prefix(…)` tags
   the subject); the user sends the mail.
 
@@ -134,28 +134,28 @@ pub trait Reporter: Send + Sync {
 }
 ```
 
-The browser and email transports finish with `SendError::HandedOff` — they handed the report
-to the platform and can't confirm delivery. It's reported so your UI can say so, not a
-failure.
+The browser and email transports finish with `SendError::HandedOff`: they handed the report
+to the platform and can't confirm delivery. It is reported so your UI can say so, and it is not
+a failure.
 
 ## Pitfalls
 
-- **Arm first.** The hook can't record a crash that happens before `init` runs, and `init` is
-  also what reconciles the previous session — call it at the top of the app entry, before
+- **Arm first.** The hook can't record a crash that happens before `init` runs, and `init`
+  also reconciles the previous session, so call it at the top of the app entry, before
   `day::launch`.
 - **Release backtraces carry symbols, not lines.** The release profile ships no debug info by
   default. For `file:line` in release reports, add `[profile.release] debug =
   "line-tables-only"` in your own workspace; day-break doesn't change the global profile. For
   native faults, `signal.pc - signal.slide` is the module-relative address to symbolize
   offline.
-- **`Unknown` is not a crash.** A leftover session with no crash artifact — an OS kill, power
-  loss — reconciles as `SessionEnd::Unknown`, never `Crashed`. Don't show crash UI for it.
+- **`Unknown` is not a crash.** A leftover session with no crash artifact (an OS kill, power
+  loss) reconciles as `SessionEnd::Unknown`, never `Crashed`. Don't show crash UI for it.
 - **Not every crash class is caught everywhere.** Windows native faults, the iOS
   Objective-C exception handler, and HarmonyOS `errorManager` are deferred to a later version;
   on iOS an uncaught ObjC exception ends in `abort()`, which the SIGABRT handler does record.
 
 ## Reference
 
-[break](/docs/internal/break) — the whole design: the report schema, signal-handler
+[break](/docs/internal/break) — the full design: the report schema, signal-handler
 discipline, the session sentinel, app identity and symbolication, transports, and how it's
 tested.

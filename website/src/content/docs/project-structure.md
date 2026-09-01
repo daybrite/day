@@ -34,7 +34,7 @@ my-app/
 │   ├── icons/                # app icon sources, staged per platform (dock, taskbar, launcher)
 │   └── locales/
 │       ├── en/app.ftl        # Fluent translations, embedded at compile time; a new
-│       └── fr/app.ftl        #   directory here IS a new language (res::locales::install())
+│       └── fr/app.ftl        #   directory here is a new language (res::locales::install())
 ├── dayscript/                # dayscript flows: walkthroughs, screenshots, assertions
 ├── store/                    # the canonical store listing `day store` consumes
 ├── website/                  # optional app-site scaffold (skip with --no-website)
@@ -45,7 +45,7 @@ my-app/
 └── build/day/                # generated: cargo target dirs, staged resources, screenshots
 ```
 
-Three rules keep this layout predictable:
+These rules keep the layout predictable.
 
 - **`Day.toml` is the single manifest.** The app's Day-specific identity (`id`, `title`,
   `artifact`, `build`), its declared `targets`, the default window geometry, and the
@@ -54,7 +54,7 @@ Three rules keep this layout predictable:
   (`id`, `title`, `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
   toolkit (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform scaffolds read the
   resolved values at build time.
-- **The scaffolds are hosts, not apps.** `platform/ios`, `platform/android`, and `platform/ohos` contain
+- **The scaffolds are thin hosts.** `platform/ios`, `platform/android`, and `platform/ohos` contain
   no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
   view. They change so rarely that diffs to them are meaningful.
 - **Everything generated lands in `build/day/`:** Cargo target directories (one per target and
@@ -77,7 +77,7 @@ day build -p <target>
 │                               <piece>/<toolkit> renderer feature (from cargo metadata)
 │
 └── 3. platform build
-    ├── desktop   cargo build            → the app binary IS the artifact
+    ├── desktop   cargo build            → the app binary is the artifact
     ├── ios       xcodebuild             → Runner.app  (links the cargo staticlib)
     ├── android   cargo-ndk + gradle     → app.apk     (bundles the cargo cdylib)
     └── harmony   cargo + hvigor + sign  → app.hap     (bundles the cargo cdylib)
@@ -225,7 +225,7 @@ opening `index.html` directly.
 ## How resources are packaged
 
 `resource/images/` and `resource/assets/` are looked up by name at runtime through the generated typed
-constants (`image(res::images::logo)`, `resource(res::assets::stations_json)` — a typo is a
+constants (`image(res::images::logo)`, `resource(res::assets::stations_json)`; a typo is a
 compile error). Day never rewrites your bytes. Before each platform build it stages
 the files into that target's **native resource store**, so the platform's own machinery does the
 optimizing, and the runtime read is native (and zero-copy wherever the store exposes a stable

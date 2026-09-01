@@ -12,10 +12,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > [!NOTE]
 > **Sections 1–3 describe what ships today** and are normative. **Section 4 onward is a
-> proposal** — nothing in it is implemented, and no code should be written against it yet. It
-> exists because [day-piece-colorpicker](colorpicker.md) put the question in front of us: a native
-> color chooser can hand back things `Color` cannot hold, and the places an app wants to *put* a
-> color are not the same set as the places that accept one.
+> proposal**; nothing in it is implemented, and no code should be written against it yet. It
+> exists because [day-piece-colorpicker](colorpicker.md) raised the question: a native color
+> chooser can hand back things `Color` cannot hold, and the places an app wants to *put* a color
+> are not the same set as the places that accept one.
 
 ## 1. What ships
 
@@ -25,12 +25,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 pub struct Color { pub r: f64, pub g: f64, pub b: f64, pub a: f64 }   // sRGB, 0.0–1.0, Copy
 ```
 
-Constructors cover the models an app authors in — `rgb` / `rgba` / `hex(0xRRGGBB)` / `hsl` /
-`hsla` / `hsv` / `hsva` — and all of them land in the same four sRGB components. `to_hsl` and
-`to_hsv` decompose back; `lerp_hsl` blends along the short hue arc rather than the muddy RGB
-straight line. `with_alpha`, `to_hex_string` and `parse` were added with the color picker:
-`parse` reads `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` and the space-separated component form
-that `Display` writes, which is what a native pick crosses a JNI / C-ABI / JS boundary as.
+Constructors cover the models an app authors in (`rgb` / `rgba` / `hex(0xRRGGBB)` / `hsl` /
+`hsla` / `hsv` / `hsva`), and all of them land in the same four sRGB components. `to_hsl` and
+`to_hsv` decompose back; `lerp_hsl` blends along the short hue arc, where a straight line through
+RGB would pass through gray. `with_alpha`, `to_hex_string` and `parse` were added with the color
+picker: `parse` reads `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` and the space-separated
+component form that `Display` writes, which is what a native pick crosses a JNI / C-ABI / JS
+boundary as.
 
 **`Paint` is the fill source**, in `day-spec`:
 
@@ -45,7 +46,7 @@ an ArkUI gradient, a CSS gradient): all eight canvas backends draw them.
 
 ## 2. Where each one is accepted
 
-The two are not interchangeable in practice, and the split is not where most people expect.
+The two are not interchangeable, and `Paint` is accepted in far fewer places than `Color`.
 
 **`Paint` is accepted by exactly two functions**, both on the canvas: `Draw::fill` and
 `Draw::stroke_styled`.
@@ -68,15 +69,15 @@ So a gradient is expressible on a canvas and nowhere else. An app that wants a g
 draws one on a canvas and lays its content over it in a `zstack`, which works but gives up the
 native container, its corner radius, and its clipping.
 
-Semantic colors are a separate story with a separate answer: there is no `theme::` token module,
-because default appearance is native by construction — text, controls, separators and window
-grounds take the platform's own dynamic colors inside each backend, and a form card takes
-`SurfaceRole::SectionCard`. Apps state only *deliberate* colors. DESIGN.md
+Semantic colors are a separate question. There is no `theme::` token module, because default
+appearance is native by construction: text, controls, separators and window grounds take the
+platform's own dynamic colors inside each backend, and a form card takes
+`SurfaceRole::SectionCard`. Apps state only the colors they choose. DESIGN.md
 [§6.3](../DESIGN.md#63-semantic-theme-tokens) records that decision and why it has held.
 
 ## 3. What a native color picker can hand back
 
-The picker is what forced this document, so here is what each chooser actually produces.
+The picker prompted this document, so this section lists what each chooser produces.
 
 | chooser | value type | models the user can author in | alpha | beyond sRGB |
 |---|---|---|---|---|
@@ -87,30 +88,29 @@ The picker is what forced this document, so here is what each chooser actually p
 | XAML `ColorPicker` | `Windows.UI.Color` (8-bit ARGB) | spectrum, channel sliders, hex | opt-in | no — sRGB |
 | `<input type="color">` | `#rrggbb` string | the browser's own UI | new `alpha` attribute, still shipping | new `colorspace="display-p3"` attribute, still shipping |
 
-Four things in that table `Color` cannot carry. **Opacity is not one of them** — `Color` has had
-an alpha channel from the start, and the picker binds it directly.
+There are four things in that table that `Color` cannot carry. Opacity is not one of them;
+`Color` has had an alpha channel from the start, and the picker binds it directly.
 
 1. **The color space.** A Display P3 red is outside sRGB. Converting it in clamps it to something
-   the user did not pick, and nothing downstream can tell that happened. This is the gap that
-   grows: wide-gamut displays are now the default on every Apple device and common elsewhere.
+   the user did not pick, and nothing downstream can tell that happened. This gap widens as
+   wide-gamut displays become the default on every Apple device and common elsewhere.
 2. **The authoring model.** HSB → RGB → HSB is not the identity. Hue is undefined at zero
    saturation and at zero brightness, so a value the user reached by dragging brightness to the
    floor comes back as "black, hue 0" and the picker re-opens on red. Every real picker keeps H/S/V
-   as its own state to avoid this — [day-piece-colorpicker](colorpicker.md)'s composed panel does
-   exactly that, per presentation — but the *bound value* still cannot express it, so the state
+   as its own state to avoid this ([day-piece-colorpicker](colorpicker.md)'s composed panel does
+   exactly that, per presentation), but the *bound value* still cannot express it, so the state
    dies when the panel closes.
 3. **Dynamic system colors.** `NSColor.controlAccentColor`, `?attr/colorPrimary`, the XAML accent
-   brushes: these are not values, they are *rules* the OS re-evaluates on a theme change, an
-   accent-color change, or an increase-contrast setting. Flattening one into four floats freezes
-   it at the moment it was read. Today an app cannot bind to one at all, which is exactly the hole
+   brushes: these are rules the OS re-evaluates on a theme change, an accent-color change, or an
+   increase-contrast setting, rather than fixed values. Flattening one into four floats freezes
+   it at the moment it was read. Today an app cannot bind to one at all, which is the gap
    DESIGN.md §6.3 leaves open.
-4. **Pattern and named-catalog colors** (AppKit only). An image is not a color and never will fit
-   in this type. Out of scope below, and the color picker's AppKit arm drops such a pick rather
-   than reporting garbage.
+4. **Pattern and named-catalog colors** (AppKit only). An image is not a color and will never fit
+   in this type. They are out of scope below, and the color picker's AppKit arm drops such a pick
+   rather than reporting a wrong value.
 
-Gradients are worth naming explicitly because the question comes up here: **no color picker on any
-platform returns a gradient.** The gradient gap is not in the picker, it is in §2 — the surfaces
-that take a color do not take a `Paint`.
+Gradients come up here too. No color picker on any platform returns a gradient; the gradient gap
+is in §2, where the surfaces that take a color do not take a `Paint`.
 
 ---
 
@@ -123,7 +123,7 @@ that take a color do not take a `Paint`.
 There are five changes, ordered by what they pay off. Each is independently landable, and only
 the fourth is a wide edit.
 
-### 4.1 `Color` becomes a value OR a role — and stays `Copy`
+### 4.1 `Color` becomes a value or a role, and stays `Copy`
 
 ```rust
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -151,18 +151,17 @@ pub enum ColorRole {
 }
 ```
 
-Three properties this shape is chosen for:
+The shape is chosen for three properties.
 
 - **It stays `Copy` and fixed-size.** `[f64; 4]` holds CMYK's four channels and leaves the fourth
-  slot unused for the three-channel models; `ColorRole` is fieldless. That matters more than it
-  looks: props structs across day-spec are `Copy`, and a `Vec` in `Color` would take that away
-  from all of them.
+  slot unused for the three-channel models; `ColorRole` is fieldless. Props structs across
+  day-spec are `Copy`, and a `Vec` in `Color` would take that away from all of them.
 - **Every existing constructor survives unchanged.** `Color::hex(0xE86A3C)` builds
   `Components { space: Srgb, model: Rgb, c: [.91, .42, .24, 0.] }` with `alpha: 1.0`;
   `Color::hsv(30., .8, .9)` builds the same struct with `model: Hsb` and keeps the hue the user
-  chose. Gap 2 closes by construction — a picker's HSB pick survives being stored.
+  chose. Gap 2 closes by construction; a picker's HSB pick survives being stored.
 - **The picker's result needs no separate type.** `Color` already says which model and which space
-  it came from, so a pick IS a `Color`, and re-opening the chooser can land the user back in the
+  it came from, so a pick is a `Color`, and re-opening the chooser can land the user back in the
   tab they were in.
 
 The accessor every backend and most app code uses:
@@ -176,9 +175,9 @@ impl Color {
 }
 ```
 
-**What this breaks:** field access. `c.r` / `c.g` / `c.b` / `c.a` appear in roughly 90 places
+This change breaks field access. `c.r` / `c.g` / `c.b` / `c.a` appear in roughly 90 places
 across the day crates and a handful in each app; each becomes `srgb()` destructuring or
-`with_alpha`. That is the whole migration, and it is mechanical.
+`with_alpha`. That is the entire migration, and it is mechanical.
 
 ### 4.2 The toolkit SPI resolves a role instead of receiving four floats
 
@@ -191,22 +190,21 @@ Backends stop taking components and start taking a `Color`, resolving it themsel
 | `Separator` | `separatorColor` | `@borders` | `QPalette::Mid` | `DividerStrokeColorDefault` | `?attr/colorOutlineVariant` | `-webkit-…` |
 
 A role is re-resolved on the appearance change every backend already reports, so a bound role
-repaints with the system. This is the change that closes gap 3, and it is what DESIGN.md §6.3 was
-holding the door open for — as a *typed value* rather than an app-side token module, which is the
-part of that decision worth keeping.
+repaints with the system. This change closes gap 3, in the shape DESIGN.md §6.3 left room for: a
+typed value rather than an app-side token module, which is the part of that decision to keep.
 
 ### 4.3 A wider space rides along instead of clamping
 
-`ColorSpace` on the value lets a Display P3 pick reach a backend that can honor it —
-`CGColor` with a P3 space, `android.graphics.Color.valueOf(r, g, b, a, ColorSpace)`,
-CSS `color(display-p3 …)`, `QColor::fromRgbF` with extended range — and lets everyone else
-convert down once, at the edge, where the loss is visible in one place instead of at authoring
-time. `Color::srgb()` is that conversion.
+`ColorSpace` on the value lets a Display P3 pick reach a backend that can honor it (`CGColor`
+with a P3 space, `android.graphics.Color.valueOf(r, g, b, a, ColorSpace)`, CSS
+`color(display-p3 …)`, `QColor::fromRgbF` with extended range) and lets everyone else convert
+down once, at the edge, where the loss is visible in one place instead of at authoring time.
+`Color::srgb()` is that conversion.
 
 `Cap::WideGamut` reports whether the compiled backend honors a non-sRGB space, so an app that
-cares can say so rather than guess.
+cares can check.
 
-### 4.4 `Paint` becomes the currency for surfaces — but not for everything
+### 4.4 `Paint` becomes the currency for surfaces, but not for marks
 
 Promote `Paint` from canvas-only to the type every *surface* takes, with
 `impl From<Color> for Paint` so existing call sites compile unchanged:
@@ -217,17 +215,17 @@ fn background(self, f: impl Fn(&R) -> Paint + 'static) -> Self;           // Cov
 pub fn fill<M>(self, paint: impl IntoReactive<Paint, M>) -> Self;         // ShapePiece
 ```
 
-And deliberately **not** for: `Vector::tint`, `Button::tint`, `NavItem::icon_tint` / `badge_tint`,
+The marks keep `Color`: `Vector::tint`, `Button::tint`, `NavItem::icon_tint` / `badge_tint`,
 `Label::color`, `TextRun::colored`, `TextStyle::color`. A template tint and a text color are solid
 by nature on every toolkit Day targets; making them accept a gradient and then documenting "the
-gradient is ignored here" is worse than the restriction being in the type. The line is: **a
-surface takes a `Paint`, a mark takes a `Color`.**
+gradient is ignored here" is worse than the restriction being in the type. A surface takes a
+`Paint`, and a mark takes a `Color`.
 
 Backends that cannot paint a gradient behind a native container answer
 `Cap::GradientSurface = Unsupported` and paint the gradient's midpoint sample, so a page degrades
 to a flat card rather than to nothing.
 
-Two additions to `Paint` while it is being touched:
+`Paint` also gains a conic shape and an interpolation choice while it is being touched:
 
 ```rust
 pub enum Paint { Solid(Color), Linear(LinearGradient), Radial(RadialGradient), Conic(ConicGradient) }
@@ -257,29 +255,29 @@ cmyk(0 0.55 0.75 0.09)                oklch(0.7 0.15 40)
 role(accent)                          role(label / 0.6)
 ```
 
-This grammar is borrowed rather than invented. CSS Color 4 is a reviewed design for exactly this
-problem, every web developer already reads it, and it gives the web arm a pass-through. The same
-grammar is what dayscript's `input:` step types, what `day-lite` parses, and what crosses every
-native boundary, so there is one of it instead of four.
+The grammar is CSS Color 4's: a reviewed design for this problem, one web developers already
+read, and a pass-through for the web arm. dayscript's `input:` step types the same grammar,
+`day-lite` parses it, and it crosses every native boundary, so there is one grammar instead of
+four.
 
 ## 5. What this proposal does not do
 
-- **Patterns and image fills.** An `NSColor` pattern is an image; it belongs in an image API, not
-  a color one. The color picker drops such a pick.
+- **Patterns and image fills.** An `NSColor` pattern is an image; it belongs in an image API. The
+  color picker drops such a pick.
 - **ICC profiles or arbitrary color management.** Three named spaces cover what the platforms
   actually expose; a general CMM is a different project.
-- **A theme token module.** §6.3's decision stands — roles are typed values on `Color`, not an
-  app-side `theme::` namespace, and the default is still "state nothing and get the platform's".
+- **A theme token module.** §6.3's decision stands: roles are typed values on `Color` rather than
+  an app-side `theme::` namespace, and the default is still to state nothing and get the
+  platform's colors.
 - **Making `Color` non-`Copy`.** Every shape above is chosen to preserve it.
 
 ## 6. Which change to land first
 
-§4.4 — `Paint` for surfaces. It is the gap an app hits first (there is no way to put a gradient
-behind anything but a canvas), it is additive rather than breaking, and it needs no change to the
-`Color` type at all.
+§4.4, `Paint` for surfaces, goes first. It is the gap an app hits first (there is no way to put
+a gradient behind anything but a canvas), it is additive rather than breaking, and it needs no
+change to the `Color` type at all.
 
-§4.1 and §4.2 are the pair that has to land together to be worth anything: a role in the type
-means nothing until backends resolve it. That is the larger, more interesting change, and the one
-[day-piece-colorpicker](colorpicker.md) would benefit from most — a picker that could offer the
-platform's accent color as a preset, and have the pick stay dynamic, is a different control from
-one that hands back four frozen floats.
+§4.1 and §4.2 have to land together, because a role in the type means nothing until backends
+resolve it. That is the larger change, and the one [day-piece-colorpicker](colorpicker.md) would
+benefit from most: a picker that could offer the platform's accent color as a preset, and have
+the pick stay dynamic, is a different control from one that hands back four frozen floats.

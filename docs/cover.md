@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: implemented on every backend** (2026-07). Native fullscreen modal on ios-uikit;
 > window overlay + slide transition on android-mdc; a topmost full-window child (`Cap::Cover` =
 > `Emulated`: no transition, no interactive dismissal) on harmony-arkui, macos-appkit, gtk, qt,
-> xaml, and web-dom; probe-visible patches on mock. The emulated tier defaults to an OPAQUE
+> xaml, and web-dom; probe-visible patches on mock. The emulated tier defaults to an opaque
 > theme-background surface so a cover always occludes the window. Exercised end-to-end by Day-Games (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
 
@@ -50,13 +50,13 @@ zstack((
 App teardown hangs off this one event, so its delivery is a hard guarantee, not a
 best-effort animation callback:
 
-- **Backends MUST deliver it after every dismissal**, even when the platform loses the
+- **Backends must deliver it after every dismissal**, even when the platform loses the
   animation completion (UIKit drops transition completions under scripted bursts; Android
   cancels `withEndAction` when an animator is superseded). Both backends pair the normal
   completion with a delayed backstop that reports once the surface has verifiably left the
   screen.
 - **The piece treats it as idempotent and orderable**: duplicates are no-ops, and a belated
-  report from a PREVIOUS dismissal cannot dispose content presented since (the closing
+  report from a previous dismissal cannot dispose content presented since (the closing
   gate). Backends may therefore over-report freely rather than risk under-reporting.
 - The mock-toolkit e2e (`cover_cycle_keeps_siblings_alive_and_represents`) pins present →
   dismiss → re-present across double and late reports.
@@ -93,11 +93,11 @@ presents the parsed route, `nav_back()` dismisses, and the presented key is the 
 contribution to `current_route()`. Day-Games' walkthrough drives games with plain
 `- navigate: { route: breakout }` / `- nav_back:` steps.
 
-### `.unrouted()` — a cover that is a panel, not a place
+### `.unrouted()`: a cover that belongs to a control
 
-`cover(open, build).unrouted()` skips that registration: no `navigate("<key>")`, no
-`current_route()` contribution, and `nav_back()` walks past it. Interactive dismissal is
-unaffected — Android's system back arrives as `Event::NavBack` on the cover's own node, which
+`cover(open, build).unrouted()` skips that registration: `navigate("<key>")` does not reach it, it
+contributes nothing to `current_route()`, and `nav_back()` walks past it. Interactive dismissal is
+unaffected; Android's system back arrives as `Event::NavBack` on the cover's own node, which
 never went through the adapter.
 
 Reach for it whenever the cover belongs to a **control** rather than to the app: a color picker's
@@ -108,7 +108,7 @@ The sharper problem is that a routed cover claims route segments through `R::fro
 untyped route is `String`, whose `from_key` accepts **anything**. So a routed `cover(Signal<Option<String>>, …)`
 claims every segment: mount one, and the app's next `navigate("settings")` presents that cover
 keyed `"settings"` instead of going to settings. A piece that mounts a cover would be silently
-rewriting its host app's navigation — which is exactly what happened to the showcase's walkthrough
+rewriting its host app's navigation, which is what happened to the showcase's walkthrough
 the first time the color picker's panel went in. A typed `Route` enum does not have this problem,
 because its `from_key` rejects what is not its own; `.unrouted()` is the fix when the key is a
 string, and the right answer regardless when the surface is not a destination.
@@ -118,7 +118,7 @@ reopen it, and a "link me to this screen" URL point at a modal.
 
 ## How it works
 
-- `kinds::COVER` is realized DETACHED from the visible hierarchy (its `set_frame` is a
+- `kinds::COVER` is realized detached from the visible hierarchy (its `set_frame` is a
   toolkit no-op: the frame is native-owned). `CoverPatch::Present { background,
   dismiss_disabled }` shows it; `CoverPatch::Dismiss` hides it; `CoverPatch::
   DismissDisabled` tracks the shield while presented.

@@ -12,11 +12,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Alerts, confirmations, action sheets, text prompts (and later native pickers) are
 *imperative request→response* interactions: an action opens one and needs the answer
-back. SwiftUI is forced to model this as a detached binding
-(`showAlert = true` … `.alert($showAlert)`) because `body` re-runs constantly. Day
-doesn't have that constraint: a `button().action(|| …)` is a real closure on the
-persistent main thread, so Day co-locates the request and its response with
-async/await:
+back. SwiftUI models this as a detached binding
+(`showAlert = true` … `.alert($showAlert)`) because `body` re-runs. In Day a
+`button().action(|| …)` is a closure on the persistent main thread, so the request and
+its response sit together with async/await:
 
 ```rust
 button(tr("delete")).action(|| day::task(async move {
@@ -31,7 +30,7 @@ button(tr("delete")).action(|| day::task(async move {
 }));
 ```
 
-There's no boolean signal and no modifier attached elsewhere. `day::task` is the one
+The request and its answer live in one closure. `day::task` is the one
 explicit opt-in ("this action starts an async flow").
 
 ## Layers
@@ -57,8 +56,8 @@ back through the enqueue-only `Event` sink.
 **Layer 1: async (the surface).** A tiny single-threaded executor (`day::task`, ~60
 lines, `std`-only): tasks are `Pin<Box<dyn Future>>` in a thread-local map, polled on the
 main loop; the presentation future registers its `Waker` and is re-polled through the
-existing `Platform::post`/`on_main`. Futures are `!Send` on purpose (there is one UI
-thread), and there is no async-runtime dependency.
+existing `Platform::post`/`on_main`. Futures are `!Send`, since there is one UI
+thread, and there is no async-runtime dependency.
 
 ## API (`day-pieces::present`, re-exported in the prelude)
 
@@ -88,7 +87,7 @@ Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fl
 | qt | `QMessageBox.open()` + `finished` (shim) | `QInputDialog.getText` (shim) |
 | android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + `TextInputLayout` |
 | mock | records the spec; resolved programmatically | same |
-| xaml | `ContentDialog` (UNVERIFIED, no local Windows) | `ContentDialog` + `TextBox` |
+| xaml | `ContentDialog` (unverified, no local Windows) | `ContentDialog` + `TextBox` |
 
 All backends use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.
@@ -112,8 +111,8 @@ main loop keeps running and dayscript stays live while a modal is up.
 - **Native integration pickers** (contacts / photos / share): same present→result model with
   richer result payloads and `Cap`-gated fallbacks; designed here, implemented after the dialog
   family lands. (File open/save pickers have landed; see [files.md](./files.md).)
-- **New windows**: SHIPPED since ([docs/windows.md](windows.md)), and the sketch above aged: the
-  implementation kept ONE tree with multiple adopted roots (no tree-per-window refactor),
+- **New windows**: shipped since ([docs/windows.md](windows.md)), and the sketch above aged: the
+  implementation kept one tree with multiple adopted roots (no tree-per-window refactor),
   and non-desktop backends degrade to a fullscreen cover instead of missing out. Dialogs
   now attach to the key window at present time.
 - **Task/scope binding**: v1 tasks run at the root scope; cancelling an in-flight dialog

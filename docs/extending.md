@@ -25,7 +25,7 @@ a headless part. For full walkthroughs see the tutorials:
 [native piece](https://daybrite.dev/docs/tutorial-native-piece/), and
 [part](https://daybrite.dev/docs/tutorial-part/).
 
-The whole extensibility story rests on two mechanisms:
+Extensibility rests on two mechanisms:
 
 1. **Renderers register link-time** into each backend's `RENDERERS` slice (via `linkme`), so a backend
    dispatches an unknown `kind` to the piece's `make`/`update`/`measure` with no registry edits.
@@ -59,8 +59,8 @@ impl Piece for Gauge {
 realize payload; a sparse `Patch` enum carries changes.
 
 Those modifiers return `Decorated<YourPiece>` rather than erasing, so a chain keeps your type. To
-make your OWN builder methods reachable after one, declare them in a `*Builder` trait and forward
-it through `Decorated::map_inner` — the pattern every built-in piece follows, written up in
+make your own builder methods reachable after one, declare them in a `*Builder` trait and forward
+it through `Decorated::map_inner`, the pattern every built-in piece follows, written up in
 [docs/api-style.md](api-style.md) "Typed builders and erasure":
 
 ```rust
@@ -122,7 +122,7 @@ extension path so that code lives in the piece crate:
 > [!NOTE]
 > **Implementing a *function* in another language? Use a bridge instead** ([bridge.md](bridge.md)).
 > The per-toolkit paths below stage whole directories of hand-written shims, which is the right
-> shape for a native **view** — a renderer wiring a `UIView`, a `QWidget`, an ArkUI component.
+> shape for a native **view** (a renderer wiring a `UIView`, a `QWidget`, an ArkUI component).
 > daybridge is the shape for a native **call**: one Rust declaration, an implementation per
 > platform written inline in the crate's own `.rs`, and generated glue on both sides.
 > `parts/day-part-speech` ([speech.md](speech.md)) does six languages in one file that way, and
@@ -133,8 +133,9 @@ extension path so that code lives in the piece crate:
 The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-xaml-shim.cpp` and compiles them in `build.rs`
 (gated on the feature). Qt widgets are plain C++ objects and the handle is a raw `QWidget*`, so a Qt
 shim is self-contained. XAML handles are a private boxed type owned by `day-xaml-sys`, so the piece
-boxes its XAML element through the exported `day_xaml_box` / `day_xaml_unbox` seam (a stable
-WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` / `day_xaml_measure`).
+boxes its XAML element through the exported `day_xaml_box` / `day_xaml_unbox` functions (a
+stable WinRT COM-ABI). Both reuse the sys crate's generic `measure` (`day_qt_size_hint` /
+`day_xaml_measure`).
 See `pieces/day-piece-searchfield/{build.rs,src/lib-qt-shim.cpp,src/lib-xaml-shim.cpp}`.
 
 ### Android Java + Gradle deps (`[package.metadata.day.android]`)
@@ -157,7 +158,7 @@ every piece's contributions, and writes `build/day/android/day-pieces.json`. The
 `platform/android/{app/build.gradle.kts,settings.gradle.kts}` read that file generically (a loop, so
 per-piece edits are never needed) and add the Java dirs, res dirs, dependencies, and repos.
 
-**Piece resources.** `res` dirs compile into the APP's resource table, so a piece can ship the styles
+**Piece resources.** `res` dirs compile into the app's resource table, so a piece can ship the styles
 or drawables its Java needs (e.g. a theme overlay for a dialog). The app's `R` package differs per
 app, so the piece's Java resolves its own resources by name at runtime:
 `ctx.getResources().getIdentifier("SomeStyleName", "style", ctx.getPackageName())`. Prefix names with
@@ -166,8 +167,8 @@ the piece to avoid collisions (resource names are one flat namespace per app).
 
 **Manifest components.** A part whose Java half is a `BroadcastReceiver` or `Service` needs it
 declared in the manifest, or Android never instantiates it. `manifest-components` names files
-holding ONLY the elements that belong inside `<application>` — no `<manifest>` or `<application>`
-wrapper, which `day build` adds — and every class must be fully qualified, since the overlay merges
+holding only the elements that belong inside `<application>` (`day build` adds the `<manifest>`
+and `<application>` wrapper), and every class must be fully qualified, since the overlay merges
 into an app whose package the part cannot know:
 
 ```xml
@@ -176,11 +177,11 @@ into an app whose package the part cannot know:
           android:exported="false" />
 ```
 
-They merge into the same `day-pieces-manifest.xml` overlay the permissions use. Two notes. A
-declared file that is missing is a hard build error rather than a skip-and-warn, because a dropped
-receiver produces an APK that installs, runs, and silently never delivers. And a scaffold generated
-before this key existed gates the overlay on the permission list being non-empty — `day build`
-warns, with the one-line fix, when a part contributes components but no permissions.
+They merge into the same `day-pieces-manifest.xml` overlay the permissions use. A declared file
+that is missing is a hard build error, not a warning, because a dropped receiver produces an APK
+that installs, runs, and never delivers. A scaffold generated before this key existed gates the
+overlay on the permission list being non-empty; `day build` warns, with the one-line fix, when a
+part contributes components but no permissions.
 
 **Manifest permissions.** A piece that needs a permission (a web view needs `INTERNET`) can't reach the
 app's `AndroidManifest.xml`, so `day build` also writes the collected permissions into a generated
@@ -198,15 +199,15 @@ method name, WorkManager instantiating a `Worker` from its class-name string, Ro
 `<Database>_Impl`. A renamed class breaks every one of those lookups, so an un-kept release APK
 installs and then crashes at launch (`NoClassDefFound` / `ClassNotFoundException` / `UnsatisfiedLinkError`).
 
-Two layers keep the right names:
+Two layers keep the right names.
 
 - **The framework keeps its own namespace.** `day-android` ships a `proguard-rules.pro` (bundled by
   `day build` from the crate, like the Java shim) that keeps all of `dev.daybrite.day.**` (the render
   bridge and *every official Part/Piece shim*) plus every class with `native` methods. So a first-party
   piece needs no rules of its own. It also sets `-dontoptimize`: AGP forces the `proguard-android-optimize`
   base, whose aggressive optimizations break reflection-heavy libraries (WorkManager's Room database is
-  the classic casualty), and Day would rather ship predictable release builds than squeeze the last few
-  percent. R8 still shrinks and renames everything a keep rule doesn't protect.
+  the classic casualty), and Day accepts the size cost for predictable release builds. R8 still
+  shrinks and renames everything a keep rule doesn't protect.
 
 - **Everything outside `dev.daybrite.day.**` keeps itself.** An **app**'s own JNI classes (its install
   bridge, a background `Worker`) live in the *app's* package, and a **third-party piece** lives in its
@@ -229,9 +230,9 @@ The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `C
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
 The Rust side calls its own Java class through the re-exported `jni` (`with_env` +
 `call_static_method` + `AHandle`); `day_android::make_view` is a convenience hardcoded to
-`DayBridge`, so a standalone piece calls `day_android::try_make_view_on(env, ITS_CLASS, …)` — which
-is the same non-panicking path with the class as a parameter — and falls back to
-`placeholder_view` on a throw. See
+`DayBridge`, so a standalone piece calls `day_android::try_make_view_on(env, ITS_CLASS, …)` (the
+same non-panicking path with the class as a parameter) and falls back to `placeholder_view` on a
+throw. See
 `pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`, and
 `pieces/day-piece-texteditor/src/lib-android.rs` for the fallback.
 
@@ -269,25 +270,26 @@ per-crate subfolder). The app's checked-in `.xcodeproj` depends on that one loca
 analog of the checked-in Gradle scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
-Two further keys, shared with the macOS table below ([docs/swiftui.md](swiftui.md) has the full story):
+Two further keys are shared with the macOS table below ([docs/swiftui.md](swiftui.md) covers them
+in full):
 
-- A `swift-packages` entry may be **local** — `{ path = "swiftui", products = ["MyViews"] }`,
-  relative to the declaring crate. The package's transitive SwiftPM dependencies come along, and
+- A `swift-packages` entry may be **local** (`{ path = "swiftui", products = ["MyViews"] }`,
+  relative to the declaring crate). The package's transitive SwiftPM dependencies come along, and
   its public SwiftUI views are scanned and exported: generated hosting glue on this side, generated
   typed constructors (`crate::swiftui::MyView(…)`) on the Rust side. `products` defaults to the
   directory name.
 - `platform = "16.0"` raises the generated package's minimum OS (the max across contributions
   wins). On iOS the CLI conveys it as an `IPHONEOS_DEPLOYMENT_TARGET` command-line setting, which
-  reaches the app and package targets without editing the scaffold — ⌘R builds in Xcode need the
+  reaches the app and package targets without editing the scaffold; ⌘R builds in Xcode need the
   pbxproj raised by hand.
 
 ### macOS Swift (`[package.metadata.day.macos]`)
 
-The same table shape for the macos-appkit leg — `swift`, `swift-packages` (remote or local),
+The macos-appkit leg uses the same table shape: `swift`, `swift-packages` (remote or local),
 `frameworks`, `platform`. `day build` generates `build/day/macos/DayPieces` from the table and
-the `platform/macos/DayApp.xcodeproj` host project's pbxproj references it — xcodebuild compiles
+the `platform/macos/DayApp.xcodeproj` host project's pbxproj references it; xcodebuild compiles
 and links the package with the Runner, the same shape as iOS (the Swift runtime resolves against
-the OS dylibs). `day-piece-swiftui` declares the same shim dir under both tables — one
+the OS dylibs). `day-piece-swiftui` declares the same shim dir under both tables, one
 `DaySwiftUI.swift` with `#if os(...)` arms.
 
 ### HarmonyOS ArkTS components (`[package.metadata.day.ohos]`)
@@ -316,7 +318,7 @@ export const dayPiece: DayPieceModule = {
 
 `day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
-`DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim ONE factory, command sink,
+`DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim one factory, command sink,
 and disposer for all pieces. The scaffold's host page calls it once, before `start()`, so adding an
 ArkTS piece is pure `Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
 
@@ -329,12 +331,12 @@ fn update(_b: &mut ArkUi, h: &AHandle, patch: &WebPatch) { piece::update(h, "loa
 ```
 
 Events come back through the shim's `pieceEvent(id, text)` as `Event::Custom`, the same open channel
-(§8.2) the Android bridge uses, payload only. Two rules the bridge enforces: a declined `make` yields
-Day's placeholder leaf rather than a null handle (a null would take the whole parent's layout down),
-and `release` routes an ArkTS-owned node to `dispose` instead of disposing it natively.
+(§8.2) the Android bridge uses, payload only. The bridge enforces two rules. A declined `make`
+yields Day's placeholder leaf rather than a null handle (a null would take the whole parent's layout
+down), and `release` routes an ArkTS-owned node to `dispose` instead of disposing it natively.
 
 **Sizing.** Day owns layout and sets each node's position + size through the C API, so the ArkTS
-component must NOT size itself with percentages: a `BuilderNode` is built detached, where `'100%'`
+component must not size itself with percentages: a `BuilderNode` is built detached, where `'100%'`
 resolves against the whole window and the component covers the page.
 
 The Swift shim exposes a flat C ABI (`@_cdecl`) that the piece's Rust calls (mirroring the Android Java
@@ -343,13 +345,13 @@ shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust 
 
 ### The Android bridging contract
 
-Guarantees a part or piece can rely on when its Rust calls its Java sidecar (all provided by
-`day-android`, all exercised in production by `day-part-http`). A [daybridge](bridge.md) arm rides
-these same guarantees — its generated JNI wrapper is written against them — so this list is what
-that generated code does on your behalf, and what to know when you write the call by hand:
+These are the guarantees a part or piece can rely on when its Rust calls its Java sidecar (all
+provided by `day-android`, all exercised in production by `day-part-http`). A [daybridge](bridge.md)
+arm rides these same guarantees (its generated JNI wrapper is written against them), so this list
+is what that generated code does on your behalf, and what to know when you write the call by hand:
 
 - **Any thread may call.** `day_android::with_env(|env| …)` attaches the calling thread to the
-  JVM (and detaches scoped attachments). Blocking Java work runs on the CALLER's thread; keep
+  JVM (and detaches scoped attachments). Blocking Java work runs on the caller's thread; keep
   it off the UI thread, exactly like any other blocking Rust.
 - **App classes resolve from any thread.** `env.dfind`/`dcall_static`/`dfield` fall back to the
   app `ClassLoader` cached at startup, so a Rust-spawned worker resolves your sidecar class even
@@ -357,11 +359,11 @@ that generated code does on your behalf, and what to know when you write the cal
 - **Post to the UI thread** with `DayBridge.main.post(...)` on the Java side; on the Rust side,
   capture a `day_reactive::Setter` ([docs/focus.md](focus.md), DESIGN §4.5) rather than touching UI state
   from a worker.
-- **Bulk payloads cross as ONE `byte[]` envelope** — `[status i32 BE][meta-len i32 BE]
-  ["k\nv\n…" meta][payload]`, negative status = your error sentinel with the message riding the
-  meta block. Build it with `DayEnvelope.pack/error` in Java and parse it with
+- **Bulk payloads cross as one `byte[]` envelope**: `[status i32 BE][meta-len i32 BE]
+  ["k\nv\n…" meta][payload]`; a negative status is your error sentinel with the message riding
+  the meta block. Build it with `DayEnvelope.pack/error` in Java and parse it with
   `day_android::envelope::Envelope` in Rust; the two encode identically and Rust unit tests pin
-  the format. One JNI copy each way, no per-field JNI chatter.
+  the format. There is one JNI copy each way and no per-field JNI traffic.
 - **Piece-defined events** ride the `K_CUSTOM` kind (`DayBridge.nativeOnEvent(id, DayBridge.K_CUSTOM,
   num, text)` → `Event::Custom`): the tag can't cross JNI, so the piece reads the raw
   `num`/`text` payload. The full kind table is `day_spec::bridge::BridgeKind`; parity tests keep
@@ -379,15 +381,15 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
 ```
 
-The app mirrors each: `my-piece/<backend>` in the matching feature. That's it: no changes to `day`,
-the toolkit crates, the CLI, or the Gradle scaffold are needed to add a piece.
+The app mirrors each: `my-piece/<backend>` in the matching feature. Adding a piece needs no
+changes to `day`, the toolkit crates, the CLI, or the Gradle scaffold.
 
 **Dependency layering.** The extension graph stays acyclic by rule: **pieces may depend on
 parts** (day-piece-remote-image → day-part-http is the shipped example) **and on core crates;
 parts must not depend on `day-pieces` or any `day-piece-*`; tweaks may depend on `day-pieces`
 (the built-ins they configure) but not on any satellite `day-piece-*` or `day-part-*`.** A
 workspace test (`crates/day-cli/tests/layering.rs`) enforces this over `cargo metadata`, so a
-violating dependency fails `cargo test` rather than knotting the graph quietly.
+violating dependency fails `cargo test`.
 
 ## 5. Container pieces (hosting a Day child)
 
@@ -413,7 +415,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 - Your per-backend `make` must return a **container-capable native view**: any `NSView`/`UIView`,
   any `QWidget`, any ArkUI FrameNode, but on GTK a `gtk4::Fixed`-backed view, on Android a
   `ViewGroup`, and on XAML a `Panel`, or the generic `insert` silently drops the child.
-  (Conveniently, native wrappers like Android's `SwipeRefreshLayout` ARE ViewGroups.)
+  (Native wrappers like Android's `SwipeRefreshLayout` are ViewGroups.)
 - Events still flow through the single sink (`Event::Custom` for piece-defined ones) and commands
   through `with_tree(|t| t.patch(node, …))`, identical to leaf pieces.
 
@@ -423,8 +425,9 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 > **The toolkit SPI is unstable.** Everything a backend implements (day-spec's `Toolkit` and
 > `Platform` traits, `Event`, `Cap`, the per-kind props structs) evolves with this repository and
 > is not published to crates.io. An external toolkit pins the day crates to a **git revision** and
-> expects breakage between revisions. This section describes the registration seam, which is the
-> part that will stay; the contract behind it firms up at SPI stabilization.
+> expects breakage between revisions. This section describes the `[package.metadata.day.toolkit]`
+> registration, which is the part that will stay; the contract behind it firms up at SPI
+> stabilization.
 
 A toolkit implemented in its own repository registers its platform-toolkit pair by declaring it in
 the toolkit crate's `Cargo.toml`:
@@ -440,8 +443,8 @@ doctor = "wx-config --version" # optional: `day doctor` probe (command + space-s
 The CLI resolves `-p <name>` against the builtin catalog first, then against declarations found in
 the app's dependency graph (via `cargo metadata --all-features`, since the toolkit crate sits
 behind the very feature its declaration names). A declared target inherits the **desktop**
-pipeline. That is the only `kind` accepted today, deliberately: a new pipeline kind (another
-mobile OS) means new build/launch/pack code in the CLI, which cannot come from a crate.
+pipeline. That is the only `kind` accepted today, because a new pipeline kind (another mobile
+OS) means new build/launch/pack code in the CLI, which cannot come from a crate.
 
 The app wires the toolkit the same way it would a builtin, plus one entry call:
 
@@ -473,9 +476,10 @@ What a declared target does **not** get:
   project shape.
 - **The in-repo pieces' native renderers:** `day-piece-webview` has no `wxwidgets` feature arm, so
   extension-piece kinds render Day's visible `⟨kind⟩` placeholders unless the external ecosystem
-  ships renderer crates for its backend (the `Registry`/`renderer!` seam is the same one in-repo
-  pieces use). The BUILT-IN vocabulary is the backend's own `realize`: cover what you support and
-  placeholder the rest; `assert_no_placeholders` allow-lists keep the gap ledger honest.
+  ships renderer crates for its backend (the `Registry`/`renderer!` registration path is the same
+  one in-repo pieces use). The built-in vocabulary is the backend's own `realize`: cover what you
+  support and placeholder the rest; the `assert_no_placeholders` allow-lists record which kinds
+  still render a placeholder on each backend.
 
 ## Reference
 

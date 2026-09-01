@@ -61,7 +61,7 @@ public struct TemperatureDial: View {
 ```
 
 It's a real package: it can depend on other SwiftPM packages, and `swift test` works in it.
-Internal types stay internal — only public `View` structs are exported. Views whose init uses
+Internal types stay internal; only public `View` structs are exported. Views whose init uses
 other types (a model struct, a closure) are skipped with a build warning; the escape hatch below
 covers them.
 
@@ -90,11 +90,12 @@ pub mod swiftui {
 }
 ```
 
-That's the whole setup. Your `build.rs` (the scaffold's `day_build::generate_resources()`) scans
-the package and writes one constructor per exported view; `day build` compiles the package into
-the app and generates the hosting glue. On iOS the package joins the generated `DayPieces`
-SwiftPM package the Xcode scaffold already links; on macOS the same package is referenced by the
-`platform/macos/` Xcode host project and built inside the same xcodebuild run.
+That is the entire configuration. Your `build.rs` (the scaffold's
+`day_build::generate_resources()`) scans the package and writes one constructor per exported
+view; `day build` compiles the package into the app and generates the hosting glue. On iOS the
+package joins the generated `DayPieces` SwiftPM package the Xcode scaffold already links; on
+macOS the same package is referenced by the `platform/macos/` Xcode host project and built
+inside the same xcodebuild run.
 
 ## 3. Call it
 
@@ -116,12 +117,12 @@ fn climate_card(temp: Signal<f64>) -> AnyPiece {
 }
 ```
 
-Two things to notice:
+The arguments and the gate each follow a rule.
 
 - **Arguments are reactive.** Each parameter takes a constant, a `Signal`, or a closure. When a
   reactive argument changes, Day re-invokes the view's initializer with the new values, and
   SwiftUI reconciles it like any parent-driven update, so `@State` inside the view survives.
-- **Gate with `support()`, not `cfg`.** `day_piece_swiftui::support()` is `Native` only on
+- **Gate with `support()`.** `day_piece_swiftui::support()` is `Native` only on
   `macos-appkit` and `ios-uikit`. A `#[cfg(target_os = "macos")]` is the wrong gate: it is also
   true on `macos-gtk` and `macos-qt`, where there is no AppKit view tree to host into.
 
@@ -141,9 +142,9 @@ crate::swiftui::TemperatureDial(String::from("Living room"), move || temp.get())
 
 Day then retains the hosting view under that key and hands the same instance back on the next
 mount: sliders, scroll positions, `@State`, and `@StateObject` all survive, and the mount's
-current arguments are re-applied. Two rules: at most one mounted view per key, and a key pins
-its view for the app's lifetime; use it for the handful of views that want persistence, not
-per-row content.
+current arguments are re-applied. There are two rules: at most one mounted view per key, and a
+key pins its view for the app's lifetime, so use it for the handful of views that want
+persistence and not for per-row content.
 
 ## When the scan isn't enough
 

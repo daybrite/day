@@ -35,34 +35,32 @@ fn counter() -> impl Piece {
 ```
 
 That function produces a native label above a native button on macOS, iOS, Android, Linux,
-Windows, and OpenHarmony. There is no web view or bundled renderer, and no per-platform fork.
+Windows, and OpenHarmony. Each binary links only its own platform's toolkit, and every platform
+shares the same UI code.
 
-## The bet
+## What Day does itself
 
-Every cross-platform approach picks something to sacrifice — [Why Day](/docs/benefits)
-walks the whole trade table. Day's bet is that the platform's own widgets already do most
-things better than any framework can imitate, so it keeps them, and spends its effort only on
-the parts native toolkits are bad at sharing:
+Day keeps the platform's widgets and concentrates its own code on the parts native toolkits
+don't share:
 
 - a layout engine that works identically everywhere while deferring to native measurement
   ([Layout](/docs/layout));
 - fine-grained reactivity that builds the widget tree once and binds state directly to
-  native attributes, with no virtual tree and no diffing ([Reactivity](/docs/reactivity));
+  native attributes ([Reactivity](/docs/reactivity));
 - localization (Fluent), accessibility, and scripting designed into the core from
   the start ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
 - a CLI that builds, runs, tests, and [packages](/docs/packaging) for every target from one
   machine.
 
-That bet has a price. Because the widgets are the platform's own, your app looks like a Mac app
-on a Mac and a Material app on Android *whether you want that or not*, and heavy visual branding
-is the wrong fit.
-[Why Day (and why not)](/docs/benefits) covers the tradeoffs and when to pick something else.
+The cost is that your app looks like a Mac app on a Mac and a Material app on Android, so heavy
+visual branding is a poor fit. [Why Day](/docs/benefits) covers the tradeoffs and when to pick
+something else.
 
 ## The targets
 
 A *target* is an `(OS, toolkit)` pair. One binary is compiled per target, containing only that
-toolkit's backend. The AppKit build has no GTK code in it, and there's no runtime abstraction
-layer to pay for.
+toolkit's backend. The AppKit build contains only AppKit code, and each widget call compiles to
+a direct call into that toolkit.
 
 | Target | OS | Toolkit | Tier |
 |---|---|---|---|
@@ -94,25 +92,24 @@ The same YAML script taps buttons and asserts labels on every platform, which is
 
 Rust compiles ahead of time, so there is no hot reload. The inner loop is an incremental
 compile and relaunch, usually seconds on desktop, with script replay to put you back on the
-screen you were working on. If sub-second hot reload is central to how you work, that is a
-reason to look elsewhere: better to know now than in week two.
+screen you were working on. If sub-second hot reload is central to how you work, another
+framework will suit you better.
 
-## What Day is not
+## What to expect
 
-- **Not a renderer:** Day never rasterizes text or widgets itself. Even the `canvas` Piece
-  records drawing commands and replays them through the platform's native 2D API.
-- **Not pixel-identical across platforms:** the goal is consistent behavior and information
-  architecture with native look and feel, not one skin everywhere.
-- **Not a lowest common denominator:** where platforms diverge, the API exposes the divergence
-  (per-platform styling, capability flags) instead of hiding it; where a platform lacks a
-  control, the backend composes one from primitives. And where you need a platform's own UI
-  framework, you can drop into it: on macOS and iOS,
-  [`day-piece-swiftui`](/docs/internal/swiftui) hosts your own SwiftUI views inside the Day tree,
-  with typed Rust constructors generated from your Swift package.
-- **Not finished:** Day is young. The core model is stable and exercised by a real
-  Matrix chat client ([Day-Matrix](https://github.com/daybrite/Day-Matrix), a standalone Day
-  app) running on five targets, but APIs still move and some designed features aren't built yet. The docs mark those
-  explicitly rather than describing the roadmap as the present.
+- **The platform draws everything.** Text and widgets are drawn by the platform, never by Day.
+  Even the `canvas` Piece records drawing commands and replays them through the platform's
+  native 2D API.
+- **Native on each platform rather than identical across them.** The goal is consistent
+  behavior and information architecture with each platform's own look and feel.
+- **Platform differences stay visible.** Where platforms diverge, the API shows the divergence
+  (per-platform styling, capability flags); where a platform lacks a control, the backend
+  composes one from primitives. Where you need a platform's own UI framework, you can use it:
+  on macOS and iOS, [`day-piece-swiftui`](/docs/internal/swiftui) hosts your own SwiftUI views
+  inside the Day tree, with typed Rust constructors generated from your Swift package.
+- **Day is young.** The core model is stable and runs a Matrix chat client
+  ([Day-Matrix](https://github.com/daybrite/Day-Matrix), a standalone Day app) on five targets,
+  but APIs still move and some designed features aren't built yet. The docs mark those.
 
 ## Finding your way around
 

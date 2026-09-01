@@ -68,13 +68,13 @@ const packaging = [
     id: 'linux-gtk',
     kind: '.appimage',
     install:
-      'One self-contained executable carrying its own GTK: `chmod +x ./<file>.appimage` and run it. No package manager, no runtime download, no root. The release also carries a .flatpak for a desktop-integrated install.',
+      'One self-contained executable carrying its own GTK: `chmod +x ./<file>.appimage` and run it as an ordinary user, with nothing else installed. The release also carries a .flatpak for a desktop-integrated install.',
   },
   {
     id: 'linux-qt',
     kind: '.appimage',
     install:
-      'Same as the GNOME build, with Qt inside instead: `chmod +x ./<file>.appimage` and run it. A .flatpak is on the release too if you would rather install it properly.',
+      'Same as the GNOME build, with Qt inside instead: `chmod +x ./<file>.appimage` and run it. A .flatpak is on the release too if you would rather install it through the desktop’s package system.',
   },
 ];
 // Each card's heading and OS come from the platform table (src/lib/platforms.mjs); this page

@@ -35,7 +35,7 @@ Three icons come from elsewhere:
   attribution requirement, satisfied by this file.
 - **`ios-uikit`** — Simple Icons' `ios` is a wordmark, and reusing the Apple logo would make the
   iOS and macOS cards identical. A device silhouette distinguishes them. The outlined weight is
-  deliberate: the filled `phone_iphone` reads as a solid blob at card size.
+  used because the filled `phone_iphone` reads as a solid blob at card size.
 - **`web-dom`** — the HTML5 shield puts a large "5" on the card, which names a markup version
   rather than the platform. A globe says "the web" without dating itself.
 

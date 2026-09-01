@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Programmatic scrolling
 
 > **Status: implemented** on every backend (AppKit, UIKit, Android, GTK, Qt, XAML, ArkUI, mock).
-> One primitive carries it all: `Toolkit::scroll_to(handle, rect, animated)` with
+> Every case goes through one primitive, `Toolkit::scroll_to(handle, rect, animated)`, with
 > scrollRectToVisible semantics: day-core composes edges, offsets, and reveal-element targets
 > into content-space rects, so each backend only implements "minimal scroll to make this rect
 > visible". Verified by mock-toolkit unit tests (`crates/day-pieces/tests/mock_e2e.rs`) and the
@@ -32,8 +32,8 @@ button("Item 100").action(move || jump.set(Some(ScrollTarget::Id("row-100".into(
 ```
 
 `.scroll_target(sig)` takes a `Signal<Option<ScrollTarget>>`: each `Some(target)` written to it
-scrolls there (animated), then the signal resets to `None`: write-and-forget, so the same
-target can be sent twice in a row. `ScrollTarget` is:
+scrolls there (animated), then the signal resets to `None`, so the same target can be sent
+twice in a row. `ScrollTarget` is:
 
 | target | meaning |
 |---|---|
@@ -61,8 +61,8 @@ buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, 
 
 The step is unanimated so the next step sees the settled position. `assert_visible` remains a
 presence check (realized + nonzero frame; DESIGN Appendix C); it does not test whether an
-element is inside the viewport, so pair `scroll_to` with screenshots when the point of the test
-is what's on screen.
+element is inside the viewport, so pair `scroll_to` with screenshots when the test is about
+what's on screen.
 
 ## How a target becomes a scroll
 
@@ -77,11 +77,11 @@ backend then applies the same "minimal scroll to make the rect visible" rule:
 | AppKit | `NSView.scrollRectToVisible` on the document view |
 | UIKit | `UIScrollView.scrollRectToVisible(_:animated:)` |
 | Android | offset math + `ScrollView.smoothScrollTo` / `scrollTo` (per axis class) |
-| GTK | adjustment clamp + `set_value` (no animation — GTK adjusts immediately) |
+| GTK | adjustment clamp + `set_value` (no animation; GTK adjusts immediately) |
 | Qt | scroll-bar clamp + `setValue` (no animation) |
 | XAML | `ScrollViewer.ChangeView` (shim `day_xaml_scroll_to`) |
 | ArkUI | `NODE_SCROLL_OFFSET` get/compute/set (300 ms animation when animated) |
-| mock | records the computed offset (`MockWidget::scroll_offset`) — the unit-test probe |
+| mock | records the computed offset (`MockWidget::scroll_offset`), the unit-test probe |
 
-Nested scrolls reveal in the NEAREST enclosing scroll only; driving an outer scroll takes a
+Nested scrolls reveal in the nearest enclosing scroll only; driving an outer scroll takes a
 second target aimed at it.

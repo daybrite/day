@@ -31,8 +31,8 @@ day --version
 ```
 
 You need a recent stable Rust via rustup (`rustup update stable` keeps you current). Everything
-else is per-target, and `day doctor` is the source of truth: it probes each toolchain and prints
-exactly what's missing and how to get it.
+else is per-target, and `day doctor` checks each toolchain and prints exactly what's missing
+and how to get it.
 
 ```bash
 day doctor                       # everything buildable on this machine
@@ -49,7 +49,7 @@ day doctor --toolkit android     # focus one toolkit; misses become errors with 
 | `ios-uikit` | Xcode + an iOS Simulator |
 | `android-mdc` | Android SDK + NDK, JDK 17 or newer, `cargo-ndk`, an emulator or device |
 | `harmony-arkui` | OpenHarmony SDK + command-line tools |
-| `web-dom` | `rustup target add wasm32-unknown-unknown` — nothing else |
+| `web-dom` | `rustup target add wasm32-unknown-unknown`, and no other packages |
 
 [System requirements](/docs/system-requirements) expands this table per host, with install commands,
 the optional packages (web views, packaging tools), and how to set up the Android, iOS, and
@@ -102,8 +102,8 @@ day new app hello --toolkit macos-appkit --appid com.example.hello && cd hello &
 
 The scaffold is a normal Cargo project (`cargo build` and `cargo clippy` work without the
 `day` CLI) plus a `Day.toml` manifest, a `build.rs` that generates the typed `res::` resource
-constants, per-target platform folders, a Fluent `resource/locales/` tree, a dayscript smoke
-script, store-listing and website stubs (`store/`, `website/` — skip the latter with
+constants, per-target platform folders, a Fluent `resource/locales/` tree, a dayscript
+walkthrough, store-listing and website stubs (`store/`, `website/` — skip the latter with
 `--no-website`), and an `AGENTS.md` that teaches AI agents this project's conventions.
 The two files that matter first:
 
@@ -115,7 +115,7 @@ hello/
 
 ## 4. Run it
 
-Look at the **status bar**, the Day cockpit:
+Look at the **status bar**, where the Day extension lives:
 
 - **⬡ targets** shows what Run acts on (amber "pick targets" until you choose; click it to
   multi-select). Hovering it shows every target with live run/build/stop links.

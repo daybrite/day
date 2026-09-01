@@ -41,29 +41,29 @@ day pack -p linux-gtk        # single-file .flatpak AND a portable .appimage
 ```
 
 `day pack` produces both formats by default. The flatpak runtime supplies GTK itself
-(`org.gnome.Platform`), so that bundle carries your app and its assets, not the toolkit —
+(`org.gnome.Platform`), so that bundle carries only your app and its assets;
 `flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak` is all a user needs. The AppImage carries
-its own GTK: `chmod +x` and run, no package manager involved.
+its own GTK, so a user marks it executable and runs it.
 
 ## Caveats and special considerations
 
-- **libadwaita is not optional.** The window, navigation, tabs, dialogs and animations are all
+- **libadwaita is required.** The window, navigation, tabs, dialogs and animations are all
   Adwaita types; a plain-GTK build is not a supported configuration.
 - **`GtkVideo` needs a GStreamer media backend** in the GTK build. Distro packages ship one;
   Homebrew's gtk4 does not, so the media piece shows GTK's own "no media backend" error on
   `macos-gtk`.
-- **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
+- **Lottie and map have no GTK arm**; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
-- **The combo box uses `GtkComboBoxText`**, deprecated in GTK 4.10 but kept deliberately: no
-  editable replacement exists yet.
-- **A `progress` node picks its widget at realize time** — `progress(f)` becomes a `GtkProgressBar`
+- **The combo box uses `GtkComboBoxText`**, deprecated in GTK 4.10 but kept because GTK has no
+  editable replacement yet.
+- **A `progress` node picks its widget at realize time**: `progress(f)` becomes a `GtkProgressBar`
   and `spinner()` a `GtkSpinner`. A node that starts indeterminate will not turn into a bar on a
   later value change; use separate nodes if you need both.
 - **Canvas text uses cairo's toy text API**, not Pango, so complex-script shaping inside a
   `canvas` is weaker than in a `label`.
 - GTK on macOS and Windows (`macos-gtk`, `windows-gtk`) exists for development convenience only
-  ([Tier 4](/docs/platforms#support-tiers)) — no packaging, and no accessibility tree (GTK's a11y
-  bridge is Linux-only). `windows-gtk` builds
+  ([Tier 4](/docs/platforms#support-tiers)); `day pack` skips them, and the accessibility tree is
+  absent (GTK's a11y bridge is Linux-only). `windows-gtk` builds
   against MSYS2's GTK 4 with a GNU Rust toolchain
   ([setup](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host)); there is no WebKitGTK 6 for
   Windows, so the web view is a placeholder there, and bundled custom fonts don't register with

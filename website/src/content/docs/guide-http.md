@@ -14,7 +14,7 @@ Day apps fetch through each platform's own networking stack: `NSURLSession` on m
 OkHttp on Android, WinHTTP on Windows, the browser's `fetch()` on the web, and a bundled
 ureq + rustls client on Linux and HarmonyOS. The request inherits what the OS already knows
 (system proxies and PAC scripts, VPN routing, Low Data Mode, certificate stores), and the
-native targets bundle no TLS code at all. The whole call site is:
+native targets bundle no TLS code at all. The call site is:
 
 ```rust
 day::task(async move {
@@ -71,7 +71,7 @@ fn forecast_row() -> impl Piece {
 }
 ```
 
-Two contract points that differ from ureq-style clients:
+The contract differs from ureq-style clients on error statuses and on timeouts.
 
 - **4xx/5xx are `Ok`.** An HTTP error status is a response (`resp.status == 404`), not an
   `HttpError`, which is why the sample checks the status range. Errors are transport-level
@@ -94,7 +94,7 @@ let data: Result<Forecast, _> = serde_json::from_slice(&resp.body);
 
 Tasks are not owned by the scope that spawned them: leaving the page does not stop a running
 fetch. To cancel, keep the `TaskHandle` that `day::task` returns and call `.abort()`. Aborting
-drops the task's future, and **dropping the `FetchFuture` is what cancels the platform
+drops the task's future, and **dropping the `FetchFuture` cancels the platform
 request**: `NSURLSessionTask.cancel` on Apple, OkHttp `Call.cancel` on Android, the fetch's
 `AbortController` on web. Windows and the Rust fallback can't cancel mid-flight; they run the
 request out on a worker thread and discard the result. Re-tapping below supersedes the
@@ -146,10 +146,11 @@ label(move || forecast.with(|l| match l {
 }))
 ```
 
-Latest wins: a source change aborts the in-flight fetch (dropping its `FetchFuture`, the same
-cancel rail as above) and a stale completion writes nothing. Scope disposal aborts it too, with no
-handle bookkeeping, and `forecast.refetch()` forces a fresh fetch. Watch the import: the
-prelude's `Resource` is the bundled-asset handle; the async one is `day::reactive::Resource`.
+The latest source value wins. A source change aborts the in-flight fetch (dropping its
+`FetchFuture`, the same cancel path as above) and a stale completion writes nothing. Scope
+disposal aborts it too, with no handle bookkeeping, and `forecast.refetch()` forces a fresh
+fetch. Watch the import: the prelude's `Resource` is the bundled-asset handle; the async one is
+`day::reactive::Resource`.
 
 ## 4. Other methods, headers, and bodies
 

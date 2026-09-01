@@ -1,6 +1,6 @@
 ---
 title: Logging
-description: "Day emits through the `log` facade — levels, per-platform sinks, DAY_LOG, and how to install env_logger, tracing, or your own logger."
+description: "Day emits through the `log` facade: levels, per-platform sinks, DAY_LOG, and how to install env_logger, tracing, or your own logger."
 order: 25
 section: Guides
 ---
@@ -33,8 +33,8 @@ It is silent on the web. Rust's standard library has no stdout on `wasm32-unknow
 implementation takes your bytes and discards them, with no error and no panic. An app that
 diagnoses itself with `println!` says nothing at all in a browser.
 
-On native targets it has a sharper edge — `println!` **panics** if the write fails, and a closed
-pipe is ordinary when the launcher shuts an app down. Raised inside a platform callback, that
+On native targets `println!` **panics** if the write fails, and a closed pipe is ordinary when
+the launcher shuts an app down. Raised inside a platform callback, that
 panic aborts the process. Day's logger never panics on a failed write.
 
 ## Where output goes
@@ -57,13 +57,13 @@ WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 
 ## Color
 
-On a terminal the level column is colored — red `ERROR`, yellow `WARN`, green `INFO`, blue
-`DEBUG`, cyan `TRACE`, which is `env_logger`'s palette rather than a new one. The message stays
-plain, so it stays greppable.
+On a terminal the level column is colored (red `ERROR`, yellow `WARN`, green `INFO`, blue
+`DEBUG`, cyan `TRACE`), the same palette `env_logger` uses. The message stays plain, so it stays
+greppable.
 
-Day checks whether the destination is a color terminal rather than assuming, so the escapes drop
-out on their own when you redirect to a file, when `NO_COLOR` is set, and on the targets with no
-terminal — logcat, Xcode's console, the browser. Under `day launch` the app's stderr is a pipe, so
+Day checks whether the destination is a color terminal, so the escapes drop out on their own when
+you redirect to a file, when `NO_COLOR` is set, and on the targets with no terminal (logcat,
+Xcode's console, the browser). Under `day launch` the app's stderr is a pipe, so
 `day launch` does the coloring instead, tagging each line with the target it came from:
 
 ```
@@ -77,8 +77,8 @@ instead, where the color is stripped and the text arrives plain.
 
 ## Levels
 
-`error!` when a feature is gone. `warn!` when Day recovered but not as intended — a missing font, a
-piece with no renderer on this backend. `info!` for milestones worth having in a report. `debug!`
+`error!` when a feature is gone. `warn!` when Day recovered but not as intended (a missing font, a
+piece with no renderer on this backend). `info!` for milestones worth having in a report. `debug!`
 for the trace you want while working on something. `trace!` for a per-frame firehose.
 
 Debug builds show `debug!` and above; release builds show `info!` and above. Turn it up with
@@ -91,8 +91,8 @@ day launch -p web-dom --env DAY_LOG=debug     # the web has no environment; this
 
 ## Bring your own logger
 
-Day's logger is a default, not a policy. `log` allows one logger per process and the first one
-wins, so install yours before `day::launch`:
+You can replace Day's logger. `log` allows one logger per process and the first one wins, so
+install yours before `day::launch`:
 
 ```rust
 fn main() {
@@ -101,15 +101,15 @@ fn main() {
 }
 ```
 
-That is the entire opt-out: no feature to set, and every `info!` you have already written keeps
-working, because those are `log`'s macros rather than Day's. You gain whatever that logger offers —
-`env_logger`'s `RUST_LOG=warn,day_uikit=debug` per-target filtering, for instance, or `tracing`'s
-spans via `tracing-log`.
+That is the entire opt-out. There is no feature to set, and every `info!` you have already
+written keeps working, because those are `log`'s macros. You gain whatever that logger offers,
+such as `env_logger`'s `RUST_LOG=warn,day_uikit=debug` per-target filtering or `tracing`'s spans
+via `tracing-log`.
 
-`env_logger` is a good choice for a desktop-focused app and a poor default for Day, which is why
-it is opt-in: it writes ANSI text to stderr on every target, and stderr is logcat's **ERROR** level
-on Android, a discarded buffer on the web, and the Xcode console on iOS. Day's own logger exists to
-route per platform. Note that `RUST_LOG` replaces `DAY_LOG` once you install it — `DAY_LOG` belongs
-to the logger you just displaced.
+`env_logger` is a good choice for a desktop-focused app, and it is opt-in in Day because it writes
+ANSI text to stderr on every target: stderr is logcat's **ERROR** level on Android, a discarded
+buffer on the web, and the Xcode console on iOS. Day's own logger exists to route per platform.
+`RUST_LOG` replaces `DAY_LOG` once you install it, because `DAY_LOG` belongs to the logger you just
+displaced.
 
 Full reference: [docs/logging.md](https://github.com/daybrite/day/blob/main/docs/logging.md).

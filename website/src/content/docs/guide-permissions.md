@@ -31,7 +31,7 @@ The full per-platform matrix is in [the permissions reference](/docs/internal/pe
 ## 1. Declare it in Day.toml
 
 The declaration half is required: every mobile OS demands a manifest entry in addition to the
-runtime request, and skipping it is not a graceful failure (see pitfalls). Declare what you use,
+runtime request, and skipping it crashes or silently denies (see pitfalls). Declare what you use,
 with the reason the OS shows the user in its own prompt:
 
 ```toml
@@ -42,11 +42,11 @@ notifications        = true          # needs no reason on any platform
 ```
 
 From this, `day build` writes the Android manifest permissions, the `NS…UsageDescription` keys in
-`Info.plist`, and the HarmonyOS `module.json5` entries. The reason is a runtime parameter on no
-platform (every OS reads it from the manifest), which is why it lives here and why
-`request()` takes none. For permissions outside the portable set, `[permissions.raw]` passes
+`Info.plist`, and the HarmonyOS `module.json5` entries. Every OS reads the reason from its
+manifest and none accepts it at runtime, which is why it lives here and why `request()` takes
+none. For permissions outside the portable set, `[permissions.raw]` passes
 platform-native names through. `day lint` flags a permission your code requests but `Day.toml`
-doesn't declare, so the mismatch is caught in CI rather than on a device.
+doesn't declare, so the mismatch is caught in CI.
 
 ## 2. Check, request, react
 
@@ -72,11 +72,11 @@ button("Enable reminders").action(move || {
 });
 ```
 
-Three things this snippet leans on:
+The snippet leans on the callback's threading, `can_prompt`, and `status`.
 
 - **The callback runs on an unspecified thread**, possibly the UI thread, so it delivers into UI
-  state through a `Setter`, not by touching a `Signal` directly. There is deliberately no blocking
-  `request`: the prompt is drawn by the very thread a blocking call would park. `request_future`
+  state through a `Setter`, not by touching a `Signal` directly. There is no blocking `request`,
+  because the prompt is drawn by the very thread a blocking call would park. `request_future`
   and `status_future` exist for async code.
 - **`can_prompt` picks the affordance.** Apple never re-prompts after a denial and Android may
   stop, so once `can_prompt` is false a "grant access" button is a control that does nothing;
@@ -107,25 +107,25 @@ platforms that show one (iOS and HarmonyOS), naming the crate and the lines to p
 
 ## 4. What each platform does with a request
 
-Briefly, since the [reference](/docs/internal/permissions) carries the full matrix: Apple
-platforms go through each framework's own authorization API and ask the user once; after a
-denial, only Settings can change the answer. Android shows its dialog via `requestPermissions`
+The [reference](/docs/internal/permissions) carries the full matrix. Apple platforms go
+through each framework's own authorization API and ask the user once; after a denial, only
+Settings can change the answer. Android shows its dialog via `requestPermissions`
 and cannot tell "never asked" from "permanently denied" without app-side state, which Day
-deliberately keeps none of; record it yourself in the `request` callback if you need the
-distinction. HarmonyOS can check but not yet prompt from Day, so `can_prompt` is false there. The
-web answers through `navigator.permissions` and the per-API request calls. Desktop Linux and
+does not keep, so record it yourself in the `request` callback if you need the distinction.
+HarmonyOS can check but not yet prompt from Day, so `can_prompt` is false there. The web
+answers through `navigator.permissions` and the per-API request calls. Desktop Linux and
 Windows resolve immediately as `Granted`.
 
 ## Pitfalls
 
 - **Requesting before declaring.** iOS and macOS terminate the process when it touches a gated
-  API without the matching `Info.plist` key, not an exception you can catch. Android reports an
+  API without the matching `Info.plist` key; there is no exception to catch. Android reports an
   undeclared permission as `Status::Restricted`: the request resolves denied in the same frame,
   with no dialog, and Settings offers nothing. HarmonyOS refuses the request outright. Step 1 is
-  not optional, and `day lint` catches the mismatch.
+  required, and `day lint` catches the mismatch.
 - **The capability doesn't exist here.** `gate()` answers `Absent` and `status()` answers
   `Unsupported`; a `request` resolves immediately with `Unsupported` and no prompt. The reverse
-  case also has a shape: `Granted` on an ungated desktop is not a promise the hardware exists;
+  case also exists: `Granted` on an ungated desktop is not a promise the hardware exists;
   ask the capability's own part about that.
 - **macOS dev builds can't be granted anything.** `day launch -p macos-appkit` runs a bare
   binary, and TCC reads usage descriptions from a bundle's `Info.plist`, so an unbundled process

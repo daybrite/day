@@ -42,7 +42,7 @@ day::prefs::remove("greeting");                      // delete it
 | `bind(key, signal)` | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
 | `install_nav_store()` | Install this store as day-core's navigation-persistence sink, so a `selector`/`stack` marked `.restore(key)` remembers its state across launches (and an Android process death). Call once in `main`, before the UI mounts. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
 
-Values persist across launches; that's the point. The crate has no cargo features: platform
+Values persist across launches. The crate has no cargo features: platform
 selection is purely `#[cfg(target_os)]` (plus `#[cfg(target_arch = "wasm32")]` for the web),
 since persistence depends on the OS, not on which widget toolkit is in use. `parts/day-part-prefs/examples/prefs.rs` is a plain `main` that uses it with no
 Day framework at all (run it twice to watch a value survive the process).
@@ -86,8 +86,8 @@ values modest; large blobs belong in a file.
   best-effort atomic (write a sibling temp file, then rename over the target); a process-wide mutex
   serializes load-modify-save cycles. Every read tolerates a missing, unreadable, or corrupt file
   by treating the store as empty, so a partial write or a hand-edit can never panic a caller. `set`
-  returns `false` only when the store file could not be written (e.g. a read-only home). No extra
-  dependencies beyond `std`.
+  returns `false` only when the store file could not be written (e.g. a read-only home). It depends
+  on `std` only.
 - **Web (web-dom)**: `localStorage`, reached through the day-dom host shim's `day_dom_pref_*`
   imports under a `day.pref.` key namespace. Values survive reloads and browser restarts,
   scoped per origin. `localStorage` can throw (private browsing, storage pressure); failures
@@ -112,8 +112,8 @@ See [docs/extending.md](extending.md).
 hand-rolling. `appearance_picker`/`language_picker`/`settings_sections` persist through
 this part and apply live. Its `apply_startup(theme_key, locale_key)` applies persisted
 overrides at boot with the **env-wins rule**: when `DAY_THEME` or `DAY_LOCALE` is set (a
-`day launch --env`/`--locale` run, every themed CI variant), the persisted value is NOT
+`day launch --env`/`--locale` run, every themed CI variant), the persisted value is not
 re-applied; the launch override stays deterministic no matter what an earlier run stored.
-Live picker changes still apply and persist after boot. Local-run hygiene when testing
-persistence by hand: unbundled macOS binaries store under the process-name defaults domain
-(`defaults delete <name>` clears it; a plist delete alone won't, cfprefsd caches).
+Live picker changes still apply and persist after boot. When testing persistence by hand on
+macOS, unbundled binaries store under the process-name defaults domain (`defaults delete <name>`
+clears it; a plist delete alone won't, because cfprefsd caches).

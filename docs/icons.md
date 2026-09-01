@@ -10,9 +10,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # App icons (`day icon`)
 
-One master, every platform's icon set, kept in sync. `day icon` renders the master into the
-`resource/icons/` export tree and the committed `platform/` copies each build consumes; `day icon
---check` verifies nothing drifted (exit 5 — a CI gate beside the duty-matrix check).
+`day icon` renders every platform's icon set from one master and keeps the copies in sync. It
+renders the master into the `resource/icons/` export tree and the committed `platform/` copies each
+build consumes; `day icon --check` verifies nothing drifted (exit 5; it is a CI gate beside the
+duty-matrix check).
 
 ## The master
 
@@ -31,11 +32,11 @@ An SVG master may mark **top-level** elements as semantic layers by id:
 The composite (background + foregrounds) feeds every full-bleed output; the split layers feed
 Android's adaptive icon (foreground tightened to its content box and centered in the 66/108 dp
 safe zone; background full-bleed). An **unlayered** SVG or a **PNG** master still produces the
-complete legacy set — the adaptive foreground is then the whole art in the safe zone over a
+complete legacy set; the adaptive foreground is then the whole art in the safe zone over a
 derived background color (the composite's corner pixel; white when transparent).
 
-Text must be outlined: text shaping is deliberately not compiled into day (`<text>` is a hard
-error naming the fix).
+Text must be outlined: text shaping is not compiled into day, which keeps resvg's font stack
+out of the build (`<text>` is a hard error naming the fix).
 
 A reserved layer (`day:monochrome`, `day:dark`) may carry `display="none"` so plain SVG
 viewers show the master as it ships; the layer-only documents re-enable it. Generated
@@ -48,19 +49,20 @@ foreground motif + hidden monochrome silhouette) to `resource/icons/icon.svg` an
 every output from it. It refuses to replace an existing master unless `--overwrite`.
 
 * `--seed <int|string>` — reproduce a specific icon (a non-integer seed is hashed; the app-id
-  convention below). Without it a fresh random seed is drawn — and always printed, so a liked
-  icon can be regenerated.
+  convention below). Without it a fresh random seed is drawn and printed, so a liked icon can be
+  regenerated.
 * `--out <file.svg>` — preview mode: write the master (plus a 512 px PNG beside it) to a path
-  instead of the project, touching nothing else. No project needed; browse seeds with it.
+  instead of the project, touching nothing else. It works outside any project, so use it to
+  browse seeds.
 
-`day new app` uses the same generator for every fresh scaffold, seeded by the **app id** —
-scaffolding the same id twice yields the same icon — with `--icon-seed` as the override.
+`day new app` uses the same generator for every fresh scaffold, seeded by the **app id**
+(scaffolding the same id twice yields the same icon); `--icon-seed` overrides the seed.
 
-The compositions are not free-form noise: a limited palette from the classic color-harmony
-schemes (analogous / complementary / split-complementary / triadic) with figure-ground
-contrast held by construction, one or two focal points in simple geometry within the masks'
-safe zone, a subtle vertical background gradient, and symmetric / rotational /
-golden-section-balanced arrangements (`day-vector/src/icongen.rs` documents the sources).
+The generator composes from a limited palette drawn from the classic color-harmony schemes
+(analogous / complementary / split-complementary / triadic), with figure-ground contrast held by
+construction, one or two focal points in simple geometry within the masks' safe zone, a subtle
+vertical background gradient, and symmetric / rotational / golden-section-balanced arrangements
+(`day-vector/src/icongen.rs` documents the sources).
 Generated monochrome layers stay inside the VectorDrawable subset, so Android's themed icon
 ships as a true vector.
 
@@ -70,7 +72,7 @@ ships as a true vector.
 |---|---|
 | `png/` | `day-icon-{16,32,64,128,256,512,1024}.png` — favicons, catalogs, general use |
 | `macos/` | margin-composed squircle set (824 pt art on 1024, radius 184) `-{16,32,128,256,512,1024}.png` + `day-icon.icns` |
-| `ios/` | `AppIcon-1024.png` (opaque — App Store validation) + sync into `platform/ios/…/AppIcon.appiconset/` |
+| `ios/` | `AppIcon-1024.png` (opaque, for App Store validation) + sync into `platform/ios/…/AppIcon.appiconset/` |
 | `android/` | adaptive `ic_launcher_{foreground,background}.png` (432), legacy 192, `play-store-512.png` + sync into `platform/android/…/mipmap-xxxhdpi/` |
 | `linux/` | `day-icon-{48,128,256,512}.png` (appstream-compose-safe sizes) |
 | `windows/` | multi-size `day.ico` (16/32/48/256, PNG-compressed) + `day-icon-256.png` |
@@ -83,16 +85,16 @@ ships as a true vector.
 
 Beyond the legacy set, a **layered SVG master** also produces:
 
-* **Android themed icon** (Android 13): a monochrome drawable the system tints —
-  `day:monochrome` as a VectorDrawable when it fits the subset, else the adaptive foreground's
-  alpha as a bitmap mask — plus an idempotent `<monochrome>` entry added to the committed
+* **Android themed icon** (Android 13): a monochrome drawable the system tints
+  (`day:monochrome` as a VectorDrawable when it fits the subset, else the adaptive foreground's
+  alpha as a bitmap mask), plus an idempotent `<monochrome>` entry added to the committed
   `mipmap-anydpi-v26/ic_launcher.xml`.
 * **HarmonyOS layered icon**: `layered_image.json` + `foreground.png`/`background.png` (216 px)
   in both media dirs, with `app.json5`/`module.json5` icon slots rewired to
   `$media:layered_image` (`startWindowIcon` keeps the flat `startIcon.png`).
 * **Icon Composer package** (Xcode 26 Liquid Glass): `AppIcon.icon/` — `icon.json` + SVG layer
   assets split from the master's `day:` layers (`day:monochrome` ships as an asset for the
-  Tinted appearance) — staged into `resource/icons/ios/` and `platform/ios/`. Open it in Icon
+  Tinted appearance), staged into `resource/icons/ios/` and `platform/ios/`. Open it in Icon
   Composer to tune materials, and point Xcode 26's app-icon build setting at it; the appiconset
   remains the pre-26 fallback.
 
@@ -105,5 +107,5 @@ byte drift.
 
 ## Engine
 
-[day-vector](../crates/day-vector) — resvg/usvg/tiny-skia with text shaping off, plus hand-rolled
+[day-vector](../crates/day-vector) is resvg/usvg/tiny-skia with text shaping off, plus hand-rolled
 `.ico`/`.icns` writers. The same crate powers `resource/vectors/` staging ([docs/vectors.md](vectors.md)).

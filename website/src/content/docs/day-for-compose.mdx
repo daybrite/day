@@ -34,8 +34,8 @@ DOM elements on the web. Your app looks native everywhere rather than identical 
 
 | Jetpack Compose | Day |
 |---|---|
-| `@Composable fun` | a plain function returning a Piece — no compiler plugin |
-| `remember { mutableStateOf(x) }` | `Signal::new(x)` — no `remember`; the function runs once |
+| `@Composable fun` | a plain function returning a Piece (no compiler plugin) |
+| `remember { mutableStateOf(x) }` | `Signal::new(x)`; the function runs once, so there is no `remember` |
 | `derivedStateOf` | `Memo::new` |
 | `LaunchedEffect` / `DisposableEffect` | `Effect::new` / `watch`; scopes clean up automatically |
 | recomposition + skipping | no recomposition; one binding patches one widget |
@@ -88,17 +88,17 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-There's no `remember` because the function isn't re-executed; state doesn't need rescuing
-from re-execution. The label's closure is the only code that runs on a tap, and it ends in one
+There's no `remember` because the function runs once, so state never needs to survive a
+re-execution. The label's closure is the only code that runs on a tap, and it ends in one
 native `setText`. The habits Compose teaches around recomposition (hoisting state, stability
 annotations, skippability) have no Day equivalent, because there is no recomposition to manage.
-[Reactivity](/docs/reactivity) covers the model, including its cost: *you* mark what's dynamic
-(a closure makes text live; a bare value doesn't).
+[Reactivity](/docs/reactivity) covers the model, including its cost, which is that you mark
+what's dynamic yourself (a closure makes text live; a bare value doesn't).
 
 ## Two-way controls
 
-Compose controls are stateless value-plus-callback pairs by design. Day's take signals
-directly; the write-back is built in.
+Compose controls are stateless value-plus-callback pairs. Day's take signals directly, with
+the write-back built in.
 
 <Compare lhs="Compose">
 
@@ -170,14 +170,14 @@ list(
 
 </Compare>
 
-There are two differences. The key is a required argument, not an optional lambda. And
-`list` recycles real native cells (a `RecyclerView` on Android), so the row builder runs per
-recycled slot rather than per composition.
+There are two differences. The key is a required argument, where Compose's `key` lambda is
+optional. And `list` recycles real native cells (a `RecyclerView` on Android), so the row
+builder runs per recycled slot rather than per composition.
 
 ## Navigation
 
-`NavController` owns a back stack you push routes onto. Day turns that inside out: the back
-stack is your `Signal<Vec<String>>`, and the platform container is reconciled to it. On Android
+`NavController` owns a back stack you push routes onto. In Day the back stack is your
+`Signal<Vec<String>>`, and the platform container is reconciled to it. On Android
 that container is the androidx Fragment back stack, with predictive back (opt-in on 13/14,
 default on 15).
 
@@ -220,10 +220,9 @@ platform's idiom: tabs on phones, a sidebar split view on desktop. See
 
 ## Adaptive layout
 
-Day's breakpoints are the ones you already know: `SizeClass` uses Android's window size classes
-verbatim, on every backend, so a 700pt window is `Medium` on a Mac and in a browser exactly as it
-is on a tablet. What differs is who acts on them — in Compose you pick the scaffold per class; in
-Day the `selector` re-presents itself.
+`SizeClass` uses Android's window size classes verbatim, on every backend, so a 700pt window
+is `Medium` on a Mac and in a browser exactly as it is on a tablet. In Compose you pick the
+scaffold per class; in Day the `selector` re-presents itself.
 
 <Compare lhs="Compose">
 
@@ -253,17 +252,17 @@ let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
 
 </Compare>
 
-On Android the backend hands the class to `SlidingPaneLayout` and lets it morph natively, with its
-own animation and gesture, then reports what it chose — Day observes rather than overrides where
-the platform already does this well ([details](/docs/internal/size-classes)). The class is
-per window, so split-screen and freeform windows each get their own answer.
+On Android the backend hands the class to `SlidingPaneLayout`, which morphs with its own
+animation and gesture and then reports what it chose; Day follows the platform's choice where
+the platform already makes one ([details](/docs/internal/size-classes)). The class is per
+window, so split-screen and freeform windows each get their own answer.
 
 ## Modifiers and layout
 
 The chain reads the same, but the algorithm differs. Compose measures with constraints flowing
 down; Day uses the SwiftUI-style proposal protocol (parent proposes, child chooses), with text
-measured by the platform's own engine. Day for `Modifier.weight(1f)` is `.grow()`, and
-containers don't stretch children by default.
+measured by the platform's own engine. Day's equivalent of `Modifier.weight(1f)` is `.grow()`,
+and containers don't stretch children by default.
 
 <Compare lhs="Compose">
 
@@ -297,19 +296,18 @@ column((
 
 </Compare>
 
-`Font::Title` resolves to each platform's typography scale, not a theme object you define.
-Day inherits the platform's look rather than shipping a design system. The flip side is a real
-limit: there's no `MaterialTheme` equivalent to recolor control chrome, and no portable way to
-restyle a slider track or checkbox. [Styling](/docs/styling) lists what you can restyle and
-what stays native, and
+`Font::Title` resolves to each platform's typography scale. Day inherits the platform's look
+and ships no design system of its own, which sets a limit: there is no `MaterialTheme`
+equivalent to recolor control chrome or to restyle a slider track or checkbox portably.
+[Styling](/docs/styling) lists what you can restyle and what stays native, and
 [tweaks](/docs/tweaks) reach per-platform knobs when one platform has the setting you need.
 
 ## State management: ViewModels, flows, and threads
 
 The `ViewModel` + `StateFlow` + `collectAsStateWithLifecycle` pipeline exists to move state out
 of recomposition and survive configuration changes. Day needs neither: signals already live
-outside the tree (module statics, structs, wherever), and there's no activity recreation to
-survive. The window is Day's, on every platform.
+outside the tree (module statics, structs, wherever), and Day owns the window on every
+platform, so there is no activity recreation to survive.
 
 ```rust
 #[derive(Clone, Copy)]
@@ -330,11 +328,11 @@ impl Library {
 }
 ```
 
-Threading is where Rust's compiler does what conventions do in Kotlin. `Signal` is `!Send`: a
-background thread can't touch one, at compile time. The door back is a `Setter` (a `Send`,
-write-only handle that marshals to the main thread, like `withContext(Dispatchers.Main)` with
-the dispatcher rule enforced by types), or `day::task`, whose continuations land on the UI
-thread:
+For threading, the Rust compiler enforces the rule that Kotlin leaves to convention. `Signal`
+is `!Send`: a background thread can't touch one, at compile time. The way back is a `Setter`
+(a `Send`, write-only handle that marshals to the main thread, like
+`withContext(Dispatchers.Main)` with the dispatcher rule enforced by types), or `day::task`,
+whose continuations land on the UI thread:
 
 ```rust
 let progress = Signal::new(0.0);
@@ -348,8 +346,8 @@ std::thread::spawn(move || {
 });
 ```
 
-A `Setter` write after the owning page is gone is a silent no-op: the case
-`viewModelScope` cancellation handles, done by scope teardown instead.
+A `Setter` write after the owning page is gone is a silent no-op; scope teardown covers the
+case `viewModelScope` cancellation handles.
 
 ## Package configuration
 
@@ -404,7 +402,7 @@ A Gradle project still exists (`platform/android/` is a thin host that loads the
 window, and permissions once; `day build` writes the manifest entries (and the iOS plist keys,
 and the HarmonyOS profile) from it. A dependency with native platform code declares its Java
 sources, Gradle dependencies, and Maven repositories in its own crate metadata, and the host
-project reads them generically. Adding such a package to `Cargo.toml` is the whole
+project reads them generically. Adding such a package to `Cargo.toml` completes the
 integration. On the Apple targets, Day can also embed your own SwiftUI views
 ([SwiftUI embedding](/docs/internal/swiftui)).
 
@@ -440,7 +438,7 @@ label(res::str::unread(count))   // generated, compile-checked
 
 `res::str` plays the role of `R`: `res::str::unread` is generated at build time, so a missing
 key or wrong argument count is a compile error, and a plural selector is typed numeric. On
-Android the staging target *is* the `res/` system: `resource/images/` becomes density-bucketed
+Android the staging target is the `res/` system itself: `resource/images/` becomes density-bucketed
 `res/drawable-*` entries crunched by aapt2, fonts land in `res/font/`. The same sources also
 become asset catalogs on iOS and GResource bundles on GTK, from one directory. Unlike
 `strings.xml`, the locale is a runtime signal. Switching re-renders live without an activity
@@ -485,7 +483,7 @@ field-notes/
 </Compare>
 
 Per-platform values are `Day.toml` overrides (per platform, per toolkit, or per target, most
-specific wins) rather than flavors or source-set forks:
+specific wins), which take the role of flavors and source-set forks:
 
 ```toml
 [app]
@@ -513,8 +511,8 @@ debugger and profilers, and Gradle calls back into `day` to rebuild the Rust hal
 | UI tests | `createComposeRule`, Espresso | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 | environment check | Android Studio / `doctor` scripts | `day doctor` |
 
-Maturity differs by target, and these docs say so rather than implying parity: every
-`(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
+Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
+today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
 [Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
@@ -528,4 +526,4 @@ instead of failing, so CI forks and fresh laptops still build.
 - [Getting started](/docs/getting-started) — install, scaffold, first launch.
 - [API tour](/docs/api-tour) — the whole authoring surface in one pass.
 - [Reactivity](/docs/reactivity) — signals vs. snapshot state, in depth.
-- [Why Day](/docs/benefits) — the frank comparison, including when Compose is the better fit.
+- [Why Day](/docs/benefits) compares the approaches and says when Compose fits better.

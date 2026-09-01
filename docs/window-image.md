@@ -17,7 +17,7 @@ let png: Vec<u8> = day::window_image().capture()?;
 ```
 
 The call is **synchronous** and returns PNG bytes. Nothing is written to disk and no permission is
-requested — an app photographing its own window is not a screen recording, and none of the nine
+requested; an app photographing its own window is not a screen recording, and none of the nine
 backends treats it as one.
 
 Pair it with a save picker ([files](./files.md)) to let the user keep the result:
@@ -37,7 +37,7 @@ button(tr("screenshot")).action(|| day::task(async move {
 
 ## What lands in the image
 
-By default the capture is the window's **content** — what the app itself drew. Ask for `chrome()`
+By default the capture is the window's **content**, what the app itself drew. Ask for `chrome()`
 to include the frame the platform draws around it:
 
 ```rust
@@ -49,17 +49,17 @@ day::window_image().chrome().capture()?
 | macOS | the content view | plus the titlebar and window toolbar |
 | iOS | the app's root view | plus the status bar |
 | Linux | the content area | plus the GTK HeaderBar (client-side decorations) |
-| Android | the activity's decor content | plus the status bar (same pixel size where the app draws edge-to-edge — the bar's own pixels appear, the frame does not grow) |
-| Windows, Qt | the window, already including in-window chrome — see below | same image |
+| Android | the activity's decor content | plus the status bar (same pixel size where the app draws edge-to-edge; the bar's own pixels appear, the frame does not grow) |
+| Windows, Qt | the window, already including in-window chrome; see below | same image |
 | HarmonyOS | the window root node | same image |
 
 Two backends cannot separate the two. On Windows the capture is a `PrintWindow` of the top-level
 `HWND`, and on Qt a `QWidget::grab` of the top-level widget: both already contain everything drawn
 *inside* the window, and neither can reach the frame the window manager draws *outside* it. They
-answer `chrome()` with the same image rather than pretending to a distinction they do not have.
+answer `chrome()` with the same image.
 
-Nothing composited on top of the window by the system — a menu that has torn off into its own
-window, an IME candidate popup, a screen-recording indicator — is part of any capture.
+Nothing composited on top of the window by the system (a menu that has torn off into its own
+window, an IME candidate popup, a screen-recording indicator) is part of any capture.
 
 ## Capability
 
@@ -70,8 +70,8 @@ if day::window_image_support() == Support::Native { /* offer the command */ }
 ```
 
 It answers `Support::Native` on eight backends and `Support::Unsupported` on **web-dom**, where a
-DOM genuinely cannot rasterize itself. Gate the UI on it — the Showcase's Screenshot toolbar
-button and View-menu item both do — rather than offering a command that can only fail.
+DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot toolbar
+button and View-menu item both do) rather than offering a command that can only fail.
 
 `capture()` still returns `Err` for the ordinary runtime reasons even where support is `Native`:
 no window on screen yet, a zero-size window, a compositor that declined.
@@ -89,16 +89,16 @@ no window on screen yet, a zero-size window, a compositor that declined.
 | HarmonyOS (ArkUI) | `OH_ArkUI_GetNodeSnapshot` + the native image packer |
 | web-dom | unsupported |
 
-Two of these are worth knowing about, because both are the second thing tried:
+Two of these were the second thing tried:
 
 **AppKit prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
-drew and nothing else, so macOS's own composited materials — a Liquid Glass sidebar, vibrancy —
+drew and nothing else, so macOS's own composited materials (a Liquid Glass sidebar, vibrancy)
 come back blank. `CGWindowListCreateImage` asks the window server for the pixels the user is
-actually looking at. It has the opposite limitation: it has no image for a window that is not on
+looking at. It has the opposite limitation: it has no image for a window that is not on
 screen, so the offscreen render remains the fallback.
 
-**ArkUI encodes natively, not through ArkTS.** The obvious route is the ArkTS host — that is how
-day-arkui reaches the file picker and the browser — but `@ohos.multimedia.image` has no
+**ArkUI encodes natively.** The obvious route is the ArkTS host (that is how
+day-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no
 synchronous packer at all (`packToData` and `packing` are Promise/callback only), so bridging
 through the host would have forced `window_image()` to be async on **every** backend to satisfy
 this one. `OH_ArkUI_GetNodeSnapshot` and `OH_ImagePackerNative_PackToDataFromPixelmap` do the same
@@ -108,22 +108,22 @@ libraries (`libpixelmap.so`, `libimage_packer.so`); see day-arkui-sys's `build.r
 ## Relationship to dayscript screenshots
 
 A dayscript `screenshot:` step ([agent](./agent.md), DESIGN.md §14) is a separate path with a
-different goal, and it does **not** simply call this API.
+different goal, and it does **not** call this API directly.
 
 - **Desktop** — the in-process capture is the real capture, and it is what a walkthrough writes.
   The Linux CI legs keep a fallback: when the engine declines, `day` reads the xvfb root window
   with ImageMagick's `import`.
-- **Device and simulator** — the platform's own screen capture stays the source of truth
+- **Device and simulator** — the platform's own screen capture remains the primary path
   (`simctl io screenshot`, `adb exec-out screencap`, `hdc uitest screenCap`). It photographs the
   whole screen, status bar and system chrome included, which is what the published mobile
   galleries show; an in-process capture frames the app's view tree alone and would silently
   re-crop all of them. Where a mobile backend has an in-process capture it now serves as the
-  **fallback** — a refusing device tool used to abandon the shot outright. Because that image is
+  **fallback**; a refusing device tool used to abandon the shot outright. Because that image is
   wanted only when the device tool refuses, the runner tells the engine not to render one
   (`in_process: false` on the step) and re-asks on the failure path: rendering and encoding a
   capture per shot only to discard it cost 819ms each on the iOS simulator, 33.6s across one
   walkthrough variant. The idle wait that makes a capture land on a settled frame happens either
-  way — it is the point of the step, not a side effect of the encoding.
+  way, because the wait is the step's purpose rather than a side effect of the encoding.
 - **web-dom** — the `DAY_WEB_DRIVER` browser captures the page.
 
 `day drive` follows the same precedence, so the same screen frames the same way whichever entry

@@ -39,7 +39,7 @@ pub trait Piece: 'static {
 }
 ```
 
-Two things in that signature shape everything else about Day:
+Two parts of that signature shape everything else about Day.
 
 - **`build` takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
   view description that Day re-runs and diffs against the last frame. The builder is spent the
@@ -49,10 +49,10 @@ Two things in that signature shape everything else about Day:
 
 Your Piece functions run once, at mount time. Everything dynamic afterward flows through
 [signals](/docs/reactivity), which are bound to individual native attributes during that single
-build. This is the core trade Day makes: you give up "re-run the view function and let the
-framework figure it out", and in exchange there is no virtual tree or diffing, and your UI code
-doesn't re-run at runtime. The [reactivity page](/docs/reactivity) covers what that
-means in practice, including the costs.
+build. Day trades one thing for another here: you give up "re-run the view function and let the
+framework figure it out", and in exchange your UI code runs once and Day keeps no virtual tree to
+diff. The [reactivity page](/docs/reactivity) covers what that means for your code, including
+the costs.
 
 ## Composing trees
 
@@ -80,8 +80,8 @@ row(PieceVec(stars)).spacing(4.0)
 ```
 
 `AnyPiece` is the type-erased form: a boxed build closure. Reach for it at a boundary that needs
-one single type — a `PieceVec` like the one above, a stored builder, or a function that branches
-between two different pieces:
+one single type, such as a `PieceVec` like the one above, a stored builder, or a function that
+branches between two different pieces:
 
 ```rust
 fn status_badge(online: bool) -> AnyPiece {
@@ -108,11 +108,11 @@ fn settings_page() -> impl Piece {
 Nothing in Day's own vocabulary erases either: `column()` hands back a `Column`, `labeled()` a
 `Labeled`, and modifiers (`.id()`, `.padding()`, `.on_tap()` …) return `Decorated<P>`, which keeps
 the decorated piece's own type. So `.any()` is always your call, made where a single `AnyPiece` is
-actually required. Calling it on a piece that is already erased is free — `AnyPiece` hands itself
-back rather than boxing a box.
+actually required. Calling it on a piece that is already erased is free, because `AnyPiece` hands
+itself back without boxing again.
 
-Keeping the type is what lets a piece's own builders be chained after a generic modifier, in either
-order:
+Because the type is kept, a piece's own builders can be chained after a generic modifier, in
+either order:
 
 ```rust
 label("Saved").font(Font::Caption).padding(8.0)   // typed first
@@ -128,7 +128,7 @@ if compact { Either::Left(row(children)) } else { Either::Right(column(children)
 
 ## The built-in vocabulary
 
-The `day` prelude ships a deliberately small set of Pieces. Roughly grouped:
+The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 
 | Group | Pieces |
 |---|---|
@@ -143,9 +143,9 @@ The `day` prelude ships a deliberately small set of Pieces. Roughly grouped:
 
 Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an
 [embedded SwiftUI view](/docs/internal/swiftui)) lives in a separate *piece crate*
-(`day-piece-*`) that you add as an ordinary Cargo dependency. That
-split is intentional: the core stays small enough to audit and port, and optional widgets don't
-cost you anything unless you use them. The [extension model](/docs/extending) explains how those
+(`day-piece-*`) that you add as an ordinary Cargo dependency. The
+split keeps the core small enough to audit and port, and optional widgets cost you nothing unless
+you use them. The [extension model](/docs/extending) explains how those
 crates plug in without touching Day itself.
 
 Each built-in has a reference page with per-platform notes under
@@ -178,14 +178,15 @@ When a Piece's `build` runs, three things are created together and live together
   widget at all and exist purely in Day's tree.
 - The **scope** owns every binding and event handler the build created. When the node is later
   removed (a `when` arm switches, an `each` row disappears), disposing the scope tears down its
-  bindings and handlers in one step, and the native widget is released. No manual unsubscription.
+  bindings and handlers in one step, and the native widget is released. You never unsubscribe by
+  hand.
 
 The details of that machinery (the tree structure, measurement, and how events travel back)
 are on [How rendering works](/docs/rendering).
 
 ## Conditional and repeated structure
 
-Because build runs once, structural change is explicit rather than implicit. Two Pieces express
+Because build runs once, structural change is explicit. Two Pieces express
 it:
 
 ```rust
@@ -238,21 +239,22 @@ doesn't exist.
 
 There are exactly three kinds of Piece, and you can write all three:
 
-1. **Built-ins** — the vocabulary above, implemented in `day-pieces` with a renderer in every
+1. **Built-ins**: the vocabulary above, implemented in `day-pieces` with a renderer in every
    toolkit backend.
-2. **Composite pieces** — plain Rust functions or builder structs that compose existing Pieces.
-   No native code, works on every target automatically. Most of your app is this; so are the
+2. **Composite pieces**: plain Rust functions or builder structs that compose existing Pieces.
+   They need no native code and work on every target automatically. Most of your app is this; so
+   are the
    in-tree `day-piece-rating` and `day-piece-settings`, and the
    [star-rating tutorial](/docs/tutorial-composite-piece).
-3. **Native pieces** — a new leaf widget with a per-toolkit implementation, registered at link
+3. **Native pieces**: a new leaf widget with a per-toolkit implementation, registered at link
    time. This is how `day-piece-webview` wraps `WKWebView`/`WebView`/`WebKitGTK`, how
    `day-piece-swiftui` hosts [your own SwiftUI views](/docs/internal/swiftui) on macOS and iOS,
    and how you'd wrap a platform control Day doesn't cover. See the
    [native piece tutorial](/docs/tutorial-native-piece).
 
-Composite pieces are frictionless; native pieces cost one implementation per toolkit you care
-about (a piece that only implements AppKit and UIKit renders a labeled placeholder elsewhere:
-visible, not a crash).
+Composite pieces cost nothing beyond the Rust you write; native pieces cost one implementation
+per toolkit you care about (a piece that only implements AppKit and UIKit renders a labeled
+placeholder elsewhere, so the gap is visible and the app keeps running).
 
 ---
 

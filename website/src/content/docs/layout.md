@@ -10,11 +10,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day owns layout. Native toolkits each have their own layout system (Auto Layout, GTK's size
-groups, Android's measure/layout passes), and they don't agree with each other, so Day bypasses
-them, computes every widget's frame itself, and positions widgets absolutely inside their native
-container. What Day does *not* bypass is native measurement: the platform is always the authority
-on how big a piece of text or a control wants to be.
+Day computes layout itself. Native toolkits each have their own layout system (Auto Layout, GTK's
+size groups, Android's measure/layout passes), and they don't agree with each other, so Day
+bypasses them, computes every widget's frame itself, and positions widgets absolutely inside their
+native container. Day still asks the platform to measure: the toolkit is always the authority on
+how big a piece of text or a control wants to be.
 
 This page explains the protocol, why it works this way, and where the costs are.
 
@@ -52,10 +52,10 @@ overflow (usually: let `scroll` handle it).
 The `Layout` trait is public and has no private privileges; `column` is implemented with the
 same trait a custom masonry or flow container would use.
 
-One consequence worth internalizing early: **containers don't stretch children by default.** A
+One consequence to learn early is that **containers don't stretch children by default.** A
 `column` is as wide as its widest child; a pane you want to fill available space needs `.grow()`.
-Forgetting this is the most common layout surprise for newcomers (it shows up as a view
-collapsing to its content size, or to nothing when it has no content).
+Forgetting this shows up as a view collapsing to its content size, or to nothing when it has no
+content.
 
 ## Native measurement, especially text
 
@@ -91,10 +91,9 @@ window root (boundary)
 Frames are diffed with a half-pixel epsilon before touching the toolkit, so a text change that
 doesn't move anything costs one native `set_text` and zero frame updates.
 
-Why boundaries and not "stop wherever the size didn't change"? Because inside a negotiated stack,
-one child's new size changes its *siblings'* proposals; you can only prune safely from a node
-whose own proposal is stable. This is the subtlest part of Day's layout engine, and it's pinned
-down by mock-toolkit golden tests.
+Relayout needs boundaries because, inside a negotiated stack, one child's new size changes its
+siblings' proposals, so pruning is only safe from a node whose own proposal is stable.
+Mock-toolkit golden tests pin this behavior down.
 
 ## The modifier vocabulary
 
@@ -120,7 +119,7 @@ create no native widget, so nesting them is cheap.
 - **Window sizing:** the minimum window size is the one the app declares
   (`WindowOptions::min_size`, an `Option<Size>` that defaults to none), applied verbatim; Day
   doesn't derive a minimum from content measurement. The window relayouts on native resize and
-  never auto-shrinks on you.
+  never shrinks on its own.
 - **Safe areas and keyboards** (mobile): the root applies safe-area insets as padding by default;
   a root-level `scroll` converts them to content insets and slides the focused field above the
   keyboard. Backends with an edge-to-edge mode (Android's immersive opt-in) stop clamping the
@@ -133,20 +132,20 @@ create no native widget, so nesting them is cheap.
 
 ## Tradeoffs
 
-Owning layout buys cross-platform predictability (the same negotiation everywhere, testable on
-the [mock toolkit](/docs/rendering#the-mock-toolkit) without a display), and it's what makes
-per-locale reflow and RTL a framework feature instead of five platform projects. What it costs:
+Owning layout gives Day the same negotiation on every platform, testable on the
+[mock toolkit](/docs/rendering#the-mock-toolkit) without a display, and it is why per-locale
+reflow and RTL are features of the framework that every backend shares. It also has costs:
 
 - **You give up native layout idioms.** Auto Layout constraints, Compose modifiers, GTK size
   groups: none of that applies inside a Day window. If your team's muscle memory is one
   platform's layout system, Day's is a new (if small) one to learn.
 - **Measurement crosses the FFI:** the cache keeps this off the hot path, but a pathological
   layout (thousands of unique text leaves invalidating at once) pays real per-leaf costs,
-  especially over JNI. The native [`list`](/docs/internal/list) exists precisely so long
+  especially over JNI. The native [`list`](/docs/internal/list) exists so that long
   scrolling content doesn't become that case.
-- **Deep negotiation is O(children) per level.** Same as SwiftUI; fine in practice, but visible
-  when you build a custom `Layout`.
+- **Deep negotiation is O(children) per level.** SwiftUI has the same cost; it is rarely a
+  problem, but it becomes visible when you build a custom `Layout`.
 
 ---
 
-Next: [Styling](/docs/styling), what you can restyle and what stays native on purpose.
+Next: [Styling](/docs/styling), what you can restyle and what stays native.

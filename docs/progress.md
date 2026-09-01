@@ -22,7 +22,7 @@ progress(move || downloaded.get() / total.get())
 spinner()
 ```
 
-Both are plain leaf pieces; they need no `day::task` and no state machine. A determinate
+Both are plain leaf pieces that work without `day::task` or a state machine. A determinate
 bar is reactive by construction: pass a `Signal<f64>`, a closure, or a constant and it
 tracks the value with the same one-patch-per-change guarantee as `slider`.
 
@@ -82,8 +82,7 @@ Notes:
 
 - **Qt has no native spinner widget.** The conventional Qt indeterminate indicator is a busy
   `QProgressBar` (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
-  horizontal busy bar rather than a circular spinner, the one intentional cross-platform
-  divergence.
+  horizontal busy bar rather than a circular spinner, the one cross-platform divergence.
 - The determinate fraction crosses the C ABI (Qt/Android/XAML) as an integer tick in
   `0..1000`, the same encoding `slider` uses, so there is no float-ABI concern.
 

@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > **Status: implemented** as `day-piece-datetime`, an external Day Piece registered link-time into
 > each backend's renderer slice without touching day: the first external piece with renderers for
-> **all seven** toolkits (including its own ArkUI NDK shim). TWO pieces
+> **all seven** toolkits (including its own ArkUI NDK shim). It has two pieces
 > (`date_picker(Signal<DayDate>)` and `time_picker(Signal<DayTime>)`) because a single combined
 > date-time control exists on only 3 of the 7 toolkits (`NSDatePicker`,
 > `UIDatePicker.dateAndTime`, `QDateTimeEdit`), while separate date and time controls realize
@@ -54,11 +54,12 @@ Two intents (+ `Automatic`, which is `Compact` everywhere today):
 
 - **`Compact`** — a field/button showing the value that summons a *transient chooser*. The chooser's
   chrome is the platform's own: a popover on iOS, a **modal Material dialog** on Android, a
-  calendar-popup on Qt, a flyout on Windows. Same gesture contract, different chrome (by design).
+  calendar-popup on Qt, a flyout on Windows. The gesture contract is the same; the chrome is each
+  platform's own.
 - **`Inline`** — an embedded calendar / clock / wheels.
 
-Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity Day does not paper
-over (DESIGN.md §2: native-at-home beats identical-everywhere).
+Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity that Day keeps
+(DESIGN.md §2: each platform's own idiom takes priority over identical chrome everywhere).
 
 ## Per-toolkit realization
 
@@ -68,14 +69,14 @@ over (DESIGN.md §2: native-at-home beats identical-everywhere).
 | ios-uikit | **Native** | `UIDatePicker` .compact (popover) | `.inline` calendar | `.compact` keypad; Inline = `.wheels` (iOS has no inline clock) |
 | android-mdc | **Native** | value button → `MaterialDatePicker` dialog (via `DayActivity`'s FragmentManager) | framework `DatePicker` calendar | button → `MaterialTimePicker` clock dialog; Inline = framework `TimePicker` |
 | qt | **Native** | `QDateEdit` + calendar popup | `QCalendarWidget` | `QTimeEdit` (both styles; seconds via display format) |
-| xaml | **Native** | `CalendarDatePicker` flyout | `CalendarView` | `TimePicker` flyout (both styles — XAML has no inline clock) |
+| xaml | **Native** | `CalendarDatePicker` flyout | `CalendarView` | `TimePicker` flyout (both styles; XAML has no inline clock) |
 | harmony-arkui | **Native** | `ARKUI_NODE_CALENDAR_PICKER` (entry → calendar popup) | `ARKUI_NODE_DATE_PICKER` wheels (native START/END) | `ARKUI_NODE_TIME_PICKER` wheels |
-| gtk | Emulated | `GtkMenuButton` (locale-formatted label) → `GtkCalendar` in a `GtkPopover` | `GtkCalendar` | linked `GtkSpinButton`s h/m[/s] — GTK4/libadwaita have **no** stock date/time picker; this composes native primitives |
+| gtk | Emulated | `GtkMenuButton` (locale-formatted label) → `GtkCalendar` in a `GtkPopover` | `GtkCalendar` | linked `GtkSpinButton`s h/m[/s]; GTK4/libadwaita have no stock date/time picker, so this composes native primitives |
 | mock | Emulated | generic widget; tests drive via events | " | " |
 
 `day_piece_datetime::support()` reports the compiled backend's tier.
 
-## What the unified pieces do NOT promise
+## What the unified pieces do not promise
 
 - **Identical chrome** — Android's chooser is a modal dialog, iOS's a popover, Qt's a popup.
 - **Seconds everywhere** — `.seconds(true)` is honored on AppKit and Qt (the two toolkits whose

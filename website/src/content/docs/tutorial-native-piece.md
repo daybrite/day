@@ -16,12 +16,11 @@ handling, assistive-technology behavior, and pixels that only the toolkit can pr
 one as a Day Piece you write a small cross-platform front-end in Rust, then a native backend for
 each toolkit you want to support.
 
-This is the highest-effort tier of extension in Day. You are going to write the same widget five or
-six times: once in Objective-C (through `objc2`), once in gtk-rs, once as a Qt C++ shim, once as an
-Android Java factory, and once as a XAML C++/WinRT shim. That is more work than a composite
-piece. The payoff is a control that works like a built-in `text_field` on every platform, is
-installable by any app with a single line in `Cargo.toml`, and requires no changes to any core Day
-crate.
+A native piece is the most work of Day's extension kinds. You are going to write the same widget
+five or six times: once in Objective-C (through `objc2`), once in gtk-rs, once as a Qt C++ shim,
+once as an Android Java factory, and once as a XAML C++/WinRT shim. The payoff is a control that
+works like a built-in `text_field` on every platform, is installable by any app with a single line
+in `Cargo.toml`, and requires no changes to any core Day crate.
 
 We will build one throughout: a **native search field** bound two-way to a `Signal<String>`. It
 already exists in the tree as [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
@@ -35,22 +34,22 @@ so you can read the finished crate alongside this tutorial. Every snippet below 
 
 ## 1. When you need a native piece
 
-Ask one question: am I wrapping a native control, or am I arranging Pieces?
+The deciding question is whether you are wrapping a native control or arranging Pieces.
 
 | You are… | Tier | What you write |
 |---|---|---|
-| Arranging existing Pieces into a reusable unit | **Composite piece** | A `Piece` whose `build` returns `column((...))`; no backend, no `KIND`. |
+| Arranging existing Pieces into a reusable unit | **Composite piece** | A `Piece` whose `build` returns `column((...))`, in plain Rust with no backend. |
 | Wrapping one native widget per platform | **Native piece** (this tutorial) | A front-end plus a backend per toolkit. |
-| Adding a headless capability (battery, clipboard) | **Part** | A `day-part-*` crate, no `RENDERERS`, selected by `#[cfg(target_os)]`. |
+| Adding a headless capability (battery, clipboard) | **Part** | A `day-part-*` crate selected by `#[cfg(target_os)]`; it registers no renderer. |
 
 A native piece is warranted when the thing you want does not exist as a composition: it has native
 text input, native scrolling physics, a system popover, camera/map/media surfaces, or platform
-accessibility semantics you cannot fake. The search field qualifies: `NSSearchField`,
+accessibility semantics you cannot compose. The search field qualifies: `NSSearchField`,
 `UISearchTextField`, `GtkSearchEntry`, and the rest each bring a magnifier, a clear button, and IME
 behavior that a hand-rolled `text_field` would not.
 
-To set expectations: you will implement `make`/`update`/`measure` once per toolkit, and each
-one speaks that toolkit's native API. The rest of this tutorial is about making that as mechanical as
+You will implement `make`/`update`/`measure` once per toolkit, and each one speaks that
+toolkit's native API. The rest of this tutorial is about making that as mechanical as
 possible, and [step 6](#6-generating-the-backend-bodies) shows how to delegate most of the typing.
 
 ## 2. The architecture
@@ -101,11 +100,10 @@ let mut registry = Registry::default();
 for f in RENDERERS { registry.register(f()); }   // your piece is now known to AppKit
 ```
 
-Because registration is link-time, adding a piece requires no edit to any Day crate: no central
-enum, no match arm, no registry table. Just linking your crate into the AppKit build inserts its
-renderer.
+Because registration is link-time, adding a piece requires no edit to any Day crate. Linking your
+crate into the AppKit build inserts its renderer into the registry.
 
-The glue that makes the backend bodies pleasant is the `renderer!` macro. `Props` and `Patch` cross
+The `renderer!` macro keeps the backend bodies short. `Props` and `Patch` cross
 the backend boundary type-erased as `&dyn Any`; the macro inserts the downcast for you, so your
 `make`/`update` see fully typed `&SearchProps` / `&SearchPatch`:
 
@@ -128,8 +126,8 @@ and one `renderer!` line.
 
 ## 3. The front-end
 
-The front-end is the only part every backend shares, and the only part an app author touches. It has
-four moving parts: the config struct + builder, the `Props`/`Patch` types, and the `impl Piece`.
+The front-end is the only part every backend shares, and the only part an app author touches. It
+consists of the config struct and builder, the `Props`/`Patch` types, and the `impl Piece`.
 
 ### The `KIND`, `Props`, and `Patch`
 
@@ -183,8 +181,8 @@ calls fill it in. Because `SearchField` will `impl Piece`, it also gets `.id()`,
 
 ### `impl Piece`: emit the leaf, bind reactivity, handle events
 
-`build` is where the front-end meets the protocol. Three things happen: emit the native leaf, bind
-the signal *into* the control, and route native events *out of* it.
+In `build`, the front-end emits the native leaf, binds the signal *into* the control, and routes
+native events *out of* it.
 
 ```rust
 impl Piece for SearchField {
@@ -201,7 +199,7 @@ impl Piece for SearchField {
             Flex { grow_w: true, ..Default::default() },
         );
 
-        // (2) Bind the signal INTO the control: when `query` changes, patch the widget's text.
+        // (2) Bind the signal into the control: when `query` changes, patch the widget's text.
         //     `bind_seeded` runs the setter once now, then on every change to a read signal.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
@@ -217,7 +215,7 @@ impl Piece for SearchField {
             },
         );
 
-        // (3) Route native edits OUT of the control back into the signal.
+        // (3) Route native edits out of the control back into the signal.
         cx.on(node, move |ev| {
             if let Event::TextChanged(t) = ev {
                 *guard.borrow_mut() = Some(t.clone());   // remember: this value came from native
@@ -229,7 +227,7 @@ impl Piece for SearchField {
 }
 ```
 
-Three details matter here:
+A closer look at each step:
 
 - **`cx.leaf(KIND, &props, flex)`** creates a native-leaf node of `KIND`. `Flex { grow_w: true, .. }`
   makes it a width-growing leaf (it fills its row, keeps its natural single-line height), the same
@@ -244,7 +242,7 @@ Three details matter here:
   arrived *from* native so `bind_seeded` skips patching that one value straight back. (One-way pieces
   do not need this.)
 
-That is the entire front-end. Everything else is native.
+That completes the front-end; the remaining code is native, one backend per toolkit.
 
 ## 4. The backends, one per toolkit
 
@@ -257,7 +255,7 @@ all:
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 ```
 
-Each name expands to the house-convention module gate — for `appkit`, for example:
+Each name expands to the conventional module gate; for `appkit`, for example:
 
 ```rust
 #[cfg(all(feature = "appkit", target_os = "macos"))]
@@ -342,8 +340,8 @@ targets `day_uikit::RENDERERS, Uikit`.
 
 ### GTK: `GtkSearchEntry` via gtk4-rs
 
-Pure Rust through `gtk4`. `GtkSearchEntry::new()` gives the magnifier + clear icon. One wrinkle: its
-`search-changed` signal fires on both user input and programmatic `set_text`, so this backend
+This backend is pure Rust through `gtk4`. `GtkSearchEntry::new()` gives the magnifier + clear icon.
+Its `search-changed` signal fires on both user input and programmatic `set_text`, so this backend
 carries a per-node `suppress: Rc<Cell<bool>>`. `update` raises it around `set_text` so the resulting
 signal does not echo back as an `Event::TextChanged`:
 
@@ -360,10 +358,10 @@ st.suppress.set(true);  st.entry.set_text(t);  st.suppress.set(false);
 ### Qt: a hand-written C++ shim behind a flat `extern "C"` ABI
 
 Qt has no Rust bindings in Day, so the piece carries its own C++ shim, `src/lib-qt-shim.cpp`, and
-`build.rs` compiles it. The shim wraps a `QLineEdit` dressed as a search box (clear button + a leading
-magnifier action) and exposes a flat C ABI: `day_search_new` takes a callback pointer and a `u64`
-node id; `textChanged` calls back with a UTF-8 string; and programmatic `setText` is wrapped in
-`blockSignals` so it never echoes:
+`build.rs` compiles it. The shim wraps a `QLineEdit` configured as a search box (clear button + a
+leading magnifier action) and exposes a flat C ABI: `day_search_new` takes a callback pointer and
+a `u64` node id; `textChanged` calls back with a UTF-8 string; and programmatic `setText` is
+wrapped in `blockSignals` so it never echoes:
 
 ```cpp
 // pieces/day-piece-searchfield/src/lib-qt-shim.cpp (abridged)
@@ -444,9 +442,9 @@ gradle-repositories = []
 Symmetric to Qt: the piece carries `src/lib-xaml-shim.cpp`, a C++/WinRT shim wrapping an
 `AutoSuggestBox` (the XAML search control). Because XAML handles are a private boxed type owned by
 `day-xaml-sys`, the shim boxes its XAML element through that crate's exported
-`day_xaml_box`/`day_xaml_unbox` seam, and reuses `day_xaml_measure`. `build.rs` compiles it with
-`cc` (MSVC) + the Windows SDK cppwinrt projection. It is Windows-only and built in CI; you will
-likely not verify it locally.
+`day_xaml_box`/`day_xaml_unbox` functions, and reuses `day_xaml_measure`. `build.rs` compiles it
+with `cc` (MSVC) + the Windows SDK cppwinrt projection. It is Windows-only and built in CI; you
+will likely not verify it locally.
 
 ### Generalizing the pattern
 
@@ -480,7 +478,7 @@ hands the contributions to the `platform/macos/` Xcode host project. See the
 
 ## 5. Register and wire the features
 
-Two pieces of wiring make the whole thing hang together.
+Two pieces of wiring connect the halves.
 
 **Per-backend `renderer!` line.** Each backend file ends with one macro call registering it into that
 toolkit's slice:
@@ -524,8 +522,8 @@ backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
 `day-piece-searchfield/<backend>` for whichever toolkit it is building, unioning it into the
 `--features` automatically ([`crates/day-cli/src/pieces.rs::feature_union`](https://github.com/daybrite/day/blob/main/crates/day-cli/src/pieces.rs)).
 
-The result: an app adds the piece with a single plain dependency and wires only Day's own backend,
-with no per-piece feature fan-out:
+As a result, an app adds the piece with a single plain dependency and wires only Day's own
+backend; the CLI derives the piece's features:
 
 ```toml
 # Day-Showcase/Cargo.toml
@@ -551,7 +549,7 @@ If a backend is not registered (say you enabled the piece on a toolkit you have 
 Day does not fail silently. The backend logs a once-per-kind warning and renders a visible
 `⟨kind⟩` placeholder in its place (`warn_missing_renderer` in each toolkit crate), in debug and
 release builds alike; dayscript's `assert_no_placeholders` step turns the gap into a test
-failure. A half-finished piece degrades noisily instead of vanishing.
+failure.
 
 ## 6. Generating the backend bodies
 
@@ -559,7 +557,7 @@ Writing the same widget in Objective-C, C++, Java, and C++/WinRT is the tedious 
 piece. It is also a narrow, well-specified translation task: the kind a code generator or an
 LLM handles well, once the contract is fixed.
 
-Make the boundary crisp first, then delegate each backend body:
+Fix the contract first, then delegate each backend body:
 
 1. **Design the typed protocol in Rust before any native code.** Write `KIND`, the `Props` struct, and
    the sparse `Patch` enum. These are small, and getting them right up front means every backend has
@@ -592,7 +590,7 @@ placeholder warnings tell you which ones are still stubs.
 
 ---
 
-You now have the full picture: one crate, a shared Rust front-end over a typed `KIND`/`Props`/`Patch`
+A native piece, then, is one crate: a shared Rust front-end over a typed `KIND`/`Props`/`Patch`
 protocol, a native backend per toolkit registered link-time with no core changes, and a build that
 derives its own features. The reference crate to read end-to-end is
 [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield);

@@ -14,7 +14,7 @@ A build is reproducible when the same source, built twice, produces the same byt
 compiled code of every app reproducibly: rebuild a commit in a different directory, on a different
 day, and the machine code that comes out is identical. The containers those binaries ship in
 (`.dmg`, `.apk`, `.ipa`, `.hap`, `.msix`, `.flatpak`, `.appimage`) are reproducible on some platforms and not on
-others, and this page says which, and why.
+others; the per-platform sections below cover which, and why.
 
 Day's CI checks this on every push to `main`. Each platform-toolkit job has a follow-up `validate`
 job that first installs and launches the shipped artifact on a clean runner, then rebuilds the same
@@ -32,7 +32,7 @@ tampered artifact has to survive independent verification rather than a single s
 the argument the [Reproducible Builds project](https://reproducible-builds.org) makes in full, and
 its [documentation](https://reproducible-builds.org/docs/) is the reference for the general
 techniques: `SOURCE_DATE_EPOCH`, path normalization, archive metadata, and the rest. Day follows
-those conventions rather than inventing its own.
+those conventions.
 
 Reproducibility is not a substitute for signing. A signature says who built an artifact;
 reproducibility says the artifact matches its source. You want both.
@@ -59,21 +59,21 @@ reproducibility; the LTO choice is explained under Linux below.
 
 ## Signing sets a ceiling
 
-Two Day artifacts cannot be byte-identical no matter what the build does, and it is worth knowing
-why before you go looking for a bug.
+Two Day artifacts cannot be byte-identical no matter what the build does, and the reasons matter
+before you go looking for a bug.
 
 A signed `.hap` uses `SHA256withECDSA`. ECDSA picks a random value per signature, so signing the
 same bytes twice produces two different signatures. A released `.dmg` is stapled: `xcrun stapler
 staple` writes an Apple-issued notarization ticket into the file, and Apple issues a new one per
 submission.
 
-For both, the payload tier is the guarantee. Verify the code, not the wrapper.
+For both, the payload tier is the guarantee; compare the compiled code inside the container.
 
 ## Per-platform caveats
 
 Reproducibility needs cooperation from the Rust dependency graph *and* from the platform's own build
-tools. Day controls the first and configures the second where the tool allows it. Where a tool
-offers no control, this section says so.
+tools. Day controls the first and configures the second where the tool allows it. This section also
+lists the places where a tool offers no control.
 
 ### macos-appkit
 
@@ -84,14 +84,14 @@ UUID problems](https://developer.apple.com/documentation/technotes/tn3178-checki
 specifically to promote reproducible builds, and that Apple's tools "strive to support reproducible
 builds within the constraints imposed by the Mach-O file format".
 
-In practice the UUID still changes when the same commit is built in a different directory, which
+The UUID still changes when the same commit is built in a different directory, which
 moves 16 bytes of the executable plus the signature covering them. TN3178 notes that a signature
 covers the build UUID. Day's check normalizes the UUID before comparing, so the payload tier passes
 and the container tier reports the difference. Treat a differing UUID as expected rather than a bug.
 
-The linker's `-no_uuid` option would remove it and make the binary reproducible, and TN3178 says
-plainly why not to: an image without a build UUID cannot be matched to its `.dSYM`, so Apple's crash
-reporter cannot symbolicate it. Day keeps the UUID. There is also no way to set one after the fact:
+The linker's `-no_uuid` option would remove it and make the binary reproducible, but TN3178
+explains the cost: an image without a build UUID cannot be matched to its `.dSYM`, so Apple's crash
+reporter cannot symbolicate it. Day keeps the UUID. There is also no way to set one after the fact;
 per TN3178, no Apple command does that.
 
 `hdiutil` is the harder problem. Two DMGs built from identical, timestamp-normalized input differ by
@@ -104,14 +104,13 @@ not attempt to rewrite DMG internals.
 
 Day sets `ZERO_AR_DATE=1` on every Apple toolchain invocation, which stops `libtool` and `ld64`
 writing file modification times into static archives and debug maps. TN3178 is Apple's reference for
-build UUIDs specifically; for the wider set of linker and archiver flags, [LLVM's deterministic
-builds post](https://blog.llvm.org/2019/11/deterministic-builds-with-clang-and-lld.html) covers the
-ground Apple's documentation does not.
+build UUIDs specifically; for the wider set of linker and archiver flags, see [LLVM's deterministic
+builds post](https://blog.llvm.org/2019/11/deterministic-builds-with-clang-and-lld.html).
 
 ### ios-uikit
 
 The unsigned `.ipa` is byte-reproducible, including the container. Getting there took three fixes,
-each hidden behind the last.
+and each became visible only after the previous one.
 
 Xcode's release defaults leave a **debug map** in the linked binary: one `N_OSO` entry per object
 file, each holding that file's absolute path under `SYMROOT`. The showcase app carried 267 of them.
@@ -174,7 +173,7 @@ changes.
 What remains is inside the APK Signing Block. Zip entries and the central directory come out
 byte-identical, and `apksigner` produces identical output given the same key and input, so this is
 not an inherent property of APK signing the way ECDSA is for HarmonyOS. It is unresolved rather than
-impossible. Note that v2 and v3 signatures cover every byte of the file, so an APK has to be
+impossible. The v2 and v3 signatures cover every byte of the file, so an APK has to be
 identical *before* signing for any of this to hold: the constraint F-Droid documents in its
 [reproducible builds guide](https://f-droid.org/docs/Reproducible_Builds/).
 
@@ -186,10 +185,10 @@ The compiled `.so` is reproducible. A signed `.hap` cannot be.
 patches the archive's timestamps in place instead, and does it before signing. A `.hap` signature
 covers the local file headers, so rewriting them afterwards would invalidate it.
 
-`SHA256withECDSA` is where this stops. Two haps of byte-identical content differ only in the signing
-block, and that difference is the signature itself.
+`SHA256withECDSA` leaves one difference. Two haps of byte-identical content differ only in the
+signing block, and that difference is the signature itself.
 
-One caveat is worth knowing even if you never check reproducibility: `DAY_OHOS_ARCH` takes
+One caveat applies even if you never check reproducibility: `DAY_OHOS_ARCH` takes
 precedence over any connected device. Before that, `day pack` built for whatever emulator or handset
 happened to be attached, so a hap packed next to a running x86_64 emulator shipped x86_64 while the
 same commit packed elsewhere shipped arm64. A distribution build should not change shape because
@@ -200,7 +199,7 @@ something was plugged in.
 The staged payload is reproducible.
 
 The Microsoft linker writes the wall clock into the PE header's `TimeDateStamp` and into the debug
-directory. Day passes `/Brepro`, which substitutes a hash of the input. Those 24 bytes were the entire
+directory. Day passes `/Brepro`, which substitutes a hash of the input. Those 24 bytes were the only
 difference between two Windows builds.
 
 For the NSIS installer, Day's generated script sets `SetDateSave off`, which stops NSIS storing and
@@ -217,12 +216,12 @@ is ordinary Rust code and can embed a timestamp, an absolute path, a hostname, o
 into generated source. If your app stops reproducing after adding a dependency, that is the first
 place to look.
 
-Two things are worth knowing about rustc itself. `codegen-units = 1` is the documented baseline for
+rustc itself has two relevant properties. `codegen-units = 1` is the documented baseline for
 deterministic output, and Day sets it. Dependency source paths under `~/.cargo/registry` appear in
 panic locations inside the binary, so two machines with different home directories produce different
 binaries even when everything else matches. Day's CI compares builds on the same runner image,
-where that path is constant. `rust-lang/rust#129080` is the [standing list of reproducibility
-hazards](https://github.com/rust-lang/rust/issues/129080) and worth watching.
+where that path is constant. `rust-lang/rust#129080` tracks the [standing list of reproducibility
+hazards](https://github.com/rust-lang/rust/issues/129080).
 
 ## What ships alongside the artifact
 
@@ -235,7 +234,7 @@ they describe:
 | `<artifact>.sbom-cdx.json` / `<artifact>.sbom-spdx.json` | every dependency that went into the build, plus the repository and commit it came from |
 | `<artifact>.buildinfo.json` | the target and profile, the host OS and architecture, the exact version of every tool that participated, and the SHA-256 of each artifact produced |
 
-`<artifact>` here is the packaged file itself — the dmg's buildinfo is
+`<artifact>` here is the packaged file itself; the dmg's buildinfo is
 `day-showcase-macos-appkit.dmg.buildinfo.json`.
 
 The SBOM answers *what went in*. The `.buildinfo` answers *what built it*:
@@ -265,9 +264,9 @@ so baking them into the artifact would make the artifact itself unreproducible.
 
 On `linux-gtk` and `linux-qt` a second buildinfo is written alongside the JSON one, in Debian's
 [deb822 `.buildinfo` format](https://wiki.debian.org/ReproducibleBuilds/BuildinfoFiles). It ships
-as `<artifact>.buildinfo.deb822` — Day's own sidecar naming, not Debian's
-`<source>_<version>_<arch>.buildinfo` convention — so the file says which download it describes,
-and a Debian maintainer still has the fields the distribution's own tooling expects.
+as `<artifact>.buildinfo.deb822`, under Day's own sidecar naming rather than Debian's
+`<source>_<version>_<arch>.buildinfo` convention, so the file name says which download it
+describes, and a Debian maintainer still has the fields the distribution's own tooling expects.
 
 Keep the sidecars with the artifact when you publish it. Without the SBOM there is no commit to
 rebuild from, and without the `.buildinfo` there is no way to tell whether your machine matches the
@@ -314,11 +313,12 @@ The two verdicts are the ones described above. `Payload` covers the compiled cod
 whatever container it ships in, and a mismatch there exits non-zero. `Container` covers the shipped
 file byte for byte, and it differs on formats that embed a signature or a build UUID, which is why
 it only reports. Pass `--strict` to also fail when the payload could not be compared at all, which
-is what you want in CI: a container the machine cannot open means the code went unverified.
+is the right setting for CI, because a container the machine cannot open means the code went
+unverified.
 
-The environment check runs before the clone, so a machine that cannot reproduce the artifact says so
-immediately rather than after a long build. It never installs anything; it reports what is missing
-and what to run:
+The environment check runs before the clone, so a machine that cannot reproduce the artifact
+reports that immediately rather than after a long build. It never installs anything; it reports
+what is missing and what to run:
 
 ```
       Error the build environment does not match the artifact:
@@ -337,14 +337,14 @@ A rebuild needs the commit to exist in the repository, so an artifact packed fro
 with uncommitted changes is refused. Nothing describes what went into it.
 
 `--from-dir <dir>` rebuilds from a project directory you name instead of cloning the commit the
-SBOM records, for a source tree that is not in git — Day's own CI uses it to verify an artifact
+SBOM records, for a source tree that is not in git; Day's own CI uses it to verify an artifact
 packed from a freshly scaffolded project. The directory is copied to a scratch path first, minus
 `.git` and any build products, so a build path baked into the binary still surfaces as a payload
 mismatch. The `.buildinfo` beside the artifact still gates tool versions.
 
 ## Verifying a build yourself
 
-`day rebuild` is the short path. Doing it by hand is worth knowing when you want to compare
+`day rebuild` is the short path. Doing it by hand helps when you want to compare
 something it does not handle, or to see the difference rather than a verdict. Build the app twice
 in two different directories and compare.
 

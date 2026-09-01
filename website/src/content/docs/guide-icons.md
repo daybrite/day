@@ -35,7 +35,7 @@ reference](/docs/internal/vectors).
 `day icon` takes an explicit path argument, or finds the master at `resource/icons/icon.svg`,
 then `resource/icons/day-icon.svg`, then `resource/icons/icon.png`. The scaffold from `day new
 app` already ships an `icon.svg` (a generated placeholder seeded by your app id), so replacing
-that one file is the whole setup.
+that one file completes the setup.
 
 An SVG master can mark top-level elements as semantic layers by id:
 
@@ -47,12 +47,13 @@ An SVG master can mark top-level elements as semantic layers by id:
 
 The composite feeds every full-bleed output; the split layers feed Android's adaptive icon and
 the other layered formats below. An unlayered SVG or a PNG master still produces the complete
-legacy set — the whole art becomes the adaptive foreground over a derived background color.
+legacy set; the whole art becomes the adaptive foreground over a derived background color.
 Text in the master must be outlined first; `<text>` is a hard error that names the fix.
 
-No art yet? `day icon --generate` writes a seeded pseudo-random layered master and renders
-everything from it. `--seed <int|string>` reproduces a specific icon (the seed used is always
-printed), and `--out preview.svg` writes a preview outside the project, no project required.
+Before you have art, `day icon --generate` writes a seeded pseudo-random layered master and
+renders everything from it. `--seed <int|string>` reproduces a specific icon (the seed used is
+always printed), and `--out preview.svg` writes a preview to a path of your choosing, which
+works without a project.
 
 ## 2. Run `day icon`
 
@@ -91,9 +92,9 @@ different day version reports "regenerate with this day version" instead of fals
 
 ## 4. Draw in-app glyphs from `resource/vectors/`
 
-Drop SVGs into `resource/vectors/`. Three source forms work: a plain `.svg` (raw Material
-Symbols downloads work as-is), an SF Symbols template export, and an Xcode `.symbolset` bundle
-— the template forms also carry true Light and Bold weight art. The build generates a
+Drop SVGs into `resource/vectors/`. The build accepts a plain `.svg` (raw Material Symbols
+downloads work as-is), an SF Symbols template export, and an Xcode `.symbolset` bundle; the
+template forms also carry separate Light and Bold weight art. The build generates a
 `res::vectors::` constant per file, so a typo is a compile error and presence is guaranteed:
 
 ```rust
@@ -107,13 +108,13 @@ vector(res::vectors::home)
 The modifiers are the vector-appropriate ones: `.tint(color)` recolors a monochrome glyph
 where the backend can, `.weight(VectorWeight::Light | Bold)` selects a weight variant, and
 `.decorative()` hides the glyph from accessibility. Vector names also flow through the
-name-based image channels unchanged — nav-item icons, tab icons, `toolbar_button(…).image(…)`,
+name-based image channels unchanged: nav-item icons, tab icons, `toolbar_button(…).image(…)`,
 and `bar_action` all accept a `res::vectors::` constant where they accept an image name.
 
 ## Pitfalls
 
-- **Outline your text.** Text shaping is deliberately not compiled into day, so `<text>` in an
-  icon master or a vector glyph is a hard build error in both pipelines. Convert text to
+- **Outline your text.** Day compiles no text shaper into either pipeline, so `<text>` in an
+  icon master or a vector glyph is a hard build error in both. Convert text to
   outlines in your editor before exporting.
 - **Android ships a subset.** VectorDrawable covers solid fills and strokes; art with
   gradients, clips, masks, or filters falls back to the 256 px raster, and `day lint` flags it

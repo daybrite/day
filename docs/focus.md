@@ -1,6 +1,6 @@
 ---
 title: "Focus"
-description: "Keyboard focus as a first-class signal: focus order, programmatic focus, and per-toolkit behavior."
+description: "Keyboard focus as a reactive signal: focus order, programmatic focus, and per-toolkit behavior."
 ---
 
 <!--
@@ -12,14 +12,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > **Status: implemented** on every backend (AppKit, UIKit, GTK, Qt, Android, XAML, ArkUI, and
 > mock). `Event::FocusChanged(bool)` (reserved by §8.3) is real, `Toolkit::focus` is the duty
-> behind it, and DESIGN §4.4's controlled-input rule ("the native widget is the source of truth
-> **while it has focus**") now rests on actual focus knowledge. The showcase's Focus page
+> behind it, and DESIGN §4.4's controlled-input rule (the native widget's value wins **while it
+> has focus**) now rests on actual focus knowledge. The showcase's Focus page
 > exercises every permutation below; the walkthrough asserts it on every scripted platform.
 
 Day apps need two things from focus: to know when a control gains or loses it, and to move it.
-Both are declarative (one reactive signal per form, no focus-node objects, no view references)
-and both ride the machinery Day already has: the event sink, origin-tagged writes, and per-node
-Toolkit duties.
+Both are declarative (one reactive signal per form stands in for focus-node objects and view
+references), and both ride the machinery Day already has: the event sink, origin-tagged writes,
+and per-node Toolkit duties.
 
 ## 1. The API
 
@@ -53,17 +53,17 @@ column((
 - **Signal → native:** writing `Some(K)` / `true` requests native focus for the bound control.
   Writing `None` / `false` resigns it; on iOS and Android that dismisses the soft keyboard,
   matching the platform convention SwiftUI set.
-- **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other:
-  no separate "is focused" query, no event wiring.
+- **Reading is free.** `focus.get() == Some(Field::User)` is a tracked read like any other,
+  with nothing else to wire.
 - **Field chaining** is a write in `on_submit(f)`, which ships with the same change: the native
   end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
 
-`.focusable()` opts a composed CONTAINER into focus — the canvas contract (press-to-focus,
+`.focusable()` opts a composed container into focus: the canvas contract (press-to-focus,
 `FocusChanged` both ways, the arrows through `.on_key` while focused) behind the
 `Toolkit::set_focusable` duty. Implemented on macos-appkit (2026-08, the content-list keyboard
 work in [docs/navigation.md](navigation.md)); on every other backend the duty is a no-op
-today, so the piece renders normally and simply never joins the key loop — the same graceful
-silence unfocusable controls have. Reserved with names but not implemented: `default_focus(…)`
+today, so the piece renders normally and never joins the key loop, the same silence
+unfocusable controls have. Reserved with names but not implemented: `default_focus(…)`
 on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
 native. Day wraps real widgets, so platform traversal is already correct (§13: focus order
 follows layout order).
@@ -112,11 +112,11 @@ follows layout order).
 | GTK 4 | `EventControllerFocus` (`enter`/`leave`) on entry, button, switch, and scale — it tracks focus-within, which covers `GtkEntry`'s inner `GtkText`. `Entry::activate` is `Submitted`. | `grab_focus()`, retried once at `map` if the widget isn't mapped yet (rule 4); resign via `root.set_focus(None)`, only while the widget holds focus-within. |
 | Qt 6 | `day_qt_enable_focus` — a `FocusIn`/`FocusOut` event filter (the `DayGestureFilter` pattern) on line edit, button, checkbox, and slider; popup-reason focus-outs are ignored (menus are transient). `returnPressed` is `Submitted`. | `setFocus(Qt::OtherFocusReason)` / `clearFocus()` (only while focused). Qt delivers focus events only in the *active* window, so the duty activates it first — via the OS when allowed, else app-locally (`QApplication::setActiveWindow`, kept by Qt for exactly this driving/embedding case). |
 | Android | `View.OnFocusChangeListener` on the inner `TextInputEditText` → event kind 16; `OnEditorActionListener` (IME action or hardware enter key-down) → `Submitted` (kind 17). | `DayBridge.focusView`: `requestFocus()` + `InputMethodManager.showSoftInput` on gain; on resign, hide the IME and `clearFocus()` — which lands on `DayActivity`'s focusable-in-touch-mode root instead of snapping to the first focusable field. |
-| XAML | `GotFocus`/`LostFocus` per control (system XAML has no global focus event) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual — by design); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
+| XAML | `GotFocus`/`LostFocus` per control (system XAML has no global focus event) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
 | ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` registered on button, text input, toggle, and slider; `NODE_TEXT_INPUT_ON_SUBMIT` is `Submitted`. | `OH_ArkUI_FocusRequest(node)` (typed non-focusable errors ignored — rule 2); resign via `OH_ArkUI_FocusClear(OH_ArkUI_GetContextByNode(node))`, guarded by `NODE_FOCUS_STATUS`. |
 | mock | logged op + `MockWidget.focused` | logged op |
 
-**Focusability in practice:** text fields are focusable everywhere. On desktop, buttons,
+**Which controls are focusable.** Text fields are focusable everywhere. On desktop, buttons,
 toggles, and sliders are too, with the platform's own keyboard-access rules (macOS buttons
 join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't observe them; Qt
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
@@ -124,9 +124,9 @@ focusable, and the bindings stay quiet there.
 
 **A `canvas` is focusable on every toolkit but android-mdc**, and observes both ways. It is the
 one built-in piece with no native control underneath, so nothing would otherwise make it the
-focused element — and without that, keys could never reach what an app DRAWS. This is what
-`Decorate::on_key` is built on ([docs/menus.md](menus.md)): keys follow focus, so a canvas that
-has it hears the arrows and a text field that takes it gets them back.
+focused element, and without that, keys could never reach what an app draws.
+`Decorate::on_key` is built on this ([docs/menus.md](menus.md)): keys follow focus, so a canvas
+that has it hears the arrows and a text field that takes it gets them back.
 
 | backend | focusable | takes focus on press |
 |---|---|---|
@@ -135,18 +135,17 @@ has it hears the arrows and a text field that takes it gets them back.
 | GTK 4 | `set_focusable` | a `GestureClick` that calls `grab_focus` |
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
 | web-dom | a `tabindex` | a `pointerdown` listener |
-| XAML | `Control::IsTabStop` on a `ContentControl` HOST wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members (they moved up to `UIElement` only in WinUI 3), and a Panel is not a Control | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
+| XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members (they moved up to `UIElement` only in WinUI 3), and a Panel is not a Control | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
 | ArkUI | the `NODE_FOCUSABLE` attribute | ArkUI's own focus handling |
 
-Each reports `FocusChanged` both ways — `becomeFirstResponder`/`resignFirstResponder`,
-`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR` — so `.focused(signal)`
+Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,
+`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR`), so `.focused(signal)`
 binds two-way and `assert_focused` can see it.
 
-**A view that is not in a window cannot hold the keyboard**, and that is not a failure to work
-around. On iOS a full-screen modal takes the presenting view out of the window, so a canvas
+**A view that is not in a window cannot hold the keyboard**, and Day does not work around
+that. On iOS a full-screen modal takes the presenting view out of the window, so a canvas
 behind a compact inspector sheet ([docs/inspector.md](inspector.md)) refuses focus until the
-sheet closes — the request lapses and the signal snaps back, which is rule 2. You cannot nudge
-what is covered.
+sheet closes; the request lapses and the signal snaps back, which is rule 2.
 
 ## 5. Testing it
 
@@ -164,12 +163,12 @@ what is covered.
 - **SwiftUI** (`@FocusState`, `.focused(_:equals:)`). Adopted: the Bool + Optional-of-Hashable
   binding shape, `nil` clears focus and dismisses the keyboard, moved focus writes back on loss.
   Rejected: the unconstructible binding (state can't live outside the view); Day signals have
-  no such wall.
+  no such restriction.
 - **Flutter** (`FocusNode`/`FocusScope`). Rejected as an API (imperative node lifecycle inside a
   declarative tree); adopted as semantics: "focus changes apply after the build phase" is
   rule 3, and the scope-restore behavior informs the reserved focus-scope design.
-- **floem** (nearest cousin): its `request_focus(when)` proved signal-driven focus writes work;
-  its event-only *reads* are the asymmetry rule 2 closes.
+- **floem** (the nearest cousin): its `request_focus(when)` showed that signal-driven focus
+  writes work; its event-only *reads* are the asymmetry rule 2 closes.
 - **iced / egui / Slint / GPUI**: converge on last-write-wins, next-frame application, and
   focus-nowhere being representable, all reflected in the rules.
 
@@ -189,7 +188,7 @@ what is covered.
 ## 8. Keyboard avoidance (the keyboard never covers the focused field)
 
 Each mobile backend consumes the soft keyboard natively and resizes the Day root through the
-`WindowResized` rail (the same relayout path a rotation takes), so the whole UI shrinks to the
+`WindowResized` event (the same relayout path a rotation takes), so the whole UI shrinks to the
 visible area and the focused field is scrolled back into view:
 
 - **Android**: the root's wrapper folds `WindowInsetsCompat.Type.ime()` into the bottom margin
@@ -205,6 +204,6 @@ visible area and the focused field is scrolled back into view:
   the page instead of translating it; the host page's `onAreaChange` forwards the new area
   through the `resized()` NAPI export, and Day relayouts into it.
 
-Desktop backends have no soft keyboard; nothing engages. There is no per-app opt-in; a Day app
-gets avoidance by existing. The related programmatic primitive is `TreeOps::scroll_reveal`
+Desktop backends have no soft keyboard, so nothing engages. Avoidance needs no per-app opt-in;
+every Day app gets it. The related programmatic primitive is `TreeOps::scroll_reveal`
 ([docs/scroll.md](scroll.md)), which scrolls any element's nearest scroll ancestor into view.

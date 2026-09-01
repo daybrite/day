@@ -12,8 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > **Status: implemented** as `day-piece-map`, an external Day Piece (like `day-piece-media`),
 > registered link-time into each backend's renderer slice without touching day. It wraps the
-> platform's native map view (`MKMapView`) and is the reference for a piece that deliberately does
-> not support every backend: only AppKit and UIKit render a real map. It fills the space it's
+> platform's native map view (`MKMapView`) and is the reference for a piece that supports a subset
+> of backends: only AppKit and UIKit render a real map. It fills the space it's
 > offered (constrain it with `.frame(w, h)`).
 
 ## Authoring
@@ -44,8 +44,8 @@ chain via `Decorate`. It's a growing leaf (`Flex { grow_w, grow_h }` + `day_piec
 so put it in a `.frame(w, h)` (or last in a `column`) and it fills the space it's offered.
 
 The span is a coarse zoom knob (a `MKCoordinateSpan` latitude/longitude delta). v1 keeps a single
-marker and no delegate callbacks (tap/region-change readback); the `Event::custom` channel is the
-seam if those are wanted later.
+marker and no delegate callbacks (tap/region-change readback); the `Event::custom` channel is
+where those would be added later.
 
 ## Per-backend native realization
 
@@ -69,14 +69,14 @@ seam if those are wanted later.
   `msg_send!` and reuses the crate's cross-platform `MKCoordinateRegion` / `MKPointAnnotation`. MapKit
   + CoreLocation must be linked for the ObjC classes to register; they're declared via
   `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` and linked by the generated
-  DayPieces SwiftPM package (the framework-contribution seam).
+  DayPieces SwiftPM package (the framework-contribution mechanism).
 - **GTK / Qt / Android / XAML / mock**: the features exist (so an app can enable
   `day-piece-map/<feature>` uniformly per backend) but register no renderer; the map kind falls
   back to day's placeholder leaf. There is no de-facto native slippy-map widget in these toolkits
   without a heavy external dependency (a WebView + tile provider, `osm-gps-map`, `QtLocation`, Google
   Maps SDK, `MapControl`), each with its own API-key and licensing story, which is out of scope for a
-  small reference piece. This is the intentional "not every piece supports every platform" example:
-  the gap is explicit rather than hidden behind a broken stub.
+  small reference piece. This piece is the reference example of one that supports a subset of
+  platforms; the placeholder leaf keeps the gap visible.
 
 ## What it shows about the extension system
 
@@ -84,7 +84,7 @@ seam if those are wanted later.
 to the platforms it supports (`macos` + `ios`). The front-end compiles everywhere (it depends only
 on core day crates), but the `map` page and the crate's backend features are enabled only for the
 Apple backends; every other backend renders the placeholder leaf for the `day.piece.map` kind.
-It also exercises the iOS framework-contribution seam (from the webview/media work,
+It also exercises the iOS framework-contribution mechanism (added for the webview/media work,
 [docs/extending.md](extending.md)): `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` links the
 system frameworks the hand-rolled `MKMapView` needs, with no changes to any core Day crate.
 

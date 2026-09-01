@@ -37,15 +37,15 @@ button(tr("save")).action(|| day::task(async move {
 ## The path type: `FileUrl`
 
 A file location crosses back as a **`FileUrl`**, a newtype wrapping a single *locator string*.
-This is a deliberate choice over the obvious alternatives:
+Each platform hands back a different kind of locator, and the type stores whichever arrives:
 
-- **Not `std::path::PathBuf`:** on Android the Storage Access Framework returns a `content://`
-  URI rather than a filesystem path; a `PathBuf` cannot represent it and `std::fs` cannot
-  open it.
-- **Not a bare `String`:** no type-safety, and every call site would re-implement the same
-  parsing.
-- **Not `url::Url`:** Its parsing normalizes/validates in ways that mangle `content://`
-  authorities, and it pulls in a heavy dependency for no benefit.
+- **A string, because of Android:** the Storage Access Framework returns a `content://` URI
+  rather than a filesystem path; a `std::path::PathBuf` cannot represent it and `std::fs`
+  cannot open it.
+- **A newtype, for one parser:** the accessors below live in one place instead of at every
+  call site.
+- **Stored verbatim:** `url::Url` normalizes and validates in ways that mangle `content://`
+  authorities, and it would add a large dependency, so the locator is kept as received.
 
 `FileUrl` is the lossless union (a filesystem path on desktop/iOS, a `content://` URI on Android)
 with accessors:
@@ -91,15 +91,15 @@ callback, wired in the ArkTS host's `Index.ets` (`Day-Showcase/platform/harmony/
 
 A browser has no filesystem, so on web-dom the bytes ride a per-page store instead of paths:
 an opened file's content lands under a virtual `/day-web/<name>` path that `FileUrl::read`
-resolves, and a save's staged bytes leave as a download named by `suggested_name` — same
-builders, same `FileUrl` surface, no app-visible difference.
+resolves, and a save's staged bytes leave as a download named by `suggested_name`. The app uses
+the same builders and the same `FileUrl` surface on web as on every other target.
 
 All backends present the picker non-blocking (sheet / `open()` / delegate / Activity result),
 so the main loop keeps running and dayscript stays live while a picker is up.
 
 ## Plumbing
 
-Files ride the existing `present` seam ([docs/dialogs.md](dialogs.md)) rather than adding new `Toolkit` methods:
+Files go through the existing `present` path ([docs/dialogs.md](dialogs.md)) and add no `Toolkit` methods:
 
 - `day_spec::present::PresentSpec::{OpenFile, SaveFile}` + `FileFilter { name, extensions }`.
 - `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /

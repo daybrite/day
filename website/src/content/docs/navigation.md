@@ -1,6 +1,6 @@
 ---
 title: Navigation
-description: "Sidebar and tab selection, push/pop stacks, routes, and deep links — with native containers underneath."
+description: "Sidebar and tab selection, push/pop stacks, routes, and deep links, with native containers underneath."
 order: 20
 section: Guides
 ---
@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's navigation model is two Pieces and a route registry. `selector` handles "one of several
 top-level sections" (a sidebar on desktop, tabs where that's the platform idiom); `stack` handles
 "drill in, come back" (push/pop with the platform's own transitions and back gestures). Both are
-driven by plain signals, so navigation state is app state: inspectable, settable, testable.
+driven by plain signals, so navigation state is app state that you can inspect, set, and test.
 
 ## Sections: `selector`
 
@@ -86,8 +86,8 @@ Mark a selector `.local()` when it is a *second* one-of-N control inside an alre
 filter strip beside the main tabs). Two routed selectors at the same level both feed
 `current_route()`, so you'd get `section/main/filter` and `navigate` would be ambiguous; `.local()`
 keeps the secondary one out of the route. A selector nested one level deeper (a `Tabs` inside a
-`Sidebar` section) should stay routed; that cascade is intended. Debug builds warn when two routed
-one-of-N surfaces share a level.
+`Sidebar` section) should stay routed. Debug builds warn when two routed one-of-N surfaces share
+a level.
 
 ## Intercepting back
 
@@ -142,7 +142,7 @@ stack(path, root).destination(|key| {
 `navigate`, so persisting the whole route across launches is: save `current_route()` on the way
 out, `navigate(&saved)` on the way back in.
 
-For a single surface, `.restore(key)` does that for you (no `current_route()` plumbing):
+For a single surface, `.restore(key)` does that for you without any `current_route()` calls:
 
 ```rust
 selector(section).restore("nav.section")   // reopens on the last-viewed section
@@ -155,7 +155,7 @@ through a store you install once (`day_part_prefs::install_nav_store()` in `main
 disk-backed, so restore also survives an Android process death. With no store installed, `.restore`
 is a no-op, so you can persist on one target and start fresh on another with the same code.
 
-The same mechanism is what [dayscript](/docs/dayscript) uses: `navigate: { route: controls }` in
+[dayscript](/docs/dayscript) uses the same mechanism: `navigate: { route: controls }` in
 a script performs the write your UI would, and `assert_route` compares the full
 `current_route()`. Testing a navigation flow is asserting on strings, and `day lint` checks
 that every literal route in your sources and scripts starts with a declared item key, so a typo
@@ -183,7 +183,7 @@ A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs 
 enum since a tab is always selected. Under the hood each variant maps to its declared string, so
 deep links, dayscript, and `current_route()` are unchanged.
 
-Where this earns its keep is **routes that carry data**. Implement the `Route` trait by hand
+Typed routes pay off most for **routes that carry data**. Implement the `Route` trait by hand
 (`key()` encodes, `from_key()` parses), and stack destinations receive the typed value:
 
 ```rust
@@ -212,10 +212,9 @@ stack(path, library_page()).destination(|m: &Media| match m {
 })
 ```
 
-The encode/parse pair lives in one place instead of being scattered across every push and
-destination, and a typed stack validates incoming deep links: a segment `from_key` rejects
-stops the navigation instead of pushing a garbage page. Typed navigation helpers mirror the
-string ones:
+The encode/parse pair lives in one place, and a typed stack validates incoming deep links: a
+segment `from_key` rejects stops the navigation instead of pushing a garbage page. Typed
+navigation helpers mirror the string ones:
 
 ```rust
 navigate_to(&Section::Library);                       // relative, ≙ navigate("library")
@@ -232,8 +231,7 @@ stringly, move to an enum when the app grows, mix the two freely (a typed select
 ## Patterns and limits
 
 - **Desktop split layouts:** `SelectorStyle::Sidebar` gives the two-pane desktop shape. Give the
-  detail pane `.grow()` or it collapses to its content width, the most common layout mistake in
-  navigation code.
+  detail pane `.grow()` or it collapses to its content width.
 - **State restoration:** `.restore(key)` persists and restores selection and path through the
   installed nav store, as described above. Persist your own signals (see
   [parts: prefs](/docs/parts)) only for custom state beyond navigation.

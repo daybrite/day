@@ -1,6 +1,6 @@
 ---
 title: Tweaks
-description: "Configuring the native widget behind a built-in piece — per toolkit, case by case — without writing a custom piece."
+description: "Configuring the native widget behind a built-in piece, per toolkit and case by case, without writing a custom piece."
 order: 26
 section: Guides
 ---
@@ -15,7 +15,7 @@ want the standard button, but with AppKit's toolbar bezel; the standard slider, 
 tick marks. Writing a whole custom piece for two method calls is disproportionate, so Day has
 **tweaks**: a supported way to reach the real native widget behind a built-in piece and configure
 it, while Day keeps owning layout, lifecycle, and everything else. A piece with a tweak applied
-is a **Tweaked Piece**: same widget, same handle, a little more configured.
+is a **Tweaked Piece**; it keeps the same widget and handle, with a little more configured.
 
 The showcase's Tweaks page (in the [gallery](/gallery)) demonstrates everything on this page.
 
@@ -29,9 +29,9 @@ button("Save").tweak(|node| {
 })
 ```
 
-Each toolkit crate adds a typed extension trait over that, which is what you'll normally use. The
-closure gets the native widget **and its concrete class name**, so a tweak knows exactly what it's
-poking:
+Each toolkit crate adds a typed extension trait over that, and that trait is the normal entry
+point. The closure gets the native widget **and its concrete class name**, so a tweak knows
+exactly what it is configuring:
 
 ```rust
 use day_appkit::AppKitExt;   // exists only in the appkit build
@@ -49,12 +49,12 @@ their accessors hand out the raw native pointer (plus the class) instead, with a
 bring-your-own-C++ recipe (each tier is spelled out in the
 [tweaks reference](/docs/internal/tweaks)).
 
-That class name is what keeps a tweak from breaking silently. On the typed tiers it's the *live* widget's runtime
-class, so if a piece ever has more than one native backing (a plain `label` as `UILabel`, a
-link-bearing one as `UITextView`), the tweak can `match` on the class instead of guessing a
+The class name keeps a tweak from breaking silently. On the typed tiers it's the *live* widget's
+runtime class, so if a piece ever has more than one native backing (a plain `label` as `UILabel`,
+a link-bearing one as `UITextView`), the tweak can `match` on the class instead of guessing a
 downcast. On the raw tiers, where Rust can't introspect an opaque pointer, it's the metadata your
-C++ needs: pass it across the shim and guard the cast, rather than blindly reinterpreting the
-pointer as the wrong control.
+C++ needs: pass it across the shim and guard the cast so the pointer is never reinterpreted as
+the wrong control.
 
 Two rules cover most of what can go wrong. Day re-applies the properties it *manages* (a
 button's title, a slider's value) on its next update, so tweak the properties Day doesn't touch
@@ -84,7 +84,7 @@ safe `None`, never a dangling widget. Reads are reactive, too: a label whose clo
 
 ## Packaged tweaks
 
-Anything worth reusing is worth packaging: a `day-tweak-*` crate wraps the per-toolkit calls in
+To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in
 one modifier and no-ops on toolkits it doesn't cover, so the *app* using it stays completely
 free of `#[cfg]`. Three in-tree examples span the range from trivial to fully cross-platform:
 
@@ -100,11 +100,11 @@ slider(v).tickmarks(Tickmarks::count(11).snap(true));  // six toolkits, incl. it
 
 The tick-marks crate is the one to study when you write your own: it configures a native feature
 on six toolkits through every access tier Day has (objc2, gtk4-rs, JNI, and its *own* compiled
-Qt C++, WinRT C++, and ArkUI NDK code), and it documents per-platform reality plainly (Material
+Qt C++, WinRT C++, and ArkUI NDK code), and it documents each platform's behavior (Material
 sliders always snap when stepped; UIKit has no native tick API, so there it's a no-op). Publishing
 one is publishing a crate: consumers add a dependency, and `day build` wires the per-toolkit
 features automatically.
 
 The [tweaks reference](/docs/internal/tweaks) has the full per-toolkit matrix, the native-code
-recipes, and the mechanics underneath. For a new widget rather than a configured
-existing one, you want a [native piece](/docs/extending) instead.
+recipes, and the mechanics underneath. To add a new widget, write a
+[native piece](/docs/extending).

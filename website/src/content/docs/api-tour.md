@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The whole authoring surface in one pass, for people who learn from code. Everything below is real
-Day API. The snippets are lifted from the showcase app that produces the [gallery](/gallery),
-and `use day::prelude::*;` brings all of it in. The pages after this one
+This page shows the whole authoring surface in one pass, for people who learn from code.
+Everything below is real Day API. The snippets are lifted from the showcase app that produces the
+[gallery](/gallery), and `use day::prelude::*;` brings all of it in. The pages after this one
 ([Pieces](/docs/pieces), [Reactivity](/docs/reactivity), [Layout](/docs/layout)) explain the
 model behind what you'll see here.
 
@@ -42,8 +42,8 @@ fn root() -> impl Piece {
 
 ## Signals: state that binds
 
-A `Signal<T>` is a `Copy` reactive cell — copying copies a handle to one shared slot, not the
-value, which is why the same signal can live in as many closures as you like. Reading inside
+A `Signal<T>` is a `Copy` reactive cell; copying copies a handle to one shared slot, not the
+value, so the same signal can live in as many closures as you like. Reading inside
 a bound closure subscribes it; writing re-runs exactly the closures that read it
 ([Reactivity](/docs/reactivity) explains the model).
 
@@ -58,7 +58,7 @@ count.get_untracked();  // read without creating a dependency
 ```
 
 Any closure that reads a signal *becomes reactive*: when the signal changes, only that binding
-re-runs. There is no component re-render and no tree diff.
+re-runs, and nothing else in the tree is touched.
 
 ```rust
 // This label re-reads `count` whenever it changes; nothing else is touched.
@@ -233,7 +233,7 @@ button("Increment").action(move || count.update(|c| *c += 1)).id("increment-butt
 ## Extending with Day Pieces
 
 A native component you write (or install) plugs in like a built-in. The showcase's flavor
-picker is an external `combo_box` Piece from a separate crate — free-form text entry plus a
+picker is an external `combo_box` Piece from a separate crate, with free-form text entry plus a
 native dropdown, both bound to signals:
 
 ```rust

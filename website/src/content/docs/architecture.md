@@ -50,8 +50,8 @@ CLI and runtime agree on), `day-toolchain` (SDK discovery), `day-break` (crash r
 The boundary everything crosses is **`day-spec`**: it defines the `Toolkit` trait and the descriptor
 types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is written against
 that trait and monomorphized over the concrete backend, so core code calls native operations
-directly, with no `dyn` dispatch and no message bus. Everything above `day-spec` is portable; everything
-below it is one platform's business.
+directly. Everything above `day-spec` is portable; everything below it is one platform's
+business.
 
 Around the core sit the extension surfaces: [`pieces/day-piece-*`](https://github.com/daybrite/day/tree/main/pieces) crates add widgets
 ([extension model](/docs/extending)), [`parts/day-part-*`](https://github.com/daybrite/day/tree/main/parts) add headless capabilities
@@ -60,15 +60,14 @@ tests.
 
 ## One binary per target
 
-A Day binary contains exactly one backend, selected by a Cargo feature at compile time. There is
-no runtime toolkit registry, no abstraction layer choosing a backend at startup. The AppKit
-build literally does not contain GTK code, and a call like "set this label's text" compiles down
-to the backend's concrete function.
+A Day binary contains exactly one backend, selected by a Cargo feature at compile time. The
+backend is chosen when the binary is built, so the AppKit build contains only AppKit code, and
+a call like "set this label's text" compiles down to the backend's concrete function.
 
-The costs of this choice are the ones you'd guess: n targets mean n compilations (CI budgets
-around it; your laptop builds one at a time), and there's no single "universal Linux binary" that
-picks GTK or Qt at runtime. The benefit is that a widget update compiles to a direct call into the one
-linked backend, with no dispatch layer between, and dead-code elimination works on whole toolkits.
+The cost is that n targets mean n compilations (CI budgets around it; your laptop builds one at
+a time), and a Linux app ships as a GTK build or a Qt build rather than one binary that picks at
+runtime. The benefit is that a widget update compiles to a direct call into the one linked
+backend, and dead-code elimination works on whole toolkits.
 
 The same idea extends to piece renderers: backends expose a link-time registry (a `linkme`
 distributed slice), and each piece crate's renderer registers into it during linking. Startup
@@ -83,7 +82,7 @@ their constructors.
 are plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds
 never contend); the exception is `macos-appkit`, which builds through its `platform/macos/`
 Xcode host project like a mobile target — including any macOS Swift a dependency contributes,
-the [SwiftUI embedding](/docs/internal/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed deliberately
+the [SwiftUI embedding](/docs/internal/swiftui) path. Mobile targets invert control with the **callback pattern**, borrowed
 from Flutter: the checked-in platform project drives, and calls back into `day` for the Rust
 part, so building from Xcode/Android Studio and building from the CLI produce identical results
 and neither goes stale.
@@ -110,11 +109,11 @@ Xcode host project. Metadata flows one way: `Day.toml` (identity) and the Cargo
 scaffolds themselves are never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.
 
-## The native seams
+## How each backend reaches its toolkit
 
 Each backend crosses into its toolkit using the narrowest viable mechanism:
 
-| Backend | Seam |
+| Backend | Mechanism |
 |---|---|
 | AppKit / UIKit | `objc2` bindings: Rust calls the Objective-C runtime directly, no shim |
 | GTK | `gtk4-rs` (gobject bindings) |
@@ -124,9 +123,9 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | ArkUI | the ArkUI NDK C API (`day-arkui-sys`) |
 | DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |
 
-The shims are deliberately boring: create widget, set property, forward event. All policy (layout, reactivity, when to update what)
-lives on the shared Rust side, which keeps each
-new backend's surface area small and auditable.
+The shims are small: create widget, set property, forward event. All policy (layout, reactivity,
+when to update what) lives on the shared Rust side, which keeps each new backend's surface area
+small and auditable.
 
 ## Where the CLI fits
 

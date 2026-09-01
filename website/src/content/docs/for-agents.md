@@ -28,8 +28,8 @@ Day builds cross-platform desktop + mobile apps in Rust. You write one declarati
 **Pieces**; each Piece is realized by a native widget (`NSTextField`, `UILabel`, `GtkEntry`,
 `QSlider`, XAML `TextBox`, `android.widget.*`) through a per-platform toolkit backend. Day owns layout,
 reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
-and assistive tech. There is no virtual DOM and no diffing: the native tree is built once and Signals
-bind straight to native attributes.
+and assistive tech. The native tree is built once and Signals bind straight to native attributes;
+nothing diffs or rebuilds it.
 
 ## Invariants (MUST; violating these is a bug)
 
@@ -40,7 +40,7 @@ bind straight to native attributes.
    (`slider(volume)`). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
 4. **Give every interactive/asserted Piece a stable `.id("…")`.** Tests, dayscript, and deep links
-   address Pieces by id. No id ⇒ not scriptable.
+   address Pieces by id. A Piece without an id cannot be scripted.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
    per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
    wrong arity is a compile error; prefer those over raw `tr("key")` (both exist). Don't
@@ -152,7 +152,7 @@ when(move || !name.with(|s| s.is_empty()),
      move || label(move || format!("Hi, {}", name.get())))
 
 // `each` builds one child per item and reconciles by key (each row keeps its own state).
-// The row builder receives an ItemSlot (a Copy handle), NOT the item: read fields through it
+// The row builder receives an ItemSlot (a Copy handle), not the item: read fields through it
 // so recycled rows update when the backing item changes.
 each(
     move || items.get(),
@@ -218,8 +218,8 @@ if day_piece_swiftui::support() == Support::Native {
 }
 ```
 
-**Invariant:** `support()` probes are the ONLY correct gate for platform-limited pieces. Never
-gate on `target_os` or backend-feature cfgs — `target_os = "macos"` also covers macos-gtk and
+**Invariant:** `support()` probes are the only correct gate for platform-limited pieces. Never
+gate on `target_os` or backend-feature cfgs; `target_os = "macos"` also covers macos-gtk and
 macos-qt, which have no AppKit view tree.
 
 ## API quick reference
@@ -257,10 +257,10 @@ day pack    -p <target>               # installable artifact (.dmg / .ipa / .aab
 day lint                              # ids, Fluent coverage, project shape
 day doctor                            # toolchains per target
 day checkup [-p <target>,…]           # doctor, then scaffold + build + pack a throwaway app per target
-#   --day-version <main|x.y.z|latest>  checks THAT day: installs its CLI and pins the scaffold to it
+#   --day-version <main|x.y.z|latest>  checks that Day: installs its CLI and pins the scaffold to it
 day relaunch --all-running            # stop + rebuild + relaunch — "apply my changes"
 day stop --all                        # stop every recorded session
-day drive -p <target> --steps-json …  # drive a RUNNING app (see below)
+day drive -p <target> --steps-json …  # drive a running app (see below)
 day mcp-server                        # serve all of the above as MCP tools (stdio)
 ```
 
@@ -277,7 +277,7 @@ flow:
   - assert_text: { id: counter, text: "1 clicks" }
   - navigate: { route: settings }
   - assert_route: { route: settings }
-  - pause: { secs: 1.0 }        # NOT `pause: 1s` — a mapping with float secs (or a bare int)
+  - pause: { secs: 1.0 }        # not `pause: 1s` — a mapping with float secs (or a bare int)
   - screenshot: settings
 ```
 
@@ -289,7 +289,7 @@ round differently across platforms and break cross-target `assert_text` on forma
 ## Driving a running app (`day drive` / MCP)
 
 Every `day launch` embeds a loopback automation engine and records its coordinates in
-`build/day/sessions.json`, so you can drive an app that is ALREADY running, without a script
+`build/day/sessions.json`, so you can drive an app that is already running, without a script
 file:
 
 ```bash
@@ -300,9 +300,9 @@ day drive -p macos-appkit --steps-json \
 ```
 
 Output is JSON (per-step `ok`/`error`, screenshot paths + base64). The step vocabulary is
-[the dayscript reference's table](/docs/dayscript#the-step-vocabulary) — the same steps a
-walkthrough file uses. One step deserves singling out: `assert_no_placeholders` fails if any
-piece rendered the `⟨kind⟩` placeholder, the step that catches a missing renderer.
+[the dayscript reference's table](/docs/dayscript#the-step-vocabulary), the same steps a
+walkthrough file uses. `assert_no_placeholders` fails if any piece rendered the `⟨kind⟩`
+placeholder; it is the step that catches a missing renderer.
 
 If your host exposes MCP (VS Code agent mode does automatically in Day workspaces via the Day
 extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_launch`,
@@ -311,7 +311,7 @@ extension), use the `day_*` tools instead: `day_metadata`, `day_build`, `day_lau
 verify UI changes on every target you touched. The canonical loop: edit → `day_relaunch`
 (compile errors come back in the result) → `day_drive` (navigate + assert + screenshot).
 
-## Failure modes (do NOT do these)
+## Failure modes (do not do these)
 
 - ❌ Enabling two toolkit features in one binary → `compile_error!`. Enable exactly one via the target.
 - ❌ Rebuilding the view tree to reflect state. ✅ Bind a Signal (closure read or pass the Signal).

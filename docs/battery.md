@@ -67,4 +67,4 @@ The Android half is a **daybridge** arm ([bridge.md](bridge.md)): the Java that 
 implements, and `day build` stages it into the app's Gradle build. It replaced a checked-in
 `DayBattery.java`, a `[package.metadata.day.android] java = [...]` table, and a packed-`i64` wire
 format that was written twice and kept in agreement by comment. `day-part-speech`
-([speech.md](speech.md)) is the fuller demonstration — six languages in one file.
+([speech.md](speech.md)) is the fuller demonstration, with six languages in one file.

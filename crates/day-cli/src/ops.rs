@@ -23,10 +23,24 @@ pub struct BuildOutcome {
     pub seconds: f64,
 }
 
+/// Where this run's compiled output goes: `<project>/build/day`, or the day-src's own subtree
+/// under it when `--day-src` is in effect.
+///
+/// The separation is what makes an A/B comparison worth doing. Two day versions otherwise share one
+/// cargo target directory and one product directory, so switching between them recompiles the whole
+/// framework each way and the second build overwrites the first app's binary — which is the
+/// comparison, gone. With a subtree each, switching is incremental and both apps exist at once.
+///
+/// Only COMPILED output moves. Staged resources, the generated xcconfig, and gradle's and hvigor's
+/// own build directories stay on the shared path: they are cheap to regenerate, and duplicating
+/// them would buy nothing.
+pub(crate) fn build_root(project: &Project) -> PathBuf {
+    crate::patch::day_src_dir().unwrap_or_else(|| project.root.join("build/day"))
+}
+
 pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: Profile) -> PathBuf {
-    project
-        .root
-        .join("build/day/cargo")
+    build_root(project)
+        .join("cargo")
         .join(target.name)
         .join(profile.as_str())
 }
@@ -386,9 +400,10 @@ pub fn feature_selection(project: &Project, backend: &str) -> String {
 /// Where [`build`] records the last successful artifact path for a (target, profile) — the
 /// `--skip-build` reuse stamp. One line, the absolute artifact path.
 fn artifact_stamp(project: &Project, target: &Target, profile: Profile) -> PathBuf {
-    project
-        .root
-        .join("build/day/artifacts")
+    // Under the day-src root, so `--skip-build` reuses the binary built against THAT day rather
+    // than whichever one wrote the stamp last.
+    build_root(project)
+        .join("artifacts")
         .join(format!("{}-{profile}.path", target.name))
 }
 
@@ -512,6 +527,7 @@ fn build_native(
             let mut cmd = Command::new("cargo");
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
+            crate::patch::apply_day_src(&mut cmd);
             apply_app_identity(&mut cmd, project);
             crate::bridge::apply_staged(&mut cmd, project, target.name);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
@@ -1097,6 +1113,49 @@ pub(crate) fn headless_wrap(
             height: height.max(1.0) as u32,
         },
         _ => HeadlessWrap::None,
+    }
+}
+
+#[cfg(test)]
+mod build_root_tests {
+    use super::*;
+
+    /// Without `--day-src`, every derived path is exactly where it has always been. This is the
+    /// half that must not move: an existing project's `build/day/cargo` tree stays valid, and a
+    /// flag nobody passed costs nobody a rebuild.
+    #[test]
+    fn the_default_paths_are_unchanged() {
+        let tmp = std::env::temp_dir().join(format!("day-build-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("Cargo.toml");
+        std::fs::write(
+            tmp.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\n",
+        )
+        .expect("Day.toml");
+        let project = crate::meta::find_project(Some(&tmp)).expect("project");
+
+        assert_eq!(build_root(&project), project.root.join("build/day"));
+        let target = crate::targets::TARGETS
+            .iter()
+            .find(|t| t.name == "macos-appkit")
+            .expect("macos-appkit");
+        assert_eq!(
+            cargo_dir(&project, target, Profile::Debug),
+            project.root.join("build/day/cargo/macos-appkit/debug")
+        );
+        assert_eq!(
+            artifact_stamp(&project, target, Profile::Debug),
+            project
+                .root
+                .join("build/day/artifacts/macos-appkit-debug.path")
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
 

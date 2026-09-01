@@ -35,7 +35,8 @@ cd my-app
 day launch -p linux-qt
 ```
 
-Two optional modules enable two pieces. Both degrade gracefully rather than failing the build:
+Two optional modules enable two pieces; without a module the build still succeeds and the piece
+degrades:
 
 | Module | Enables | Without it |
 |---|---|---|
@@ -50,12 +51,12 @@ Multimedia.
 day pack -p linux-qt        # single-file .flatpak (org.kde.Platform runtime) AND a portable .appimage
 ```
 
-`day pack` produces both formats by default: the flatpak resolves Qt from its runtime, the
+`day pack` produces both formats by default: the flatpak resolves Qt from its runtime; the
 AppImage carries its own.
 
-If your binary links QtWebEngine, `day pack` adds the Qt WebEngine BaseApp — about 87 MB of
-Chromium — because no runtime ships it. Apps that don't link it stay small; that check is on the
-actual binary, not on a flag.
+If your binary links QtWebEngine, `day pack` adds the Qt WebEngine BaseApp (about 87 MB of
+Chromium), because no runtime ships it. Apps that don't link it stay small; `day pack` inspects
+the built binary to decide.
 
 ## Caveats and special considerations
 
@@ -66,12 +67,12 @@ actual binary, not on a flag.
   `QListView`, so very large lists behave differently than a model/view Qt app would.
 - **Qt 6.8+ for forced light/dark.** `DAY_THEME` uses `QStyleHints::setColorScheme`; on older Qt
   (Ubuntu 24.04 ships 6.4) Day falls back to the Fusion style with a hand-built dark palette.
-- **No spell-check**, because Qt ships none — `Cap::TextSpellCheck` reports unsupported and the
+- **No spell-check**, because Qt ships none; `Cap::TextSpellCheck` reports unsupported and the
   patch is a no-op.
-- **No Lottie, no map** on this backend — each renders its placeholder. `cover()` presents as
+- **Lottie and map have no Qt arm**; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
 - **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo, and stays at
-  [Tier 4](/docs/platforms#support-tiers): no packaging.
+  [Tier 4](/docs/platforms#support-tiers), so `day pack` skips it.
   Windows builds against MSYS2's Qt 6 with a GNU Rust toolchain
   ([setup](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host)) and is marked experimental in CI.
   MSYS2 has no Qt 6 WebEngine, so the web view degrades to its URL label there. CI's x86-64 MinGW
@@ -87,7 +88,7 @@ The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is t
 | `column` / `row` / `stack` / `section` | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) (Day owns layout) |
 | `label` | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) |
 | `button` | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) |
-| `toggle` | [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html) — see the caveat above |
+| `toggle` | [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html); see the caveat above |
 | `slider` | [`QSlider`](https://doc.qt.io/qt-6/qslider.html) |
 | `text_field` | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) |
 | `text_area` | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) |
@@ -103,7 +104,7 @@ The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is t
 | `nav_menu` | [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) |
 | `tabs` | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) |
 | `image` | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting a scaled pixmap |
-| `vector` | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG (`.tint` has no Qt arm yet — glyphs draw as authored) |
+| `vector` | the same [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) subclass painting the raster cache PNG (`.tint` has no Qt arm yet; glyphs draw as authored) |
 | `canvas` | [`QWidget`](https://doc.qt.io/qt-6/qwidget.html) subclass painting with [`QPainter`](https://doc.qt.io/qt-6/qpainter.html) |
 | dialogs / alerts | [`QMessageBox`](https://doc.qt.io/qt-6/qmessagebox.html) |
 | prompts | [`QInputDialog`](https://doc.qt.io/qt-6/qinputdialog.html) |

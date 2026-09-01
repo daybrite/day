@@ -32,7 +32,7 @@ let watch = day_part_location::watch(Accuracy::Balanced, |fix| match fix {
 
 | Function | Behavior |
 |---|---|
-| `is_available() -> bool` | whether this target has a location API Day can reach — a platform statement, not a permission one |
+| `is_available() -> bool` | whether this target has a location API Day can reach (a platform statement, not a permission one) |
 | `current(acc, cb)` / `current_future(acc)` | one fix |
 | `watch(acc, cb) -> Watch` | a live stream; dropping the handle stops the platform's updates |
 
@@ -74,16 +74,16 @@ so whichever of the two crates runs first shows it.
 | iOS / macOS | `CLLocationManager` + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
 | Android | `LocationManager.requestLocationUpdates` via the crate's own Java shim | `day-android` + `[package.metadata.day.android]` |
 | Web | `navigator.geolocation.watchPosition` through the day-dom shim | `web.rs` (wasm32; needs the day-dom host page) |
-| HarmonyOS | none — see below | — |
-| Linux | none — GeoClue2 would need a D-Bus dependency this tree does not have | — |
-| Windows | none yet — `Windows.Devices.Geolocation` is the future impl | — |
+| HarmonyOS | none; see below | — |
+| Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
+| Windows | none yet; `Windows.Devices.Geolocation` is the future impl | — |
 
-An unsupported target is not silent: `is_available()` answers `false` and a `watch` reports
+An unsupported target reports itself: `is_available()` answers `false` and a `watch` reports
 `LocationError::Unavailable` **once**, so an app waiting for its first fix is never left hanging.
 
 ### Why not FusedLocationProviderClient on Android
 
-The fused provider is the usual Android recommendation and the wrong dependency here: it ships in
+The fused provider is the usual Android recommendation, but it ships in
 Google Play services, which AOSP images and many emulators do not have, and it would add a Gradle
 coordinate to every app linking this part. The platform `LocationManager` is always present. The
 shim prefers GPS at `Accuracy::Best` and the network provider otherwise, and seeds the first update
@@ -92,8 +92,8 @@ from `getLastKnownLocation` so a fix appears immediately instead of waiting for 
 ### HarmonyOS is not implemented
 
 Location on HarmonyOS is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, and there is no
-`[package.metadata.day.ohos]` mechanism for a crate to contribute ArkTS. Saying so beats shipping a
-stub that looks like an oversight. It could later ride the same ArkTS seam
+`[package.metadata.day.ohos]` mechanism for a crate to contribute ArkTS. The crate reports that
+instead of shipping a stub. It could later ride the same ArkTS bridge that
 [`day-part-permissions`](permissions.md) needs for its request path.
 
 ### Apple: fixes need a run loop
@@ -101,9 +101,9 @@ stub that looks like an oversight. It could later ride the same ArkTS seam
 CoreLocation delivers to the run loop of the thread the manager was created on. In a Day app that is
 the UI thread, and everything works. In a plain `main` or under `cargo test` there is no run loop, so
 no fix is ever delivered; `is_available()` still answers `true`, because CoreLocation exists. The
-example file says so at the top rather than looking broken.
+example file says so at the top.
 
-Apple reports "not measured" as a NEGATIVE accuracy and `-1` for speed and course; those become
+Apple reports "not measured" as a negative accuracy and `-1` for speed and course; those become
 `None` rather than nonsense numbers. Android reports it with a `hasXxx()` companion, which the shim
 passes across alongside the value.
 
@@ -112,5 +112,5 @@ passes across alongside the value.
 The crate registers nothing in any `RENDERERS` slice. It contributes its Android Java shim through
 `[package.metadata.day.android]` and its `CoreLocation` link through `[package.metadata.day.ios]`,
 with no edits to any core Day crate. It is the first **part** to define an Objective-C class
-(`objc2::define_class!`), which pieces have always done. Its `permissions = []` entry is deliberately
-empty: the app declares location in its own `Day.toml`. See [extending.md](extending.md).
+(`objc2::define_class!`), which pieces have always done. Its `permissions = []` entry is empty
+because the app declares location in its own `Day.toml`. See [extending.md](extending.md).

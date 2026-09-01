@@ -21,8 +21,8 @@ network, and sensor services.
 
 The reference superapp — a catalog browser that installs, updates, and runs miniapps (§12) —
 lived at `day/apps/daylite` and was removed from this repository in 2026-08. Everything it did
-went through the public embedding API, which is the point: a superapp ships its own piece/part/
-tweak sets and its own permission policy (§10), and none of that needs to live here.
+went through the public embedding API: a superapp ships its own piece/part/tweak sets and its
+own permission policy (§10), and none of that needs to live here.
 
 Initial platform support is the three mobile targets (ios-uikit, android-mdc, harmony-arkui);
 the design has no mobile-specific dependencies, so desktop toolkits can follow later.
@@ -48,21 +48,20 @@ miniapp repo (manifest.json + *.ts)      catalog.json (anywhere on the web)
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Engine**: QuickJS via `rquickjs` (bytecode interpreter: no JIT, which iOS forbids
-  anyway). One `Runtime` + `Context` per running miniapp, created on the main thread and only
+- **Engine**: QuickJS via `rquickjs` (a bytecode interpreter with no JIT, which iOS forbids).
+  One `Runtime` + `Context` per running miniapp, created on the main thread and only
   touched there, the same single-threaded discipline day-reactive already imposes. Async work
   (http, timers) lands back on the main thread via `Platform::post` and resolves JS promises.
 - **TypeScript**: modules are type-stripped at load time with the `oxc` parser/transformer
   (`oxc_parser` + `oxc_semantic` + `oxc_transformer` + `oxc_codegen`). `.ts` files run
-  directly; no build step, no decorators/JSX in v1.
-- **No WebView, no HTML**: unlike WeChat-style hosts (and skip-miniapp), the UI layer *is*
-  day. JS builds real pieces through a dynamic registry (§4), and reactive text/bindings run
-  through real `Signal`s (§5). There is no template language, no virtual DOM, and no
-  whole-state `setData` push.
+  directly without a build step; decorators and JSX are not supported in v1.
+- **Day pieces as the UI layer**: JS builds Day pieces through a dynamic registry (§4), and
+  reactive text and bindings run through `Signal`s (§5). Each binding patches its own piece
+  directly, so there is no template language or virtual DOM in between.
 
 ## 2. Miniapp package
 
-A miniapp is **any directory shape reachable over HTTP or the local filesystem**: by design,
+A miniapp is **any directory shape reachable over HTTP or the local filesystem**, typically
 a git repository checked out or served raw (GitHub's `raw.githubusercontent.com/<owner>/<repo>/<branch>/`
 prefix works as-is, as does any static host or a local path during development):
 
@@ -111,7 +110,7 @@ allows a container format; day-lite treats the *repo itself* as the container). 
 - `pages` — route ids the app must register with `page(id, builder)`; `pages[0]` is the
   launch page.
 - `req_permissions` — every capability the app may use, with a human reason. The superapp
-  MUST show this list before install (§9); calls to undeclared or ungranted capabilities
+  must show this list before install (§9); calls to undeclared or ungranted capabilities
   reject at runtime.
 - `day.entry` — the module evaluated at launch (default `app.ts`, falling back to `app.js`).
 - `day.files` — the complete fetch list (everything the app needs offline). The manifest and
@@ -176,8 +175,8 @@ page('home', () =>
 
 A `DynValue::Fn` passed where a reactive value is accepted (`text`, `bind`-style modifier
 args) is wrapped in the piece layer's usual bind/watch: day-reactive re-invokes the JS
-closure when its dependencies change, and only the affected piece patches. There is no
-diffing and no bulk state push; the granularity is identical to a compiled day app.
+closure when its dependencies change, and only the affected piece patches, so the
+granularity is identical to a compiled day app.
 `watch(fn)` and `effect(fn)` are exposed for non-UI reactions; all signal APIs are
 main-thread only (enforced; calls from async callbacks are re-posted).
 
@@ -231,7 +230,7 @@ returns throughout; errors are typed (`PermissionError`, `NetError`, `DbError`, 
 
 Miniapps ship [Fluent](https://projectfluent.org) catalogs at the standardized location
 `i18n/<locale>.ftl` (listed in `day.files` like any other package file). `t(key, args?)`
-formats through a per-app `FluentBundle` for the RUN's locale: `day launch --locale` and
+formats through a per-app `FluentBundle` for the run's locale: `day launch --locale` and
 `day lite test` deliver it via `DAY_LOCALE`, else day's live locale signal applies, so a
 `set_locale` in the host re-renders miniapp text reactively. Resolution falls back
 `zh-CN → zh → en`, and a missing key returns the key itself (an unlocalized app keeps
@@ -246,7 +245,7 @@ scripts. Position *n* runs exactly once, tracked in sqlite's `user_version` prag
 launch the app calls `migrate` with its full history and day-lite applies the tail. Editing
 history instead of appending is an error (a recorded hash per step catches it). The engine is
 day-persistence's driver ([docs/persistence.md](persistence.md)), so a superapp carrying both
-crates compiles ONE SQLite and its engine features (`sqlite-system`, `sqlite-cipher`) govern
+crates compiles one SQLite and its engine features (`sqlite-system`, `sqlite-cipher`) govern
 miniapp storage too.
 
 ## 8. Install, update, catalog
@@ -263,7 +262,7 @@ UpdatePlan::apply()                                          // fetch changed fi
 lite::store::remove(app_id)                                  // db + fs + cache gone
 ```
 
-The two-step install is what makes permission disclosure structural: the UI cannot install
+The two-step install makes permission disclosure structural: the UI cannot install
 without passing the granted set through `confirm`. A **catalog** is any JSON document listing
 origins; the superapp renders it, but installing an entry goes through the same
 `install(origin)`:
@@ -277,7 +276,7 @@ origins; the superapp renders it, but installing an entry goes through the same
 ```
 
 Catalog entries duplicate the permission list so disclosure can render before any fetch; at
-install time the fetched manifest is the source of truth and a mismatch surfaces in the UI.
+install time the fetched manifest is authoritative and a mismatch surfaces in the UI.
 Updates re-run disclosure only when the permission set grew.
 
 ## 9. Permissions
@@ -286,8 +285,8 @@ Permission ids are plain strings (`day.permission.NETWORK`, `.SENSORS`, `.FS`, `
 `.PREFS`). The mapping is: **each bridge module declares the permission it requires**;
 day-lite installs a bridge into a context only if the manifest declares it AND the user
 granted it. Ungranted calls don't half-work: the namespace exists but every entry point
-rejects with `PermissionError` (so feature detection is `day.can('NETWORK')`, not
-try/catch-shaped guessing). `STORAGE` (sqlite) and `PREFS` are granted implicitly at install
+rejects with `PermissionError` (so feature detection is `day.can('NETWORK')`). `STORAGE`
+(sqlite) and `PREFS` are granted implicitly at install
 (they touch only app-private data) but still must be declared to be visible in disclosure.
 Hosts can reclassify (a kiosk superapp may implicit-grant nothing) and define new permission
 ids for their own bridges (§10). Grants persist in the package store and are revocable from
@@ -295,7 +294,7 @@ the superapp's app-detail UI.
 
 ## 10. Embedding in other superapps
 
-The whole system is a library — the reference superapp held no privileged code of its own:
+The whole system is a library; the reference superapp held no privileged code of its own:
 
 ```rust
 let host = day_lite::Host::builder()
@@ -308,8 +307,8 @@ let host = day_lite::Host::builder()
 let surface: AnyPiece = host.launch(app_id)?;         // the miniapp's UI, place it anywhere
 ```
 
-A bridge is `{ namespace, permission, install(ctx, services) }`, the same seam the
-built-ins use. Pieces compiled into the host (any crate using `register_piece!`) are
+A bridge is `{ namespace, permission, install(ctx, services) }`, the same shape the
+built-in bridges use. Pieces compiled into the host (any crate using `register_piece!`) are
 automatically scriptable (§4). A superapp is this builder plus a catalog UI.
 
 ## 11. Testing: `day lite test`
@@ -345,7 +344,7 @@ day launch -p ios-uikit --locale fr --variant fr --env DAYLITE_RESET=1 \
 ```
 
 The `DAYLITE_RESET=1` in that example was the reference host's own convention for starting from
-an empty store so install flows are reproducible — a superapp reads it itself, the runtime does
+an empty store so install flows are reproducible; a superapp reads it itself, the runtime does
 not. `--variant` files each locale's screenshots separately, mirroring the showcase galleries.
 
 `day lite test <path>` (path = miniapp dir, default `.`) runs every test module in a fresh
@@ -387,12 +386,13 @@ same env it already curates for `cc`:
 
 ## 14. Security considerations
 
-- Miniapp JS is untrusted: no filesystem outside the sandbox, no process/env access, no
-  dynamic native loading. The bridge surface is the *entire* capability set.
+- Miniapp JS is untrusted, and the bridge surface is the entire capability set: the
+  filesystem it sees is the sandbox, and it has no process, environment, or native-loading
+  access.
 - Network is doubly confined: permission + `net_origins` prefix allow-list.
 - Remote code is cached then executed: installs record per-file hashes; the update path
   re-verifies before swap. Origins are https-or-local only.
 - A miniapp's context is dropped on exit; runaway scripts are bounded by QuickJS's
   interrupt handler (a main-thread watchdog cancels evaluation after a budget).
-- Superapps choose their exposure: an app compiled without a sensors bridge simply has no
-  sensors capability to grant.
+- Superapps choose their exposure: an app compiled without a sensors bridge has no sensors
+  capability to grant.

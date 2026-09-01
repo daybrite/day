@@ -1,6 +1,6 @@
 ---
 title: HarmonyOS (ArkUI)
-description: Build Day apps for HarmonyOS and OpenHarmony with ArkUI — SDK setup, the hvigor and .hap pipeline, the ArkTS seam, and which ArkUI node type every Day piece becomes.
+description: Build Day apps for HarmonyOS and OpenHarmony with ArkUI — SDK setup, the hvigor and .hap pipeline, the ArkTS bridge, and which ArkUI node type every Day piece becomes.
 order: 33.7
 section: Platforms
 ---
@@ -12,19 +12,19 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`harmony-arkui` drives ArkUI through its **NDK C node API** — `ARKUI_NODE_BUTTON` and friends —
+`harmony-arkui` drives ArkUI through its **NDK C node API** (`ARKUI_NODE_BUTTON` and friends)
 from a Rust `cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is
-Day's newest backend — [Tier 3 · Experimental](/docs/platforms#support-tiers) — and this page
-says exactly where that shows.
+Day's newest backend ([Tier 3 · Experimental](/docs/platforms#support-tiers)), and this page
+lists where that shows.
 
 <PlatformShots platform="harmony-arkui" shots={["home", "controls", "canvas", "list"]} />
 
 ## Getting started
 
-This is the least ergonomic toolchain Day supports. You need the OpenHarmony SDK plus the
-command-line tools (hvigor, `hdc`, the signing tools); `day doctor --toolkit harmonyos` checks
-each piece and prints setup help, and the [HarmonyOS notes](/docs/internal/harmonyos) cover the
-install in detail.
+This toolchain takes the most setup steps of any Day supports. You need the OpenHarmony SDK plus
+the command-line tools (hvigor, `hdc`, the signing tools); `day doctor --toolkit harmonyos`
+checks each piece and prints setup help, and the [HarmonyOS notes](/docs/internal/harmonyos)
+cover the install in detail.
 
 ```sh
 cargo install day-cli
@@ -46,24 +46,24 @@ images (default `~/ohos/emulator/images`), or the command errors naming what is 
 ## Caveats and special considerations
 
 This backend implements the widget vocabulary well and the surrounding platform integration
-partially. Concretely:
+partially:
 
 - **No dialogs.** `present()` handles file open/save; alerts and prompts are ignored. If your UI
   depends on a confirmation dialog, it will silently do nothing here.
-- **Several external pieces have no ArkUI arm** — media, map, Lottie, search field, combo box,
+- **Several external pieces have no ArkUI arm**: media, map, Lottie, search field, combo box,
   activity indicator, and remote image all render a placeholder. The date/time pickers and
   pull-to-refresh have native arms, and the web view has an **ArkTS** arm: the crate ships its own
   ArkTS component, staged into the host project via `[package.metadata.day.ohos]`, with load,
   back/forward, stop, and reload working.
-- **All three picker styles collapse to one control** — menu, segmented and inline all become
+- **All three picker styles collapse to one control**: menu, segmented, and inline all become
   `ARKUI_NODE_TEXT_PICKER`.
 - **Layout is measured for very few kinds.** Labels, buttons and the text area ask ArkUI to
   measure; nearly everything else uses a fixed size, so unusual content may not fit as snugly as
   it does on other targets.
-- **Much of the platform requires ArkTS**, reached through the host project rather than the C API:
-  navigation (`Navigation`/`NavPathStack`), file pickers, opening a URL, bundled resources, custom
-  font registration, and app bootstrap. Day wires all of this for you in the scaffold — it is worth
-  knowing when you go past what Day models.
+- **Much of the platform requires ArkTS**, reached through the host project because the C API
+  does not expose it: navigation (`Navigation`/`NavPathStack`), file pickers, opening a URL,
+  bundled resources, custom font registration, and app bootstrap. Day wires all of this in the
+  scaffold; you meet the ArkTS side when you go past what Day models.
 - **Emulator behavior in CI is tolerated-flaky**; the build and packaging steps gate hard.
 
 ## What each piece becomes
@@ -100,12 +100,12 @@ cover a component, the node type links to that guide; the rest link to the OpenH
 | *external* `date_picker()` | [`ARKUI_NODE_DATE_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) inline, [`ARKUI_NODE_CALENDAR_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) compact |
 | *external* `time_picker()` | [`ARKUI_NODE_TIME_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
 | *external* `pull_refresh()` | [`ARKUI_NODE_REFRESH`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype) |
-| *external* `webview()` | the ArkTS `Web` component — the piece's own ArkTS, staged via `[package.metadata.day.ohos]` (the C node API has no Web node) |
+| *external* `webview()` | the ArkTS `Web` component: the piece's own ArkTS, staged via `[package.metadata.day.ohos]` (the C node API has no Web node) |
 
 Further reading in the HarmonyOS NDK guides:
 [using NDK APIs to build UIs](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/arkts-use-ndk) (the index),
 [NDK-based UI development overview](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-ui-overview),
-[integrating with ArkTS pages](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-access-the-arkts-page) — the seam Day's scaffold wires,
+[integrating with ArkTS pages](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-access-the-arkts-page) (the ArkTS bridge Day's scaffold wires),
 [adding event responses](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-add-event-response), and
 [building form components](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/ndk-build-form-components).
 The [`ArkUI_NodeType` reference](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md#arkui_nodetype)

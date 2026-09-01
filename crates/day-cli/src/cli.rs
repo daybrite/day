@@ -193,6 +193,13 @@ enum Cmd {
         platforms: Vec<String>,
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
+        /// Build against a different `day` for THIS build only: a path to a day checkout, or a
+        /// git URL with an optional `@<REF>`. Nothing in the project is written — unlike
+        /// `day patch`, which is a mode you stay in — so the next build without the flag resolves
+        /// the app's declared dependency. Each day-src keeps its own build tree, so comparing two
+        /// of them is an incremental rebuild each way.
+        #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
+        day_src: Option<String>,
     },
     /// Generate every platform's app-icon set from one master (docs/icons.md)
     Icon {
@@ -241,6 +248,13 @@ enum Cmd {
         /// Where `--git` clones, instead of the cache. The path is printed either way.
         #[arg(long, requires = "git", value_name = "DIR")]
         dir: Option<PathBuf>,
+        /// Launch against a different `day` for THIS run only: a path to a day checkout, or a
+        /// git URL with an optional `@<REF>` — how you put a PR branch of the framework under an
+        /// app and look at it. Nothing in the project is written, unlike `day patch`. Each
+        /// day-src keeps its own build tree and its own binary, so two of them can run at once
+        /// and switching between them is an incremental rebuild.
+        #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
+        day_src: Option<String>,
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
         /// BCP-47 locale override passed to the app
@@ -1389,7 +1403,15 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 }
             })
         }
-        Cmd::Build { platforms, profile } => with_project(cli.project.as_deref(), |project| {
+        Cmd::Build {
+            platforms,
+            profile,
+            day_src,
+        } => with_project(cli.project.as_deref(), |project| {
+            use_day_src(day_src.as_deref(), project)?;
+            // Cargo records the patched sources in Cargo.lock; the guard puts it back when the
+            // build phase ends, so a flag that promises to change nothing leaves nothing changed.
+            let _lock = crate::patch::LockGuard::new(project);
             let mut results = Vec::new();
             for p in &platforms {
                 let target = crate::external::find_target(project, p).map_err(CliError::usage)?;
@@ -1430,6 +1452,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             skip_build,
             locales,
             themes,
+            day_src,
         } => {
             // `--git` only decides WHERE the launch starts from. It clones (or updates) the
             // repository and hands back the Day project directory inside it, so `find_project`
@@ -1446,6 +1469,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 None => cli.project.clone(),
             };
             with_project(start.as_deref(), |project| {
+                use_day_src(day_src.as_deref(), project)?;
                 // No `-p`: run what this machine natively is. Announced rather than assumed — the
                 // chosen target decides which toolkit gets built, so a silent pick would be a
                 // surprising several-minute build of something the caller did not name.
@@ -1491,9 +1515,18 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 // The debug window-title tag (docs/windows.md): which build, which toolkit, and —
                 // when a script is driving — which script. The app reads these off the environment
                 // and only shows them in a debug build.
+                //
+                // Under `--day-src` the version carries the day-src too (`0.1.0+main-2d77edbf`),
+                // which is the whole point of the flag: two builds of the SAME app, running at
+                // once, are otherwise two identical title bars. It rides the version rather than a
+                // new variable deliberately — the framework version being compared may predate
+                // any variable added today, and every `day` already reads this one.
                 spec.envs.push((
                     "DAY_APP_VERSION".into(),
-                    project.manifest.app.version.clone(),
+                    match crate::patch::day_src_tag() {
+                        Some(tag) => format!("{}+{tag}", project.manifest.app.version),
+                        None => project.manifest.app.version.clone(),
+                    },
                 ));
                 // `--record` (§14.6): the app's `day_script::init` reads `DAY_RECORD` and starts a
                 // headless recorder that flushes a replayable dayscript to the path for its lifetime.
@@ -1557,12 +1590,18 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
                     let target =
                         crate::external::find_target(project, p).map_err(CliError::usage)?;
-                    let built = if skip_build {
-                        ops::reuse_build(project, target, profile)
-                    } else if spec.wants_ios_device() {
-                        ops::build_for_device(project, target, profile)
-                    } else {
-                        ops::build(project, target, profile)
+                    // The lock guard is scoped to the BUILD, not to the run: the app may stay up
+                    // for a long time afterwards, and the project's Cargo.lock should be correct
+                    // again the moment the compiler is done with it.
+                    let built = {
+                        let _lock = crate::patch::LockGuard::new(project);
+                        if skip_build {
+                            ops::reuse_build(project, target, profile)
+                        } else if spec.wants_ios_device() {
+                            ops::build_for_device(project, target, profile)
+                        } else {
+                            ops::build(project, target, profile)
+                        }
                     };
                     let outcome = built.map_err(CliError::build)?;
                     for (ri, capture) in matrix.iter().enumerate() {
@@ -1804,6 +1843,19 @@ fn with_project(
 ) -> Result<i32, CliError> {
     let p = meta::find_project(start).map_err(CliError::usage)?;
     f(&p)
+}
+
+/// Resolve `--day-src` and make it this run's framework, if it was given.
+///
+/// Everything downstream — the cargo invocations and the build paths — reads it back from
+/// [`crate::patch`] rather than being handed it, the way `--verbose` works, so no builder's
+/// signature changes for a flag that does not change what it does.
+fn use_day_src(day_src: Option<&str>, project: &meta::Project) -> Result<(), CliError> {
+    let Some(arg) = day_src else {
+        return Ok(());
+    };
+    let src = crate::patch::resolve_day_src(arg, project)?;
+    crate::patch::activate(&src, project)
 }
 
 fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
@@ -2103,6 +2155,25 @@ mod error_tests {
             _ => unreachable!("parsed a launch command"),
         }
         assert!(Cli::try_parse_from(["day", "launch", "--dir", "/tmp/x"]).is_err());
+    }
+
+    /// `--day-src` is on both halves of the inner loop, since comparing two framework versions
+    /// means building with each and running each.
+    #[test]
+    fn day_src_parses_on_build_and_launch() {
+        let url = "https://github.com/daybrite/day.git@experimental-nav";
+        let cli = Cli::try_parse_from(["day", "launch", "--day-src", url]).expect("launch");
+        match cli.command {
+            Cmd::Launch { day_src, .. } => assert_eq!(day_src.as_deref(), Some(url)),
+            _ => unreachable!("parsed a launch command"),
+        }
+        let cli =
+            Cli::try_parse_from(["day", "build", "-p", "macos-appkit", "--day-src", "../day"])
+                .expect("build");
+        match cli.command {
+            Cmd::Build { day_src, .. } => assert_eq!(day_src.as_deref(), Some("../day")),
+            _ => unreachable!("parsed a build command"),
+        }
     }
 }
 

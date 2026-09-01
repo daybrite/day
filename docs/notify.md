@@ -15,24 +15,24 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > proposed.** What exists: the crate, its API (`Channel`, `Notification`, `Trigger`,
 > `capabilities`, `cancel`), the **iOS + macOS** arm over `UNUserNotificationCenter`, and the
 > **Android** arm over `NotificationManager` + `AlarmManager` with its own Java shim, alarm
-> receiver, and boot receiver — no Play services, no Firebase.
+> receiver, and boot receiver; it runs without Play services or Firebase.
 >
 > **Phase 2a (alarm-grade scheduling) is shipped.** `Trigger::At(SystemTime)` schedules an
 > absolute instant (a past instant fires immediately). The crate now declares
-> `SCHEDULE_EXACT_ALARM`, so exact alarms actually engage on Android 12+ (before, the undeclared
+> `SCHEDULE_EXACT_ALARM`, so exact alarms engage on Android 12+ (before, the undeclared
 > permission made `canScheduleExactAlarms()` answer false everywhere and every schedule silently
 > degraded); an alarm-clock app adds `USE_EXACT_ALARM` in its own metadata for the install-time
-> grant — Play restricts that one to clock/calendar apps, so the crate does not impose it. A
+> grant; Play restricts that one to clock/calendar apps, so the crate does not impose it. A
 > schedule whose channel importance is `Urgent` goes through `setAlarmClock` (Doze-exempt,
 > status-bar alarm icon, the most OEM-survivable path); other exact schedules stay on
 > `setExactAndAllowWhileIdle`, and the boot receiver re-arms each with the exactness it was
-> scheduled with. One deliberate divergence from the design tables below: Apple realizes `At` as
-> a `UNTimeIntervalNotificationTrigger` delta rather than the designed `UNCalendarNotificationTrigger`
-> — `At` takes an absolute instant, so a calendar trigger adds nothing for a one-shot; calendar
+> scheduled with. One divergence from the design tables below: Apple realizes `At` as
+> a `UNTimeIntervalNotificationTrigger` delta rather than the designed `UNCalendarNotificationTrigger`,
+> because `At` takes an absolute instant and a calendar trigger adds nothing for a one-shot; calendar
 > semantics come with `Every`. Still not shipped from the scheduling design: `Trigger::Every`,
 > notification actions (snooze from the shade), custom/looping sounds, and full-screen intents.
 >
-> Verified end to end, not inferred: on the iOS Simulator the showcase reports `Posted (#1)`; on an
+> Verified end to end: on the iOS Simulator the showcase reports `Posted (#1)`; on an
 > Android emulator `dumpsys notification` shows the created channel (`mImportance=3`, sound set) and
 > the live record `android.title=(Hello from Day)`, and the notification renders in the shade with
 > the crate's monochrome icon. Both receivers are present in the merged APK manifest.
@@ -41,16 +41,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > stub), actions and inline reply, and both `day-part-push-notify` and `day-notify`. Those sections
 > below remain a design.
 >
-> **Three things a first user hit, all now fixed — worth knowing because they fail SILENTLY.**
+> **Three things a first user hit, all now fixed; each fails silently.**
 > (1) Nothing requested consent, so Apple accepted every post and dropped it. Consent belongs to
-> day-part-permissions (`Permission::Notifications`), and an app must actually call it.
-> (2) iOS suppresses a notification posted while the app is FOREGROUND unless a
-> `UNUserNotificationCenterDelegate` returns presentation options from `willPresent` — the delegate
+> day-part-permissions (`Permission::Notifications`), and an app must call it.
+> (2) iOS suppresses a notification posted while the app is in the foreground unless a
+> `UNUserNotificationCenterDelegate` returns presentation options from `willPresent`; the delegate
 > now does, and its `didReceive` also delivers taps, so `Cap::tap_route` is true on Apple.
 > (3) Android's `IMPORTANCE_DEFAULT` files a notification into the shade with no heads-up banner,
 > which reads as "the button did nothing"; `Importance::High` or above is what shows a banner.
 >
-> Two framework gaps this part needed are DONE and proven by it: `manifest-components` in
+> Two framework gaps this part needed are DONE; the part exercises both: `manifest-components` in
 > `[package.metadata.day.android]` ([docs/extending.md](extending.md)), which is how the two receivers reach the
 > APK, and `day_core::request_route`.
 >
@@ -67,28 +67,28 @@ one. This closes that gap.
 
 "Notifications" names two capabilities with different costs, and they belong in different crates.
 
-- **Local** — the app posts or schedules a notification itself. No server, no push service, no
-  network. A timer that fires, a download that finished, an alarm the OS holds while the app is
-  dead. Near-universal, and what most apps need.
-- **Push** — a server reaches a device whose app is not running. Needs a transport, and the
+- **Local**: the app posts or schedules a notification itself, with no server or transport
+  involved. A timer that fires, a download that finished, an alarm the OS holds while the app is
+  dead. It is near-universal, and it is what most apps need.
+- **Push**: a server reaches a device whose app is not running. It needs a transport, and the
   transport differs on every platform and is absent on the desktop.
 
 Splitting them, rather than the single `day-part-notify` an earlier draft proposed, matches Day's
-existing part granularity (battery, network, clipboard are each their own crate) and pays off
-concretely:
+existing part granularity (battery, network, clipboard are each their own crate) and pays off in
+three ways:
 
-- **An app that only wants a local "download done" toast** — Files, Photos, a game — depends on
-  `day-part-local-notify` alone and compiles none of the push transport machinery: no APNs
-  registration, no UnifiedPush receiver, no service worker, no VAPID. Its build-time footprint is
-  a runtime permission, nothing more.
+- **An app that only wants a local "download done" toast** (Files, Photos, a game) depends on
+  `day-part-local-notify` alone and compiles none of the push transport machinery (APNs
+  registration, the UnifiedPush receiver, the service worker, VAPID keys). Its build-time
+  footprint is a single runtime permission.
 - **The build-time declarations divide cleanly.** Local needs `POST_NOTIFICATIONS` and maybe an
   exact-alarm permission. Push needs entitlements, background modes, manifest receivers, and a
   VAPID key. `day build` folds in only what the dependency graph pulls, so the manifest stays
   minimal for the common case.
-- **The layering is real, not cosmetic.** `day-part-push-notify` **depends on**
-  `day-part-local-notify` and calls into it to display. This mirrors the platforms: a data-only
-  UnifiedPush or FCM message on Android hands you a payload and you call `NotificationManager`
-  yourself — the local API. An Apple background push wakes the app, which may then post a local
+- **Push depends on local.** `day-part-push-notify` depends on `day-part-local-notify` and
+  calls into it to display. This mirrors the platforms: a data-only UnifiedPush or FCM message on
+  Android hands you a payload and you call `NotificationManager` yourself, which is the local
+  API. An Apple background push wakes the app, which may then post a local
   notification. Push is a transport plus the local display surface.
 
 ```
@@ -99,14 +99,15 @@ day-part-local-notify  (Channel, Notification, Trigger, Action, display, tap→r
 ```
 
 The rest of this document details `day-part-local-notify`, then sketches the push part and the
-sending tool, which are only worth building once local exists.
+sending tool, both of which build on local.
 
 ---
 
 # `day-part-local-notify`
 
-A headless part, selected by `cfg(target_os)` like every other, callback-plus-future per the
-async policy. No UI piece. It works in a plain Rust program the way the other parts do.
+This is a headless part, selected by `cfg(target_os)` like every other, callback-plus-future
+per the async policy. It has no UI piece and works in a plain Rust program the way the other
+parts do.
 
 ## The API
 
@@ -150,7 +151,7 @@ Types:
   update/cancel (generated if omitted).
 - **`Trigger`** is `Now` (the default), `In(Duration)`, `At(SystemTime)`, or `Every(Duration)`.
 
-Delivery comes back through the standard event sink, so no new channel is invented:
+Delivery comes back through the standard event sink, so there is no separate delivery channel:
 
 - **A tap** emits `Event::RouteRequested` with the notification's route; the app navigates through
   the same rail deep links and dayscript already use.
@@ -176,29 +177,29 @@ One framework covers both OSes and both immediate and scheduled. Immediate: buil
 `UNMutableNotificationContent` (title, subtitle, body, sound, badge, `userInfo` carrying the Day
 route, `categoryIdentifier` = the channel), wrap it in a `UNNotificationRequest` with a `nil`
 trigger, and `add` it. Scheduled: a `UNTimeIntervalNotificationTrigger` (`In`/`Every`) or
-`UNCalendarNotificationTrigger` (`At`), which the OS holds and fires while the app is dead — this
-is what lets a Clock alarm ring without a background process. Channels map to interruption level
+`UNCalendarNotificationTrigger` (`At`), which the OS holds and fires while the app is dead; that
+is how a Clock alarm rings without a background process. Channels map to interruption level
 (`Importance::Urgent` → `.timeSensitive`, needing the time-sensitive entitlement) and
 `threadIdentifier` for grouping. Actions are a `UNNotificationCategory` of `UNNotificationAction`
 / `UNTextInputNotificationAction`, registered with `setNotificationCategories` at launch. Taps and
 actions arrive at the `UNUserNotificationCenterDelegate` (`didReceive response`); foreground
 presentation is decided in `willPresent`, which the part defaults to showing. Native half: raw
 `objc2` + `objc2-user-notifications`, the CoreLocation budget from `day-part-location`. **Local
-notifications need no entitlement** — only push needs `aps-environment` — so the local part is
+notifications need no entitlement** (only push needs `aps-environment`), so the local part is
 lighter than the push part on Apple.
 
-### Android — `NotificationManager` + `AlarmManager`, no Google
+### Android — `NotificationManager` + `AlarmManager`
 
 Immediate: a Java shim builds the `NotificationChannel` once (API 26+) and calls
-`NotificationManagerCompat.notify(id, notification)`. No Play Services, so it runs on any AOSP
-build, GrapheneOS, or a Kindle. Scheduling is not OS-held the way Apple's is — Android has no
-notification scheduler, so the part schedules an **`AlarmManager` alarm** that wakes a manifest
+`NotificationManagerCompat.notify(id, notification)`. It needs no Play Services, so it runs on
+any AOSP build, GrapheneOS, or a Kindle. Scheduling is not OS-held the way Apple's is: Android
+has no notification scheduler, so the part schedules an **`AlarmManager` alarm** that wakes a manifest
 `<receiver>`, which posts the notification from data persisted at schedule time. `setAlarmClock`
 for user alarms (Doze-exempt, shows the status-bar alarm icon) and `setExactAndAllowWhileIdle` for
 other exact triggers; inexact `set` for the rest. Actions are `Notification.Action` with a
 `PendingIntent` (`FLAG_IMMUTABLE`); inline reply is `RemoteInput` on the action, delivered to a
 receiver that emits the `notify:action` event with the reply text. The receiver runs in a fresh
-process with no Day tree alive, so it posts directly through the shim — the notification content
+process with no Day tree alive, so it posts directly through the shim; the notification content
 must be fully materialized at schedule time (see pitfalls). The shim, its receiver, and the
 boot receiver are declared through `[package.metadata.day.android]`.
 
@@ -206,16 +207,16 @@ boot receiver are declared through `[package.metadata.day.android]`.
 
 The desktop notification spec, over the session D-Bus: `Notify(app_name, replaces_id, icon,
 summary, body, actions, hints, timeout)`, with `ActionInvoked` and `NotificationClosed` signals
-for tap and action routing. Two implementation tiers, matching how `day-part-clipboard` handles a
-missing native API: first cut shells out to `notify-send` (from libnotify-bin, common but not
-guaranteed), which shows the notification but gives no action callbacks or stable id; the full
-path speaks the D-Bus wire protocol directly over `$DBUS_SESSION_BUS_ADDRESS` (the EXTERNAL auth
-handshake plus message marshaling, std only) to get actions, tap, and replace-by-id. The portable
-path is deliberately **not** `Gio.Notification`/`GApplication.send_notification`: that needs
-`GApplication` and an installed `.desktop` file and does not work in a `day-qt` binary, the same
-toolkit-independence reason clipboard avoids GDK. There is **no OS-held scheduler** — a running
-Day process schedules in-process and calls `Notify` at fire time; if the process exits, a
-scheduled notification is lost.
+for tap and action routing. There are two implementation tiers, matching how `day-part-clipboard`
+handles a missing native API: the first cut shells out to `notify-send` (from libnotify-bin,
+common but not guaranteed), which shows the notification but gives no action callbacks or stable
+id; the full path speaks the D-Bus wire protocol directly over `$DBUS_SESSION_BUS_ADDRESS` (the
+EXTERNAL auth handshake plus message marshaling, std only) to get actions, tap, and
+replace-by-id. The portable path avoids `Gio.Notification`/`GApplication.send_notification`,
+which needs `GApplication` and an installed `.desktop` file and does not work in a `day-qt`
+binary; clipboard avoids GDK for the same toolkit-independence reason. There is **no OS-held
+scheduler**; a running Day process schedules in-process and calls `Notify` at fire time, and if
+the process exits, a scheduled notification is lost.
 
 ### Windows (XAML) — `ToastNotification`
 
@@ -231,16 +232,16 @@ activator to receive taps and actions, which the shim does at first run.
 `OH_NotificationManager` through the C node API for immediate notifications; notification slots
 map to channels. Scheduled notifications use the reminder agent, which the C API exposes partially,
 so scheduling may ship as an ArkTS half (`[package.metadata.day.ohos]`) like the webview piece.
-Local first; anything the C API cannot reach is deferred, not faked.
+Local first; anything the C API cannot reach is deferred and reported as `Unsupported`.
 
 ### Web (web-dom) — the Notification API, foreground only
 
 `new Notification(title, options)` while the page is open, or `ServiceWorkerRegistration
 .showNotification()` through the day-dom shim; taps arrive at the service worker's
-`notificationclick`. There is **no scheduling from a closed tab** — the Notification Triggers
-(`showTrigger`) proposal is Chromium-only and effectively abandoned, so the part does not rely on
-it — and no delivery at all while the tab is closed without the push part. A running page can post
-immediately; that is the honest extent of local notifications on the web.
+`notificationclick`. There is **no scheduling from a closed tab** (the Notification Triggers
+proposal, `showTrigger`, is Chromium-only and effectively abandoned, so the part does not rely on
+it), and no delivery at all while the tab is closed without the push part. A running page can post
+immediately, and that is the extent of local notifications on the web.
 
 ### mock
 
@@ -261,7 +262,7 @@ whole flow is unit-testable on `day-mock` without a display, matching every othe
 | badge count | N | N | N⁴ | – | N | – | – |
 | tap → Day route | N | N | N | N⁵ | N | N | N |
 
-1. `AlarmManager`, not an OS-held queue — and increasingly restricted (see pitfalls).
+1. `AlarmManager`, not an OS-held queue, and increasingly restricted (see pitfalls).
 2. A running process can schedule in-process; a dead one cannot.
 3. No closed-tab scheduling; a running page can post now.
 4. Android badge support is launcher-dependent (`setNumber` + a badge-capable launcher).
@@ -272,7 +273,7 @@ whole flow is unit-testable on `day-mock` without a display, matching every othe
 Through the existing machinery ([docs/permissions.md](permissions.md), §15.2), and only what the app uses:
 
 - **Always**: `POST_NOTIFICATIONS` (Android 13+) and the notification permission prompt, via
-  `day-part-permissions` (`Permission::Notifications`) — the parts compose, they do not duplicate
+  `day-part-permissions` (`Permission::Notifications`); the parts compose rather than duplicating
   consent.
 - **Only if the app schedules**: Android `SCHEDULE_EXACT_ALARM`/`USE_EXACT_ALARM`,
   `RECEIVE_BOOT_COMPLETED`, and the `<receiver>`s; add `USE_FULL_SCREEN_INTENT` only for
@@ -293,34 +294,32 @@ full-screen = false      # alarm-style takeover; restricted on Android 14+
 
 ## Pitfalls
 
-The reason a cross-platform notification part is more than a thin wrapper. These are the traps,
-each with how the part handles it.
+These traps are the reason a cross-platform notification part is more than a thin wrapper; each
+is listed with how the part handles it.
 
 - **Scheduled content is eager, not reactive.** Everywhere the OS holds a scheduled notification
   (Apple, Android via the receiver, Windows), the Day tree may not exist when it fires, so the
-  content is snapshotted at schedule time — a scheduled `Notification` cannot bind a signal or a
+  content is snapshotted at schedule time; a scheduled `Notification` cannot bind a signal or a
   closure the way live UI does. The part enforces this in the type: `Trigger::At`/`Every` take
   resolved strings, and this is documented as the one place Day's reactivity does not reach.
 - **Localized text: schedule-time vs fire-time locale.** A notification scheduled in English and
   fired after the user switched to French shows English on Android (the string is baked into the
   alarm data) but could show French on Apple (which can resolve a localized key at fire time). The
-  part picks one rule — **bake at schedule time** — so behavior is identical everywhere, and
-  documents that a locale change between schedule and fire keeps the scheduled locale. Predictable
-  beats clever.
+  part picks one rule, **bake at schedule time**, so behavior is identical everywhere, and
+  documents that a locale change between schedule and fire keeps the scheduled locale.
 - **iOS silently keeps only 64 pending notifications.** Schedule a 65th and the OS drops the
   furthest-out one with no error. A calendar or alarm app that wants more must maintain a rolling
-  window and re-arm as notifications fire. The part exposes `pending()` and documents the limit;
-  it does not paper over it.
+  window and re-arm as notifications fire. The part exposes `pending()` and documents the limit.
 - **Android channel importance is immutable after first registration.** You cannot raise or lower
-  a channel's importance in code once it exists — the user owns it thereafter. Picking it wrong
+  a channel's importance in code once it exists; the user owns it thereafter. Picking it wrong
   means either living with it or creating a new channel id (orphaning the old one's user
   settings). The API makes importance a required argument at `Channel::new` to force the decision
-  up front, and the docs say plainly that changing it later is not possible.
+  up front, and the docs state that changing it later is not possible.
 - **Android exact alarms are restricted and getting more so.** `SCHEDULE_EXACT_ALARM` is
   auto-granted but revocable on Android 12–13, and on Android 14 it is not granted to a general
   app at all unless it declares itself a clock/calendar via `USE_EXACT_ALARM`. The part checks
   `canScheduleExactAlarms()`, and on denial either falls back to an inexact alarm (documented as
-  "may fire late in Doze") or surfaces the settings deep link for the app to prompt — it never
+  "may fire late in Doze") or surfaces the settings deep link for the app to prompt; it never
   silently drops the alarm.
 - **A reboot wipes every Android alarm.** The OS clears all pending alarms on restart. Scheduled
   notifications survive only if the part persists them and a `BOOT_COMPLETED` receiver re-arms
@@ -328,13 +327,13 @@ each with how the part handles it.
   boot, so `schedule = true` pulls in the boot receiver automatically.
 - **OEM battery killers.** Xiaomi, Huawei, Samsung, and others aggressively kill background work,
   and no code fixes it. The part documents it and points at `setAlarmClock` (the most survivable
-  path) rather than pretending an exact alarm is a hard guarantee.
+  path); an exact alarm is not a hard guarantee there.
 - **Android's small icon must be a monochrome silhouette.** A full-color icon renders as a white
   square. The part requires a declared notification icon resource (`res::images::notify`, §18) and
   defaults to a silhouette of the app icon, so the white-blob failure cannot happen by omission.
 - **macOS drops local notifications from an unsigned or unbundled binary, silently.** They need a
   signed `.app` with a bundle identifier. `day pack` produces one, but `day launch` in the dev
-  loop may run a bare binary that shows nothing — a confusing "works after pack, not in dev"
+  loop may run a bare binary that shows nothing, a confusing "works after pack, not in dev"
   failure. `day doctor` should report it, and the docs call it out.
 - **Windows unpackaged apps need a Start Menu shortcut and a COM activator.** Without an
   AppUserModelID-carrying shortcut and a registered COM callback, toasts either do not appear or
@@ -342,13 +341,12 @@ each with how the part handles it.
   the user's Start Menu, which is documented.
 - **Linux has no scheduler and an inconsistent daemon.** `notify-send` may be absent, gives no
   callbacks, and different daemons handle actions and `.desktop` matching differently. Scheduling
-  only works while the process runs. The part states this rather than implying parity with Apple.
+  only works while the process runs, and the part documents that limit.
 - **The cold-launch tap must be buffered.** Tapping a notification that launches a dead app
   produces the tap before the Day root exists. The part reads the launch payload (Apple's delegate
   / `didFinishLaunching`, Android's `Intent` extras in `DayActivity`, Windows COM activation args),
   buffers it, and replays it as `Event::RouteRequested` once routing is ready. Without this, a tap
-  opens the app to its default screen instead of the target — the single most common notification
-  bug, designed out.
+  opens the app to its default screen instead of the target, a common notification bug.
 - **Do not auto-prompt for permission at launch.** iOS guidance and user trust both argue for
   asking at a natural moment. The part offers `request()` but never prompts on its own, leaving the
   timing to the app.
@@ -356,8 +354,8 @@ each with how the part handles it.
 ## Phasing (local)
 
 1. **Post now, plus channels, actions, and tap-to-route**, on Apple, Android, Linux, Windows, and
-   web-when-open. This alone serves every app whose notifications are self-posted — Files, Photos,
-   a completion alert.
+   web-when-open. This alone serves every app whose notifications are self-posted (Files, Photos,
+   a completion alert).
 2. **Scheduling** on Apple, Android (with the alarm/boot/exact machinery), and Windows. This is
    what Clock needs, with the iOS caveat that a scheduled notification shows but cannot loop audio.
 3. **Inline reply and badges** where the platform supports them; HarmonyOS scheduling.
@@ -380,33 +378,34 @@ day::watch(move || if let Some(t) = token.get() {
 push::on_message(|msg| store.merge(msg.data));   // data pushes, when the app is alive
 ```
 
-A push either **shows a notification** — drawn by the OS, or by the local part from the payload on
-a data push, no app code — or **wakes the app** into `on_message`. The token is opaque and
+A push either **shows a notification** (drawn by the OS, or by the local part from the payload on
+a data push, with no app code) or **wakes the app** into `on_message`. The token is opaque and
 scheme-tagged so the sender routes it without the app knowing the transport: `apns:`,
 `unifiedpush:`, `webpush:`, `fcm:`.
 
-Transports, by platform, none requiring Google as a hard dependency:
+The transports, by platform (none requires Google as a hard dependency):
 
 - **Apple**: APNs. Register with `registerForRemoteNotifications`; the server sends over APNs
-  HTTP/2 with token auth (a `.p8` JWT). Needs the `aps-environment` entitlement — the reason push
-  is a heavier part than local.
-- **Android**: **UnifiedPush first** (a user's distributor app — ntfy, NextPush — holds one
+  HTTP/2 with token auth (a `.p8` JWT). It needs the `aps-environment` entitlement, which is why
+  push is a heavier part than local.
+- **Android**: **UnifiedPush first** (a user's distributor app such as ntfy or NextPush holds one
   connection; Day registers over broadcast intents and gets an HTTP endpoint as its token; the
-  server pushes by POSTing to it — the GrapheneOS-friendly path), a **self-hosted foreground
-  connection** as fallback when no distributor is installed (the Modern Apps `messages` model,
-  quarantined like `matrix-core`), and **FCM as an optional, feature-gated** transport for
-  stock-Android battery life — never in the default build, never a `google-services.json` unless
-  the app opts in. The part probes and picks the best available, so one APK degrades FCM →
-  UnifiedPush → self-hosted without a rebuild.
+  server pushes by POSTing to it; this is the path that works on GrapheneOS), a **self-hosted
+  foreground connection** as fallback when no distributor is installed (the Modern Apps
+  `messages` model, quarantined like `matrix-core`), and **FCM as an optional, feature-gated**
+  transport for stock-Android battery life, excluded from the default build and adding a
+  `google-services.json` only when the app opts in. The part probes and picks the best available,
+  so one APK degrades FCM → UnifiedPush → self-hosted without a rebuild.
 - **Web**: the Web Push API + VAPID (RFC 8030 + 8292) via a service worker; the `PushSubscription`
-  is the token. Vendor-neutral — Safari, Firefox, and Chromium speak the same protocol.
+  is the token. It is vendor-neutral: Safari, Firefox, and Chromium speak the same protocol.
 - **Desktop**: generally none (Windows `WNS` needs a Store identity, macOS push needs a
   provisioning profile). Local notifications cover the desktop.
 
 # `day-notify` (the sending tool)
 
 The logic lives in a `day-notify` library crate, exposed as a `day notify` porcelain subcommand
-for developers and as a standalone thin binary (`cargo install day-notify`, no toolchain) for
+for developers and as a standalone thin binary (`cargo install day-notify`, with no other
+toolchain needed) for
 servers. It abstracts APNs HTTP/2 (JWT from a `.p8`), Web Push (RFC 8291 encryption + VAPID),
 UnifiedPush (a plain POST), and optional FCM (HTTP v1 + service account) behind one command,
 choosing the transport from the token's scheme. Configuration (`day-notify.toml`) holds the
@@ -504,7 +503,7 @@ Both are small, and both should land before the part does.
 
 **1. A part cannot contribute manifest components.** `AndroidMeta` in
 `crates/day-cli/src/pieces.rs` accepts `java`, `res`, `gradle-dependencies`,
-`gradle-repositories`, `permissions`, and `proguard` — there is no way to declare a
+`gradle-repositories`, `permissions`, and `proguard`; there is no way to declare a
 `<receiver>`. Scheduled notifications need three (alarm, action, boot). Proposed: a
 `manifest-components` key naming an XML fragment holding `<receiver>`/`<service>` elements, which
 `day build` merges into the same generated overlay `permissions` already flows through. It is
@@ -514,20 +513,20 @@ push part needs a receiver; a background-work part would need a service).
 **2. Nothing could request a route from off the UI thread, or before launch.** An earlier draft of
 this document said day-core needed a buffered launch-route slot. Implementing it showed that was
 wrong: `nav::set_launch_deeplink` already existed and `launch_with` already consumed it one turn
-after the first mount (web-dom seeds it from the URL hash). Two things were genuinely missing, and
-both bite exactly the notification case:
+after the first mount (web-dom seeds it from the URL hash). Two things were missing, and both
+affect the notification case:
 
 - **`set_launch_deeplink` writes a thread-local.** A notification tap arrives on a JNI thread on
   Android and a delegate callback on Apple, so calling it from there would set the slot on the
   wrong thread and the route would vanish.
-- **`day_reactive::on_main` panics when no poster is installed**, which is precisely the state a
-  tap that cold-starts the process arrives in — so glue could not simply post the navigation.
+- **`day_reactive::on_main` panics when no poster is installed**, which is the state a tap that
+  cold-starts the process arrives in, so glue could not post the navigation.
 
 Shipped instead: **`day_core::request_route(route)`**, thread-safe and lifecycle-agnostic. It
 writes a process-global buffer and, only if a backend has installed the poster
 (`day_reactive::has_main_poster()`, also new), posts a drain onto the UI thread. Before launch the
-buffer is picked up by `launch_deeplink()` — peeked, not taken, so `has_launch_deeplink()` keeps
-answering true and a tap still beats restored navigation state — and `launch_with` consumes it
+buffer is picked up by `launch_deeplink()` (peeked, not taken, so `has_launch_deeplink()` keeps
+answering true and a tap still beats restored navigation state), and `launch_with` consumes it
 after the first mount. Cold start and warm tap are the same call from the caller's side.
 
 What each backend still has to do is small: read its platform's launch payload (Apple's delegate
@@ -579,13 +578,13 @@ fact rather than a documentation note.
 | Trigger | `nil` for `Now`; `UNTimeIntervalNotificationTrigger` for `In`/`Every` (repeats ≥ 60 s, enforced by the OS); `UNCalendarNotificationTrigger` from `NSDateComponents` for `At` |
 | Post | `UNNotificationRequest(identifier:content:trigger:)` → `addNotificationRequest:withCompletionHandler:` |
 | Cancel | `removePendingNotificationRequestsWithIdentifiers:` + `removeDeliveredNotificationsWithIdentifiers:` |
-| Pending | `getPendingNotificationRequestsWithCompletionHandler:` — **async**, so the API is `pending_async`/`pending_future`, with a `Signal<Vec<NotifId>>` mirror the UI can bind |
+| Pending | `getPendingNotificationRequestsWithCompletionHandler:`; **async**, so the API is `pending_async`/`pending_future`, with a `Signal<Vec<NotifId>>` mirror the UI can bind |
 | Tap / action | A delegate defined with `objc2::define_class!` implementing `UNUserNotificationCenterDelegate`: `userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:` for taps and actions (`actionIdentifier`, plus `userText` on a `UNTextInputNotificationResponse`), and `willPresentNotification:` returning `.banner | .sound | .list` so a notification shows while the app is foreground |
 
 The delegate must be installed **before** the app finishes launching, or the cold-launch response
 is dropped. The part registers it from a `WillLaunch` lifecycle hook ([docs/lifecycle.md](lifecycle.md)) and
 buffers the first response until routing is live. macOS additionally requires a signed, bundled
-`.app` with a bundle identifier — `day pack` produces one, `day launch` may not, so `day doctor`
+`.app` with a bundle identifier: `day pack` produces one and `day launch` may not, so `day doctor`
 should report "local notifications need a signed bundle" on macOS rather than leaving a silent
 no-show.
 
@@ -596,7 +595,7 @@ Immediate posting is the easy half: `DayLocalNotify.createChannel(...)` once per
 `NotificationManagerCompat.notify(id, builder.build())` with `setSmallIcon`, `setContentTitle`,
 `setContentText`, `setAutoCancel(true)`, `setContentIntent(PendingIntent)`, and one
 `Notification.Action` per channel action (`FLAG_IMMUTABLE`, plus `RemoteInput` on a reply action).
-No Play Services anywhere, so it runs on AOSP, GrapheneOS, or a Kindle.
+It uses no Play Services, so it runs on AOSP, GrapheneOS, or a Kindle.
 
 Scheduling is the hard half, because **Android has no notification scheduler**. The flow:
 
@@ -610,35 +609,36 @@ Scheduling is the hard half, because **Android has no notification scheduler**. 
    (returning `Scheduled::Inexact` so the app can tell the user "may fire late") or hands back the
    `ACTION_REQUEST_SCHEDULE_EXACT_ALARM` settings deep link. It never silently drops the alarm.
 4. `DayNotifyAlarmReceiver` fires in a fresh process with **no Day tree alive**. It reads the
-   record and posts through the same shim — which is precisely why the payload must be fully
-   materialized at schedule time.
+   record and posts through the same shim, which is why the payload must be fully materialized
+   at schedule time.
 5. `DayNotifyBootReceiver` re-arms every persisted record on `BOOT_COMPLETED` and
    `MY_PACKAGE_REPLACED`, because a reboot clears all alarms.
 
 Taps use a `PendingIntent` into `DayActivity` carrying a `day.route` extra; day-android reads it in
 `onCreate`/`onNewIntent` and feeds the buffered launch-route slot. Actions go to
-`DayNotifyActionReceiver`, which — when the process is alive — emits
-`Event::Custom { tag: "notify:action", … }` through the JNI bridge, and when it is not, performs
-the record's declared side effect and cancels the notification. `android/res` ships a monochrome
+`DayNotifyActionReceiver`, which emits `Event::Custom { tag: "notify:action", … }` through the
+JNI bridge when the process is alive, and when it is not, performs the record's declared side
+effect and cancels the notification. `android/res` ships a monochrome
 `ic_day_notify.xml` as the default small icon so the white-square failure cannot happen by
 omission; an app overrides it with a `res::images` handle.
 
 ### Linux — `src/linux.rs`
 
-Two tiers, mirroring how `day-part-clipboard` handles a missing toolkit-independent API:
+There are two tiers, mirroring how `day-part-clipboard` handles a missing toolkit-independent
+API:
 
 - **Tier 1**: shell out to `notify-send`. Shows the notification, gives no action callbacks and no
   stable id. Used when the D-Bus socket is unavailable.
 - **Tier 2 (target)**: speak `org.freedesktop.Notifications` directly over the session bus from
-  `$DBUS_SESSION_BUS_ADDRESS` — EXTERNAL auth (`AUTH EXTERNAL <hex uid>`, `BEGIN`), then a method
+  `$DBUS_SESSION_BUS_ADDRESS`: EXTERNAL auth (`AUTH EXTERNAL <hex uid>`, `BEGIN`), then a method
   call to `Notify(app_name, replaces_id, app_icon, summary, body, actions, hints, expire_timeout)`,
   with a match rule and a listener for the `ActionInvoked` and `NotificationClosed` signals.
-  `replaces_id` gives update-in-place; the `urgency` hint (0/1/2) carries importance. std only, no
-  D-Bus crate — the tree does not have one and this does not justify adding one.
+  `replaces_id` gives update-in-place; the `urgency` hint (0/1/2) carries importance. It is std
+  only; the tree has no D-Bus crate and this does not justify adding one.
 
-Deliberately **not** `Gio.Notification`/`GApplication.send_notification`: that needs a
-`GApplication` and an installed `.desktop` file, and it would not work in a `day-qt` binary — the
-same toolkit-independence reason clipboard avoids GDK. There is no OS-held scheduler, so `schedule`
+The part avoids `Gio.Notification`/`GApplication.send_notification`, which needs a
+`GApplication` and an installed `.desktop` file and would not work in a `day-qt` binary; clipboard
+avoids GDK for the same toolkit-independence reason. There is no OS-held scheduler, so `schedule`
 arms a timer through `Platform::post_delayed` and is documented as lost if the process exits.
 
 ### Windows — `src/windows.rs` + the day-xaml-sys shim
@@ -652,8 +652,8 @@ fires while the app is closed. `GetScheduledToastNotifications` backs `pending()
 The pitfall is unpackaged activation: a Win32 XAML-islands host must have a Start Menu shortcut
 carrying an `AppUserModelID` and a `ToastActivatorCLSID`, plus a registered COM class implementing
 `INotificationActivationCallback`, or taps and actions never reach the app. The shim writes the
-shortcut and registers the CLSID at first run; that it touches the user's Start Menu is documented
-rather than hidden.
+shortcut and registers the CLSID at first run, and the docs note that it touches the user's Start
+Menu.
 
 ### HarmonyOS — `src/ohos.rs`
 
@@ -663,7 +663,7 @@ uncertain**: the NDK C surface for notifications is narrower than the ArkTS one,
 notifications go through the reminder agent, which may be ArkTS-only. If it is, the scheduling half
 ships as an ArkTS source dir through `[package.metadata.day.ohos].ets`, the same route
 `day-piece-webview` takes for the `Web` component. Immediate first; whatever the C API cannot reach
-is deferred and reported as `Unsupported`, not faked.
+is deferred and reported as `Unsupported`.
 
 ### Web — `src/web.rs` + the day-dom shim
 
@@ -679,7 +679,7 @@ the delayed poster. The service worker must be a served file, not a bundled asse
 ### mock
 
 Records `notify`/`schedule`/`cancel` ops for assertion and answers a deterministic
-`capabilities()`, so the whole flow is unit-testable on `day-mock` with no display — the same
+`capabilities()`, so the whole flow is unit-testable on `day-mock` with no display, the same
 contract every other part keeps.
 
 ---
@@ -691,23 +691,23 @@ alphabetical position (between Menus and Preferences), with `Section::Notify => 
 follows the `services.rs` shape: `page(title, id, caption, form((section, …)))`, every string a
 `crate::res::str::*` key, every control an `.id()` so dayscript can drive it.
 
-Its job is to make the *capability differences* visible, not to hide them — the showcase's
-purpose. The first section is a live capability readout, and controls the backend cannot honor are
-disabled rather than silently ignored.
+Its job is to make the *capability differences* visible, which is the showcase's purpose. The
+first section is a live capability readout, and controls the backend cannot honor are disabled
+rather than silently ignored.
 
 ### Sections and controls
 
-**1. Capabilities** — a read-only grid bound to `capabilities()`: post now, schedule while dead,
+**1. Capabilities**: a read-only grid bound to `capabilities()`: post now, schedule while dead,
 channels, actions, inline reply, badge. Each row shows Native / Emulated / Unsupported for the
-running backend. This is the page's honest header, and it is what a screenshot of this page on
-eight backends is actually worth looking at.
+running backend. This grid is the page's header, and it is what a screenshot of this page on
+eight backends shows.
 
-**2. Compose** — the message itself:
+**2. Compose** (the message itself):
 - `text_field` title (`notify-title`), default from a res string so it localizes.
 - `text_area` body (`notify-body`), 2–4 lines.
 - `text_field` subtitle (`notify-subtitle`), disabled where the platform has no subtitle.
 
-**3. Delivery** — when and how loudly:
+**3. Delivery** (when and how loudly):
 - `picker` delay (`notify-delay`): Now / 5 s / 30 s / 1 minute / 1 hour. Values above "Now" are
   disabled when `capabilities().schedule_while_dead` is false **and** the platform cannot even
   schedule in-process, with a footnote naming why.
@@ -716,20 +716,20 @@ eight backends is actually worth looking at.
   registration so the page registers five channels up front rather than mutating one.
 - `toggle` sound (`notify-sound`).
 
-**4. Presentation** — the metadata:
+**4. Presentation** (the metadata):
 - `picker` icon (`notify-icon`) over three bundled monochrome glyphs plus "app default",
   demonstrating `res::images` and the Android silhouette rule.
 - `slider` badge count 0–9 (`notify-badge`), disabled where unsupported.
-- `text_field` group key (`notify-group`) — `threadIdentifier` on Apple, group on Android, `tag` on
+- `text_field` group key (`notify-group`): `threadIdentifier` on Apple, group on Android, `tag` on
   the web.
 - `picker` route (`notify-route`) over a few real showcase routes, so tapping the notification
-  navigates and the tap-routing rail is demonstrable rather than asserted.
+  navigates, which demonstrates the tap-routing rail.
 - `toggle` actions (`notify-actions`) adding "Snooze" and a "Reply" inline-text action where
   supported.
 
 **5. Post and manage**:
 - `button` Post (`notify-post`), `button` Cancel all (`notify-cancel`).
-- `label` status (`notify-status`) — posted, scheduled with the fire time, or the `NotifyError`.
+- `label` status (`notify-status`): posted, scheduled with the fire time, or the `NotifyError`.
 - `label` pending count (`notify-pending`), bound to the `pending()` signal.
 - `label` last action (`notify-last-action`), showing the id and any reply text that came back,
   which is how the event round-trip becomes visible in a screenshot.
@@ -748,25 +748,25 @@ full-screen = false    # the showcase does not demonstrate alarm-style takeover
 
 Per platform, `day build` then folds in: `POST_NOTIFICATIONS` + `RECEIVE_BOOT_COMPLETED` + the
 three `<receiver>`s + the proguard keeps on Android; the `UserNotifications` framework on
-iOS/macOS (no entitlement, since no channel uses `Urgent`… and if the page's Urgent option is
-exercised, the time-sensitive entitlement is required, which is itself worth demonstrating and
-should be declared); the AUMID shortcut on Windows; the service worker on web-dom. Four new locale
-blocks in `resource/locales/{en,fr,ar,zh-CN}/app.ftl` — the showcase requires all four, and
+iOS/macOS (no entitlement while no channel uses `Urgent`; exercising the page's Urgent option
+requires the time-sensitive entitlement, which should be declared and is itself a useful
+demonstration); the AUMID shortcut on Windows; the service worker on web-dom. Four new locale
+blocks in `resource/locales/{en,fr,ar,zh-CN}/app.ftl`; the showcase requires all four, and
 `day lint` enforces cross-locale coverage.
 
-### Walkthrough, and what it can honestly assert
+### Walkthrough, and what it can assert
 
 A `dayscript/notify-post.yaml` navigates to the page, fills the fields, posts, and asserts the
 in-app status and pending count, then captures a screenshot. Added to `walkthrough.yaml` with
 `skip_on: [web-dom]` for the scheduling steps.
 
-**What it cannot assert is that the OS actually displayed anything.** A notification is drawn
-outside the app's window, so `snapshot_window` will not contain it and a green walkthrough proves
-only that the part returned success. Verifying real delivery means looking at a device — a
-simulator notification banner, an emulator shade pull, a desktop toast. The page and its script
+**What it cannot assert is that the OS displayed anything.** A notification is drawn
+outside the app's window, so `snapshot_window` will not contain it and a green walkthrough shows
+only that the part returned success. Verifying real delivery means looking at a device (a
+simulator notification banner, an emulator shade pull, a desktop toast). The page and its script
 should say so, and the per-backend gallery caption should not imply otherwise. This is the same
-trap as asserting native menus through a script that bypasses them: the assertions are worth
-having, and they are not evidence of delivery.
+limitation as asserting native menus through a script that bypasses them: the assertions are
+useful, and they are not evidence of delivery.
 
 ## Phasing
 

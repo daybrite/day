@@ -246,7 +246,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
     // The pool holds several shots per platform, so a plain shuffle can land the same
     // platform twice in a row. Repair: for each position that repeats its predecessor's
     // platform, swap with any other position where BOTH elements fit their new neighbors;
-    // then mend the loop seam (last → first counts as adjacent) the same way. With the real
+    // then mend the loop join (last → first counts as adjacent) the same way. With the real
     // pool (≥3 platforms) this converged in 0 of 50k simulated shuffles' failures; degenerate
     // pools (≤2 platforms) stay best-effort rather than looping.
     const plat = (idx: number) => imgs[idx].dataset.accent ?? '';

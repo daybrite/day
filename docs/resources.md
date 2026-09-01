@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Resources (§18.3, §18.4, §18.5)
 
 Day apps bundle three kinds of resource, all looked up by name, all routed through each platform's
-native resource machinery so they get the platform's optimizations and load paths for free. Day
+native resource machinery so they get the platform's optimizations and load paths. Day
 never rewrites your pixels or bytes itself. It hands the raw files to the native build system, which
 optionally optimizes them (actool re-encodes/dedupes, aapt2 crunches, …). Data is stored
 uncompressed wherever the platform allows, so the runtime can return a zero-copy view.
@@ -50,7 +50,7 @@ Symbols are lowercase `[a-z0-9_]`: the file stem for images, the file name (sani
 `special_elite`) for fonts.
 
 `resource/assets/` is a **tree**: directories nest to any depth, ship with their structure
-preserved, and generate a matching *module* tree. Each directory is also itself a constant — a
+preserved, and generate a matching *module* tree. Each directory is also itself a constant, a
 typed `AssetDir` sharing its module's name (consts and modules live in different Rust
 namespaces):
 
@@ -91,7 +91,7 @@ the backend resolves the name.
   `DayResources_DayResources.bundle`; the backend loads via
   `UIImage(named:in:compatibleWith:)`.
 - **macOS (AppKit):** the image is a file in the `.app` bundle, loaded with
-  `NSImage(contentsOfFile:)` — the `platform/macos/` Xcode host stages images into
+  `NSImage(contentsOfFile:)`; the `platform/macos/` Xcode host stages images into
   `Contents/Resources` through its `day xcode-backend stage-resources` phase rather than through
   an asset catalog. (Optimization is whatever the source already is; no `actool` runs for
   images.)
@@ -129,8 +129,8 @@ opener once via `day_core::set_resource_opener`; absent that, the default mmap-f
 ## Fonts: `Font::custom(res::fonts::family, pt)` (§18.4)
 
 `resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
-table, never by file name. The single invariant that makes the name resolve everywhere with no
-side table: `day build` parses the name table (`day_spec::fonts::parse_font_names`, a ~100-line
+table, never by file name. One invariant makes the name resolve everywhere without a side
+table. `day build` parses the name table (`day_spec::fonts::parse_font_names`, a ~100-line
 bounds-checked sfnt reader shared by the CLI and the runtimes) and derives every staged name from
 the family via `font_ident` ("Special Elite" → `special_elite`), so a runtime can re-derive it
 from the requested name. The size scales with the platform accessibility text scale exactly like
@@ -144,7 +144,7 @@ Per platform:
   `Contents/Resources/fonts` (copied by `day pack`).
 - **iOS (UIKit):** fonts ride the DayPieces SwiftPM bundle as a `.copy("fonts")` resource
   (`DayPieces_DayPieces.bundle/fonts/…`): `.copy`, not `.process`, so the bytes land verbatim.
-  `day build` ALSO syncs a `UIAppFonts` array into `platform/ios/Runner/Info.plist` (managed key,
+  `day build` also syncs a `UIAppFonts` array into `platform/ios/Runner/Info.plist` (managed key,
   rewritten each build), and day-uikit registers the bundle dir with CoreText at launch; the
   registration covers dev loops and any path iOS declines to load from the plist.
 - **Android:** staged as `res/font/<ident>.<ext>`; aapt2 assigns `R.font.<ident>`.
@@ -152,7 +152,7 @@ Per platform:
   sanitization, resolves via `Resources.getIdentifier(…, "font", pkg)` → `getFont` (API 26+;
   older devices log and fall back), caches the Typeface, and builds
   `Typeface.create(base, weight, italic)` on API 28+.
-- **GTK:** `FcConfigAppFontAddFile` on Linux; on macOS BOTH CoreText and fontconfig (Homebrew
+- **GTK:** `FcConfigAppFontAddFile` on Linux; on macOS both CoreText and fontconfig (Homebrew
   Pango may sit on either fontmap); `AddFontResourceExW(FR_PRIVATE)` best-effort on Windows.
   The label carries a Pango `AttrString::new_family` attribute.
 - **Qt:** `QFontDatabase::addApplicationFont` per file at startup (shim `day_qt_register_font`);

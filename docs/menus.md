@@ -61,10 +61,10 @@ menu_item(tr("brand")).image("brand-mark").action(insert_brand)
 ```
 
 `.icon(Symbol)` takes the same standard vocabulary toolbars take (each backend draws its own
-glyph — an SF Symbol, a freedesktop icon name, a Segoe Fluent code point), and `.image(name)` a
+glyph: an SF Symbol, a freedesktop icon name, a Segoe Fluent code point), and `.image(name)` a
 bundled picture from `resource/images` for something only this app has.
 
-An icon is always an ADDITION to a menu that reads correctly without one, because not every
+An icon is always an addition to a menu that reads correctly without one, because not every
 platform's menus carry pictures:
 
 | | icons in menus |
@@ -73,7 +73,7 @@ platform's menus carry pictures:
 | **GTK** | yes — the `GMenuModel` "icon" attribute, drawn by `GtkPopoverMenu` |
 | **Qt** | yes — `QAction::setIcon`, resolved like a toolbar icon (theme name, then Day's own outline, then the QStyle standard set) |
 | **XAML** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
-| **Android** | ignored, deliberately: Material's overflow menu is text-only, and the app-bar ACTION is where an icon belongs |
+| **Android** | ignored: Material's overflow menu is text-only, and an icon belongs on an app-bar action |
 | **ArkUI**, **web-dom** | no menus of this kind to put an icon in |
 
 ## Keyboard shortcuts
@@ -91,16 +91,16 @@ menu_item("Delete").shortcut(Shortcut::plain("Delete"))      // no primary modif
 `.control()` add the others (`.control()` is the physical Control key, distinct from `primary` on
 macOS). Named keys (`"Return"`, `"Delete"`, `"Space"`, `"F5"`, arrows) are recognized alongside
 single characters. The shortcut is drawn in the native accelerator position and is live whenever the
-menu (or its window) is in the responder/focus chain. On GTK, `primary` spells the COMMAND key on
-macOS (`<Meta>` — GTK4's `<Primary>` is a plain `<Control>` alias, unlike GTK3's) and `<Primary>`
+menu (or its window) is in the responder/focus chain. On GTK, `primary` spells the Command key on
+macOS (`<Meta>`, since GTK4's `<Primary>` is a plain `<Control>` alias, unlike GTK3's) and `<Primary>`
 elsewhere, so the one spec stays right on macos-gtk too.
 
 The standard roles need no spelling at all: `menu_role(Undo/Redo/Cut/Copy/Paste/SelectAll)` items
 take the platform-neutral defaults (primary+Z/X/C/V/A, shift for redo) unless the app sets its
-own — AppKit's native items always carried these; the lowering is what gives GTK, Qt and the
-other action-routed backends the same accelerators.
+own. AppKit's native items always carried these; the lowering gives GTK, Qt, and the other
+action-routed backends the same accelerators.
 
-Shortcuts render on the platforms that draw a menu bar — the three desktops, which is
+Shortcuts render on the platforms that draw a menu bar: the three desktops, which is
 [`Cap::AppMenu`](duty-matrix.md). The UIKit and Android menu builders take the item and drop
 its accelerator, so an app that wants a key to work there routes it through `.on_key` on the
 focused piece instead; probe `Cap::AppMenu` to decide which, or the key fires twice where both
@@ -137,7 +137,7 @@ equivalent on a platform render as an inert labeled item; no behavior is imposed
 
 ³ On a toolkit with no native undo responder, `MenuRole::Undo`/`Redo` items lower onto a
 standing dispatcher (`day_core::undo_action_id`) that invokes the undo history installed via
-`day::install_undo` ([docs/model.md](model.md)) — the same stack the platform's own route reaches on
+`day::install_undo` ([docs/model.md](model.md)), the same stack the platform's own route reaches on
 macOS/iOS, so one `menu_role` pair behaves consistently everywhere the menu renders.
 
 ⁴ The edit bridge (`Cap::EditBridge`). An app that can cut/copy/paste its own objects installs
@@ -154,30 +154,30 @@ day::install_edit_commands(
 ```
 
 Two companions round out the platform's input idioms. `day::modifiers()` answers the keyboard
-modifiers held right now (`shift`, `primary` — ⌘ on Apple platforms, Ctrl elsewhere — and
-`alt`), for interactions whose meaning they change: shift-click adding to a selection instead
+modifiers held right now (`shift`, `primary`, which is ⌘ on Apple platforms and Ctrl elsewhere,
+and `alt`), for interactions whose meaning they change: shift-click adding to a selection instead
 of replacing it. It is a live query, not an event field, so it is right wherever it is asked. A
-backend that cannot answer reports all-false — correct for touch platforms, and something to
-check before relying on it elsewhere ([the `modifiers` row of the duty
+backend that cannot answer reports all-false, which is correct for touch platforms and something
+to check before relying on it elsewhere ([the `modifiers` row of the duty
 matrix](duty-matrix.md)). A dayscript `tap:` or `drag:` step's declared `modifiers:` take
 precedence while it dispatches.
 
 `.on_key(f)` handles the non-text keys, under the web `KeyboardEvent.key` names and with the
 held modifiers on the event (`ev.shift()` scales a nudge from 1px to 10). The four arrows
 arrive everywhere. `Delete` and `Backspace` arrive only where [`Cap::AppMenu`](duty-matrix.md)
-is unsupported — where there is no menu bar, and so no accelerator that could own them.
+is unsupported, where there is no menu bar and so no accelerator that could own them.
 
-That split is not a gap, it is the rule that keeps one key to one owner. **A focused piece
+That split keeps one key to one owner. **A focused piece
 that claims a key stops any accelerator from ever seeing it**: the platform offers the key to
 the focus chain, and a piece with an `.on_key` handler claims every key the route carries, not
 just the ones its handler acts on. So a canvas that received `Delete` on a menu-bar platform
 would swallow the very `Delete` its own Edit menu was about to act on. Route a key through the
-menu OR through `.on_key`, never both, and probe `Cap::AppMenu` to decide which — Day-Sketch's
+menu or through `.on_key`, never both, and probe `Cap::AppMenu` to decide which. Day-Sketch's
 `canvas_key` is the worked example, and the delete keys are routed to match it.
 
-The two delete keys keep the names the platform gives the PHYSICAL key, so a handler meaning
+The two delete keys keep the names the platform gives the physical key, so a handler meaning
 "remove this" takes both: a Mac's ⌫ reports `Backspace`, a full-size keyboard's Del reports
-`Delete`. **Keys follow focus.** The handler hangs off a PIECE and fires only while that piece is the focused
+`Delete`. **Keys follow focus.** The handler hangs off a piece and fires only while that piece is the focused
 one, so it is scoped the way every other input is:
 
 ```rust
@@ -186,29 +186,29 @@ canvas(draw)
     .focused(canvas_focused)        // …which it takes at mount and on every press
 ```
 
-That scoping is the whole design, and it is why there is no window-level key handler to pair
-it with. A global route cannot tell a nudge the app wants from the keys a focused widget needs:
-it has to run ahead of the platform's own dispatch, which means guessing whether the first
-responder would have wanted the key — and every guess is wrong for something. Day-Sketch's
+That scoping is why there is no window-level key handler to pair it with. A global route cannot
+tell a nudge the app wants from the keys a focused widget needs: it has to run ahead of the
+platform's own dispatch, which means guessing whether the first
+responder would have wanted the key, and every guess is wrong for something. Day-Sketch's
 arrow-nudge used to be installed that way, and it took the arrow keys away from every list and
 sidebar in every app that had one. Hanging the handler on the canvas removes the question:
 AppKit's responder chain and the DOM's focus already answer it.
 
-The cost is that a piece must be able to HOLD focus for its keys to arrive
-([docs/focus.md](focus.md)). A `canvas` can on every toolkit but android-mdc — each backend
-makes its drawing surface a tab stop and reports focus both ways — which is what makes it the
-piece a drawing app hangs its keys on. A piece that cannot take focus on a given backend simply
-never hears a key there, and a canvas nobody gave a handler to keeps none of them: an unclaimed
+The cost is that a piece must be able to hold focus for its keys to arrive
+([docs/focus.md](focus.md)). A `canvas` can on every toolkit but android-mdc (each backend
+makes its drawing surface a tab stop and reports focus both ways), which makes it the piece a
+drawing app hangs its keys on. A piece that cannot take focus on a given backend never
+hears a key there, and a canvas nobody gave a handler to keeps none of them: an unclaimed
 arrow keeps walking, so an enclosing scroll view still scrolls and the platform's own focus
 navigation still moves between controls.
 
-The payload format is the app's own — Day-Sketch uses a standalone SVG document, so shapes
+The payload format is the app's own; Day-Sketch uses a standalone SVG document, so shapes
 paste into anything that reads SVG and SVG from other editors pastes back. day places the
 payload on the system clipboard (day-part-clipboard) and reads it back for paste; on web-dom
 the browser's `copy`/`cut`/`paste` events themselves are the route, with the event's
 `clipboardData` as transport. Precedence is the platform's own: on macOS/iOS the responder
 chain lets a focused text field keep its clipboard behavior, and the app's handlers see only
-what falls through — the same items, the same shortcuts, the same menu validation
+what falls through, with the same items, shortcuts, and menu validation
 (`can_copy` greys Cut/Copy; Paste additionally requires clipboard text). On toolkits whose
 role items come back as plain menu actions (Android's app bar, web context menus), the
 `menu_role(Cut/Copy/Paste)` items dispatch to the same handlers via standing ids.
@@ -248,7 +248,7 @@ sub_menu("View", vec![ /* … */ ]).bar_role(MenuBarRole::View)
 A tagged menu replaces the stock one *in place*, so it also lands where the platform expects that
 menu to sit: `File`, `Edit`, `View` in the bar's leading order rather than adrift after them.
 
-The tag, not the title, is what identifies the slot, and localization is why: day's catalog and your
+The tag identifies the slot, not the title, because of localization: day's catalog and your
 app's may translate the same menu differently (day's `day-view` is *Présentation*; the showcase's is
 *Affichage*), so a bar matched on titles would show both under `--locale fr`. An untagged submenu
 whose title *does* equal the slot's standard name still takes the slot (that stops the most common
@@ -265,7 +265,7 @@ Where each backend puts the bar:
 - **Qt**: a `QMenuBar` (the native global bar on macOS-qt).
 - **Android**: the app-bar overflow (⋮), built by `DayActivity.onCreateOptionsMenu`.
 - **XAML**: a `MenuBar` docked at the top of the window.
-- **iOS/iPhone**: a no-op by design. Touch platforms have no persistent global menu bar; the native
+- **iOS/iPhone**: a no-op, because touch platforms have no persistent global menu bar; the native
   affordances are the per-Piece context menu and the system edit menu. (iPad/Catalyst `UIMenuBuilder`
   wiring is a future addition.)
 
@@ -282,24 +282,24 @@ just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 
 ## Re-installing the same menu
 
-`set_app_menu` compares the incoming model with the installed one, ignoring the action ids — an app
+`set_app_menu` compares the incoming model with the installed one, ignoring the action ids, because an app
 declares its menu inside the page build, so every route change re-installs the same commands behind
 freshly registered closures. A menu that differs only in those ids rebinds them onto the ids the
 platform already holds and makes no toolkit call, which keeps a menu the user has open from closing
-under them and stops the menu bar being rebuilt on every navigation. Anything else — a label, a
-shortcut, an enablement, a new command — installs as before.
+under them and stops the menu bar being rebuilt on every navigation. Anything else (a label, a
+shortcut, an enablement, a new command) installs as before.
 
 This is the rule the toolbar follows for the same reason ([docs/toolbars.md](toolbars.md), "Re-installing the same
 bar"), where the rebuild also took the keyboard focus out of the search field.
 
 ## Nav-row context menus
 
-A selector's rows can each carry their OWN context menu — `item(…).context_menu(vec![…])`
-inside the `.items` mapper ([docs/navigation.md](navigation.md)) — for the sidebar idioms every desktop app
+A selector's rows can each carry their own context menu (`item(…).context_menu(vec![…])`
+inside the `.items` mapper, [docs/navigation.md](navigation.md)) for the sidebar idioms every desktop app
 grows: per-feed "Mark all read", per-project "Reveal in Finder", the Showcase's per-page
 "Show Source". The entries are the same builders as everywhere else and lower through the
 same action registry, so a chosen entry dispatches identically to a piece context menu; the
-menus re-lower (re-localizing their labels) whenever the rows re-derive, exactly like the
+menus re-lower (re-localizing their labels) whenever the rows re-derive, like the
 row titles.
 
 Per backend: AppKit serves them through the outline's `menuForEvent:` (NSTableView-family
@@ -308,7 +308,7 @@ be consulted); UIKit through the table delegate's row-context hook (the standard
 row menu); GTK a per-row `PopoverMenu` with secondary-click + long-press gestures; Qt one
 `QMenu` per row popped from the list's custom-context request; Android a best-effort
 `setNavRowMenus` follow-up after the nav mounts (the same off-critical-path rule as the row
-tints — [docs/vectors.md](vectors.md)). Web and ArkUI drop them for now, same as the piece decorator's
+tints, [docs/vectors.md](vectors.md)). Web and ArkUI drop them for now, same as the piece decorator's
 matrix.
 
 ## Platform notes
@@ -324,12 +324,12 @@ matrix.
 The same [`MenuEntry`] tree is the right shape for the app-wide surfaces day does not drive
 yet: a macOS Dock menu is the existing builder plus one delegate hook
 (`applicationDockMenu(_:)`), while Windows jump lists and `.desktop` Actions persist while
-the app is closed, so their dispatch would have to lower to a relaunch argument — the real
+the app is closed, so their dispatch would have to lower to a relaunch argument; that is the
 design gap, gated on those platforms' deep-link intake.
 
 Launcher shortcuts already shipped by another road: Day.toml `[[shortcuts]]` drives iOS,
 Android, and HarmonyOS as route-keyed saved deep links, and
-[docs/deep-links.md](deep-links.md) owns that story end to end.
+[docs/deep-links.md](deep-links.md) describes that end to end.
 
 ## Runtime language changes: `app_menu_reactive`
 
@@ -344,9 +344,9 @@ untouched, and the durable Preferences/New Window dispatch ids always survive.
 ## The auto Preferences item + the Window menu
 
 `day::register_preferences*` gives every platform its standard Settings…/Preferences item
-(⌘, / Ctrl+comma) with zero menu code, and macOS also auto-installs the standard Window
-menu. The mechanics — injection into an installed menu, role rewiring, and the
-`register_new_window` builder — are [docs/windows.md](windows.md)'s story.
+(⌘, / Ctrl+comma) without any menu code in the app, and macOS also auto-installs the standard
+Window menu. The mechanics (injection into an installed menu, role rewiring, and the
+`register_new_window` builder) are described in [docs/windows.md](windows.md).
 
 ## Driving menus from dayscript
 
@@ -354,7 +354,7 @@ menu. The mechanics — injection into an installed menu, role rewiring, and the
 `menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable:
 app keys and the `day-*` role keys both work, so the auto Preferences item is
 `key: day-preferences`, with or without an installed app menu). `path: [File]`
-disambiguates by ancestor submenu: each entry matches a submenu's literal label OR its
+disambiguates by ancestor submenu: each entry matches a submenu's literal label or its
 Fluent key resolved in the run's locale, so `path: [menu_file]` works wherever
 `key: menu_file` does and one script stays valid in every language. The step dispatches the
 registered day action directly (toolkit-uniform, no native menu automation), so role-only
@@ -363,27 +363,27 @@ items that run a native selector (Cut, Quit, …) are not invokable this way.
 ## Dynamic context menus
 
 `.context_menu(items)` is declarative: one menu, set at build time. Some surfaces cannot
-know their menu until the click lands — a canvas whose commands describe the SELECTION under
-the pointer, a tree whose rows each mean something different — so two summon-time forms
+know their menu until the click lands (a canvas whose commands describe the selection under
+the pointer, a tree whose rows each mean something different), so two summon-time forms
 exist ([docs/tree.md](tree.md) is the driving case):
 
 - `.context_menu_fn(|point| … -> Vec<MenuEntry>)` on any piece: the closure runs when the
   user summons the menu (right-click on desktop, long-press on touch), receives the location
   in the piece's own coordinates, and whatever it returns is shown. An empty result shows
   nothing. The closure may adjust app state first (select what is under the pointer, then
-  build) — it runs on the UI thread, outside any day-core borrow, like every synchronous
-  seam closure.
+  build); it runs on the UI thread, outside any day-core borrow, like every other synchronous
+  Toolkit callback.
 - `tree(…).row_context_menu(|key| … -> Vec<MenuEntry>)`: the per-row form, handed the row's
-  key. The convention: a summon on a row outside the current selection selects that row
+  key. By convention, a summon on a row outside the current selection selects that row
   first, so the menu describes what it acts on.
 
 Action closures are lowered per summon into their own scope, disposed when the next summon
-(or the piece's teardown) replaces them — per-click menus never accumulate registrations.
+(or the piece's teardown) replaces them, so per-click menus never accumulate registrations.
 
 Backends: the duty is `Toolkit::set_context_menu_fn` (default no-op). AppKit serves it from
 `menuForEvent:` on the canvas view and the tree's outline; GTK from a button-3 click (and a
 long-press) building a one-summon `PopoverMenu`; UIKit from `UIContextMenuInteraction`,
-whose configuration callback is already summon-time — and the tree's rows from the
+whose configuration callback is already summon-time, and the tree's rows from the
 collection view's own `contextMenuConfigurationForItemAtIndexPath`. On AppKit the covered
 surfaces are the canvas and tree rows (other views keep the static `.menu` path); GTK's
 form is generic over any widget. Qt connects `customContextMenuRequested` to a callback
@@ -392,22 +392,22 @@ generic over any widget like GTK's.
 
 ### The composed presentation (web-dom)
 
-A toolkit with no native menu to hand the model to REPORTS the summon instead: web-dom's
+A toolkit with no native menu to hand the model to reports the summon instead: web-dom's
 shim listens for the browser's `contextmenu` (default prevented; **primary-button taps and
 drags ignore the right button**, or the summon's own pointer-up would come out as a tap and
 re-target the selection under the menu it just built) and emits
-`Event::ContextMenu { local, window }` — the point in the node's coordinates for the app's
-provider, and the same point in window coordinates for placement. The `.context_menu*`
+`Event::ContextMenu { local, window }`, carrying the point in the node's coordinates for the
+app's provider and the same point in window coordinates for placement. The `.context_menu*`
 decorators mount a lazily-armed, unrouted cover beside the decorated node (inside an
 overlay-host wrapper, so single-child layouts still reach it in the place pass); on the
-event they run the SAME provider and present the lowered model as day pieces — item rows
-(`day-menu-item-N` ids, so a browser test can click them), separators, inlined submenus,
-role items resolved to their standing dispatchers, disabled items dimmed — at the summon
-point, pulled inside the window near edges. A tap outside dismisses. Toolkits that serve
-menus natively never emit the event, so the fallback costs them nothing — not even a node,
+event they run the same provider and present the lowered model as day pieces at the summon
+point, pulled inside the window near edges: item rows (`day-menu-item-N` ids, so a browser
+test can click them), separators, inlined submenus, role items resolved to their standing
+dispatchers, and disabled items dimmed. A tap outside dismisses. Toolkits that serve
+menus natively never emit the event, so the fallback costs them nothing, not even a node,
 until a first summon that never comes.
 
-An app whose context menu commands need the CLIPBOARD (Cut/Copy/Paste items) calls
-`day::invoke_edit(EditOp::…)` — the same handler, transport included, the platform's own
-Edit route reaches — rather than duplicating the clipboard plumbing.
+An app whose context menu commands need the clipboard (Cut/Copy/Paste items) calls
+`day::invoke_edit(EditOp::…)`, the same handler (transport included) that the platform's own
+Edit route reaches, instead of duplicating the clipboard plumbing.
 

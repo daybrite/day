@@ -26,7 +26,7 @@ Every mobile OS requires a **build-time declaration** in addition to the runtime
 and the failure modes are not symmetric:
 
 - **iOS and macOS terminate the process** when it touches a gated API without the matching
-  `NS…UsageDescription` key. Not an exception you can catch: TCC terminates the process.
+  `NS…UsageDescription` key. There is no exception to catch: TCC terminates the process.
 - **Android** reports an undeclared permission as [`Status::Restricted`]: a request returns denied
   in the same frame, with no dialog, and Settings offers nothing.
 - **HarmonyOS** refuses the request outright.
@@ -58,7 +58,7 @@ if status(Permission::Camera) != Status::Granted {
 | `gate(perm) -> Gate` | whether this target gates the capability at all |
 | `status(perm) -> Status` | what the OS will do if you use it now (never blocks) |
 | `status_async` / `status_future` | the same, but authoritative where the platform is async |
-| `can_prompt(perm) -> bool` | whether `request` would actually show a dialog |
+| `can_prompt(perm) -> bool` | whether `request` would show a dialog |
 | `should_show_rationale(perm)` | Android's "explain first" signal; `false` elsewhere |
 | `request` / `request_future` | ask the OS |
 | `request_many` / `request_many_future` | ask for several in one prompt sequence |
@@ -71,7 +71,7 @@ framework at all.
 
 ## Two questions, two vocabularies
 
-`gate()` answers a structural question and `status()` a live one, and keeping them apart is what
+`gate()` answers a structural question and `status()` a live one, and keeping them apart
 lets an ungated platform answer accurately:
 
 | `Gate` | meaning |
@@ -84,14 +84,14 @@ lets an ungated platform answer accurately:
 |---|---|
 | `Granted` | go ahead |
 | `Prompt` | nobody has decided; `request` will show a dialog |
-| `Denied` | the user said no — `can_prompt` says whether asking again can help |
+| `Denied` | the user said no; `can_prompt` says whether asking again can help |
 | `Restricted` | policy forbids it, or it is missing from the merged manifest; neither asking nor Settings helps |
 | `Unsupported` | `Gate::Absent` |
 | `Unknown` | the platform answers only asynchronously and hasn't yet (web, and Apple notifications) |
 
 On desktop Linux the camera has no permission gate, so `status` answers **`Granted`**: an app
 asking "may I use the camera?" should proceed, and the real failure belongs at `open("/dev/video0")`.
-The structural fact is not lost; it moves to `gate() == Ungated`. Invariants, unit-tested:
+The structural fact moves to `gate() == Ungated`. Two invariants are unit-tested:
 `Ungated ⟹ Granted`, and `Absent ⟹ Unsupported`.
 
 `Granted` is not a promise that the hardware exists. A laptop with no camera still answers
@@ -100,14 +100,14 @@ The structural fact is not lost; it moves to `gate() == Ungated`. Invariants, un
 
 ## Reasons are not a runtime parameter
 
-`request(perm, reason)` is the natural API guess and it would be a lie: no platform accepts one.
+`request(perm, reason)` is the natural API guess, but no platform accepts a reason at request time.
 iOS and macOS read `NS…UsageDescription` from `Info.plist`; `requestPermissions(String[], int)` and
 `requestPermissionsFromUser(context, string[])` take no text, and neither does `getUserMedia` or
 `Notification.requestPermission`. The reason therefore lives in the declaration, where it reaches
 the OS, and the runtime hands your app the two bits it needs to draw its own priming UI:
 `should_show_rationale` and `can_prompt`.
 
-A happy consequence: no user-facing string crosses this crate's boundary, so the layering rule that
+As a consequence, no user-facing string crosses this crate's boundary, so the layering rule that
 keeps `IntoText`/`LocalizedText` out of parts ([docs/extending.md](extending.md) §4) never has to be worked around.
 
 ## Per-platform native realization
@@ -117,11 +117,11 @@ keeps `IntoText`/`LocalizedText` out of parts ([docs/extending.md](extending.md)
 | iOS | `CLLocationManager`, `AVCaptureDevice`, `PHPhotoLibrary`, `UNUserNotificationCenter` (async-only), `CMMotionActivityManager` | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
 | macOS | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
 | Android | `Context.checkSelfPermission` + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-android` + the crate's own Java shim |
-| HarmonyOS | `OH_AT_CheckSelfPermission` | needs an ArkTS seam — not yet built, so `can_prompt` is `false` | raw FFI |
+| HarmonyOS | `OH_AT_CheckSelfPermission` | needs an ArkTS bridge, not yet built, so `can_prompt` is `false` | raw FFI |
 | Web | `navigator.permissions.query` + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-dom shim |
 | Linux / Windows | constants | resolves immediately | — |
 
-Two platform truths worth stating:
+Two platform facts apply everywhere:
 
 - **`request` is callback-and-future only; there is no blocking form.** The OS prompt is drawn by
   the very thread a blocking call would park, so it would deadlock by construction on every platform.
@@ -132,7 +132,7 @@ Two platform truths worth stating:
 
 ### Android cannot tell "never asked" from "permanently denied"
 
-Not without app-side state, and **Day keeps none**. A denied-but-declared permission with no
+It cannot without app-side state, and **Day keeps none**. A denied-but-declared permission with no
 rationale flag is reported as `Prompt` either way. That is safe (asking after a permanent refusal
 shows no dialog and resolves `Denied` immediately), but if your app needs the distinction, record it
 yourself when you call `request`:
@@ -171,7 +171,7 @@ The table lives in `day_build::permissions`, one source shared by the CLI's gene
 crate's runtime, with a parity test pinning the Rust variant names so `day lint` can map a source
 reference back to a declaration.
 
-Escape hatches, for anything outside the portable seven:
+For anything outside the portable seven, use the raw tables:
 
 ```toml
 [permissions.raw]
@@ -189,11 +189,11 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 - **Android** — `build/day/android/day-pieces-manifest.xml`, gitignored and regenerated, merged by
   AGP. That filename is a compatibility surface: it is baked into every scaffold `day new` has
   generated, and a source set has one manifest slot, so it is widened, never moved.
-- **iOS/macOS** — the CHECKED-IN `platform/ios/Runner/Info.plist`, edited in place. Day owns exactly
+- **iOS/macOS** — the checked-in `platform/ios/Runner/Info.plist`, edited in place. Day owns exactly
   the keys in the table above plus your `[permissions.raw]` keys; every other byte is preserved, so
   the diff shows only what changed, and a hand-added key Day doesn't model is never touched. Two
-  consecutive builds produce a byte-identical file. This is a deliberate exception to "aggregation
-  never mutates the scaffolds" (DESIGN §15.2); the alternative broke `⌘R` in Xcode.
+  consecutive builds produce a byte-identical file. This is an exception to "aggregation
+  never mutates the scaffolds" (DESIGN §15.2), because the alternative broke `⌘R` in Xcode.
 - **HarmonyOS** — a marker region in `module.json5` (`// day:permissions-begin` … `-end`), inserted
   once on an older scaffold and replaced thereafter, plus `day_perm_reason_*` entries in
   `string.json`. Region editing rather than JSON5 parsing, because a round-trip would delete the
@@ -206,13 +206,13 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 | `day::lint::undeclared-permission` | code requests `Permission::X` that Day.toml doesn't declare |
 | `day::lint::missing-reason` | a declared permission that needs a reason has none |
 | `day::lint::unused-permission` | declared, referenced by nothing (a warning — over-declaring gets apps rejected) |
-| `day::lint::stale-manifest` | the checked-in `Info.plist` disagrees with Day.toml — run `day build -p ios-uikit` |
+| `day::lint::stale-manifest` | the checked-in `Info.plist` disagrees with Day.toml; run `day build -p ios-uikit` |
 
 ## What it shows about the extension system
 
 The crate registers nothing in any `RENDERERS` slice. Its Android half is bundled with it and folded
-into the app's Gradle build by `[package.metadata.day.android]`, with **zero edits to any core Day
+into the app's Gradle build by `[package.metadata.day.android]`, with **no edits to any core Day
 crate**, including the permission-result callback, which lives in a headless `Fragment` the crate
 attaches itself rather than in `day-android`'s `DayActivity`. Its `permissions = []` entry is
-deliberately empty and must stay that way: a permissions crate must never force a permission into an
+empty and must stay that way, because a permissions crate must never force a permission into an
 app's manifest. See [extending.md](extending.md).

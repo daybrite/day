@@ -1,6 +1,6 @@
 ---
 title: "HTTP"
-description: "HTTP through each platform's own network stack via day-part-http: no bundled TLS, system proxies for free."
+description: "HTTP through each platform's own network stack via day-part-http, inheriting system proxies and TLS."
 ---
 
 <!--
@@ -20,11 +20,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > macOS/iOS-sim/Android-emulator/browser via the showcase walkthrough and Day Skies' Open-Meteo
 > fetch.
 
-Why the platform stack instead of a Rust HTTP crate: the OS already knows the things an app can't
-easily discover (system proxies and PAC scripts, per-network VPN routing, Low Data Mode,
-enterprise/MDM certificate stores, user-installed CAs). Apps that fetch through the platform inherit
-all of it, and the native targets bundle **no TLS code at all** (rustls compiles only into the
-cfg-gated Linux/OHOS fallback).
+Day uses the platform stack because the OS already knows things an app cannot easily discover
+(system proxies and PAC scripts, per-network VPN routing, Low Data Mode, enterprise/MDM
+certificate stores, user-installed CAs). Apps that fetch through the platform inherit all of it,
+and the native targets use the platform's TLS (rustls compiles only into the cfg-gated Linux/OHOS
+fallback).
 
 ## Authoring
 
@@ -43,7 +43,7 @@ allowed), `.body(Vec<u8>)`, `.timeout(Duration)`, `.allow_expensive(bool)` /
 `.allow_constrained(bool)`. `Response { status, headers, body }` adds `text()` (lossy UTF-8) and a
 case-insensitive `header(name)`.
 
-Two contract points that differ from ureq-style clients:
+Two contract points differ from ureq-style clients:
 
 - **4xx/5xx are `Ok`.** An HTTP error status is a *response* (`resp.status == 404`), not an
   `HttpError`. Errors are transport-level only: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`,
@@ -65,7 +65,7 @@ day_part_http::fetch_async(Request::get(url), move |result| {
 });
 ```
 
-`fetch_async(req, on_done)` completes on a background thread by design: the crate never calls
+`fetch_async(req, on_done)` completes on a background thread, because the crate never calls
 `day_reactive::on_main` (which requires an installed backend poster and would break plain-`main`
 programs and `cargo test`). Capturing a `Setter` in `on_done` is the standard delivery idiom
 (DESIGN §4.5); it marshals to the UI thread itself and absorbs late deliveries after disposal.
@@ -126,10 +126,10 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 `RustFallback`, or `Unavailable`), so an app (or a doc table) never has to guess:
 
 - **NativeStack**: system proxy + PAC, VPN routing, platform TLS + certificate stores all apply.
-  The web is this tier: the browser IS the platform stack (proxies, TLS, certificate store,
+  The web is this tier: the browser is the platform stack (proxies, TLS, certificate store,
   HTTP/2/3 all come from it). But it is async-only: on the single browser thread a blocking wait
   would starve the event loop the completion needs ([docs/web.md](web.md)), so the blocking entry points
-  return `Unsupported` while `fetch_async`/`fetch_future` work in full. Two web-only realities
+  return `Unsupported` while `fetch_async`/`fetch_future` work in full. Two web-only rules
   apply: CORS governs cross-origin requests (and limits which response headers are visible),
   and browser-controlled headers (`Host`, `Cookie`, `Origin`, …) cannot be set from a request.
 - **RustFallback**: correct HTTP(S) via rustls + webpki roots, but system awareness is limited to
@@ -149,13 +149,13 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 | `Cancelled` | −999 | `Call.isCanceled()` (sentinel −7) | — (discard tier) | `AbortError` from `day_dom_http_abort` | — (discard tier) |
 | `Io(msg)` | anything else | anything else | anything else | anything else (see below) | anything else |
 
-The web column is deliberately coarse: browsers collapse DNS, connect, TLS, and CORS failures
+The web column is coarse because browsers collapse DNS, connect, TLS, and CORS failures
 into one opaque `TypeError` (an anti-fingerprinting measure), so every network-level failure
 surfaces as `Io` with the browser's message; `Dns`/`Connect`/`Tls` never occur on this tier.
 
 ## Options: applied vs accepted
 
-Options that only some platforms can realize are documented, not silently dropped:
+Options that only some platforms can realize are documented per platform:
 
 | option | Apple | Android | Windows | web | fallback |
 |---|---|---|---|---|---|
@@ -167,7 +167,7 @@ Options that only some platforms can realize are documented, not silently droppe
 ## App Transport Security (iOS/macOS) and Android cleartext
 
 Both mobile platforms restrict plain `http://` by default; the platform stack enforces the
-platform's policy, which is a feature, but needs two notes:
+platform's policy, and two notes apply:
 
 - **ATS** (Apple): `NSURLSession` refuses non-HTTPS URLs unless the app's Info.plist carries an
   exception (`NSAppTransportSecurity`). Loopback IP fetches (`http://127.0.0.1:…`) are exempt;
@@ -177,12 +177,12 @@ platform's policy, which is a feature, but needs two notes:
   scaffold ships a `network_security_config.xml` permitting cleartext to `127.0.0.1` only (plus
   the `android:networkSecurityConfig` manifest attribute); scope any real exception the same way.
 
-The fallback tier performs no such policy enforcement (ureq happily fetches `http://`), another
-reason `tier()` exists.
+The fallback tier performs no such policy enforcement (ureq fetches `http://` without
+restriction), another reason `tier()` exists.
 
 ## Threading
 
-`fetch`/`fetch_to_file`/`fetch_streamed` block the calling thread and MUST run off the UI thread
+`fetch`/`fetch_to_file`/`fetch_streamed` block the calling thread and must run off the UI thread
 (spawn, or `day::task`). On Android the calling thread is attached to the JVM via
 `day_android::with_env`; class resolution works from any Rust-spawned thread because day-android's
 `dfind`/`dcall_static` fall back to the app `ClassLoader` cached at init (a bare JNI `FindClass`
@@ -208,8 +208,8 @@ day::task(async move {
 ```
 
 `fetch_future(req)` is oneshot plumbing over `fetch_async`'s completion: any executor can await
-it (`day::task`, or a test's ~25-line `block_on` in tests/http.rs). **The future is the cancel
-grip; dropping it cancels the request** where the platform can:
+it (`day::task`, or a test's ~25-line `block_on` in tests/http.rs). **Dropping the future cancels
+the request** where the platform can:
 
 | tier | drop-cancel |
 |---|---|
@@ -219,26 +219,26 @@ grip; dropping it cancels the request** where the platform can:
 | Windows / fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
 
 Aborting a `day::task` that awaits a `fetch_future` (or superseding a `day::reactive::Resource`
-fetch) drops the future and rides the same rail. The showcase's URL checker aborts its previous
+fetch) drops the future and takes the same path. The showcase's URL checker aborts its previous
 in-flight check on re-tap, a live demo of drop-cancel.
 
 ## The Android engine (OkHttp)
 
 The Android half moved from `java.net.HttpURLConnection` to OkHttp 4.12 (2026-07). AOSP's own
-`HttpURLConnection` has been a frozen OkHttp fork since Android 4.4, so this upgrades the same
-lineage to a current engine rather than changing philosophy: the system `ProxySelector`, VPN
-routing, network security config (OkHttp checks `NetworkSecurityPolicy` for cleartext), and the
-platform `TrustManager`/user CA store all still apply. What the engine adds: HTTP/2 (over TLS via
-ALPN), PATCH (the classic `HttpURLConnection` gap; `Request::patch` now works on every
-platform), and thread-safe per-call cancellation. Costs and behavior deltas:
-the okhttp + okio + kotlin-stdlib Gradle dependencies add roughly 1.5–2.5 MB pre-R8 (well under
-1 MB after shrinking; OkHttp ships its own proguard rules); cross-protocol redirects
-(https→http) are now followed, matching the other platforms; response headers now arrive in
-arrival order with duplicates preserved (better fidelity than the old `Map`-shaped API). The
+`HttpURLConnection` has been a frozen OkHttp fork since Android 4.4, so this upgrade stays in the
+same lineage: the system `ProxySelector`, VPN routing, network security config (OkHttp checks
+`NetworkSecurityPolicy` for cleartext), and the platform `TrustManager`/user CA store all still
+apply. The engine adds HTTP/2 (over TLS via ALPN), PATCH (the classic `HttpURLConnection` gap;
+`Request::patch` now works on every platform), and thread-safe per-call cancellation. The costs
+and behavior changes are that the okhttp + okio + kotlin-stdlib Gradle dependencies add roughly
+1.5–2.5 MB pre-R8 (well under 1 MB after shrinking; OkHttp ships its own proguard rules), that
+cross-protocol redirects (https→http) are now followed, matching the other platforms, and that
+response headers now arrive in arrival order with duplicates preserved, where the old
+`Map`-shaped API merged them. The
 coordinate rides the part's own `[package.metadata.day.android] gradle-dependencies`, the
 day-piece-lottie mechanism.
 
-## v2 notes (deliberately out of scope)
+## v2 notes (out of scope)
 
 Cookies, multipart, upload streaming, websockets, `no_redirect` (needs an Apple session delegate
 to honor), cancellation for `fetch_to_file`/`fetch_streamed` futures (today `StreamSink`
@@ -248,11 +248,12 @@ Communication Kit's C API reaches the OSS SDK.
 
 ## What it shows about the extension system
 
-Like `day-part-network`, a headless part: `cfg(target_os)` halves behind one `mod imp`, per-target
-dependencies, part-owned Java staged via `[package.metadata.day.android]` (which also contributes
-`android.permission.INTERNET`), no framework changes. It is the first part with an async surface
-and background completion threads (the shape DESIGN §4.5 blesses) and the first whose Java runs
-on Rust-spawned threads, which is what motivated the app-ClassLoader fallback in day-android's
+Like `day-part-network`, it is a headless part: `cfg(target_os)` halves behind one `mod imp`,
+per-target dependencies, and part-owned Java staged via `[package.metadata.day.android]` (which
+also contributes `android.permission.INTERNET`), with no framework changes. It is the first part
+with an async surface and background completion threads (the shape DESIGN §4.5 blesses) and the
+first whose Java runs on Rust-spawned threads, which motivated the app-ClassLoader fallback in
+day-android's
 `DayEnv` helpers. The web arm rides the day-part-prefs precedent (part-declared `extern "C"`
 imports the day-dom shim implements), extended with the shim's request-id callback pattern for
 its async completions; it is the first part to complete back into wasm.

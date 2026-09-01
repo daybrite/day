@@ -10,11 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Most Day widgets you build won't need a single line of platform code. They are
-**composite pieces**: new widgets assembled from primitives Day already ships. A composite
-piece is pure Rust, with no cargo features, no `build.rs`, and no per-toolkit source files. You add it
-to an app as a plain dependency and it runs on every Day target, because every leaf it composes
-is already a native control on each one.
+Most Day widgets you build are **composite pieces**: new widgets assembled from primitives Day
+already ships. A composite piece is pure Rust in an ordinary library crate. You add it to an app
+as a plain dependency and it runs on every Day target, because every leaf it composes is already a
+native control on each one.
 
 In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
 bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,
@@ -32,11 +31,11 @@ Day has two kinds of pieces:
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
 | Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
 
-A native piece exists to introduce a native widget Day does not already have. But a star rating is
-just a row of small drawings that react to taps, and Day already gives you `row`, `canvas` (a
-native 2D surface on every platform), `Shape`, `Signal`, and `.on_tap`. Compose those and there
-is nothing left for a backend to do: the AppKit build draws the star with Core Graphics, the Android
-build with `android.graphics.Canvas`, and the GTK build with Cairo. You wrote none of that.
+A native piece exists to introduce a native widget Day does not already have. A star rating is a
+row of small drawings that react to taps, and Day already gives you `row`, `canvas` (a native 2D
+surface on every platform), `Shape`, `Signal`, and `.on_tap`. Compose those and the existing leaves
+do the platform work: the AppKit build draws the star with Core Graphics, the Android build with
+`android.graphics.Canvas`, and the GTK build with Cairo, all from the one `canvas` closure.
 
 Most widgets should be composite. Reach for a native piece only when you need a control the
 toolkits provide and Day does not yet wrap.
@@ -52,8 +51,7 @@ The composition toolkit lives in the prelude:
 - `ButtonStyle` / `FilledButtonStyle` + `Button::style`: a pluggable button appearance.
 - `with_environment(...)` / `environment::<T>()`: pass ambient values down a subtree.
 
-Every one of those is pure composition, with no per-backend work, and they are what the rest of
-this tutorial is built from.
+Every one of those is pure composition, and the rest of this tutorial is built from them.
 
 ## 2. Scaffold the crate
 
@@ -73,7 +71,7 @@ composite piece even when `--toolkits` is present, and `--no-input` skips the in
 through what the scaffolder emits and how to flesh it out.
 
 A composite piece is an ordinary library crate. It depends on three Day crates and nothing
-platform-specific: no toolkit crates, no feature table.
+platform-specific.
 
 ```toml
 # day-piece-rating/Cargo.toml
@@ -172,7 +170,7 @@ unaddressable; `.id(prefix)` sets the row's id to `prefix` and each star's to `p
 
 A piece becomes usable by implementing the `Piece` trait: a single `build` method that returns the
 node it created. Once `Rating` implements `Piece`, it automatically gains `.id(…)`, `.padding(…)`,
-`.frame(…)`, `.any()` and the rest, from the blanket `Decorate` impl. We never touch a backend.
+`.frame(…)`, `.any()` and the rest, from the blanket `Decorate` impl.
 
 ### The star, as a `Shape::Polygon`
 
@@ -240,16 +238,14 @@ impl Piece for Rating {
 }
 ```
 
-That is the entire piece. Note the reactivity model: the row and its `max` canvases are built once.
-Tapping the third star calls `value.set(3)`; only the star canvases that read `value` re-record (the
-first three fill, the last two outline), with no tree diff and no re-execution of `build`. This is
-Day's build-once reactive model, and you got it without writing a binding by hand: `canvas`'s
-tracked read wired it for you.
+That completes the piece. The row and its `max` canvases are built once. Tapping the third star
+calls `value.set(3)`; only the star canvases that read `value` re-record (the first three fill, the
+last two outline), and `build` never runs again. This is Day's build-once reactive model, and
+`canvas`'s tracked read wired the binding for you.
 
 ## 5. Use it in an app
 
-The app depends on `day-piece-rating` like any crate. There is no feature to enable, no
-platform block, and no conditional compilation:
+The app depends on `day-piece-rating` like any crate, with one line in `Cargo.toml`:
 
 ```toml
 # the app's Cargo.toml (the framework crates come from git until they're on crates.io —
@@ -279,7 +275,7 @@ fn review_form() -> impl Piece {
 ```
 
 Run `day launch -p macos-appkit`, then `-p android-mdc`, then `-p linux-gtk`. The same rating
-renders natively on each, drawn by that platform's own 2D API. You wrote zero platform code.
+renders natively on each, drawn by that platform's own 2D API from the one `canvas` closure.
 
 ## 6. Going further
 
@@ -310,8 +306,9 @@ let the native leaves do the platform work. The same idea covers most of a desig
   `ButtonStyle` (`FilledButtonStyle` is the shipped example) applied with `Button::style`.
 
 - **Themed subtrees** flow through `with_environment(value, || …)` and are read back with
-  `environment::<T>()`, with no prop drilling and no backend code.
+  `environment::<T>()`, so a value set once reaches every descendant without being passed through
+  each builder.
 
-Every one of these is composite: pure Rust with no cargo features, working on every target the
-day you publish it. Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you
-need a native control Day does not already wrap.
+Every one of these is composite: pure Rust that works on every target the day you publish it.
+Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you need a native
+control Day does not already wrap.

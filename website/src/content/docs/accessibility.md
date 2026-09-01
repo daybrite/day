@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day button is a real
-`NSButton`, a real Material button, a real `GtkButton`, so VoiceOver, TalkBack, Narrator, and
-Orca already know how to focus it, name its role, and activate it. You start from the platform's
-baseline instead of from zero, which is the opposite of the situation in renderer-based
-frameworks, where every accessible behavior must be reimplemented.
+A Day button is a real `NSButton`, a real Material button, a real `GtkButton`, so VoiceOver,
+TalkBack, Narrator, and Orca already know how to focus it, name its role, and activate it. You
+start from the platform's baseline.
 
 That baseline still needs your input in three places: labels for things whose purpose isn't their
 text, roles for things you drew yourself, and stable identifiers for automation. Day gives all
@@ -44,11 +42,11 @@ the native widget.
 The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. Labels are
 plain strings (`tr(...).format()` localizes one), taken as a snapshot at build time: they don't
 re-resolve on a locale switch yet (a listed follow-up). Native controls report their roles on
-their own, but no built-in invents a *label* for you — a `toggle` has no title parameter, so a
+their own, but no built-in invents a *label* for you; a `toggle` has no title parameter, so a
 titled switch is `labeled("Subscribe", toggle(subscribed))`. Your annotations merge onto the
 node's defaults.
 
-Two rules to hold yourself to (`day lint` has no a11y rules yet; a missing-label warning for
+Hold yourself to these rules (`day lint` has no a11y rules yet; a missing-label warning for
 interactive pieces is a listed follow-up):
 
 - give every interactive Piece whose purpose isn't its text an accessible name;
@@ -86,15 +84,15 @@ declared:
 The audit walks id'd nodes, asks the toolkit for the realized role, label, and value (via each
 backend's read-back hooks), and fails the script on mismatch. Run in CI, this turns "we set the
 labels" into a regression-tested claim. Read-back is implemented on the Apple backends (AppKit
-and UIKit); backends that can't yet read their native tree skip rather than fake it (read-back
-for Qt and GTK is a listed follow-up).
+and UIKit); backends that can't yet read their native tree skip the audit (read-back for Qt and
+GTK is a listed follow-up).
 
 ## Current limits
 
 - **GTK off Linux has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
   `macos-gtk` and `windows-gtk` development combos ([Tier 4](/docs/platforms#support-tiers))
   are invisible to screen readers. Ship the platform-native target for real users.
-- **Android annotations are partial** — labels and values map today (`contentDescription`, state
+- **Android annotations are partial:** labels and values map today (`contentDescription`, state
   description); role and hint refinement is still open, and audit read-back isn't implemented.
 - **Qt's `QAccessible` layer bridges to the native accessibility API on every OS** (no other
   Day backend does that today), which makes `linux-qt` a reasonable choice when Linux
@@ -105,6 +103,5 @@ for Qt and GTK is a listed follow-up).
 - **Focus order** follows layout order; explicit focus groups and custom sort priority aren't
   exposed yet.
 
-None of these limits are hidden in the tooling: `day doctor` and the audit step report what each
-target actually supports. The [accessibility reference](/docs/internal/accessibility) has the
-full per-backend mapping tables.
+`day doctor` and the audit step report what each target supports. The
+[accessibility reference](/docs/internal/accessibility) has the full per-backend mapping tables.

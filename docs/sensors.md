@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Sensors (headless capability crate)
 
 > **Status: implemented** as `day-part-sensors` (in `parts/`, the headless counterpart of `pieces/`).
-> It's a headless day-ecosystem crate (no UI Piece): a shared cross-platform API that STREAMS the
+> It's a headless day-ecosystem crate (no UI Piece): a shared cross-platform API that streams the
 > device's motion sensors (accelerometer, gyroscope, magnetometer) through each platform's native
 > API. Any Rust code can depend on it and call `day_part_sensors::watch(kind, cb)`. Host
 > build/clippy/tests, the iOS, Android, HarmonyOS and wasm32 cross-compiles, and an end-to-end
@@ -57,12 +57,12 @@ at all.
 | Linux | Industrial I/O sysfs (`/sys/bus/iio/devices`, `in_accel_x_raw` × scale …) | std only |
 | macOS | none (no public motion-sensor API) | always `None` |
 | Windows | stub for now (`Windows.Devices.Sensors` is the future impl) | always `None` |
-| Web | `DeviceMotionEvent` through the day-dom shim — accelerometer and gyroscope only | `web.rs` (wasm32; needs the day-dom host page) |
+| Web | `DeviceMotionEvent` through the day-dom shim (accelerometer and gyroscope only) | `web.rs` (wasm32; needs the day-dom host page) |
 
 iOS keeps a single `CMMotionManager` in a static (Apple's recommendation); it is not
 `MainThreadOnly`, so reads work from any thread. Raw accelerometer/gyro/magnetometer access needs
 no `NSMotionUsageDescription` (that key gates the Motion & Fitness APIs). The Simulator has no
-sensors → unavailable → `None`.
+sensors, so the crate reports unavailable and answers `None`.
 
 Android sensors need no manifest permission at the shim's `SENSOR_DELAY_UI` rate. The shim
 (`android/java/dev/daybrite/day/sensors/DaySensors.java`) registers one listener per sensor on first
@@ -76,9 +76,9 @@ none. A failed subscribe (e.g. missing permission) is released and retried on a 
 
 ## Why a stream, and what the rate is
 
-Every platform's sensor API is already PUSH (`SensorEventListener`, CoreMotion handlers,
-`OH_Sensor_Subscribe`, `devicemotion`), so the older `read()` poll was an adapter pointing the wrong
-way: each per-OS arm had to cache the newest event purely so a caller could ask for it. `watch`
+Every platform's sensor API is already push (`SensorEventListener`, CoreMotion handlers,
+`OH_Sensor_Subscribe`, `devicemotion`), so the older `read()` poll inverted them: each per-OS arm
+had to cache the newest event so a caller could ask for it. `watch`
 removes that inversion, and "no sample yet" stops being a poll artifact.
 
 Samples are delivered at a steady ~20 Hz (`day_part_sensors::SAMPLE_MS`), not at the sensor's own
@@ -95,11 +95,11 @@ thread natively and on the sole browser thread on the web; deliver into UI state
 
 | kind | source | conversion |
 |---|---|---|
-| `Accelerometer` | `accelerationIncludingGravity` (m/s²) | none — day's contract already says "including gravity" |
+| `Accelerometer` | `accelerationIncludingGravity` (m/s²) | none; day's contract already says "including gravity" |
 | `Gyroscope` | `rotationRate` (deg/s) | × π/180, with beta→x, gamma→y, alpha→z |
-| `Magnetometer` | — | **no cross-browser API exists**; Chromium's Generic Sensor `Magnetometer` is flag-gated and absent from Safari and Firefox, so this reports unavailable rather than pretending |
+| `Magnetometer` | — | **no cross-browser API exists**; Chromium's Generic Sensor `Magnetometer` is flag-gated and absent from Safari and Firefox, so this reports unavailable |
 
-Three browser realities:
+Browsers add these constraints:
 
 - **A secure context is required.** `devicemotion` fires only over HTTPS or on localhost (both
   `day launch`'s server and the hosted showcase qualify), and `Permissions-Policy` defaults
@@ -110,23 +110,23 @@ Three browser realities:
   after an `.await` does not work.
 - **Availability is only knowable in retrospect.** `'DeviceMotionEvent' in window` is true on a
   desktop browser with no hardware, so the shim reports available until a short grace period passes
-  with no event, and unavailable after. That is the right answer for a laptop.
+  with no event, and unavailable after. A laptop without hardware therefore ends up unavailable.
 
 Because headless WebKit has no motion hardware, CI cannot prove any of this from the walkthrough
 alone. `scripts/ci/webdom-sensor-test.mjs` dispatches a synthetic `devicemotion` with known values
-and asserts the converted numbers, which pins the unit conversion and the axis mapping: the two
-things a browser sensor arm actually gets wrong.
+and asserts the converted numbers, which pins the unit conversion and the axis mapping, the two
+things most likely to be wrong in a browser sensor arm.
 
 Linux computes `(raw + offset) × scale` from the first iio device exposing the channel triple
-(magnetometer scale yields Gauss → ×100 for µT). Most desktops/CI runners have no motion sensors →
-`None`; real coverage is laptops/tablets with rotation accelerometers.
+(magnetometer scale yields Gauss → ×100 for µT). Most desktops and CI runners have no motion
+sensors and answer `None`; real coverage is laptops/tablets with rotation accelerometers.
 
 ## What it shows about the extension system
 
 Like `day-part-battery`, this is a headless external crate: it has no UI Piece and registers nothing
 in any backend's `RENDERERS` slice. It contributes its Android Java through
-`[package.metadata.day.android]` just like the UI pieces but registers no renderer. It also adds a
-wrinkle battery didn't have: adapting push-model platform APIs (Android listeners, HarmonyOS
-subscriptions) behind a poll API by lazily subscribing on first use and caching the latest sample.
+`[package.metadata.day.android]` just like the UI pieces but registers no renderer. It also adapts
+push-model platform APIs (Android listeners, HarmonyOS subscriptions) behind a poll API by lazily
+subscribing on first use and caching the latest sample, which battery did not need.
 On Android the crate rides on the Day runtime (day-android's cached JVM + `DayBridge.ctx`); on every
 other platform it is fully day-independent.

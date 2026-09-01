@@ -1,6 +1,6 @@
 ---
 title: Resources, images, fonts & icons
-description: "How resource/assets, images, vectors, fonts, and icons travel from your project into each platform's native resource system — and how to read them back."
+description: "How resource/assets, images, vectors, fonts, and icons travel from your project into each platform's native resource system, and how to read them back."
 order: 24
 section: Guides
 ---
@@ -23,8 +23,8 @@ myapp/
     icons/     # one app-icon master; day icon generates the renditions
 ```
 
-The principle behind all five: **resources use each platform's native resource system**, not a
-custom archive format. On Android your images become real `res/drawable-*` entries crunched by
+All five subdirectories **use each platform's native resource system**. On Android your images
+become real `res/drawable-*` entries crunched by
 aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource bundle; on Qt, a
 Qt resource file. `day build` does the staging automatically, per target, before the platform
 build runs.
@@ -75,13 +75,11 @@ At build time each toolkit gets the format it expects: density buckets on Androi
 platform picks the right density at runtime the same way it does for any native app. The
 [resources reference](/docs/internal/resources) documents the exact per-platform staging.
 
-Two notes:
-
 - **`resource/images/` is raster.** Photos and artwork belong here, with `@2x`/`@3x` density
   variants; SVG glyphs belong in `resource/vectors/` (next section), which ships them as
   vectors.
 - **Remote images** (URL-loaded, cached) are a separate piece, `day-piece-remote-image`,
-  because they involve networking and cache policy the core deliberately doesn't own.
+  because they involve networking and cache policy that the core leaves to the piece.
 
 ## Vector glyphs: `resource/vectors/`
 
@@ -99,7 +97,7 @@ bundle; text has to be outlined, since Day compiles in no text shaping.
 ### What each target ships
 
 `day build` stages every glyph into the form its toolkit loads natively, and prints the split as
-it goes — `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and none fell back.
+it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and none fell back.
 
 | Target | Ships as | Tint |
 |---|---|---|
@@ -113,30 +111,30 @@ it goes — `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted an
 | [linux-qt](/docs/platforms/linux-qt) | the SVG, rendered at the size asked for by Qt's SVG icon engine | a `SourceIn` fill over the rendered glyph |
 
 > [!NOTE]
-> Every backend recolors a template glyph, and on six of them — AppKit, UIKit, Android, GTK, Qt
-> and web — a tint bound to a signal repaints the realized view instead of rebuilding it. XAML and
+> Every backend recolors a template glyph, and on six of them (AppKit, UIKit, Android, GTK, Qt,
+> and web) a tint bound to a signal repaints the realized view instead of rebuilding it. XAML and
 > ArkUI take the tint when the glyph is realized, so a reactive tint there lands on the next
 > rebuild.
 
 ### Where a vector degrades to a raster
 
 Two toolkits draw the art themselves rather than handing an SVG to the platform, and both accept
-the same subset: **solid fills and strokes, in either fill rule**. Art outside it — gradients,
-clipping paths, masks, filters — stages no geometry, and that glyph alone ships as a raster
+the same subset: **solid fills and strokes, in either fill rule**. Art outside it (gradients,
+clipping paths, masks, filters) stages no geometry, and that glyph alone ships as a raster
 instead:
 
 - **Android** falls back at xxxhdpi. `day lint` reports it as `day::lint::vector-raster-fallback`
-  whenever `android-mdc` is a declared target, so a gradient in an icon is something you hear
-  about at lint time rather than discover on a device.
+  whenever `android-mdc` is a declared target, so you hear about a gradient in an icon at lint
+  time, before it reaches a device.
 - **Windows** falls back the same way, and the tint degrades with it: a monochrome `BitmapIcon`
   over the raster rather than a brush on geometry.
 
-The fallback is per glyph, not per app, and it is deliberately not a blanket safety net. Day ships
-the raster only for art that could not convert — bundling one for every glyph would double the
-payload and let a broken vector path hide behind a raster that still looks right.
+The fallback is per glyph, not per app. Day ships the raster only for art that could not convert,
+because bundling one for every glyph would double the payload and let a broken vector path hide
+behind a raster that still looks right.
 
 > [!NOTE]
-> A gradient in an icon is usually worth removing rather than shipping. Two flat glyphs read
+> It is usually better to remove a gradient from an icon. Two flat glyphs read
 > better at 24 pt than one gradient glyph, and they stay crisp on the two targets that would
 > otherwise rasterize them.
 
@@ -166,8 +164,8 @@ desktops, rawfile plus an ArkTS `registerFont` manifest on HarmonyOS. Each backe
 everything at startup. The point size scales with the platform's accessibility text size, exactly
 like `Font::System(pt)`.
 
-The restrictions, all enforced as **hard errors at build time** (each would otherwise surface as
-a confusing runtime-only failure on one platform):
+The following restrictions are enforced as **hard errors at build time**, because each would
+otherwise surface as a confusing runtime-only failure on one platform:
 
 - **`.ttf` and `.otf` only:** Android's `res/font/` accepts nothing else, so Day holds every
   platform to the same rule. Convert collections (`.ttc`) and variable fonts to single static
@@ -180,17 +178,17 @@ a confusing runtime-only failure on one platform):
   `Font::custom(res::fonts::special_elite, 20.0)`. (`Font::Custom("Special Elite", 20.0)` is the
   unchecked escape hatch for a family name only known at runtime.)
 
-Beyond the rules: an unknown family never breaks the app. The label
-renders in the system font and the log names the family that didn't resolve. And `.weight(...)` /
+Outside those rules, an unknown family never breaks the app. The label
+renders in the system font and the log names the family that didn't resolve. `.weight(...)` and
 `.italic()` still apply, but a single-face family only gets what the platform can synthesize (a
 heavier stroke, a slant), not true bold or italic cuts.
 
 ## The app icon: `resource/icons/`
 
 `resource/icons/` holds one master (`icon.svg`, `day-icon.svg`, or `icon.png`); `day icon`
-renders it into every platform's icon set — the macOS `.icns`, a multi-size Windows `.ico`,
+renders it into every platform's icon set (the macOS `.icns`, a multi-size Windows `.ico`,
 Android's adaptive and themed icons, the HarmonyOS layered icon, an Xcode Icon Composer
-package — writing the export tree under `resource/icons/` and the `platform/` copies each build
+package), writing the export tree under `resource/icons/` and the `platform/` copies each build
 consumes. `icons.lock.json` records what was generated, and `day icon --check` fails CI when
 the outputs drift from the master.
 
@@ -223,4 +221,4 @@ resource/images/wave@2x.png ─┐  resource/fonts/Pacifico-Regular.ttf ─┐  
 
 Staging is best-effort in development: if a resource compiler is missing (say `rcc` on an
 unusual Qt install), the build warns and the app falls back to loading loose files from the
-project directory instead of failing. Packaged builds via `day pack` bundle everything properly.
+project directory instead of failing. Packaged builds via `day pack` bundle every resource.

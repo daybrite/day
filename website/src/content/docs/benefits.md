@@ -10,18 +10,18 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Choosing a cross-platform stack means choosing what to give up. This page lays out what Day
-trades away and what it gets back, and names the situations where you should pick something
-else. We'd rather lose you on this page than after three months of investment.
+Every cross-platform stack makes different choices. This page describes what Day gives you and
+what it asks of you, and names the situations where another tool is the better fit. Deciding
+now is cheaper than deciding three months in.
 
 ## The options
 
 Four established ways to ship one app on many platforms:
 
-| Approach | Examples | Keeps | Gives up |
+| Approach | Examples | Strength | Cost |
 |---|---|---|---|
-| Web view shell | Electron, Tauri | Web skills, one DOM UI | Native behavior and feel; memory; platform integration depth |
-| Custom renderer | Flutter, egui, Slint | Pixel-identical UI, hot reload (Flutter) | Native look/behavior; must reimplement text, scrolling, a11y |
+| Web view shell | Electron, Tauri | Web skills, one DOM UI | The interface runs inside a browser engine; platform integration goes through it |
+| Custom renderer | Flutter, egui, Slint | Pixel-identical UI, hot reload (Flutter) | Text, scrolling, and accessibility are the framework's own implementations |
 | Shared logic, native UI | Kotlin Multiplatform, Skip | Fully native UI | The single UI codebase; you still write each UI |
 | Native widgets, one codebase | **Day**, React Native* | Native widgets and one UI codebase | Pixel-identical branding; some framework-mediated control |
 
@@ -37,21 +37,18 @@ feels.
 **Native fidelity without per-platform UI code.** Text rendering, input methods, spellcheck,
 scrolling physics, selection, drag, focus behavior, dark-mode chrome, screen readers: these come
 from the platform's widgets, which means they're correct in ways a reimplementation struggles to
-match, and they improve with OS updates you never ship. The practical consequence: a Day app
-doesn't have a "slightly off" feel to platform-native users, because the parts users touch are
-the platform's own.
+match, and they improve with OS updates you never ship. A Day app behaves the way that
+platform's users expect, because the parts they touch are the platform's own.
 
 **A runtime profile you can reason about.** Day builds the widget tree once and binds state to
 native attributes. A state change re-runs only the closures that read that value — a label's
-text closure, say — and each ends in one native setter call; nothing re-renders and there is
-no tree diff on the hot path ([how this works](/docs/reactivity)). The compiler monomorphizes your app against exactly one
-toolkit backend per binary, so there's no runtime abstraction layer either. Binaries are ordinary
-Rust binaries linking system libraries: no bundled engine, no bundled browser.
+text closure, say — and each ends in one native setter call ([how this works](/docs/reactivity)).
+The compiler monomorphizes your app against one toolkit backend per binary, so a widget update
+is a direct call. Binaries are ordinary Rust binaries that link the system's libraries.
 
-**One language for everything.** UI, state, logic, tests, and build tooling are Rust. There's no
-FFI boundary between your view layer and your data layer, no separate template language, and the
-borrow checker applies to your UI code the same way it applies to everything else. Whether that's
-a benefit depends entirely on your team; see the costs below.
+**One language for everything.** UI, state, logic, tests, and build tooling are Rust, so the
+borrow checker applies to your UI code the same way it applies to everything else. Whether
+that's a benefit depends on your team; see the costs below.
 
 ### Localized, accessible, scriptable, extensible
 
@@ -59,8 +56,8 @@ These four compose: localized strings are reactive, so
 locale switches update a running app; accessibility identifiers double as automation ids; one
 dayscript walkthrough, run per-locale, is simultaneously an end-to-end test
 ([dayscript](/docs/dayscript)), an accessibility audit ([accessibility](/docs/accessibility)),
-and a screenshot generator ([localization](/docs/localization)). This composition is the part
-of Day that's hard to retrofit onto other stacks.
+and a screenshot generator ([localization](/docs/localization)). These four are designed
+together, which is what lets one walkthrough serve all three jobs.
 
 1. **Localizable** — Mozilla Fluent throughout, with ICU-correct plurals, number and date
    formatting, and collation-aware sorting, with locale data thinned to the locales you ship.
@@ -86,15 +83,15 @@ nothing in Day currently matches it. (Hot-swapping the app dylib is a researched
 a promise.)
 
 **Pixel-level brand control.** Your app looks like a Mac app on macOS and a Material app on
-Android. If the design brief is a bespoke design system rendered identically everywhere, with custom
+Android. If the design brief is a custom design system rendered identically everywhere, with custom
 controls, custom motion, and brand color on every surface, Day's native-widget premise works against
-you, and a renderer (Flutter, or Rust-native options like Slint or egui) will fight you less.
+you, and a renderer (Flutter, or Rust-native options like Slint or egui) is the better fit.
 [Styling](/docs/styling) lists what you can restyle and what stays native. On macOS and iOS the
 escape hatch is [SwiftUI embedding](/docs/internal/swiftui): a custom control written in SwiftUI
 drops into the Day tree as an ordinary piece.
 
 **Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
-enormous community. Day is young: the widget vocabulary is deliberately small, some designed
+enormous community. Day is young: the widget vocabulary is small, some designed
 features aren't implemented yet (semantic color tokens, an animation scheduler,
 form validation; [Platform support](/docs/platforms) keeps the current list), and you will hit
 edges. The mitigations are partial: the architecture descends from several generations
@@ -126,8 +123,8 @@ integration depth matters less than shipping this quarter. Pick **Flutter** when
 uniformity across platforms is a requirement, or when hot-reload-driven iteration speed dominates
 everything else. Pick **per-platform native** when you're on one platform, or when each platform
 app has its own team and roadmap. Pick **Day** when you want one Rust codebase, you want the
-result to feel native on each platform because it is, and you can live with a young framework's
-edges in exchange for a runtime model with very little between your code and the platform.
+result to feel native on each platform because it is, and you accept a young framework's gaps
+in exchange for a runtime model with very little between your code and the platform.
 
 ---
 

@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A timer that finished, a download that completed, a reminder that should fire after the app has
 exited: `day-part-local-notify` posts and schedules the platform's own notifications from Rust.
-It needs no server and no push transport; the call site is:
+Everything runs on the device through the OS's own notification service; the call site is:
 
 ```rust
 Notification::new("Timer done")
@@ -29,8 +29,8 @@ per-platform details are in [the notify reference](/docs/internal/notify).
 
 ## 1. Declare the permission
 
-Consent belongs to `day-part-permissions`, not to this crate: the two compose rather than
-duplicate the prompt. The build-time half is one line in your `Day.toml`:
+Consent belongs to `day-part-permissions`; this crate builds on it, so there is one prompt.
+The build-time half is one line in your `Day.toml`:
 
 ```toml
 [permissions]
@@ -44,10 +44,11 @@ needs no `Info.plist` key for local notifications).
 
 ## 2. Request consent at runtime
 
-Declaring is not asking. An app must actually request `Permission::Notifications`, and on Apple
+Declaring the permission does not request it. An app must still request
+`Permission::Notifications`, and on Apple
 the failure mode for skipping this is silent: the system accepts every post and drops it with no
-error. The Apple arm cannot even warn you: its settings accessor is async-only, so `post()` never
-returns `PermissionDenied` there.
+error. The Apple arm cannot warn you either: its settings accessor is async-only, so `post()`
+never returns `PermissionDenied` there.
 
 ```rust
 use day_part_permissions::{Permission, Status, request, status};
@@ -82,9 +83,9 @@ let id = Notification::new("Timer done")
     .post()?;
 ```
 
-Pick the importance deliberately. `Importance::High` or above is what shows a heads-up banner on
-Android; `Default` files the notification into the shade with no banner, which reads as "the
-button did nothing". And on Android the importance is immutable after first registration (the
+Choose the importance for the behavior you want. `Importance::High` or above shows a heads-up
+banner on Android; `Default` files the notification into the shade with no banner, which reads as
+"the button did nothing". On Android the importance is immutable after first registration (the
 user owns the channel from then on), which is why it's a required argument at `Channel::new`
 rather than a setter.
 
@@ -93,8 +94,8 @@ notification in place instead of stacking a second one.
 
 ## 4. Schedule and cancel
 
-`Trigger` has three variants: `Now` (the default), `In(Duration)`, and `At(SystemTime)` — the
-alarm-clock form, for firing at an absolute instant rather than after a delay:
+`Trigger` has three variants: `Now` (the default), `In(Duration)`, and `At(SystemTime)`, the
+alarm-clock form that fires at an absolute instant:
 
 ```rust
 use day_part_local_notify::{Trigger, cancel};
@@ -119,27 +120,27 @@ Notification::new("Good morning")
 a local-time target across DST changes. An instant already in the past fires immediately.
 
 Where `capabilities().schedule_while_dead` is true, the OS holds the trigger and fires it even if
-the app has exited. On Apple the system owns the whole thing. Android has no notification
+the app has exited. On Apple the system holds the schedule itself. Android has no notification
 scheduler, so the part sets an `AlarmManager` alarm that wakes a receiver; a reboot clears every
 alarm, and the part's boot receiver re-arms schedules from persisted data. When Android withholds
 the exact-alarm grant, `capabilities().schedule_exact` is false and the notification still
-arrives, possibly late in Doze. Two refinements for alarm-clock apps: declare
-`android.permission.USE_EXACT_ALARM` in your app's `[package.metadata.day.android]` for the
+arrives, possibly late in Doze. Alarm-clock apps can go further. Declaring
+`android.permission.USE_EXACT_ALARM` in your app's `[package.metadata.day.android]` gets the
 install-time exact-alarm grant (Play restricts it to clock and calendar apps, so the part can't
-declare it for you), and schedule on a channel registered with `Importance::Urgent` — those go
+declare it for you), and scheduling on a channel registered with `Importance::Urgent` goes
 through `AlarmManager.setAlarmClock`, the Doze-exempt path that shows the status-bar alarm icon.
 
 A scheduled notification may fire in a process with no Day tree alive, so its content is
 snapshotted at post time as plain strings: a `Notification` cannot bind a signal or a closure.
-This is the one place Day's reactivity deliberately does not reach.
+This is the one place Day's reactivity does not reach.
 
 ## 5. Route the tap
 
 `.route("clock/timer")` names the Day route a tap navigates to, the same route strings the
 navigation rail and deep links use. The tap is delivered through `day_core::request_route`, which
 handles both cases: a warm tap navigates the running app, and a tap that cold-starts the process
-is buffered and replayed once routing is live, so the app opens on the target screen, not its
-default one. `capabilities().tap_route` says whether the running platform delivers taps.
+is buffered and replayed once routing is live, so the app opens on the target screen.
+`capabilities().tap_route` says whether the running platform delivers taps.
 
 ## 6. Gate the UI
 
@@ -157,7 +158,7 @@ caps.schedule_exact       // scheduled fires are on time
 ```
 
 On the unwired targets every field is false and `post()` returns `NotifyError::Unsupported`, so a
-notifications section can hide itself cleanly.
+notifications section can hide itself.
 
 ## Pitfalls
 
