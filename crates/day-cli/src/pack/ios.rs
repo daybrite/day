@@ -113,6 +113,7 @@ pub fn pack(
     );
     let mut cmd = Command::new("xcodebuild");
     crate::ops::apply_determinism(&mut cmd);
+    crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
         .args(["-project", "DayApp.xcodeproj", "-scheme", "Runner"])
         .args(["-configuration", "Release"])
@@ -158,6 +159,7 @@ pub fn pack(
     status("Packing", &format!("xcodebuild -exportArchive ({method})"));
     let mut cmd = Command::new("xcodebuild");
     crate::ops::apply_determinism(&mut cmd);
+    crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
         .arg("-exportArchive")
         .arg("-archivePath")
@@ -340,6 +342,7 @@ fn unsigned_ipa(
     status("Building", "ios-uikit (xcodebuild, iphoneos, unsigned)");
     let mut cmd = Command::new("xcodebuild");
     crate::ops::apply_determinism(&mut cmd);
+    crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
         .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
         .args(["-configuration", "Release", "-sdk", "iphoneos"])

@@ -586,6 +586,7 @@ pub fn build_macos_xcode(
     );
     let mut cmd = Command::new("xcodebuild");
     crate::ops::apply_determinism(&mut cmd);
+    crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/macos"))
         .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
         .args(["-configuration", configuration, "-sdk", "macosx"]);
@@ -939,6 +940,7 @@ pub fn build_ios_for(
     let xcodebuild = || {
         let mut cmd = Command::new("xcodebuild");
         crate::ops::apply_determinism(&mut cmd);
+        crate::ops::apply_xcode_hygiene(&mut cmd);
         cmd.current_dir(project.root.join("platform/ios"))
             .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
             .args([

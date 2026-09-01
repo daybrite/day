@@ -331,6 +331,25 @@ pub struct BootSpec<'a> {
     pub os: Option<&'a str>,
     pub wait: bool,
     pub orientation: Option<&'a str>,
+    /// Run the Android emulator with no window (CI). Ignored by the other targets, which have no
+    /// equivalent: a simulator is already headless and the OpenHarmony emulator has no such flag.
+    pub headless: bool,
+}
+
+/// What `day devices setup` builds: one AVD, described the way a device profile describes it.
+pub struct SetupSpec<'a> {
+    /// AVD name. Defaults to one derived from the device and API level.
+    pub name: Option<&'a str>,
+    /// A device profile id from `avdmanager list device` (`pixel_tablet`, `pixel_5`).
+    pub device: &'a str,
+    /// API level, spelled `36`, `API 36` or `android-36`.
+    pub os: &'a str,
+    /// ABI: `x86_64` on a CI runner, `arm64-v8a` on Apple Silicon. Defaults to the host's.
+    pub arch: Option<&'a str>,
+    /// System-image tag — `google_apis` by default, which is what an app needs and what every
+    /// API level publishes for both ABIs.
+    pub tag: Option<&'a str>,
+    pub orientation: Option<&'a str>,
 }
 
 /// Resolve `--device`/`--os` to a simulator UDID.
@@ -619,45 +638,68 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             Ok(0)
         }
         TargetKind::Android => {
-            let id = spec.id.or(spec.device).ok_or_else(|| {
-                CliError::usage("name an AVD: `day devices boot -p android-mdc <AVD>`".to_string())
-            })?;
-            let sdk = day_toolchain::android_sdk_dir();
-            let exe = if cfg!(windows) {
-                "emulator.exe"
-            } else {
-                "emulator"
+            // An AVD by exact name, or `--device` as a NAME PREFIX the way the simulator side
+            // resolves — so one profile string ("pixel_tablet") works whether the AVD is called
+            // that or `pixel_tablet_api36`.
+            let avd = match (spec.id, spec.device) {
+                (Some(id), _) => id.to_string(),
+                (None, Some(want)) => {
+                    let have: Vec<String> = avds().iter().map(|a| str_of(a, "name")).collect();
+                    have.iter()
+                        .find(|n| n.as_str() == want)
+                        .or_else(|| have.iter().find(|n| n.starts_with(want)))
+                        .cloned()
+                        .ok_or_else(|| {
+                            CliError::failure(format!(
+                                "no AVD named \"{want}…\". This machine has:\n  {}\n\
+                                 Create one with `day devices setup`.",
+                                have.join("\n  ")
+                            ))
+                        })?
+                }
+                (None, None) => {
+                    return Err(CliError::usage(
+                        "name an AVD: `day devices boot -p android-mdc <AVD>`, or --device"
+                            .to_string(),
+                    ));
+                }
             };
-            let bin = sdk.join("emulator").join(exe);
-            let cmd = if bin.is_file() {
-                bin.display().to_string()
-            } else {
-                exe.to_string()
+            enable_hw_keyboard(&avd);
+            // Already running? Then this command means "make sure it is up and facing this way",
+            // not "start another one". Without this, a re-run — a retried CI step, a developer
+            // running the same line twice — starts a SECOND emulator on the next free port, and
+            // the two then fight over the app, the screenshots and the adb default device.
+            let running = android_serials()
+                .into_iter()
+                .find(|s| avd_of_serial(s).as_deref() == Some(avd.as_str()));
+            let serial = match running {
+                Some(s) => {
+                    crate::ops::status("Found", &format!("emulator {avd} already up as {s}"));
+                    s
+                }
+                None => {
+                    // A FIXED console port, so the serial is known before the emulator exists.
+                    // Discovering it afterwards means diffing `adb devices`, which races every
+                    // other emulator on the machine — and a developer's Mac usually has one.
+                    let port = free_emulator_port();
+                    let serial = format!("emulator-{port}");
+                    crate::ops::status("Booting", &format!("emulator {avd} as {serial}"));
+                    spawn_emulator(&avd, port, spec.headless)?;
+                    serial
+                }
             };
-            // An emulator only forwards the host's keystrokes to the guest when its AVD says it
-            // has a hardware keyboard, and `avdmanager create avd` writes `hw.keyboard=no`
-            // (Android Studio's wizard writes `yes`, which is why AVDs made in the GUI type fine
-            // and AVDs made at a terminal do not). The emulator has no flag to override it —
-            // `-use-keycode-forwarding` changes how keys are translated, not whether the guest
-            // has a keyboard at all — so the AVD is the only place to fix it. Left alone, the app
-            // under development answers every keystroke with Android's on-screen keyboard and no
-            // text field ever fills, which reads as the APP swallowing input.
-            enable_hw_keyboard(id);
-            crate::ops::status("Booting", &format!("emulator {id}"));
-            // Detached on purpose: the emulator outlives this command, the way `day launch`
-            // expects to find it later. Its own window is where its output belongs.
-            Command::new(cmd)
-                .args(["-avd", id])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .map_err(|e| {
-                    CliError::failure(format!(
-                        "could not start the Android emulator ({e}) — is the SDK's emulator/ on \
-                         PATH, or ANDROID_HOME set?"
-                    ))
-                })?;
+            // Turning needs a booted device, so an orientation implies the wait even when the
+            // caller did not ask for one — the alternative is rotating a device that is not there
+            // and reporting a failure that is really a race.
+            if spec.wait || spec.orientation.is_some() {
+                wait_for_android_boot(&serial, 600)?;
+            }
+            if let Some(o) = spec.orientation {
+                rotate_android(&serial, o)?;
+            }
+            // The serial on STDOUT (status lines go to stderr), so a workflow can capture it:
+            //   SERIAL=$(day devices boot -p android-mdc --device pixel_tablet --wait)
+            println!("{serial}");
             Ok(0)
         }
         TargetKind::HarmonyOs => {
@@ -674,16 +716,178 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
     }
 }
 
-/// Point an AVD at a hardware keyboard, so the keys typed on this machine reach the app.
+/// `day devices setup` — create (or refresh) one AVD from a device profile.
 ///
-/// A no-op when the AVD already says `hw.keyboard=yes` (every AVD Android Studio made) or when
-/// its config cannot be found or rewritten — the emulator still boots either way, and a boot that
-/// refused to start over a preferences file would be the worse trade. The value lives in the AVD,
-/// so this is a one-time repair per AVD rather than something every boot pays for.
+/// AVD creation is knowledge the CLI already had scattered across a workflow and a README: which
+/// system image an API level needs, that `avdmanager` writes `hw.keyboard=no`, that a capture run
+/// wants a fixed orientation. Putting it behind a command means CI and a developer set a device up
+/// the same way, and that the workflow holds no Android SDK trivia of its own.
 ///
-/// The AVD's directory comes from its `<name>.ini` (`path=`), which is where the SDK tools record
-/// it — an AVD may live outside the AVD home, and `avdmanager --path` puts it wherever it is told.
-fn enable_hw_keyboard(avd: &str) {
+/// Idempotent: an AVD of that name is left in place and only its config is brought up to date, so
+/// a cached system image plus a re-run costs seconds.
+pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
+    let t = crate::targets::find(target)
+        .ok_or_else(|| CliError::usage(format!("unknown target {target}")))?;
+    if t.kind != TargetKind::Android {
+        return Err(CliError::usage(format!(
+            "`day devices setup` creates Android AVDs; {target} has nothing to create — \
+             iOS simulators come with Xcode, and the OpenHarmony emulator with its SDK"
+        )));
+    }
+    // "36", "API 36", "android-36" — a profile is written by a person, and all three spellings
+    // turn up in one workflow file.
+    let api: u32 = spec
+        .os
+        .trim()
+        .trim_start_matches("android-")
+        .trim_start_matches("API")
+        .trim_start_matches("api")
+        .trim()
+        .parse()
+        .map_err(|_| {
+            CliError::usage(format!(
+                "could not read an API level from {:?} — write `36`, `API 36` or `android-36`",
+                spec.os
+            ))
+        })?;
+    // The host's ABI by default: an emulator only runs a system image its CPU can execute, and
+    // the two hosts that matter here are an x86_64 CI runner and an Apple Silicon Mac.
+    let arch = spec.arch.unwrap_or(match std::env::consts::ARCH {
+        "aarch64" => "arm64-v8a",
+        _ => "x86_64",
+    });
+    let tag = spec.tag.unwrap_or("google_apis");
+    let name = spec
+        .name
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("day_{}_api{api}", spec.device));
+    let pkg = format!("system-images;android-{api};{tag};{arch}");
+
+    // The image is a directory in the SDK, which is what makes it cacheable in CI: restore the
+    // directory and this step finds it installed and downloads nothing.
+    let image_dir = day_toolchain::android_sdk_dir()
+        .join("system-images")
+        .join(format!("android-{api}"))
+        .join(tag)
+        .join(arch);
+    if image_dir.is_dir() {
+        crate::ops::status("Found", &format!("system image {pkg}"));
+    } else {
+        crate::ops::status("Installing", &format!("system image {pkg}"));
+        let sdkmanager = cmdline_tool("sdkmanager");
+        // `--licenses` is not enough on a cold SDK: the install itself prompts, and a CI runner
+        // has no one to answer. Feeding `y` covers both.
+        let mut child = Command::new(&sdkmanager)
+            .arg(&pkg)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                CliError::failure(format!(
+                    "could not run {sdkmanager} ({e}) — install the SDK command-line tools, or \
+                     set ANDROID_HOME"
+                ))
+            })?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            let _ = stdin.write_all(b"y\n".repeat(32).as_slice());
+        }
+        let st = child
+            .wait()
+            .map_err(|e| CliError::failure(format!("sdkmanager: {e}")))?;
+        if !st.success() {
+            return Err(CliError::failure(format!(
+                "sdkmanager could not install {pkg} — check that the API level, tag and ABI exist \
+                 (`sdkmanager --list | grep system-images`)"
+            )));
+        }
+    }
+
+    let existing = avds().iter().any(|a| str_of(a, "name") == name);
+    if existing {
+        crate::ops::status("Found", &format!("AVD {name}"));
+    } else {
+        crate::ops::status(
+            "Creating",
+            &format!("AVD {name} ({} on {pkg})", spec.device),
+        );
+        let avdmanager = cmdline_tool("avdmanager");
+        let mut child = Command::new(&avdmanager)
+            .args(["create", "avd", "-n", &name, "-k", &pkg, "-d", spec.device])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| CliError::failure(format!("could not run {avdmanager} ({e})")))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            // It asks whether to start from a custom hardware profile; the device profile named
+            // with `-d` already IS the answer.
+            let _ = stdin.write_all(b"no\n");
+        }
+        let st = child
+            .wait()
+            .map_err(|e| CliError::failure(format!("avdmanager: {e}")))?;
+        if !st.success() {
+            return Err(CliError::failure(format!(
+                "avdmanager could not create {name} — is {:?} a device profile? \
+                 (`avdmanager list device`)",
+                spec.device
+            )));
+        }
+    }
+
+    // Config last, and on every run: it is the part that has to be true whether the AVD was just
+    // created or restored from a cache, and it is cheap.
+    enable_hw_keyboard(&name);
+    if let Some(o) = spec.orientation {
+        let value = match o.trim().to_ascii_lowercase().as_str() {
+            "portrait" | "portrait-upside-down" => "portrait",
+            "landscape" | "landscape-left" | "landscape-right" => "landscape",
+            other => {
+                return Err(CliError::usage(format!(
+                    "unknown orientation {other:?} — portrait or landscape"
+                )));
+            }
+        };
+        // A starting orientation, not the authority: `day devices boot --orientation` sets the
+        // display afterwards and verifies it. This only saves the emulator from booting one way
+        // and being turned the other, which a capture run would otherwise photograph mid-turn.
+        set_avd_config(&name, "hw.initialOrientation", value);
+    }
+    println!("{name}");
+    Ok(0)
+}
+
+/// Set one key in an AVD's `config.ini`, adding it when absent. True when the file changed.
+fn set_avd_config(avd: &str, key: &str, value: &str) -> bool {
+    let Some(cfg) = avd_config_path(avd) else {
+        return false;
+    };
+    let Ok(text) = std::fs::read_to_string(&cfg) else {
+        return false;
+    };
+    let mut seen = false;
+    let mut out: Vec<String> = text
+        .lines()
+        .map(|line| match line.split_once('=') {
+            Some((k, _)) if k.trim() == key => {
+                seen = true;
+                format!("{key}={value}")
+            }
+            _ => line.to_string(),
+        })
+        .collect();
+    if !seen {
+        out.push(format!("{key}={value}"));
+    }
+    let mut body = out.join("\n");
+    body.push('\n');
+    if body == text {
+        return false;
+    }
+    std::fs::write(&cfg, body).is_ok()
+}
+
+/// Where an AVD keeps its `config.ini`, following the `.ini` pointer when there is one.
+fn avd_config_path(avd: &str) -> Option<std::path::PathBuf> {
     let home = std::env::var_os("ANDROID_AVD_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
@@ -700,36 +904,320 @@ fn enable_hw_keyboard(avd: &str) {
             })
         })
         .unwrap_or_else(|| home.join(format!("{avd}.avd")));
-    let cfg = dir.join("config.ini");
-    let Ok(text) = std::fs::read_to_string(&cfg) else {
-        return;
+    Some(dir.join("config.ini"))
+}
+
+// ── Android emulator control ─────────────────────────────────────────────────────────────────
+
+/// The SDK's `emulator` binary, or the bare name when the SDK layout does not have it.
+fn emulator_bin() -> String {
+    let exe = if cfg!(windows) {
+        "emulator.exe"
+    } else {
+        "emulator"
     };
-    // The key is written both spaced and unspaced depending on which tool wrote the file, so
-    // match on the key rather than on a literal line.
-    let mut seen = false;
-    let mut out: Vec<String> = text
-        .lines()
-        .map(|line| match line.split_once('=') {
-            Some((k, v)) if k.trim() == "hw.keyboard" => {
-                seen = true;
-                if v.trim() == "yes" {
-                    line.to_string()
-                } else {
-                    "hw.keyboard=yes".to_string()
-                }
-            }
-            _ => line.to_string(),
+    let bin = day_toolchain::android_sdk_dir().join("emulator").join(exe);
+    if bin.is_file() {
+        bin.display().to_string()
+    } else {
+        exe.to_string()
+    }
+}
+
+/// An SDK command-line tool (`avdmanager`, `sdkmanager`).
+///
+/// `cmdline-tools/latest` first, then any other versioned directory, then PATH — the three places
+/// it lands across a CI image (which installs `latest`), a Homebrew install (PATH only), and an
+/// Android Studio one (a versioned directory).
+fn cmdline_tool(name: &str) -> String {
+    let base = day_toolchain::android_sdk_dir().join("cmdline-tools");
+    let exe = if cfg!(windows) {
+        format!("{name}.bat")
+    } else {
+        name.to_string()
+    };
+    let latest = base.join("latest").join("bin").join(&exe);
+    if latest.is_file() {
+        return latest.display().to_string();
+    }
+    if let Ok(dirs) = std::fs::read_dir(&base) {
+        let mut found: Vec<std::path::PathBuf> = dirs
+            .flatten()
+            .map(|e| e.path().join("bin").join(&exe))
+            .filter(|p| p.is_file())
+            .collect();
+        found.sort();
+        if let Some(p) = found.pop() {
+            return p.display().to_string();
+        }
+    }
+    exe
+}
+
+/// Serials `adb` currently lists, in any state.
+fn android_serials() -> Vec<String> {
+    Command::new("adb")
+        .arg("devices")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .skip(1)
+                .filter_map(|l| l.split_whitespace().next())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .collect()
         })
+        .unwrap_or_default()
+}
+
+/// An emulator console port nothing is using, so the SERIAL is known before the emulator starts.
+///
+/// Letting the emulator pick means discovering its serial afterwards by diffing `adb devices`,
+/// which races every other emulator on the machine — and a developer's Mac usually has one. Ports
+/// are even and start at 5554 (`emulator-5554`), the odd port beside each being the adb channel.
+fn free_emulator_port() -> u16 {
+    let busy: Vec<u16> = android_serials()
+        .iter()
+        .filter_map(|s| s.strip_prefix("emulator-")?.parse().ok())
         .collect();
-    if seen && text.lines().eq(out.iter().map(String::as_str)) {
-        return; // already yes — nothing to say and nothing to write
+    (5554..=5584)
+        .step_by(2)
+        .find(|p| !busy.contains(p))
+        .unwrap_or(5554)
+}
+
+/// Which AVD a running emulator is, via its console (`adb emu avd name`).
+fn avd_of_serial(serial: &str) -> Option<String> {
+    let out = Command::new("adb")
+        .args(["-s", serial, "emu", "avd", "name"])
+        .output()
+        .ok()?;
+    out.status.success().then(|| {
+        // Two lines: the name, then "OK".
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    })
+}
+
+/// Start an emulator detached on a known console port.
+fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<(), CliError> {
+    let mut cmd = Command::new(emulator_bin());
+    cmd.args(["-avd", avd, "-port", &port.to_string()]);
+    if headless {
+        // `swiftshader_indirect` rather than the default `auto`: a runner has no GPU, and auto
+        // picks host acceleration and then fails to initialize.
+        cmd.args([
+            "-no-window",
+            "-gpu",
+            "swiftshader_indirect",
+            "-noaudio",
+            "-no-boot-anim",
+            "-no-snapshot",
+        ]);
     }
-    if !seen {
-        out.push("hw.keyboard=yes".to_string());
+    // Detached on purpose: the emulator outlives this command, the way `day launch` expects to
+    // find it later. Its own window is where its output belongs.
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| {
+            CliError::failure(format!(
+                "could not start the Android emulator ({e}) — is the SDK's emulator/ on PATH, or \
+                 ANDROID_HOME set?"
+            ))
+        })?;
+    Ok(())
+}
+
+/// One `adb -s <serial> shell …`, trimmed. `None` when adb itself fails.
+fn adb_shell(serial: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new("adb")
+        .args(["-s", serial, "shell"])
+        .args(args)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Block until the emulator has finished booting, or give up after `secs`.
+///
+/// `sys.boot_completed` is the only property worth waiting on: `adb wait-for-device` returns as
+/// soon as adbd answers, which is minutes before the launcher exists, and installing into that
+/// window fails in ways that read as a broken app. `init.svc.bootanim` is checked too because a
+/// device reports boot_completed while the boot animation still owns the screen, and a capture
+/// taken then is of the animation.
+fn wait_for_android_boot(serial: &str, secs: u64) -> Result<(), CliError> {
+    crate::ops::status("Waiting", &format!("{serial} to finish booting"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    while std::time::Instant::now() < deadline {
+        let booted = adb_shell(serial, &["getprop", "sys.boot_completed"]).as_deref() == Some("1");
+        let anim_done =
+            adb_shell(serial, &["getprop", "init.svc.bootanim"]).as_deref() != Some("running");
+        if booted && anim_done {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(2));
     }
-    let mut body = out.join("\n");
-    body.push('\n');
-    if std::fs::write(&cfg, body).is_ok() {
+    Err(CliError::failure(format!(
+        "{serial} did not finish booting within {secs}s (`adb -s {serial} shell getprop \
+         sys.boot_completed` never reported 1)"
+    )))
+}
+
+/// Turn an emulator's DISPLAY to `orientation`, and confirm by the SHAPE it ends up.
+///
+/// Two things here were each measured being wrong the obvious way.
+///
+/// `user_rotation` counts quarter-turns from the device's NATURAL orientation, and that differs
+/// per device: a phone is born portrait, a tablet landscape. On the pixel_tablet measured here
+/// `user_rotation=0` IS landscape (2560x1600) and `1` is portrait — the exact opposite of a phone.
+/// So the target is derived from the natural size rather than assumed, and every check asks what
+/// SHAPE the display now is, never what number it holds.
+///
+/// And the window manager is asked, not the settings provider. Writing
+/// `settings put system user_rotation` is only a REQUEST: the foreground app still decides, so on
+/// a phone the portrait-locked launcher snapped straight back and the write reported success
+/// against a display that had already reverted — a false pass, and the app kept portrait even
+/// after it started. `cmd window fixed-to-user-rotation enabled` takes that decision away from the
+/// app, and `cmd window user-rotation lock N` is absolute, so both form factors land where they
+/// were told. The settings path stays as a fallback for an image whose `cmd window` predates
+/// those subcommands.
+fn rotate_android(serial: &str, orientation: &str) -> Result<(), CliError> {
+    let want_landscape = match orientation.trim().to_ascii_lowercase().as_str() {
+        "portrait" | "portrait-upside-down" => false,
+        "landscape" | "landscape-left" | "landscape-right" => true,
+        other => {
+            return Err(CliError::usage(format!(
+                "unknown orientation {other:?} — portrait or landscape"
+            )));
+        }
+    };
+    let natural_landscape = android_natural_landscape(serial).ok_or_else(|| {
+        CliError::failure(format!(
+            "could not read {serial}'s screen size (`adb -s {serial} shell wm size`)"
+        ))
+    })?;
+    // Quarter-turns from natural. A device already the right shape at rest needs none.
+    let want: u8 = u8::from(want_landscape != natural_landscape);
+    crate::ops::status("Orienting", &format!("{serial} to {orientation}"));
+    // Landscape when the display sits an even number of quarter-turns from a landscape natural
+    // orientation, and so on — the shape, not the number.
+    let facing = |r: u8| r.is_multiple_of(2) == natural_landscape;
+    let mut stable = 0;
+    for attempt in 1..=20 {
+        adb_shell(
+            serial,
+            &["cmd", "window", "fixed-to-user-rotation", "enabled"],
+        );
+        let locked = adb_shell(
+            serial,
+            &["cmd", "window", "user-rotation", "lock", &want.to_string()],
+        )
+        .is_some_and(|o| !o.contains("Unknown command") && !o.contains("Error"));
+        if !locked {
+            // Older image: no `cmd window user-rotation`. Auto-rotate off first, or Android keeps
+            // the sensor as the authority and offers a rotate button in the navigation bar, which
+            // then sits in every capture.
+            adb_shell(
+                serial,
+                &["settings", "put", "system", "accelerometer_rotation", "0"],
+            );
+            adb_shell(
+                serial,
+                &[
+                    "settings",
+                    "put",
+                    "system",
+                    "user_rotation",
+                    &want.to_string(),
+                ],
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if android_rotation(serial).map(facing) == Some(want_landscape) {
+            // Hold it before believing it: a device still finishing boot, or one whose launcher
+            // is portrait-locked, agrees once and then reverts. Two agreements a second apart is
+            // what tells a real turn from a bounce.
+            stable += 1;
+            if stable == 2 {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            continue;
+        }
+        stable = 0;
+        if attempt == 20 {
+            return Err(CliError::failure(format!(
+                "{serial} would not stay turned to {orientation}: it reports rotation {:?} \
+                 against a natural orientation of {}",
+                android_rotation(serial),
+                if natural_landscape {
+                    "landscape"
+                } else {
+                    "portrait"
+                }
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Whether the device's NATURAL (unrotated) screen is wider than it is tall.
+///
+/// `wm size` reports the physical panel, which does not move when the display rotates — which is
+/// exactly why it is the right thing to compare a rotation against.
+fn android_natural_landscape(serial: &str) -> Option<bool> {
+    let out = adb_shell(serial, &["wm", "size"])?;
+    let line = out.lines().find(|l| l.contains("Physical size:"))?;
+    let (w, h) = line.rsplit_once(':')?.1.trim().split_once('x')?;
+    Some(w.trim().parse::<u32>().ok()? > h.trim().parse::<u32>().ok()?)
+}
+
+/// The display's current rotation as 0/1/2/3, read from the window manager.
+fn android_rotation(serial: &str) -> Option<u8> {
+    let out = adb_shell(serial, &["dumpsys", "window", "displays"])?;
+    let named = |v: &str| match v.trim_end_matches(',') {
+        "ROTATION_0" | "0" => Some(0),
+        "ROTATION_90" | "1" => Some(1),
+        "ROTATION_180" | "2" => Some(2),
+        "ROTATION_270" | "3" => Some(3),
+        _ => None,
+    };
+    // `mCurrentRotation=ROTATION_90` on modern Android; older images spell it `rotation=1`.
+    for line in out.lines() {
+        if let Some(i) = line.find("mCurrentRotation=") {
+            let v = line[i + "mCurrentRotation=".len()..]
+                .split_whitespace()
+                .next()
+                .unwrap_or_default();
+            return named(v);
+        }
+    }
+    out.split_whitespace()
+        .find_map(|w| named(w.strip_prefix("rotation=")?))
+}
+
+/// Point an AVD at a hardware keyboard, so the keys typed on this machine reach the app.
+///
+/// A no-op when the AVD already says `hw.keyboard=yes` (every AVD Android Studio made) or when
+/// its config cannot be found or rewritten — the emulator still boots either way, and a boot that
+/// refused to start over a preferences file would be the worse trade. The value lives in the AVD,
+/// so this is a one-time repair per AVD rather than something every boot pays for.
+///
+/// The AVD's directory comes from its `<name>.ini` (`path=`), which is where the SDK tools record
+/// it — an AVD may live outside the AVD home, and `avdmanager --path` puts it wherever it is told.
+fn enable_hw_keyboard(avd: &str) {
+    if set_avd_config(avd, "hw.keyboard", "yes") {
         crate::ops::status(
             "Enabling",
             &format!("hardware keyboard for {avd} (hw.keyboard=yes) — typing reaches the app"),

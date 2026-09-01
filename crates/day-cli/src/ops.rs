@@ -338,6 +338,21 @@ pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
 ///
 /// Scope: archive and debug-map timestamps only. It does NOT touch `__DATE__`/`__TIME__` (Day uses
 /// neither), and it is inert on non-Apple hosts.
+/// Build settings every `xcodebuild` invocation carries, whatever it is building.
+///
+/// Index-while-building is turned off, and the reason is not speed. Xcode 27 was measured emitting
+/// `-index-store-path` with an EMPTY value, so `swiftc` took the next token on the line as the
+/// path — with a `-Xcc` from OTHER_SWIFT_FLAGS sitting there, it created a directory literally
+/// named `-Xcc`. It landed inside `platform/ios/DayApp.xcodeproj/`, because that is the
+/// `-working-directory` Xcode passes, which left an untracked directory in the source tree and
+/// failed the pristine check that proves a packed artifact was rebuilt from its commit.
+///
+/// A CLI build has no use for the index store either way: it exists to make the Xcode GUI's
+/// jump-to-definition instant, and nothing here opens the GUI.
+pub fn apply_xcode_hygiene(cmd: &mut Command) {
+    cmd.arg("COMPILER_INDEX_STORE_ENABLE=NO");
+}
+
 pub fn apply_determinism(cmd: &mut Command) {
     for (k, v) in determinism_env() {
         cmd.env(k, v);

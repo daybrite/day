@@ -781,6 +781,34 @@ pub enum DevicesCmd {
         /// half of a capture profile (docs/screenshots.md). iOS simulators only.
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
+        /// Run an Android emulator with no window, for a machine with no display (CI). Ignored
+        /// by the other targets: a simulator is already headless.
+        #[arg(long)]
+        headless: bool,
+    },
+    /// Create (or update) an Android AVD from a device profile, ready to boot
+    Setup {
+        /// Target this device belongs to (only `android-mdc` has AVDs to create)
+        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        platform: String,
+        /// Device profile id from `avdmanager list device` — `pixel_tablet`, `pixel_5`
+        #[arg(long, value_name = "PROFILE")]
+        device: String,
+        /// API level: `36`, `API 36` or `android-36`
+        #[arg(long, value_name = "LEVEL")]
+        os: String,
+        /// ABI of the system image; defaults to the host's (`x86_64` on a CI runner)
+        #[arg(long, value_name = "ABI")]
+        arch: Option<String>,
+        /// System-image tag; defaults to `google_apis`
+        #[arg(long, value_name = "TAG")]
+        tag: Option<String>,
+        /// AVD name; defaults to one derived from the device and API level
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+        /// Orientation the emulator starts in (`portrait` or `landscape`)
+        #[arg(long, value_name = "ORIENTATION")]
+        orientation: Option<String>,
     },
 }
 
@@ -1134,6 +1162,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     os,
                     wait,
                     orientation,
+                    headless,
                 },
         } => crate::devices::boot(
             platform.as_str(),
@@ -1142,6 +1171,29 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 device: device.as_deref(),
                 os: os.as_deref(),
                 wait,
+                orientation: orientation.as_deref(),
+                headless,
+            },
+        ),
+        Cmd::Devices {
+            cmd:
+                DevicesCmd::Setup {
+                    platform,
+                    device,
+                    os,
+                    arch,
+                    tag,
+                    name,
+                    orientation,
+                },
+        } => crate::devices::setup(
+            platform.as_str(),
+            &crate::devices::SetupSpec {
+                name: name.as_deref(),
+                device: device.as_str(),
+                os: os.as_str(),
+                arch: arch.as_deref(),
+                tag: tag.as_deref(),
                 orientation: orientation.as_deref(),
             },
         ),
