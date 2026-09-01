@@ -690,6 +690,8 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             // not "start another one". Without this, a re-run — a retried CI step, a developer
             // running the same line twice — starts a SECOND emulator on the next free port, and
             // the two then fight over the app, the screenshots and the adb default device.
+            // Held only for the wait below: dropping it does not stop the emulator.
+            let mut started: Option<std::process::Child> = None;
             let running = android_serials()
                 .into_iter()
                 .find(|s| avd_of_serial(s).as_deref() == Some(avd.as_str()));
@@ -705,7 +707,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     let port = free_emulator_port();
                     let serial = format!("emulator-{port}");
                     crate::ops::status("Booting", &format!("emulator {avd} as {serial}"));
-                    spawn_emulator(&avd, port, spec.headless)?;
+                    started = Some(spawn_emulator(&avd, port, spec.headless)?);
                     serial
                 }
             };
@@ -713,7 +715,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             // caller did not ask for one — the alternative is rotating a device that is not there
             // and reporting a failure that is really a race.
             if spec.wait || spec.orientation.is_some() {
-                wait_for_android_boot(&serial, 600)?;
+                wait_for_android_boot(&serial, 600, &avd, started.as_mut())?;
             }
             if let Some(o) = spec.orientation {
                 rotate_android(&serial, o)?;
@@ -1086,8 +1088,25 @@ fn avd_of_serial(serial: &str) -> Option<String> {
     })
 }
 
-/// Start an emulator detached on a known console port.
-fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<(), CliError> {
+/// Where an emulator's own output is kept, so a boot that never completes can be explained.
+fn emulator_log_path(avd: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("day-emulator-{avd}.log"))
+}
+
+/// Start an emulator on a known console port, keeping its output.
+///
+/// The output used to go to `/dev/null`, which threw away the one thing that explains a boot that
+/// never finishes — "no accelerator", a bad GPU mode, a corrupt AVD. It goes to a log file
+/// instead, whose path is printed, and the child handle comes back so the wait can notice the
+/// emulator EXITING rather than sitting out its whole timeout waiting for a device that will
+/// never appear.
+fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::Child, CliError> {
+    let log = emulator_log_path(avd);
+    let sink = std::fs::File::create(&log)
+        .map_err(|e| CliError::failure(format!("{}: {e}", log.display())))?;
+    let errs = sink
+        .try_clone()
+        .map_err(|e| CliError::failure(format!("{}: {e}", log.display())))?;
     let mut cmd = Command::new(emulator_bin());
     with_avd_home(&mut cmd).args(["-avd", avd, "-port", &port.to_string()]);
     if headless {
@@ -1102,19 +1121,35 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<(), CliError> 
             "-no-snapshot",
         ]);
     }
-    // Detached on purpose: the emulator outlives this command, the way `day launch` expects to
-    // find it later. Its own window is where its output belongs.
+    crate::ops::status("Logging", &format!("emulator output to {}", log.display()));
+    // Detached from our stdio but not from us: the emulator outlives this command, which is what
+    // `day launch` expects to find later, while the handle lets the wait below watch it.
     cmd.stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(sink))
+        .stderr(std::process::Stdio::from(errs))
         .spawn()
         .map_err(|e| {
             CliError::failure(format!(
-                "could not start the Android emulator ({e}) — is the SDK's emulator/ on PATH, or \
+                "could not start the Android emulator ({e}) — is the SDK\'s emulator/ on PATH, or \
                  ANDROID_HOME set?"
             ))
-        })?;
-    Ok(())
+        })
+}
+
+/// The last few lines of an emulator log, for an error that has to say why.
+fn emulator_log_tail(avd: &str, lines: usize) -> String {
+    let path = emulator_log_path(avd);
+    match std::fs::read_to_string(&path) {
+        Ok(text) if !text.trim().is_empty() => {
+            let tail: Vec<&str> = text.lines().rev().take(lines).collect();
+            format!(
+                "\n{} says:\n  {}",
+                path.display(),
+                tail.into_iter().rev().collect::<Vec<_>>().join("\n  ")
+            )
+        }
+        _ => format!("\n({} is empty)", path.display()),
+    }
 }
 
 /// One `adb -s <serial> shell …`, trimmed. `None` when adb itself fails.
@@ -1136,21 +1171,80 @@ fn adb_shell(serial: &str, args: &[&str]) -> Option<String> {
 /// window fails in ways that read as a broken app. `init.svc.bootanim` is checked too because a
 /// device reports boot_completed while the boot animation still owns the screen, and a capture
 /// taken then is of the animation.
-fn wait_for_android_boot(serial: &str, secs: u64) -> Result<(), CliError> {
-    crate::ops::status("Waiting", &format!("{serial} to finish booting"));
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+///
+/// The wait REPORTS as it goes, because the silent version was unreadable where it mattered: a CI
+/// job printed "Waiting …" and then nothing for ten minutes, and the log said nothing about
+/// whether adb had ever seen the device, what the properties read, or whether the emulator was
+/// still alive. Every 15s it prints one line (every poll under `--verbose`), and it watches the
+/// emulator process itself — an emulator that has EXITED will never boot, so waiting out the
+/// remaining timeout only delays a failure whose cause is already in the log.
+fn wait_for_android_boot(
+    serial: &str,
+    secs: u64,
+    avd: &str,
+    child: Option<&mut std::process::Child>,
+) -> Result<(), CliError> {
+    crate::ops::status(
+        "Waiting",
+        &format!("{serial} to finish booting (up to {secs}s)"),
+    );
+    let started = std::time::Instant::now();
+    let deadline = started + std::time::Duration::from_secs(secs);
+    let mut child = child;
+    let mut last_report = std::time::Instant::now();
+    let mut last_line = String::new();
     while std::time::Instant::now() < deadline {
-        let booted = adb_shell(serial, &["getprop", "sys.boot_completed"]).as_deref() == Some("1");
-        let anim_done =
-            adb_shell(serial, &["getprop", "init.svc.bootanim"]).as_deref() != Some("running");
-        if booted && anim_done {
+        // Did the emulator die? Then nothing else is worth waiting for.
+        if let Some(c) = child.as_deref_mut()
+            && let Ok(Some(status)) = c.try_wait()
+        {
+            return Err(CliError::failure(format!(
+                "the emulator exited ({status}) after {}s without booting.{}",
+                started.elapsed().as_secs(),
+                emulator_log_tail(avd, 20)
+            )));
+        }
+        let listed = android_serials().iter().any(|s| s == serial);
+        let booted = adb_shell(serial, &["getprop", "sys.boot_completed"]).unwrap_or_default();
+        let anim = adb_shell(serial, &["getprop", "init.svc.bootanim"]).unwrap_or_default();
+        if booted == "1" && anim != "running" {
+            crate::ops::status(
+                "Booted",
+                &format!("{serial} in {}s", started.elapsed().as_secs()),
+            );
             return Ok(());
+        }
+        // One line per interval, and only when it SAYS something new or the interval elapsed —
+        // a wall of identical lines is as unreadable as silence.
+        let line = format!(
+            "adb sees it: {}, sys.boot_completed={:?}, bootanim={:?}",
+            if listed { "yes" } else { "no" },
+            booted,
+            anim
+        );
+        // Every poll under `--verbose`; otherwise on a state CHANGE (which is the interesting
+        // moment) or every 15s, so a long wait still shows it is alive.
+        let due = last_report.elapsed() >= std::time::Duration::from_secs(15);
+        if crate::ops::verbose() || due || line != last_line {
+            crate::ops::status(
+                "Booting",
+                &format!("{}s elapsed — {line}", started.elapsed().as_secs()),
+            );
+            last_report = std::time::Instant::now();
+            last_line = line;
         }
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
     Err(CliError::failure(format!(
-        "{serial} did not finish booting within {secs}s (`adb -s {serial} shell getprop \
-         sys.boot_completed` never reported 1)"
+        "{serial} did not finish booting within {secs}s. Last seen: adb {} it, \
+         sys.boot_completed={:?}.{}",
+        if android_serials().iter().any(|s| s == serial) {
+            "listed"
+        } else {
+            "never listed"
+        },
+        adb_shell(serial, &["getprop", "sys.boot_completed"]).unwrap_or_default(),
+        emulator_log_tail(avd, 20)
     )))
 }
 
