@@ -457,7 +457,8 @@ fn os_crash_findings(
         TargetKind::Android => {
             looked.push("adb logcat -b crash".into());
             let out_cmd = crate::ops::output_within(
-                Command::new("adb").args(["logcat", "-b", "crash", "-d", "-t", "200"]),
+                Command::new(day_toolchain::adb_bin())
+                    .args(["logcat", "-b", "crash", "-d", "-t", "200"]),
                 DEVICE_CMD,
             );
             if let Some(o) = out_cmd

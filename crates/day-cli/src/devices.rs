@@ -1038,7 +1038,7 @@ fn cmdline_tool(name: &str) -> String {
 
 /// Serials `adb` currently lists, in any state.
 fn android_serials() -> Vec<String> {
-    Command::new("adb")
+    Command::new(day_toolchain::adb_bin())
         .arg("devices")
         .output()
         .ok()
@@ -1073,7 +1073,7 @@ fn free_emulator_port() -> u16 {
 
 /// Which AVD a running emulator is, via its console (`adb emu avd name`).
 fn avd_of_serial(serial: &str) -> Option<String> {
-    let out = Command::new("adb")
+    let out = Command::new(day_toolchain::adb_bin())
         .args(["-s", serial, "emu", "avd", "name"])
         .output()
         .ok()?;
@@ -1154,7 +1154,7 @@ fn emulator_log_tail(avd: &str, lines: usize) -> String {
 
 /// One `adb -s <serial> shell …`, trimmed. `None` when adb itself fails.
 fn adb_shell(serial: &str, args: &[&str]) -> Option<String> {
-    let out = Command::new("adb")
+    let out = Command::new(day_toolchain::adb_bin())
         .args(["-s", serial, "shell"])
         .args(args)
         .output()
@@ -1184,6 +1184,21 @@ fn wait_for_android_boot(
     avd: &str,
     child: Option<&mut std::process::Child>,
 ) -> Result<(), CliError> {
+    // Can adb be run at ALL? Every check below asks it, and a missing adb answers each one with
+    // "no device" — which is indistinguishable from a device that has not booted yet. That is the
+    // exact shape of a CI failure that polled for ten minutes reporting "adb sees it: no" while
+    // the emulator sat there fully booted: the question was never actually being asked.
+    if Command::new(day_toolchain::adb_bin())
+        .arg("version")
+        .output()
+        .is_err()
+    {
+        return Err(CliError::failure(format!(
+            "adb could not be run ({}), so a boot can never be observed — install the Android SDK \
+             platform-tools, or set ANDROID_HOME to an SDK that has them",
+            day_toolchain::adb_bin()
+        )));
+    }
     crate::ops::status(
         "Waiting",
         &format!("{serial} to finish booting (up to {secs}s)"),
@@ -1505,10 +1520,13 @@ fn runtime_label(key: &str) -> String {
 // ── Android ──────────────────────────────────────────────────────────────────────────────────
 
 fn android() -> Report {
-    let out = Command::new("adb").arg("devices").output();
+    let out = Command::new(day_toolchain::adb_bin())
+        .arg("devices")
+        .output();
     let Ok(out) = out else {
         return Report::unavailable(
-            "adb not found — install the Android SDK platform-tools and put them on PATH",
+            "adb not found — install the Android SDK platform-tools (looked in \
+             $ANDROID_HOME/platform-tools and on PATH)",
         );
     };
     if !out.status.success() {
@@ -1545,7 +1563,7 @@ fn android() -> Report {
 }
 
 fn device_abi(serial: &str) -> String {
-    Command::new("adb")
+    Command::new(day_toolchain::adb_bin())
         .args(["-s", serial, "shell", "getprop", "ro.product.cpu.abi"])
         .output()
         .ok()

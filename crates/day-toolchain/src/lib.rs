@@ -208,6 +208,22 @@ pub fn android_sdk_dir() -> PathBuf {
     }
 }
 
+/// The `adb` this machine should use: the SDK's own copy first, then whatever is on PATH.
+///
+/// PATH alone is not enough, and the failure it produces is invisible rather than loud. A GitHub
+/// Linux runner sets `ANDROID_HOME` but does NOT put `platform-tools` on PATH, so every `adb` call
+/// returns "not found" — and code that reads `adb devices` to see whether a device exists then
+/// concludes there is none. A CI boot waited out its full ten minutes reporting "adb sees it: no"
+/// while the emulator sat there fully booted, because the question was never actually asked.
+pub fn adb_bin() -> String {
+    let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
+    let in_sdk = android_sdk_dir().join("platform-tools").join(exe);
+    if in_sdk.is_file() {
+        return in_sdk.display().to_string();
+    }
+    exe.to_string()
+}
+
 /// A JDK home for the Gradle/AGP build. AGP 9's minimum is JDK 17, and Gradle must support the
 /// exact version — Gradle 9.6 runs on 17…26 (verified: the day scaffold builds on 17, 21 and 26
 /// alike, so the old "21 exactly / 22+ breaks the jdk-image transform" restriction was an AGP-8-era

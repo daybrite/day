@@ -1600,7 +1600,7 @@ pub(crate) struct AndroidDevice {
 /// `adb` with an optional device selector (`-s <serial>`). Multi-device installs/launches MUST
 /// pin the serial, or adb errors ("more than one device/emulator").
 fn adb(serial: Option<&str>) -> Command {
-    let mut c = Command::new("adb");
+    let mut c = Command::new(day_toolchain::adb_bin());
     if let Some(s) = serial {
         c.args(["-s", s]);
     }
@@ -1632,7 +1632,10 @@ pub(crate) fn android_devices_for(want: Option<&str>) -> Vec<AndroidDevice> {
             .ok()
             .filter(|s| !s.is_empty())
     });
-    let out = match Command::new("adb").arg("devices").output() {
+    let out = match Command::new(day_toolchain::adb_bin())
+        .arg("devices")
+        .output()
+    {
         Ok(o) if o.status.success() => o,
         _ => return Vec::new(),
     };
@@ -1651,7 +1654,7 @@ pub(crate) fn android_devices_for(want: Option<&str>) -> Vec<AndroidDevice> {
                 return None;
             }
             let abi = forced.clone().unwrap_or_else(|| {
-                Command::new("adb")
+                Command::new(day_toolchain::adb_bin())
                     .args(["-s", serial, "shell", "getprop", "ro.product.cpu.abi"])
                     .output()
                     .ok()
@@ -2040,7 +2043,7 @@ pub fn launch_android(
             // a stop there would be arming a teardown against the very thing the flag asks for.
             crate::signals::register_remote_stop(
                 [
-                    "adb".to_string(),
+                    day_toolchain::adb_bin(),
                     "-s".into(),
                     dev.serial.clone(),
                     "shell".into(),

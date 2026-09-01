@@ -250,7 +250,7 @@ fn adb_for_script() -> Command {
             .first()
             .map(|d| d.serial.clone())
     });
-    let mut cmd = Command::new("adb");
+    let mut cmd = Command::new(day_toolchain::adb_bin());
     if let Some(serial) = serial {
         cmd.args(["-s", &serial]);
     }
@@ -400,7 +400,7 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
         TargetKind::Android => {
             // Pin the device the runner forwarded to — `android_devices` is already narrowed to
             // this run's selection — else `adb` errors with several attached.
-            let mut cmd = Command::new("adb");
+            let mut cmd = Command::new(day_toolchain::adb_bin());
             if let Some(dev) = crate::mobile::android_devices().first() {
                 cmd.args(["-s", &dev.serial]);
             }
@@ -523,7 +523,7 @@ pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
                 .first()
                 .map(|d| d.serial.clone())
         });
-        let mut cmd = Command::new("adb");
+        let mut cmd = Command::new(day_toolchain::adb_bin());
         if let Some(serial) = serial {
             cmd.args(["-s", &serial]);
         }
@@ -1149,7 +1149,12 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
         }
         TargetKind::Android => {
             let _ = crate::ops::status_within(
-                Command::new("adb").args(["shell", "am", "force-stop", &project.manifest.app.id]),
+                Command::new(day_toolchain::adb_bin()).args([
+                    "shell",
+                    "am",
+                    "force-stop",
+                    &project.manifest.app.id,
+                ]),
                 DEVICE_CMD,
             );
         }
@@ -1182,7 +1187,7 @@ const DEVICE_CMD: Duration = Duration::from_secs(30);
 pub(crate) fn device_alive(target: &Target) -> bool {
     let mut probe = match target.kind {
         TargetKind::Android => {
-            let mut c = Command::new("adb");
+            let mut c = Command::new(day_toolchain::adb_bin());
             c.args(["shell", "true"]);
             c
         }
