@@ -3,260 +3,268 @@
 
 // Assemble the screenshots gallery into a static manifest.
 //
-// Inputs  : per suite, ONE of —
-//           · the suite's published screenshot index (`suite.metadata`, `day screenshot index`'s
-//             gallery.json): the manifest then references those hosted images by absolute
-//             URL and nothing is copied — the app's own site owns the bytes, and adding
-//             another Day app site's index adds another suite to the gallery;
-//           · `<artifactsDir>/screenshots-<platform>/<variant>/<shot>.png` (from
-//             `download-artifact pattern: screenshots-*`) — the fallback when there is no
-//             index or the fetch fails. Variants are the themed / localized capture sets CI
-//             produces per platform (light / dark / fr today), per gallery.config.mjs.
-// Outputs : `public/gallery/<suite>/<platform>/<variant>/<shot>.png` (artifact mode only)
-//           `src/data/gallery-manifest.json`   (consumed by src/pages/gallery.astro)
+// Inputs  : each app's published screenshot index (`app.metadata` in gallery.config.mjs — the
+//           `gallery.json` that `day screenshot index` writes and every Day app site serves at
+//           `<host>/gallery/gallery.json`). The index carries absolute image URLs, so this site
+//           REFERENCES the app's own hosted screenshots: one copy of the bytes, owned by the app
+//           that captured them, and daybrite.dev's build waits on nobody else's CI.
+// Outputs : `src/data/gallery-manifest.json`  (src/pages/gallery/index.astro, gallery/[app].astro,
+//                                              components/PlatformShots.astro, hero-shots.mjs)
+//           `.cache/gallery/<app>.json`        (the last index that fetched, gitignored)
 //
-// The manifest is SHOT-major: the gallery renders one row per shot with every platform's tile
-// in it, and each tile carries all of its variants so the page's theme/language selectors can
-// swap images client-side without reloading.
+// The manifest is SHOT-major per app: one row per captured screen holding every column's tile, and
+// each tile carrying all of its (theme, locale) captures so the page's selectors can swap images
+// client-side without reloading. Rows, columns, themes and languages all come from the index —
+// an app that captures a new screen shows it on the next build with no change here.
 //
-// When no artifacts are present (local builds), every shot is emitted as a placeholder entry so
-// the gallery layout is fully visible without any screenshots. The design is extensible: adding a
-// sample app or a component-snapshot set is a gallery.config.mjs change, not a code change here.
+// A COLUMN is a target, split by device where the app captured more than one form factor and the
+// platform table names the refinement (`ios-uikit` + `ios-uikit-ipad`). An unknown device folds
+// into its target's own column rather than inventing one the rest of the site cannot name.
 //
-// A run that DID capture something drops the platforms it captured nothing for: no column, no
-// tiles, and their ids listed in the suite's `hidden` — a full column of placeholders reports a
-// broken CI leg to a reader who came to compare toolkits.
+// An app whose index cannot be fetched falls back to the cached copy of its last successful
+// fetch, and is DROPPED (loudly) when there is no cache either: a page of placeholders would say
+// only that a fetch failed, which is not what a reader came for. A build where NO app resolves
+// still succeeds, with an empty gallery — that is a local checkout with no network, and the
+// pages have to be able to render.
 //
-// Runnable standalone (`node scripts/assemble-gallery.mjs [artifactsDir]`) and from the Astro
-// integration (integrations/gallery.mjs). No third-party dependencies.
+// Runnable standalone (`node scripts/assemble-gallery.mjs`) and from the Astro integration
+// (integrations/gallery.mjs). No third-party dependencies.
 
-import { existsSync, mkdirSync, rmSync, copyFileSync, writeFileSync, readSync, openSync, closeSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import galleryConfig from '../gallery.config.mjs';
+import { platformsById } from '../src/lib/platforms.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEBSITE_ROOT = resolve(HERE, '..');
+const CACHE_DIR = join(WEBSITE_ROOT, '.cache', 'gallery');
 
-/** Read a PNG's pixel dimensions straight from the IHDR header (bytes 16..24), no dependency. */
-function pngSize(file) {
-  try {
-    const fd = openSync(file, 'r');
-    const buf = Buffer.alloc(24);
-    readSync(fd, buf, 0, 24, 0);
-    closeSync(fd);
-    // 0x89 'PNG' magic, then IHDR at offset 16 = width (BE u32), 20 = height (BE u32).
-    if (buf.readUInt32BE(0) !== 0x89504e47) return null;
-    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-  } catch {
-    return null;
-  }
+/** `san-francisco` → `San Francisco`: the row heading for a shot whose dayscript declared no
+ *  `title:`. The same derivation `day screenshot index` applies, so a thin index and a rich one
+ *  read alike. */
+function derivedLabel(id) {
+  return id.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Locate one (shot, variant) PNG: the variant's directories in order, then flat (legacy). */
-function findVariantShot(artifactDir, shotId, variant) {
-  if (!existsSync(artifactDir)) return null;
-  const named = `${shotId}.png`;
-  for (const dir of variant.dirs) {
-    const p = join(artifactDir, dir, named);
-    if (existsSync(p)) return p;
-  }
-  if (variant.dirs.includes('default')) {
-    const flat = join(artifactDir, named);
-    if (existsSync(flat)) return flat;
-  }
-  return null;
+/** Resolve one of the index's localized text maps for this (English) site: the English entry,
+ *  else any entry — a French-only caption beats no caption. */
+function english(text) {
+  if (!text) return null;
+  if (typeof text === 'string') return text;
+  return text.en ?? Object.values(text).find((v) => typeof v === 'string') ?? null;
 }
 
-/** Fetch a suite's published screenshot index (gallery.json) and key its entries by
- *  `(shot, platform, variant)` for the assembly loop. Returns null on any failure — the caller
- *  falls back to CI artifacts, so an unreachable site degrades rather than fails the build. */
-async function fetchRemoteIndex(url, log) {
+/** The column a capture belongs in. A device the platform table names as a refinement of the
+ *  target (`ios-uikit` + `ipad` → `ios-uikit-ipad`) gets its own column; every other device —
+ *  the app's primary phone, an unnamed profile — folds into the target's own column. */
+function columnFor(platform, device) {
+  if (device && platformsById[`${platform}-${device}`]) return `${platform}-${device}`;
+  return platform;
+}
+
+/** The key a capture is stored under: the two dimensions the app actually varied. Either may be
+ *  absent from an index (most apps capture one theme, some one language), and `default` stands in
+ *  so a single ladder covers every app. */
+function captureKey(theme, locale) {
+  return `${theme || 'default'}|${locale || 'default'}`;
+}
+
+/** Fetch an app's published index, caching the last good copy so a later build survives an
+ *  unreachable site (and so a local checkout works offline once it has fetched). */
+async function loadIndex(app, log) {
+  const cacheFile = join(CACHE_DIR, `${app.id}.json`);
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(app.metadata, { signal: AbortSignal.timeout(20_000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!Array.isArray(data.screenshots)) throw new Error('no screenshots[] in the index');
-    const byKey = new Map();
-    for (const e of data.screenshots) {
-      if (!e.url || !e.shot || !e.platform || !e.variant) continue;
-      byKey.set(`${e.shot}|${e.platform}|${e.variant.toLowerCase()}`, e);
-    }
-    log(`using ${byKey.size} published screenshot(s) from ${url}`);
-    return byKey;
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(cacheFile, JSON.stringify(data));
+    return { data, stale: false };
   } catch (err) {
-    log(`could not fetch ${url} (${err.message ?? err}) — falling back to CI artifacts`);
+    const why = err?.message ?? err;
+    if (existsSync(cacheFile)) {
+      try {
+        log(`${app.id}: ${why} — using the cached index from the last good fetch`);
+        return { data: JSON.parse(readFileSync(cacheFile, 'utf8')), stale: true };
+      } catch {
+        /* fall through to the drop below */
+      }
+    }
+    log(`${app.id}: ${why} — no cached index, so the app is left out of this build`);
     return null;
   }
 }
 
-/** One (shot, platform, variant) from the remote index, trying the variant's directory names
- *  the way the artifact probe does (the index stores the CI `--variant` spelling verbatim). */
-function findRemoteShot(remote, shotId, platformId, variant) {
-  for (const dir of variant.dirs) {
-    const e = remote.get(`${shotId}|${platformId}|${dir.toLowerCase()}`);
-    if (e) return e;
-  }
-  return null;
-}
-
-/**
- * @param {{ artifactsDir?: string, quiet?: boolean }} [opts]
- * @returns {Promise<{ hasArtifacts: boolean, manifestPath: string, unreadable: string[], hidden: string[] }>}
- */
-export async function assembleGallery(opts = {}) {
-  const artifactsDir = resolve(WEBSITE_ROOT, opts.artifactsDir ?? process.env.GALLERY_ARTIFACTS_DIR ?? 'artifacts');
-  const publicGallery = join(WEBSITE_ROOT, 'public', 'gallery');
-  const dataDir = join(WEBSITE_ROOT, 'src', 'data');
-  const log = (m) => opts.quiet || console.log(`[gallery] ${m}`);
-
-  // Fresh output every run (stale screenshots must not linger).
-  rmSync(publicGallery, { recursive: true, force: true });
-  mkdirSync(dataDir, { recursive: true });
-
-  // A suite with a published index (suite.metadata) references THOSE hosted screenshots —
-  // absolute URLs straight into the manifest, no bytes copied into this site. Fetch failure
-  // falls back to the CI-artifact path below, so the build never hinges on another site.
-  const remoteBySuite = new Map();
-  for (const suite of galleryConfig.suites) {
-    if (suite.metadata) {
-      remoteBySuite.set(suite.id, await fetchRemoteIndex(suite.metadata, log));
-    }
+/** Turn one published index into the app's manifest entry. */
+function assembleApp(app, index, stale) {
+  // Group every usable capture by (shot, column, theme+locale). `url` is what this site links;
+  // an index published by a site with no configured host has none, and contributes nothing.
+  const byShot = new Map();
+  const columnShots = new Map();
+  const themes = [];
+  const locales = [];
+  let captures = 0;
+  for (const s of index.screenshots) {
+    if (!s.url || !s.shot || !s.platform) continue;
+    const column = columnFor(s.platform, s.device);
+    if (app.platforms && !app.platforms.includes(column)) continue;
+    if (app.hide?.includes(s.shot)) continue;
+    if (s.theme && !themes.includes(s.theme)) themes.push(s.theme);
+    if (s.locale && !locales.includes(s.locale)) locales.push(s.locale);
+    const tiles = byShot.get(s.shot) ?? new Map();
+    byShot.set(s.shot, tiles);
+    const tile = tiles.get(column) ?? {};
+    tiles.set(column, tile);
+    const key = captureKey(s.theme, s.locale);
+    if (key in tile) continue; // first capture of a combination wins, in the index's own order
+    tile[key] = { src: s.url, width: s.width ?? undefined, height: s.height ?? undefined };
+    captures += 1;
+    columnShots.set(column, (columnShots.get(column) ?? 0) + 1);
   }
 
-  let realShots = 0;
-  const unreadable = [];
-  /** `<suite>/<platform>` for every column dropped for want of captures (reported by the caller). */
-  const hidden = [];
-  const suites = galleryConfig.suites.map((suite) => {
-    const remote = remoteBySuite.get(suite.id) ?? null;
-    const suitePlatforms = suite.platforms
-      .map((platformId) => galleryConfig.platforms.find((p) => p.id === platformId))
-      .filter(Boolean);
-    const captureCount = new Map(suitePlatforms.map((p) => [p.id, 0]));
-
-    // SHOT-major: one entry per curated shot, holding every platform's variant set.
-    const shots = suite.shots.map((shot) => {
-      const byPlatform = suitePlatforms.map((platform) => {
-        const artifactName = suite.artifactPattern.replace('{platform}', platform.id);
-        const artifactDir = join(artifactsDir, artifactName);
-        const variants = {};
-        for (const variant of suite.variants) {
-          // Published index first: the tile references the app site's own hosted image.
-          if (remote) {
-            const e = findRemoteShot(remote, shot.id, platform.id, variant);
-            if (!e) continue;
-            realShots += 1;
-            variants[variant.id] = {
-              src: e.url,
-              width: e.width ?? undefined,
-              height: e.height ?? undefined,
-            };
-            continue;
-          }
-          const found = findVariantShot(artifactDir, shot.id, variant);
-          if (!found) continue;
-          const rel = join('gallery', suite.id, platform.id, variant.id, `${shot.id}.png`);
-          const dest = join(WEBSITE_ROOT, 'public', rel);
-          mkdirSync(dirname(dest), { recursive: true });
-          copyFileSync(found, dest);
-          const size = pngSize(dest);
-          if (!size) {
-            // A zero-byte or non-PNG file (a screenshot step that failed on an emulator still
-            // leaves one behind) would otherwise ship as a tile the browser can't decode. Drop it
-            // so the shot falls back to another variant, or to its placeholder.
-            rmSync(dest);
-            unreadable.push(found);
-            log(`skipping unreadable capture ${found}`);
-            continue;
-          }
-          realShots += 1;
-          variants[variant.id] = {
-            src: rel.split('\\').join('/'), // POSIX for URLs, even on Windows runners
-            width: size.width,
-            height: size.height,
-          };
-        }
-        const captured = Object.keys(variants).length > 0;
-        if (captured) captureCount.set(platform.id, captureCount.get(platform.id) + 1);
-        return {
-          platform: platform.id,
-          placeholder: !captured,
-          variants,
-        };
-      });
-      return { id: shot.id, label: shot.label, source: shot.source ?? null, byPlatform };
-    });
-
-    // A platform that captured NOTHING gets no column: a strip of "preview" placeholders down the
-    // whole page says only that a CI leg produced no artifact, which is not what a reader came for.
-    // The one exception is a build with no artifacts AT ALL (a local preview, `hasArtifacts` false
-    // below) — there the placeholders ARE the point, so every column stays and the layout can be
-    // seen without downloading anything.
-    const withShots = suitePlatforms.filter((p) => (captureCount.get(p.id) ?? 0) > 0);
-    const shownPlatforms = withShots.length > 0 ? withShots : suitePlatforms;
-    const shown = new Set(shownPlatforms.map((p) => p.id));
-    const dropped = suitePlatforms.filter((p) => !shown.has(p.id));
-    if (dropped.length > 0) {
-      // Never silently: a column vanishing from the gallery is a CI leg that stopped delivering,
-      // and the build log is where that gets noticed.
-      log(`hiding ${dropped.length} column(s) with no captures: ${dropped.map((p) => p.id).join(', ')}`);
-      for (const p of dropped) hidden.push(`${suite.id}/${p.id}`);
+  // Column order: the index lists platforms in the Day target vocabulary's order, and a device
+  // refinement follows the target it refines.
+  const columns = [];
+  for (const platform of index.platforms ?? []) {
+    for (const id of [platform, ...[...columnShots.keys()].filter((c) => c !== platform && c.startsWith(`${platform}-`)).sort()]) {
+      if (columnShots.has(id) && !columns.includes(id)) columns.push(id);
     }
-    // Tiles follow the columns, so the page's row/column indices (the lightbox's 2-D navigation)
-    // stay contiguous and every tile's platform is still in `platforms`.
-    const shownShots =
-      dropped.length === 0
-        ? shots
-        : shots.map((s) => ({ ...s, byPlatform: s.byPlatform.filter((t) => shown.has(t.platform)) }));
+  }
+  for (const id of columnShots.keys()) if (!columns.includes(id)) columns.push(id);
 
+  // Row order: the config's pinned ids first (for an app whose dayscript order reads oddly),
+  // then the index's own — which is the dayscript's declaration order, not alphabetical.
+  const indexShots = new Map((index.shots ?? []).map((s) => [s.id, s]));
+  const ordered = [
+    ...(app.order ?? []).filter((id) => byShot.has(id)),
+    ...[...indexShots.keys()].filter((id) => byShot.has(id) && !app.order?.includes(id)),
+    ...[...byShot.keys()].filter((id) => !indexShots.has(id) && !app.order?.includes(id)),
+  ];
+  if (app.hero && ordered.includes(app.hero)) {
+    ordered.splice(ordered.indexOf(app.hero), 1);
+    ordered.unshift(app.hero);
+  }
+
+  const shots = ordered.map((id) => {
+    const meta = indexShots.get(id);
+    const tiles = byShot.get(id);
     return {
-      id: suite.id,
-      label: suite.label,
-      blurb: suite.blurb,
-      // Which repository this suite's `source` paths are relative to; absent means this one, so
-      // the page falls back to `site.repo`. The showcase moved out to daybrite/Day-Showcase, and
-      // without carrying this through, every row header would link into a path daybrite/day no
-      // longer has.
-      sourceRepo: suite.sourceRepo ?? null,
-      hero: suite.hero,
-      variants: suite.variants.map(({ id, label }) => ({ id, label })),
-      platforms: shownPlatforms.map((p) => ({
-        id: p.id,
-        label: p.label,
-        os: p.os,
-        toolkit: p.toolkit,
-        captured: (captureCount.get(p.id) ?? 0) > 0,
-        shotCount: captureCount.get(p.id) ?? 0,
-      })),
-      // The columns this run had nothing for, by id — the page shows none of them; the field
-      // exists so a consumer can say what is missing rather than having to diff against the config.
-      hidden: dropped.map((p) => p.id),
-      shots: shownShots,
+      id,
+      label: app.labels?.[id] ?? english(meta?.title) ?? derivedLabel(id),
+      caption: english(meta?.caption),
+      source: meta?.source ?? null,
+      byColumn: columns
+        .filter((c) => tiles.has(c))
+        .map((c) => ({ column: c, captures: tiles.get(c) })),
     };
   });
 
-  const hasArtifacts = realShots > 0;
+  // Themes read light-before-dark; languages keep the index's order, English first where it is
+  // captured, because that is the page's own language.
+  themes.sort((a, b) => (a === 'light' ? -1 : b === 'light' ? 1 : a.localeCompare(b)));
+  if (locales.includes('en')) locales.splice(0, 0, ...locales.splice(locales.indexOf('en'), 1));
+
+  return {
+    id: app.id,
+    label: app.label,
+    blurb: app.blurb,
+    repo: app.repo,
+    site: app.site ?? index.site ?? null,
+    web: app.web ?? null,
+    webRoutes: app.webRoutes ?? null,
+    // When the app's site went unreachable this build, the page says so rather than presenting a
+    // possibly-months-old set as current.
+    stale,
+    indexGeneratedAt: index.generated ?? null,
+    themes,
+    locales,
+    columns: columns.map((id) => {
+      const p = platformsById[id] ?? {};
+      return {
+        id,
+        label: p.chip ?? p.toolkit ?? id,
+        os: p.osShort ?? p.os ?? id,
+        toolkit: p.toolkitLong ?? p.toolkit ?? id,
+        shotCount: columnShots.get(id) ?? 0,
+      };
+    }),
+    counts: { shots: shots.length, captures, columns: columns.length },
+    // The hub's card carousel: a diagonal through the grid, so consecutive slides differ in BOTH
+    // the screen and the platform rather than showing one screen twelve ways.
+    cover: coverOf(shots, columns, themes, locales),
+    shots,
+  };
+}
+
+/** Up to six representative captures for the app's hub card. */
+function coverOf(shots, columns, themes, locales, max = 6) {
+  const want = captureKey(themes.includes('light') ? 'light' : themes[0], locales[0]);
+  const out = [];
+  for (let i = 0; i < shots.length && out.length < max; i++) {
+    const shot = shots[i];
+    // Step the column with the row so the strip walks platforms as it walks screens.
+    for (let n = 0; n < shot.byColumn.length; n++) {
+      const tile = shot.byColumn[(i + n) % shot.byColumn.length];
+      const img = tile.captures[want] ?? Object.values(tile.captures)[0];
+      if (!img) continue;
+      out.push({ ...img, shot: shot.id, label: shot.label, column: tile.column });
+      break;
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {{ quiet?: boolean }} [opts]
+ * @returns {Promise<{ manifestPath: string, apps: number, captures: number, dropped: string[], stale: string[] }>}
+ */
+export async function assembleGallery(opts = {}) {
+  const dataDir = join(WEBSITE_ROOT, 'src', 'data');
+  const log = (m) => opts.quiet || console.log(`[gallery] ${m}`);
+  mkdirSync(dataDir, { recursive: true });
+
+  const dropped = [];
+  const stale = [];
+  const apps = [];
+  for (const app of galleryConfig.apps) {
+    const loaded = await loadIndex(app, log);
+    if (!loaded) {
+      dropped.push(app.id);
+      continue;
+    }
+    if (loaded.stale) stale.push(app.id);
+    const entry = assembleApp(app, loaded.data, loaded.stale);
+    if (entry.counts.captures === 0) {
+      log(`${app.id}: its index describes no linkable screenshot — left out`);
+      dropped.push(app.id);
+      continue;
+    }
+    log(
+      `${app.id}: ${entry.counts.shots} screen(s), ${entry.counts.captures} capture(s) ` +
+        `on ${entry.counts.columns} target(s)`,
+    );
+    apps.push(entry);
+  }
+
+  const captures = apps.reduce((n, a) => n + a.counts.captures, 0);
   const manifest = {
-    // Only stamp a time when there is real content, to keep placeholder builds reproducible.
-    generatedAt: hasArtifacts ? new Date().toISOString() : null,
-    hasArtifacts,
-    suites,
+    // Only stamp a time when something was indexed, to keep an empty build reproducible.
+    generatedAt: apps.length > 0 ? new Date().toISOString() : null,
+    apps,
   };
   const manifestPath = join(dataDir, 'gallery-manifest.json');
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
-
-  const capturedPlatforms = suites.reduce((n, s) => n + s.platforms.filter((p) => p.captured).length, 0);
   log(
-    hasArtifacts
-      ? `assembled ${realShots} screenshot(s) across ${capturedPlatforms} platform-suite(s) from ${artifactsDir}`
-      : `no artifacts under ${artifactsDir} — emitted placeholders for every shot (local build)`,
+    apps.length > 0
+      ? `indexed ${captures} published screenshot(s) across ${apps.length} app(s)`
+      : 'no app index could be read — the gallery is empty (expected offline, on a cold checkout)',
   );
-  return { hasArtifacts, manifestPath, unreadable, hidden };
+  return { manifestPath, apps: apps.length, captures, dropped, stale };
 }
 
 // Standalone entry point.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const arg = process.argv[2];
-  await assembleGallery(arg ? { artifactsDir: arg } : {});
+  await assembleGallery();
 }

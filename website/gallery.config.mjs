@@ -1,38 +1,30 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 
-// The gallery's extensibility surface. Adding a sample app, a platform, or a curated shot is a
-// data change here — the assembly (scripts/assemble-gallery.mjs) and the gallery page consume
-// this config; neither needs editing to add a new app or component-snapshot set.
+// The gallery's extensibility surface: which Day apps daybrite.dev indexes, and nothing else.
 //
 // Model
 // -----
-//   suites   — a screenshot-producing thing: a sample app OR a set of component snapshots.
-//   platforms — the (OS, toolkit) targets a suite is captured on.
-//   shots    — the curated, ordered captures shown per (suite, platform).
+// Every Day app's own website publishes `<host>/gallery/gallery.json` — the machine-readable
+// screenshot index `day screenshot index` writes, carrying each capture's absolute URL, shot id,
+// localized title and caption, source path, platform-toolkit, device, theme, locale and pixel
+// size (docs/screenshots.md, DESIGN.md §14.7). This site READS those indexes and links the images
+// where they are hosted. Nothing is copied here, and daybrite.dev's build depends on no other
+// repository's CI: an app republishes its gallery on its own schedule, and the next website build
+// picks it up.
 //
-// Where the images come from
-// --------------------------
-// A suite with a `metadata` URL references the screenshots its own site publishes: the URL
-// names a gallery.json (`day screenshot index`'s machine-readable index, which every Day app
-// site serves at /gallery/gallery.json), and the
-// gallery links those hosted images directly — which is what lets this page show any Day app's
-// screenshots without hosting a copy. Without `metadata`, or when the fetch fails, images come
-// from CI artifacts: each job uploads `screenshots-<platform>` containing `<variant>/<shot>.png`
-// (crates/day-cli/src/script.rs `--variant`) — the walkthrough runs once per variant, `light`
-// and `dark` under a forced DAY_THEME, `fr` under `--locale fr`. `artifactPattern` maps a
-// (suite, platform) pair to that artifact name. Each variant may fall back to the extra
-// directories listed in `variants` (older artifacts used locale subdirs).
+// Adding an app is one entry below. Its rows, columns, languages and themes all come from its own
+// index, so an app that captures a new screen or gains a platform shows it without a change here.
+// The optional `order` / `labels` / `hide` / `platforms` keys exist for apps whose dayscripts
+// carry thin metadata — a shot with no `title:` falls back to a label derived from its id.
+//
+// Each app gets its own page at /gallery/<id>/, and /gallery/ indexes them.
 
 import { platforms as platformTable } from './src/lib/platforms.mjs';
 
 /** @typedef {{ id: string, label: string, os: string, toolkit: string }} Platform */
-/** `source` is the path of the code that renders the shot, relative to its SUITE's repository
- *  (`sourceRepo`), not to this one — e.g. `src/pages/controls.rs` in daybrite/Day-Showcase.
- *  Linked from the row header.
- *  @typedef {{ id: string, label: string, source?: string }} Shot */
 
-/** The twelve CI targets, in display order. Names and shells come from the platform table
+/** The capture targets, in display order. Names and shells come from the platform table
  *  (src/lib/platforms.mjs), so a rename lands on the gallery, the landing page and the
  *  showcase at once; `label` is the gallery's own short chip and stays derived from it. */
 export const platforms = /** @type {Platform[]} */ (
@@ -45,114 +37,96 @@ export const platforms = /** @type {Platform[]} */ (
 );
 
 /**
- * Screenshot suites. Today just the Showcase app; the shape scales to more sample apps and to
- * per-component snapshot sets (add another entry with its own `artifactPattern` + `shots`).
- * @type {{ id: string, label: string, blurb: string, artifactPattern: string, sourceRepo?: string,
- *          preferLocales: string[], platforms: string[], hero: string, shots: Shot[] }[]}
+ * The apps this gallery indexes, in display order.
+ *
+ * @typedef {object} App
+ * @property {string}  id        Repository name, and the URL segment: `/gallery/Day-Rise/`.
+ * @property {string}  label     Display name.
+ * @property {string}  blurb     One sentence on what the app is, for its page and its hub card.
+ * @property {string}  repo      GitHub repository — where a shot's `source` path resolves.
+ * @property {string}  metadata  The published `gallery.json`.
+ * @property {string} [site]     The app's own website. Defaults to the index's `site` field.
+ * @property {string} [web]      Its hosted web-dom build, when it has one.
+ * @property {Record<string,string|null>} [webRoutes]  Shot id → the URL fragment that opens that
+ *                               screen in `web`, `null` where the screen is unreachable by one.
+ *                               A shot absent from the map opens the app's root.
+ * @property {string} [hero]     The shot that leads the hub card's carousel.
+ * @property {string[]} [order]  Shot ids first in row order; the index's own order fills in behind.
+ * @property {Record<string,string>} [labels]  Row headings for shots whose index metadata has none.
+ * @property {string[]} [hide]   Shot ids to leave out.
+ * @property {string[]} [platforms]  Column allow list. Absent = every platform the index carries.
+ * @type {App[]}
  */
-export const suites = [
+export const apps = [
   {
-    id: 'showcase',
+    id: 'Day-Showcase',
     label: 'Day Showcase',
     blurb:
       'One Rust program showing every implemented Piece, rendered with native widgets on each target.',
-    // The showcase is its own repository (it used to live in this one under apps/showcase/), so
-    // its `source` paths resolve there rather than against daybrite/day. A suite whose code DOES
-    // live in this repo omits this and gets `site.repo`. Same URL as site.ts's `showcaseRepo`,
-    // spelled here because this config is also imported by plain node scripts that cannot read a
-    // .ts module.
-    sourceRepo: 'https://github.com/daybrite/Day-Showcase',
-    // The published machine-readable index of this suite's screenshots (`day screenshot
-    // index`'s gallery.json). When it fetches, the gallery REFERENCES those hosted images instead of
-    // copying CI artifacts into this site — one copy of the bytes, owned by the app's own
-    // site, and any Day app site publishing the same index can join as another suite. The
-    // artifact path below remains the fallback for when the fetch fails (offline builds, a
-    // site not yet deployed).
+    repo: 'https://github.com/daybrite/Day-Showcase',
+    site: 'https://showcase.daybrite.dev',
     metadata: 'https://showcase.daybrite.dev/gallery/gallery.json',
-    // `{platform}` is substituted with the platform id.
-    artifactPattern: 'screenshots-{platform}',
-    // The capture variants, in display order: theme × locale (CI runs the walkthrough once per
-    // combination; `<theme>` alone is English). `dirs` are the artifact subdirectories that may
-    // hold the variant (fallbacks cover older artifacts); non-English/dark variants deliberately
-    // have NO cross-variant fallback here — assembly must never pass one variant off as another
-    // (the gallery page falls back VISIBLY instead). Variant ids stay lowercase (they ride
-    // data-* attributes); `dirs` match the CI `--variant` names exactly.
-    variants: [
-      { id: 'light', label: 'Light · English', dirs: ['light', 'default', 'en'] },
-      { id: 'dark', label: 'Dark · English', dirs: ['dark'] },
-      { id: 'light-fr', label: 'Light · Français', dirs: ['light-fr', 'fr'] },
-      { id: 'dark-fr', label: 'Dark · Français', dirs: ['dark-fr'] },
-      { id: 'light-ar', label: 'Light · العربية', dirs: ['light-ar'] },
-      { id: 'dark-ar', label: 'Dark · العربية', dirs: ['dark-ar'] },
-      { id: 'light-zh-cn', label: 'Light · 中文', dirs: ['light-zh-CN'] },
-      { id: 'dark-zh-cn', label: 'Dark · 中文', dirs: ['dark-zh-CN'] },
-    ],
-    // The PRIMARY target per OS, in display order — one strip column per platform users actually
-    // ship to. The secondary desktop combos (macos-gtk/qt, windows-gtk/qt) still run in CI and
-    // upload artifacts; they're just not shown here.
-    //
-    // The tablet-class columns are OUT (2026-08): `ios-uikit-ipad` and `android-mdc-tablet` are
-    // capture-only refinements whose CI legs deliver nothing, so both rendered as a full column of
-    // placeholders. Their platform records and capture jobs still exist — put the id back here to
-    // restore the column once its leg produces shots. (A column that goes empty later needs no
-    // edit here: the assembler drops any platform it captured nothing for.)
-    platforms: [
-      'ios-uikit',
-      'android-mdc',
-      'harmony-arkui',
-      'macos-appkit',
-      'windows-xaml',
-      'linux-qt',
-      'linux-gtk',
-      'web-dom',
-    ],
+    web: 'https://showcase.daybrite.dev/webapp/',
     hero: 'home',
-    // ORDER: the Showcase's own top-level navigation list, which is alphabetical by English
-    // title (the showcase's src/lib.rs `destinations()`) — so the gallery reads in the same order
-    // as the app's sidebar. `home` leads as the hero, and the surfaces that are not their own
-    // destination (a window, a modal, a filtered variant) follow the row they are reached from.
-    shots: [
-      { id: 'home', label: 'Home', source: 'src/lib.rs' },
-      { id: 'about', label: 'About', source: 'src/pages/about.rs' },
-      { id: 'animation', label: 'Animation', source: 'src/pages/animation.rs' },
-      // The benchmark patchwork: the same generated scene on every target, so the row doubles as
-      // a cross-platform rendering diff. The walkthrough also captures `benchmark-dense` and
-      // `benchmark-swiftui` (Apple targets only); those shots are deliberately not gallery rows —
-      // the assembler only consults ids listed here, so they stay in the CI artifacts.
-      { id: 'benchmark', label: 'Benchmark', source: 'src/pages/benchmark.rs' },
-      { id: 'canvas', label: 'Canvas & shapes', source: 'src/pages/canvas.rs' },
-      { id: 'controls', label: 'Controls', source: 'src/pages/controls.rs' },
-      { id: 'crash', label: 'Crash reporting', source: 'src/pages/crash.rs' },
-      { id: 'dates', label: 'Date & time', source: 'src/pages/dates.rs' },
-      { id: 'system', label: 'Device & sensors', source: 'src/pages/system.rs' },
-      { id: 'focus', label: 'Focus', source: 'src/pages/focus.rs' },
-      { id: 'grid', label: 'Grid', source: 'src/pages/grid.rs' },
-      { id: 'list', label: 'List', source: 'src/pages/list.rs' },
-      { id: 'list-item-100', label: 'List · programmatic scrolling', source: 'src/pages/list.rs' },
-      { id: 'localization', label: 'Localization', source: 'src/pages/localization.rs' },
-      { id: 'media', label: 'Media playback', source: 'src/pages/media.rs' },
-      { id: 'menus', label: 'Menus & dialogs', source: 'src/pages/menus.rs' },
-      // The preferences singleton: a real OS window on desktop, a fullscreen cover where the
-      // backend has no secondary windows — the same ids either way (docs/windows.md).
-      { id: 'preferences', label: 'Menus & dialogs · preferences window', source: 'src/pages/preferences.rs' },
-      { id: 'services', label: 'Platform services', source: 'src/pages/services.rs' },
-      { id: 'refresh', label: 'Refresh', source: 'src/pages/refresh.rs' },
-      { id: 'resources', label: 'Resources', source: 'src/pages/resources.rs' },
-      { id: 'stack-detail', label: 'Stack', source: 'src/pages/stack.rs' },
-      // Every backend presents the fullscreen cover — native modal on mobile, topmost child
-      // elsewhere (docs/cover.md). Driven from the Stack page.
-      { id: 'cover', label: 'Stack · fullscreen cover', source: 'src/pages/stack.rs' },
-      { id: 'tabs-one', label: 'Tabs', source: 'src/pages/tabs.rs' },
-      { id: 'text', label: 'Text', source: 'src/pages/text.rs' },
-      { id: 'textareas', label: 'Text areas', source: 'src/pages/text_areas.rs' },
-      { id: 'toolbars', label: 'Toolbars', source: 'src/pages/toolbars.rs' },
-      // The toolbar's search field filtering the sidebar by localized word-prefix — the one shot
-      // that shows the nav responding to a query (docs/localization.md "Searching").
-      { id: 'toolbars-filtered', label: 'Toolbars · sidebar search', source: 'src/pages/toolbars.rs' },
-      { id: 'tweaks', label: 'Tweaks', source: 'src/pages/tweaks.rs' },
-      { id: 'webview', label: 'Web view', source: 'src/pages/webview.rs' },
-    ],
+    // The showcase's web build takes its route from the URL fragment (`day_dom_set_hash` writes
+    // it, a `hashchange` listener reads it back), so a gallery row can open the very screen it
+    // photographs. The names are the `Section` enum keys in the app's src/lib.rs — spelled here
+    // because a shot id is NOT always a route: several rows capture a STATE of a page rather than
+    // a page, and `preferences` (a window) and `cover` (a fullscreen presentation) are reachable
+    // by neither. Checked by loading each fragment against the built app, not read off the enum.
+    webRoutes: {
+      home: '',
+      'list-item-100': 'list',
+      'stack-detail': 'stack',
+      'tabs-one': 'tabs',
+      preferences: null,
+      cover: null,
+      // The web build has no Toolbars page; both toolbar rows would land on About.
+      toolbars: null,
+      'toolbars-filtered': null,
+    },
+  },
+  {
+    id: 'Day-Rise',
+    label: 'Day Rise',
+    blurb:
+      'The project `day new` scaffolds, captured exactly as the CLI generates it — the starting point every Day app shares.',
+    repo: 'https://github.com/daybrite/Day-Rise',
+    metadata: 'https://daybrite.github.io/Day-Rise/gallery/gallery.json',
+    hero: 'welcome',
+  },
+  {
+    id: 'Day-Skies',
+    label: 'Day Skies',
+    blurb:
+      'A weather app whose sky follows the conditions, with an hourly strip, a ten-day forecast and detail cards for what you check next.',
+    repo: 'https://github.com/daybrite/Day-Skies',
+    metadata: 'https://daybrite.github.io/Day-Skies/gallery/gallery.json',
+  },
+  {
+    id: 'Day-Tradr',
+    label: 'Day Tradr',
+    blurb:
+      'A stock watchlist that opens on the day at a glance: how many symbols moved which way, a sparkline per card, and the detail behind each one.',
+    repo: 'https://github.com/daybrite/Day-Tradr',
+    metadata: 'https://daybrite.github.io/Day-Tradr/gallery/gallery.json',
+  },
+  {
+    id: 'Day-News',
+    label: 'Day News',
+    blurb:
+      'A feed reader in three panes on a desktop and three taps on a phone, handling RSS, Atom, RDF and JSON Feed.',
+    repo: 'https://github.com/daybrite/Day-News',
+    metadata: 'https://daybrite.github.io/Day-News/gallery/gallery.json',
+  },
+  {
+    id: 'Day-Sketch',
+    label: 'Day Sketch',
+    blurb:
+      'A vector drawing editor with drag handles, layer arrangement and unlimited undo, keeping each drawing in a plain SQLite file.',
+    repo: 'https://github.com/daybrite/Day-Sketch',
+    metadata: 'https://daybrite.github.io/Day-Sketch/gallery/gallery.json',
   },
 ];
 
-export default { platforms, suites };
+export default { platforms, apps };

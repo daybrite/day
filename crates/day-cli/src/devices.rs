@@ -218,7 +218,35 @@ fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
     }
 }
 
-/// Turn the device and confirm it turned.
+/// What actually gates simulator orientation, spelled out wherever it is reported.
+///
+/// The XCODE, not the macOS — and the reason that is worth writing down is that the two look
+/// interchangeable from one machine. Xcode's `devicectl` is a short shell wrapper that `exec`s
+/// `/Library/Developer/PrivateFrameworks/CoreDevice.framework/…/devicectl`, which is easy to read
+/// as "a system framework, so macOS owns it". It is not: Xcode INSTALLS that framework, and the
+/// wrapper runs `xcodebuild -runFirstLaunch` when the installed version differs from the one its
+/// Xcode ships. Xcode 26.6 carries CoreDevice 518.33, which cannot see a simulator at all; Xcode
+/// 27 carries 642.15, which turns them.
+///
+/// Necessary is not sufficient, though, and that is worth writing down too: GitHub's `xcode-27`
+/// image runs Xcode 27 and its devicectl still lists no simulators, so a machine can have the
+/// right Xcode and still be unable to turn one.
+const CORE_DEVICE_FLOOR: &str = "Turning a simulator needs Xcode 27 or newer — its CoreDevice, \
+     not the macOS version: Xcode installs the framework its `devicectl` execs, so an Xcode 26.6 \
+     machine cannot see simulators at all. Select a newer Xcode with `xcode-select -s`, or drop \
+     `--orientation`.";
+
+/// Turn the device, and confirm it by the SHAPE of a capture.
+///
+/// The confirmation deliberately does not ask devicectl whether it worked. That was circular: on a
+/// runner whose CoreDevice cannot see simulators, `orientation get` reports nothing, and reading
+/// nothing as "not turned" is indistinguishable from reading it as "cannot tell". A screenshot is
+/// ground truth and needs nothing from CoreDevice — an iPad's SpringBoard rotates with the device,
+/// so a landscape display captures wider than it is tall.
+///
+/// (An iPHONE's SpringBoard does NOT rotate, which is why the aspect check only decides for a
+/// device whose home screen follows the display; `orientation get` is still consulted first, and
+/// believed when it answers.)
 fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
     let out = Command::new("xcrun")
         .args([
@@ -246,17 +274,32 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
             CORE_DEVICE_FLOOR
         )));
     }
-    // Confirm the device really turned. A CoreDevice that does not drive simulators can still
-    // exit zero, so the exit code alone does not distinguish "done" from "ignored".
-    for attempt in 1..=5 {
-        std::thread::sleep(std::time::Duration::from_millis(600));
-        if device_orientation(udid).as_deref() == Some(want) {
+    let want_landscape = want.starts_with("landscape");
+    for attempt in 1..=8 {
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        // Pixels first, and they are believed over devicectl: devicectl reports the orientation it
+        // was ASKED for as soon as it accepts the request, which on a simulator still settling is
+        // true of the request and false of the screen.
+        if simulator_is_landscape(udid) == Some(want_landscape) {
             return Ok(());
         }
-        if attempt == 5 {
+        if attempt == 8 {
+            // An iPHONE's SpringBoard does not rotate, so its home screen captures portrait however
+            // the device is turned — the pixels can never agree there, and devicectl's own answer
+            // is the only one available. Taken only after the retries, so a display that WAS going
+            // to catch up has had its chance.
+            if device_orientation(udid).as_deref() == Some(want) {
+                return Ok(());
+            }
             return Err(CliError::failure(format!(
-                "devicectl accepted `orientation set {want}` but the device reports {:?}.\n{}",
+                "devicectl accepted `orientation set {want}` but the device did not turn: it \
+                 reports {:?} and captures {}.\n{}",
                 device_orientation(udid).unwrap_or_else(|| "nothing".into()),
+                match simulator_is_landscape(udid) {
+                    Some(true) => "landscape",
+                    Some(false) => "portrait",
+                    None => "nothing",
+                },
                 CORE_DEVICE_FLOOR
             )));
         }
@@ -264,37 +307,22 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
     Ok(())
 }
 
-/// What actually gates simulator orientation, spelled out wherever it is reported.
-///
-/// The XCODE, not the macOS — and the reason that is worth writing down is that the two look
-/// interchangeable from one machine. Xcode's `devicectl` is a short shell wrapper that `exec`s
-/// `/Library/Developer/PrivateFrameworks/CoreDevice.framework/…/devicectl`, which is easy to read
-/// as "a system framework, so macOS owns it". It is not: Xcode INSTALLS that framework. The
-/// wrapper compares the installed CoreDevice against the version its own Xcode ships and runs
-/// `xcodebuild -runFirstLaunch` when they differ, so whichever Xcode last did its first launch
-/// decides what every `devicectl` on the machine can do.
-///
-/// Xcode 26.6 ships CoreDevice 518.33, which cannot see a simulator at all: it answers
-/// `orientation set` with "The specified device was not found" for one that is booted and visible
-/// to simctl, and rejects `--omit-deprecated-fields-in-json` outright. Xcode 27 ships 642.15,
-/// which turns them. Two machines on the SAME macOS therefore differ completely.
-const CORE_DEVICE_FLOOR: &str = "Turning a simulator needs Xcode 27 or newer — its CoreDevice, \
-     not the macOS version: Xcode installs the framework its `devicectl` execs, so an Xcode 26.6 \
-     machine cannot see simulators at all. Select a newer Xcode with `xcode-select -s`, or drop \
-     `--orientation`.";
-
-/// Whether devicectl can see this simulator at all, which is the precondition for turning it.
-///
-/// Asked BEFORE booting, because booting costs minutes on a CI runner and the answer does not
-/// depend on it: shut-down simulators appear in the listing too (72 of them on the host this was
-/// measured on). A run that cannot rotate should learn it in a second, not after a three-minute
-/// boot it is about to waste.
-fn devicectl_sees(udid: &str) -> bool {
-    devicectl_simulators().is_ok_and(|list| {
-        sims_from_devicectl(&list)
-            .iter()
-            .any(|(_, id, _)| id == udid)
-    })
+/// Whether a screenshot of this simulator comes out wider than tall. `None` when it cannot be
+/// captured or read.
+fn simulator_is_landscape(udid: &str) -> Option<bool> {
+    let out = Command::new("xcrun")
+        .args(["simctl", "io", udid, "screenshot", "--type=png", "-"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    // A PNG's IHDR puts width and height at bytes 16..24, big-endian — cheaper than decoding it.
+    let png = out.stdout;
+    let dims = png.get(16..24)?;
+    let w = u32::from_be_bytes(dims[0..4].try_into().ok()?);
+    let h = u32::from_be_bytes(dims[4..8].try_into().ok()?);
+    (w > 0 && h > 0).then_some(w > h)
 }
 
 /// The device's own current orientation (`portrait`, `landscapeLeft`, …), ignoring face-up and
@@ -588,21 +616,6 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     ));
                 }
             };
-            // Ask before the boot, not after it: on a host whose CoreDevice cannot drive
-            // simulators this is the difference between a one-second answer and a three-minute
-            // boot that ends in "The specified device was not found".
-            let turnable = spec.orientation.is_none() || devicectl_sees(&udid);
-            if !turnable {
-                crate::ops::status(
-                    "Warning",
-                    &format!(
-                        "devicectl cannot see this simulator, so it cannot be turned to {} — \
-                         capturing in the orientation it boots in instead. {}",
-                        spec.orientation.unwrap_or_default(),
-                        CORE_DEVICE_FLOOR
-                    ),
-                );
-            }
             crate::ops::status("Booting", &format!("simulator {name}"));
             let out = Command::new("xcrun")
                 .args(["simctl", "boot", &udid])
@@ -621,7 +634,10 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             // for their app to appear wants — and an orientation needs it (see below). Best-effort
             // otherwise: a failure here is not a failed boot.
             let _ = Command::new("open").args(["-a", "Simulator"]).status();
-            if spec.wait {
+            // An orientation implies the wait even when the caller did not ask for one: turning
+            // a simulator that is still booting was measured being ACCEPTED by devicectl and then
+            // not happening — it reported the new orientation while the display stayed portrait.
+            if spec.wait || spec.orientation.is_some() {
                 let st = Command::new("xcrun")
                     .args(["simctl", "bootstatus", &udid, "-b"])
                     .status()
@@ -630,9 +646,12 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     return Err(CliError::failure(format!("{name} never finished booting")));
                 }
             }
-            if let Some(o) = spec.orientation
-                && turnable
-            {
+            // Turning happens AFTER the boot, and it is never gated on devicectl agreeing that
+            // the simulator exists. Asking first looked like a cheap way to fail fast, and it cost
+            // the whole feature: a CI runner whose CoreDevice lists no simulators skipped the
+            // rotation entirely and published portrait captures under a landscape profile, which
+            // is worse than the slow failure the gate was avoiding.
+            if let Some(o) = spec.orientation {
                 set_orientation(&udid, o)?;
             }
             Ok(0)
