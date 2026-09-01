@@ -71,7 +71,12 @@ flow:
 
   # On a phone the editor is a PUSHED page with a navigation bar, a back button, and the item's
   # name as its title (https://daybrite.dev/docs/navigation). Back pops to the list — the tab
-  # and the selection survive. The desktops keep the editor beside the list; nothing to pop.
+  # and the selection survive.
+  #
+  # A WIDE window keeps the editor beside the list and never pushed anything, so `nav_back` there
+  # has nothing to pop and passes without moving. That is the width class talking, not the target:
+  # the same ios-uikit build stacks on an iPhone and splits on an iPad, so this block runs on both
+  # and only the pop changes meaning.
   - nav_back: { only_on: [uikit, mdc] }
   - wait_idle: { only_on: [uikit, mdc] }
   - assert_route: { route: navigate, only_on: [uikit, mdc] }

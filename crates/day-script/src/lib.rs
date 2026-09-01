@@ -1730,6 +1730,21 @@ fn exec(step: Step) -> Reply {
                 if day_core::nav_back() {
                     day_reactive::flush_sync();
                     Ok(Reply::ok())
+                } else if day_core::size_class().is_some_and(|c| c.prefers_split()) {
+                    // Nothing to pop, and nothing SHOULD be: a window past the compact width keeps
+                    // the detail beside the list instead of pushing it (docs/size-classes.md), so
+                    // the script is already where `nav_back` would have taken it.
+                    //
+                    // Without this, one walkthrough could not describe both form factors of the
+                    // same target. The step was gated `only_on: [uikit, mdc]` — mobile TOOLKIT —
+                    // which silently meant "phone" until ios-uikit started running on an iPad,
+                    // where the presentation is expanded exactly like a desktop's. The toolkit was
+                    // never the thing that decided; the width class is.
+                    //
+                    // Deliberately still a FAILURE while compact, which is where a missing pop is
+                    // a real regression and where the guard in the scaffold's walkthrough earns
+                    // its keep. Tolerating it everywhere would have made this step unable to fail.
+                    Ok(Reply::ok())
                 } else {
                     Err(Reply::fail("nothing to pop", true))
                 }
