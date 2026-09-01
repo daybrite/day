@@ -716,6 +716,49 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
     }
 }
 
+/// Run an SDK tool, forwarding everything it prints to STDERR, optionally feeding it `stdin`.
+///
+/// The SDK tools print progress on STDOUT, and this command's stdout carries a machine-readable
+/// value a caller captures. Left alone they mix: a CI run did `AVD="$(day devices setup …)"` and
+/// captured three minutes of download bars along with the name, then handed the whole blob to
+/// `--device`. Forwarding byte-for-byte rather than line-by-line keeps the progress bars live,
+/// since they redraw with carriage returns and never emit a newline until the end.
+fn run_sdk_tool(cmd: &mut Command, what: &str, feed: Option<&[u8]>) -> Result<(), CliError> {
+    use std::io::{Read, Write};
+    cmd.stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .stdin(if feed.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        });
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| CliError::failure(format!("could not run {what} ({e})")))?;
+    if let (Some(bytes), Some(mut si)) = (feed, child.stdin.take()) {
+        let _ = si.write_all(bytes);
+        // Dropped here on purpose: the tool waits for EOF before it decides the answer is final.
+        drop(si);
+    }
+    if let Some(mut out) = child.stdout.take() {
+        let mut buf = [0u8; 4096];
+        let mut err = std::io::stderr();
+        while let Ok(n) = out.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let _ = err.write_all(&buf[..n]);
+        }
+    }
+    let st = child
+        .wait()
+        .map_err(|e| CliError::failure(format!("{what}: {e}")))?;
+    if !st.success() {
+        return Err(CliError::failure(format!("{what} failed")));
+    }
+    Ok(())
+}
+
 /// `day devices setup` — create (or refresh) one AVD from a device profile.
 ///
 /// AVD creation is knowledge the CLI already had scattered across a workflow and a README: which
@@ -774,32 +817,51 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
         crate::ops::status("Found", &format!("system image {pkg}"));
     } else {
         crate::ops::status("Installing", &format!("system image {pkg}"));
-        let sdkmanager = cmdline_tool("sdkmanager");
         // `--licenses` is not enough on a cold SDK: the install itself prompts, and a CI runner
         // has no one to answer. Feeding `y` covers both.
-        let mut child = Command::new(&sdkmanager)
-            .arg(&pkg)
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                CliError::failure(format!(
-                    "could not run {sdkmanager} ({e}) — install the SDK command-line tools, or \
-                     set ANDROID_HOME"
+        run_sdk_tool(
+            // `--sdk_root` is not optional even though the tool has a default. A `sdkmanager`
+            // found on PATH — a Homebrew install, say — defaults to ITS OWN SDK root, so the
+            // image lands somewhere this command never looks: the "already installed?" check
+            // above reads `android_sdk_dir()`, and so does the CI cache. Measured: a download
+            // reported success and left `$ANDROID_HOME/system-images/android-33` empty, which
+            // re-downloads every run and caches nothing.
+            Command::new(cmdline_tool("sdkmanager"))
+                .arg(format!(
+                    "--sdk_root={}",
+                    day_toolchain::android_sdk_dir().display()
                 ))
-            })?;
-        if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write;
-            let _ = stdin.write_all(b"y\n".repeat(32).as_slice());
-        }
-        let st = child
-            .wait()
-            .map_err(|e| CliError::failure(format!("sdkmanager: {e}")))?;
-        if !st.success() {
-            return Err(CliError::failure(format!(
-                "sdkmanager could not install {pkg} — check that the API level, tag and ABI exist \
+                .arg(&pkg),
+            "sdkmanager",
+            Some(&b"y\n".repeat(32)),
+        )
+        .map_err(|e| {
+            CliError::failure(format!(
+                "{e} — could not install {pkg}; check that the API level, tag and ABI exist \
                  (`sdkmanager --list | grep system-images`)"
-            )));
-        }
+            ))
+        })?;
+    }
+
+    // avdmanager takes its SDK root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`
+    // in its launcher), not from `ANDROID_HOME` and with no flag to override it. So a copy found on
+    // PATH — a Homebrew install outside the SDK — creates AVDs against ITS root, referencing images
+    // the emulator in `android_sdk_dir()` cannot resolve. Installing the SDK's own cmdline-tools
+    // makes the two agree, which is the layout a CI image already has, so this is a no-op there.
+    let sdk = day_toolchain::android_sdk_dir();
+    if !std::path::Path::new(&cmdline_tool("avdmanager")).starts_with(&sdk) {
+        crate::ops::status(
+            "Installing",
+            "cmdline-tools into the SDK — avdmanager reads its SDK root from its own location, \
+             and the copy on PATH points at a different one",
+        );
+        run_sdk_tool(
+            Command::new(cmdline_tool("sdkmanager"))
+                .arg(format!("--sdk_root={}", sdk.display()))
+                .arg("cmdline-tools;latest"),
+            "sdkmanager",
+            Some(&b"y\n".repeat(32)),
+        )?;
     }
 
     let existing = avds().iter().any(|a| str_of(a, "name") == name);
@@ -810,28 +872,25 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
             "Creating",
             &format!("AVD {name} ({} on {pkg})", spec.device),
         );
-        let avdmanager = cmdline_tool("avdmanager");
-        let mut child = Command::new(&avdmanager)
-            .args(["create", "avd", "-n", &name, "-k", &pkg, "-d", spec.device])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| CliError::failure(format!("could not run {avdmanager} ({e})")))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            use std::io::Write;
-            // It asks whether to start from a custom hardware profile; the device profile named
-            // with `-d` already IS the answer.
-            let _ = stdin.write_all(b"no\n");
-        }
-        let st = child
-            .wait()
-            .map_err(|e| CliError::failure(format!("avdmanager: {e}")))?;
-        if !st.success() {
-            return Err(CliError::failure(format!(
-                "avdmanager could not create {name} — is {:?} a device profile? \
+        // It asks whether to start from a custom hardware profile; the device profile named with
+        // `-d` already IS the answer.
+        run_sdk_tool(
+            // Same reason as the `--sdk_root` above, by the route avdmanager takes: it resolves
+            // the system image through the SDK root it reads from the environment.
+            Command::new(cmdline_tool("avdmanager"))
+                .env("ANDROID_HOME", day_toolchain::android_sdk_dir())
+                .env("ANDROID_SDK_ROOT", day_toolchain::android_sdk_dir())
+                .args(["create", "avd", "-n", &name, "-k", &pkg, "-d", spec.device]),
+            "avdmanager",
+            Some(b"no\n"),
+        )
+        .map_err(|e| {
+            CliError::failure(format!(
+                "{e} — could not create {name}; is {:?} a device profile? \
                  (`avdmanager list device`)",
                 spec.device
-            )));
-        }
+            ))
+        })?;
     }
 
     // Config last, and on every run: it is the part that has to be true whether the AVD was just
@@ -888,13 +947,7 @@ fn set_avd_config(avd: &str, key: &str, value: &str) -> bool {
 
 /// Where an AVD keeps its `config.ini`, following the `.ini` pointer when there is one.
 fn avd_config_path(avd: &str) -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("ANDROID_AVD_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                .join(".android")
-                .join("avd")
-        });
+    let home = avd_home();
     let dir = std::fs::read_to_string(home.join(format!("{avd}.ini")))
         .ok()
         .and_then(|ini| {
@@ -1382,19 +1435,13 @@ fn device_abi(serial: &str) -> String {
 
 /// Defined but not running AVDs — what `day devices boot` can start.
 fn avds() -> Vec<Value> {
-    let sdk = day_toolchain::android_sdk_dir();
-    let exe = if cfg!(windows) {
-        "emulator.exe"
-    } else {
-        "emulator"
-    };
-    let bin = sdk.join("emulator").join(exe);
-    let cmd = if bin.is_file() {
-        bin.display().to_string()
-    } else {
-        exe.to_string()
-    };
-    Command::new(cmd)
+    // Two sources, unioned, because neither alone is reliable. `emulator -list-avds` is the
+    // documented one but needs the emulator PACKAGE installed and its own SDK resolution to
+    // agree — on a CI runner that had just installed the emulator in the same step it returned
+    // nothing, and the error that followed listed no AVDs at all for a machine that had one.
+    // The `.ini` files are where `avdmanager` actually writes, so they answer even when no tool
+    // does.
+    let mut names: Vec<String> = Command::new(emulator_bin())
         .arg("-list-avds")
         .output()
         .ok()
@@ -1404,10 +1451,37 @@ fn avds() -> Vec<Value> {
                 .lines()
                 .map(str::trim)
                 .filter(|l| !l.is_empty() && !l.contains(' '))
-                .map(|name| json!({ "id": name, "name": name }))
+                .map(str::to_string)
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    if let Ok(dir) = std::fs::read_dir(avd_home()) {
+        for entry in dir.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "ini")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && !names.iter().any(|n| n == stem)
+            {
+                names.push(stem.to_string());
+            }
+        }
+    }
+    names.sort();
+    names
+        .into_iter()
+        .map(|name| json!({ "id": name.clone(), "name": name }))
+        .collect()
+}
+
+/// Where AVDs live: `$ANDROID_AVD_HOME`, else `~/.android/avd`.
+fn avd_home() -> std::path::PathBuf {
+    std::env::var_os("ANDROID_AVD_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                .join(".android")
+                .join("avd")
+        })
 }
 
 // ── OpenHarmony ──────────────────────────────────────────────────────────────────────────────
