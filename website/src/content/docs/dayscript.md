@@ -69,6 +69,11 @@ keys instead of literal strings, so the same script passes in every language.
 `input`, `assert_text`, and `toolbar` accept a Fluent `key` (with `args`) in place of literal
 text, resolved in the run's locale — that is what keeps one script passing in every language.
 
+`nav_back` reads the window's width class the same way the app does. A window wide enough to keep
+the detail beside the list never pushed a page, so the step passes there without moving anything,
+while a compact window still fails when it finds nothing to pop. That is what lets one script drive
+a phone and a tablet, since the same build stacks on one and splits on the other.
+
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, which
 removes the sleep-tuning that makes UI tests flaky. Acting steps synthesize Day events on the
 main thread between flushes, so they are deterministic and behave identically on every toolkit.
