@@ -294,9 +294,11 @@ fn uikit_group() -> Group {
             // array a CoreDevice without simulator support returns. Each weaker form reported ✓
             // moments before the boot step failed on the very thing it had vouched for.
             //
-            // Reports the macOS version, because that is what gates this — see CORE_DEVICE_FLOOR
-            // in devices.rs. Xcode's devicectl execs a system framework, so the Xcode version this
-            // used to print was answering a question nobody asked.
+            // Reports the CoreDevice version rather than the Xcode one, because that IS the
+            // thing that decides (see CORE_DEVICE_FLOOR in devices.rs) and the two come apart:
+            // a machine whose selected Xcode is 26.6 still drives simulators if some newer Xcode
+            // ran its first launch and left 642.15 installed. Printing the selected Xcode there
+            // would name a version that has nothing to do with the answer.
             Probe::new(
                 "simulator orientation",
                 run_line(
@@ -304,11 +306,13 @@ fn uikit_group() -> Group {
                     &[
                         "-c",
                         "xcrun devicectl list devices -j - --quiet 2>/dev/null \
-                         | grep -q '\"simulated\"' && echo \"macOS $(sw_vers -productVersion)\"",
+                         | grep -q '\"simulated\"' && echo \"CoreDevice $(/usr/libexec/PlistBuddy \
+                         -c 'Print :CFBundleVersion' /Library/Developer/PrivateFrameworks/\
+                         CoreDevice.framework/Versions/A/Resources/Info.plist)\"",
                     ],
                 ),
-                "capture in landscape needs macOS 26.6+ (its CoreDevice drives simulators; \
-                 Xcode's version does not matter); without it, drop `--orientation`",
+                "capture in landscape needs Xcode 27+ (it installs the CoreDevice that can drive \
+                 simulators; the macOS version does not matter); without it, drop `--orientation`",
             )
             .need(Need::Launch),
         ],
@@ -316,8 +320,9 @@ fn uikit_group() -> Group {
                 Needs: full Xcode (`xcode-select -s /Applications/Xcode.app`), the simulator Rust\n\
                 target `rustup target add aarch64-apple-ios-sim`, and a booted simulator to launch\n\
                 (`xcrun simctl boot <device>`). Capturing in a chosen ORIENTATION additionally\n\
-                needs macOS 26.6 or newer, whose CoreDevice lets `devicectl` drive simulators —\n\
-                the Xcode version does not affect it. iOS builds only on a macOS host.",
+                needs Xcode 27 or newer, which installs the CoreDevice that lets `devicectl` drive\n\
+                simulators — the macOS version does not affect it. iOS builds only on a macOS\n\
+                host.",
     }
 }
 

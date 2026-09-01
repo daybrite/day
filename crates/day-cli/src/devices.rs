@@ -266,20 +266,22 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
 
 /// What actually gates simulator orientation, spelled out wherever it is reported.
 ///
-/// Not the Xcode version, which is the trap this text exists to stop anyone re-learning: Xcode's
-/// `devicectl` is a 12-line shell wrapper that `exec`s
-/// `/Library/Developer/PrivateFrameworks/CoreDevice.framework/…/devicectl`, a SYSTEM framework
-/// that no Xcode ships or upgrades. So a machine with the newest Xcode and an older macOS has an
-/// older devicectl, and selecting a different Xcode changes nothing. Measured across two Xcodes on
-/// one host: both report devicectl 642.15, because both exec the same system binary.
+/// The XCODE, not the macOS — and the reason that is worth writing down is that the two look
+/// interchangeable from one machine. Xcode's `devicectl` is a short shell wrapper that `exec`s
+/// `/Library/Developer/PrivateFrameworks/CoreDevice.framework/…/devicectl`, which is easy to read
+/// as "a system framework, so macOS owns it". It is not: Xcode INSTALLS that framework. The
+/// wrapper compares the installed CoreDevice against the version its own Xcode ships and runs
+/// `xcodebuild -runFirstLaunch` when they differ, so whichever Xcode last did its first launch
+/// decides what every `devicectl` on the machine can do.
 ///
-/// macOS 26.6 (CoreDevice 642.15) drives simulators. macOS 26.5 does not — it answers
-/// `orientation set` with "The specified device was not found" for a simulator that is booted and
-/// visible to simctl, and rejects `--omit-deprecated-fields-in-json` outright. GitHub's
-/// `macos-26` runner image was still on 26.5.2 when this was written.
-const CORE_DEVICE_FLOOR: &str = "Turning a simulator needs macOS 26.6 or newer — its CoreDevice, not its Xcode: Xcode's \
-     `devicectl` execs the system framework, so no `xcode-select` changes this. Drop \
-     `--orientation` on an older host.";
+/// Xcode 26.6 ships CoreDevice 518.33, which cannot see a simulator at all: it answers
+/// `orientation set` with "The specified device was not found" for one that is booted and visible
+/// to simctl, and rejects `--omit-deprecated-fields-in-json` outright. Xcode 27 ships 642.15,
+/// which turns them. Two machines on the SAME macOS therefore differ completely.
+const CORE_DEVICE_FLOOR: &str = "Turning a simulator needs Xcode 27 or newer — its CoreDevice, \
+     not the macOS version: Xcode installs the framework its `devicectl` execs, so an Xcode 26.6 \
+     machine cannot see simulators at all. Select a newer Xcode with `xcode-select -s`, or drop \
+     `--orientation`.";
 
 /// Whether devicectl can see this simulator at all, which is the precondition for turning it.
 ///

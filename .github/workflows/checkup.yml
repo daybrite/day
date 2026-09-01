@@ -79,10 +79,10 @@ jobs:
         # Only the runner each combo needs: the toolkit column went with the setup ladder, which
         # is now one action that derives what a target needs from the target itself.
         include:
-          - { combo: macos-appkit,  os: macos-latest }
-          - { combo: macos-gtk,     os: macos-latest }
-          - { combo: macos-qt,      os: macos-latest }
-          - { combo: ios-uikit,     os: macos-latest }
+          - { combo: macos-appkit,  os: xcode-27 }
+          - { combo: macos-gtk,     os: xcode-27 }
+          - { combo: macos-qt,      os: xcode-27 }
+          - { combo: ios-uikit,     os: xcode-27 }
           - { combo: linux-gtk,     os: ubuntu-latest }
           - { combo: linux-qt,      os: ubuntu-latest }
           - { combo: android-mdc,   os: ubuntu-latest }

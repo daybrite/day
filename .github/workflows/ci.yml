@@ -176,7 +176,7 @@ jobs:
   day-cli-macos:
     name: day-macos (${{ matrix.arch }})
     needs: [fmt, msrv]
-    runs-on: macos-26 # Apple silicon: aarch64 is the host arch, x86_64 the cross build
+    runs-on: xcode-27 # Apple silicon: aarch64 is the host arch, x86_64 the cross build
     strategy:
       fail-fast: false
       matrix:
@@ -471,8 +471,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { toolkit: appkit, combo: macos-appkit,  os: macos-26,     rust_target: "",                        clippy: "--all-targets" }
-          - { toolkit: uikit,  combo: ios-uikit,     os: macos-26,     rust_target: aarch64-apple-ios-sim,     clippy: "--lib" }
+          - { toolkit: appkit, combo: macos-appkit,  os: xcode-27,    rust_target: "",                        clippy: "--all-targets" }
+          - { toolkit: uikit,  combo: ios-uikit,     os: xcode-27,    rust_target: aarch64-apple-ios-sim,     clippy: "--lib" }
           - { toolkit: gtk,    combo: linux-gtk,     os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: qt,     combo: linux-qt,      os: ubuntu-24.04, rust_target: "",                        clippy: "--all-targets" }
           - { toolkit: mdc,    combo: android-mdc,   os: ubuntu-24.04, rust_target: aarch64-linux-android,     clippy: "--lib" }
@@ -582,9 +582,11 @@ jobs:
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
     name: day-${{ matrix.combo }}
-    # macos-26 (Tahoe image): the newest Apple Silicon runner generation with current Xcode;
-    # bumped from macos-15 for build speed and to track the toolchain Day users actually run.
-    runs-on: macos-26
+    # xcode-27 is the floor for every macOS job in these repos, Apple Silicon with the newest
+    # Xcode. Not only for speed: `devicectl` can drive a SIMULATOR only from the CoreDevice
+    # framework Xcode 27 installs (26.6 ships one that cannot see simulators at all), which is
+    # what lets a walkthrough capture in a chosen orientation.
+    runs-on: xcode-27
     needs: [day-cli-macos]
     strategy:
       fail-fast: false
@@ -729,8 +731,9 @@ jobs:
 
   ios-uikit:
     name: day-ios-uikit
-    # macos-26: see the macos job note — also gives the walkthrough a current iOS Simulator runtime.
-    runs-on: macos-26
+    # xcode-27: see the macos job note — also gives the walkthrough a current iOS Simulator
+    # runtime, and the devicectl that can turn it.
+    runs-on: xcode-27
     needs: [day-cli-macos]
     env:
       # Release signing (§20), active on tag pushes only: the distribution cert + App Store
