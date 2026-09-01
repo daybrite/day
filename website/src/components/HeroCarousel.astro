@@ -31,7 +31,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
   <figure class="hero-carousel" data-hero-carousel aria-roledescription="carousel" aria-label="Day apps running natively on each platform">
     {/* The frame links to the gallery, anchored at the row for the screen currently showing —
         the controller retargets the href on every image change. */}
-    <a class="hc-link" data-hc-link href={url('gallery')} aria-label="See this screen on every platform in the gallery">
+    <a class="hc-link" data-hc-link href={url('gallery/Day-Showcase')} aria-label="See this screen on every platform in the gallery">
       <div class="hc-stage">
         <div class="hc-glow" aria-hidden="true" data-hc-glow></div>
         {shots.map((s, i) => (
@@ -65,7 +65,7 @@ const accents = [...new Set(shots.map((s) => s.accent))];
         shuffled order for this visit is known. */}
     <div class="hc-track" data-hc-track>
       {shots.map(() => (
-        <a class="hc-seg" data-hc-seg href={url('gallery')}><span class="hc-bar"><i></i></span></a>
+        <a class="hc-seg" data-hc-seg href={url('gallery/Day-Showcase')}><span class="hc-bar"><i></i></span></a>
       ))}
     </div>
     <div class="hc-icons" data-hc-icons aria-hidden="true">

@@ -1,0 +1,252 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import manifest from '../../data/gallery-manifest.json';
+import { url } from '../../lib/site';
+import PlatformIcon from '../../components/PlatformIcon.astro';
+
+// The gallery hub: one card per Day app, each carrying a carousel of its own screenshots and a
+// link to its full gallery. The screenshots are hosted by the apps themselves — this page reads
+// the index each of them publishes (scripts/assemble-gallery.mjs) and links the images.
+const apps = manifest.apps;
+const totals = apps.reduce(
+  (t, a) => ({
+    shots: t.shots + a.counts.shots,
+    captures: t.captures + a.counts.captures,
+    columns: new Set([...t.columns, ...a.columns.map((c) => c.id)]),
+  }),
+  { shots: 0, captures: 0, columns: new Set<string>() },
+);
+const generated = manifest.generatedAt
+  ? new Date(manifest.generatedAt).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
+  : null;
+
+const LOCALE_LABEL: Record<string, string> = {
+  en: 'English',
+  fr: 'Français',
+  ar: 'العربية',
+  'zh-CN': '中文',
+};
+const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c) => c.id === id)!;
+---
+<BaseLayout
+  title="Gallery"
+  description={`Every Day sample app on every platform it builds for: ${totals.captures} screenshots across ${apps.length} apps, each taken by the dayscript walkthrough that app's own CI runs.`}
+  active="gallery"
+>
+  <section class="section hub-hero">
+    <div class="container">
+      <p class="eyebrow">Screenshot gallery</p>
+      <h1 class="hub-title">Six Rust apps, <span class="accent-text">native on every platform</span>.</h1>
+      <p class="lead">
+        Each app below is written once in Rust and drawn with each platform's own widgets. Its
+        screenshots are taken by the <a href={url('docs/dayscript')}>dayscript</a> walkthrough that
+        app's own CI runs, published by its own website, and indexed here.
+      </p>
+      {apps.length > 0 && (
+        <p class="gen">
+          {totals.captures.toLocaleString('en-US')} screenshots · {totals.shots} screens ·
+          {' '}{totals.columns.size} native toolkits
+          {generated && <span> · indexed {generated}</span>}
+        </p>
+      )}
+      {apps.length === 0 && (
+        <p class="gen preview">
+          No app index could be read on this build, so the gallery is empty. On the live site each
+          card fills in from the app's own published screenshots.
+        </p>
+      )}
+    </div>
+  </section>
+
+  <section class="section hub-grid-sec">
+    <div class="container">
+      <div class="hub-grid">
+        {apps.map((app) => (
+          <article class="card" data-carousel>
+            <a class="card-stage" href={url(`gallery/${app.id}`)} aria-label={`${app.label} screenshot gallery`}>
+              {app.cover.map((shot, i) => (
+                <img
+                  class:list={['slide', { on: i === 0 }]}
+                  src={shot.src}
+                  width={shot.width}
+                  height={shot.height}
+                  alt={`${shot.label}, ${columnOf(app, shot.column).os} ${columnOf(app, shot.column).label}`}
+                  loading={i === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
+                  data-slide
+                  data-caption={`${shot.label} · ${columnOf(app, shot.column).os}`}
+                />
+              ))}
+              <span class="stage-cap" data-cap>
+                {app.cover[0] && `${app.cover[0].label} · ${columnOf(app, app.cover[0].column).os}`}
+              </span>
+            </a>
+            <div class="card-body">
+              <h2 class="card-title"><a href={url(`gallery/${app.id}`)}>{app.label}</a></h2>
+              <p class="card-blurb">{app.blurb}</p>
+              <ul class="card-plats" aria-label={`Platforms ${app.label} is captured on`}>
+                {app.columns.map((c) => (
+                  <li data-pf={c.id} title={`${c.os} · ${c.toolkit}`}>
+                    <PlatformIcon id={c.id} class="plat-icon" />
+                  </li>
+                ))}
+              </ul>
+              <p class="card-meta">
+                {app.counts.shots} screens · {app.counts.captures} captures
+                {app.locales.length > 1 && <span> · {app.locales.map((l) => LOCALE_LABEL[l] ?? l).join(', ')}</span>}
+                {app.themes.length > 1 && <span> · light and dark</span>}
+              </p>
+              <p class="card-links">
+                <a class="card-cta" href={url(`gallery/${app.id}`)}>See every screen</a>
+                <a href={app.repo} target="_blank" rel="noopener">Source</a>
+                {app.web && <a href={app.web} target="_blank" rel="noopener">Run it</a>}
+              </p>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <section class="section hub-note">
+    <div class="container">
+      <h2>How these are made</h2>
+      <p class="lead">
+        Each app declares its screens in a dayscript walkthrough — the same script that drives its
+        UI tests. Its CI runs that walkthrough on every target it builds for, once per theme and
+        language, and publishes both the images and a machine-readable index of them beside its own
+        website. This page reads those indexes, so an app that captures a new screen shows it here
+        on the next build. See <a href={url('docs/dayscript')}>the dayscript reference</a> for the
+        <code>screenshot:</code> step and the metadata a row's heading comes from.
+      </p>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  // Each card cross-fades its own screenshots. The cards run on one shared timer so the page
+  // reads as a set rather than a scatter, and each starts on a different slide so they are never
+  // in lockstep. Hovering or focusing a card holds it on the slide being looked at.
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-carousel]'));
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const held = new WeakSet<HTMLElement>();
+
+  for (const [i, card] of cards.entries()) {
+    const slides = card.querySelectorAll<HTMLElement>('[data-slide]');
+    if (slides.length < 2) continue;
+    // Stagger the starting slide so neighboring cards show different screens.
+    const start = i % slides.length;
+    slides.forEach((s, n) => s.classList.toggle('on', n === start));
+    card.dataset.at = String(start);
+    const cap = card.querySelector<HTMLElement>('[data-cap]');
+    if (cap) cap.textContent = slides[start].dataset.caption ?? '';
+    for (const ev of ['pointerenter', 'focusin'] as const) {
+      card.addEventListener(ev, () => held.add(card));
+    }
+    for (const ev of ['pointerleave', 'focusout'] as const) {
+      card.addEventListener(ev, () => held.delete(card));
+    }
+  }
+
+  function advance(): void {
+    for (const card of cards) {
+      if (held.has(card)) continue;
+      const slides = card.querySelectorAll<HTMLElement>('[data-slide]');
+      if (slides.length < 2) continue;
+      const at = (Number(card.dataset.at ?? 0) + 1) % slides.length;
+      card.dataset.at = String(at);
+      slides.forEach((s, n) => s.classList.toggle('on', n === at));
+      const cap = card.querySelector<HTMLElement>('[data-cap]');
+      if (cap) cap.textContent = slides[at].dataset.caption ?? '';
+    }
+  }
+
+  // Only while the tab is visible: a background tab advancing for an hour wakes the decoder for
+  // nothing and leaves every card on an arbitrary slide when the reader comes back.
+  let timer = 0;
+  function run(): void {
+    clearInterval(timer);
+    if (reduced.matches || document.hidden) return;
+    timer = window.setInterval(advance, 3600);
+  }
+  document.addEventListener('visibilitychange', run);
+  reduced.addEventListener('change', run);
+  run();
+</script>
+
+<style>
+  .hub-hero { padding-block: 56px 8px; }
+  .hub-title { font-size: clamp(2rem, 4.6vw, 3rem); margin: 0 0 16px; }
+  .gen { color: var(--faint); font-size: 0.9rem; margin-top: 16px; }
+  .gen.preview { color: var(--sun); }
+
+  .hub-grid-sec { padding-block: 24px 8px; }
+  .hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 26px;
+  }
+
+  .card {
+    display: flex; flex-direction: column;
+    border: 1px solid var(--border); border-radius: 16px;
+    background: var(--surface);
+    overflow: hidden;
+    transition: border-color 0.18s ease, transform 0.18s ease;
+  }
+  .card:hover { border-color: var(--muted); transform: translateY(-2px); }
+
+  /* The stage is a fixed-ratio window the slides are fitted into: the covers mix tall phone
+     captures with wide desktop ones, and a stage sized by its content would jump on every
+     cross-fade. `contain` keeps each capture whole inside it. */
+  .card-stage {
+    position: relative; display: block;
+    aspect-ratio: 16 / 10;
+    background:
+      radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 70%),
+      var(--bg-2);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .slide {
+    position: absolute; inset: 10px 10px 34px;
+    width: calc(100% - 20px); height: calc(100% - 44px);
+    object-fit: contain;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+    filter: drop-shadow(0 8px 22px rgba(0, 0, 0, 0.28));
+  }
+  .slide.on { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) {
+    .slide { transition: none; }
+  }
+  .stage-cap {
+    position: absolute; left: 12px; right: 12px; bottom: 10px;
+    font-size: 0.72rem; letter-spacing: 0.04em;
+    color: var(--faint); text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  .card-body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+  .card-title { font-size: 1.25rem; margin: 0; }
+  .card-title a { color: inherit; text-decoration: none; }
+  .card-title a:hover { color: var(--brand); }
+  .card-blurb { margin: 0; color: var(--muted); font-size: 0.94rem; line-height: 1.55; }
+
+  /* The platform marks, each in its own accent (global.css [data-pf] → --pf). */
+  .card-plats { display: flex; flex-wrap: wrap; gap: 9px; list-style: none; margin: 2px 0 0; padding: 0; }
+  .card-plats li { display: inline-flex; color: color-mix(in srgb, var(--pf, var(--brand)) 72%, var(--text)); }
+  .card-plats :global(.plat-icon) { width: 1.05rem; height: 1.05rem; }
+
+  .card-meta { margin: 0; color: var(--faint); font-size: 0.8rem; }
+  .card-links { display: flex; flex-wrap: wrap; gap: 16px; margin: 4px 0 0; font-size: 0.9rem; }
+  .card-cta { font-weight: 650; }
+
+  .hub-note { padding-block: 34px 56px; }
+  .hub-note h2 { font-size: 1.3rem; margin: 0 0 10px; }
+</style>

@@ -1,205 +1,212 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
-import BaseLayout from '../layouts/BaseLayout.astro';
-import manifest from '../data/gallery-manifest.json';
-import { site, url } from '../lib/site';
-import DeviceShell from '../components/DeviceShell.astro';
-import PlatformIcon from '../components/PlatformIcon.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import manifest from '../../data/gallery-manifest.json';
+import { url } from '../../lib/site';
+import DeviceShell from '../../components/DeviceShell.astro';
+import PlatformIcon from '../../components/PlatformIcon.astro';
 
-// The manifest is assembled before every build by the gallery integration: from CI screenshot
-// artifacts on GitHub Actions, or as placeholders locally. See integrations/gallery.mjs.
+// One app's screenshots, read from the index its own site publishes (see
+// scripts/assemble-gallery.mjs). The images are served by that app's site; this page links them.
 //
-// Layout: one ROW per curated shot (e.g. "Canvas gauge"), every platform's capture of that
-// shot laid out horizontally in a scrolling strip. Two segmented selectors (theme, language)
-// swap every visible tile between its captured variants client-side — each <img> carries all
-// of its variant URLs as data attributes, and the tiny inline script below resolves the best
-// available variant per tile (falling back visibly when a combination wasn't captured, e.g.
-// French is only captured in light).
-const generated = manifest.generatedAt
-  ? new Date(manifest.generatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+// Layout: one ROW per captured screen, every platform's capture of that screen laid out
+// horizontally in a scrolling strip. Where the app captured more than one theme or language,
+// segmented selectors swap every visible tile between its captures client-side — each <img>
+// carries all of them as data attributes, and the inline script resolves the best available
+// (falling back visibly when a combination wasn't captured).
+export function getStaticPaths() {
+  return manifest.apps.map((app) => ({ params: { app: app.id }, props: { app } }));
+}
+
+type App = (typeof manifest.apps)[number];
+const { app } = Astro.props as { app: App };
+
+const columnOf = (id: string) => app.columns.find((c) => c.id === id)!;
+
+const generated = app.indexGeneratedAt
+  ? new Date(app.indexGeneratedAt).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    })
   : null;
 
-type Suite = (typeof manifest.suites)[number];
-function platformOf(suite: Suite, id: string) {
-  return suite.platforms.find((p) => p.id === id)!;
-}
-const mobileOs = new Set(['iOS', 'Android', 'HarmonyOS']);
+// A selector appears only for a dimension the app actually varied: most apps capture one theme,
+// several capture one language, and a row of buttons with nothing to choose between is noise.
+const themes = app.themes.length > 1 ? app.themes : [];
+const locales = app.locales.length > 1 ? app.locales : [];
+const initialTheme = app.themes.includes('light') ? 'light' : (app.themes[0] ?? 'default');
+const initialLocale = app.locales.includes('en') ? 'en' : (app.locales[0] ?? 'default');
+const key = (theme: string, locale: string) => `${theme || 'default'}|${locale || 'default'}`;
+/** The data-attribute suffix for a capture key: `light|zh-CN` → `light-zh-cn`. */
+const slug = (k: string) => k.replace(/\|/g, '-').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
 
-// Deep links into the live web build. The shim treats the URL fragment as the app's route
-// (`day_dom_set_hash` writes it, a `hashchange` listener reads it back), so appending `#canvas` to
-// the app's own site (site.showcaseWeb) opens on Canvas & shapes. The route names are the keys of the `Section` enum in
-// the showcase's src/lib.rs (daybrite/Day-Showcase) — mirrored here because a shot id is NOT always a route: several rows
-// capture a STATE of a page rather than a page.
-// `toolbars` and `map` are in the enum but NOT in the web build — asking for either lands on
-// About. Checked by loading each fragment against the built app rather than read off the enum.
-const WEB_ROUTES = new Set([
-  'controls', 'dates', 'focus', 'text', 'textareas', 'localization', 'canvas', 'animation',
-  'grid', 'list', 'refresh', 'tabs', 'stack', 'media', 'webview', 'menus', 'system', 'services',
-  'resources', 'tweaks', 'crash', 'about',
-]);
-// Shots that photograph a state within a page, plus the two that are not routes at all:
-// `preferences` is a separate window and `cover` a fullscreen presentation, so neither can be
-// reached by fragment and neither gets a link.
-const SHOT_ROUTE: Record<string, string | null> = {
-  home: '',
-  'list-item-100': 'list',
-  'stack-detail': 'stack',
-  'tabs-one': 'tabs',
-  'toolbars-filtered': 'toolbars',
-  preferences: null,
-  cover: null,
-  // The web build has no Toolbars page; both toolbar rows would land on About.
-  toolbars: null,
-  'toolbars-filtered': null,
+const LOCALE_LABEL: Record<string, string> = {
+  en: 'English',
+  fr: 'Français',
+  ar: 'العربية',
+  'zh-CN': '中文',
 };
-/** The fragment a shot opens on, or null when the shot is not reachable by one. */
+
+/** The fragment a shot opens in the app's hosted web build, or null when it is not reachable. */
 function webRoute(shotId: string): string | null {
-  if (shotId in SHOT_ROUTE) return SHOT_ROUTE[shotId];
-  return WEB_ROUTES.has(shotId) ? shotId : null;
+  const routes = app.webRoutes as Record<string, string | null> | null;
+  if (!routes || !(shotId in routes)) return null;
+  return routes[shotId];
 }
+
+const description = `${app.label} on every platform it builds for: ${app.counts.captures} screenshots taken by the dayscript walkthrough its own CI runs, ${app.counts.shots} screens across ${app.counts.columns} native toolkits.`;
 ---
-<BaseLayout title="Gallery" description="The Day Showcase app running on native widgets on every target, light, dark, and localized, with screenshots taken straight from CI." active="gallery">
+<BaseLayout title={`${app.label} gallery`} description={description} active="gallery">
   <section class="section gal-hero">
     <div class="container">
-      <p class="eyebrow">Screenshot gallery</p>
-      <h1 class="gal-title">The same Rust program, <span class="accent-text">native on every platform</span>.</h1>
+      <p class="eyebrow"><a href={url('gallery')}>Screenshot gallery</a></p>
+      <h1 class="gal-title">{app.label}, <span class="accent-text">native on every platform</span>.</h1>
+      <p class="lead">{app.blurb}</p>
       <p class="lead">
-        Every screenshot below is captured in CI by the dayscript walkthrough, one pass per
-        theme and language, then assembled here automatically. Each row is one screen; scroll it
-        sideways to compare platforms.
+        Every screenshot below was taken by the <a href={url('docs/dayscript')}>dayscript</a>{' '}
+        walkthrough that {app.label}'s own CI runs, and is served from{' '}
+        {app.site ? <a href={app.site} target="_blank" rel="noopener">its own site</a> : 'its own site'}.
+        Each row is one screen; scroll it sideways to compare platforms.
       </p>
-      {generated
-        ? <p class="gen">Latest run · {generated}</p>
-        : <p class="gen preview">Preview build, so placeholders are shown. On the live site these fill in from CI artifacts.</p>}
       <p class="gen">
-        <a href={url('showcase')}>Run the Showcase app</a> yourself: installed on
-        your machine, or live in this browser.
+        {generated ? <span>Published {generated} · </span> : null}
+        {app.counts.shots} screens · {app.counts.captures} captures · {app.counts.columns} toolkits
+        {app.stale && <span class="stale"> · the app's site was unreachable, so this is the last index we read</span>}
       </p>
-
+      <p class="gen gal-links">
+        <a href={app.repo} target="_blank" rel="noopener">Source</a>
+        {app.site && <a href={app.site} target="_blank" rel="noopener">Website</a>}
+        {app.web && <a href={app.web} target="_blank" rel="noopener">Run it in this browser</a>}
+      </p>
     </div>
   </section>
 
   {/* Secondary toolbar: pinned just below the site header so the theme/language selection can be
       changed while viewing any row, without scrolling back to the top. It lives at the top level of
-      <main> (NOT inside the hero's .container) so its containing block is the whole page — that is
-      what lets it stay stuck across every suite instead of scrolling away with the hero. */}
-  <div class="gal-toolbar" data-pagefind-ignore>
-    <div class="container gal-toolbar-inner">
-      <span class="gal-toolbar-label">Preview</span>
-      <div class="seg" role="radiogroup" aria-label="Theme" data-seg="theme">
-        <button type="button" role="radio" aria-checked="true" data-value="light">Light</button>
-        <button type="button" role="radio" aria-checked="false" data-value="dark">Dark</button>
-      </div>
-      <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
-        <button type="button" role="radio" aria-checked="true" data-value="en">English</button>
-        <button type="button" role="radio" aria-checked="false" data-value="fr">Français</button>
-        <button type="button" role="radio" aria-checked="false" data-value="ar">العربية</button>
-        <button type="button" role="radio" aria-checked="false" data-value="zh-cn">中文</button>
+      <main> (NOT inside the hero's .container) so its containing block is the whole page. */}
+  {(themes.length > 0 || locales.length > 0) && (
+    <div class="gal-toolbar" data-pagefind-ignore>
+      <div class="container gal-toolbar-inner">
+        <span class="gal-toolbar-label">Preview</span>
+        {themes.length > 0 && (
+          <div class="seg" role="radiogroup" aria-label="Theme" data-seg="theme">
+            {themes.map((t) => (
+              <button type="button" role="radio" aria-checked={t === initialTheme ? 'true' : 'false'} data-value={t}>
+                {t[0].toUpperCase() + t.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
+        {locales.length > 0 && (
+          <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
+            {locales.map((l) => (
+              <button type="button" role="radio" aria-checked={l === initialLocale ? 'true' : 'false'} data-value={l}>
+                {LOCALE_LABEL[l] ?? l}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
-  </div>
+  )}
 
-  {manifest.suites.map((suite, si) => (
-    <section class="section suite">
-      <div class="container">
-        <h2 class="suite-title">{suite.label}</h2>
-        <p class="lead suite-blurb">{suite.blurb}</p>
-      </div>
-
-      {/* Each row's id is its anchor — the front-page hero carousel links each screenshot to
-          its row (`/gallery#<shot>`). Shot ids must stay unique across suites. */}
-      <div class="rows" data-pagefind-ignore>
-        {suite.shots.map((shot, ri) => (
-          <div class="row" id={shot.id}>
-            <div class="container row-head">
-              <h3 class="row-title">{shot.label}</h3>
-              {shot.source && (
-                <a
-                  class="row-src"
-                  href={`${suite.sourceRepo ?? site.repo}/blob/main/${shot.source}`}
-                  target="_blank"
-                  rel="noopener"
-                  title={`View the code this screen is rendered from: ${shot.source}`}
-                >{shot.source.split('/').pop()}</a>
-              )}
-            </div>
-            <div class="strip-wrap">
-              <div class="strip container-pad">
-                {shot.byPlatform.map((tile, ci) => {
-                  const platform = platformOf(suite, tile.platform);
-                  const variantEntries = Object.entries(tile.variants ?? {});
-                  return (
-                    <figure
-                      class:list={['tile', { mobile: mobileOs.has(platform.os) }]}
-                      data-suite={si}
-                      data-r={ri}
-                      data-c={ci}
-                      data-shot={shot.label}
-                      data-os={platform.os}
-                      data-tk={platform.label}
-                      data-plat={platform.id}
+  {/* Each row's id is its anchor — the front-page hero carousel and the platform doc pages link
+      each screenshot to its row (`/gallery/<app>#<shot>`). The two data attributes carry the pair
+      the server rendered, which is what the switcher script starts from: an app that captured one
+      language still keys its captures under that language, not under `default`. */}
+  <div class="rows" data-pagefind-ignore data-theme0={initialTheme} data-locale0={initialLocale}>
+    {app.shots.map((shot, ri) => (
+      <div class="row" id={shot.id}>
+        <div class="container row-head">
+          <h2 class="row-title">{shot.label}</h2>
+          {shot.source && (
+            <a
+              class="row-src"
+              href={`${app.repo}/blob/main/${shot.source}`}
+              target="_blank"
+              rel="noopener"
+              title={`View the code this screen is rendered from: ${shot.source}`}
+            >{shot.source.split('/').pop()}</a>
+          )}
+          {shot.caption && <p class="row-cap">{shot.caption}</p>}
+        </div>
+        <div class="strip-wrap">
+          <div class="strip container-pad">
+            {shot.byColumn.map((tile, ci) => {
+              const column = columnOf(tile.column);
+              const captures = Object.entries(tile.captures) as [
+                string,
+                { src: string; width?: number; height?: number },
+              ][];
+              const initial =
+                tile.captures[key(initialTheme, initialLocale)] ?? captures[0][1];
+              // Cell width follows the CAPTURE's own aspect, not its OS: every frame is the same
+              // height (--frame-h, 500px less 22px of padding and borders), so a cell wide enough
+              // for `height × aspect` is a cell the capture FILLS. Sizing by OS instead put a
+              // 3:4 iPad walkthrough in the 240px cell a 0.46 phone wants, letterboxed to a
+              // sliver; the CSS clamps the result to the phone and desktop bounds either way.
+              const aspect =
+                initial.width && initial.height ? initial.width / initial.height : 0.46;
+              const cell = Math.round(478 * aspect) + 24; // + the shell's own chrome
+              return (
+                <figure
+                  class="tile"
+                  style={`--tile-w:${cell}px`}
+                  data-r={ri}
+                  data-c={ci}
+                  data-shot={shot.label}
+                  data-os={column.os}
+                  data-tk={column.label}
+                  data-plat={column.id}
+                >
+                  <div class="frame">
+                    <DeviceShell
+                      platform={column.id}
+                      title={app.label}
+                      host={app.site ?? undefined}
+                      dark={initialTheme === 'dark'}
+                      w={initial.width}
+                      h={initial.height}
                     >
-                      <div class="frame">
-                        {(() => {
-                          const body = tile.placeholder ? (
-                            <div class="ph" aria-label={`${shot.label} on ${platform.os} ${platform.label}, preview placeholder`}>
-                              <span class="ph-mark">◱</span>
-                              <span class="ph-txt">preview</span>
-                            </div>
-                          ) : (
-                            <img
-                              alt={`${shot.label}, ${platform.os} ${platform.label}`}
-                              loading="lazy"
-                              decoding="async"
-                              class="var-img"
-                              {...Object.fromEntries(
-                                variantEntries.map(([v, img]) => [`data-src-${v}`, url(img.src)]),
-                              )}
-                              src={url((tile.variants.light ?? variantEntries[0][1]).src)}
-                            />
-                          );
-                          return (
-                            <>
-                              <DeviceShell
-                                platform={platform.id}
-                                title={suite.label}
-                                w={(tile.variants?.light ?? variantEntries[0]?.[1])?.width}
-                                h={(tile.variants?.light ?? variantEntries[0]?.[1])?.height}
-                              >{body}</DeviceShell>
-                              {!tile.placeholder && <span class="fb-badge" hidden></span>}
-                            </>
-                          );
-                        })()}
-                      </div>
-                      <figcaption data-pf={platform.id}>
-                        <span class="cap-os">
-                          {platform.os}
-                          {platform.id === 'web-dom' && webRoute(shot.id) !== null && (
-                            <a
-                              class="cap-launch"
-                              href={`${site.showcaseWeb}${webRoute(shot.id) ? `#${webRoute(shot.id)}` : ''}`}
-                              target="_blank"
-                              rel="noopener"
-                              title={`Open this screen in the live web build`}
-                            >{webRoute(shot.id) ? `launch #${webRoute(shot.id)}` : 'launch'}</a>
-                          )}
-                        </span>
-                        <span class="cap-tk">
-                          <PlatformIcon id={platform.id} class="cap-icon" />
-                          {platform.label}
-                        </span>
-                      </figcaption>
-                    </figure>
-                  );
-                })}
-              </div>
-            </div>
+                      <img
+                        alt={`${shot.label}, ${column.os} ${column.label}`}
+                        loading="lazy"
+                        decoding="async"
+                        class="var-img"
+                        {...Object.fromEntries(captures.map(([k, img]) => [`data-c-${slug(k)}`, img.src]))}
+                        src={initial.src}
+                      />
+                    </DeviceShell>
+                    <span class="fb-badge" hidden></span>
+                  </div>
+                  <figcaption data-pf={column.id}>
+                    <span class="cap-os">
+                      {column.os}
+                      {column.id === 'web-dom' && app.web && webRoute(shot.id) !== null && (
+                        <a
+                          class="cap-launch"
+                          href={`${app.web}${webRoute(shot.id) ? `#${webRoute(shot.id)}` : ''}`}
+                          target="_blank"
+                          rel="noopener"
+                          title="Open this screen in the live web build"
+                        >{webRoute(shot.id) ? `launch #${webRoute(shot.id)}` : 'launch'}</a>
+                      )}
+                    </span>
+                    <span class="cap-tk">
+                      <PlatformIcon id={column.id} class="cap-icon" />
+                      {column.label}
+                    </span>
+                  </figcaption>
+                </figure>
+              );
+            })}
           </div>
-        ))}
+        </div>
       </div>
-    </section>
-  ))}
+    ))}
+  </div>
 
   {/* Full-size viewer. A custom lightbox (rather than a stock gallery library) because navigation
       is 2-D and platform-aware: ←/→ cycle platforms across the SAME screen (row); ↑/↓ move to the
@@ -223,109 +230,128 @@ function webRoute(shotId: string): string | null {
 </BaseLayout>
 
 <script>
-  // Variant switching: each .var-img carries data-src-<variant>. The selected (theme, locale)
-  // pair resolves to a preference order; the first variant a tile actually has wins, and a
-  // small badge names the fallback when the exact combination wasn't captured (e.g. French is
-  // captured in light only, and some toolkits can't force dark).
+  // Capture switching: each .var-img carries data-c-<theme>-<locale> for every capture the app
+  // published for that tile. The selected pair resolves to a preference order; the first capture a
+  // tile actually has wins, and a small badge names the fallback when the exact combination wasn't
+  // captured (French is often captured in light only, and some toolkits can't force dark).
   //
-  // The preview theme starts on the SITE theme (html[data-theme], set before paint by BaseLayout):
-  // a dark-mode visitor lands on the dark captures. It keeps tracking the site theme toggle until
-  // the visitor picks a preview theme themselves — an explicit choice pins it.
+  // The preview theme starts on the SITE theme (html[data-theme], set before paint by BaseLayout)
+  // when the app captured one: a dark-mode visitor lands on the dark captures. It keeps tracking
+  // the site theme toggle until the visitor picks a preview theme themselves.
+  const root = document.querySelector<HTMLElement>('.rows')!;
+  const segs = document.querySelectorAll<HTMLElement>('.seg[data-seg]');
+  const valuesOf = (which: string) =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>(`.seg[data-seg="${which}"] button[data-value]`),
+      (b) => b.dataset.value!,
+    );
+  const themes = valuesOf('theme');
+  const locales = valuesOf('locale');
+
   const siteTheme = () => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
-  const state = { theme: siteTheme(), locale: 'en' };
+  const state = {
+    theme: themes.includes(siteTheme()) ? siteTheme() : root.dataset.theme0!,
+    locale: root.dataset.locale0!,
+  };
   let themePinned = false;
 
-  // Variant ids are `<theme>` for English and `<theme>-<locale>` otherwise (lowercased),
-  // matching gallery.config.mjs. Fallback order: same locale in the other theme, then English
-  // in the requested theme, then English light/dark — never silently a different locale when
-  // the requested one exists in either theme.
-  function variantId(theme: string, locale: string): string {
-    return locale === 'en' ? theme : `${theme}-${locale}`;
+  /** The data-attribute suffix for a (theme, locale) pair — the same slug the page emitted. */
+  function slug(theme: string, locale: string): string {
+    return `${theme || 'default'}-${locale || 'default'}`.replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
+  }
+  function datasetKey(theme: string, locale: string): string {
+    return `c-${slug(theme, locale)}`.replace(/-([a-z0-9])/g, (_, c: string) => c.toUpperCase());
   }
 
-  function preferenceOrder(): string[] {
-    const other = state.theme === 'dark' ? 'light' : 'dark';
-    const order = [
-      variantId(state.theme, state.locale),
-      variantId(other, state.locale),
-      variantId(state.theme, 'en'),
-      variantId(other, 'en'),
+  // Never silently a different LANGUAGE when the requested one exists in the other theme: the
+  // requested locale leads in both themes before English is tried.
+  function preferenceOrder(): string[][] {
+    const others = themes.filter((t) => t !== state.theme);
+    const fallbackLocale = root.dataset.locale0!;
+    const pairs = [
+      [state.theme, state.locale],
+      ...others.map((t) => [t, state.locale]),
+      [state.theme, fallbackLocale],
+      ...others.map((t) => [t, fallbackLocale]),
+      ['default', state.locale],
+      [state.theme, 'default'],
+      ['default', 'default'],
     ];
-    return [...new Set(order)];
+    const seen = new Set<string>();
+    return pairs.filter(([t, l]) => {
+      const k = `${t}|${l}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
   }
 
-  const badgeText: Record<string, string> = {
-    light: 'en · light',
-    dark: 'en · dark',
-    'light-fr': 'fr · light',
-    'dark-fr': 'fr · dark',
-    'light-ar': 'ar · light',
-    'dark-ar': 'ar · dark',
-    'light-zh-cn': '中文 · light',
-    'dark-zh-cn': '中文 · dark',
-  };
+  function label(theme: string, locale: string): string {
+    const names: Record<string, string> = { fr: 'Français', ar: 'العربية', 'zh-CN': '中文', en: 'English' };
+    const parts = [];
+    if (locales.length > 1) parts.push(names[locale] ?? locale);
+    if (themes.length > 1) parts.push(theme);
+    return parts.join(' · ');
+  }
 
-  function applyVariants(): void {
+  function applyCaptures(): void {
     const order = preferenceOrder();
-    const want = order[0];
-    for (const img of document.querySelectorAll<HTMLImageElement>('img.var-img')) {
-      let chosen: string | null = null;
-      for (const v of order) {
-        const src = img.dataset[`src-${v}`.replace(/-([a-z])/g, (_, c) => c.toUpperCase())];
+    const [wantTheme, wantLocale] = order[0];
+    for (const img of root.querySelectorAll<HTMLImageElement>('img.var-img')) {
+      let chosen: string[] | null = null;
+      for (const [t, l] of order) {
+        const src = img.dataset[datasetKey(t, l)];
         if (src) {
-          chosen = v;
+          chosen = [t, l];
           if (img.getAttribute('src') !== src) img.setAttribute('src', src);
           break;
         }
       }
       const win = img.closest<HTMLElement>('.sh-win');
-      if (win) win.toggleAttribute('data-dark', chosen !== null && chosen.startsWith('dark'));
+      if (win) win.toggleAttribute('data-dark', chosen?.[0] === 'dark');
       const badge = img.closest<HTMLElement>('.frame')?.querySelector<HTMLElement>('.fb-badge');
       if (badge) {
-        const fellBack = chosen !== null && chosen !== want;
+        const fellBack = !!chosen && (chosen[0] !== wantTheme || chosen[1] !== wantLocale);
         badge.hidden = !fellBack;
-        if (fellBack && chosen) badge.textContent = badgeText[chosen] ?? chosen;
+        if (fellBack && chosen) badge.textContent = label(chosen[0], chosen[1]);
       }
     }
   }
 
   function reflectThemeSeg(): void {
-    const seg = document.querySelector<HTMLElement>('.seg[data-seg="theme"]');
-    for (const b of seg?.querySelectorAll('button') ?? []) {
+    for (const b of document.querySelectorAll<HTMLElement>('.seg[data-seg="theme"] button')) {
       b.setAttribute('aria-checked', b.dataset.value === state.theme ? 'true' : 'false');
     }
   }
 
-  for (const seg of document.querySelectorAll<HTMLElement>('.seg[data-seg]')) {
-    const key = seg.dataset.seg as 'theme' | 'locale';
+  for (const seg of segs) {
+    const which = seg.dataset.seg as 'theme' | 'locale';
     seg.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-value]');
       if (!btn) return;
-      if (key === 'theme') themePinned = true;
-      state[key] = btn.dataset.value!;
+      if (which === 'theme') themePinned = true;
+      state[which] = btn.dataset.value!;
       for (const b of seg.querySelectorAll('button')) {
         b.setAttribute('aria-checked', b === btn ? 'true' : 'false');
       }
-      applyVariants();
+      applyCaptures();
     });
   }
 
-  // Land on the site theme's captures (the server-rendered markup assumes light/en), and follow
-  // the site theme toggle live while the preview theme is unpinned.
+  // Land on the site theme's captures, and follow the site theme toggle live while unpinned.
   reflectThemeSeg();
-  applyVariants();
+  applyCaptures();
   new MutationObserver(() => {
-    if (themePinned || state.theme === siteTheme()) return;
+    if (themePinned || !themes.includes(siteTheme()) || state.theme === siteTheme()) return;
     state.theme = siteTheme();
     reflectThemeSeg();
-    applyVariants();
+    applyCaptures();
   }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   // ---- Full-size lightbox: 2-D, platform-aware navigation ----
   //   ←/→  cycle platforms across the SAME screen (the tiles of one row)
   //   ↑/↓  move to the previous/next screen at the SAME platform (same column index)
-  // The grid is uniform (every screen lists every platform in the same order), so a fixed column
-  // index IS the platform. Landing on an uncaptured cell shows a "not captured" note.
+  // Landing on a cell the app didn't capture shows a "not captured" note.
   (() => {
     const box = document.querySelector<HTMLElement>('[data-lightbox]');
     if (!box) return;
@@ -336,27 +362,21 @@ function webRoute(shotId: string): string | null {
     const tkEl = box.querySelector<HTMLElement>('[data-lb-tk]')!;
     const lbIcon = box.querySelector<HTMLElement>('[data-lb-icon]');
 
-    // grid[suite][row][col] = <figure>
-    const grid: HTMLElement[][][] = [];
-    const figures = Array.from(document.querySelectorAll<HTMLElement>('figure.tile[data-suite]'));
+    // grid[row][col] = <figure>
+    const grid: HTMLElement[][] = [];
+    const figures = Array.from(root.querySelectorAll<HTMLElement>('figure.tile'));
     for (const fig of figures) {
-      const s = Number(fig.dataset.suite), r = Number(fig.dataset.r), c = Number(fig.dataset.c);
-      (grid[s] ??= [])[r] ??= [];
-      grid[s][r][c] = fig;
+      const r = Number(fig.dataset.r), c = Number(fig.dataset.c);
+      (grid[r] ??= [])[c] = fig;
     }
 
-    let cur: { s: number; r: number; c: number } | null = null;
-
-    function srcOf(fig: HTMLElement): string | null {
-      const im = fig.querySelector<HTMLImageElement>('img.var-img');
-      return im ? im.getAttribute('src') : null;
-    }
+    let cur: { r: number; c: number } | null = null;
 
     function render(): void {
       if (!cur) return;
-      const fig = grid[cur.s]?.[cur.r]?.[cur.c];
+      const fig = grid[cur.r]?.[cur.c];
       if (!fig) return;
-      const src = srcOf(fig);
+      const src = fig.querySelector<HTMLImageElement>('img.var-img')?.getAttribute('src') ?? null;
       if (src) {
         imgEl.setAttribute('src', src);
         imgEl.alt = `${fig.dataset.shot}, ${fig.dataset.os} ${fig.dataset.tk}`;
@@ -376,8 +396,8 @@ function webRoute(shotId: string): string | null {
       if (fig.dataset.plat) box.setAttribute('data-pf', fig.dataset.plat);
     }
 
-    function open(s: number, r: number, c: number): void {
-      cur = { s, r, c };
+    function open(r: number, c: number): void {
+      cur = { r, c };
       box!.hidden = false;
       box!.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
@@ -393,31 +413,28 @@ function webRoute(shotId: string): string | null {
 
     function navigate(dir: string): void {
       if (!cur) return;
-      const rows = grid[cur.s];
-      if (!rows) return;
       if (dir === 'left' || dir === 'right') {
-        const n = rows[cur.r].length;
+        const n = grid[cur.r].length;
         cur.c = (cur.c + (dir === 'right' ? 1 : n - 1)) % n; // cycle platforms
       } else {
-        const n = rows.length;
+        const n = grid.length;
         let nr = cur.r;
         for (let i = 0; i < n; i++) {
           nr = (nr + (dir === 'down' ? 1 : n - 1)) % n; // same platform (column), wrap rows
-          if (rows[nr]?.[cur.c]) break;
+          if (grid[nr]?.[cur.c]) break;
         }
         cur.r = nr;
       }
       render();
     }
 
-    // Open on click / Enter / Space of a real (non-placeholder) tile.
     for (const fig of figures) {
       const frame = fig.querySelector<HTMLElement>('.frame');
-      if (!frame || !fig.querySelector('img.var-img')) continue;
+      if (!frame) continue;
       frame.setAttribute('role', 'button');
       frame.setAttribute('tabindex', '0');
       frame.setAttribute('aria-label', `Open ${fig.dataset.shot} on ${fig.dataset.os} ${fig.dataset.tk}`);
-      const go = () => open(Number(fig.dataset.suite), Number(fig.dataset.r), Number(fig.dataset.c));
+      const go = () => open(Number(fig.dataset.r), Number(fig.dataset.c));
       frame.addEventListener('click', go);
       frame.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
@@ -444,8 +461,11 @@ function webRoute(shotId: string): string | null {
 <style>
   .gal-hero { padding-block: 56px 8px; }
   .gal-title { font-size: clamp(2rem, 4.6vw, 3rem); margin: 0 0 16px; }
+  .eyebrow a { color: inherit; text-decoration: none; }
+  .eyebrow a:hover { color: var(--brand); }
   .gen { color: var(--faint); font-size: 0.9rem; margin-top: 16px; }
-  .gen.preview { color: var(--sun); }
+  .stale { color: var(--sun); }
+  .gal-links { display: flex; flex-wrap: wrap; gap: 18px; }
 
   /* Secondary toolbar: full-bleed, pinned just under the sticky 62px site header, hovering over the
      rows so theme/language can be switched from anywhere on the page (not only from the hero). */
@@ -479,18 +499,17 @@ function webRoute(shotId: string): string | null {
   }
   .seg button[aria-checked='true'] { background: var(--hover); color: var(--fg, inherit); }
 
-  .suite { padding-block: 16px 28px; }
-  .suite-title { font-size: 1.7rem; margin: 0 0 6px; }
-  .suite-blurb { margin: 0 0 4px; }
-
+  .rows { padding-block: 8px 28px; }
   /* Anchor landings (hero-carousel links, #<shot> URLs) must clear the sticky site header
      (61px) + the pinned theme/language toolbar below it. */
   .row { margin-top: 30px; scroll-margin-top: 132px; }
-  .row-head { display: flex; align-items: baseline; gap: 12px; }
+  .row-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
   .row-title {
     font-size: 0.95rem; font-weight: 700; margin: 0 0 12px;
     text-transform: uppercase; letter-spacing: 0.1em; color: var(--sun);
   }
+  /* The dayscript's own `caption:` for the screen, where it declared one. */
+  .row-cap { flex-basis: 100%; margin: -6px 0 12px; color: var(--muted); font-size: 0.92rem; }
   /* The page-source link: the file the row's screen is rendered from, monospace like a path. */
   .row-src {
     font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -512,18 +531,18 @@ function webRoute(shotId: string): string | null {
   /* Match .container's gutters so the first tile aligns with the heading. */
   .container-pad { padding-inline: max(24px, calc((100vw - 1160px) / 2)); }
 
-  /* Desktop cells are wide (landscape screens read better); every frame is the SAME tall height
-     as the mobile frames, so rows line up across platforms regardless of aspect ratio. Phone shots
-     are ~0.46 aspect and need the height to render the full screen (incl. the home indicator).
-
-     The desktop width is sized so a landscape capture FILLS that shared height instead of sitting
-     short in the middle of it: the widest desktop shots are ~1.53:1 (macOS), and the frame's
-     usable box is 500px less 10px padding and 1px border either side = 478px, so 478 × 1.53 ≈ 732px
-     of image + 22px of chrome ≈ 754px. Narrower captures (GTK's ~0.94:1 About window) become
-     height-limited and simply sit narrower inside the same cell. The `clamp` keeps a phone from
-     scrolling two viewports per tile — it never goes below the previous 460px. */
-  .tile { margin: 0; width: clamp(460px, calc(100vw - 48px), 754px); flex: 0 0 auto; }
-  .tile.mobile { width: 240px; }
+  /* Every frame is the SAME height, so rows line up across platforms regardless of aspect ratio,
+     and each cell is only as wide as its own capture needs to fill that height — `--tile-w`, set
+     per tile from the capture's aspect (see the page above). The bounds: 240px is the phone cell
+     (a ~0.46 capture), 754px the widest desktop one (the frame's usable box is 500px less 10px of
+     padding and a 1px border either side = 478px, and the widest macOS shots are ~1.53:1, so
+     478 × 1.53 ≈ 732px of image + chrome). The `min` keeps a tile from outgrowing a narrow
+     viewport and scrolling two screens sideways per platform. */
+  .tile {
+    margin: 0;
+    width: min(clamp(240px, var(--tile-w, 460px), 754px), calc(100vw - 48px));
+    flex: 0 0 auto;
+  }
   .frame {
     position: relative;
     --frame-h: 500px;
@@ -541,11 +560,10 @@ function webRoute(shotId: string): string | null {
     border-radius: 12px;
     overflow: hidden;
     padding: 10px;
+    cursor: zoom-in;
     transition: border-color 0.15s ease;
   }
-  /* A real (non-placeholder) tile opens the full-size viewer on click. */
-  .frame:has(.var-img) { cursor: zoom-in; }
-  .frame:has(.var-img):hover { border-color: var(--muted); }
+  .frame:hover { border-color: var(--muted); }
   /* `>`, not a descendant match: a shelled screenshot is a child of .sh-dev / .sh-win, and
      shells.css already sizes it AND gives it the corner radius that matches its bezel or window
      (33px inside an iPhone, for one). Astro scopes this rule to `.frame[cid] img[cid]`, which
@@ -562,17 +580,6 @@ function webRoute(shotId: string): string | null {
     border: 1px solid var(--border); border-radius: 999px;
     padding: 2px 8px;
   }
-  .ph {
-    width: 100%; height: 100%;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-    color: var(--faint);
-    border-radius: 8px;
-    background:
-      repeating-linear-gradient(-45deg, var(--hover) 0 12px, transparent 12px 24px),
-      radial-gradient(closest-side at 50% 40%, rgba(106,164,255,0.08), transparent);
-  }
-  .ph-mark { font-size: 1.7rem; opacity: 0.7; }
-  .ph-txt { font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
   figcaption {
     margin-top: 8px; font-size: 0.82rem; text-align: center;
     display: flex; flex-direction: column; gap: 1px;

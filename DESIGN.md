@@ -2419,6 +2419,11 @@ one exists, and untitled captures stay machine-readable in the index. `day lint`
 cross-references each title/caption map's locale keys against the app's translation locales
 (missing = that page silently falls back to English; unknown = usually a typo).
 
+The index is the interface daybrite.dev's own gallery reads ([§20](#20-continuous-integration),
+step 6): it fetches one per sample app and renders `/gallery/<App>/` from it, linking the images
+where the app hosts them. A `title:` therefore names a row on two sites, and a capture published
+by an app appears on daybrite.dev without a change in this repository.
+
 ---
 
 ## §15 Extensibility: pieces, parts, and tweaks
@@ -3649,11 +3654,11 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 > [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
-> carries the whole pipeline, plus `checkup.yml` (scheduled end-user install checks — one
+> carries the whole build pipeline, plus `checkup.yml` (scheduled end-user install checks — one
 > `day checkup -p <combo> --day-version <v> --strict` per cell of an 11-combo × 2-version matrix,
 > `main` and `latest`, [§16.5](#165-subcommands); it was `install.yml` until 2026-08, when the
-> doctor/new/build steps moved into the CLI and packaging and the version axis joined them) in
-> this repo.
+> doctor/new/build steps moved into the CLI and packaging and the version axis joined them) and
+> `website.yml` (2026-09, step 6 below) in this repo.
 > External Day apps are served by the **`daybrite/actions`** companion repo: one reusable
 > `build-day-app.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
 > tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)
@@ -3733,6 +3738,25 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    ([§20.2](#202-release-signing-isolation), [docs/store.md](docs/store.md)). The website's `/showcase/` page
    therefore links the release assets of `daybrite/Day-Showcase` over the API
    (`website/scripts/assemble-downloads.mjs`) rather than serving anything this run built.
+
+6. **The website is its own workflow** (`website.yml`, 2026-09) — daybrite.dev builds and deploys
+   independently of everything above. It was the last two jobs of `ci.yml`, gated on nine platform
+   legs so it could download their `screenshots-<combo>` artifacts; a docs typo cost an hour behind
+   an Android emulator. The gallery is now assembled from the machine-readable index each Day app's
+   OWN site publishes at `<host>/gallery/gallery.json` (`day screenshot index`, [§14.7](#147-screenshot-metadata-and-the-gallery-index)),
+   which carries every capture's absolute URL, shot id, localized title and caption, source path,
+   platform-toolkit, device, theme, locale and pixel size. daybrite.dev links those hosted images:
+   one copy of the bytes, owned by the app that captured them, and `/gallery/<App>/` for each of
+   Day-Showcase, Day-Rise, Day-Skies, Day-Tradr, Day-News and Day-Sketch under a hub at `/gallery/`.
+   Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
+   languages come from its index, so a newly captured screen appears with no change here. An
+   unreachable app site falls back to the cached copy of its last index and says so on the page.
+   Triggers: pushes touching `website/` or `docs/`, a daily schedule, `workflow_dispatch`, and a
+   `gallery-published` `repository_dispatch` an app's CI can send. It builds its own rustdoc bundle
+   into `dist/api` — Pages deploys one artifact, so the workflow that deploys assembles all of it;
+   `ci.yml`'s `api-docs` job stays as the does-rustdoc-still-build check on crate changes. The
+   `screenshots-<combo>` artifacts the platform legs upload stay too, as each run's evidence of what
+   its walkthrough rendered.
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation

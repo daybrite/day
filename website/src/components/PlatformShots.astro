@@ -3,38 +3,41 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 // A small strip of Showcase captures for one platform-toolkit page, linked into the gallery.
 //
-// It reads the SAME `gallery-manifest.json` the gallery page does (assembled from CI screenshot
-// artifacts by integrations/gallery.mjs), and renders only shots that were actually captured for
-// this platform: a missing artifact yields nothing rather than a broken image. That keeps these
-// pages accurate on a local build, where usually only a few platforms have artifacts on disk.
+// It reads the SAME `gallery-manifest.json` the gallery pages do (the published indexes, fetched
+// by integrations/gallery.mjs), and renders only shots the app actually captured for this
+// platform: a screen it has no capture of yields nothing rather than a broken image. That keeps
+// these pages accurate on a build where an app's site was unreachable.
 import manifest from '../data/gallery-manifest.json';
 import { url } from '../lib/site';
 
 interface Props {
-  /** Platform id, e.g. `linux-gtk` — must match gallery.config.mjs. */
+  /** Platform id, e.g. `linux-gtk` — a gallery column id (src/lib/platforms.mjs). */
   platform: string;
-  /** Curated shot ids, in display order (see the `shots` list in gallery.config.mjs). */
+  /** Shot ids, in display order (the ids the Showcase's dayscript captures under). */
   shots: string[];
-  /** Preferred variant; falls back to whatever was captured. */
+  /** Preferred theme; falls back to whatever was captured. */
   variant?: string;
 }
 
 const { platform, shots, variant = 'light' } = Astro.props;
 
-const suite = manifest.suites.find((s) => s.id === 'showcase');
+// The Showcase is the app these platform pages document.
+const app = manifest.apps.find((a) => a.id === 'Day-Showcase');
+const preferred = [`${variant}|en`, `${variant}|default`, `default|en`];
 
 type Tile = { shot: string; label: string; src: string; width?: number; height?: number };
 
 const tiles: Tile[] = [];
 for (const id of shots) {
-  const shot = suite?.shots.find((s) => s.id === id);
-  const tile = shot?.byPlatform.find((t) => t.platform === platform);
-  if (!shot || !tile || tile.placeholder) continue;
-  const variants = (tile.variants ?? {}) as Record<
+  const shot = app?.shots.find((s) => s.id === id);
+  const tile = shot?.byColumn.find((t) => t.column === platform);
+  if (!shot || !tile) continue;
+  const captures = tile.captures as Record<
     string,
     { src: string; width?: number; height?: number }
   >;
-  const img = variants[variant] ?? Object.values(variants)[0];
+  const img =
+    preferred.map((k) => captures[k]).find(Boolean) ?? Object.values(captures)[0];
   if (!img) continue;
   tiles.push({ shot: id, label: shot.label, src: img.src, width: img.width, height: img.height });
 }
@@ -43,8 +46,8 @@ for (const id of shots) {
 {tiles.length > 0 && (
   <div class="shots" data-pagefind-ignore>
     {tiles.map((t) => (
-      <a class="shot" href={url(`gallery#${t.shot}`)} title={`${t.label} — see every platform in the gallery`}>
-        <img src={url(t.src)} alt={`${t.label}, captured on ${platform}`} width={t.width} height={t.height} loading="lazy" decoding="async" />
+      <a class="shot" href={url(`gallery/Day-Showcase#${t.shot}`)} title={`${t.label} — see every platform in the gallery`}>
+        <img src={t.src} alt={`${t.label}, captured on ${platform}`} width={t.width} height={t.height} loading="lazy" decoding="async" />
         <span>{t.label}</span>
       </a>
     ))}

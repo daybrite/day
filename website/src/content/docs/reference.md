@@ -54,6 +54,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [accessibility](/docs/internal/accessibility) | roles, per-backend attribute mapping, the audit |
 | [lifecycle](/docs/internal/lifecycle) | app phases and their per-platform availability |
 | [async](/docs/internal/async) | tasks, resources, and the runtime rules |
+| [state](/docs/internal/state) | where state lives: per-window and app-wide Ambient values, the focused-window rule |
 | [model](/docs/internal/model) | the per-property observable store and the Observable derive |
 | [persistence](/docs/internal/persistence) | SQLite storage for the model: ModelContainer, the Model derive, migrations |
 | [resources](/docs/internal/resources) | asset packaging and the zero-copy runtime path |

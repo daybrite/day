@@ -15,6 +15,9 @@ interface Props {
   title?: string;
   /** Start in the dark palette. Callers that swap captures at runtime toggle `data-dark`. */
   dark?: boolean;
+  /** The site shown in the browser shell's address bar (ignored by the others). Defaults to this
+   *  site; a gallery tile passes the app's own host, which is where the capture came from. */
+  host?: string;
   /** Intrinsic pixel size of the capture being wrapped. Given both, a window shell sizes itself
    *  to the screenshot exactly (see `--ar` in shells.css) instead of letting the title bar span
    *  a frame the letterboxed capture does not fill. */
@@ -22,7 +25,8 @@ interface Props {
   h?: number;
 }
 
-const { platform, title = 'Day Showcase', dark = false, w, h } = Astro.props;
+const { platform, title = 'Day Showcase', host, dark = false, w, h } = Astro.props;
+const address = (host ?? 'https://daybrite.dev').replace(/^https?:\/\//, '').replace(/\/$/, '');
 const ratio = w && h ? w / h : undefined;
 const chrome = chromeOf(platform);
 const bezel = chrome ? undefined : bezelOf(platform);
@@ -68,7 +72,7 @@ const bezel = chrome ? undefined : bezelOf(platform);
       {chrome === 'browser' && (
         <>
           <span class="sh-dots plain"><i /><i /><i /></span>
-          <span class="sh-url">daybrite.dev</span>
+          <span class="sh-url">{address}</span>
           <span class="sh-eq" />
         </>
       )}

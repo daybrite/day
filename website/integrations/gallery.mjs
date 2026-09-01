@@ -4,8 +4,8 @@
 // Astro integration: assemble the screenshots gallery before Astro reads any modules.
 //
 // Running in `astro:config:setup` (the earliest hook, fired for both `dev` and `build`) guarantees
-// `src/data/gallery-manifest.json` and `public/gallery/**` exist before the gallery page imports
-// them. On CI the images come from downloaded artifacts; locally they are placeholders.
+// `src/data/gallery-manifest.json` exists before the gallery pages import it. The images come from
+// the index each Day app's own site publishes, so this needs the network (or a warm `.cache/`).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { assembleGallery } from '../scripts/assemble-gallery.mjs';
@@ -47,19 +47,18 @@ export default function gallery() {
     hooks: {
       'astro:config:setup': async ({ logger }) => {
         if (assembleReferenceIndex()) logger.info('regenerated reference.md internal-docs tables');
-        const { hasArtifacts, unreadable, hidden } = await assembleGallery({ quiet: true });
+        const { apps, captures, dropped, stale } = await assembleGallery({ quiet: true });
         logger.info(
-          hasArtifacts
-            ? 'assembled screenshots gallery (published indexes and/or CI artifacts)'
-            : 'no published index or screenshot artifacts — gallery uses placeholders (expected offline)',
+          apps > 0
+            ? `indexed ${captures} published screenshot(s) across ${apps} app(s)`
+            : 'no app index could be read — the gallery is empty (expected offline)',
         );
-        // A capture that isn't a decodable PNG is dropped rather than shipped as a broken tile —
-        // say so, or a failed screenshot step downstream looks like a shot nobody ever captured.
-        for (const file of unreadable) logger.warn(`dropped unreadable capture: ${file}`);
-        // A whole column with no captures is hidden rather than filled with placeholders. On CI
-        // that means a walkthrough job delivered nothing, which the build log has to say — a
-        // quietly narrower gallery reads as a design decision instead of a broken leg.
-        if (hidden.length) logger.warn(`hidden gallery column(s), no captures: ${hidden.join(', ')}`);
+        // An app left out is a site that could not be reached and has never been cached here. Say
+        // so: a gallery that is quietly one app short reads as a curation decision.
+        if (dropped.length) logger.warn(`app(s) left out of the gallery: ${dropped.join(', ')}`);
+        // A cached index may be months old. The page says so too, but the build log is where a
+        // publishing pipeline that stopped running gets noticed.
+        if (stale.length) logger.warn(`app(s) shown from a cached index: ${stale.join(', ')}`);
         // Build the front-page hero carousel pool from the just-assembled gallery (falling back to
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
         const { count } = await assembleHeroShots({ quiet: true });

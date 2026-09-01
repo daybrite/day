@@ -9,12 +9,9 @@
 // or a placeholder). Verification uses `sharp`'s per-channel standard deviation: a blank or
 // single-color image has ~0 stdev, real UI has plenty.
 //
-// Sources, in order of preference per (platform, shot):
-//   1. `public/gallery/<suite>/<platform>/<variant>/<shot>.png` — the real CI artifacts, already
-//      assembled by scripts/assemble-gallery.mjs (so production/CI needs no network).
-//   2. `https://daybrite.dev/gallery/<suite>/<platform>/<variant>/<shot>.png` — the live gallery,
-//      downloaded when local artifacts are placeholders (local dev previews get real images "to
-//      build the page").
+// The images come from the assembled gallery manifest — the URLs the Showcase's own site
+// publishes (scripts/assemble-gallery.mjs) — downloaded once and cached under `public/hero/`, so
+// a rebuild with an unchanged pool costs nothing.
 //
 // Each admitted shot is the LIGHT capture; when the matching `dark` capture exists (and passes the
 // same non-blank check plus a predominantly-dark check — see `isDark`) it is emitted alongside so
@@ -37,10 +34,10 @@ import galleryConfig from '../gallery.config.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const WEBSITE_ROOT = resolve(HERE, '..');
-const LIVE_ORIGIN = 'https://daybrite.dev';
 
-// The suite whose screenshots feed the hero (the one real sample app).
-const SUITE_ID = galleryConfig.suites[0]?.id ?? 'showcase';
+// The app whose screenshots feed the hero: the Showcase, which is the one that covers every
+// piece on every target. The carousel links each slide into that app's gallery page.
+const APP_ID = 'Day-Showcase';
 
 // The carousel shows only the "primary" target per OS — one canonical native toolkit each (plus
 // the web) — not the secondary/cross ports (macos-qt, macos-gtk, windows-gtk, windows-qt) that
@@ -56,8 +53,8 @@ const PRIMARY_PLATFORMS = [
 ];
 // Signature baked into the manifest so the fast-path rebuilds when the primary set changes.
 // The marker is the manifest format — bump it when the output shape, the caption/accent fields,
-// or the shot pool change so stale caches rebuild (v6: per-shot pixel dimensions).
-const PRIMARY_KEY = ['v6', ...PRIMARY_PLATFORMS].join(',');
+// or the shot pool change so stale caches rebuild (v7: sourced from the app's published index).
+const PRIMARY_KEY = ['v7', ...PRIMARY_PLATFORMS].join(',');
 
 // Carousel caption names — shorter than the gallery's toolkit strings, anchored to the desktop
 // each toolkit is known by. Platforms not listed keep their gallery toolkit string.
@@ -108,9 +105,8 @@ async function isDark(buf) {
   }
 }
 
-/** The gallery manifest assemble-gallery.mjs just wrote — the authoritative map of every
- *  tile's image, whether that is a local `public/` path (artifact mode) or another site's
- *  published URL (a suite with a `metadata` index). Loaded lazily, absent on a cold tree. */
+/** The gallery manifest assemble-gallery.mjs just wrote — the authoritative map of every tile's
+ *  image URL on the app's own site. Loaded lazily, absent on a cold tree. */
 let manifestCache;
 function manifestTile(platformId, shot) {
   if (manifestCache === undefined) {
@@ -122,50 +118,26 @@ function manifestTile(platformId, shot) {
       manifestCache = null;
     }
   }
-  const suite = manifestCache?.suites?.find((s) => s.id === SUITE_ID);
-  return suite?.shots
+  const app = manifestCache?.apps?.find((a) => a.id === APP_ID);
+  return app?.shots
     ?.find((s) => s.id === shot)
-    ?.byPlatform?.find((t) => t.platform === platformId);
+    ?.byColumn?.find((t) => t.column === platformId);
 }
 
-/** Fetch a (platform, shot, theme) PNG. The assembled manifest names the exact image for the
- *  variant — a local `public/` file or a hosted URL — and the older probes (locally-assembled
- *  artifact paths, then the live gallery) remain behind it for a cold or pre-manifest tree.
- *  Only light keeps the pre-variant flat path as a live-fallback (those captures were light —
- *  a flat file must never be passed off as dark). */
+/** Fetch a (platform, shot, theme) PNG from the app's published gallery. English, because the
+ *  carousel's captions are. Returns null when the app captured no such combination. */
 async function obtain(platformId, shot, theme) {
-  const src = manifestTile(platformId, shot)?.variants?.[theme]?.src;
-  if (src) {
-    if (/^https?:\/\//.test(src)) {
-      try {
-        const res = await fetch(src);
-        if (res.ok) return Buffer.from(await res.arrayBuffer());
-      } catch {
-        // fall through to the probes below
-      }
-    } else {
-      const local = join(WEBSITE_ROOT, 'public', src);
-      if (existsSync(local)) return readFileSync(local);
-    }
-  }
-  const rels =
-    theme === 'dark'
-      ? [`gallery/${SUITE_ID}/${platformId}/dark/${shot}.png`]
-      : [
-          `gallery/${SUITE_ID}/${platformId}/light/${shot}.png`,
-          `gallery/${SUITE_ID}/${platformId}/${shot}.png`, // pre-variant layout (live fallback)
-        ];
-  for (const rel of rels) {
-    const local = join(WEBSITE_ROOT, 'public', rel);
-    if (existsSync(local)) return readFileSync(local);
-  }
-  for (const rel of rels) {
-    try {
-      const res = await fetch(`${LIVE_ORIGIN}/${rel}`);
-      if (res.ok) return Buffer.from(await res.arrayBuffer());
-    } catch {
-      // try the next form
-    }
+  const captures = manifestTile(platformId, shot)?.captures;
+  // Never a different THEME than the one asked for: a light capture served as `dark` would put a
+  // blazing white slide in a dark hero. The locale may fall back — the UI language of a slide is
+  // not what the caption promises.
+  const src = captures?.[`${theme}|en`] ?? captures?.[`${theme}|default`];
+  if (!src) return null;
+  try {
+    const res = await fetch(src.src, { signal: AbortSignal.timeout(30_000) });
+    if (res.ok) return Buffer.from(await res.arrayBuffer());
+  } catch {
+    // An unreachable image simply drops out of the pool.
   }
   return null;
 }
@@ -252,7 +224,8 @@ export async function assembleHeroShots(opts = {}) {
         src: `hero/${file}`,
         width: light.width,
         height: light.height,
-        // The gallery shot id — the carousel links each image to its row anchor (`/gallery#<shot>`).
+        // The gallery shot id — the carousel links each image to its row anchor
+        // (`/gallery/Day-Showcase#<shot>`).
         shot,
         os: platform.os,
         toolkit,

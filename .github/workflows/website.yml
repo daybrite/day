@@ -1,0 +1,122 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+#
+# daybrite.dev (DESIGN.md §20.1) — the website builds and deploys on its own, independent of the
+# framework's build matrix.
+#
+# It used to be the last two jobs of ci.yml, gated on nine platform legs finishing so it could
+# collect their screenshot artifacts. It no longer needs them: the gallery is assembled from the
+# machine-readable index each Day app's own site publishes at `<host>/gallery/gallery.json`
+# (website/gallery.config.mjs), so the images come from the apps that captured them and this
+# workflow depends on no other repository's CI. A docs typo is now a two-minute deploy instead of
+# an hour behind an Android emulator.
+#
+# Triggers:
+#   · pushes touching website/ or docs/ — the content this site is built from
+#   · a daily schedule — picks up screenshots the app repos published since the last run
+#   · workflow_dispatch — force a rebuild after an app republishes
+#   · repository_dispatch `gallery-published` — an app's CI can POST here and refresh daybrite.dev
+#     the moment its own gallery goes live:
+#       gh api repos/daybrite/day/dispatches -f event_type=gallery-published
+
+name: website
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "docs/**"
+      - ".github/workflows/website.yml"
+  pull_request:
+    paths:
+      - "website/**"
+      - "docs/**"
+      - ".github/workflows/website.yml"
+  schedule:
+    # 06:00 UTC daily. The apps' own pipelines run on pushes to their repositories, so this is
+    # what carries a newly published screenshot set onto daybrite.dev without anyone asking.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [gallery-published]
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one in flight: a half-uploaded Pages artifact is worse
+# than a stale page. Queued runs collapse to the newest, which is the one worth publishing.
+concurrency:
+  group: website
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: website (build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check every internal doc is published
+        # The same script scripts/ci/lint.sh runs, so this drift is caught in the pre-flight on
+        # the machine that caused it rather than ten minutes later here. `--fix` repairs it.
+        run: scripts/ci/docs-symlinks.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Shared with nothing else: this workflow only ever runs `cargo doc`, and a cache keyed
+          # with the build matrix's would evict on every framework change for no benefit.
+          shared-key: website-rustdoc
+
+      - name: Build the Rust API reference (dist/api)
+        # /docs/api bridges into this bundle. Built here rather than handed over from ci.yml:
+        # GitHub Pages deploys ONE artifact, so the workflow that deploys has to assemble all of
+        # it. Every crate documents portably (headless `mock` backend, no toolkit, no
+        # cross-compiler), which is what lets a stock Linux runner do it.
+        run: scripts/build-api-docs.sh --out website/dist/api
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Build the site (indexes each app's published screenshots)
+        working-directory: website
+        env:
+          # Raises the API rate limit for the /showcase/ release lookup above the shared-IP
+          # anonymous one.
+          GITHUB_TOKEN: ${{ github.token }}
+          # /showcase/ offers the app's own releases: it is its own repository, and only that
+          # release lane's macOS build is signed and notarized.
+          DAY_RELEASE_REPO: daybrite/Day-Showcase
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check for broken links
+        working-directory: website
+        run: npm run linkcheck
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/dist
+
+  deploy:
+    name: website (deploy)
+    needs: build
+    # Pull requests build and linkcheck; only main and the scheduled/dispatched runs publish.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v5

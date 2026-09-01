@@ -5,8 +5,16 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { platformsById } from '../lib/platforms.mjs';
 import { site, url } from '../lib/site';
 import manifest from '../data/downloads.json';
+import gallery from '../data/gallery-manifest.json';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import CopyCommand from '../components/CopyCommand.astro';
+
+// The showcase's own gallery page, when this build could read its index — the hub otherwise, so
+// one app's site being unreachable costs a deep link rather than failing the whole build's
+// link check.
+const galleryHref = gallery.apps.some((a) => a.id === 'Day-Showcase')
+  ? url('gallery/Day-Showcase')
+  : url('gallery');
 
 // The Day Showcase, packaged for every primary platform by `day pack` and attached to the latest
 // GitHub release — the release lane is where the macOS build gets signed and notarized, so these
@@ -91,7 +99,7 @@ function richInstall(text: string): (string | { code: string })[] {
   <section class="section dl-hero">
     <div class="container">
       <p class="eyebrow">Showcase downloads</p>
-      <h1 class="dl-title">The same app the <a href={url('gallery')}>gallery</a> shows, <span class="accent-text">installed on your machine</span>.</h1>
+      <h1 class="dl-title">The same app the <a href={galleryHref}>gallery</a> shows, <span class="accent-text">installed on your machine</span>.</h1>
       <p class="lead">
         Every package below comes from one Rust codebase, packaged with <code>day pack</code> for
         each platform's native format and driven end to end by CI. The macOS build is signed and

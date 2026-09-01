@@ -20,25 +20,26 @@ scripts/website.sh preview  # build, then serve the production output
 
 Or directly with npm inside `website/`: `npm install`, then `npm run dev` / `npm run build`.
 
-> The gallery's screenshots are produced by CI, not locally. Local builds automatically show
-> placeholder tiles — no artifacts required.
+> The gallery's screenshots come from the apps' own websites, fetched at build time. The first
+> build needs the network; after that a cached copy of each index under `.cache/` keeps working
+> offline.
 
 ## Structure
 
 ```text
 website/
 ├── astro.config.mjs        # site + base (/day) + the gallery integration
-├── gallery.config.mjs      # ← the extensibility surface: suites (apps), platforms, curated shots
+├── gallery.config.mjs      # ← the extensibility surface: which Day apps the gallery indexes
 ├── integrations/gallery.mjs# runs the assembly before every dev/build
-├── scripts/assemble-gallery.mjs  # CI artifacts → public/gallery + src/data/gallery-manifest.json
+├── scripts/assemble-gallery.mjs  # the apps' published gallery.json → src/data/gallery-manifest.json
 ├── src/
-│   ├── components/         # Logo, Nav, Footer, CodeSample, ShotTile
+│   ├── components/         # Logo, Nav, Footer, CodeSample, DeviceShell, PlatformShots
 │   ├── content/docs/       # documentation (markdown content collection)
 │   ├── content.config.ts   # docs collection schema
 │   ├── layouts/            # BaseLayout, DocsLayout
-│   ├── pages/              # index (landing), gallery, docs/[...slug]
+│   ├── pages/              # index (landing), gallery/ (hub + one page per app), docs/[...slug]
 │   └── lib/site.ts         # site metadata + base-path URL helper
-└── public/                 # favicon; public/gallery is generated
+└── public/                 # favicon and static assets
 ```
 
 ## Support-tier badges
@@ -98,21 +99,36 @@ clears it. A plain `npm run build` after a plugin edit will happily serve the ol
 
 ## The gallery
 
-The gallery is assembled from CI screenshot artifacts by an Astro integration
-(`integrations/gallery.mjs`), which runs `scripts/assemble-gallery.mjs` before every build:
+`/gallery/` indexes every Day sample app; `/gallery/<App>/` is one app's screenshots, every
+platform side by side. The images are **hosted by the apps themselves** — this site links them.
 
-1. Each CI job uploads `screenshots-<platform>` (see the repo's `.github/workflows/ci.yml`).
-2. The website job downloads all of them into `website/artifacts/` and runs the build.
-3. The assembly copies each platform's curated shots into `public/gallery/…` and writes
-   `src/data/gallery-manifest.json`; `src/pages/gallery.astro` renders it.
-4. Locally (no artifacts) every shot becomes a placeholder tile.
+Each app's CI runs its dayscript walkthrough on every target it builds for, once per theme and
+language, and its website publishes both the images and `day screenshot index`'s machine-readable
+index of them at `<host>/gallery/gallery.json`. Before every build here, an Astro integration
+(`integrations/gallery.mjs`) runs `scripts/assemble-gallery.mjs`, which fetches those indexes and
+writes `src/data/gallery-manifest.json` for the pages to render.
 
-**To add a sample app or a component-snapshot set:** add an entry to `suites` in
-`gallery.config.mjs` (its `artifactPattern`, curated `shots`, and platforms). No other code
-changes are required — the assembly and the gallery page are data-driven.
+The index describes itself, so a row's heading, its caption, the source file it links, the columns,
+the themes and the languages all come from the app — an app that captures a new screen shows it
+here on the next build, with no change in this repository.
+
+**To add an app:** add an entry to `apps` in `gallery.config.mjs` with its label, blurb, repository
+and index URL. The optional `order` / `labels` / `hide` keys are there for an app whose dayscript
+carries thin metadata; a shot with no `title:` falls back to a label derived from its id. (The
+better fix for a missing heading is a `title:` on that `screenshot:` step in the app's own
+dayscript, which improves the app's own gallery too.)
+
+An app whose site cannot be reached falls back to `.cache/gallery/<app>.json`, the last index that
+fetched, and its page says so. With no cache either, the app is left out and the build log names
+it. A build where nothing resolves still succeeds with an empty gallery, so a checkout with no
+network can still render the pages.
 
 ## Deployment
 
-The `website` job in the repo's CI workflow builds this site **after** every platform has uploaded
-its screenshots and deploys `website/dist` to GitHub Pages. Enable Pages with **Build and
-deployment → Source → GitHub Actions** in the repository settings.
+`.github/workflows/website.yml` builds this site and deploys `website/dist` to GitHub Pages. It
+runs on pushes touching `website/` or `docs/`, daily on a schedule (to pick up screenshots the
+apps published since the last run), on `workflow_dispatch`, and on a `gallery-published`
+`repository_dispatch` an app's CI can send. It builds its own copy of the rustdoc bundle into
+`dist/api`, because Pages deploys one artifact and this is the workflow that deploys.
+
+Enable Pages with **Build and deployment → Source → GitHub Actions** in the repository settings.

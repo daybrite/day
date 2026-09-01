@@ -52,8 +52,9 @@ env:
   HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
   # The walkthrough capture matrix — themes × locales, space-separated (the shell word-splits
   # them). ONE place to grow: every screenshot leg (macOS, iOS, Linux, Android, HarmonyOS,
-  # Windows, web-dom) loops over these; the gallery variant ids in website/gallery.config.mjs
-  # (`<theme>` / `<theme>-<locale>`) must list any addition too.
+  # Windows, web-dom) loops over these. Nothing downstream lists them a second time — the
+  # showcase's published gallery index carries each capture's own theme and locale, and
+  # daybrite.dev builds its selectors from that.
   WALKTHROUGH_THEMES: light dark
   WALKTHROUGH_LOCALES: en fr ar zh-CN
   # Which ref of daybrite/Day-Showcase every job builds (.github/actions/showcase). Resolved here
@@ -820,8 +821,9 @@ jobs:
       # No iPad leg (2026-08). It was the same walkthrough on a booted iPad, and it had stopped
       # earning its ~19 minutes a run: the gallery dropped its column because the leg was
       # delivering no screenshots to put in it. Bring a tablet back as its own parallel job rather
-      # than as extra minutes on the phone job, and re-add `ios-uikit-ipad` to
-      # website/gallery.config.mjs's `platforms` when it carries shots again.
+      # than as extra minutes on the phone job. Nothing else needs editing when it returns — a
+      # `--device ipad` capture rides the showcase's published index, and daybrite.dev grows the
+      # `ios-uikit-ipad` column from it.
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
       # the secrets these no-op and pack produces the unsigned device .ipa (dev tier, §20).
       - name: Import the distribution certificate
@@ -956,7 +958,7 @@ jobs:
               ;;
             gtk)
               # Pinned to a commit rather than `master`: with no releases to track, an unpinned
-              # branch is a third party editing this job's behaviour without a pull request.
+              # branch is a third party editing this job's behavior without a pull request.
               PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-gtk.sh"
               curl -fsSL --retry 3 -o "$PLUGIN" \
                 "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh"
@@ -1195,7 +1197,8 @@ jobs:
       # hung pixel_tablet emulator is what left this job sitting until the six-hour timeout — `day
       # launch` now gives up on a device that stopped answering, but the cheapest fix is not to
       # boot a second emulator for nothing. Same restoration path as iOS: its own parallel job,
-      # and `android-mdc-tablet` back in website/gallery.config.mjs's `platforms`.
+      # whose `--device tablet` captures give daybrite.dev its `android-mdc-tablet` column
+      # straight from the published index.
       - name: Upload screenshots
         if: ${{ always() && !startsWith(github.ref, 'refs/tags/') }} # tag runs skip the walkthroughs
         uses: actions/upload-artifact@v7
@@ -1217,7 +1220,7 @@ jobs:
     # /dev/kvm) instead of TCG software emulation — the boot + 8-variant walkthrough was ~25 min
     # under TCG on macOS. `day ohos emulator launch` auto-selects `-accel kvm` when /dev/kvm
     # exists (else TCG). The job is marked experimental so a HarmonyOS regression — or an emulator
-    # that still won't boot under KVM — never blocks the website/release jobs that `need` it.
+    # that still won't boot under KVM — never blocks the release jobs that `need` it.
     #
     # (History: this ran on macos-14 because under pure TCG only fast Apple-Silicon cores booted
     # the guest reliably — ubuntu-under-TCG never rendered the first-boot keyguard. KVM removes the
@@ -1722,17 +1725,19 @@ jobs:
           command: check advisories bans
 
   # ---------------------------------------------------------------------------
-  # api-docs: generate the Rust API reference (rustdoc) for the public-facing Day crates and share it
-  # as an artifact the website job drops into dist/api (linked from /docs/api). The build is PORTABLE —
-  # the core crates need no features and the `day` umbrella uses its headless `mock` backend — so no
-  # native toolkit is installed and it runs on a stock runner. Crate list + `cargo doc` invocations
-  # live in scripts/build-api-docs.sh, driven by website/src/data/api-crates.json (same file the bridge
-  # page reads). Runs in parallel with the platform jobs; a failure degrades gracefully (the website
-  # still deploys — the API pages 404 until the next green run) rather than blocking the site.
+  # api-docs: generate the Rust API reference (rustdoc) for the public-facing Day crates. This is the
+  # DOES-RUSTDOC-STILL-BUILD check on every change to the crates — a broken doc link or an intra-doc
+  # path that stopped resolving fails here, on the change that caused it. The published bundle is
+  # built again by website.yml, which is the workflow that deploys (Pages takes one artifact), and
+  # that workflow does not run on a crates-only change. The build is PORTABLE — the core crates need
+  # no features and the `day` umbrella uses its headless `mock` backend — so no native toolkit is
+  # installed and it runs on a stock runner. Crate list + `cargo doc` invocations live in
+  # scripts/build-api-docs.sh, driven by website/src/data/api-crates.json (the same file /docs/api
+  # reads).
   # ---------------------------------------------------------------------------
   api-docs:
     name: rustdoc
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # a validation leg; the tag lane skips it
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -1740,12 +1745,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Generate rustdoc for the public crates
         run: scripts/build-api-docs.sh
-      - name: Upload the API reference
-        uses: actions/upload-artifact@v7
-        with:
-          name: api-docs
-          path: target/doc
-          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # web-dom: build the showcase for the web-dom backend (docs/web.md) — a wasm32 cdylib plus
@@ -1761,7 +1760,7 @@ jobs:
   # ---------------------------------------------------------------------------
   web-dom:
     name: day-web-dom
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # feeds the website, which tag pushes skip
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # a walkthrough leg; the tag lane skips it
     needs: [day-cli-linux]
     runs-on: ubuntu-24.04
     steps:
@@ -1882,86 +1881,9 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
-  # website: build the Astro site (website/) and deploy it to GitHub Pages at the custom
-  # domain https://daybrite.dev (public/CNAME pins it). Runs AFTER every screenshot-producing job so
-  # it can download their `screenshots-<combo>` artifacts and assemble the gallery
-  # from the latest captures. `!cancelled()` (not `success()`) means a platform
-  # that failed to produce screenshots does not block the deploy — the gallery
-  # simply shows whatever platforms succeeded (the assembly emits placeholders for
-  # the rest). Builds on every push/PR (validation); a separate job deploys only
-  # from main so PRs never publish. Enable Pages via Settings → Pages → Source:
-  # "GitHub Actions".
+  # The website is NOT built here. daybrite.dev has its own workflow (website.yml): the gallery is
+  # assembled from the index each Day app site publishes at `<host>/gallery/gallery.json`, so the
+  # site no longer waits on this matrix for screenshot artifacts, and a docs change deploys in
+  # minutes instead of behind an Android emulator. The `screenshots-<combo>` artifacts uploaded
+  # above stay: they are this run's evidence of what each walkthrough actually rendered.
   # ---------------------------------------------------------------------------
-  website:
-    name: website (build)
-    needs: [macos, ios-uikit, linux, android-mdc, harmony-arkui, windows-xaml, windows-msys2, api-docs, web-dom]
-    # Runs even when some platform legs fail (!cancelled), but not on tag pushes (those run
-    # the release pipeline instead).
-    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - name: Check every internal doc is published
-        # The same script scripts/ci/lint.sh runs, so this drift is caught in the pre-flight on
-        # the machine that caused it rather than ten minutes later here. `--fix` repairs it.
-        run: scripts/ci/docs-symlinks.sh
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: website/package-lock.json
-      - name: Download every platform's screenshots
-        # Each screenshot job uploads `screenshots-<combo>`; grab them all into
-        # website/artifacts/screenshots-<combo>/… where the assembly expects them.
-        # continue-on-error: a run where no platform produced screenshots still deploys.
-        uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          pattern: screenshots-*
-          path: website/artifacts
-      # No `showcase-dist-*` download: /showcase/ links the packages attached to the latest RELEASE
-      # of daybrite/Day-Showcase, not this run's. Only that release lane's macOS build is signed and
-      # notarized, and an unsigned .dmg is the one download here that macOS refuses to open.
-      # scripts/assemble-downloads.mjs reads that release over the API (DAY_RELEASE_REPO below).
-      - name: Build the site (assembles the gallery from the artifacts)
-        working-directory: website
-        env:
-          # Raises the API rate limit for the release lookup above the shared-IP anonymous one.
-          GITHUB_TOKEN: ${{ github.token }}
-          # /showcase/ offers the app's own releases now that it is its own repository.
-          DAY_RELEASE_REPO: daybrite/Day-Showcase
-        run: |
-          npm ci
-          npm run build
-      - name: Add the Rust API reference (dist/api)
-        # Drop the api-docs job's rustdoc bundle into the built site at /api (linked from /docs/api).
-        # continue-on-error: a run where the doc build failed still deploys — the API pages 404 until
-        # the next green run rather than blocking the whole site (matches the gallery's resilience).
-        uses: actions/download-artifact@v8
-        continue-on-error: true
-        with:
-          name: api-docs
-          path: website/dist/api
-      - name: Check for broken links
-        working-directory: website
-        run: npm run linkcheck
-      - name: Upload the Pages artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          path: website/dist
-
-  deploy-website:
-    name: website (deploy)
-    needs: website
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deploy
-        uses: actions/deploy-pages@v5

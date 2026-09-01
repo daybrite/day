@@ -173,7 +173,11 @@ function assembleApp(app, index, stale) {
     repo: app.repo,
     site: app.site ?? index.site ?? null,
     web: app.web ?? null,
-    webRoutes: app.webRoutes ?? null,
+    // Flattened to one shot→fragment map for the page: the shots whose id is their own route,
+    // then the explicit map (which may override one, or `null` it out as unreachable).
+    webRoutes: app.web
+      ? { ...Object.fromEntries((app.webShots ?? []).map((s) => [s, s])), ...(app.webRoutes ?? {}) }
+      : null,
     // When the app's site went unreachable this build, the page says so rather than presenting a
     // possibly-months-old set as current.
     stale,
@@ -193,13 +197,13 @@ function assembleApp(app, index, stale) {
     counts: { shots: shots.length, captures, columns: columns.length },
     // The hub's card carousel: a diagonal through the grid, so consecutive slides differ in BOTH
     // the screen and the platform rather than showing one screen twelve ways.
-    cover: coverOf(shots, columns, themes, locales),
+    cover: coverOf(shots, themes, locales),
     shots,
   };
 }
 
 /** Up to six representative captures for the app's hub card. */
-function coverOf(shots, columns, themes, locales, max = 6) {
+function coverOf(shots, themes, locales, max = 6) {
   const want = captureKey(themes.includes('light') ? 'light' : themes[0], locales[0]);
   const out = [];
   for (let i = 0; i < shots.length && out.length < max; i++) {
@@ -213,7 +217,11 @@ function coverOf(shots, columns, themes, locales, max = 6) {
       break;
     }
   }
-  return out;
+  // Landscape first. The card's stage is wide, so a phone capture fills a third of it — fine as
+  // the carousel passes through, wrong as the still every visitor sees before it starts moving.
+  // A stable partition, so the walk's screen-and-platform variety survives the reorder.
+  const portrait = (s) => (s.width && s.height && s.height > s.width ? 1 : 0);
+  return out.map((s, i) => [s, i]).sort((a, b) => portrait(a[0]) - portrait(b[0]) || a[1] - b[1]).map(([s]) => s);
 }
 
 /**

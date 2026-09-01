@@ -227,9 +227,10 @@ gallery.
 ## CI screenshots + gallery
 
 The dayscript walkthrough (`Day-Showcase/dayscript/walkthrough.yaml`) visits the web-view page last,
-`pause`s (runner-side) for the page to load, and captures `webview.png`. Each combo uploads its
-`screenshots-<combo>` artifact; `website/gallery.config.mjs` lists a `webview` shot, so the assembled
-gallery on daybrite.dev shows the web view across every platform that produced it.
+`pause`s (runner-side) for the page to load, and captures `webview.png`. The showcase's own CI
+publishes that capture in its gallery index (`day screenshot index`), and daybrite.dev's
+`/gallery/Day-Showcase/` reads the index — so the web view shows there across every platform that
+produced a capture, with no list to maintain on either side.
 
 ## What this piece taught the extension system
 
