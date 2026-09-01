@@ -645,17 +645,38 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 (Some(id), _) => id.to_string(),
                 (None, Some(want)) => {
                     let have: Vec<String> = avds().iter().map(|a| str_of(a, "name")).collect();
-                    have.iter()
+                    let found = have
+                        .iter()
                         .find(|n| n.as_str() == want)
                         .or_else(|| have.iter().find(|n| n.starts_with(want)))
-                        .cloned()
-                        .ok_or_else(|| {
-                            CliError::failure(format!(
+                        .cloned();
+                    match found {
+                        Some(name) => name,
+                        // Nothing enumerated AT ALL is "this machine could not be asked", not
+                        // "there is no such AVD" — and the two deserve opposite treatment. A CI
+                        // runner that had just created one successfully listed none, and refusing
+                        // there turned a working setup into a failed build with an error naming
+                        // nothing. Take the caller at their word and let the emulator answer,
+                        // which it does by name and with its own diagnosis.
+                        None if have.is_empty() => {
+                            crate::ops::status(
+                                "Warning",
+                                &format!(
+                                    "no AVD could be enumerated on this machine; trying {want} \
+                                     anyway — `day devices list -p android-mdc` shows what the \
+                                     tools report"
+                                ),
+                            );
+                            want.to_string()
+                        }
+                        None => {
+                            return Err(CliError::failure(format!(
                                 "no AVD named \"{want}…\". This machine has:\n  {}\n\
                                  Create one with `day devices setup`.",
                                 have.join("\n  ")
-                            ))
-                        })?
+                            )));
+                        }
+                    }
                 }
                 (None, None) => {
                     return Err(CliError::usage(
@@ -877,7 +898,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
         run_sdk_tool(
             // Same reason as the `--sdk_root` above, by the route avdmanager takes: it resolves
             // the system image through the SDK root it reads from the environment.
-            Command::new(cmdline_tool("avdmanager"))
+            with_avd_home(&mut Command::new(cmdline_tool("avdmanager")))
                 .env("ANDROID_HOME", day_toolchain::android_sdk_dir())
                 .env("ANDROID_SDK_ROOT", day_toolchain::android_sdk_dir())
                 .args(["create", "avd", "-n", &name, "-k", &pkg, "-d", spec.device]),
@@ -947,17 +968,23 @@ fn set_avd_config(avd: &str, key: &str, value: &str) -> bool {
 
 /// Where an AVD keeps its `config.ini`, following the `.ini` pointer when there is one.
 fn avd_config_path(avd: &str) -> Option<std::path::PathBuf> {
-    let home = avd_home();
-    let dir = std::fs::read_to_string(home.join(format!("{avd}.ini")))
-        .ok()
-        .and_then(|ini| {
-            ini.lines().find_map(|l| {
+    for home in avd_homes() {
+        // The `.ini` beside the directory is a POINTER — it carries `path=`, and an AVD created
+        // under a relocated home does not sit next to it.
+        if let Ok(ini) = std::fs::read_to_string(home.join(format!("{avd}.ini")))
+            && let Some(dir) = ini.lines().find_map(|l| {
                 l.strip_prefix("path=")
                     .map(|p| std::path::PathBuf::from(p.trim()))
             })
-        })
-        .unwrap_or_else(|| home.join(format!("{avd}.avd")));
-    Some(dir.join("config.ini"))
+        {
+            return Some(dir.join("config.ini"));
+        }
+        let guess = home.join(format!("{avd}.avd")).join("config.ini");
+        if guess.is_file() {
+            return Some(guess);
+        }
+    }
+    None
 }
 
 // ── Android emulator control ─────────────────────────────────────────────────────────────────
@@ -1062,7 +1089,7 @@ fn avd_of_serial(serial: &str) -> Option<String> {
 /// Start an emulator detached on a known console port.
 fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<(), CliError> {
     let mut cmd = Command::new(emulator_bin());
-    cmd.args(["-avd", avd, "-port", &port.to_string()]);
+    with_avd_home(&mut cmd).args(["-avd", avd, "-port", &port.to_string()]);
     if headless {
         // `swiftshader_indirect` rather than the default `auto`: a runner has no GPU, and auto
         // picks host acceleration and then fails to initialize.
@@ -1435,53 +1462,111 @@ fn device_abi(serial: &str) -> String {
 
 /// Defined but not running AVDs — what `day devices boot` can start.
 fn avds() -> Vec<Value> {
-    // Two sources, unioned, because neither alone is reliable. `emulator -list-avds` is the
-    // documented one but needs the emulator PACKAGE installed and its own SDK resolution to
-    // agree — on a CI runner that had just installed the emulator in the same step it returned
-    // nothing, and the error that followed listed no AVDs at all for a machine that had one.
-    // The `.ini` files are where `avdmanager` actually writes, so they answer even when no tool
-    // does.
-    let mut names: Vec<String> = Command::new(emulator_bin())
-        .arg("-list-avds")
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.contains(' '))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    if let Ok(dir) = std::fs::read_dir(avd_home()) {
-        for entry in dir.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "ini")
-                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                && !names.iter().any(|n| n == stem)
-            {
-                names.push(stem.to_string());
-            }
-        }
-    }
+    let mut names = avd_names();
     names.sort();
+    names.dedup();
     names
         .into_iter()
         .map(|name| json!({ "id": name.clone(), "name": name }))
         .collect()
 }
 
-/// Where AVDs live: `$ANDROID_AVD_HOME`, else `~/.android/avd`.
-fn avd_home() -> std::path::PathBuf {
-    std::env::var_os("ANDROID_AVD_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                .join(".android")
-                .join("avd")
-        })
+/// Every AVD name this machine has, from three sources unioned because none answers everywhere.
+///
+/// `avdmanager list avd -c` is the authoritative one: it is the tool that CREATED the AVD, so it
+/// knows where it put it whatever the environment says. `emulator -list-avds` is the documented
+/// one but needs the emulator package installed and its own resolution to agree — on a CI runner
+/// that had installed the emulator moments earlier it returned nothing. The directory scan is the
+/// backstop for a machine whose cmdline-tools are missing or broken.
+///
+/// The directory has to be SEARCHED FOR as well as read: the SDK tools keep `.android` wherever
+/// `ANDROID_USER_HOME` (or the older `ANDROID_SDK_HOME`) points, and a CI image sets one of those
+/// away from `$HOME`. Scanning `~/.android/avd` alone was measured finding nothing on a runner
+/// that had just created an AVD successfully, which turned into "no AVD named …" listing nothing
+/// at all.
+fn avd_names() -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut take = |text: &str| {
+        names.extend(
+            text.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.contains(' '))
+                .map(str::to_string),
+        );
+    };
+    // 1. The tool that created it. `-c` prints bare names, one per line.
+    if let Ok(out) = with_avd_home(&mut Command::new(cmdline_tool("avdmanager")))
+        .args(["list", "avd", "-c"])
+        .output()
+        && out.status.success()
+    {
+        take(&String::from_utf8_lossy(&out.stdout));
+    }
+    // 2. The emulator's own view.
+    if let Ok(out) = with_avd_home(&mut Command::new(emulator_bin()))
+        .arg("-list-avds")
+        .output()
+        && out.status.success()
+    {
+        take(&String::from_utf8_lossy(&out.stdout));
+    }
+    // 3. Whatever is on disk, in every place the tools might have used.
+    for home in avd_homes() {
+        for entry in std::fs::read_dir(home).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "ini")
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                names.push(stem.to_string());
+            }
+        }
+    }
+    names
+}
+
+/// Pin `ANDROID_AVD_HOME` so `avdmanager` and the `emulator` agree on where AVDs live.
+///
+/// They resolve that directory INDEPENDENTLY, from an overlapping set of variables
+/// (`ANDROID_AVD_HOME`, `ANDROID_USER_HOME`, the older `ANDROID_SDK_HOME`, `$HOME`), and they do
+/// not have to reach the same answer. A CI runner created an AVD successfully and then reported
+/// having none, because the tool that made it and the tool that lists them were looking in
+/// different places. Naming the directory for both ends the disagreement.
+///
+/// A caller who has already set `ANDROID_AVD_HOME` is left alone — that is them choosing, and the
+/// two tools already agree because both read it first.
+fn with_avd_home(cmd: &mut Command) -> &mut Command {
+    if std::env::var_os("ANDROID_AVD_HOME").is_none()
+        && let Some(home) = avd_homes().into_iter().next()
+    {
+        let _ = std::fs::create_dir_all(&home);
+        cmd.env("ANDROID_AVD_HOME", home);
+    }
+    cmd
+}
+
+/// Every directory an AVD might live in, most specific first.
+fn avd_homes() -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    let mut push = |p: std::path::PathBuf| {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    };
+    if let Some(v) = std::env::var_os("ANDROID_AVD_HOME") {
+        push(std::path::PathBuf::from(v));
+    }
+    // `ANDROID_USER_HOME` is the current name for what `ANDROID_SDK_HOME` used to mean; both
+    // relocate `.android`, and an image may set either.
+    if let Some(v) = std::env::var_os("ANDROID_USER_HOME") {
+        push(std::path::PathBuf::from(v).join("avd"));
+    }
+    if let Some(v) = std::env::var_os("ANDROID_SDK_HOME") {
+        push(std::path::PathBuf::from(v).join(".android").join("avd"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        push(std::path::PathBuf::from(home).join(".android").join("avd"));
+    }
+    out
 }
 
 // ── OpenHarmony ──────────────────────────────────────────────────────────────────────────────
