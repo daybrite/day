@@ -69,6 +69,20 @@ paragraph.
 `.color(Color)` sets the text color; omit it to use the platform's default label color (which adapts to
 light/dark). Colors are given as `Color::hex(0xRRGGBB)` or `Color::rgba(r, g, b, a)`.
 
+`.secondary()` asks for the platform's de-emphasized label color instead of naming one — what a hint,
+a caption, or an empty state's "nothing selected" line should wear:
+
+```rust
+label(tr("nothing_selected")).secondary()
+```
+
+It is semantic for the same reason `Font::Body` is: a literal grey chosen against a light background
+is close to invisible on a dark one, so only the platform can answer correctly in both. Each backend
+uses its own — `secondaryLabelColor` on macOS and iOS, `?android:attr/textColorSecondary`, GTK's
+`dim-label` style class, and on the web a mix of the inherited text color. An explicit `.color()`
+still wins, and a backend with no such color renders the primary one: legible and correct, just not
+dimmed.
+
 ## Custom sizes and accessibility
 
 `Font::System(pt)` takes an explicit point size, but it is still scaled by the platform's

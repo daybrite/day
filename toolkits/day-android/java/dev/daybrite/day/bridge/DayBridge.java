@@ -712,6 +712,29 @@ public final class DayBridge {
         FONT_CACHE.put(family, tf);
         return tf;
     }
+    /**
+     * The THEME's secondary text color — what a hint, a caption, or an empty state's "nothing
+     * selected" wears (`Label::secondary`).
+     *
+     * Resolved from `?android:attr/textColorSecondary` rather than written as a constant, so it
+     * follows the app's theme and the system's light/dark setting. A literal grey cannot: one
+     * chosen against a light background is close to invisible on a dark one.
+     */
+    public static void setLabelSecondary(View v, boolean on) {
+        TextView t = (TextView) v;
+        if (!on) {
+            t.setTextColor(new TextView(ctx).getTextColors());
+            return;
+        }
+        android.content.res.TypedArray a =
+                v.getContext().obtainStyledAttributes(new int[] {android.R.attr.textColorSecondary});
+        android.content.res.ColorStateList csl = a.getColorStateList(0);
+        a.recycle();
+        if (csl != null) {
+            t.setTextColor(csl);
+        }
+    }
+
     /** Text color as a packed 0xAARRGGBB int; `on=false` restores the theme default. */
     public static void setLabelColor(View v, int argb, boolean on) {
         TextView t = (TextView) v;

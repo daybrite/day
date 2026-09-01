@@ -2219,6 +2219,15 @@ mod imp {
                                     JValue::Bool(true),
                                 ],
                             );
+                        } else if p.role == day_spec::props::TextRole::Secondary {
+                            // The theme's own secondary color, resolved on the Java side so it
+                            // follows the app's theme and the system's light/dark setting.
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setLabelSecondary",
+                                "(Landroid/view/View;Z)V",
+                                &[JValue::Object(view.as_obj()), JValue::Bool(true)],
+                            );
                         }
                         // A label patch carries no node id, and a link's ClickableSpan needs one
                         // to report through — so remember it here, where the id is in hand.

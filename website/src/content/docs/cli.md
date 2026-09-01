@@ -23,6 +23,7 @@ day localize list|add|remove # survey the project's locales, or add/remove one o
 day icon                     # generate every platform's app-icon set from one master (--check: CI drift gate)
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
+day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign    --check          # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
@@ -98,6 +99,59 @@ it appends the target to `Day.toml`'s `[app] targets` array (via toml_edit, so y
 and formatting survive) and materializes the target's native host project (`platform/android/`,
 `platform/ios/`, `platform/ohos/`) from the same template, never overwriting existing files.
 Pass the same `--template` the app was created with if it wasn't the built-in one.
+
+### Running a repository directly
+
+`day launch --git <url>` runs an app you haven't checked out. It clones the repository, finds the
+Day project inside it, and launches that. With no `-p`, it builds for your host's default
+toolkit, so trying a sample app is one command:
+
+```bash
+day launch --git https://github.com/daybrite/Day-Rise.git
+day launch --git https://github.com/daybrite/Day-Rise.git@main       # a branch, tag, or commit
+day launch --git https://github.com/daybrite/Day-Skies.git -p ios-uikit --env WEATHER_MOCK=1
+```
+
+The checkout is cached per URL and ref, under `$XDG_CACHE_HOME/day/git/…` when that's set and
+your platform's cache directory otherwise (`~/Library/Caches/day` on macOS, `~/.cache/day` on
+Linux, `%LOCALAPPDATA%\day\cache` on Windows). Every run prints the path:
+
+```text
+     Cloning daybrite/Day-Rise @ main
+    Checkout ~/Library/Caches/day/git/github.com/daybrite/Day-Rise/main
+  Defaulting macos-appkit (no --platform given)
+    Building macos-appkit (xcodebuild Debug, macosx)
+   Launching macos-appkit
+```
+
+That path is a working checkout, so `cd` there and start editing. The build tree lives inside it,
+which is why the second run is an incremental compile rather than a fresh one. A later run
+fetches and fast-forwards; once you've edited or committed in the checkout, it stops updating and
+builds what's on disk, telling you so. Nothing is ever reset or force-updated. `--dir <d>` clones
+somewhere you name instead of the cache, and `day stop --project <that path>` ends a `--detach`ed
+run.
+
+Each ref gets its own checkout, and a build tree runs to a couple of GB per target, so
+`Day-Rise.git` and `Day-Rise.git@main` cost twice what one of them does — pick a spelling and keep
+to it. `day clean` works on projects, not on this cache; to reclaim the space, delete the printed
+directory, or all of them at once:
+
+```bash
+rm -rf "${XDG_CACHE_HOME:-~/Library/Caches}/day/git"    # ~/.cache/day/git on Linux
+```
+
+For a repository holding more than one Day project, `--project` selects one by its path within the
+repo; without it, an ambiguous repository lists what it found.
+
+`--script` works too, and a relative path that isn't in your current directory is looked up in the
+checkout — so a repository's own walkthrough runs by the name it has there:
+
+```bash
+day launch --git https://github.com/daybrite/Day-Showcase.git --script dayscript/walkthrough.yaml
+```
+
+`--git` builds and runs code from a URL. Pass URLs you trust, the same way you would with
+`cargo install --git`.
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 

@@ -26,10 +26,23 @@ pub(crate) fn editor_pane(scene: Scene) -> impl Piece {
                     .is_none_or(|id| scene.find(id).is_none())
             },
             || {
-                column((label(res::str::item_none()).font(Font::Title3),))
-                    .align(HAlign::Center)
-                    .padding(24.0)
-                    .grow()
+                // The empty state: centered in the pane, in the platform's secondary label
+                // color. Spacers above and below because a column stacks from the top.
+                column((
+                    spacer(),
+                    label(res::str::item_none())
+                        .font(Font::Title3)
+                        .secondary()
+                        // The label fills the width, so the TEXT is what needs centering.
+                        .align(TextAlign::Center),
+                    spacer(),
+                ))
+                .align(HAlign::Center)
+                // Grown on both sides of the padding: inside so the column fills the pane
+                // (vertical centering), outside so the parent sizes it (horizontal).
+                .grow()
+                .padding(24.0)
+                .grow()
             },
         ),
         each(

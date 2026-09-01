@@ -69,7 +69,11 @@ fn item_list(scene: Scene) -> impl Piece {
         move |slot| row_view(scene, slot),
     )
     .row_height(RowHeight::Uniform(58.0))
-    .on_select(move |it: Elem<Item>| scene.open(it.key() as u32))
+    // `on_selection`, not `on_select`: only the full set can report a CLEARED selection.
+    .on_selection(move |rows: Vec<Elem<Item>>| match rows.first() {
+        Some(it) => scene.open(it.key() as u32),
+        None => scene.clear_selection(),
+    })
     // Two-way selection. `on_select` writes the signal; this reads it back, so a row opened
     // any other way — the "+" command, a restored launch — highlights in the list rather
     // than leaving the editor and the list disagreeing about what is open.

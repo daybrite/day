@@ -2792,6 +2792,13 @@ impl Toolkit for Gtk {
                 label.set_wrap(true);
                 label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
                 update_text_attrs(&label, Some(p.font), Some(p.color));
+                // GTK ships the de-emphasized look as a style class, so the theme decides the
+                // actual color and it follows light/dark the way the rest of the window does —
+                // which is the whole reason for asking by role rather than naming a grey.
+                if p.role == day_spec::props::TextRole::Secondary {
+                    use gtk4::prelude::*;
+                    label.add_css_class("dim-label");
+                }
                 set_label_runs(&label, &p.text, &p.runs);
                 // A link run is an `<a href>` in the markup, and GtkLabel hit-tests those itself
                 // (Cap::TextLinks). Stopping the signal keeps GTK from also handing the URI to

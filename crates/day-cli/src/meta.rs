@@ -877,6 +877,42 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
     }
 }
 
+/// The app id a `Day.toml` declares, or `None` if it is unreadable or declares none.
+pub fn day_toml_app_id(day_toml: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(day_toml).ok()?;
+    let doc: toml::Value = toml::from_str(&text).ok()?;
+    doc.get("app")?.get("id")?.as_str().map(str::to_string)
+}
+
+/// Every Day project in a checkout, deepest-last and sorted, so the answer never depends on
+/// filesystem order. A directory qualifies only with BOTH manifests: `crates/day-cli/templates/app`
+/// has a `Day.toml` and no `Cargo.toml`, and packing it fails with a missing-manifest error that
+/// says nothing about the real problem.
+///
+/// Used by `day rebuild` to locate the project inside a cloned commit, and by `day launch --git`
+/// to locate it inside a cloned repository.
+pub fn day_projects(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if dir.join("Day.toml").is_file() && dir.join("Cargo.toml").is_file() {
+            found.push(dir.clone());
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut kids: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && !p.ends_with(".git") && !p.ends_with("target"))
+            .collect();
+        kids.sort();
+        stack.extend(kids);
+    }
+    found.sort();
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

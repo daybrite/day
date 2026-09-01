@@ -14,6 +14,7 @@ mod diagnose;
 mod doctor;
 mod drive;
 mod external;
+mod git;
 mod icon;
 mod interactive;
 mod json5;

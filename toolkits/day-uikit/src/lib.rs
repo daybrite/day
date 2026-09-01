@@ -5353,8 +5353,14 @@ mod imp {
                         label.setNumberOfLines(0);
                     }
                     apply_font(&label, p.font);
-                    if let Some(c) = p.color {
-                        unsafe { label.setTextColor(Some(&uicolor(c))) };
+                    // An explicit color wins; otherwise the ROLE chooses which adaptive system
+                    // color applies, so a de-emphasized label stays legible in both appearances.
+                    match (p.color, p.role) {
+                        (Some(c), _) => unsafe { label.setTextColor(Some(&uicolor(c))) },
+                        (None, day_spec::props::TextRole::Secondary) => unsafe {
+                            label.setTextColor(Some(&UIColor::secondaryLabelColor()))
+                        },
+                        (None, day_spec::props::TextRole::Primary) => {}
                     }
                     if !p.runs.is_empty() {
                         let s = attributed_label(&p.text, &resolve_font(p.font), p.color, &p.runs);

@@ -55,6 +55,21 @@ day doctor --toolkit android     # focus one toolkit; misses become errors with 
 the optional packages (web views, packaging tools), and how to set up the Android, iOS, and
 HarmonyOS emulators.
 
+### Run a sample app first
+
+If you'd rather see a real app before scaffolding your own, `--git` takes a repository URL and
+does the rest — clone, find the project inside, build for your host's default toolkit, run:
+
+```bash
+day launch --git https://github.com/daybrite/Day-Rise.git
+```
+
+It prints where it put the checkout, so you can `cd` there and edit the code. Every sample app
+works this way: [Day Rise](https://github.com/daybrite/Day-Rise) (the scaffold, four pages),
+[Day Skies](https://github.com/daybrite/Day-Skies) (live weather),
+[Day Showcase](https://github.com/daybrite/Day-Showcase) (every subsystem, four locales).
+[CLI & projects](/docs/cli#running-a-repository-directly) covers the flag in full.
+
 ## 2. Install the Day extension for VS Code
 
 The extension isn't on the Marketplace yet. Install the packaged `.vsix` straight from GitHub:

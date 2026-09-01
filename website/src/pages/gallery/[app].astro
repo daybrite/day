@@ -294,6 +294,13 @@ const description = `${app.label} on every platform it builds for: ${app.counts.
     return parts.join(' · ');
   }
 
+  // Images this browser could not load. This page is built from indexes OTHER sites publish, so
+  // an entry can outlive the file it names — an app republishes its gallery on its own schedule,
+  // and a build here can be reading a copy from before or after a capture moved. A tile whose
+  // every capture 404s hides itself, and a row that loses every tile goes with it, rather than
+  // showing a reader a column of broken-image glyphs.
+  const dead = new Set<string>();
+
   function applyCaptures(): void {
     const order = preferenceOrder();
     const [wantTheme, wantLocale] = order[0];
@@ -301,12 +308,15 @@ const description = `${app.label} on every platform it builds for: ${app.counts.
       let chosen: string[] | null = null;
       for (const [t, l] of order) {
         const src = img.dataset[datasetKey(t, l)];
-        if (src) {
+        if (src && !dead.has(src)) {
           chosen = [t, l];
           if (img.getAttribute('src') !== src) img.setAttribute('src', src);
           break;
         }
       }
+      const tile = img.closest<HTMLElement>('figure.tile');
+      // No capture left that loads: the tile has nothing to show.
+      if (tile) tile.hidden = chosen === null;
       const win = img.closest<HTMLElement>('.sh-win');
       if (win) win.toggleAttribute('data-dark', chosen?.[0] === 'dark');
       const badge = img.closest<HTMLElement>('.frame')?.querySelector<HTMLElement>('.fb-badge');
@@ -316,7 +326,26 @@ const description = `${app.label} on every platform it builds for: ${app.counts.
         if (fellBack && chosen) badge.textContent = label(chosen[0], chosen[1]);
       }
     }
+    for (const row of root.querySelectorAll<HTMLElement>('.row')) {
+      row.hidden = !row.querySelector('figure.tile:not([hidden])');
+    }
   }
+
+  // `error` does not bubble, so it is captured. Retiring the failed URL and re-resolving lets a
+  // tile fall through to another theme or language it does have, exactly as a missing capture
+  // already does.
+  root.addEventListener(
+    'error',
+    (e) => {
+      const img = e.target as HTMLImageElement;
+      if (!img.classList?.contains('var-img')) return;
+      const src = img.getAttribute('src');
+      if (!src || dead.has(src)) return;
+      dead.add(src);
+      applyCaptures();
+    },
+    true,
+  );
 
   function reflectThemeSeg(): void {
     for (const b of document.querySelectorAll<HTMLElement>('.seg[data-seg="theme"] button')) {
@@ -411,17 +440,26 @@ const description = `${app.label} on every platform it builds for: ${app.counts.
       cur = null;
     }
 
+    // A tile that hid itself (every capture failed to load) is skipped in both axes, so the
+    // arrows never land on an empty cell the page is no longer showing.
+    const shown = (r: number, c: number) => !!grid[r]?.[c] && !grid[r][c].hidden;
+
     function navigate(dir: string): void {
       if (!cur) return;
       if (dir === 'left' || dir === 'right') {
         const n = grid[cur.r].length;
-        cur.c = (cur.c + (dir === 'right' ? 1 : n - 1)) % n; // cycle platforms
+        let nc = cur.c;
+        for (let i = 0; i < n; i++) {
+          nc = (nc + (dir === 'right' ? 1 : n - 1)) % n; // cycle platforms
+          if (shown(cur.r, nc)) break;
+        }
+        cur.c = nc;
       } else {
         const n = grid.length;
         let nr = cur.r;
         for (let i = 0; i < n; i++) {
           nr = (nr + (dir === 'down' ? 1 : n - 1)) % n; // same platform (column), wrap rows
-          if (grid[nr]?.[cur.c]) break;
+          if (shown(nr, cur.c)) break;
         }
         cur.r = nr;
       }

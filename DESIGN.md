@@ -2415,7 +2415,11 @@ URLs. App sites serve the result at `<host>/gallery/gallery.json` — the machin
 index other sites and tools reference (crates/day-cli/src/screenshot.rs).
 
 A shot **with** a `title:` is gallery-curated: the daysite gallery shows the curated set when
-one exists, and untitled captures stay machine-readable in the index. `day lint`
+one exists, and untitled captures stay machine-readable in the index. Curation governs the PAGE
+only — daysite publishes every capture the index describes either way, and rebuilds the index it
+serves from the files it actually wrote, so an entry can never name bytes nobody uploaded. (It
+did once: publishing followed the page's rule while the index was passed through verbatim, and
+679 of the Showcase's 2,624 indexed URLs 404'd for every site that resolved them.) `day lint`
 cross-references each title/caption map's locale keys against the app's translation locales
 (missing = that page silently falls back to English; unknown = usually a typo).
 
@@ -2855,7 +2859,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day version` | version, build profile, git ref — the tag or branch when there is one, and **always the commit** (`0.3.0 (release, branch main, bd026ff7)`), so a build can be told from another build of the same branch. Omitted entirely off a git checkout, which is what a crates.io build looks like |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>…` | build for one or more targets, in parallel |
-| `day launch -p <target>… [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
+| `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
@@ -2983,6 +2987,30 @@ through `day::env` — a browser sandbox has no process environment, [docs/web.m
 `--script` runs via the embedded engine
 ([§14](#14-scripting-dayscript)) — with scripts the command exits when the last one finishes (the CI entry point), and
 `--keep-alive` keeps the session drivable via `day drive` afterwards.
+
+`--git <url>[@<ref>]` (2026-09) removes the checkout step from trying an app: it clones the
+repository, locates the Day project inside it, and hands that directory to the ordinary launch
+path, so `day launch --git https://github.com/daybrite/Day-Rise.git` is the whole of running a
+sample app — no `-p` either, since a bare launch already picks the host's default toolkit. The
+sample apps' READMEs lead with it, after `cargo install day-cli` and `day doctor`.
+
+The checkout is a **cache keyed by URL and ref**
+(`$XDG_CACHE_HOME/day/git/<host>/<owner>/<repo>/<ref>`, else the per-OS cache root; `--dir`
+overrides it). Two consequences are the whole design. First, `build/day/` lives inside the
+checkout, so a second run is an incremental compile rather than a cold one — the reason this is a
+cache directory and not `std::env::temp_dir()`, which every other scratch path in the CLI uses.
+Second, it is a real working checkout someone can edit: the path is printed on every run, a later
+run fetches and fast-forwards rather than re-cloning, and a checkout carrying local edits or
+commits of its own is never updated over — it warns and builds what is on disk. Nothing resets or
+forces. The ref may be a branch, a tag, or a commit; without one, the remote's default branch.
+`--project` becomes repo-relative under `--git`, which is how a repository holding several Day
+projects names one (the ambiguity is reported with each project's path), and a relative
+`--script` not found in the invoking directory is looked up in the checkout, so a repository's
+own walkthrough runs by the name it carries there. This is the first
+user-level directory the CLI owns; everything else it writes is `<project>/build/day/`
+([`day clean`](#day-clean)). `git` is shelled out to, as `day rebuild` and
+`day new --template <git-url>` already do, and `day doctor` reports it as an optional core
+prerequisite.
 
 #### `day clean`
 

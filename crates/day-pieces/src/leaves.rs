@@ -193,6 +193,8 @@ pub struct Label {
     pub(crate) tabular: bool,
     pub(crate) monospace: bool,
     pub(crate) color: Option<Reactive<day_spec::Color>>,
+    /// What the text means, for the color the platform gives it (docs/text.md).
+    pub(crate) role: day_spec::props::TextRole,
     /// Styled spans over `text` (docs/text-runs.md); empty is an ordinary uniform label.
     pub(crate) runs: Vec<day_spec::TextRun>,
     /// Parse the text as inline markdown instead of taking it literally (docs/markdown.md).
@@ -216,6 +218,7 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
         tabular: false,
         monospace: false,
         color: None,
+        role: Default::default(),
         runs: Vec::new(),
         markdown: false,
         align: day_spec::props::TextAlign::Leading,
@@ -238,6 +241,17 @@ impl Label {
     /// Shorthand for `.weight(FontWeight::Bold)`.
     pub fn bold(self) -> Self {
         self.weight(day_spec::FontWeight::Bold)
+    }
+    /// De-emphasize the text: the platform's SECONDARY label color, whatever that is here
+    /// (`secondaryLabelColor` on Apple, `?android:textColorSecondary`, a dim label on GTK).
+    ///
+    /// Semantic rather than a literal grey, for the reason a literal grey cannot solve: one that
+    /// reads well on white is wrong on black, so an app that hard-codes it gets a label that is
+    /// either washed out or nearly invisible in the other appearance. This is what an empty
+    /// state's "nothing selected", a hint under a field, or a caption should wear.
+    pub fn secondary(mut self) -> Self {
+        self.role = day_spec::props::TextRole::Secondary;
+        self
     }
     /// Render the text italic (slanted).
     pub fn italic(mut self) -> Self {
@@ -458,6 +472,7 @@ impl Piece for Label {
                     ..day_spec::FontSpec::default()
                 },
                 color: self.color.as_ref().map(|c| c.get_untracked()),
+                role: self.role,
                 wraps: true,
                 runs,
             },

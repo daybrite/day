@@ -3253,6 +3253,15 @@ pub mod props {
         pub text: String,
         pub font: FontSpec,
         pub color: Option<Color>,
+        /// What the text MEANS, for the color the platform gives it (docs/text.md).
+        ///
+        /// Semantic the way [`crate::Font`] is semantic: an app says "this is secondary text"
+        /// and each platform answers with its own answer — `secondaryLabelColor` on Apple,
+        /// `?android:textColorSecondary`, GTK's `dim-label`. That is the only way a de-emphasized
+        /// label stays correct in BOTH appearances, since a literal grey that reads well on white
+        /// is wrong on black. An explicit [`Self::color`] still wins; a backend that has no such
+        /// color renders primary, which is legible and correct — just not dimmed.
+        pub role: TextRole,
         pub wraps: bool,
         /// How the label's lines sit within its own width. Only observable on a label that
         /// WRAPS or carries explicit newlines — a single line fills its box, so its alignment is
@@ -3269,6 +3278,17 @@ pub mod props {
         /// correct — just unstyled.
         pub runs: Vec<crate::TextRun>,
     }
+    /// What a label's text means, for the color the platform gives it (`LabelProps::role`).
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum TextRole {
+        /// Ordinary text, in the platform's primary label color.
+        #[default]
+        Primary,
+        /// De-emphasized text: a caption, a hint, the "nothing selected" line an empty detail
+        /// pane shows. Rendered in the platform's secondary label color.
+        Secondary,
+    }
+
     /// How a wrapped label's lines sit within its width (`LabelProps::align`).
     ///
     /// Deliberately NOT a `Justified` variant: no toolkit in Day's set agrees on how to justify

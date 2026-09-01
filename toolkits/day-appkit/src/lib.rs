@@ -2218,6 +2218,15 @@ define_class!(
                     let row = unsafe { tv.selectedRow() };
                     if row >= 0 {
                         emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                    } else {
+                        // CLEARED. `selectedRow()` answers -1, which is not a row, so there is
+                        // nothing for `SelectionChanged` to carry and nothing for `on_select` to
+                        // be called with — but the app still has to hear about it, or a detail
+                        // pane goes on showing the row the user just deselected. The empty set is
+                        // how that is said (`on_selection`, docs/list.md); reporting nothing was
+                        // a silent contract break, since single-selection backends are documented
+                        // as firing it with a one-element OR EMPTY set.
+                        emit(self.ivars().node, Event::SelectionSet(Vec::new()));
                     }
                 }
             })
@@ -4096,6 +4105,7 @@ fn attributed_label(
     text: &str,
     base_font: &NSFont,
     color: Option<day_spec::Color>,
+    role: day_spec::props::TextRole,
     runs: &[day_spec::TextRun],
 ) -> Retained<objc2_foundation::NSAttributedString> {
     use objc2_foundation::{NSMutableAttributedString, NSRange};
@@ -4109,9 +4119,14 @@ fn attributed_label(
         // ALWAYS a foreground: an attributed range with no color attribute draws in black,
         // which is unreadable in dark mode. `labelColor` is the adaptive default the field
         // would have used on its own.
-        let fg = color
-            .map(nscolor)
-            .unwrap_or_else(objc2_app_kit::NSColor::labelColor);
+        // An explicit color wins; otherwise the ROLE picks which adaptive system color to use.
+        // Both are adaptive, which is the point of asking for a role instead of a grey: the
+        // secondary label is legible against either appearance's background, and a literal one
+        // cannot be.
+        let fg = color.map(nscolor).unwrap_or_else(|| match role {
+            day_spec::props::TextRole::Secondary => objc2_app_kit::NSColor::secondaryLabelColor(),
+            day_spec::props::TextRole::Primary => objc2_app_kit::NSColor::labelColor(),
+        });
         s.addAttribute_value_range(objc2_app_kit::NSForegroundColorAttributeName, &fg, whole);
     }
     for r in runs {
@@ -4469,11 +4484,18 @@ impl Toolkit for AppKit {
                 let tf = unsafe { NSTextField::labelWithString(&NSString::from_str(&p.text), mtm) };
                 configure_label_cell(&tf);
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
-                if let Some(c) = p.color {
-                    unsafe { tf.setTextColor(Some(&nscolor(c))) };
+                // The PLAIN path needs the role as much as the attributed one below: a label
+                // with no runs never reaches `attributed_label`, and reading the role only there
+                // left every ordinary `.secondary()` label rendering in the primary color.
+                match (p.color, p.role) {
+                    (Some(c), _) => unsafe { tf.setTextColor(Some(&nscolor(c))) },
+                    (None, day_spec::props::TextRole::Secondary) => unsafe {
+                        tf.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()))
+                    },
+                    (None, day_spec::props::TextRole::Primary) => {}
                 }
                 if !p.runs.is_empty() {
-                    let s = attributed_label(&p.text, &nsfont(p.font), p.color, &p.runs);
+                    let s = attributed_label(&p.text, &nsfont(p.font), p.color, p.role, &p.runs);
                     unsafe { tf.setAttributedStringValue(&s) };
                 }
                 // A link run needs a selectable field and a delegate (see DayTextLink): without
@@ -5270,11 +5292,14 @@ impl Toolkit for AppKit {
                             // the semantic style behind the resolved size.
                             let base = unsafe { tf.font() };
                             let s = match base.as_deref() {
-                                Some(f) => attributed_label(text, f, None, runs),
+                                Some(f) => {
+                                    attributed_label(text, f, None, Default::default(), runs)
+                                }
                                 None => attributed_label(
                                     text,
                                     &nsfont(day_spec::FontSpec::default()),
                                     None,
+                                    Default::default(),
                                     runs,
                                 ),
                             };

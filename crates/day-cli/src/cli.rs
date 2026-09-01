@@ -53,6 +53,9 @@ impl ErrKind {
 /// A command failure: the message the old code printed at its ~40 call sites, plus the kind
 /// that picks its exit code. Command entry points return `Result<_, CliError>` and [`run`]
 /// renders once — `error: <message>` on stderr, exit code from the kind.
+///
+/// `Debug` so a test can `.expect()` on a `Result<_, CliError>` and read what went wrong.
+#[derive(Debug)]
 pub struct CliError {
     kind: ErrKind,
     message: String,
@@ -225,6 +228,19 @@ enum Cmd {
         /// under Plasma/LXQt, GTK otherwise).
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
+        /// Repository to run instead of a project on this machine: clone it, find the Day project
+        /// inside it, and launch that. `<URL>@<REF>` picks a branch, tag, or commit (`#<REF>` is
+        /// accepted too); without one, the remote's default branch. The checkout is cached per
+        /// URL and ref, so a later run fetches and fast-forwards rather than starting over — and
+        /// its build tree is reused. `day launch --git https://github.com/daybrite/Day-Rise.git`
+        /// is the whole of trying an app. In a repository holding several Day projects,
+        /// `--project` names one by its path inside the repo. This builds and runs code from a
+        /// URL, so pass ones you trust.
+        #[arg(long, value_name = "URL[@REF]")]
+        git: Option<String>,
+        /// Where `--git` clones, instead of the cache. The path is printed either way.
+        #[arg(long, requires = "git", value_name = "DIR")]
+        dir: Option<PathBuf>,
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
         /// BCP-47 locale override passed to the app
@@ -1396,6 +1412,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         }),
         Cmd::Launch {
             platforms,
+            git,
+            dir,
             profile,
             locale,
             envs,
@@ -1412,340 +1430,371 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             skip_build,
             locales,
             themes,
-        } => with_project(cli.project.as_deref(), |project| {
-            // No `-p`: run what this machine natively is. Announced rather than assumed — the
-            // chosen target decides which toolkit gets built, so a silent pick would be a
-            // surprising several-minute build of something the caller did not name.
-            let platforms = if platforms.is_empty() {
-                let default = crate::targets::host_default();
-                ops::status("Defaulting", &format!("{default} (no --platform given)"));
-                vec![default.to_string()]
-            } else {
-                platforms.clone()
-            };
-            let script_mode = !scripts.is_empty();
-            let mut spec = ops::LaunchSpec {
-                locale: locale.clone(),
-                ios_device: ios_device.clone(),
-                ios_simulator: ios_simulator.clone(),
-                android_device: android_device.clone(),
-                ohos_device: ohos_device.clone(),
-                envs: envs
-                    .iter()
-                    .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
-                    .collect(),
-                // Attachment follows `--detach` alone, NOT whether a script runs: a scripted
-                // launch streams the app's console output the same as a plain launch. (A
-                // `--keep-alive` scripted run additionally keeps `day` in the foreground after the
-                // script so that output stays visible while the app lives — see below.)
-                attached: !detach,
-            };
-            // Ctrl-C during an attached run must take the launched apps and their log
-            // watchers (simctl / adb logcat) down too — not leave them orphaned.
-            if spec.attached {
-                crate::signals::install();
-            }
-            // The debug window-title tag (docs/windows.md): which build, which toolkit, and —
-            // when a script is driving — which script. The app reads these off the environment
-            // and only shows them in a debug build.
-            spec.envs.push((
-                "DAY_APP_VERSION".into(),
-                project.manifest.app.version.clone(),
-            ));
-            // `--record` (§14.6): the app's `day_script::init` reads `DAY_RECORD` and starts a
-            // headless recorder that flushes a replayable dayscript to the path for its lifetime.
-            // Absolutize against the invoking CWD — the app process runs from the project root, so
-            // a relative path would otherwise land somewhere the user did not mean.
-            if let Some(path) = &record {
-                let abs = if path.is_absolute() {
-                    path.clone()
-                } else {
-                    std::env::current_dir()
-                        .map(|d| d.join(path))
-                        .unwrap_or_else(|_| path.clone())
-                };
-                spec.envs
-                    .push(("DAY_RECORD".into(), abs.to_string_lossy().into_owned()));
-            }
-            if script_mode {
-                // A scripted run is unattended, so a panic's backtrace has to be in the log the
-                // first time — nobody is there to re-run it with RUST_BACKTRACE set. The app's
-                // stderr is already streamed, so this is what turns "thread panicked at …" into
-                // a stack. An explicit `--env RUST_BACKTRACE=…` wins (it is in `envs` already).
-                if !envs.iter().any(|kv| kv.starts_with("RUST_BACKTRACE=")) {
-                    spec.envs.push(("RUST_BACKTRACE".into(), "1".into()));
+        } => {
+            // `--git` only decides WHERE the launch starts from. It clones (or updates) the
+            // repository and hands back the Day project directory inside it, so `find_project`
+            // and the whole launch body below see an ordinary checkout (crate::git).
+            let start = match &git {
+                Some(arg) => {
+                    let spec = crate::git::parse_spec(arg).map_err(CliError::usage)?;
+                    Some(crate::git::prepare(
+                        &spec,
+                        dir.as_deref(),
+                        cli.project.as_deref(),
+                    )?)
                 }
-                // The app is launched once and the scripts run in sequence against it, so the
-                // title names all of them.
-                let names: Vec<String> = scripts
-                    .iter()
-                    .map(|s| {
-                        std::path::Path::new(s)
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| s.to_string_lossy().into_owned())
-                    })
-                    .collect();
-                spec.envs.push(("DAY_SCRIPT".into(), names.join(",")));
-            }
-            let token = crate::script::make_token();
-            // The capture matrix (--themes × --locales): the scripted runs each target performs,
-            // with the variant names both CI shapes already produce — the day-CI/gallery
-            // `<theme>`/`<theme>-<locale>` convention and the app-CI `<locale>` convention are
-            // preserved byte-for-byte so existing artifact layouts survive the move from YAML
-            // loops into the CLI. No flags = one run with the plain --locale/--variant.
-            let matrix = capture_matrix(&themes, &locales, &locale, &variant, &envs)
-                .map_err(CliError::usage)?;
-            let mut handles = Vec::new();
-            let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
-                Vec::new();
-            let mut script_failures = 0usize;
-            // Engine losses across the whole run — the cap that keeps a dead app from
-            // relaunching once per variant until the job's own timeout kills it.
-            let mut losses = 0usize;
-            for (ti, p) in platforms.iter().enumerate() {
-                let port = crate::script::pick_port(ti);
-                // The dayscript engine rides EVERY launch (loopback, token-gated): scripted runs
-                // drive it immediately, and interactive launches stay drivable later via the
-                // session registry (`day drive` / `day relaunch` / agents — docs/agent.md).
-                spec.envs
-                    .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
-                spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
-                spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
-                let target = crate::external::find_target(project, p).map_err(CliError::usage)?;
-                let built = if skip_build {
-                    ops::reuse_build(project, target, profile)
-                } else if spec.wants_ios_device() {
-                    ops::build_for_device(project, target, profile)
+                None => cli.project.clone(),
+            };
+            with_project(start.as_deref(), |project| {
+                // No `-p`: run what this machine natively is. Announced rather than assumed — the
+                // chosen target decides which toolkit gets built, so a silent pick would be a
+                // surprising several-minute build of something the caller did not name.
+                let platforms = if platforms.is_empty() {
+                    let default = crate::targets::host_default();
+                    ops::status("Defaulting", &format!("{default} (no --platform given)"));
+                    vec![default.to_string()]
                 } else {
-                    ops::build(project, target, profile)
+                    platforms.clone()
                 };
-                let outcome = built.map_err(CliError::build)?;
-                for (ri, capture) in matrix.iter().enumerate() {
-                    // Per-run spec: the matrix's locale and theme ride the SAME channels the
-                    // old YAML loops used (the --locale plumbing and the DAY_THEME env).
-                    let mut run_spec = spec.clone();
-                    if let Some(l) = &capture.locale {
-                        run_spec.locale = Some(l.clone());
+                // Under `--git` a relative `--script` that isn't in the invoking directory is
+                // looked up in the checkout, so a repository's own walkthrough runs by the name
+                // it carries there (crate::git::script_path).
+                let scripts: Vec<PathBuf> = match git {
+                    Some(_) => scripts
+                        .iter()
+                        .map(|p| crate::git::script_path(p, &project.root))
+                        .collect(),
+                    None => scripts.clone(),
+                };
+                let script_mode = !scripts.is_empty();
+                let mut spec = ops::LaunchSpec {
+                    locale: locale.clone(),
+                    ios_device: ios_device.clone(),
+                    ios_simulator: ios_simulator.clone(),
+                    android_device: android_device.clone(),
+                    ohos_device: ohos_device.clone(),
+                    envs: envs
+                        .iter()
+                        .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
+                        .collect(),
+                    // Attachment follows `--detach` alone, NOT whether a script runs: a scripted
+                    // launch streams the app's console output the same as a plain launch. (A
+                    // `--keep-alive` scripted run additionally keeps `day` in the foreground after the
+                    // script so that output stays visible while the app lives — see below.)
+                    attached: !detach,
+                };
+                // Ctrl-C during an attached run must take the launched apps and their log
+                // watchers (simctl / adb logcat) down too — not leave them orphaned.
+                if spec.attached {
+                    crate::signals::install();
+                }
+                // The debug window-title tag (docs/windows.md): which build, which toolkit, and —
+                // when a script is driving — which script. The app reads these off the environment
+                // and only shows them in a debug build.
+                spec.envs.push((
+                    "DAY_APP_VERSION".into(),
+                    project.manifest.app.version.clone(),
+                ));
+                // `--record` (§14.6): the app's `day_script::init` reads `DAY_RECORD` and starts a
+                // headless recorder that flushes a replayable dayscript to the path for its lifetime.
+                // Absolutize against the invoking CWD — the app process runs from the project root, so
+                // a relative path would otherwise land somewhere the user did not mean.
+                if let Some(path) = &record {
+                    let abs = if path.is_absolute() {
+                        path.clone()
+                    } else {
+                        std::env::current_dir()
+                            .map(|d| d.join(path))
+                            .unwrap_or_else(|_| path.clone())
+                    };
+                    spec.envs
+                        .push(("DAY_RECORD".into(), abs.to_string_lossy().into_owned()));
+                }
+                if script_mode {
+                    // A scripted run is unattended, so a panic's backtrace has to be in the log the
+                    // first time — nobody is there to re-run it with RUST_BACKTRACE set. The app's
+                    // stderr is already streamed, so this is what turns "thread panicked at …" into
+                    // a stack. An explicit `--env RUST_BACKTRACE=…` wins (it is in `envs` already).
+                    if !envs.iter().any(|kv| kv.starts_with("RUST_BACKTRACE=")) {
+                        spec.envs.push(("RUST_BACKTRACE".into(), "1".into()));
                     }
-                    if let Some(t) = &capture.theme {
-                        run_spec.envs.push(("DAY_THEME".into(), t.clone()));
-                    }
-                    let mut attempt = 0u32;
-                    loop {
-                        if ri > 0 || attempt > 0 {
-                            // The previous run's app still holds the engine port — stop it the
-                            // way `day stop` does before the next instance binds.
+                    // The app is launched once and the scripts run in sequence against it, so the
+                    // title names all of them.
+                    let names: Vec<String> = scripts
+                        .iter()
+                        .map(|s| {
+                            std::path::Path::new(s)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| s.to_string_lossy().into_owned())
+                        })
+                        .collect();
+                    spec.envs.push(("DAY_SCRIPT".into(), names.join(",")));
+                }
+                let token = crate::script::make_token();
+                // The capture matrix (--themes × --locales): the scripted runs each target performs,
+                // with the variant names both CI shapes already produce — the day-CI/gallery
+                // `<theme>`/`<theme>-<locale>` convention and the app-CI `<locale>` convention are
+                // preserved byte-for-byte so existing artifact layouts survive the move from YAML
+                // loops into the CLI. No flags = one run with the plain --locale/--variant.
+                let matrix = capture_matrix(&themes, &locales, &locale, &variant, &envs)
+                    .map_err(CliError::usage)?;
+                let mut handles = Vec::new();
+                let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
+                    Vec::new();
+                let mut script_failures = 0usize;
+                // Engine losses across the whole run — the cap that keeps a dead app from
+                // relaunching once per variant until the job's own timeout kills it.
+                let mut losses = 0usize;
+                for (ti, p) in platforms.iter().enumerate() {
+                    let port = crate::script::pick_port(ti);
+                    // The dayscript engine rides EVERY launch (loopback, token-gated): scripted runs
+                    // drive it immediately, and interactive launches stay drivable later via the
+                    // session registry (`day drive` / `day relaunch` / agents — docs/agent.md).
+                    spec.envs
+                        .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
+                    spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
+                    spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
+                    let target =
+                        crate::external::find_target(project, p).map_err(CliError::usage)?;
+                    let built = if skip_build {
+                        ops::reuse_build(project, target, profile)
+                    } else if spec.wants_ios_device() {
+                        ops::build_for_device(project, target, profile)
+                    } else {
+                        ops::build(project, target, profile)
+                    };
+                    let outcome = built.map_err(CliError::build)?;
+                    for (ri, capture) in matrix.iter().enumerate() {
+                        // Per-run spec: the matrix's locale and theme ride the SAME channels the
+                        // old YAML loops used (the --locale plumbing and the DAY_THEME env).
+                        let mut run_spec = spec.clone();
+                        if let Some(l) = &capture.locale {
+                            run_spec.locale = Some(l.clone());
+                        }
+                        if let Some(t) = &capture.theme {
+                            run_spec.envs.push(("DAY_THEME".into(), t.clone()));
+                        }
+                        let mut attempt = 0u32;
+                        loop {
+                            if ri > 0 || attempt > 0 {
+                                // The previous run's app still holds the engine port — stop it the
+                                // way `day stop` does before the next instance binds.
+                                crate::script::terminate(project, target);
+                            }
+                            // Stamped before the launch so the post-mortem can tell this run's
+                            // crash report from one an earlier run left in the same directory.
+                            let launched_at = std::time::SystemTime::now();
+                            let h = ops::launch(project, target, &outcome, &run_spec)
+                                .map_err(CliError::failure)?;
+                            // Kept beside the handle so a crash can be diagnosed when it is
+                            // joined: a plain `day launch` has no script to lose its engine,
+                            // so the join is the ONLY place the app's death is observed.
+                            launched.push((target, launched_at));
+                            crate::sessions::record(
+                                &project.root,
+                                crate::sessions::Session {
+                                    target: p.clone(),
+                                    app_id: project.manifest.resolve(p).id,
+                                    profile: profile.to_string(),
+                                    engine_port: port,
+                                    engine_token: token.clone(),
+                                    started_at: crate::sessions::now_millis(),
+                                },
+                            );
+                            handles.push(h);
+                            if !script_mode {
+                                break;
+                            }
+                            match crate::script::run_scripts(
+                                project,
+                                target,
+                                port,
+                                &token,
+                                &scripts,
+                                run_spec.locale.as_deref(),
+                                capture.variant.as_deref(),
+                                device.as_deref(),
+                                keep_alive,
+                                spec.attached,
+                            ) {
+                                // A single RETRYABLE failure and nothing else: the shape a race
+                                // leaves behind (an element not realized yet, an assert that lost
+                                // to a transition or a page load) rather than a broken app. Re-run
+                                // the variant once — the same budget the app-death arm below has
+                                // always had, extended to the other way a flake presents. Two
+                                // failures, or one the engine called final, is a verdict: report
+                                // it. The retry is announced, so a green run that needed one is
+                                // still visible as a flake in the log rather than passing silently.
+                                Ok(run)
+                                    if run.steps_failed == 1
+                                        && run.retryable_failed == 1
+                                        && attempt == 0 =>
+                                {
+                                    eprintln!(
+                                        "warning: one retryable step failed — retrying the script \
+                                     once before calling it a failure"
+                                    );
+                                    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+                                        println!(
+                                            "::warning::one retryable step failed — retrying the \
+                                         script once before calling it a failure"
+                                        );
+                                    }
+                                    attempt += 1;
+                                }
+                                Ok(run) => {
+                                    script_failures += run.steps_failed;
+                                    let tag = capture
+                                        .variant
+                                        .as_deref()
+                                        .map(|v| format!(" [{v}]"))
+                                        .unwrap_or_default();
+                                    ops::status(
+                                        "Script",
+                                        &format!(
+                                            "{}{tag}: {}/{} steps passed · {} screenshot(s)",
+                                            target.name,
+                                            run.steps_total - run.steps_failed,
+                                            run.steps_total,
+                                            run.screenshots.len()
+                                        ),
+                                    );
+                                    break;
+                                }
+                                // The iOS simulator's known app-death flake: the engine died with
+                                // ZERO failed steps. Retry the (idempotent) run once — the logic
+                                // both CI workflows used to grep logs for, now typed. A loss AFTER
+                                // a failed step is a failing run that then died: report it.
+                                Err(crate::script::ScriptError::EngineLost {
+                                    steps_failed: 0,
+                                    ..
+                                }) if target.kind == crate::targets::TargetKind::IosSim
+                                    && attempt == 0 =>
+                                {
+                                    eprintln!(
+                                        "warning: engine connection lost (flaky simulator \
+                                     app-death) — retrying the script once"
+                                    );
+                                    // Keep the annotation CI used to emit from its own retry wrapper.
+                                    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+                                        println!(
+                                            "::warning::engine connection lost (flaky simulator \
+                                         app-death) — retrying the script once"
+                                        );
+                                    }
+                                    // Say WHY it died before retrying: the retry usually passes, and
+                                    // then the only record of the flake is this one line.
+                                    crate::diagnose::after_app_death(project, target, launched_at);
+                                    attempt += 1;
+                                }
+                                // An engine loss that survived the retry policy: count it and
+                                // move to the NEXT matrix run instead of abandoning the rest —
+                                // the CI loops this replaced continued per variant (OHOS relies
+                                // on it under TCG), and the final exit code still reports failure.
+                                Err(crate::script::ScriptError::EngineLost {
+                                    steps_failed,
+                                    ref detail,
+                                }) => {
+                                    eprintln!(
+                                        "error: engine connection lost ({detail}) — abandoning this variant"
+                                    );
+                                    let crashed = crate::diagnose::after_app_death(
+                                        project,
+                                        target,
+                                        launched_at,
+                                    );
+                                    // A device that no longer answers takes every remaining variant
+                                    // with it: the next launch would install onto it, and `adb` and
+                                    // `hdc` wait for a wedged device rather than failing. That wait
+                                    // is what turned this arm's diagnosis into a six-hour job.
+                                    let device_lost = !crate::script::device_alive(target);
+                                    script_failures += steps_failed.max(1);
+                                    losses += 1;
+                                    // A CRASH ends the run. Every remaining variant would relaunch a
+                                    // build that just died and fail the same way, minutes at a time —
+                                    // which is how a crashed walkthrough used to run out the job's
+                                    // timeout instead of reporting the crash it had already found.
+                                    // A loss with no crash artifact stays per-variant (a slow emulator
+                                    // drops the connection and the next variant often passes), but not
+                                    // forever: two in a row is a pattern, not a hiccup.
+                                    if crashed || device_lost || losses >= 2 {
+                                        let why = if crashed {
+                                            "the app crashed"
+                                        } else if device_lost {
+                                            "the device stopped answering"
+                                        } else {
+                                            "the engine was lost twice"
+                                        };
+                                        crate::signals::kill_all();
+                                        return Err(CliError::script(format!(
+                                            "{why} — abandoning the remaining variants \
+                                         ({} of {} run)",
+                                            ri + 1,
+                                            matrix.len()
+                                        )));
+                                    }
+                                    break;
+                                }
+                                // Anything else is a runner/config error (bad script, bad flags):
+                                // abort outright, as before.
+                                Err(e) => return Err(CliError::script(e.to_string())),
+                            }
+                        }
+                        // Between matrix runs the app must exit so the next launch re-binds the
+                        // engine port (each variant is a fresh process, as the CI loops had it).
+                        if script_mode && ri + 1 < matrix.len() {
                             crate::script::terminate(project, target);
                         }
-                        // Stamped before the launch so the post-mortem can tell this run's
-                        // crash report from one an earlier run left in the same directory.
-                        let launched_at = std::time::SystemTime::now();
-                        let h = ops::launch(project, target, &outcome, &run_spec)
-                            .map_err(CliError::failure)?;
-                        // Kept beside the handle so a crash can be diagnosed when it is
-                        // joined: a plain `day launch` has no script to lose its engine,
-                        // so the join is the ONLY place the app's death is observed.
-                        launched.push((target, launched_at));
-                        crate::sessions::record(
-                            &project.root,
-                            crate::sessions::Session {
-                                target: p.clone(),
-                                app_id: project.manifest.resolve(p).id,
-                                profile: profile.to_string(),
-                                engine_port: port,
-                                engine_token: token.clone(),
-                                started_at: crate::sessions::now_millis(),
-                            },
-                        );
-                        handles.push(h);
-                        if !script_mode {
-                            break;
-                        }
-                        match crate::script::run_scripts(
-                            project,
-                            target,
-                            port,
-                            &token,
-                            &scripts,
-                            run_spec.locale.as_deref(),
-                            capture.variant.as_deref(),
-                            device.as_deref(),
-                            keep_alive,
-                            spec.attached,
-                        ) {
-                            // A single RETRYABLE failure and nothing else: the shape a race
-                            // leaves behind (an element not realized yet, an assert that lost
-                            // to a transition or a page load) rather than a broken app. Re-run
-                            // the variant once — the same budget the app-death arm below has
-                            // always had, extended to the other way a flake presents. Two
-                            // failures, or one the engine called final, is a verdict: report
-                            // it. The retry is announced, so a green run that needed one is
-                            // still visible as a flake in the log rather than passing silently.
-                            Ok(run)
-                                if run.steps_failed == 1
-                                    && run.retryable_failed == 1
-                                    && attempt == 0 =>
-                            {
-                                eprintln!(
-                                    "warning: one retryable step failed — retrying the script \
-                                     once before calling it a failure"
-                                );
-                                if std::env::var_os("GITHUB_ACTIONS").is_some() {
-                                    println!(
-                                        "::warning::one retryable step failed — retrying the \
-                                         script once before calling it a failure"
-                                    );
-                                }
-                                attempt += 1;
-                            }
-                            Ok(run) => {
-                                script_failures += run.steps_failed;
-                                let tag = capture
-                                    .variant
-                                    .as_deref()
-                                    .map(|v| format!(" [{v}]"))
-                                    .unwrap_or_default();
-                                ops::status(
-                                    "Script",
-                                    &format!(
-                                        "{}{tag}: {}/{} steps passed · {} screenshot(s)",
-                                        target.name,
-                                        run.steps_total - run.steps_failed,
-                                        run.steps_total,
-                                        run.screenshots.len()
-                                    ),
-                                );
-                                break;
-                            }
-                            // The iOS simulator's known app-death flake: the engine died with
-                            // ZERO failed steps. Retry the (idempotent) run once — the logic
-                            // both CI workflows used to grep logs for, now typed. A loss AFTER
-                            // a failed step is a failing run that then died: report it.
-                            Err(crate::script::ScriptError::EngineLost {
-                                steps_failed: 0, ..
-                            }) if target.kind == crate::targets::TargetKind::IosSim
-                                && attempt == 0 =>
-                            {
-                                eprintln!(
-                                    "warning: engine connection lost (flaky simulator \
-                                     app-death) — retrying the script once"
-                                );
-                                // Keep the annotation CI used to emit from its own retry wrapper.
-                                if std::env::var_os("GITHUB_ACTIONS").is_some() {
-                                    println!(
-                                        "::warning::engine connection lost (flaky simulator \
-                                         app-death) — retrying the script once"
-                                    );
-                                }
-                                // Say WHY it died before retrying: the retry usually passes, and
-                                // then the only record of the flake is this one line.
-                                crate::diagnose::after_app_death(project, target, launched_at);
-                                attempt += 1;
-                            }
-                            // An engine loss that survived the retry policy: count it and
-                            // move to the NEXT matrix run instead of abandoning the rest —
-                            // the CI loops this replaced continued per variant (OHOS relies
-                            // on it under TCG), and the final exit code still reports failure.
-                            Err(crate::script::ScriptError::EngineLost {
-                                steps_failed,
-                                ref detail,
-                            }) => {
-                                eprintln!(
-                                    "error: engine connection lost ({detail}) — abandoning this variant"
-                                );
-                                let crashed =
-                                    crate::diagnose::after_app_death(project, target, launched_at);
-                                // A device that no longer answers takes every remaining variant
-                                // with it: the next launch would install onto it, and `adb` and
-                                // `hdc` wait for a wedged device rather than failing. That wait
-                                // is what turned this arm's diagnosis into a six-hour job.
-                                let device_lost = !crate::script::device_alive(target);
-                                script_failures += steps_failed.max(1);
-                                losses += 1;
-                                // A CRASH ends the run. Every remaining variant would relaunch a
-                                // build that just died and fail the same way, minutes at a time —
-                                // which is how a crashed walkthrough used to run out the job's
-                                // timeout instead of reporting the crash it had already found.
-                                // A loss with no crash artifact stays per-variant (a slow emulator
-                                // drops the connection and the next variant often passes), but not
-                                // forever: two in a row is a pattern, not a hiccup.
-                                if crashed || device_lost || losses >= 2 {
-                                    let why = if crashed {
-                                        "the app crashed"
-                                    } else if device_lost {
-                                        "the device stopped answering"
-                                    } else {
-                                        "the engine was lost twice"
-                                    };
-                                    crate::signals::kill_all();
-                                    return Err(CliError::script(format!(
-                                        "{why} — abandoning the remaining variants \
-                                         ({} of {} run)",
-                                        ri + 1,
-                                        matrix.len()
-                                    )));
-                                }
-                                break;
-                            }
-                            // Anything else is a runner/config error (bad script, bad flags):
-                            // abort outright, as before.
-                            Err(e) => return Err(CliError::script(e.to_string())),
-                        }
-                    }
-                    // Between matrix runs the app must exit so the next launch re-binds the
-                    // engine port (each variant is a fresh process, as the CI loops had it).
-                    if script_mode && ri + 1 < matrix.len() {
-                        crate::script::terminate(project, target);
                     }
                 }
-            }
-            // A scripted run returns once its script(s) finish — EXCEPT an attached
-            // `--keep-alive` run, which stays in the foreground streaming the app's console
-            // output until the app exits or the run is stopped (so output is visible during AND
-            // after the script, exactly like a plain attached launch). Detached scripted runs
-            // (agents) and non-keep-alive scripted runs (CI) return here without blocking on
-            // device log pumps that never EOF; attached runs already streamed logs live while
-            // the script drove the app.
-            //
-            // Reap the tracked children first (`--keep-alive` is what asks for the app to stay
-            // running). Returning without this leaves the log pumps (`adb logcat`, `simctl
-            // launch --console`) orphaned holding the inherited stdout/stderr — in CI the step's
-            // pipe then never reaches EOF and the job hangs after the final "steps passed" line.
-            if script_mode && !(spec.attached && keep_alive) {
-                crate::signals::kill_all();
-                return Ok(if script_failures > 0 {
-                    ErrKind::Script.exit_code()
-                } else {
-                    0
-                });
-            }
-            if spec.attached {
-                let mut code = 0;
-                for (i, h) in handles.into_iter().enumerate() {
-                    let one = h.join().unwrap_or(1);
-                    // A fatal signal is a crash, not a quit: say what happened while the crash
-                    // artifacts are still fresh. Closing the window exits 0 and prints nothing.
-                    if ops::died_on_signal(one)
-                        && let Some((target, at)) = launched.get(i)
-                    {
-                        eprintln!("error: {} died on a fatal signal (exit {one})", target.name);
-                        crate::diagnose::after_app_death(project, target, *at);
-                    }
-                    code = code.max(one);
+                // A scripted run returns once its script(s) finish — EXCEPT an attached
+                // `--keep-alive` run, which stays in the foreground streaming the app's console
+                // output until the app exits or the run is stopped (so output is visible during AND
+                // after the script, exactly like a plain attached launch). Detached scripted runs
+                // (agents) and non-keep-alive scripted runs (CI) return here without blocking on
+                // device log pumps that never EOF; attached runs already streamed logs live while
+                // the script drove the app.
+                //
+                // Reap the tracked children first (`--keep-alive` is what asks for the app to stay
+                // running). Returning without this leaves the log pumps (`adb logcat`, `simctl
+                // launch --console`) orphaned holding the inherited stdout/stderr — in CI the step's
+                // pipe then never reaches EOF and the job hangs after the final "steps passed" line.
+                if script_mode && !(spec.attached && keep_alive) {
+                    crate::signals::kill_all();
+                    return Ok(if script_failures > 0 {
+                        ErrKind::Script.exit_code()
+                    } else {
+                        0
+                    });
                 }
-                // A target that exited on its own leaves its siblings' log watchers (and
-                // any child that outlives its stream) running — reap them before we go.
-                crate::signals::kill_all();
-                Ok(if script_mode && script_failures > 0 {
-                    ErrKind::Script.exit_code()
+                if spec.attached {
+                    let mut code = 0;
+                    for (i, h) in handles.into_iter().enumerate() {
+                        let one = h.join().unwrap_or(1);
+                        // A fatal signal is a crash, not a quit: say what happened while the crash
+                        // artifacts are still fresh. Closing the window exits 0 and prints nothing.
+                        if ops::died_on_signal(one)
+                            && let Some((target, at)) = launched.get(i)
+                        {
+                            eprintln!("error: {} died on a fatal signal (exit {one})", target.name);
+                            crate::diagnose::after_app_death(project, target, *at);
+                        }
+                        code = code.max(one);
+                    }
+                    // A target that exited on its own leaves its siblings' log watchers (and
+                    // any child that outlives its stream) running — reap them before we go.
+                    crate::signals::kill_all();
+                    Ok(if script_mode && script_failures > 0 {
+                        ErrKind::Script.exit_code()
+                    } else {
+                        code
+                    })
                 } else {
-                    code
-                })
-            } else {
-                Ok(0)
-            }
-        }),
+                    Ok(0)
+                }
+            })
+        }
     }
 }
 
@@ -2024,6 +2073,36 @@ mod error_tests {
             Cmd::Build { profile, .. } => assert_eq!(profile, Profile::Release),
             _ => unreachable!("parsed a build command"),
         }
+    }
+
+    /// `--git` needs no `-p` and no project on disk — that is the whole point of it. `--dir`
+    /// without it is meaningless, and clap rejects the pair rather than silently ignoring one.
+    #[test]
+    fn git_parses_without_a_platform_and_dir_requires_it() {
+        let cli = Cli::try_parse_from([
+            "day",
+            "launch",
+            "--git",
+            "https://github.com/daybrite/Day-Rise.git@main",
+        ])
+        .expect("--git alone parses");
+        match cli.command {
+            Cmd::Launch {
+                git,
+                platforms,
+                dir,
+                ..
+            } => {
+                assert_eq!(
+                    git.as_deref(),
+                    Some("https://github.com/daybrite/Day-Rise.git@main")
+                );
+                assert!(platforms.is_empty(), "no -p is the host default");
+                assert!(dir.is_none());
+            }
+            _ => unreachable!("parsed a launch command"),
+        }
+        assert!(Cli::try_parse_from(["day", "launch", "--dir", "/tmp/x"]).is_err());
     }
 }
 

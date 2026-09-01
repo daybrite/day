@@ -214,6 +214,12 @@ impl Scene {
         self.detail_open.set(true);
     }
 
+    /// Close the editor — the inverse of [`Self::open`], for a cleared list selection.
+    /// `detail_open` stays as it is, so a pushed phone page is not popped from under the user.
+    pub(crate) fn clear_selection(self) {
+        self.selected.set(None);
+    }
+
     /// Create an item and open its editor straight away — the "new" flow every list app has,
     /// where the row you just made is the row you want to be typing into.
     pub(crate) fn new_item(self) {

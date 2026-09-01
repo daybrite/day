@@ -218,11 +218,22 @@ fn core_group() -> Group {
         id: "core",
         label: "Core toolchain",
         hosts: &["any"],
-        probes: vec![Probe::new(
-            "rust",
-            run_line("cargo", &["--version"]),
-            "install Rust via https://rustup.rs (rustup) or `brew install rust`",
-        )],
+        probes: vec![
+            Probe::new(
+                "rust",
+                run_line("cargo", &["--version"]),
+                "install Rust via https://rustup.rs (rustup) or `brew install rust`",
+            ),
+            // Optional: a project already on disk builds without it. It is what `day launch
+            // --git` clones with, what `day new --template <git-url>` fetches with, and what
+            // `day rebuild` checks a shipped commit out with.
+            Probe::new(
+                "git",
+                run_line("git", &["--version"]),
+                "install git — `day launch --git <url>` and `day rebuild` need it",
+            )
+            .need(Need::BuildOptional),
+        ],
         setup: "Install the Rust toolchain from https://rustup.rs, or `brew install rust`. Cross-\n\
                 compiled targets (iOS/Android/OpenHarmony) additionally need the rustup-managed\n\
                 toolchain — Homebrew's rustc ships no cross std.",

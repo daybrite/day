@@ -132,6 +132,7 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
                     align: day_spec::props::TextAlign::Leading,
                     on_link: None,
                     color: None,
+                    role: Default::default(),
                 };
                 column((header, card))
                     .spacing(6.0)
@@ -205,6 +206,7 @@ impl<P: Piece> Piece for Labeled<P> {
                 align: day_spec::props::TextAlign::Leading,
                 on_link: None,
                 color: None,
+                role: Default::default(),
             };
             let _ = row_label.build(cx);
             let _ = control.build(cx);

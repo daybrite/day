@@ -1289,6 +1289,15 @@ impl Toolkit for Dom {
                 apply_font(el, &p.font);
                 if let Some(c) = p.color {
                     s(el, "color", &color_css(c));
+                } else if p.role == day_spec::props::TextRole::Secondary {
+                    // No system "secondary label" on the web, so it is derived from the text color
+                    // in force — which is what the light/dark switch already drives. Mixing toward
+                    // transparent rather than naming a grey is what keeps it correct on both.
+                    s(
+                        el,
+                        "color",
+                        "color-mix(in srgb, currentColor 62%, transparent)",
+                    );
                 }
                 if !p.wraps {
                     s(el, "white-space", "nowrap");
