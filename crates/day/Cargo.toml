@@ -36,7 +36,7 @@ sqlite-system = ["persistence", "day-persistence/system"]
 sqlite-cipher = ["persistence", "day-persistence/cipher"]
 
 [dependencies]
-day-macros = { path = "../day-macros", version = "=0.4.0" }
+day-macros = { path = "../day-macros", version = "=0.4.1" }
 day-geometry = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
