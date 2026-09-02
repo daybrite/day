@@ -56,6 +56,13 @@ struct WindowRecord {
     on_close: OnCloseList,
 }
 
+impl WindowRecord {
+    /// Whether this is a cover whose dismissal has been requested and not yet confirmed.
+    fn closing(&self) -> bool {
+        matches!(&self.tier, Tier::Cover { closing, .. } if closing.get())
+    }
+}
+
 day_reactive::tls_slots! {
     windows;
     static WINDOWS: RefCell<Vec<WindowRecord>> = const { RefCell::new(Vec::new()) };
@@ -292,7 +299,8 @@ pub fn focused_window() -> Option<WindowHandle> {
     WINDOWS.with(|w| {
         w.borrow()
             .iter()
-            .find(|r| r.focused)
+            // The same rule as `focused_scope`: a dismissing cover is already behind us.
+            .find(|r| r.focused && !r.closing())
             .map(|r| WindowHandle { root: r.root })
     })
 }
@@ -308,7 +316,11 @@ pub fn focused_window() -> Option<WindowHandle> {
 pub fn focused_scope() -> Option<Scope> {
     WINDOWS.with(|w| {
         let windows = w.borrow();
-        let focused = windows.iter().find(|r| r.focused);
+        // A cover on its way out (dismiss requested, `CoverHidden` not yet back — the phone
+        // animates it) is no longer the front window: the one behind it is. Its record stays
+        // registered until the hide confirms, so without this a command issued during the
+        // animation resolves to a sheet that is gone and acts on nothing.
+        let focused = windows.iter().find(|r| r.focused && !r.closing());
         let initial = INITIAL_WINDOW.with(|c| c.get());
         focused
             .or_else(|| windows.iter().find(|r| Some(r.root) == initial))

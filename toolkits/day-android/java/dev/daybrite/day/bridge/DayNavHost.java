@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -19,6 +20,8 @@ import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
 import android.util.TypedValue;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.WeakHashMap;
 
 import androidx.fragment.app.Fragment;
@@ -73,6 +76,13 @@ public class DayNavHost extends LinearLayout {
 
     final MaterialToolbar toolbar;
     final AppBarLayout appBar;
+    /** The window toolbar (docs/toolbars.md), docked under the pages; GONE until an app sets
+     *  one. Its items are the desktop bar's items, as `MenuItem`s shown as actions. */
+    final MaterialToolbar bottomBar;
+    /** Live toolbar items by their day id, for targeted updates. */
+    final HashMap<String, MenuItem> barItems = new HashMap<>();
+    /** A segmented item's segments, in order, for `updateWindowToolbar` op 2. */
+    final HashMap<String, List<MenuItem>> segmentItems = new HashMap<>();
     /** Inline search field (docs/search.md); null until `setSearch` runs. */
     TextInputLayout searchLayout;
     EditText searchEdit;
@@ -132,6 +142,8 @@ public class DayNavHost extends LinearLayout {
 
         toolbar = new MaterialToolbar(ctx);
         toolbar.setTitle(title);
+        bottomBar = new MaterialToolbar(ctx);
+        bottomBar.setVisibility(GONE);
         toolbar.setNavigationOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
                 if (myEntries() == 0) return;
@@ -233,6 +245,9 @@ public class DayNavHost extends LinearLayout {
                     ViewGroup.LayoutParams.WRAP_CONTENT));
             addView(content, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         }
+        // The window toolbar sits under the pages in both layouts; it takes no room while GONE.
+        addView(bottomBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         fm = ((FragmentActivity) ctx).getSupportFragmentManager();
         fm.addOnBackStackChangedListener(new FragmentManager.OnBackStackChangedListener() {
@@ -470,6 +485,155 @@ public class DayNavHost extends LinearLayout {
      *  try/catch — never from the constructor — so a failure here can't blank the host.
      *  The MaterialToolbar keeps its menu across pushes and pops, so an item rides every page
      *  until {@link #syncBarActions} hides it. */
+    /** Build the window toolbar (docs/toolbars.md) from day-android's `serialize_toolbar` spec:
+     *  `\u001e` between items, `\u001f` between fields (id, kind, label, icon, enabled, action,
+     *  extra). Buttons and toggles show as actions; a menu becomes a submenu built like the app
+     *  menu; a segmented item becomes a submenu of radio choices; spaces and separators are the
+     *  bar's own business on a phone and are skipped. An empty spec hides the bar. */
+    void setWindowToolbar(String spec) {
+        Menu menu = bottomBar.getMenu();
+        menu.clear();
+        barItems.clear();
+        segmentItems.clear();
+        if (spec == null || spec.isEmpty()) {
+            bottomBar.setVisibility(GONE);
+            return;
+        }
+        int order = 0;
+        int groupSeq = 1;
+        for (String rec : spec.split("\u001e", -1)) {
+            if (rec.isEmpty()) continue;
+            String[] f = rec.split("\u001f", -1);
+            String id = f[0];
+            String kind = f.length > 1 ? f[1] : "";
+            String label = f.length > 2 ? f[2] : "";
+            String icon = f.length > 3 ? f[3] : "";
+            boolean enabled = f.length > 4 && f[4].equals("1");
+            final long action = f.length > 5 ? parseActionId(f[5]) : 0L;
+            String extra = f.length > 6 ? f[6] : "";
+            android.graphics.drawable.Drawable glyph =
+                    DayBridge.drawableByName(getContext(), icon);
+            if (kind.equals("button") || kind.equals("toggle")) {
+                MenuItem it = menu.add(Menu.NONE, Menu.NONE, order++, label);
+                it.setEnabled(enabled);
+                showAsAction(it, glyph);
+                final boolean toggle = kind.equals("toggle");
+                if (toggle) {
+                    it.setCheckable(true);
+                    it.setChecked(extra.equals("1"));
+                    paintToggle(it);
+                }
+                it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                    @Override public boolean onMenuItemClick(MenuItem mi) {
+                        if (toggle) {
+                            boolean on = !mi.isChecked();
+                            mi.setChecked(on);
+                            paintToggle(mi);
+                            DayBridge.nativeOnEvent(action, DayBridge.K_TOOLBAR_CHANGED,
+                                    on ? 1.0 : 0.0, "on");
+                        } else {
+                            DayBridge.nativeOnEvent(action, DayBridge.K_MENU_ACTION, 0.0, "");
+                        }
+                        return true;
+                    }
+                });
+                barItems.put(id, it);
+            } else if (kind.equals("menu")) {
+                SubMenu sm = menu.addSubMenu(Menu.NONE, Menu.NONE, order++, label);
+                MenuItem it = sm.getItem();
+                it.setEnabled(enabled);
+                showAsAction(it, glyph);
+                DayBridge.buildMenu(sm, extra);
+                barItems.put(id, it);
+            } else if (kind.equals("segmented")) {
+                String[] seg = extra.split("\u001d", -1);
+                int selected = 0;
+                try {
+                    selected = Integer.parseInt(seg[0]);
+                } catch (NumberFormatException e) {
+                    // an unreadable index selects the first segment
+                }
+                SubMenu sm = menu.addSubMenu(Menu.NONE, Menu.NONE, order++, label);
+                MenuItem head = sm.getItem();
+                head.setEnabled(enabled);
+                showAsAction(head, glyph);
+                final ArrayList<MenuItem> segments = new ArrayList<>();
+                int group = groupSeq++;
+                for (int i = 1; i < seg.length; i++) {
+                    final int idx = i - 1;
+                    MenuItem s = sm.add(group, Menu.NONE, i, seg[i]);
+                    s.setCheckable(true);
+                    s.setChecked(idx == selected);
+                    s.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                        @Override public boolean onMenuItemClick(MenuItem mi) {
+                            checkSegment(segments, idx);
+                            DayBridge.nativeOnEvent(action, DayBridge.K_TOOLBAR_CHANGED,
+                                    idx, "sel");
+                            return true;
+                        }
+                    });
+                    segments.add(s);
+                }
+                sm.setGroupCheckable(group, true, true);
+                barItems.put(id, head);
+                segmentItems.put(id, segments);
+            } else if (kind.equals("label")) {
+                MenuItem it = menu.add(Menu.NONE, Menu.NONE, order++, label);
+                it.setEnabled(false);
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM
+                        | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+                barItems.put(id, it);
+            }
+            // "sep", "space", "flex": a phone bar spaces its own actions.
+        }
+        bottomBar.setVisibility(menu.size() == 0 ? GONE : VISIBLE);
+    }
+
+    /** A targeted change to one live item: op 0 = enabled, 1 = toggle on, 2 = segment index. */
+    void updateWindowToolbar(String id, int op, double num) {
+        MenuItem it = barItems.get(id);
+        if (it == null) return;
+        if (op == 0) {
+            it.setEnabled(num != 0.0);
+        } else if (op == 1) {
+            it.setChecked(num != 0.0);
+            paintToggle(it);
+        } else if (op == 2) {
+            List<MenuItem> segments = segmentItems.get(id);
+            if (segments != null) checkSegment(segments, (int) num);
+        }
+    }
+
+    private static long parseActionId(String s) {
+        try {
+            return Long.parseLong(s);
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /** An item with a glyph shows as an icon; without one, as its text — and only while the
+     *  bar has room for it, since words are wide: the rest fold into the bar's overflow menu
+     *  rather than running off its trailing edge. */
+    private static void showAsAction(MenuItem it, android.graphics.drawable.Drawable glyph) {
+        if (glyph != null) {
+            it.setIcon(glyph);
+            it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        } else {
+            it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+        }
+    }
+
+    /** A toggle's state, drawn as the glyph's opacity: full when on, dimmed when off. */
+    private static void paintToggle(MenuItem it) {
+        android.graphics.drawable.Drawable d = it.getIcon();
+        if (d != null) d.setAlpha(it.isChecked() ? 255 : 110);
+    }
+
+    private static void checkSegment(List<MenuItem> segments, int idx) {
+        for (int i = 0; i < segments.size(); i++) segments.get(i).setChecked(i == idx);
+    }
+
     void addBarAction(String iconName, String label, final long actionId, boolean rootOnly) {
         int order = barActions.size();
         MenuItem it = toolbar.getMenu().add(Menu.NONE, Menu.NONE, order, label == null ? "" : label);

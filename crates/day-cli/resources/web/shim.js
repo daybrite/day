@@ -1485,6 +1485,36 @@ function dayEditorListen(id, el) {
   });
 }
 
+// A media element's playback state, reported on the piece channel as day-piece-media's own
+// codes (0 idle, 1 loading, 2 playing, 3 paused, 4 ended, 5 error). `pause` fires on the way to
+// `ended` and `emptied` too, so the later event wins — they arrive in that order.
+function dayMediaListen(id, el) {
+  // `volume` is a property, not an attribute, and the shim's call surface is zero-argument
+  // methods — so the value rides in `data-volume` and this method, hung on the element, applies
+  // it: the piece sets the attribute and then calls `dayApplyVolume`.
+  el.dayApplyVolume = () => { const v = Number(el.dataset.volume); if (!Number.isNaN(v)) el.volume = v; };
+  el.dayApplyVolume();
+  const report = (code, text) => {
+    const [p, l] = intoWasm(text || '');
+    wasm.day_dom_piece_event(id, code, p, l);
+  };
+  el.addEventListener('loadstart', () => report(1));
+  el.addEventListener('waiting', () => report(1));
+  el.addEventListener('playing', () => report(2));
+  el.addEventListener('pause', () => { if (!el.ended) report(3); });
+  el.addEventListener('ended', () => report(4));
+  el.addEventListener('emptied', () => report(0));
+  el.addEventListener('error', () => {
+    const code = el.error ? el.error.code : 0;
+    const msg = code === 2 ? 'network error reaching the stream'
+      : code === 3 ? 'stream is corrupt or unreadable'
+      : code === 4 ? 'stream format not supported by this browser'
+      : (el.error && el.error.message) || 'playback failed';
+    // Code 1 is an abort — our own teardown on a new load, not a failure worth reporting.
+    if (code !== 1) report(5, msg);
+  });
+}
+
 function listen(id, mask) {
   const host = E(id); const el = V(id);
   if (mask & 1) el.addEventListener('click', (e) => wasm.day_dom_event(id, 1, mods(e), 0, 0, 0));
@@ -1505,6 +1535,7 @@ function listen(id, mask) {
   }
   if (mask & 16) el.addEventListener('keydown', (e) => { if (e.key === 'Enter') wasm.day_dom_event(id, 3, 0, 0, 0, 0); });
   if (mask & 512) dayEditorListen(id, el);
+  if (mask & 1024) dayMediaListen(id, el);
   if (mask & 32) resizeObserver.observe(host);
   if (mask & 64) host.addEventListener('scroll', () => wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0));
   if (mask & 128) {

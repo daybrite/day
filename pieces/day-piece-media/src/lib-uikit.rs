@@ -6,30 +6,47 @@
 // AppKit, but objc2-av-kit 0.3 only generates the macOS (AVPlayerView) binding, so here we
 // hand-roll the view controller via `extern_class!` + `msg_send!` (exactly how the webview
 // hand-rolls WKWebView on iOS). Its `view` is the leaf UIView day-uikit manages; the controller
-// itself is retained in a thread_local (nothing else holds it once its view is embedded). Looping
-// uses the same NSNotificationCenter observer as lib-appkit.rs.
+// itself is retained in a thread_local (nothing else holds it once its view is embedded). A
+// sound-only player has no controller: the leaf is an empty, hidden UIView of no size.
+//
+// The observer (KVO on `timeControlStatus` / `currentItem.status`, the played-to-end and
+// failed-to-play notifications) is the same shape as lib-appkit.rs's and reports the same codes.
+//
+// The audio session: the first player puts the process's AVAudioSession in the `playback`
+// category and activates it. Without that, iOS treats the app's sound as ambient — silenced by
+// the ring switch and stopped the moment the app leaves the foreground — which no media player
+// wants. Background playback additionally needs the app's `UIBackgroundModes` `audio` entry.
 // ---------------------------------------------------------------------------
 
 use super::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ptr::null_mut;
 
-use day_spec::NodeId;
+use day_spec::{NodeId, Proposal, Size};
 use day_uikit::Uikit;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
 use objc2::{
-    DefinedClass, MainThreadMarker, MainThreadOnly, define_class, extern_class, msg_send, sel,
+    DefinedClass, MainThreadMarker, MainThreadOnly, class, define_class, extern_class, msg_send,
+    sel,
 };
-use objc2_av_foundation::{AVPlayer, AVPlayerItem, AVPlayerItemDidPlayToEndTimeNotification};
+use objc2_av_foundation::{
+    AVPlayer, AVPlayerItem, AVPlayerItemDidPlayToEndTimeNotification,
+    AVPlayerItemFailedToPlayToEndTimeNotification, AVPlayerItemStatus, AVPlayerTimeControlStatus,
+};
 use objc2_core_media::kCMTimeZero;
-use objc2_foundation::{NSNotificationCenter, NSString, NSURL};
+use objc2_foundation::{
+    NSKeyValueObservingOptions, NSNotificationCenter, NSObjectNSKeyValueObserverRegistration,
+    NSString, NSURL,
+};
 use objc2_ui_kit::{UIResponder, UIView, UIViewController};
 
 // AVPlayerViewController lives in AVKit.framework, which must be LINKED or
 // `objc_getClass("AVPlayerViewController")` returns nil and `alloc` aborts (SIGABRT) — declared
-// via this crate's `[package.metadata.day.ios].frameworks = ["AVKit", "AVFoundation"]`, which the
-// generated DayPieces SwiftPM package links into the app (the framework-contribution seam).
+// via this crate's `[package.metadata.day.ios].frameworks`, which the generated DayPieces SwiftPM
+// package links into the app (the framework-contribution seam). AVAudioSession lives in AVFAudio,
+// declared the same way.
 
 // The iOS AVPlayerViewController (a UIViewController subclass). We only need a handful of methods,
 // called via msg_send!.
@@ -39,68 +56,214 @@ extern_class!(
     struct AVPlayerViewController;
 );
 
-struct LoopIvars {
+/// The KVO key paths the observer registers for. `currentItem.status` reaches through to
+/// whatever item is current, so a `.load()` swap stays covered without re-registering.
+const KEY_PATHS: [&str; 2] = ["timeControlStatus", "currentItem.status"];
+
+struct ObserverIvars {
     player: Retained<AVPlayer>,
+    node: NodeId,
+    looping: bool,
 }
 
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
-    #[name = "DayMediaLoopUIKit"]
-    #[ivars = LoopIvars]
-    struct MediaLoop;
+    #[name = "DayMediaObserverUIKit"]
+    #[ivars = ObserverIvars]
+    struct MediaObserver;
 
-    unsafe impl NSObjectProtocol for MediaLoop {}
+    unsafe impl NSObjectProtocol for MediaObserver {}
 
-    impl MediaLoop {
+    impl MediaObserver {
         // Fired when ANY player item plays to its end (registered with object: nil so `.load()`
-        // swaps stay covered) — loop only when it is OUR player's current item.
+        // swaps stay covered) — act only when it is OUR player's current item.
         #[unsafe(method(itemDidPlayToEnd:))]
         fn item_did_play_to_end(&self, note: *mut AnyObject) {
+            if !self.is_ours(note) {
+                return;
+            }
             let player = &self.ivars().player;
-            let Some(current) = (unsafe { player.currentItem() }) else {
-                return;
-            };
-            let ended: *mut AnyObject = unsafe { msg_send![&*note, object] };
-            if ended != Retained::as_ptr(&current).cast_mut().cast() {
+            if self.ivars().looping {
+                unsafe {
+                    player.seekToTime(kCMTimeZero);
+                    player.play();
+                }
+            } else {
+                self.report(report::ENDED, String::new());
+            }
+        }
+
+        #[unsafe(method(itemFailedToPlayToEnd:))]
+        fn item_failed_to_play_to_end(&self, note: *mut AnyObject) {
+            if !self.is_ours(note) {
                 return;
             }
-            unsafe {
-                player.seekToTime(kCMTimeZero);
-                player.play();
-            }
+            self.report(report::ERROR, failure_message(note));
+        }
+
+        #[unsafe(method(observeValueForKeyPath:ofObject:change:context:))]
+        fn observe_value(
+            &self,
+            _key_path: *mut AnyObject,
+            _object: *mut AnyObject,
+            _change: *mut AnyObject,
+            _context: *mut std::ffi::c_void,
+        ) {
+            let (code, text) = state_of(&self.ivars().player);
+            self.report(code, text);
         }
     }
 );
 
-impl MediaLoop {
-    fn new(mtm: MainThreadMarker, player: Retained<AVPlayer>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(LoopIvars { player });
+impl MediaObserver {
+    fn new(
+        mtm: MainThreadMarker,
+        player: Retained<AVPlayer>,
+        node: NodeId,
+        looping: bool,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ObserverIvars {
+            player,
+            node,
+            looping,
+        });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+        let center = NSNotificationCenter::defaultCenter();
         unsafe {
-            NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+            center.addObserver_selector_name_object(
                 &this,
                 sel!(itemDidPlayToEnd:),
                 Some(AVPlayerItemDidPlayToEndTimeNotification),
                 None,
             );
+            center.addObserver_selector_name_object(
+                &this,
+                sel!(itemFailedToPlayToEnd:),
+                Some(AVPlayerItemFailedToPlayToEndTimeNotification),
+                None,
+            );
+            for path in KEY_PATHS {
+                this.ivars().player.addObserver_forKeyPath_options_context(
+                    &this,
+                    &NSString::from_str(path),
+                    NSKeyValueObservingOptions::New,
+                    null_mut(),
+                );
+            }
         }
         this
     }
+
+    /// Deregister everything BEFORE the observer drops: a center or a KVO registration left
+    /// pointing at a freed object messages garbage on the next change.
+    fn detach(&self) {
+        unsafe {
+            NSNotificationCenter::defaultCenter().removeObserver(self);
+            for path in KEY_PATHS {
+                self.ivars()
+                    .player
+                    .removeObserver_forKeyPath(self, &NSString::from_str(path));
+            }
+        }
+    }
+
+    fn is_ours(&self, note: *mut AnyObject) -> bool {
+        let Some(current) = (unsafe { self.ivars().player.currentItem() }) else {
+            return false;
+        };
+        let object: *mut AnyObject = unsafe { msg_send![&*note, object] };
+        object == Retained::as_ptr(&current).cast_mut().cast()
+    }
+
+    fn report(&self, code: i32, text: String) {
+        day_uikit::emit(
+            self.ivars().node,
+            Event::Custom {
+                tag: report::TAG,
+                num: code as f64,
+                text,
+            },
+        );
+    }
 }
 
-/// What we retain per media view: the controller (and through it the player) plus the optional
-/// loop observer.
-type MediaRefs = (
-    Retained<AVPlayerViewController>,
-    Option<Retained<MediaLoop>>,
-);
+/// The failure a `…FailedToPlayToEndTime` notification carries, as text.
+fn failure_message(note: *mut AnyObject) -> String {
+    unsafe {
+        let info: *mut AnyObject = msg_send![&*note, userInfo];
+        if info.is_null() {
+            return "playback failed".into();
+        }
+        let key = NSString::from_str("AVPlayerItemFailedToPlayToEndTimeErrorKey");
+        let err: *mut AnyObject = msg_send![&*info, objectForKey: &*key];
+        if err.is_null() {
+            return "playback failed".into();
+        }
+        let desc: Retained<NSString> = msg_send![&*err, localizedDescription];
+        desc.to_string()
+    }
+}
+
+/// What the player is doing right now, as a report code and detail.
+fn state_of(player: &AVPlayer) -> (i32, String) {
+    let Some(item) = (unsafe { player.currentItem() }) else {
+        return (report::IDLE, String::new());
+    };
+    if unsafe { item.status() } == AVPlayerItemStatus::Failed {
+        let text = unsafe { item.error() }
+            .map(|e| e.localizedDescription().to_string())
+            .unwrap_or_else(|| "playback failed".into());
+        return (report::ERROR, text);
+    }
+    match unsafe { player.timeControlStatus() } {
+        AVPlayerTimeControlStatus::Playing => (report::PLAYING, String::new()),
+        AVPlayerTimeControlStatus::WaitingToPlayAtSpecifiedRate => {
+            (report::LOADING, String::new())
+        }
+        _ => (report::PAUSED, String::new()),
+    }
+}
+
+/// Put the process's audio session in the `playback` category, once. Failures are logged and
+/// otherwise ignored: the player still plays in the foreground without it.
+fn activate_audio_session() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| unsafe {
+        let session: *mut AnyObject = msg_send![class!(AVAudioSession), sharedInstance];
+        if session.is_null() {
+            return;
+        }
+        // The constant's value is its own name, which is what lets this avoid a binding.
+        let category = NSString::from_str("AVAudioSessionCategoryPlayback");
+        let ok: bool = msg_send![&*session, setCategory: &*category, error: null_mut::<*mut AnyObject>()];
+        if !ok {
+            log::warn!("day-piece-media: AVAudioSession refused the playback category");
+        }
+        let ok: bool = msg_send![&*session, setActive: true, error: null_mut::<*mut AnyObject>()];
+        if !ok {
+            log::warn!("day-piece-media: AVAudioSession could not be activated");
+        }
+    });
+}
+
+/// What we retain per media view: the player, its controller when it has one (a sound-only
+/// view does not), its observer, and whether it measures zero.
+struct Live {
+    player: Retained<AVPlayer>,
+    controller: Option<Retained<AVPlayerViewController>>,
+    observer: Retained<MediaObserver>,
+    audio_only: bool,
+}
 
 day_core::tls_group! {
-    // Keep each (controller, loop observer) alive as long as its view — the update path finds the
-    // controller (and through it the player) by the leaf view's pointer.
-    static CONTROLLERS: RefCell<HashMap<usize, MediaRefs>> = RefCell::new(HashMap::new());
+    // Keep each player (and controller) alive as long as its view — the update path finds the
+    // player by the leaf view's pointer.
+    static LIVE: RefCell<HashMap<usize, Live>> = RefCell::new(HashMap::new());
+}
 
+fn key_of(h: &UIView) -> usize {
+    (h as *const UIView) as usize
 }
 
 /// `NSURL` from the one source string: an explicit scheme parses as a URL, anything else is a
@@ -122,42 +285,54 @@ fn load_url(player: &AVPlayer, source: &str, mtm: MainThreadMarker) {
     unsafe { player.replaceCurrentItemWithPlayerItem(Some(&item)) };
 }
 
-fn make(_backend: &mut Uikit, p: &MediaProps, _id: NodeId) -> Retained<UIView> {
+fn make(_backend: &mut Uikit, p: &MediaProps, id: NodeId) -> Retained<UIView> {
     let mtm = MainThreadMarker::new().unwrap();
-    let vc: Retained<AVPlayerViewController> =
-        unsafe { msg_send![AVPlayerViewController::alloc(mtm), init] };
+    activate_audio_session();
     let player: Retained<AVPlayer> = unsafe { msg_send![AVPlayer::alloc(mtm), init] };
     unsafe {
         player.setMuted(p.muted);
-        let _: () = msg_send![&vc, setPlayer: &*player];
-        let _: () = msg_send![&vc, setShowsPlaybackControls: p.controls];
+        player.setVolume(p.volume.clamp(0.0, 1.0) as f32);
     }
+    let (view, controller): (Retained<UIView>, Option<Retained<AVPlayerViewController>>) =
+        if p.audio_only {
+            let view: Retained<UIView> = unsafe { msg_send![UIView::alloc(mtm), init] };
+            view.setHidden(true);
+            (view, None)
+        } else {
+            let vc: Retained<AVPlayerViewController> =
+                unsafe { msg_send![AVPlayerViewController::alloc(mtm), init] };
+            unsafe {
+                let _: () = msg_send![&vc, setPlayer: &*player];
+                let _: () = msg_send![&vc, setShowsPlaybackControls: p.controls];
+            }
+            let view: Retained<UIView> = unsafe { msg_send![&vc, view] };
+            (view, Some(vc))
+        };
+    // Observe BEFORE loading, so the first item's status lands in the signal too.
+    let observer = MediaObserver::new(mtm, player.clone(), id, p.looping);
+    LIVE.with(|m| {
+        m.borrow_mut().insert(
+            key_of(&view),
+            Live {
+                player: player.clone(),
+                controller,
+                observer,
+                audio_only: p.audio_only,
+            },
+        )
+    });
     if !p.url.is_empty() {
         load_url(&player, &p.url, mtm);
     }
     if p.autoplay {
         unsafe { player.play() };
     }
-    let observer = p.looping.then(|| MediaLoop::new(mtm, player));
-    let view: Retained<UIView> = unsafe { msg_send![&vc, view] };
-    CONTROLLERS.with(|m| {
-        m.borrow_mut()
-            .insert((view.as_ref() as *const UIView) as usize, (vc, observer))
-    });
     view
 }
 
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &MediaPatch) {
-    let key = (h.as_ref() as *const UIView) as usize;
-    let Some(player) = CONTROLLERS.with(|m| {
-        m.borrow().get(&key).map(|(vc, _)| {
-            let p: Option<Retained<AVPlayer>> = unsafe { msg_send![&**vc, player] };
-            p
-        })
-    }) else {
-        return;
-    };
-    let Some(player) = player else {
+    let Some(player) = LIVE.with(|m| m.borrow().get(&key_of(h)).map(|l| l.player.clone()))
+    else {
         return;
     };
     match patch {
@@ -168,33 +343,41 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &MediaPatch) {
         }
         MediaPatch::Play => unsafe { player.play() },
         MediaPatch::Pause => unsafe { player.pause() },
+        // Dropping the item is what lets a live stream's connection go; the KVO on
+        // `currentItem.status` reports the resulting Idle.
+        MediaPatch::Stop => unsafe {
+            player.pause();
+            player.replaceCurrentItemWithPlayerItem(None);
+        },
+        MediaPatch::Volume(v) => unsafe { player.setVolume(v.clamp(0.0, 1.0) as f32) },
     }
 }
 
-/// Stop playback and drop the retained controller + loop observer when the view goes away.
+/// A sound-only player takes no room; a video fills what it is offered.
+fn measure(backend: &mut Uikit, h: &Retained<UIView>, proposal: Proposal) -> Size {
+    if LIVE.with(|m| m.borrow().get(&key_of(h)).is_some_and(|l| l.audio_only)) {
+        return Size::ZERO;
+    }
+    day_pieces::fill_measure(backend, h, proposal)
+}
+
+/// Stop playback and drop the retained player, controller, and observer when the view goes
+/// away.
 ///
-/// Without this the map grows one retained AVPlayerViewController (and through it an AVPlayer)
-/// per realized media view, and — worse — its key is the view's ADDRESS, which the allocator
-/// reuses: a later view landing on a freed address would inherit the dead controller and drive
-/// the wrong player.
+/// Without this the map grows one retained player (and controller) per realized media view,
+/// and — worse — its key is the view's ADDRESS, which the allocator reuses: a later view landing
+/// on a freed address would inherit the dead entry and drive the wrong player.
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
-    let key = (h.as_ref() as *const UIView) as usize;
-    let Some((vc, observer)) = CONTROLLERS.with(|m| m.borrow_mut().remove(&key)) else {
+    let Some(live) = LIVE.with(|m| m.borrow_mut().remove(&key_of(h))) else {
         return;
     };
     // Pause before the drop below releases the player — teardown, not deallocation order,
     // should be what silences it.
-    let player: Option<Retained<AVPlayer>> = unsafe { msg_send![&*vc, player] };
-    if let Some(player) = player {
-        unsafe { player.pause() };
-    }
-    if let Some(observer) = observer {
-        // SAFETY: main thread (release is a renderer duty); deregistering before the observer
-        // drops means the center never messages a dead object.
-        unsafe { NSNotificationCenter::defaultCenter().removeObserver(&observer) };
-    }
+    unsafe { live.player.pause() };
+    live.observer.detach();
+    drop(live.controller);
 }
 
 day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     kind: KIND, props: MediaProps, patch: MediaPatch,
-    make: make, update: update, measure: day_pieces::fill_measure, release: release);
+    make: make, update: update, measure: measure, release: release);

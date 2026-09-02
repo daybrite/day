@@ -3,17 +3,28 @@
 
 //! day-piece-media — an EXTERNAL Day Piece (DESIGN.md §15) wrapping each toolkit's NATIVE media
 //! player: AVPlayerView on AppKit, AVPlayerViewController on UIKit, QMediaPlayer + QVideoWidget on
-//! Qt, `android.widget.VideoView` on Android, GtkVideo on GTK. One Rust API registered link-time
-//! into each backend's renderer slice without touching day. Like the webview it carries both
-//! a front-end AND its own native backends — including an Android manifest permission contribution
-//! (INTERNET) and an iOS framework contribution (AVKit + AVFoundation), see docs/extending.md.
+//! Qt, `android.widget.VideoView` (or a bare `MediaPlayer` for sound) on Android, GtkVideo on GTK,
+//! MediaPlayerElement on XAML, `<video>`/`<audio>` on the web, and an ArkTS `Video` / `AVPlayer` on
+//! HarmonyOS. One Rust API registered link-time into each backend's renderer slice without touching
+//! day. Like the webview it carries both a front-end AND its own native backends — including an
+//! Android manifest permission contribution (INTERNET) and an iOS framework contribution (AVKit +
+//! AVFoundation), see docs/extending.md.
 //!
-//! The player is a growing leaf that fills its space (constrain it with `.frame(w, h)`). The `url`
-//! source accepts a plain string, a `Signal<String>`, or a closure, and may name a local file path
-//! OR an http(s)/file URL — every backend's loader takes both. Configure playback at build with
-//! `.autoplay(bool)` / `.looping(bool)` / `.muted(bool)` / `.controls(bool)`; transport is
-//! imperative and modeled with `Copy` `Trigger`s — `.play()` / `.pause()` drive playback and
-//! `.load()` re-reads the bound url (then plays) — each `watch`ed to a `MediaPatch`.
+//! The player is a growing leaf that fills its space (constrain it with `.frame(w, h)`), unless it
+//! is `.audio_only()`: a sound-only player draws nothing and measures ZERO, so a radio app can drop
+//! it anywhere in its tree and build its own now-playing UI around it. The `url` source accepts a
+//! plain string, a `Signal<String>`, or a closure, and may name a local file path OR an http(s)/file
+//! URL — every backend's loader takes both. Configure playback at build with `.autoplay(bool)` /
+//! `.looping(bool)` / `.muted(bool)` / `.controls(bool)`; transport is imperative and modeled with
+//! `Copy` `Trigger`s — `.play()` / `.pause()` / `.stop()` drive playback and `.load()` re-reads the
+//! bound url (then plays) — each `watch`ed to a `MediaPatch`. `.volume(…)` is a tracked fraction
+//! (a constant, a `Signal<f64>`, or a closure) patched through as it changes.
+//!
+//! Playback state comes BACK through `.state(signal)`: every arm reports what its native player is
+//! doing (loading, playing, paused, ended, failed) on the piece's `Event::Custom` channel, and the
+//! front-end writes it into the bound `Signal<PlaybackState>`. That is the readback docs/media.md
+//! reserved the channel for: native chrome, the network, and the app's own triggers all move the
+//! player, and the signal is where they agree.
 //!
 //! Native chrome (`.controls(true)`, the default) is free where the toolkit has it: AVPlayerView's
 //! inline controls, AVPlayerViewController's playback controls, Android's MediaController. Qt's
@@ -21,8 +32,9 @@
 //! are always on. See docs/media.md for the per-backend caveats.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
-use day_pieces::{IntoText, TextSource};
-use day_reactive::{Trigger, untrack, watch};
+use day_pieces::{FractionSource, IntoFraction, IntoText, TextSource};
+use day_reactive::{Signal, Trigger, untrack, watch};
+use day_spec::Event;
 
 pub const KIND: &str = "day.piece.media";
 
@@ -40,6 +52,11 @@ pub struct MediaProps {
     pub muted: bool,
     /// Show the toolkit's native transport chrome where it has one (default true).
     pub controls: bool,
+    /// Sound only (default false): no picture, no chrome, and no size — the leaf measures zero.
+    /// Each arm builds the toolkit's bare audio player rather than its video view.
+    pub audio_only: bool,
+    /// Output volume, `0.0` (silent) to `1.0` (full) (default 1.0).
+    pub volume: f64,
 }
 
 impl Default for MediaProps {
@@ -50,6 +67,8 @@ impl Default for MediaProps {
             looping: false,
             muted: false,
             controls: true,
+            audio_only: false,
+            volume: 1.0,
         }
     }
 }
@@ -63,6 +82,66 @@ pub enum MediaPatch {
     Play,
     /// Pause playback (from `.pause()`).
     Pause,
+    /// Stop playback and DROP the source (from `.stop()`): a paused live stream keeps its
+    /// connection open and its buffer filling, a stopped one lets both go. The next `Load`
+    /// starts afresh.
+    Stop,
+    /// Set the output volume, `0.0..=1.0` (from `.volume(…)` changing).
+    Volume(f64),
+}
+
+/// What the native player is doing, as reported through [`Media::state`].
+///
+/// The arms agree on this vocabulary and nothing finer: a live stream has no position or
+/// duration worth reporting, and the states an app draws a transport from are these five.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum PlaybackState {
+    /// No source, or the source was stopped.
+    #[default]
+    Idle,
+    /// A source is set and the player is connecting or buffering — nothing audible yet.
+    Loading,
+    Playing,
+    Paused,
+    /// The source played to its end (a file; a live stream never does).
+    Ended,
+    /// The player gave up on the source. The text is the toolkit's own message.
+    Error(String),
+}
+
+impl PlaybackState {
+    /// Sound is (or is about to be) coming out: playing, or loading on the way to playing.
+    pub fn is_active(&self) -> bool {
+        matches!(self, PlaybackState::Playing | PlaybackState::Loading)
+    }
+
+    /// The report an arm sends: `num` is one of the [`report`] codes and `text` the detail
+    /// (an error's message). Unknown codes read as `Idle` rather than being dropped, so a
+    /// backend that grows a state the front-end does not know still resets a stale one.
+    pub fn from_report(num: f64, text: &str) -> Self {
+        match num as i32 {
+            report::LOADING => PlaybackState::Loading,
+            report::PLAYING => PlaybackState::Playing,
+            report::PAUSED => PlaybackState::Paused,
+            report::ENDED => PlaybackState::Ended,
+            report::ERROR => PlaybackState::Error(text.to_string()),
+            _ => PlaybackState::Idle,
+        }
+    }
+}
+
+/// The `num` codes the arms report a [`PlaybackState`] with on the node's `Event::Custom`
+/// channel, tagged [`report::TAG`]. Plain integers rather than an enum, because they cross the
+/// JNI, C-ABI, ArkTS, and wasm boundaries where only a number survives.
+pub mod report {
+    /// The `Event::Custom` tag the in-process arms attach (cross-boundary ones carry none).
+    pub const TAG: &str = "media:state";
+    pub const IDLE: i32 = 0;
+    pub const LOADING: i32 = 1;
+    pub const PLAYING: i32 = 2;
+    pub const PAUSED: i32 = 3;
+    pub const ENDED: i32 = 4;
+    pub const ERROR: i32 = 5;
 }
 
 /// A native media player bound to `url`. Attach command triggers with `.play()/.pause()/.load()`;
@@ -73,9 +152,13 @@ pub struct Media {
     looping: bool,
     muted: bool,
     controls: bool,
+    audio_only: bool,
+    volume: Option<FractionSource>,
     play: Option<Trigger>,
     pause: Option<Trigger>,
+    stop: Option<Trigger>,
     load: Option<Trigger>,
+    state: Option<Signal<PlaybackState>>,
 }
 
 /// `media(url)` — a native audio/video player for `url` (a string, `Signal<String>`, or closure;
@@ -92,9 +175,13 @@ pub fn media<M>(url: impl IntoText<M>) -> Media {
         looping: false,
         muted: false,
         controls: true,
+        audio_only: false,
+        volume: None,
         play: None,
         pause: None,
+        stop: None,
         load: None,
+        state: None,
     }
 }
 
@@ -120,6 +207,18 @@ impl Media {
         self.controls = controls;
         self
     }
+    /// Sound only: no picture, no chrome, and no size. The piece measures zero, so it can sit
+    /// anywhere in the tree while the app draws its own transport (a radio's now-playing bar).
+    pub fn audio_only(mut self, audio_only: bool) -> Self {
+        self.audio_only = audio_only;
+        self
+    }
+    /// Output volume, `0.0..=1.0` — a constant, a `Signal<f64>`, or a closure. A tracked source
+    /// patches the player whenever it changes, so one `slider` binding drives it.
+    pub fn volume<M>(mut self, volume: impl IntoFraction<M>) -> Self {
+        self.volume = Some(volume.into_fraction());
+        self
+    }
     /// Resume/start playback whenever `trigger` fires.
     pub fn play(mut self, trigger: Trigger) -> Self {
         self.play = Some(trigger);
@@ -130,9 +229,20 @@ impl Media {
         self.pause = Some(trigger);
         self
     }
+    /// Stop playback and drop the source whenever `trigger` fires (see [`MediaPatch::Stop`]).
+    pub fn stop(mut self, trigger: Trigger) -> Self {
+        self.stop = Some(trigger);
+        self
+    }
     /// Re-read the bound `url` and load + play it whenever `trigger` fires.
     pub fn load(mut self, trigger: Trigger) -> Self {
         self.load = Some(trigger);
+        self
+    }
+    /// Where the piece writes what the native player is doing. Written on every change the
+    /// toolkit reports, whoever caused it — a trigger, the native chrome, or the network.
+    pub fn state(mut self, state: Signal<PlaybackState>) -> Self {
+        self.state = Some(state);
         self
     }
 }
@@ -145,9 +255,13 @@ impl Piece for Media {
             looping,
             muted,
             controls,
+            audio_only,
+            volume,
             play,
             pause,
+            stop,
             load,
+            state,
         } = self;
         let initial = MediaProps {
             url: url.initial(),
@@ -155,14 +269,18 @@ impl Piece for Media {
             looping,
             muted,
             controls,
+            audio_only,
+            volume: volume.as_ref().map_or(1.0, FractionSource::initial),
         };
         // A media player has no intrinsic size — it fills whatever space its container offers.
+        // A sound-only one takes none: its arm measures zero, and growing would hand it a
+        // container's spare room for nothing.
         let node = cx.leaf(
             KIND,
             &initial,
             Flex {
-                grow_w: true,
-                grow_h: true,
+                grow_w: !audio_only,
+                grow_h: !audio_only,
                 ..Default::default()
             },
         );
@@ -179,6 +297,9 @@ impl Piece for Media {
         if let Some(pause) = pause {
             watch(move || pause.track(), move |_, _| send(MediaPatch::Pause));
         }
+        if let Some(stop) = stop {
+            watch(move || stop.track(), move |_, _| send(MediaPatch::Stop));
+        }
         if let Some(load) = load {
             // Re-read the bound url when the trigger fires: a `Static` source re-loads the fixed
             // string (a restart-from-source), a `Signal`/closure source reads its current value.
@@ -191,6 +312,26 @@ impl Piece for Media {
                 move |_, _| send(MediaPatch::Load(untrack(|| read()))),
             );
         }
+        // A tracked volume follows its source; the initial value already rode in on the props.
+        if let Some(FractionSource::Dyn(f)) = volume {
+            watch(
+                move || f().clamp(0.0, 1.0),
+                move |v, _| send(MediaPatch::Volume(*v)),
+            );
+        }
+        // The readback rail: every arm reports its player's state on this node's Custom channel.
+        // A cross-boundary Custom (JNI, C-ABI, ArkTS, wasm) carries only `num`/`text`, so the
+        // code is the discriminator — never the tag.
+        if let Some(state) = state {
+            cx.on(node, move |ev| {
+                if let Event::Custom { num, text, .. } = ev {
+                    let next = PlaybackState::from_report(*num, text);
+                    if state.get_untracked() != next {
+                        state.set(next);
+                    }
+                }
+            });
+        }
         node
     }
 }
@@ -202,7 +343,7 @@ impl Piece for Media {
 // falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, dom);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 
 // GtkVideo is core GTK, so this compiles on every gtk host — but playback needs a gstreamer media
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's
@@ -217,9 +358,13 @@ pub trait MediaBuilder: Sized {
     fn looping(self, looping: bool) -> Self;
     fn muted(self, muted: bool) -> Self;
     fn controls(self, controls: bool) -> Self;
+    fn audio_only(self, audio_only: bool) -> Self;
+    fn volume<M>(self, volume: impl IntoFraction<M>) -> Self;
     fn play(self, trigger: Trigger) -> Self;
     fn pause(self, trigger: Trigger) -> Self;
+    fn stop(self, trigger: Trigger) -> Self;
     fn load(self, trigger: Trigger) -> Self;
+    fn state(self, state: Signal<PlaybackState>) -> Self;
 }
 
 impl MediaBuilder for Media {
@@ -235,14 +380,26 @@ impl MediaBuilder for Media {
     fn controls(self, controls: bool) -> Self {
         Media::controls(self, controls)
     }
+    fn audio_only(self, audio_only: bool) -> Self {
+        Media::audio_only(self, audio_only)
+    }
+    fn volume<M>(self, volume: impl IntoFraction<M>) -> Self {
+        Media::volume(self, volume)
+    }
     fn play(self, trigger: Trigger) -> Self {
         Media::play(self, trigger)
     }
     fn pause(self, trigger: Trigger) -> Self {
         Media::pause(self, trigger)
     }
+    fn stop(self, trigger: Trigger) -> Self {
+        Media::stop(self, trigger)
+    }
     fn load(self, trigger: Trigger) -> Self {
         Media::load(self, trigger)
+    }
+    fn state(self, state: Signal<PlaybackState>) -> Self {
+        Media::state(self, state)
     }
 }
 
@@ -261,14 +418,26 @@ impl<Inner: MediaBuilder + day_pieces::prelude::Piece> MediaBuilder
     fn controls(self, controls: bool) -> Self {
         self.map_inner(|inner_piece| inner_piece.controls(controls))
     }
+    fn audio_only(self, audio_only: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.audio_only(audio_only))
+    }
+    fn volume<M>(self, volume: impl IntoFraction<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.volume(volume))
+    }
     fn play(self, trigger: Trigger) -> Self {
         self.map_inner(|inner_piece| inner_piece.play(trigger))
     }
     fn pause(self, trigger: Trigger) -> Self {
         self.map_inner(|inner_piece| inner_piece.pause(trigger))
     }
+    fn stop(self, trigger: Trigger) -> Self {
+        self.map_inner(|inner_piece| inner_piece.stop(trigger))
+    }
     fn load(self, trigger: Trigger) -> Self {
         self.map_inner(|inner_piece| inner_piece.load(trigger))
+    }
+    fn state(self, state: Signal<PlaybackState>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.state(state))
     }
 }
 
@@ -287,7 +456,10 @@ mod tests {
         let url = Signal::new("https://example.com/flower.mp4".to_string());
         let play = Trigger::new();
         let pause = Trigger::new();
+        let stop = Trigger::new();
         let load = Trigger::new();
+        let volume = Signal::new(0.5);
+        let state = Signal::new(PlaybackState::Idle);
 
         day_core::uninstall_tree();
         let (mock, probe) = MockToolkit::new();
@@ -303,9 +475,13 @@ mod tests {
                     .looping(true)
                     .muted(true)
                     .controls(false)
+                    .audio_only(true)
+                    .volume(volume)
                     .play(play)
                     .pause(pause)
-                    .load(load),
+                    .stop(stop)
+                    .load(load)
+                    .state(state),
             )
         });
 
@@ -315,8 +491,29 @@ mod tests {
         // Fire every command trigger; each becomes a MediaPatch the mock ignores gracefully.
         play.notify();
         pause.notify();
+        stop.notify();
+        volume.set(0.25);
         url.set("file:///tmp/other.mp4".to_string());
         load.notify();
         flush_sync();
+        // Nothing reported: the mock has no player, so the state stays where the app left it.
+        assert_eq!(state.get_untracked(), PlaybackState::Idle);
+    }
+
+    /// The wire codes round-trip into the states an app matches on, and an unknown code lands
+    /// on `Idle` rather than being dropped.
+    #[test]
+    fn reports_decode_to_states() {
+        assert_eq!(
+            PlaybackState::from_report(report::PLAYING as f64, ""),
+            PlaybackState::Playing
+        );
+        assert_eq!(
+            PlaybackState::from_report(report::ERROR as f64, "no route to host"),
+            PlaybackState::Error("no route to host".into())
+        );
+        assert_eq!(PlaybackState::from_report(42.0, ""), PlaybackState::Idle);
+        assert!(PlaybackState::Loading.is_active());
+        assert!(!PlaybackState::Paused.is_active());
     }
 }

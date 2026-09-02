@@ -550,6 +550,11 @@ pub mod bridge {
         /// The platform's own undo affordance fired (⌘Z, a three-finger swipe, the Edit menu
         /// through a native front); `num` != 0 ⇒ redo.
         UndoInvoked = 28,
+        /// A toolbar item produced a value (docs/toolbars.md): the node id is the item's
+        /// dispatch action; `text` = `"on"` with `num` != 0 ⇒ a toggle turned on, `"on"` with
+        /// 0 ⇒ off, `"sel"` with `num` = the chosen segment. Decodes to
+        /// [`crate::Event::ToolbarChanged`]. A plain toolbar button sends `MenuAction`.
+        ToolbarChanged = 30,
         /// A non-text key reached the FOCUSED node (docs/menus.md); `text` = the day key name
         /// (`"ArrowLeft"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
@@ -558,7 +563,7 @@ pub mod bridge {
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 30] = [
+        pub const ALL: [BridgeKind; 31] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -589,6 +594,7 @@ pub mod bridge {
             BridgeKind::LinkActivated,
             BridgeKind::UndoInvoked,
             BridgeKind::Key,
+            BridgeKind::ToolbarChanged,
         ];
     }
 

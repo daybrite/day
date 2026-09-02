@@ -148,6 +148,8 @@ public final class DayBridge {
     public static final int K_COVER_HIDDEN = 26;
     /** A styled run's link was tapped (docs/text-runs.md); the string is the target. */
     public static final int K_LINK_ACTIVATED = 27;
+    /** A toolbar item produced a value (docs/toolbars.md): "on" + num, or "sel" + index. */
+    public static final int K_TOOLBAR_CHANGED = 30;
     public static final int K_SAFE_AREA = 19;
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
@@ -1095,7 +1097,61 @@ public final class DayBridge {
 
     // --- navigation (docs/navigation.md) ---
     public static View makeNavHost(long id, String title, boolean adaptive, float tileMinDp) {
-        return new DayNavHost(ctx, id, title, adaptive, tileMinDp);
+        DayNavHost host = new DayNavHost(ctx, id, title, adaptive, tileMinDp);
+        // The window toolbar is usually set BEFORE the nav host exists (an app installs its
+        // bar as the first thing the window body does), so a host born after the spec arrived
+        // takes it now. Best-effort, like the bar actions below.
+        if (windowToolbarSpec != null && !windowToolbarSpec.isEmpty()) {
+            try {
+                host.setWindowToolbar(windowToolbarSpec);
+            } catch (Throwable t) {
+                android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
+            }
+        }
+        return host;
+    }
+
+    /** The window toolbar spec as the app last set it (docs/toolbars.md), or null. One per
+     *  process: nav is app-root only (v1), so one bar rides every host. */
+    static String windowToolbarSpec = null;
+
+    /** The nav host under `root`, if one has been built. */
+    static DayNavHost findNavHost(View root) {
+        if (root instanceof DayNavHost) return (DayNavHost) root;
+        if (root instanceof ViewGroup) {
+            ViewGroup g = (ViewGroup) root;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                DayNavHost h = findNavHost(g.getChildAt(i));
+                if (h != null) return h;
+            }
+        }
+        return null;
+    }
+
+    // The window toolbar (docs/toolbars.md): a MaterialToolbar docked under the nav host's
+    // pages, one record per item (day-android `serialize_toolbar`). Applied to the host under
+    // `root` when there is one, and remembered for the host that comes later (makeNavHost).
+    // Wrapped like setNavMenu: a throw here can never reach the native tree build.
+    public static void setWindowToolbar(View root, String spec) {
+        windowToolbarSpec = spec;
+        try {
+            DayNavHost h = findNavHost(root);
+            if (h == null) h = DayNavHost.active;
+            if (h != null) h.setWindowToolbar(spec);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
+        }
+    }
+
+    /** A targeted change to one live toolbar item: op 0 = enabled, 1 = toggle on, 2 = segment. */
+    public static void updateWindowToolbar(View root, String id, int op, double num) {
+        try {
+            DayNavHost h = findNavHost(root);
+            if (h == null) h = DayNavHost.active;
+            if (h != null) h.updateWindowToolbar(id, op, num);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar update failed; continuing", t);
+        }
     }
 
     // Trailing nav-bar action (docs/navigation.md, NavProps::bar_action): applied AFTER the host is

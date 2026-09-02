@@ -1512,7 +1512,10 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > up direction, 2026-08 — emitted only by native fronts), `Event::Edit(EditOp)` (the edit
 > bridge's up direction, 2026-08 — the platform's Cut/Copy/Paste route, [docs/menus.md](docs/menus.md)) and `CoverHidden` ([docs/cover.md](docs/cover.md); `BridgeKind::CoverHidden = 26` on the
 > trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
-> `Custom` purely piece-defined. `LinkActivated(String)` joined them for styled text runs (2026-08,
+> `Custom` purely piece-defined. `BridgeKind::ToolbarChanged = 30` (2026-09) carries a phone
+> toolbar item's toggle state or chosen segment up as `Event::ToolbarChanged`, now that the window
+> toolbar docks under the navigation controller's pages on UIKit and Android (`Cap::Toolbar` is
+> Native on six backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
 [docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
 AppKit needs an NSTextField→NSTextView swap it does not do yet, and ArkUI is unwired — so a
 `.link()` run always draws, and taps report on the six.

@@ -70,6 +70,7 @@ mod bridge_kinds_parity {
             ("K_APPEARANCE_CHANGED", BridgeKind::AppearanceChanged),
             ("K_COVER_HIDDEN", BridgeKind::CoverHidden),
             ("K_LINK_ACTIVATED", BridgeKind::LinkActivated),
+            ("K_TOOLBAR_CHANGED", BridgeKind::ToolbarChanged),
         ];
         assert_eq!(
             found.len(),
@@ -1210,6 +1211,7 @@ mod imp {
     const K_APPEARANCE_CHANGED: i32 = bridge::BridgeKind::AppearanceChanged as i32;
     const K_COVER_HIDDEN: i32 = bridge::BridgeKind::CoverHidden as i32;
     const K_LINK_ACTIVATED: i32 = bridge::BridgeKind::LinkActivated as i32;
+    const K_TOOLBAR_CHANGED: i32 = bridge::BridgeKind::ToolbarChanged as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table. A JNI up-call
@@ -1331,6 +1333,19 @@ mod imp {
             // A styled run's link was tapped (docs/text-runs.md): the ClickableSpan reports its
             // target, and day-core routes it to the label's `.on_link()`.
             K_LINK_ACTIVATED => Event::LinkActivated(env.dstr(jstr).ok().unwrap_or_default()),
+            // A toolbar item's value (docs/toolbars.md): "sel" carries a segment index, anything
+            // else a toggle's new state. Plain buttons arrive as MENU_ACTION, like the menus.
+            K_TOOLBAR_CHANGED => {
+                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                Event::ToolbarChanged {
+                    action: id as u64,
+                    value: if text == "sel" {
+                        day_spec::ToolbarValue::Selected(num.max(0.0) as usize)
+                    } else {
+                        day_spec::ToolbarValue::On(num != 0.0)
+                    },
+                }
+            }
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
             // role/standard item, which dispatches to nothing). Routed by the pump to the closure.
             K_MENU_ACTION => Event::MenuAction(id as u64),
@@ -1506,6 +1521,66 @@ mod imp {
     /// Flatten the day-neutral menu tree to the line format `DayBridge.buildMenu` parses:
     /// `kind \t id \t enabled \t label` per line, where kind ∈ {A action, S submenu-open,
     /// E submenu-close, `-` separator}. Roles become plain actions with id 0.
+    /// The window toolbar as one record per item — `\u{1e}` between records, `\u{1f}` between
+    /// fields: id, kind, label, icon, enabled, action, extra. A menu item's extra is the app-menu
+    /// spec `serialize_menu` writes (its own `\t`/`\n` never collide with these separators); a
+    /// segmented item's is the selected index and the segment titles, `\u{1d}`-separated. Search
+    /// and the sidebar toggle never reach a phone's bar and are left out.
+    fn serialize_toolbar(items: &[day_spec::ToolbarItem]) -> String {
+        use day_spec::ToolbarItemKind as K;
+        fn clean(s: &str) -> String {
+            s.replace(['\u{1d}', '\u{1e}', '\u{1f}'], " ")
+        }
+        let mut out = String::new();
+        for item in items {
+            let (kind, extra) = match &item.kind {
+                K::Button => ("button", String::new()),
+                K::Toggle { on } => ("toggle", u8::from(*on).to_string()),
+                K::Menu { items } => {
+                    let mut spec = String::new();
+                    serialize_menu(items, &mut spec);
+                    ("menu", spec)
+                }
+                K::Segmented { segments, selected } => {
+                    let mut e = selected.to_string();
+                    for seg in segments {
+                        e.push('\u{1d}');
+                        e.push_str(&clean(&seg.title));
+                    }
+                    ("segmented", e)
+                }
+                K::Label => ("label", String::new()),
+                K::Separator => ("sep", String::new()),
+                K::Space => ("space", String::new()),
+                K::FlexibleSpace => ("flex", String::new()),
+                K::Search { .. } | K::SidebarToggle => continue,
+            };
+            // A bundled image resolves by name on the Java side (docs/vectors.md); a symbol is
+            // named after itself, and lands as text where no drawable carries that name.
+            let icon = match &item.icon {
+                Some(day_spec::Icon::Image(name)) => name.clone(),
+                Some(day_spec::Icon::Symbol(sym)) => format!("{sym:?}").to_lowercase(),
+                None => String::new(),
+            };
+            if !out.is_empty() {
+                out.push('\u{1e}');
+            }
+            out.push_str(
+                &[
+                    clean(&item.id),
+                    kind.to_string(),
+                    clean(&item.label),
+                    clean(&icon),
+                    u8::from(item.enabled).to_string(),
+                    item.action.to_string(),
+                    extra,
+                ]
+                .join("\u{1f}"),
+            );
+        }
+        out
+    }
+
     fn serialize_menu(items: &[day_spec::MenuItem], out: &mut String) {
         fn clean(s: &str) -> String {
             s.replace(['\t', '\n'], " ")
@@ -1709,6 +1784,9 @@ mod imp {
                 // The MaterialToolbar names the destination on every page (DayNavHost
                 // syncChrome) — content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
+                // The window toolbar docks under the nav host's pages as a second
+                // MaterialToolbar (docs/toolbars.md): the phone's bar beside the app bar.
+                | Cap::Toolbar
                 // A SlidingPaneLayout hosts every `selector(Sidebar)`, so two panes are
                 // available wherever they fit — a tablet, a foldable open, a phone in landscape
                 // if the widths allow (docs/size-classes.md).
@@ -3141,6 +3219,53 @@ mod imp {
                     "(Landroid/view/View;Ljava/lang/String;)V",
                     &[JValue::Object(h.0.as_obj()), JValue::Object(&jspec)],
                 );
+            });
+        }
+
+        fn set_toolbar(&mut self, h: &AHandle, items: &[day_spec::ToolbarItem]) {
+            // The window toolbar (docs/toolbars.md): one MaterialToolbar docked under the nav
+            // host's pages, built on the Java side from this record-per-item spec. Best-effort
+            // like every other nav decoration: a throw must never reach the tree build.
+            let spec = serialize_toolbar(items);
+            with_env(|env| {
+                let jspec = jstr(env, &spec);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "setWindowToolbar",
+                    "(Landroid/view/View;Ljava/lang/String;)V",
+                    &[JValue::Object(h.0.as_obj()), JValue::Object(&jspec)],
+                );
+                if env.exception_check() {
+                    env.exception_clear();
+                }
+            });
+        }
+
+        fn update_toolbar(&mut self, h: &AHandle, patch: &day_spec::ToolbarPatch) {
+            use day_spec::ToolbarPatch as P;
+            let (item, op, num) = match patch {
+                P::Enabled { item, on } => (item, 0, f64::from(u8::from(*on))),
+                P::On { item, on } => (item, 1, f64::from(u8::from(*on))),
+                P::Selected { item, index } => (item, 2, *index as f64),
+                // Search rides the navigation list on a phone (docs/search.md).
+                P::Text { .. } | P::Suggestions { .. } => return,
+            };
+            with_env(|env| {
+                let jid = jstr(env, item);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "updateWindowToolbar",
+                    "(Landroid/view/View;Ljava/lang/String;ID)V",
+                    &[
+                        JValue::Object(h.0.as_obj()),
+                        JValue::Object(&jid),
+                        JValue::Int(op),
+                        JValue::Double(num),
+                    ],
+                );
+                if env.exception_check() {
+                    env.exception_clear();
+                }
             });
         }
 

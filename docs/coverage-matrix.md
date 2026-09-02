@@ -54,7 +54,7 @@ nothing derived from `realize` can.
 | `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-lottie` | `day.piece.lottie` | · | ✓ | · | · | · | ✓ | · | · |
 | `day-piece-map` | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
-| `day-piece-media` | `day.piece.media` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `day-piece-media` | `day.piece.media` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-pullrefresh` | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
 | `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
@@ -104,5 +104,5 @@ An app branches on this rather than on the target name.
 | `AppBadgeCount` | N | N | – | – | – | – | – | E |
 | `AppBadgeText` | N | – | – | – | – | – | – | – |
 | `AppBadgeDot` | N | – | – | – | – | – | – | E |
-| `Toolbar` | N | – | N | N | N | – | – | E |
+| `Toolbar` | N | N | N | N | N | N | – | E |
 | `Inspector` | N | – | N | N | N | – | – | – |

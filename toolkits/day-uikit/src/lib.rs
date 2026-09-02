@@ -854,6 +854,416 @@ mod imp {
     // DayFrameTarget — the CADisplayLink target for the frame clock (§8.4)
     // -----------------------------------------------------------------------
 
+    // ── The window toolbar on a phone (docs/toolbars.md) ───────────────────────────────
+    //
+    // A UINavigationController owns a UIToolbar docked under its pages, and each page carries
+    // the items it wants there (`toolbarItems`). Day's window toolbar model becomes that bar:
+    // one item list per window root, built afresh for every page a navigation controller
+    // under that root shows, so the bar reads the same from page to page — the desktop
+    // toolbar's shape on the phone. The navigation bar above keeps `bar_action`; the two
+    // together are the phone's two bars. Search stays on the navigation surface and the
+    // sidebar toggle belongs to the split view, so both item kinds are skipped here.
+
+    const TB_BUTTON: u8 = 0;
+    const TB_TOGGLE: u8 = 1;
+
+    struct ToolbarTargetIvars {
+        action: u64,
+        kind: u8,
+        item: String,
+        /// The window root the item's model lives under (`WINDOW_TOOLBARS` key).
+        root: usize,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayUIKitToolbarTarget"]
+        #[ivars = ToolbarTargetIvars]
+        struct DayToolbarTarget;
+
+        unsafe impl NSObjectProtocol for DayToolbarTarget {}
+
+        impl DayToolbarTarget {
+            #[unsafe(method(fire:))]
+            fn fire(&self, _sender: &AnyObject) {
+                day_spec::ffi_guard::contain((), || {
+                    let iv = self.ivars();
+                    match iv.kind {
+                        TB_TOGGLE => {
+                            // Flip the model first, so the re-applied bar shows the new state
+                            // before the app's own `ToolbarPatch::On` confirms it.
+                            let on = WINDOW_TOOLBARS.with(|t| {
+                                let mut t = t.borrow_mut();
+                                let bar = t.get_mut(&iv.root)?;
+                                let it = bar.items.iter_mut().find(|i| i.id == iv.item)?;
+                                match &mut it.kind {
+                                    day_spec::ToolbarItemKind::Toggle { on } => {
+                                        *on = !*on;
+                                        Some(*on)
+                                    }
+                                    _ => None,
+                                }
+                            });
+                            if let Some(on) = on {
+                                reapply_window_toolbar(iv.root);
+                                emit(
+                                    WINDOW_NODE,
+                                    Event::ToolbarChanged {
+                                        action: iv.action,
+                                        value: day_spec::ToolbarValue::On(on),
+                                    },
+                                );
+                            }
+                        }
+                        _ => emit(WINDOW_NODE, Event::MenuAction(iv.action)),
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayToolbarTarget {
+        fn new(
+            mtm: MainThreadMarker,
+            action: u64,
+            kind: u8,
+            item: String,
+            root: usize,
+        ) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ToolbarTargetIvars {
+                action,
+                kind,
+                item,
+                root,
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// One window's toolbar: the model as the app last set it, and the targets its live
+    /// items fire — kept alive here because UIBarButtonItem holds its target weakly.
+    struct WindowToolbar {
+        root: Retained<UIView>,
+        items: Vec<day_spec::ToolbarItem>,
+        targets: Vec<Retained<DayToolbarTarget>>,
+    }
+
+    thread_local! {
+        /// Keyed by the window root view ptr (the handle `set_toolbar` receives).
+        static WINDOW_TOOLBARS: RefCell<HashMap<usize, WindowToolbar>> = RefCell::new(HashMap::new());
+    }
+
+    /// Apply a targeted patch to the stored model; `true` when something changed.
+    fn patch_toolbar_model(
+        items: &mut [day_spec::ToolbarItem],
+        patch: &day_spec::ToolbarPatch,
+    ) -> bool {
+        use day_spec::{ToolbarItemKind as K, ToolbarPatch as P};
+        match patch {
+            P::On { item, on } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && let K::Toggle { on: o } = &mut it.kind
+                    && *o != *on
+                {
+                    *o = *on;
+                    return true;
+                }
+            }
+            P::Selected { item, index } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && let K::Segmented { segments, selected } = &mut it.kind
+                    && *index < segments.len()
+                    && *selected != *index
+                {
+                    *selected = *index;
+                    return true;
+                }
+            }
+            P::Enabled { item, on } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && it.enabled != *on
+                {
+                    it.enabled = *on;
+                    return true;
+                }
+            }
+            // Search never reaches the bar here (it rides the navigation surface).
+            P::Text { .. } | P::Suggestions { .. } => {}
+        }
+        false
+    }
+
+    /// Fresh UIBarButtonItems for one page. Built per page rather than shared: a bar button
+    /// item belongs to one bar at a time, and every page under the navigation controller
+    /// carries its own copy of the window's bar.
+    fn build_toolbar_items(
+        mtm: MainThreadMarker,
+        root: usize,
+        items: &[day_spec::ToolbarItem],
+        targets: &mut Vec<Retained<DayToolbarTarget>>,
+    ) -> Vec<Retained<UIBarButtonItem>> {
+        use day_spec::ToolbarItemKind as K;
+        let mut out: Vec<Retained<UIBarButtonItem>> = Vec::new();
+        for item in items {
+            let image = menu_image(item.icon.as_ref());
+            let title = NSString::from_str(&item.label);
+            let bar: Retained<UIBarButtonItem> = match &item.kind {
+                K::Search { .. } | K::SidebarToggle => continue,
+                K::Separator => unsafe { UIBarButtonItem::fixedSpaceItemOfWidth(16.0, mtm) },
+                K::Space => unsafe { UIBarButtonItem::fixedSpaceItemOfWidth(8.0, mtm) },
+                K::FlexibleSpace => unsafe { UIBarButtonItem::flexibleSpaceItem(mtm) },
+                K::Label => {
+                    let b = unsafe {
+                        UIBarButtonItem::initWithTitle_style_target_action(
+                            UIBarButtonItem::alloc(mtm),
+                            Some(&title),
+                            UIBarButtonItemStyle::Plain,
+                            None,
+                            None,
+                        )
+                    };
+                    unsafe { b.setEnabled(false) };
+                    out.push(b);
+                    continue;
+                }
+                K::Menu { items: entries } => {
+                    let menu = build_ui_menu(mtm, "", entries);
+                    match image {
+                        Some(img) => unsafe {
+                            UIBarButtonItem::initWithImage_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&img),
+                                Some(&menu),
+                            )
+                        },
+                        None => unsafe {
+                            UIBarButtonItem::initWithTitle_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&title),
+                                Some(&menu),
+                            )
+                        },
+                    }
+                }
+                K::Segmented { segments, selected } => {
+                    // A menu of the segments with the chosen one checked: a segmented control
+                    // has no room in a phone's bar, and a pull-down is what iOS does instead.
+                    let mut els: Vec<Retained<UIMenuElement>> = Vec::new();
+                    for (i, seg) in segments.iter().enumerate() {
+                        let (action, id, enabled) = (item.action, item.id.clone(), item.enabled);
+                        let el =
+                            ui_action(mtm, &seg.title, enabled, seg.icon.as_ref(), move || {
+                                let changed = WINDOW_TOOLBARS.with(|t| {
+                                    let mut t = t.borrow_mut();
+                                    let bar = t.get_mut(&root)?;
+                                    let it = bar.items.iter_mut().find(|x| x.id == id)?;
+                                    match &mut it.kind {
+                                        K::Segmented { selected, .. } => {
+                                            *selected = i;
+                                            Some(())
+                                        }
+                                        _ => None,
+                                    }
+                                });
+                                if changed.is_some() {
+                                    reapply_window_toolbar(root);
+                                }
+                                emit(
+                                    WINDOW_NODE,
+                                    Event::ToolbarChanged {
+                                        action,
+                                        value: day_spec::ToolbarValue::Selected(i),
+                                    },
+                                );
+                            });
+                        if i == *selected
+                            && let Some(a) = el.downcast_ref::<UIAction>()
+                        {
+                            unsafe { a.setState(objc2_ui_kit::UIMenuElementState::On) };
+                        }
+                        els.push(el);
+                    }
+                    let menu = unsafe {
+                        UIMenu::menuWithTitle_children(
+                            &title,
+                            &objc2_foundation::NSArray::from_retained_slice(&els),
+                            mtm,
+                        )
+                    };
+                    let current = segments
+                        .get(*selected)
+                        .map(|s| NSString::from_str(&s.title))
+                        .unwrap_or_else(|| title.clone());
+                    match image {
+                        Some(img) => unsafe {
+                            UIBarButtonItem::initWithImage_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&img),
+                                Some(&menu),
+                            )
+                        },
+                        None => unsafe {
+                            UIBarButtonItem::initWithTitle_menu(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&current),
+                                Some(&menu),
+                            )
+                        },
+                    }
+                }
+                K::Button | K::Toggle { .. } => {
+                    let kind = if matches!(item.kind, K::Toggle { .. }) {
+                        TB_TOGGLE
+                    } else {
+                        TB_BUTTON
+                    };
+                    let target =
+                        DayToolbarTarget::new(mtm, item.action, kind, item.id.clone(), root);
+                    let b = match image {
+                        Some(img) => unsafe {
+                            UIBarButtonItem::initWithImage_style_target_action(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&img),
+                                UIBarButtonItemStyle::Plain,
+                                Some(&target),
+                                Some(sel!(fire:)),
+                            )
+                        },
+                        None => unsafe {
+                            UIBarButtonItem::initWithTitle_style_target_action(
+                                UIBarButtonItem::alloc(mtm),
+                                Some(&title),
+                                UIBarButtonItemStyle::Plain,
+                                Some(&target),
+                                Some(sel!(fire:)),
+                            )
+                        },
+                    };
+                    if let K::Toggle { on } = item.kind {
+                        // iOS 15's selected look for a bar button: the pressed-in tint.
+                        unsafe { b.setSelected(on) };
+                    }
+                    targets.push(target);
+                    b
+                }
+            };
+            unsafe {
+                bar.setEnabled(item.enabled);
+                bar.setAccessibilityLabel(Some(&title), mtm);
+            }
+            out.push(bar);
+        }
+        out
+    }
+
+    /// The navigation controllers that carry a window's bar: the detail stack, plus the
+    /// sidebar column's stack while a split view is collapsed (pages push there then). The
+    /// sidebar column itself keeps no bar — one bar per window, not one per column.
+    fn toolbar_navs_under(root: &UIView) -> Vec<Retained<DayNavController>> {
+        NAV_STATE.with(|m| {
+            m.borrow()
+                .values()
+                .filter(|s| {
+                    // Test the split HOST's view where there is one: a collapsed split keeps
+                    // its secondary column out of the hierarchy (the pages ride the primary's
+                    // stack then), so asking that column would drop the whole window.
+                    let view = match &s.split {
+                        Some(parts) => parts.split_vc.view(),
+                        None => s.nav.view(),
+                    };
+                    view.is_some_and(|v| unsafe { v.isDescendantOfView(root) })
+                })
+                .flat_map(|s| {
+                    let mut navs = vec![s.nav.clone()];
+                    // UIKit's own answer rather than the `collapsed` mirror, which a
+                    // presentation change updates a beat later than the merge it describes.
+                    if let Some(parts) = &s.split
+                        && unsafe { parts.split_vc.isCollapsed() }
+                    {
+                        navs.push(parts.primary_nav.clone());
+                    }
+                    navs
+                })
+                .collect()
+        })
+    }
+
+    /// Give `vc` the bar of the window it is in, if that window has one. Called on every
+    /// push and on the first page a navigation controller shows.
+    fn apply_window_toolbar_to(nav: &objc2_ui_kit::UINavigationController, vc: &UIViewController) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some(nav_view) = nav.view() else {
+            return;
+        };
+        let found = WINDOW_TOOLBARS.with(|t| {
+            t.borrow()
+                .iter()
+                .find(|(_, w)| unsafe { nav_view.isDescendantOfView(&w.root) })
+                .map(|(root, w)| (*root, w.items.clone()))
+        });
+        let Some((root, items)) = found else {
+            return;
+        };
+        let mut targets = Vec::new();
+        let bar_items = build_toolbar_items(mtm, root, &items, &mut targets);
+        WINDOW_TOOLBARS.with(|t| {
+            if let Some(w) = t.borrow_mut().get_mut(&root) {
+                w.targets.extend(targets);
+            }
+        });
+        unsafe {
+            vc.setToolbarItems(Some(&objc2_foundation::NSArray::from_retained_slice(
+                &bar_items,
+            )));
+            nav.setToolbarHidden_animated(bar_items.is_empty(), false);
+        }
+    }
+
+    /// Rebuild the bar on every page under `root`'s navigation controllers from the stored
+    /// model — after `set_toolbar`, a patch, or an item the user just flipped.
+    fn reapply_window_toolbar(root: usize) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some((root_view, items)) = WINDOW_TOOLBARS.with(|t| {
+            t.borrow()
+                .get(&root)
+                .map(|w| (w.root.clone(), w.items.clone()))
+        }) else {
+            return;
+        };
+        let mut targets = Vec::new();
+        for nav in toolbar_navs_under(&root_view) {
+            for vc in unsafe { nav.viewControllers() }.iter() {
+                let bar_items = build_toolbar_items(mtm, root, &items, &mut targets);
+                unsafe {
+                    vc.setToolbarItems(Some(&objc2_foundation::NSArray::from_retained_slice(
+                        &bar_items,
+                    )));
+                }
+            }
+            unsafe { nav.setToolbarHidden_animated(false, false) };
+        }
+        WINDOW_TOOLBARS.with(|t| {
+            if let Some(w) = t.borrow_mut().get_mut(&root) {
+                w.targets = targets;
+            }
+        });
+    }
+
+    /// Take the bar away from every navigation controller under `root`.
+    fn clear_window_toolbar(root_view: &UIView) {
+        for nav in toolbar_navs_under(root_view) {
+            for vc in unsafe { nav.viewControllers() }.iter() {
+                unsafe { vc.setToolbarItems(None) };
+            }
+            unsafe { nav.setToolbarHidden_animated(true, false) };
+        }
+    }
+
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
@@ -1246,14 +1656,16 @@ mod imp {
                     .then(|| objc2_ui_kit::UIImage::systemImageNamed(&NSString::from_str(name)))
                     .flatten()
             }
-            day_spec::Icon::Image(name) => {
+            // The asset catalog first (an app's vectors and images are staged there, and a
+            // file path only exists in a `day launch` tree), then the loose-file fallbacks.
+            day_spec::Icon::Image(name) => load_bundled_uiimage(name).or_else(|| {
                 let path = day_spec::resource::resolve_vector_svg(name)
                     .map(std::path::PathBuf::from)
                     .or_else(|| day_spec::resource::resolve_image_file(name))?;
                 objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
                     &path.to_string_lossy(),
                 ))
-            }
+            }),
         }
     }
 
@@ -1959,7 +2371,7 @@ mod imp {
             fn did_show(
                 &self,
                 nav: &objc2_ui_kit::UINavigationController,
-                _vc: &UIViewController,
+                vc: &UIViewController,
                 _animated: bool,
             ) {
                 // A user pop must satisfy BOTH baselines (each alone has a false positive):
@@ -1973,6 +2385,9 @@ mod imp {
                 // The whole detector runs contained (§8.5): both closures below re-enter
                 // day-core (the sink dispatch and the mirror bookkeeping).
                 day_spec::ffi_guard::contain((), || {
+                    // The window's toolbar rides every page (docs/toolbars.md): a pushed page
+                    // arrives without items, and the first page shows through here too.
+                    apply_window_toolbar_to(nav, vc);
                     let host = self.ivars().host.get();
                     let suspicious = NAV_STATE.with(|m| {
                         let mut m = m.borrow_mut();
@@ -4638,6 +5053,40 @@ mod imp {
             }
         }
 
+        fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
+            let root = ptr_of(h);
+            if items.is_empty() {
+                WINDOW_TOOLBARS.with(|t| {
+                    t.borrow_mut().remove(&root);
+                });
+                clear_window_toolbar(h);
+                return;
+            }
+            WINDOW_TOOLBARS.with(|t| {
+                t.borrow_mut().insert(
+                    root,
+                    WindowToolbar {
+                        root: h.clone(),
+                        items: items.to_vec(),
+                        targets: Vec::new(),
+                    },
+                );
+            });
+            reapply_window_toolbar(root);
+        }
+
+        fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {
+            let root = ptr_of(h);
+            let changed = WINDOW_TOOLBARS.with(|t| {
+                t.borrow_mut()
+                    .get_mut(&root)
+                    .is_some_and(|w| patch_toolbar_model(&mut w.items, patch))
+            });
+            if changed {
+                reapply_window_toolbar(root);
+            }
+        }
+
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
@@ -4647,6 +5096,9 @@ mod imp {
                 // (docs/text-runs.md).
                 Cap::TextRuns
                 | Cap::TextLinks
+                // The window toolbar docks under the navigation controller's pages
+                // (docs/toolbars.md): the phone's second bar, beside the navigation bar.
+                | Cap::Toolbar
                 // NSUndoManager fronted through the root VC's responder chain: three-finger
                 // gestures, shake-to-undo, hardware ⌘Z and the iPad menu bar all land
                 // (docs/model.md).

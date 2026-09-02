@@ -26,6 +26,10 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, l
 # via extern_class!/msg_send! (the WKWebView-on-iOS situation) — see [package.metadata.day.ios].
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
+# HarmonyOS: no native node kind to construct, so the piece ships its OWN ArkTS (ohos/ets/Index.ets)
+# — an ArkUI `Video` component for pictures, an AVPlayer for sound only — staged into the app's
+# hvigor project through [package.metadata.day.ohos], the same route the webview takes.
+arkui = ["dep:day-arkui"]        # + [package.metadata.day.ohos]
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (a MediaPlayerElement boxed via day-xaml-sys's
 # day_xaml_box seam, like the picker/webview xaml pieces). mock has no renderer — its feature
 # exists so apps can enable `day-piece-media/mock` uniformly; the media kind then falls back to
@@ -40,7 +44,7 @@ mock = []
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
 # no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "dom", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }
@@ -48,11 +52,13 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-reactive = { workspace = true }
 linkme = { workspace = true }
+log = { workspace = true }
 day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
+day-arkui = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
@@ -60,7 +66,7 @@ day-dom = { workspace = true, optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIViewController", "UIResponder"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSNotification"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSNotification", "NSKeyValueObserving", "NSError", "NSDictionary"] }
 objc2-core-media = { version = "0.3", optional = true, features = ["CMTime"] }
 objc2-av-kit = { version = "0.3", optional = true, features = ["AVPlayerView", "objc2-app-kit", "objc2-av-foundation"] }
 objc2-av-foundation = { version = "0.3", optional = true, features = ["AVPlayer", "AVPlayerItem", "AVTime", "objc2-core-media"] }
@@ -88,6 +94,11 @@ gradle-repositories = []
 # (network media sources need INTERNET; local files need nothing).
 permissions = ["android.permission.INTERNET"]
 
+# --- HarmonyOS backend contribution (docs/extending.md) ---
+# The ArkTS half of the piece, staged into the app's hvigor project by `day build`.
+[package.metadata.day.ohos]
+ets = ["ohos/ets"]
+
 # --- iOS backend contribution (docs/extending.md) ---
 # The iOS AVPlayerViewController is hand-rolled in Rust (objc2), so there's no Swift shim — but its
 # ObjC class lives in AVKit.framework (and AVPlayer in AVFoundation.framework), which the app must
@@ -95,7 +106,10 @@ permissions = ["android.permission.INTERNET"]
 [package.metadata.day.ios]
 # CoreMedia carries kCMTimeZero (used by the looping seek); objc2-core-media's Rust framework
 # link is ignored by xcodebuild, so the app links it here too.
-frameworks = ["AVKit", "AVFoundation", "CoreMedia"]
+# AVFAudio carries AVAudioSession, which the UIKit arm puts in the `playback` category so sound
+# keeps going with the ring switch on and (with the app's `UIBackgroundModes` audio entry) in the
+# background — the audio session is per process, and a media player is what needs one.
+frameworks = ["AVKit", "AVFoundation", "CoreMedia", "AVFAudio"]
 
 # --- macOS backend contribution ---
 # The same frameworks for the same reason once the platform/macos/ Xcode host project drives

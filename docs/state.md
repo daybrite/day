@@ -124,7 +124,10 @@ menu_item("New Item").shortcut(Shortcut::new("n").shift()).action(front(|s| s.ne
 back to the primary window when no secondary one is key, which is the steady state on macOS,
 where the primary window's delegate reports no focus events of its own. A window is marked key
 the moment it is registered, so a command fired immediately after File ▸ New Window already
-lands on the new window rather than on the one behind it.
+lands on the new window rather than on the one behind it. The reverse holds for a window on
+its way out: a phone presents a secondary window as a cover and animates its dismissal, and
+from the moment the close is requested the window behind it is the front one again, so a
+command fired during that animation acts on it rather than on the departing sheet.
 
 Toolbars need none of this: `toolbar(…)` / `toolbar_reactive(…)` install on the window being
 built, so a toolbar declared inside the window shell already belongs to its own window, but for

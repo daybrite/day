@@ -40,8 +40,8 @@ implement them, and this table proves it.
 | `set_context_menu_fn` | · | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · |
 | `set_app_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
-| `set_toolbar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
-| `update_toolbar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
+| `set_toolbar` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |
+| `update_toolbar` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |
 | `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | · | ✓ | ✓ |
 | `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | · | ✓ |

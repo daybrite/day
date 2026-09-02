@@ -1190,6 +1190,11 @@ pub mod listen {
     /// `compositionend`) → [`Event::TextChanged`] carrying the FLATTENED text, and
     /// `selectionchange` → [`Event::Custom`] carrying `"sel <start> <end>"` in byte offsets.
     pub const EDITABLE: u32 = 512;
+    /// A media element's playback events (`playing`, `pause`, `waiting`, `ended`, `error`,
+    /// `emptied`) → [`Event::Custom`] with `num` = the state code the shim's table assigns
+    /// (day-piece-media's `report` codes: 0 idle, 1 loading, 2 playing, 3 paused, 4 ended,
+    /// 5 error) and `text` = the `MediaError` message on an error.
+    pub const MEDIA: u32 = 1024;
 }
 
 impl Toolkit for Dom {

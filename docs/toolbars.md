@@ -146,11 +146,21 @@ if capability(Cap::Toolbar) != Support::Unsupported { /* toolbar(…) */ } else 
 strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
 `toolbar_menu` pops a themed popup under its button, items activated through the same
 `day_dom_toolbar_action` route a plain button takes), and
-`Unsupported` on the phones. Probe for `!= Support::Unsupported` rather than `== Native` unless
+**`Native` on iOS and Android too** (2026-09): the bar docks UNDER the navigation controller's
+pages — the `UIToolbar` a `UINavigationController` owns, its items set on every page it shows;
+a second `MaterialToolbar` under the Android nav host's pages, its items shown as actions — so a
+phone carries two bars, the navigation bar above with its `bar_action`s and this one below.
+Buttons, toggles and labels draw as themselves, a menu item drops its menu, and a segmented item
+becomes a pull-down of its segments with the chosen one checked (a segmented control has no room
+in a phone's bar). Two kinds never reach a phone's bar: search, which rides the navigation list
+there ([docs/search.md](search.md)), and the sidebar toggle, which the split view owns. Android
+stages no glyph for a `Symbol`, so an item with only a symbol shows its label as text there,
+and text items that outgrow the bar fold into its overflow menu; an `Icon::Image` draws as the
+image on both phones.
+`Unsupported` on HarmonyOS. Probe for `!= Support::Unsupported` rather than `== Native` unless
 the difference matters to the app; a caller usually wants to know whether the commands belong
-in a bar at all. A phone has no toolbar, so `toolbar(…)` installs nothing there
-and the app puts those commands in the content instead; see Day News, whose search is a toolbar
-item on the desktops and a timeline field on a phone.
+in a bar at all. Where the answer is `Unsupported`, `toolbar(…)` installs nothing and the app
+puts those commands in the content instead.
 
 For commands that belong on the chrome rather than in the page (Settings, Compose, "Show Source",
 "Add"), the navigation bar's trailing actions are the mobile counterpart:
@@ -274,5 +284,6 @@ AppKit, and omits the header bar on GTK). XAML is CI-only.
 - macOS toolbar customization, which needs the model and an autosaved arrangement to be
   reconciled rather than in conflict.
 - Qt dock-area dragging, which needs `DayWindow` to become a `QMainWindow`.
-- A mobile counterpart: iOS has `UINavigationBar` items and Android an app-bar action row. They
-  are a different shape from a toolbar, so they need their own model.
+- The phone bars (2026-09) take the desktop model as is; a segmented item and a search field are
+  the two kinds that change shape there. Edge-to-edge Android does not yet pad the bar past the
+  system navigation bar.

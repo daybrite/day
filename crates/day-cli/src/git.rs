@@ -400,14 +400,21 @@ fn update(dest: &Path, spec: &Spec, ours: bool) -> Result<(), CliError> {
 
     // Local edits win. This checkout is somewhere a person may have started working, and a
     // `--git` launch that quietly discarded their changes would be the last time they trusted it.
+    //
+    // `Cargo.lock` is the exception, and it has to be: building here is what `--git` DOES, and
+    // cargo rewrites the lock to record what it resolved. Counting day's own output as the user's
+    // work in progress is how a checkout stops updating after its first build and then warns about
+    // it on every run afterwards.
     let dirty = git(dest, &["status", "--porcelain"])?;
-    if dirty.status.success() && !dirty.stdout.is_empty() {
+    let edits = edited_paths(&dirty.stdout);
+    if !edits.is_empty() {
         warn(&format!(
             "the checkout has local edits — building it as it stands, at {}",
             short_head(dest)
         ));
         return Ok(());
     }
+    let lock_dirty = dirty.status.success() && !dirty.stdout.is_empty();
 
     let fetched = git(dest, &["fetch", "--tags", "origin"])?;
     if !fetched.status.success() {
@@ -415,9 +422,56 @@ fn update(dest: &Path, spec: &Spec, ours: bool) -> Result<(), CliError> {
         warn("could not reach the remote — building the checkout as it stands");
     }
     if let Some(r) = &spec.git_ref {
-        switch_to(dest, r, &spec.url)?;
+        // Only when it would actually move: a checkout already sitting on the requested ref is
+        // left untouched, which is what keeps the lock cargo just wrote (and the resolution work
+        // behind it) instead of discarding it on every run.
+        if moves_head(dest, r) {
+            discard_lock(dest, lock_dirty);
+            switch_to(dest, r, &spec.url)?;
+        }
     }
-    fast_forward(dest)
+    fast_forward(dest, lock_dirty)
+}
+
+/// The file `cargo` rewrites inside a checkout day builds in.
+const GENERATED_LOCK: &str = "Cargo.lock";
+
+/// The paths `git status --porcelain` reports, minus the ones day's own builds write.
+///
+/// Porcelain lines are `XY <path>`, and a rename is `R  <old> -> <new>`; only the destination
+/// matters here. Kept separate from the git call so the rule is testable without a repository.
+fn edited_paths(porcelain: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(porcelain)
+        .lines()
+        .filter_map(|line| line.get(3..))
+        .map(|path| match path.split_once(" -> ") {
+            Some((_, to)) => to,
+            None => path,
+        })
+        .map(|p| p.trim().trim_matches('"').to_string())
+        .filter(|p| !p.is_empty() && p != GENERATED_LOCK)
+        .collect()
+}
+
+/// Whether checking `git_ref` out would move HEAD — false when the checkout already sits on it.
+fn moves_head(dest: &Path, git_ref: &str) -> bool {
+    let Ok(want) = git(dest, &["rev-parse", "--verify", "--quiet", git_ref]) else {
+        return true;
+    };
+    if !want.status.success() {
+        // Unresolvable here; let `switch_to` run and report it properly.
+        return true;
+    }
+    stdout(&want) != head_sha(dest)
+}
+
+/// Throw away a `Cargo.lock` cargo rewrote, so a checkout or a merge that carries a new one can
+/// land. Only ever called when the lock is the sole modified file and HEAD is about to move: git
+/// refuses to overwrite it, and the alternative is a checkout that never updates again.
+fn discard_lock(dest: &Path, lock_dirty: bool) {
+    if lock_dirty {
+        let _ = git(dest, &["checkout", "--", GENERATED_LOCK]);
+    }
 }
 
 /// Check out a named ref. Detaching at a tag or commit is normal here, so git's detached-HEAD
@@ -438,12 +492,20 @@ fn switch_to(dest: &Path, git_ref: &str, url: &str) -> Result<(), CliError> {
 
 /// Fast-forward the current branch onto its upstream. A ref naming a branch has one; a tag or
 /// commit is detached and already exactly where it should be, so this is a no-op there.
-fn fast_forward(dest: &Path) -> Result<(), CliError> {
+fn fast_forward(dest: &Path, lock_dirty: bool) -> Result<(), CliError> {
     let upstream = git(dest, &["rev-parse", "--verify", "--quiet", "@{u}"])?;
     if !upstream.status.success() {
         return Ok(());
     }
+    // Already there: nothing to merge, and nothing to discard. The common case on every run after
+    // the first, so it must not cost the lock cargo wrote.
+    if stdout(&upstream) == head_sha(dest) {
+        return Ok(());
+    }
     let before = short_head(dest);
+    // A merge refuses to overwrite a modified file, so a lock cargo rewrote would otherwise turn
+    // every upstream commit that touches it into "the checkout has commits the remote doesn't".
+    discard_lock(dest, lock_dirty);
     let merged = git(dest, &["merge", "--ff-only", "@{u}"])?;
     if !merged.status.success() {
         warn("the checkout has commits the remote doesn't — building it as it stands");
@@ -525,6 +587,15 @@ fn git(dir: &Path, args: &[&str]) -> Result<Output, CliError> {
 
 fn stdout(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+/// The full commit HEAD points at, for comparing against a resolved ref. Empty when git won't
+/// say, which compares unequal to any real sha and so errs toward doing the update.
+fn head_sha(dir: &Path) -> String {
+    match git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"]) {
+        Ok(out) if out.status.success() => stdout(&out),
+        _ => String::new(),
+    }
 }
 
 /// The abbreviated commit HEAD points at, or `?` when git won't say (a checkout mid-clone, a
@@ -887,6 +958,85 @@ mod tests {
         prepare(&spec, Some(&dest), None).expect("second run");
         assert_ne!(head(&dest), first, "HEAD did not advance");
         assert!(dest.join("NEW.md").is_file());
+    }
+
+    /// `Cargo.lock` is written by the build `--git` just ran, so it is not a local edit. Reading
+    /// it as one stops the checkout updating after its first build and warns on every run after.
+    #[test]
+    fn a_rewritten_lock_is_not_a_local_edit() {
+        assert!(edited_paths(b" M Cargo.lock\n").is_empty());
+        assert!(edited_paths(b"").is_empty());
+        // Anything else still counts, alongside the lock or on its own.
+        assert_eq!(edited_paths(b" M src/lib.rs\n"), ["src/lib.rs"]);
+        assert_eq!(
+            edited_paths(b" M Cargo.lock\n M src/lib.rs\n"),
+            ["src/lib.rs"]
+        );
+        // Untracked files are someone's work too.
+        assert_eq!(edited_paths(b"?? notes.md\n"), ["notes.md"]);
+        // A rename reports both sides; the destination is the path that exists.
+        assert_eq!(edited_paths(b"R  old.rs -> new.rs\n"), ["new.rs"]);
+        // A lock somewhere else in the tree is not the one day's build writes.
+        assert_eq!(edited_paths(b" M sub/Cargo.lock\n"), ["sub/Cargo.lock"]);
+    }
+
+    /// End to end: build in the checkout (which is what rewrites the lock), then update. The
+    /// commit has to land, with no warning and no lost work.
+    #[test]
+    fn a_lock_rewritten_by_a_build_does_not_block_the_update() {
+        if !git_available() {
+            return;
+        }
+        let scratch = Scratch::new("lockff");
+        let origin = origin_repo(&scratch, "");
+        std::fs::write(origin.join("Cargo.lock"), "# resolved\n").expect("write");
+        run_git(&origin, &["add", "-A"]);
+        run_git(&origin, &["commit", "-m", "lock"]);
+
+        let dest = scratch.dir.join("checkout");
+        let spec = parse_spec(origin.to_str().expect("utf-8 temp path")).unwrap();
+        prepare(&spec, Some(&dest), None).expect("first run");
+        let first = head(&dest);
+
+        // What cargo does during the build day just ran.
+        std::fs::write(dest.join("Cargo.lock"), "# rewritten by cargo\n").expect("write");
+
+        // Upstream moves, and touches the same file — the case a dirty lock would block.
+        std::fs::write(origin.join("Cargo.lock"), "# resolved, later\n").expect("write");
+        std::fs::write(origin.join("NEW.md"), "later\n").expect("write");
+        run_git(&origin, &["add", "-A"]);
+        run_git(&origin, &["commit", "-m", "later"]);
+
+        prepare(&spec, Some(&dest), None).expect("second run");
+        assert_ne!(head(&dest), first, "the update was blocked by the lockfile");
+        assert!(dest.join("NEW.md").is_file());
+    }
+
+    /// With nothing new upstream — every run after the first — the lock cargo wrote is left
+    /// alone. Discarding it anyway would throw away the resolution behind it and make the next
+    /// build redo the work, on every single run.
+    #[test]
+    fn an_up_to_date_checkout_keeps_the_lock_cargo_wrote() {
+        if !git_available() {
+            return;
+        }
+        let scratch = Scratch::new("lockkeep");
+        let origin = origin_repo(&scratch, "");
+        std::fs::write(origin.join("Cargo.lock"), "# resolved\n").expect("write");
+        run_git(&origin, &["add", "-A"]);
+        run_git(&origin, &["commit", "-m", "lock"]);
+
+        let dest = scratch.dir.join("checkout");
+        let spec = parse_spec(origin.to_str().expect("utf-8 temp path")).unwrap();
+        prepare(&spec, Some(&dest), None).expect("first run");
+        std::fs::write(dest.join("Cargo.lock"), "# rewritten by cargo\n").expect("write");
+
+        prepare(&spec, Some(&dest), None).expect("second run");
+        assert_eq!(
+            std::fs::read_to_string(dest.join("Cargo.lock")).expect("read"),
+            "# rewritten by cargo\n",
+            "an up-to-date checkout had its lockfile reset for no reason"
+        );
     }
 
     /// The checkout is a place someone may have started working. An update must never be what

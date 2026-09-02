@@ -128,9 +128,10 @@ Linux, `%LOCALAPPDATA%\day\cache` on Windows). Every run prints the path:
 That path is a working checkout, so `cd` there and start editing. The build tree lives inside it,
 which is why the second run is an incremental compile rather than a fresh one. A later run
 fetches and fast-forwards; once you've edited or committed in the checkout, it stops updating and
-builds what's on disk, telling you so. Nothing is ever reset or force-updated. `--dir <d>` clones
-somewhere you name instead of the cache, and `day stop --project <that path>` ends a `--detach`ed
-run.
+builds what's on disk, telling you so. Nothing is ever reset or force-updated. `Cargo.lock` is the
+one exception: building here is what rewrites it, so it doesn't count as your edit, and it's
+discarded when an incoming commit carries a new one. `--dir <d>` clones somewhere you name instead
+of the cache, and `day stop --project <that path>` ends a `--detach`ed run.
 
 Each ref gets its own checkout, and a build tree runs to a couple of GB per target, so
 `Day-Rise.git` and `Day-Rise.git@main` cost twice what one of them does; pick a spelling and keep
