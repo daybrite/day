@@ -77,52 +77,33 @@ export const apps = [
     // several rows capture a STATE of a page rather than a page. A shot in neither gets no link.
     // Checked by loading each fragment against the built app, not read off the enum.
     webShots: [
-      'controls', 'dates', 'focus', 'text', 'textareas', 'localization', 'canvas', 'animation',
-      'grid', 'list', 'layout', 'tree', 'model', 'query', 'refresh', 'tabs', 'stack', 'media',
-      'webview', 'menus', 'system', 'services', 'resources', 'tweaks', 'crash', 'about',
+      'controls', 'text', 'textareas', 'dates', 'focus', 'layout', 'grid', 'stack', 'tabs', 'menus',
+      'toolbars', 'list', 'tree', 'model', 'query', 'canvas', 'animation', 'resources', 'media',
+      'webview', 'system', 'network', 'notify', 'speech', 'files', 'localization', 'scripting',
+      'tweaks', 'benchmark', 'about',
     ],
     webRoutes: {
       home: '',
-      'list-item-100': 'list',
+      'controls-pickers': 'controls',
+      'grid-spanning': 'grid',
       'stack-detail': 'stack',
       'tabs-one': 'tabs',
-      'tabs-two': 'tabs',
-      'tabs-three': 'tabs',
-      'stack-root': 'stack',
-      'list-bottom': 'list',
-      'list-item-100-shuffled': 'list',
-      'list-deleted': 'list',
-      'layout-even-columns': 'layout',
       'tree-final': 'tree',
       'textareas-code': 'textareas',
       'webview-embedded': 'webview',
+      'toolbars-filtered': 'toolbars',
       // `preferences` is a separate window and `cover` a fullscreen presentation, so neither is
-      // reachable by a fragment. The web build has no Toolbars page; both toolbar rows would
-      // land on About.
+      // reachable by a fragment. Lottie, Map and the SwiftUI benchmark have no web build page.
       preferences: null,
       cover: null,
-      toolbars: null,
-      'toolbars-filtered': null,
+      lottie: null,
+      map: null,
+      'benchmark-swiftui': null,
     },
-    // `back-home` photographs the navigation returning to a screen `home` already shows, and the
-    // two benchmark variants are the dense grid and the SwiftUI comparison — Apple-only refinements
-    // of the `benchmark` row rather than screens of their own.
-    hide: ['back-home', 'benchmark-dense', 'benchmark-swiftui'],
-    // Rows the walkthrough captures without a `title:`, which would otherwise read as a shot id
-    // in title case. Each is a STATE of the page named before the separator. The durable fix is a
-    // `title:` on those `screenshot:` steps in the app's own dayscript; until then, here.
-    labels: {
-      'layout-even-columns': 'Layout · even columns',
-      'list-bottom': 'List · scrolled to the end',
-      'list-item-100-shuffled': 'List · shuffled',
-      'list-deleted': 'List · after a delete',
-      'stack-root': 'Stack · root',
-      'tabs-two': 'Tabs · second tab',
-      'tabs-three': 'Tabs · third tab',
-      'tree-final': 'Tree · after the moves',
-      'webview-embedded': 'Web view · embedded',
-      speech: 'Speech',
-    },
+    // Every shot the walkthrough keeps carries a `title:` in the app's own dayscript, so the
+    // gallery needs no hiding and no relabelling here (2026-09).
+    hide: [],
+    labels: {},
   },
   {
     id: 'Day-Rise',

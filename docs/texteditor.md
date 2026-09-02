@@ -352,7 +352,7 @@ the same list plus that `onDidChange` fires for every committed edit including a
    block, since a contenteditable is never `:empty`) and block margins (the browser's document
    defaults double-space an editor).
 
-## 8. The Showcase's Text areas page
+## 8. The Showcase's Text editing page
 
 `Day-Showcase/src/pages/text_areas.rs` leads with the styled editor and keeps the plain `text_area`
 below it, which remains the right control for a chat composer or a commit message.

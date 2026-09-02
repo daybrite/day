@@ -231,7 +231,7 @@ question a search field asks: does this row match what the user typed? The rule 
 |---|---|
 | Canvas & shapes | `shapes` |
 | Device & sensors | `sensors` |
-| Platform services | `services` |
+| Files & storage | `storage` |
 | Stack | `Stack` |
 
 and not "Toolbars" or "Controls", whose only `s` is inside a word. An empty query matches

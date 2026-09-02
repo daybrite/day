@@ -1480,8 +1480,13 @@ struct NavMenuIvars {
     /// header. Day addresses rows by ITEM index, so every selection crossing the boundary
     /// goes through this map — a header must never shift what index 3 means.
     rows: RefCell<Vec<Option<usize>>>,
-    /// One retained NSString per outline row, used as the outline's item identity.
+    /// One retained NSString per outline row: the row's text (a header's or an item's).
     row_objects: RefCell<Vec<Retained<NSString>>>,
+    /// One NSNumber per outline row, holding the row's index: the outline's item IDENTITY.
+    /// NSOutlineView matches items with `isEqual:`, so an NSString cannot be the identity —
+    /// a section header titled "Controls" and an item titled "Controls" would collapse into one
+    /// row, and the header would wear the item's icon. Row indexes are unique by construction.
+    row_ids: RefCell<Vec<Retained<NSNumber>>>,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: std::cell::Cell<bool>,
 }
@@ -1578,15 +1583,15 @@ define_class!(
             index: isize,
             _item: Option<&objc2::runtime::AnyObject>,
         ) -> Retained<objc2::runtime::AnyObject> {
-            let objects = self.ivars().row_objects.borrow();
+            let ids = self.ivars().row_ids.borrow();
             // AppKit only asks for children it was told exist, but a stale query racing a
             // reload must degrade (an unmatched identity) rather than index out of bounds —
             // a panic here unwinds into an ObjC frame and aborts.
-            let ns = objects
+            let id = ids
                 .get(index as usize)
                 .cloned()
-                .unwrap_or_else(|| NSString::from_str(""));
-            unsafe { objc2::rc::Retained::cast_unchecked(ns) }
+                .unwrap_or_else(|| NSNumber::new_isize(-1));
+            unsafe { objc2::rc::Retained::cast_unchecked(id) }
         }
 
         #[unsafe(method(outlineView:isItemExpandable:))]
@@ -1607,21 +1612,20 @@ define_class!(
         #[unsafe(method(outlineView:isGroupItem:))]
         fn is_group_item(
             &self,
-            ov: &objc2_app_kit::NSOutlineView,
+            _ov: &objc2_app_kit::NSOutlineView,
             item: &objc2::runtime::AnyObject,
         ) -> bool {
-            let row = unsafe { ov.rowForItem(Some(item)) };
+            let row = Self::outline_row(item);
             row >= 0 && self.item_of_row(row).is_none()
         }
 
         #[unsafe(method(outlineView:shouldSelectItem:))]
         fn should_select(
             &self,
-            ov: &objc2_app_kit::NSOutlineView,
+            _ov: &objc2_app_kit::NSOutlineView,
             item: &objc2::runtime::AnyObject,
         ) -> bool {
-            let row = unsafe { ov.rowForItem(Some(item)) };
-            self.item_of_row(row).is_some()
+            self.item_of_row(Self::outline_row(item)).is_some()
         }
 
         #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
@@ -1632,9 +1636,16 @@ define_class!(
             item: &objc2::runtime::AnyObject,
         ) -> Option<Retained<NSView>> {
             let mtm = self.mtm();
+            let row = Self::outline_row(item);
+            let text = self
+                .ivars()
+                .row_objects
+                .borrow()
+                .get(usize::try_from(row).unwrap_or(usize::MAX))
+                .cloned();
             // No early returns: the method_id macro owns the return conversion.
-            item.downcast_ref::<NSString>().map(|text| {
-                let row = unsafe { ov.rowForItem(Some(item)) };
+            text.map(|text| {
+                let text: &NSString = &text;
                 let Some(index) = self.item_of_row(row) else {
                     // A section header: a plain secondary label. AppKit gives group rows their
                     // own typography, so this only supplies the text.
@@ -1892,6 +1903,7 @@ impl DayNavMenuData {
             badge_tints: RefCell::new(badge_tints.to_vec()),
             rows: RefCell::new(Vec::new()),
             row_objects: RefCell::new(Vec::new()),
+            row_ids: RefCell::new(Vec::new()),
             suppress: std::cell::Cell::new(false),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
@@ -1938,8 +1950,20 @@ impl DayNavMenuData {
             rows.push(Some(i));
             objects.push(NSString::from_str(label));
         }
+        let ids = (0..objects.len())
+            .map(|i| NSNumber::new_isize(i as isize))
+            .collect();
         *self.ivars().rows.borrow_mut() = rows;
         *self.ivars().row_objects.borrow_mut() = objects;
+        *self.ivars().row_ids.borrow_mut() = ids;
+    }
+
+    /// The outline row an item object names — the index its NSNumber identity carries — or
+    /// `-1` for anything that is not one of ours (a stale query racing a reload).
+    fn outline_row(item: &objc2::runtime::AnyObject) -> isize {
+        item.downcast_ref::<NSNumber>()
+            .map(|n| n.integerValue())
+            .unwrap_or(-1)
     }
 
     /// Outline row → day item index.

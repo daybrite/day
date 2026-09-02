@@ -69,7 +69,7 @@ day_part_http::fetch_async(Request::get(url), move |result| {
 `day_reactive::on_main` (which requires an installed backend poster and would break plain-`main`
 programs and `cargo test`). Capturing a `Setter` in `on_done` is the standard delivery idiom
 (DESIGN §4.5); it marshals to the UI thread itself and absorbs late deliveries after disposal.
-The showcase's Platform services page demonstrates it twice: a deterministic local fetch (a
+The showcase's Network & HTTP page demonstrates it twice: a deterministic local fetch (a
 one-shot loopback server natively; on web-dom, where a tab can host no listener, the dev
 server's same-origin `/day-http-ok` echo endpoint with identical bodies), and
 a URL checker (type any http(s) URL, tap Check) that prints the response headers and body size.

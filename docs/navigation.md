@@ -273,6 +273,25 @@ first appeared on that backend. A selector used as a self-contained widget insid
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 
+**Section headers.** `selector(…).section(title)` opens a header before the NEXT item added —
+a static `.item` or the first row of the next `.items` block — and `item(key, title).section(title)`
+does the same from inside a data-driven mapper, which is how a derived list keeps its groups
+under a search filter: attach the header to the first surviving row of each group, and a group
+whose rows are all filtered out disappears with them. Headers are a grouping hint: a backend
+without grouped rows (a tab strip, a plain phone list) shows one flat list, so a header is never
+the only way a row is reachable, and a row's icon tint is the grouping signal that survives
+there. AppKit draws them as source-list group rows (small, bold, secondary, pinned as their
+group scrolls under them); the outline keys its rows by index, not by title, so a header may
+share its text with an item ("Controls" over Controls) without the two collapsing into one row.
+
+```rust
+selector(section)
+    .section(res::str::smart_feeds())
+    .item_icon("today", res::str::today(), res::images::today, today_page)
+    .section(res::str::feeds())
+    .items(move || st.feeds.get(), |f| item(f.id, f.name))
+```
+
 **A data-driven item is a label + optional icon**: the native sidebar/tab row. It is not an
 arbitrary rich row (an avatar + preview + badge); a master list that needs those is a `list`, and
 combining a rich master list with native master-detail push is a separate, not-yet-built feature.

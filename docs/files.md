@@ -122,5 +122,5 @@ A file picker is a presentation, so a script answers it with a path ([docs/dialo
 ```
 
 This makes open/save flows headless-testable and screenshot-able on every backend without touching
-the machine's real filesystem. See `Day-Showcase` (the **Platform services** page's Files section) and
+the machine's real filesystem. See `Day-Showcase` (the **Files & storage** page's Files section) and
 `Day-Showcase/dayscript/files.yaml`.

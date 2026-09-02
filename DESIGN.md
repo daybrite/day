@@ -1896,6 +1896,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   which four presentations can no longer encode in a lowered `Split`. Drawn today by
 >   macos-appkit and web-dom; the rest answer `Cap::NavTabs = Unsupported` and take the
 >   pre-adaptive sidebar ladder ([docs/navigation.md](docs/navigation.md) is normative).
+> - **Section headers in a derived sidebar** *(2026-09)* — `selector(…).section(title)` and
+>   `item(…).section(title)` open a group header before the next row, so a data-driven,
+>   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;
+>   flat-list backends ignore it. The AppKit outline used the row's NSString as its item
+>   identity and `NSOutlineView` matches items with `isEqual:`, so a header titled like an item
+>   collapsed onto it and wore its icon; rows are keyed by index (an `NSNumber`) now.
 > - **The content list** *(2026-08)* — `selector(…).content_list(build)` adds the Mail shape's
 >   middle column as a third pane role: `Pane::List`, one resident page whose content follows
 >   the app's signals. `Cap::NavContentList` carries where it lands — `Native` on macos-appkit
@@ -4823,18 +4829,25 @@ level with an unbounded cache. Day-Bench gained the measuring apparatus: `persis
 > demonstrates. It moved out of this repository in 2026-08 (§20); CI checks it out to keep testing
 > the framework against it.
 
-What the shipped showcase covers, per navigation destination (a `selector` sidebar on desktop,
-a list-push on mobile — [docs/navigation.md](docs/navigation.md)): **Controls** (every two-way binding, pickers,
-search, progress/activity), **Focus** (the [§4.4](#44-events-and-controlled-inputs)/[docs/focus.md](docs/focus.md) permutations), **Text**
-(semantic styles, weights, custom fonts), **Canvas & shapes** (shape kinds, gradients, live
-transforms + gestures, the gauge, composition-tier widgets), **List** (native recycling),
-**Tabs**, **Stack** (push/pop bound to a path signal), **Media**, **Web View**, **Menus &
-dialogs** (app menu, context menus, alert/confirm/prompt/sheet), **Device & sensors** and
-**Platform services** (the `parts/`), **Resources** (bundled images/data, content modes),
-**Tweaks**, **Map** (Apple targets), and **About** (live lifecycle readout).
+What the shipped showcase covers, by sidebar group (a `selector` sidebar with section headers
+on desktop, a list-push on mobile — [docs/navigation.md](docs/navigation.md); regrouped 2026-09):
+**Overview** (About, with the live lifecycle readout); **Controls** (a catalogue of every control
+Day ships, family by family, with the composition-tier pieces and the control crates; Text —
+semantic styles, weights, runs, markdown; Text editing; Date & time; Focus, the
+[§4.4](#44-events-and-controlled-inputs)/[docs/focus.md](docs/focus.md) permutations); **Layout**
+(rows, columns and layers, the row-fit policies, cards and environment, a plain scroll with
+targets, size classes; Grid); **Navigation & chrome** (Stack — push/pop bound to a path signal —
+Tabs, Menus & dialogs, Toolbars); **Data** (List — native recycling — Tree, Model, Query);
+**Graphics & media** (Canvas & shapes, Animation, Resources — bundled images/data, content modes —
+Media, Lottie, Map, Web view); **Platform** (Device & sensors, Network & HTTP, Notifications &
+badge, Speech & haptics, Files & storage — the `parts/`); and **App & tooling** (Localization,
+Scripting, Tweaks, Benchmark, Crash reporting). A page whose central feature a target cannot run
+is not in that target's sidebar (Lottie is iOS and Android only, Map is Apple only, Toolbars
+needs `Cap::Toolbar`, Crash reporting has no web arm); a section a target cannot run stays with a
+banner.
 
 Four locales ship (`en`, `fr`, `ar` — RTL, `zh-CN`); every user-facing string flows through
-`res::str` typed keys. `dayscript/walkthrough.yaml` (200+ steps) navigates every destination,
+`res::str` typed keys. `dayscript/walkthrough.yaml` navigates every destination,
 exercises every control, and screenshots each page — it runs per locale and per theme in CI on
 macOS (AppKit/GTK/Qt), iOS, and Android, and is the acceptance gate for backend changes.
 

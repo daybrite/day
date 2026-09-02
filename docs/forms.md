@@ -81,8 +81,8 @@ it. When either side reports no baseline the row centers both, as before.
 - `day-pieces` mock e2e (`form_aligns_labels_and_sections_carry_the_card_surface`): two sections
   carry the card role + radius; label right edges align across sections; control left edges
   align across sections.
-- The showcase uses forms on the **Controls**, **Canvas & shapes**, **Device & sensors**, and
-  **Platform services** pages; the walkthrough drives every control inside them on all targets,
+- The showcase uses forms on the **Controls**, **Canvas & shapes**, **Device & sensors**, and the four
+  **Platform** pages; the walkthrough drives every control inside them on all targets,
   and the three screenshot variants (light / dark / fr) verify the card material adapts per
   theme on every toolkit in CI.
 

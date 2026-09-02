@@ -17,7 +17,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > Every other backend inherits the default no-op and answers `Unsupported`, which is correct for
 > Android (it has no API) and a to-do for Linux, Windows, and HarmonyOS.
 >
-> The Showcase's Platform services page has an "App badge" group — a stepper, Set/Clear, and a
+> The Showcase's Notifications & badge page has an "App badge" group — a stepper, Set/Clear, and a
 > macOS-only "Set text" button that appears only where `Cap::AppBadgeText` is `Native`.
 >
 > One naming decision landed differently from the plan below: the surface is `app_badge`

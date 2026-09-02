@@ -181,7 +181,7 @@ permissions, local-notify) are the ones whose platform half pushes events back.
 
 ## Trying it
 
-The Showcase's **Platform services** page has the demo at the top: a text field (empty means the
+The Showcase's **Speech & haptics** page has the demo at the top: a text field (empty means the
 localized sample the placeholder shows), Speak, and Stop.
 
 ```
