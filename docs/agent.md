@@ -65,7 +65,9 @@ host can produce:
   faulting thread's frames rather than its several hundred lines of loaded-image addresses. It is
   matched by pid on a desktop launch, and the runner waits up to 30 s for it, because ReportCrash
   writes it well after the process dies, so looking once finds the previous run's or nothing.
-- **Android**: the emulator's crash buffer (`adb logcat -b crash`).
+- **Android**: the emulator's crash buffer (`adb logcat -b crash`), preceded by the tail of the
+  emulator's own log when `day devices boot` started it — read from the host, so it is there even
+  when the guest has stopped answering and every adb call returns nothing.
 
 Scripted launches also default `RUST_BACKTRACE=1`, so a panic's stack is in the streamed log the
 first time; nobody is watching an unattended run to re-run it with the variable set. An explicit

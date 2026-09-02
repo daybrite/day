@@ -380,114 +380,21 @@ pub struct SetupSpec<'a> {
     pub orientation: Option<&'a str>,
 }
 
-/// Resolve `--device`/`--os` to a simulator UDID.
-///
-/// `device` matches as a NAME PREFIX and `os` as a MAJOR VERSION taking the newest point release
-/// installed, because runner images rotate both: an exact "iPhone 15" on "iOS 26.2" starts failing
-/// the day the image moves, and the failure looks like a broken app rather than a stale pin. An
-/// unmatched request is an error listing what the machine does have — silently taking some other
-/// device would capture the wrong form factor under this profile's name.
-/// Every simulator devicectl knows about, or why it could not say.
-///
-/// Fails loudly on an empty or unparseable answer rather than treating it as "no devices": those
-/// are the shapes a broken CoreDevice produces, and reading them as an empty machine would turn a
-/// tooling fault into "no simulator matched", which sends the reader hunting for the wrong thing.
-fn devicectl_simulators() -> Result<Vec<Value>, String> {
-    let out = Command::new("xcrun")
-        .args(["devicectl", "list", "devices", "-j", "-"])
-        .output()
-        .map_err(|e| format!("could not be run: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let err = err.trim();
-        let code = out
-            .status
-            .code()
-            .map_or_else(|| "abnormally".to_string(), |c| c.to_string());
-        return Err(if err.is_empty() {
-            format!("exited {code}")
-        } else {
-            format!("exited {code}: {err}")
-        });
-    }
-    if out.stdout.iter().all(u8::is_ascii_whitespace) {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let err = err.trim();
-        return Err(if err.is_empty() {
-            "printed nothing".to_string()
-        } else {
-            format!("printed no JSON: {err}")
-        });
-    }
-    let json: Value =
-        serde_json::from_slice(&out.stdout).map_err(|e| format!("printed bad JSON: {e}"))?;
-    Ok(json["result"]["devices"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default())
-}
-
 /// One simulator, as the matcher needs it: display name, UDID, and a runtime spelled "iOS 26.5".
 type Sim = (String, String, String);
 
-/// Simulators from devicectl, falling back to simctl when devicectl cannot answer.
+/// Every available iOS simulator, from `simctl` — the same enumeration `day devices list` runs.
 ///
-/// devicectl is preferred for its schema — the OS version arrives as a plain "26.5", and
-/// `hardware.reality` separates a simulator from a physical device, where simctl keys everything
-/// by runtime IDENTIFIER ("com.apple.CoreSimulator.SimRuntime.iOS-26-5") that has to be unpicked
-/// back into a version. Preferred, not required: it talks to CoreDevice, and a CI runner has been
-/// seen to answer nothing at all, which is not worth failing a build over when simctl needs no
-/// daemon and has enumerated simulators for far longer.
+/// `simctl` and not `devicectl`, on purpose. CoreDevice's list looked like the better source for
+/// its schema (a plain "26.5" for the OS, `hardware.reality` to tell a simulator from a phone), but
+/// it is not a list of what the machine HAS: it names the simulators CoreDevice has already been
+/// introduced to — ones that booted, or that xcodebuild targeted — and nothing else. Measured on
+/// the `xcode-27` runner image, which installs eleven iOS 27 simulators: devicectl reported ONE,
+/// the iPhone the build step had just used, so `--device "iPad Pro 13-inch"` failed with "This
+/// machine has: iPhone 17 Pro" while the iPad sat one `simctl list` away. A developer Mac showed
+/// the same shape at a larger scale, 77 devices against simctl's 217. simctl reads CoreSimulator's
+/// own device set, which is exactly the set `simctl boot` can act on, so it is the authority here.
 fn simulators() -> Result<Vec<Sim>, CliError> {
-    let fallback = |why: String| {
-        // Loud, not silent. A runner where devicectl is broken says so once in the log, instead of
-        // a fallback quietly working and the fault only surfacing later at `devicectl orientation`,
-        // which has no second source.
-        crate::ops::status(
-            "Warning",
-            &format!("devicectl {why} — using simctl to find simulators instead"),
-        );
-        simctl_simulators()
-    };
-    let list = match devicectl_simulators() {
-        Ok(list) => list,
-        Err(why) => return fallback(why),
-    };
-    let sims = sims_from_devicectl(&list);
-    // A parseable answer naming no iOS simulator is the other shape a half-working CoreDevice
-    // produces. Treating it as "this machine has none" would report a missing device when the
-    // real fault is the tool, so simctl gets the same chance to answer.
-    if sims.is_empty() {
-        return fallback("listed no iOS simulators".to_string());
-    }
-    Ok(sims)
-}
-
-/// The iOS simulators in a `devicectl list devices` payload.
-fn sims_from_devicectl(list: &[Value]) -> Vec<Sim> {
-    let mut sims = Vec::new();
-    for d in list {
-        let props = &d["properties"];
-        let hw = &props["hardware"];
-        // Simulators only: `--ios-simulator` is what this resolves for, and a physical device
-        // reached the same way would be installed onto by accident.
-        if hw["reality"].as_str() != Some("simulated") || hw["platform"].as_str() != Some("iOS") {
-            continue;
-        }
-        let (Some(name), Some(udid)) = (props["state"]["name"].as_str(), d["identifier"].as_str())
-        else {
-            continue;
-        };
-        let version = props["software"]["osVersionNumber"]["stringValue"]
-            .as_str()
-            .unwrap_or("?");
-        sims.push((name.to_string(), udid.to_string(), format!("iOS {version}")));
-    }
-    sims
-}
-
-/// Every available iOS simulator, from the enumeration `day devices list` already runs.
-fn simctl_simulators() -> Result<Vec<Sim>, CliError> {
     let out = Command::new("xcrun")
         .args(["simctl", "list", "devices", "available", "--json"])
         .output()
@@ -503,9 +410,9 @@ fn simctl_simulators() -> Result<Vec<Sim>, CliError> {
     Ok(sims_from_simctl(&parsed))
 }
 
-/// The iOS simulators in a `simctl list devices --json` payload, whose runtime IDENTIFIER
-/// ("com.apple.CoreSimulator.SimRuntime.iOS-26-5") becomes the same "iOS 26.5" devicectl reports
-/// directly, so the matcher cannot tell which source it was handed.
+/// The iOS simulators in a `simctl list devices --json` payload, keyed there by runtime
+/// IDENTIFIER ("com.apple.CoreSimulator.SimRuntime.iOS-26-5"), which becomes the "iOS 26.5" the
+/// matcher compares against `--os`.
 fn sims_from_simctl(parsed: &Value) -> Vec<Sim> {
     let mut sims = Vec::new();
     for (runtime_key, list) in parsed["devices"].as_object().into_iter().flatten() {
@@ -525,6 +432,13 @@ fn sims_from_simctl(parsed: &Value) -> Vec<Sim> {
     sims
 }
 
+/// Resolve `--device`/`--os` to a simulator UDID.
+///
+/// `device` matches as a NAME PREFIX and `os` as a MAJOR VERSION taking the newest point release
+/// installed, because runner images rotate both: an exact "iPhone 15" on "iOS 26.2" starts failing
+/// the day the image moves, and the failure looks like a broken app rather than a stale pin. An
+/// unmatched request is an error listing what the machine does have — silently taking some other
+/// device would capture the wrong form factor under this profile's name.
 fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, String), CliError> {
     let sims = simulators()?;
     let mut best: Option<(String, String, String)> = None;
@@ -1171,6 +1085,41 @@ fn emulator_log_tail(avd: &str, lines: usize) -> String {
     }
 }
 
+/// The tail of every emulator log `day devices boot` has written on this machine, newest first,
+/// as `(path, last lines)` — for a post-mortem that has to say what the EMULATOR was doing.
+///
+/// Read from the host, never through adb: the case this serves is a device that stopped
+/// answering, where every adb call costs its whole timeout and returns nothing. The emulator's own
+/// output is the one record that survives that — a wedged renderer, an exited QEMU, a host that ran
+/// out of something all say so here and nowhere the guest can be asked.
+pub(crate) fn emulator_log_tails(lines: usize) -> Vec<(std::path::PathBuf, String)> {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+        return Vec::new();
+    };
+    let mut logs: Vec<(std::path::PathBuf, std::time::SystemTime)> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("day-emulator-") && n.ends_with(".log"))
+        })
+        .filter_map(|p| {
+            let modified = std::fs::metadata(&p).and_then(|m| m.modified()).ok()?;
+            Some((p, modified))
+        })
+        .collect();
+    logs.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    logs.into_iter()
+        .filter_map(|(path, _)| {
+            let text = std::fs::read_to_string(&path).ok()?;
+            let tail: Vec<&str> = text.lines().rev().take(lines).collect();
+            let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
+            (!tail.trim().is_empty()).then_some((path, tail))
+        })
+        .collect()
+}
+
 /// One `adb -s <serial> shell …`, trimmed. `None` when adb itself fails.
 fn adb_shell(serial: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(day_toolchain::adb_bin())
@@ -1759,37 +1708,12 @@ mod tests {
         assert_eq!(runtime_label("something-else"), "something else");
     }
 
-    /// The two enumerations must be interchangeable, because one silently stands in for the other:
-    /// when devicectl cannot answer, simctl's payload reaches the same matcher, and a difference in
-    /// how they spell a name or a runtime would resolve `--device`/`--os` differently depending on
-    /// which source happened to answer. Both payloads are the real shapes, trimmed to the read keys.
+    /// The simctl payload is the one source of simulators, so the shape the matcher sees is
+    /// decided here: a physical phone never appears (simctl lists simulators only), and a watch
+    /// is dropped, because installing an ios-uikit app onto one is a guaranteed failure. The
+    /// payload is the real shape, trimmed to the read keys.
     #[test]
-    fn both_enumerations_describe_a_simulator_the_same_way() {
-        let devicectl: Value = serde_json::from_str(
-            r#"[{
-                "identifier": "68932305-F238-4D37-A2E3-FD73FEA39CD8",
-                "properties": {
-                    "hardware": { "reality": "simulated", "platform": "iOS" },
-                    "state": { "name": "iPad Pro 13-inch (M5)" },
-                    "software": { "osVersionNumber": { "stringValue": "26.5" } }
-                }
-            }, {
-                "identifier": "PHYSICAL-PHONE",
-                "properties": {
-                    "hardware": { "reality": "physical", "platform": "iOS" },
-                    "state": { "name": "Marc's iPhone" },
-                    "software": { "osVersionNumber": { "stringValue": "26.5" } }
-                }
-            }, {
-                "identifier": "A-WATCH",
-                "properties": {
-                    "hardware": { "reality": "simulated", "platform": "watchOS" },
-                    "state": { "name": "Apple Watch Series 11" },
-                    "software": { "osVersionNumber": { "stringValue": "12.0" } }
-                }
-            }]"#,
-        )
-        .expect("fixture parses");
+    fn simctl_enumeration_describes_a_simulator_the_way_the_matcher_reads_it() {
         let simctl: Value = serde_json::from_str(
             r#"{ "devices": {
                 "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
@@ -1807,13 +1731,23 @@ mod tests {
             "68932305-F238-4D37-A2E3-FD73FEA39CD8".to_string(),
             "iOS 26.5".to_string(),
         )];
-        // A physical phone and a watch are dropped by both: installing an ios-uikit app onto
-        // either is a guaranteed failure, and the phone would be installed onto by ACCIDENT.
-        assert_eq!(
-            sims_from_devicectl(devicectl.as_array().expect("array")),
-            want
-        );
         assert_eq!(sims_from_simctl(&simctl), want);
+    }
+
+    /// The post-mortem reads emulator logs from the host's temp dir by name, so the name
+    /// `spawn_emulator` writes and the name this scans for have to agree — and a log is
+    /// reported by its last lines, newest file first.
+    #[test]
+    fn emulator_logs_are_found_by_name_and_read_from_the_tail() {
+        let avd = format!("test-{}", std::process::id());
+        let path = emulator_log_path(&avd);
+        std::fs::write(&path, "first\nsecond\nthird\n").expect("temp dir is writable");
+        let found = emulator_log_tails(2)
+            .into_iter()
+            .find(|(p, _)| *p == path)
+            .map(|(_, tail)| tail);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(found.as_deref(), Some("second\nthird"));
     }
 
     /// Every device a listing reports has to name the flag that selects it — that mapping is the

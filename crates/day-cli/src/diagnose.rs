@@ -455,6 +455,21 @@ fn os_crash_findings(
             }
         }
         TargetKind::Android => {
+            // The emulator's own log FIRST, because it is the one source here that does not
+            // go through adb. The failure this arm most often describes is not a crash but a
+            // device that stopped answering — measured as a tablet AVD whose guest froze while
+            // its WebView's GPU process was loading shaders, with no crash to find — and there
+            // every adb call below costs its whole timeout and prints nothing. What the emulator
+            // wrote on the host is readable regardless, and it is the only record of a wedged
+            // renderer or an exited QEMU. Printed, not a Finding: it is context, not evidence
+            // of a crash, and a Finding would end the whole run.
+            for (path, tail) in crate::devices::emulator_log_tails(40) {
+                crate::ops::status(
+                    "Emulator",
+                    &format!("log {} (last 40 lines)", path.display()),
+                );
+                eprintln!("{DIM}{}{DIM:#}", indent(&tail));
+            }
             looked.push("adb logcat -b crash".into());
             let out_cmd = crate::ops::output_within(
                 Command::new(day_toolchain::adb_bin())
