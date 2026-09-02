@@ -256,6 +256,22 @@ impl MockProbe {
         }
     }
 
+    /// Simulate the native list pooling a physical `cell` that scrolled out of view — the
+    /// `onViewRecycled` / prepare-for-reuse moment. Day parks the cell subtree's ids so the
+    /// hidden row stops answering lookups; the next [`Self::list_bind`] of that cell restores
+    /// them (docs/list.md).
+    pub fn list_recycle(&self, host: MockHandle, cell: MockHandle) {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .map(|s| s.recycle.clone());
+        if let Some(f) = f {
+            f(cell.0 as RawHandle);
+        }
+    }
+
     /// Consult the list's reorder guard the way a native validate hook would: the accepted
     /// target index, or -1 when the guard denies. `i64::MIN` when the list has no reorder seam
     /// (not `.reorderable()`).

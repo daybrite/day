@@ -1788,7 +1788,10 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > NODE_ON_DROP), the WinRT drag pipeline over XAML's still-emulated list (a real-ListView
 > migration via ContainerContentChanging remains a candidate follow-up), and a pointer-tracked
 > emulation on web-dom. Recycled-row ids gained the reactive `.id_of` decorator (a build-time
-> keyed id goes stale when a cell rebinds). **Programmatic row scrolling** followed
+> keyed id goes stale when a cell rebinds); since 2026-09 a pooled cell's ids are **parked** on
+> recycle and **restored** on its next bind, because a rebind to unchanged row content writes
+> no signal and so re-set nothing (`day-pieces/tests/list_recycled_ids.rs`). **Programmatic
+> row scrolling** followed
 > (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
 > **Swipe actions shipped** (2026-08): app-declared reveal-as-you-swipe buttons on either

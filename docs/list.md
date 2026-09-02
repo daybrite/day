@@ -108,7 +108,7 @@ pub struct ListSource {
     pub len: Rc<dyn Fn() -> usize>,
     pub token_at: Rc<dyn Fn(usize) -> u64>,     // stable per-row identity for the native widget
     pub bind_row: Rc<dyn Fn(usize, RawHandle)>, // build-or-rebind row `i` into this native cell
-    pub recycle: Rc<dyn Fn(RawHandle)>,         // cell leaving the viewport (optional bookkeeping)
+    pub recycle: Rc<dyn Fn(RawHandle)>,         // cell leaving the viewport: its ids park until the next bind
 }
 
 trait Toolkit {

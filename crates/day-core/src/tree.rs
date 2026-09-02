@@ -82,6 +82,14 @@ pub struct NodeData<H> {
     pub flex: Flex,
     pub scope: Scope,
     pub id: Option<String>,
+    /// The id a recycled cell's node carried before [`clear_subtree_ids`] parked it
+    /// (docs/list.md). A pooled row must stop answering lookups while it is hidden, but its
+    /// next bind may show the SAME row content again — a slot write of an unchanged value,
+    /// which fires no reactive `id_of` and re-runs no static `.id()` — so the parked id is what
+    /// `restore_subtree_ids` hands back on rebind.
+    ///
+    /// [`clear_subtree_ids`]: Tree::clear_subtree_ids
+    pub parked_id: Option<String>,
     /// Accumulated accessibility annotations (§13): merged from the piece default, `.a11y()`,
     /// and `.id()`. Stored so each `set_a11y` re-applies the full picture and `a11y_audit`
     /// (§14.2) can diff the native tree against Day's own expectation.
@@ -161,11 +169,32 @@ pub struct Tree<B: Toolkit> {
 impl<B: Toolkit> Tree<B> {
     /// Drop the element ids of `anchor`'s whole subtree — the recycle write shared by tree
     /// and list cells (a pooled cell keeps its nodes; only the dayscript identity must go).
+    /// Park every id under `anchor` so the (pooled, hidden) cell stops answering lookups. The
+    /// ids are kept, not dropped: `restore_subtree_ids` brings them back on the next bind.
     fn clear_subtree_ids(&mut self, anchor: RNode) {
         let mut stack = vec![anchor];
         while let Some(n) = stack.pop() {
             if let Some(d) = self.nodes.get_mut(n) {
-                d.id = None;
+                if let Some(id) = d.id.take() {
+                    d.parked_id = Some(id);
+                }
+                stack.extend(d.children.iter().copied());
+            }
+        }
+    }
+
+    /// The inverse of `clear_subtree_ids`, run when a pooled cell is bound again: every node
+    /// that still has no id takes its parked one back. A node whose reactive `id_of` already
+    /// re-fired keeps the fresh id, and the parked copy is dropped either way.
+    fn restore_subtree_ids(&mut self, anchor: RNode) {
+        let mut stack = vec![anchor];
+        while let Some(n) = stack.pop() {
+            if let Some(d) = self.nodes.get_mut(n) {
+                if let Some(id) = d.parked_id.take()
+                    && d.id.is_none()
+                {
+                    d.id = Some(id);
+                }
                 stack.extend(d.children.iter().copied());
             }
         }
@@ -182,6 +211,7 @@ impl<B: Toolkit> Tree<B> {
             flex: Flex::default(),
             scope: Scope::root(),
             id: None,
+            parked_id: None,
             a11y: Default::default(),
             cache: Vec::new(),
             baseline_cache: None,
@@ -226,6 +256,7 @@ impl<B: Toolkit> Tree<B> {
             flex: Flex::default(),
             scope,
             id: None,
+            parked_id: None,
             a11y: Default::default(),
             cache: Vec::new(),
             baseline_cache: None,
@@ -932,6 +963,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             flex,
             scope,
             id: None,
+            parked_id: None,
             a11y: Default::default(),
             cache: Vec::new(),
             baseline_cache: None,
@@ -1524,6 +1556,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             flex: Flex::default(),
             scope: Scope::root(),
             id: None,
+            parked_id: None,
             a11y: Default::default(),
             cache: Vec::new(),
             baseline_cache: None,
@@ -1672,10 +1705,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(state) = self.lists.get(&node)
             && let Some(bound) = state.cells.get(&key)
         {
-            return crate::list::CellStep::Rebind {
-                rebind: bound.rebind.clone(),
-                anchor: bound.anchor,
-            };
+            let (rebind, anchor) = (bound.rebind.clone(), bound.anchor);
+            // A pooled cell coming back: its ids were parked when it was recycled, and a
+            // rebind to unchanged content would never re-set them (see `parked_id`).
+            self.restore_subtree_ids(anchor);
+            return crate::list::CellStep::Rebind { rebind, anchor };
         }
         // First use of this cell: adopt the native cell and anchor a fresh subtree under it.
         let handle = self.toolkit.adopt(cell);
@@ -1845,10 +1879,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(state) = self.trees.get(&node)
             && let Some(bound) = state.cells.get(&key)
         {
-            return crate::tree_driver::TreeCellStep::Rebind {
-                rebind: bound.rebind.clone(),
-                anchor: bound.anchor,
-            };
+            let (rebind, anchor) = (bound.rebind.clone(), bound.anchor);
+            // Same rule as `list_prepare_cell`: give a pooled cell its parked ids back.
+            self.restore_subtree_ids(anchor);
+            return crate::tree_driver::TreeCellStep::Rebind { rebind, anchor };
         }
         // First use of this cell: adopt the native cell and anchor a fresh subtree under it.
         // The CENTERING anchor layout, not the list's PassThrough: tree rows have a fixed
