@@ -1527,8 +1527,9 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
 > `Custom` purely piece-defined. `BridgeKind::ToolbarChanged = 30` (2026-09) carries a phone
 > toolbar item's toggle state or chosen segment up as `Event::ToolbarChanged`, now that the window
-> toolbar docks under the navigation controller's pages on UIKit and Android (`Cap::Toolbar` is
-> Native on six backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
+> toolbar rides the mobile navigation chrome — the navigation bar on UIKit, the app bar on Android,
+> in both cases the bar the page already has rather than a second one below it (2026-09;
+> `Cap::Toolbar` is Native on six backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
 [docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
 AppKit needs an NSTextField→NSTextView swap it does not do yet, and ArkUI is unwired — so a
 `.link()` run always draws, and taps report on the six.

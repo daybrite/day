@@ -151,16 +151,23 @@ page that is showing — the detail column's on an expanded iPad split, the merg
 it has collapsed or on a phone — as iOS 16 item groups, one per item, ahead of the page's own
 `bar_action`s; what the bar cannot fit folds into its overflow menu, trailing items first, so
 declare the least-used items last. No bottom bar, and the sidebar column never carries the
-window's bar: one bar per window, on the content it acts on. On Android a second
-`MaterialToolbar` under the nav host's pages shows the items as actions, so a phone carries two
-bars there, the app bar above with its `bar_action`s and this one below.
+window's bar: one bar per window, on the content it acts on. Android does the same in the nav
+host's APP BAR (2026-09): the items go in as menu items shown as actions, leading the page's own
+`bar_action`s, and what the bar cannot fit folds into its overflow (⋮) in declaration order.
+Day used to dock a second `MaterialToolbar` under the pages, which read as a phone's bottom bar
+and, tiled on a tablet, as a strip of icons stranded below both panes with the titled bar above
+them empty.
 Buttons, toggles and labels draw as themselves, a menu item drops its menu, and a segmented item
 becomes a pull-down of its segments with the chosen one checked (a segmented control has no room
-in a phone's bar). Two kinds never reach a phone's bar: search, which rides the navigation list
-there ([docs/search.md](search.md)), and the sidebar toggle, which the split view owns. Android
-stages no glyph for a `Symbol`, so an item with only a symbol shows its label as text there,
-and text items that outgrow the bar fold into its overflow menu; an `Icon::Image` draws as the
-image on both phones.
+in a phone's bar). That pull-down is titled by the segment IN FORCE, since a segmented control
+carries no label of its own: on iOS by that segment's icon where it has one, otherwise its word;
+on Android by its word. Two kinds never reach a phone's bar: search, which rides the navigation
+list there ([docs/search.md](search.md)), and the sidebar toggle, which the split view owns.
+Android stages no glyph for a `Symbol`, so an item with only a symbol has no glyph to show in
+the bar and lives in the overflow, where its label reads as a menu row — a Material app bar
+carries icon buttons and sends the rest to its overflow, and two text actions were enough to
+squeeze the Showcase's own title to "Day Showc…". An `Icon::Image` draws as the image on both
+phones, and Android re-tints it to the app bar's own color.
 `Unsupported` on HarmonyOS. Probe for `!= Support::Unsupported` rather than `== Native` unless
 the difference matters to the app; a caller usually wants to know whether the commands belong
 in a bar at all. Where the answer is `Unsupported`, `toolbar(…)` installs nothing and the app

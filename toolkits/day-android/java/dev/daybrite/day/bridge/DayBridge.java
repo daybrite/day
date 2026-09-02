@@ -1301,18 +1301,16 @@ public final class DayBridge {
             case 1: night = android.app.UiModeManager.MODE_NIGHT_YES; break;
             default: night = android.app.UiModeManager.MODE_NIGHT_AUTO; break;
         }
-        // A DayNight theme picks its variant when the activity's theme is RESOLVED, which is at
-        // creation. The uiMode change alone leaves every view — and every view inflated after it —
-        // on the colors chosen at startup, so the appearance has to be re-resolved by recreating.
-        // Day's tree is rebuilt from `onCreate`, the same path a cold start takes, and since 2026-08
-        // that path is a real RE-MOUNT (docs/appearance.md) rather than a second launch.
-        //
-        // Day performs this recreation ITSELF, and both halves of that were measured rather than
-        // assumed (docs/appearance.md "What was tried"): an app-level `setApplicationNightMode`
-        // does not make the platform recreate the activity, so dropping this call leaves the app
-        // unchanged; and posting it to the next main-loop turn instead of calling it inline makes
-        // the new activity resolve LIGHT, losing the setting altogether.
-        if (ctx instanceof android.app.Activity) ((android.app.Activity) ctx).recreate();
+        // Ask the platform for the mode, and stop there. Nothing here recreates the activity:
+        // this call is a binder round trip, so a `recreate()` issued beside it re-resolves the
+        // theme against whichever configuration has landed by then — which is how a Dark-to-Light
+        // pick came back with a light app bar over a dark sidebar. The platform answers with a
+        // uiMode configuration change once the override IS in force, and `DayActivity` recreates
+        // from there (docs/appearance.md), so the new activity always resolves against the
+        // appearance that was asked for. A pick the platform has nothing to do — the mode already
+        // in force — produces no configuration change and no recreation, which is why the guards
+        // above can afford to be exact.
+        um.setApplicationNightMode(night);
     }
 
     /** The appearance last applied, so re-applying the stored choice does not recreate again. */

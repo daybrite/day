@@ -270,6 +270,16 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         if (night == lastNightMode) return;
         lastNightMode = night;
         DayBridge.appearanceChanged();
+        // Then re-resolve the window. A DayNight theme picks its variant when the activity's theme
+        // is RESOLVED, which is at creation, so a uiMode change alone leaves every native view —
+        // and every view inflated after it — on the colors chosen at startup: the app bar restyles
+        // and the list beneath it does not. `uiMode` stays in the manifest's configChanges so the
+        // PLATFORM does not recreate us; Day does it here, once the new configuration is in hand,
+        // which is what makes an app-level pick (`DayBridge.setAppearance`) and the user flipping
+        // the system theme land the same way. Day's tree is rebuilt from `onCreate`, the same path
+        // a cold start takes, and since 2026-08 that path is a real RE-MOUNT (docs/appearance.md)
+        // rather than a second launch.
+        recreate();
     }
 
     /** The night-mode bit the window is currently themed for; seeded in onCreate. */

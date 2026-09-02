@@ -1784,8 +1784,9 @@ mod imp {
                 // The MaterialToolbar names the destination on every page (DayNavHost
                 // syncChrome) — content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
-                // The window toolbar docks under the nav host's pages as a second
-                // MaterialToolbar (docs/toolbars.md): the phone's bar beside the app bar.
+                // The window toolbar goes in the nav host's app bar (docs/toolbars.md), as
+                // menu items shown as actions: one bar per window, at every width, with what
+                // the bar cannot fit folding into its overflow.
                 | Cap::Toolbar
                 // A SlidingPaneLayout hosts every `selector(Sidebar)`, so two panes are
                 // available wherever they fit — a tablet, a foldable open, a phone in landscape

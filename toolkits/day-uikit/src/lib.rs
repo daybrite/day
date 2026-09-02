@@ -1090,11 +1090,18 @@ mod imp {
                             mtm,
                         )
                     };
-                    let current = segments
-                        .get(*selected)
-                        .map(|s| NSString::from_str(&s.title))
-                        .unwrap_or_else(|| title.clone());
-                    match image {
+                    // The control's own icon if it declared one; failing that the SEGMENT in
+                    // force, which is what a segmented control shows anyway. Only a set of
+                    // segments with no icons at all falls back to the chosen segment's word: a
+                    // bar button that reads "System" is as wide as its longest state and moves
+                    // the items beside it every time the setting changes, where the glyph the
+                    // segment already carries says the same thing in a bar button's width.
+                    let current = image.or_else(|| {
+                        segments
+                            .get(*selected)
+                            .and_then(|s| menu_image(s.icon.as_ref()))
+                    });
+                    match current {
                         Some(img) => unsafe {
                             UIBarButtonItem::initWithImage_menu(
                                 UIBarButtonItem::alloc(mtm),
@@ -1103,9 +1110,13 @@ mod imp {
                             )
                         },
                         None => unsafe {
+                            let word = segments
+                                .get(*selected)
+                                .map(|s| NSString::from_str(&s.title))
+                                .unwrap_or_else(|| title.clone());
                             UIBarButtonItem::initWithTitle_menu(
                                 UIBarButtonItem::alloc(mtm),
-                                Some(&current),
+                                Some(&word),
                                 Some(&menu),
                             )
                         },

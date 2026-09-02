@@ -621,6 +621,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 }
             };
             enable_hw_keyboard(&avd);
+            size_display(&avd, spec.headless);
             // Already running? Then this command means "make sure it is up and facing this way",
             // not "start another one". Without this, a re-run — a retried CI step, a developer
             // running the same line twice — starts a SECOND emulator on the next free port, and
@@ -935,6 +936,115 @@ fn parse_mb(v: &str) -> Option<u32> {
         return g.trim().parse::<u32>().ok().map(|n| n * 1024);
     }
     v.strip_suffix(['M', 'm']).unwrap_or(v).trim().parse().ok()
+}
+
+/// Present a headless AVD's panel at a size a SOFTWARE renderer can drive, without changing the
+/// layout the guest lays out.
+///
+/// A headless boot has no GPU: every pixel the guest paints is rasterized on the host by
+/// SwiftShader (`spawn_emulator`), and that cost scales with the panel. `pixel_tablet`'s
+/// 2560×1600 is four million of them — 62% more than `pixel_5`, behind a display that is also
+/// three times wider in layout units, so far more of the app is on screen at once. Day-Showcase's
+/// tablet leg froze the whole guest, adbd included, on its Web view page in ten runs out of ten:
+/// the page loads a live site, which lays out for a 1100-point-wide viewport there and paints a
+/// screenful of megapixel images through that host rasterizer. The same AVD, the same flags and
+/// the same runner carry Day-Rise's tablet walkthrough green, and Day-Showcase's own pixel_5 leg
+/// renders that page eight times a run — so the emulator is not broken and the app is not
+/// crashing; the panel is simply more than a software renderer keeps up with.
+///
+/// So a headless panel past three million pixels is halved on both axes AND in density. Density
+/// carries the pixels-per-point ratio, so halving all three keeps the size in POINTS identical:
+/// 2560×1600 at 320 dpi becomes 1280×800 at 160 dpi, still a 1280×800-point tablet with the same
+/// `smallestScreenWidthDp`, the same resource qualifiers and the same layout — at a quarter of the
+/// pixels to rasterize. Screenshots come back at that size, which is the trade: a legible tablet
+/// capture the run actually finishes, rather than a sharper one it never reaches.
+///
+/// Three million is the same line [`wanted_guest_ram`] draws between a phone and a tablet, so the
+/// two rules agree on which is which; `pixel_5` (1080×2340) is below it and is left alone.
+///
+/// A windowed boot puts the panel back, so a developer who boots the same AVD to LOOK at it gets
+/// the profile's own display. The profile's values are recorded under `day.lcd.full*` the first
+/// time this shrinks one — the emulator ignores keys it does not know, and without them a restore
+/// would have to re-read the device profile the AVD was cut from.
+fn size_display(avd: &str, headless: bool) {
+    let Some(cfg) = avd_config_path(avd) else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&cfg) else {
+        return;
+    };
+    let num = |key: &str| {
+        text.lines()
+            .filter_map(|l| l.split_once('='))
+            .find(|(k, _)| k.trim() == key)
+            .and_then(|(_, v)| v.trim().parse::<u32>().ok())
+    };
+    let (Some(w), Some(h), Some(d)) = (
+        num("hw.lcd.width"),
+        num("hw.lcd.height"),
+        num("hw.lcd.density"),
+    ) else {
+        return;
+    };
+    // What the profile asks for: the recorded full panel when this AVD has been shrunk before,
+    // otherwise whatever it carries now.
+    let full = match (
+        num("day.lcd.fullWidth"),
+        num("day.lcd.fullHeight"),
+        num("day.lcd.fullDensity"),
+    ) {
+        (Some(fw), Some(fh), Some(fd)) => (fw, fh, fd),
+        _ => (w, h, d),
+    };
+    let want = if headless {
+        headless_panel(full).unwrap_or(full)
+    } else {
+        full
+    };
+    if want == (w, h, d) {
+        return;
+    }
+    if want != full {
+        // Record before shrinking, so the windowed boot after this one has something to restore.
+        set_avd_config(avd, "day.lcd.fullWidth", &full.0.to_string());
+        set_avd_config(avd, "day.lcd.fullHeight", &full.1.to_string());
+        set_avd_config(avd, "day.lcd.fullDensity", &full.2.to_string());
+    }
+    set_avd_config(avd, "hw.lcd.width", &want.0.to_string());
+    set_avd_config(avd, "hw.lcd.height", &want.1.to_string());
+    set_avd_config(avd, "hw.lcd.density", &want.2.to_string());
+    let verb = if want == full { "Restoring" } else { "Sizing" };
+    crate::ops::status(
+        verb,
+        &format!(
+            "{avd}: {}x{} at {} dpi ({}x{} points)",
+            want.0,
+            want.1,
+            want.2,
+            want.0 * 160 / want.2,
+            want.1 * 160 / want.2,
+        ),
+    );
+}
+
+/// The panel a headless boot should present, or `None` to keep the profile's: both axes and the
+/// density halved while the display is past three million pixels, which holds the size in points.
+///
+/// An odd density cannot be halved without moving the point size, so such a panel is left alone
+/// rather than laid out slightly differently from the device it names.
+fn headless_panel((w, h, d): (u32, u32, u32)) -> Option<(u32, u32, u32)> {
+    let (mut w, mut h, mut d) = (w, h, d);
+    let mut cut = false;
+    while u64::from(w) * u64::from(h) > 3_000_000
+        && d >= 2
+        && d % 2 == 0
+        && w % 2 == 0
+        && h % 2 == 0
+    {
+        (w, h, d) = (w / 2, h / 2, d / 2);
+        cut = true;
+    }
+    cut.then_some((w, h, d))
 }
 
 fn set_avd_config(avd: &str, key: &str, value: &str) -> bool {
@@ -1911,8 +2021,8 @@ mod tests {
 }
 
 #[cfg(test)]
-mod guest_memory_tests {
-    use super::{parse_mb, wanted_guest_ram};
+mod guest_sizing_tests {
+    use super::{headless_panel, parse_mb, wanted_guest_ram};
 
     #[test]
     fn config_sizes_parse_in_every_spelling() {
@@ -1934,5 +2044,17 @@ mod guest_memory_tests {
         // An explicit size wins, in both directions.
         assert_eq!(wanted_guest_ram(1080 * 2340, 2048, Some(3072)), Some(3072));
         assert_eq!(wanted_guest_ram(2560 * 1600, 8192, Some(2048)), Some(2048));
+    }
+
+    #[test]
+    fn a_headless_tablet_panel_halves_and_keeps_its_point_size() {
+        // pixel_tablet: 2560x1600 at 320 dpi is 1280x800 points. So is the panel it comes back as.
+        assert_eq!(headless_panel((2560, 1600, 320)), Some((1280, 800, 160)));
+        // pixel_5 is under the line and keeps the profile's panel.
+        assert_eq!(headless_panel((1080, 2340, 440)), None);
+        // Halved until it is under, not once: a hypothetical 5120x3200 takes two cuts.
+        assert_eq!(headless_panel((5120, 3200, 640)), Some((1280, 800, 160)));
+        // An odd density cannot halve without moving the point size, so the panel stands.
+        assert_eq!(headless_panel((2560, 1600, 213)), None);
     }
 }

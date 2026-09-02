@@ -76,13 +76,19 @@ public class DayNavHost extends LinearLayout {
 
     final MaterialToolbar toolbar;
     final AppBarLayout appBar;
-    /** The window toolbar (docs/toolbars.md), docked under the pages; GONE until an app sets
-     *  one. Its items are the desktop bar's items, as `MenuItem`s shown as actions. */
-    final MaterialToolbar bottomBar;
+    /** The window toolbar's spec (docs/toolbars.md), retained so the app bar's menu can be
+     *  repainted from it whenever the page's own bar actions change. Empty until an app sets one. */
+    private String windowToolbarSpec = "";
     /** Live toolbar items by their day id, for targeted updates. */
     final HashMap<String, MenuItem> barItems = new HashMap<>();
     /** A segmented item's segments, in order, for `updateWindowToolbar` op 2. */
     final HashMap<String, List<MenuItem>> segmentItems = new HashMap<>();
+    /** A segmented item's declared label, empty when it brought none — see `nameSegmentHead`. */
+    final HashMap<String, String> segmentLabels = new HashMap<>();
+    /** Each window-toolbar item's UNTINTED glyph. The items share the app bar with the page's own
+     *  actions now, so they need the same re-tint against what is behind them ({@link
+     *  #syncBarActions}) — a bundled glyph is authored dark and vanishes on a dark bar. */
+    final HashMap<MenuItem, android.graphics.drawable.Drawable> barGlyphs = new HashMap<>();
     /** Inline search field (docs/search.md); null until `setSearch` runs. */
     TextInputLayout searchLayout;
     EditText searchEdit;
@@ -142,8 +148,6 @@ public class DayNavHost extends LinearLayout {
 
         toolbar = new MaterialToolbar(ctx);
         toolbar.setTitle(title);
-        bottomBar = new MaterialToolbar(ctx);
-        bottomBar.setVisibility(GONE);
         toolbar.setNavigationOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
                 if (myEntries() == 0) return;
@@ -245,10 +249,6 @@ public class DayNavHost extends LinearLayout {
                     ViewGroup.LayoutParams.WRAP_CONTENT));
             addView(content, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         }
-        // The window toolbar sits under the pages in both layouts; it takes no room while GONE.
-        addView(bottomBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-
         fm = ((FragmentActivity) ctx).getSupportFragmentManager();
         fm.addOnBackStackChangedListener(new FragmentManager.OnBackStackChangedListener() {
             // Predictive-gesture pops commit on their own schedule, so reconcile from every
@@ -465,42 +465,61 @@ public class DayNavHost extends LinearLayout {
         searchSyncing = false;
     }
 
-    /** One installed nav-bar action: the menu item, its UNTINTED glyph (re-tinted whenever the bar
-     *  changes color, so the master must survive), and whether it belongs to the list alone. */
+    /** One installed nav-bar action, kept as its DECLARATION rather than only as the live item:
+     *  the window toolbar shares this menu, so setting one clears and repaints the whole thing and
+     *  every action has to be re-addable. `glyph` is the UNTINTED master (re-tinted whenever the
+     *  bar changes color, so it must survive); `rootOnly` marks the ones that belong to the list. */
     private static final class BarAction {
-        final MenuItem item;
-        final android.graphics.drawable.Drawable glyph;
+        final String iconName;
+        final String label;
+        final long actionId;
         final boolean rootOnly;
-        BarAction(MenuItem item, android.graphics.drawable.Drawable glyph, boolean rootOnly) {
-            this.item = item;
-            this.glyph = glyph;
+        MenuItem item;
+        android.graphics.drawable.Drawable glyph;
+        BarAction(String iconName, String label, long actionId, boolean rootOnly) {
+            this.iconName = iconName;
+            this.label = label == null ? "" : label;
+            this.actionId = actionId;
             this.rootOnly = rootOnly;
         }
     }
 
     private final java.util.ArrayList<BarAction> barActions = new java.util.ArrayList<>();
 
-    /** Add one trailing action to the toolbar's menu (docs/navigation.md). Called once per action,
-     *  in declaration order, by {@link DayBridge#setNavMenu} AFTER construction and inside a
-     *  try/catch — never from the constructor — so a failure here can't blank the host.
-     *  The MaterialToolbar keeps its menu across pushes and pops, so an item rides every page
-     *  until {@link #syncBarActions} hides it. */
-    /** Build the window toolbar (docs/toolbars.md) from day-android's `serialize_toolbar` spec:
-     *  `\u001e` between items, `\u001f` between fields (id, kind, label, icon, enabled, action,
-     *  extra). Buttons and toggles show as actions; a menu becomes a submenu built like the app
-     *  menu; a segmented item becomes a submenu of radio choices; spaces and separators are the
-     *  bar's own business on a phone and are skipped. An empty spec hides the bar. */
+    /** Set the window toolbar (docs/toolbars.md) from day-android's `serialize_toolbar` spec and
+     *  repaint the app bar. The spec is retained because the bar's menu is shared with the page's
+     *  own bar actions, and either side changing repaints both. */
     void setWindowToolbar(String spec) {
-        Menu menu = bottomBar.getMenu();
+        windowToolbarSpec = spec == null ? "" : spec;
+        paintBarMenu();
+    }
+
+    /** Paint the app bar's menu: the window toolbar's items, then the page's own bar actions.
+     *
+     *  ONE bar per window, the app bar, at every width — the same place day-uikit puts it
+     *  (docs/toolbars.md). Day used to dock a second MaterialToolbar under the pages, which read
+     *  as a phone's bottom bar and, tiled on a tablet, as a strip of icons stranded below both
+     *  panes with the titled bar above them empty. An action belongs in the top app bar on
+     *  Android, and what the bar cannot fit belongs in its overflow — which is why the items go in
+     *  as `SHOW_AS_ACTION_IF_ROOM` and an app declares its least-used items last.
+     *
+     *  The toolbar's items lead and the bar actions trail, so a page's own action keeps the
+     *  position it had before the window had a toolbar at all.
+     *
+     *  The spec is `\u001e` between items, `\u001f` between fields (id, kind, label, icon,
+     *  enabled, action, extra). Buttons and toggles become actions; a menu becomes a submenu built
+     *  like the app menu; a segmented item becomes a submenu of radio choices; spaces and
+     *  separators are the bar's own business and are skipped. */
+    private void paintBarMenu() {
+        Menu menu = toolbar.getMenu();
         menu.clear();
         barItems.clear();
         segmentItems.clear();
-        if (spec == null || spec.isEmpty()) {
-            bottomBar.setVisibility(GONE);
-            return;
-        }
+        segmentLabels.clear();
+        barGlyphs.clear();
         int order = 0;
         int groupSeq = 1;
+        String spec = windowToolbarSpec;
         for (String rec : spec.split("\u001e", -1)) {
             if (rec.isEmpty()) continue;
             String[] f = rec.split("\u001f", -1);
@@ -558,6 +577,11 @@ public class DayNavHost extends LinearLayout {
                 head.setEnabled(enabled);
                 showAsAction(head, glyph);
                 final ArrayList<MenuItem> segments = new ArrayList<>();
+                // A segmented control carries no label of its own — it is a row of choices, and
+                // the platforms that draw one draw the choices (day-pieces `toolbar_segmented`).
+                // Folded into a menu there is no row to draw them on, and a submenu MUST be
+                // named or Android renders an empty line with an arrow. The choice in force is
+                // the name: "Dark >" opening Light/System/Dark reads as the setting it is.
                 int group = groupSeq++;
                 for (int i = 1; i < seg.length; i++) {
                     final int idx = i - 1;
@@ -567,6 +591,7 @@ public class DayNavHost extends LinearLayout {
                     s.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
                         @Override public boolean onMenuItemClick(MenuItem mi) {
                             checkSegment(segments, idx);
+                            nameSegmentHead(head, segments, label);
                             DayBridge.nativeOnEvent(action, DayBridge.K_TOOLBAR_CHANGED,
                                     idx, "sel");
                             return true;
@@ -577,16 +602,31 @@ public class DayNavHost extends LinearLayout {
                 sm.setGroupCheckable(group, true, true);
                 barItems.put(id, head);
                 segmentItems.put(id, segments);
+                segmentLabels.put(id, label);
+                nameSegmentHead(head, segments, label);
             } else if (kind.equals("label")) {
                 MenuItem it = menu.add(Menu.NONE, Menu.NONE, order++, label);
                 it.setEnabled(false);
-                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM
-                        | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                 barItems.put(id, it);
             }
-            // "sep", "space", "flex": a phone bar spaces its own actions.
+            // "sep", "space", "flex": the app bar spaces its own actions.
         }
-        bottomBar.setVisibility(menu.size() == 0 ? GONE : VISIBLE);
+        // The page's own actions trail the window's, at orders no toolbar item can reach.
+        for (int i = 0; i < barActions.size(); i++) {
+            BarAction ba = barActions.get(i);
+            ba.item = menu.add(Menu.NONE, Menu.NONE, 1000 + i, ba.label);
+            ba.item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+            ba.glyph = DayBridge.drawableByName(getContext(), ba.iconName);
+            final long actionId = ba.actionId;
+            ba.item.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
+                @Override public boolean onMenuItemClick(MenuItem item) {
+                    DayBridge.nativeOnEvent(actionId, DayBridge.K_MENU_ACTION, 0.0, "");
+                    return true;
+                }
+            });
+        }
+        syncBarActions();
     }
 
     /** A targeted change to one live item: op 0 = enabled, 1 = toggle on, 2 = segment index. */
@@ -600,7 +640,12 @@ public class DayNavHost extends LinearLayout {
             paintToggle(it);
         } else if (op == 2) {
             List<MenuItem> segments = segmentItems.get(id);
-            if (segments != null) checkSegment(segments, (int) num);
+            if (segments != null) {
+                checkSegment(segments, (int) num);
+                // An unlabeled control is named by the segment in force, so a change the APP
+                // made has to rename it too — not only one the user tapped.
+                nameSegmentHead(it, segments, segmentLabels.get(id));
+            }
         }
     }
 
@@ -615,12 +660,22 @@ public class DayNavHost extends LinearLayout {
     /** An item with a glyph shows as an icon; without one, as its text — and only while the
      *  bar has room for it, since words are wide: the rest fold into the bar's overflow menu
      *  rather than running off its trailing edge. */
-    private static void showAsAction(MenuItem it, android.graphics.drawable.Drawable glyph) {
+    private void showAsAction(MenuItem it, android.graphics.drawable.Drawable glyph) {
         if (glyph != null) {
+            barGlyphs.put(it, glyph);
             it.setIcon(glyph);
-            it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+            // IF_ROOM, not ALWAYS: the app bar carries the destination's title as well, and a
+            // window toolbar is long enough (the Showcase declares eight items) that forcing
+            // every one into the bar would leave no room to read where you are. What does not
+            // fit folds into the overflow, in declaration order — which is why an app declares
+            // its least-used items last.
+            it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
         } else {
-            it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
+            // No glyph, no place in the bar. A Material top app bar carries icon buttons and
+            // sends the rest to its overflow; a titled text action sits there as wide as its
+            // label, and two of them squeezed the Showcase's own title to "Day Showc…" on a
+            // phone. In the overflow the same item reads as a full menu row.
+            it.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
         }
     }
 
@@ -634,30 +689,48 @@ public class DayNavHost extends LinearLayout {
         for (int i = 0; i < segments.size(); i++) segments.get(i).setChecked(i == idx);
     }
 
-    void addBarAction(String iconName, String label, final long actionId, boolean rootOnly) {
-        int order = barActions.size();
-        MenuItem it = toolbar.getMenu().add(Menu.NONE, Menu.NONE, order, label == null ? "" : label);
-        it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-        android.graphics.drawable.Drawable glyph =
-                DayBridge.drawableByName(getContext(), iconName);
-        barActions.add(new BarAction(it, glyph, rootOnly));
-        it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
-            @Override public boolean onMenuItemClick(MenuItem item) {
-                DayBridge.nativeOnEvent(actionId, DayBridge.K_MENU_ACTION, 0.0, "");
-                return true;
+    /** Title the row a segmented control folds into, when the control brought no label of its
+     *  own: the segment in force names it, so the row says what the setting IS and reads as a
+     *  value to change rather than a blank line. A labeled control keeps its label. */
+    private static void nameSegmentHead(MenuItem head, List<MenuItem> segments, String label) {
+        if (label != null && !label.isEmpty()) return;
+        for (MenuItem s : segments) {
+            if (s.isChecked()) {
+                head.setTitle(s.getTitle());
+                return;
             }
-        });
-        syncBarActions();
+        }
     }
 
-    /** Re-tint every action to the bar's CURRENT color and hide the list-only ones off the list.
+    /** Add one trailing action to the app bar's menu (docs/navigation.md). Called once per action,
+     *  in declaration order, by {@link DayBridge#setNavMenu} AFTER construction and inside a
+     *  try/catch — never from the constructor — so a failure here can't blank the host.
+     *  The MaterialToolbar keeps its menu across pushes and pops, so an item rides every page
+     *  until {@link #syncBarActions} hides it. */
+    void addBarAction(String iconName, String label, final long actionId, boolean rootOnly) {
+        barActions.add(new BarAction(iconName, label, actionId, rootOnly));
+        paintBarMenu();
+    }
+
+    /** Re-tint every glyph on the app bar — the window toolbar's and the page's own — to the bar's
+     *  CURRENT color, and hide the list-only actions off the list.
      *  Driven from {@link #syncChrome}, which already runs on every push, pop and re-present —
      *  the three moments that change what is behind these glyphs or which page they are on. */
     private void syncBarActions() {
-        if (barActions.isEmpty()) {
+        if (barActions.isEmpty() && barGlyphs.isEmpty()) {
             return;
         }
         int tint = barGlyphColor();
+        for (java.util.Map.Entry<MenuItem, android.graphics.drawable.Drawable> e
+                : barGlyphs.entrySet()) {
+            android.graphics.drawable.Drawable d = e.getValue().mutate();
+            d.setTint(tint);
+            e.getKey().setIcon(d);
+            // Tinting replaced the icon, so a toggle's on/off opacity has to be re-applied to it.
+            if (e.getKey().isCheckable()) {
+                paintToggle(e.getKey());
+            }
+        }
         boolean atRoot = !stacked() || titles.isEmpty();
         for (BarAction ba : barActions) {
             ba.item.setVisible(!ba.rootOnly || atRoot);
