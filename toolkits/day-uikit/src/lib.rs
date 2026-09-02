@@ -671,7 +671,7 @@ mod imp {
     fn host_controller(h: &Handle) -> Option<Retained<UIViewController>> {
         let key = ptr_of(h);
         // `as_ref` stops at the declared superclass, so these go up the chain by deref coercion.
-        let nav = NAV_STATE.with(|m| {
+        NAV_STATE.with(|m| {
             m.borrow().get(&key).map(|s| match s.split.as_ref() {
                 Some(parts) => {
                     let vc: &UIViewController = &parts.split_vc;
@@ -682,8 +682,7 @@ mod imp {
                     Retained::from(vc)
                 }
             })
-        });
-        nav
+        })
     }
 
     // -----------------------------------------------------------------------
@@ -1867,7 +1866,6 @@ mod imp {
             // file path only exists in a `day launch` tree), then the loose-file fallbacks.
             day_spec::Icon::Image(name) => load_bundled_uiimage(name).or_else(|| {
                 let path = day_spec::resource::resolve_vector_svg(name)
-                    .map(std::path::PathBuf::from)
                     .or_else(|| day_spec::resource::resolve_image_file(name))?;
                 objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
                     &path.to_string_lossy(),
@@ -2052,6 +2050,11 @@ mod imp {
         /// rather than re-pruning the mirror for a pop that already happened
         /// (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
         native_pops: std::cell::Cell<usize>,
+        /// A Day-initiated stack change (`nav_sync_stack`) that UIKit has not yet confirmed
+        /// with a `didShow` at the mirror's count. While it is set, a native count short of the
+        /// mirror is that change still in flight — or cancelled under it (a window capture
+        /// taken mid-transition does that on iOS 26+) — never a user back.
+        pending_sync: std::cell::Cell<bool>,
         /// Whether the pieces layer has the content-list page interposed in the collapsed
         /// stack (`NavPatch::ListInStack`, docs/navigation.md) — with the collapse flag, what
         /// the mirror's floor and the collapse rebase count.
@@ -2576,6 +2579,11 @@ mod imp {
         // coordinator holds `ui_idle` false forever, failing every later screenshot.
         let animated = !vcs.is_empty();
         unsafe { nav.setViewControllers_animated(&arr, animated) };
+        NAV_STATE.with(|m| {
+            if let Some(s) = m.borrow().get(&host) {
+                s.pending_sync.set(true);
+            }
+        });
     }
 
     define_class!(
@@ -2644,6 +2652,9 @@ mod imp {
                             state.last_native.set(native);
                             return false;
                         }
+                        if native == state.vcs.len() {
+                            state.pending_sync.set(false);
+                        }
                         let prev = state.last_native.replace(native);
                         // An EMPTY stack is never the user's doing — the root cannot be
                         // popped — so it is one of Day's own wholesale swaps caught mid-flight
@@ -2667,53 +2678,93 @@ mod imp {
                     // user's back button/swipe — but interleaved sibling transitions (day pops
                     // one detail and pushes the next while the pop is still animating) deliver a
                     // LATE duplicate pop-didShow after the push, and treating that as a user
-                    // back tears down the just-pushed page. Only a pop that PERSISTS one runloop
-                    // turn is a user pop: re-check on the next main-queue turn, when the
-                    // interleaved transition has settled and `viewControllers` reports the real
-                    // stack.
-                    dispatch2::DispatchQueue::main().exec_async(move || {
-                        // Its own FFI entry (a posted block), so its own containment.
-                        day_spec::ffi_guard::contain((), || {
-                            let (emit_back, node) = NAV_STATE.with(|m| {
-                                let mut m = m.borrow_mut();
-                                let Some(state) = m.get_mut(&host) else {
-                                    return (false, NodeId(0));
-                                };
-                                let native =
-                                    unsafe { state.active_nav().viewControllers() }.count();
-                                state.last_native.set(native);
-                                if *DIAG_NAV {
-                                    log::debug!(
-                                        "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
-                                        state.vcs.len(),
-                                        native < state.vcs.len(),
-                                    );
-                                }
-                                if native > 0 && native < state.vcs.len() {
-                                    // Still popped after settling: a real user back. Sync the
-                                    // mirror (Day's remove() will find it gone) and record that
-                                    // Day's answering NavPatch::Popped must be ABSORBED.
-                                    state.vcs.truncate(native);
-                                    state.native_pops.set(state.native_pops.get() + 1);
-                                    (true, state.host_node)
-                                } else {
-                                    (false, NodeId(0))
-                                }
-                            });
-                            if emit_back {
-                                emit(
-                                    node,
-                                    Event::NavBack {
-                                        already_popped: true,
-                                    },
-                                );
-                            }
-                        });
-                    });
+                    // back tears down the just-pushed page. Only a pop that PERSISTS once the
+                    // controller has settled is a user pop: `settle_user_back` re-checks on the
+                    // following main-queue turns until the transition is over and the count
+                    // holds still, then decides.
+                    let seen = unsafe { nav.viewControllers() }.count();
+                    settle_user_back(host, seen, 0);
                 });
             }
         }
     );
+
+    /// What a settled user-back check concluded.
+    enum SettleAction {
+        Nothing,
+        UserBack(NodeId),
+        Resync,
+    }
+
+    /// The user-back settle `did_show` defers to: decide only once the controller has stopped
+    /// transitioning and its count has held still for a turn. iOS 26 and later QUEUE a stack
+    /// change issued mid-transition — Day's wholesale sync included — and each queued step
+    /// ends in a didShow of its own with an intermediate count, so a one-turn settle read a
+    /// step as a user back and popped a page the queue was still pushing (the Showcase's
+    /// Stack page on CI's iPhone 17 Pro under iOS 27, in every variant). Bounded, so a
+    /// controller whose coordinator never clears still gets a decision.
+    fn settle_user_back(host: usize, seen: usize, attempt: u32) {
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            // Its own FFI entry (a posted block), so its own containment.
+            day_spec::ffi_guard::contain((), || {
+                let outcome = NAV_STATE.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let state = m.get_mut(&host)?;
+                    let native = unsafe { state.active_nav().viewControllers() }.count();
+                    let transitioning =
+                        unsafe { state.active_nav().transitionCoordinator() }.is_some();
+                    state.last_native.set(native);
+                    if (transitioning || native != seen) && attempt < 120 {
+                        if *DIAG_NAV {
+                            log::debug!(
+                                "DAYDIAG didShow SETTLE wait native={native} seen={seen} \
+                                 transitioning={transitioning} attempt={attempt}"
+                            );
+                        }
+                        return Some(Err(native));
+                    }
+                    if *DIAG_NAV {
+                        log::debug!(
+                            "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
+                            state.vcs.len(),
+                            native < state.vcs.len(),
+                        );
+                    }
+                    if native > 0 && native < state.vcs.len() {
+                        if state.pending_sync.get() {
+                            // Short of a change Day made and UIKit never confirmed: the queued
+                            // transition was cancelled under it (a window capture mid-flight
+                            // does that on iOS 26+). Apply the mirror again rather than
+                            // mistaking the leftover for a user back.
+                            if *DIAG_NAV {
+                                log::debug!("DAYDIAG didShow SETTLE resync (pending sync)");
+                            }
+                            return Some(Ok(SettleAction::Resync));
+                        }
+                        // Still popped after settling: a real user back. Sync the mirror
+                        // (Day's remove() will find it gone) and record that Day's answering
+                        // NavPatch::Popped must be ABSORBED.
+                        state.vcs.truncate(native);
+                        state.native_pops.set(state.native_pops.get() + 1);
+                        Some(Ok(SettleAction::UserBack(state.host_node)))
+                    } else {
+                        Some(Ok(SettleAction::Nothing))
+                    }
+                });
+                match outcome {
+                    Some(Err(native)) => settle_user_back(host, native, attempt + 1),
+                    Some(Ok(SettleAction::Resync)) => nav_sync_stack(host),
+                    Some(Ok(SettleAction::UserBack(node))) => emit(
+                        node,
+                        Event::NavBack {
+                            already_popped: true,
+                        },
+                    ),
+                    _ => {}
+                }
+            });
+        });
+    }
 
     impl DayNavDelegate {
         fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
@@ -5721,6 +5772,7 @@ mod imp {
                                 native_pops: std::cell::Cell::new(0),
                                 list_in_stack: std::cell::Cell::new(false),
                                 last_native: std::cell::Cell::new(0),
+                                pending_sync: std::cell::Cell::new(false),
                                 bar_actions,
                                 _delegate: delegate,
                                 search,
