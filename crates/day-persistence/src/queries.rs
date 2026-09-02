@@ -365,6 +365,14 @@ pub(crate) enum RelSql {
         owner_key: String,
         target_key: String,
     },
+    /// A link by value (`#[model(link(…))]`): target rows whose `remote_col` equals the
+    /// owner's `local_col` — no key on either side is involved, which is what lets it cross
+    /// into an attached database.
+    Linked {
+        local_col: String,
+        remote_col: String,
+        target_key: String,
+    },
 }
 
 /// What the compiler asks the container: how names resolve to SQL. Implemented over the wired
@@ -438,12 +446,14 @@ pub(crate) fn compile_fetch(
     let (from, rank_pred);
     if by_rank {
         let fts = idx.fts_of(table).ok_or(CompileErr::NoFts)?;
+        // The hidden MATCH column carries the index's BARE name, schema-qualified or not.
+        let fts_bare = fts.rsplit('.').next().unwrap_or(&fts).to_string();
         let Some(q) = find_match_query(&fetch.pred) else {
             return Err(CompileErr::NoFts);
         };
         params.push(Value::Text(q));
         from = format!(
-            "{table} JOIN {fts} AS day_rank ON day_rank.rowid = {table}.{key} AND day_rank.{fts} MATCH ?"
+            "{table} JOIN {fts} AS day_rank ON day_rank.rowid = {table}.{key} AND day_rank.{fts_bare} MATCH ?"
         );
         rank_pred = true;
     } else {
@@ -752,7 +762,11 @@ fn pred_sql(
             } else {
                 let fts = ctx.idx.fts_of(table).ok_or(CompileErr::NoFts)?;
                 params.push(Value::Text(query.clone()));
-                format!("{alias}.{key} IN (SELECT rowid FROM {fts} WHERE {fts} MATCH ?)")
+                // The MATCH operand is the index's BARE name even when the table is
+                // schema-qualified (an attached database): `catalog.t_fts MATCH` is a
+                // syntax error, `t_fts MATCH` inside `FROM catalog.t_fts` is not.
+                let fts_bare = fts.rsplit('.').next().unwrap_or(&fts);
+                format!("{alias}.{key} IN (SELECT rowid FROM {fts} WHERE {fts_bare} MATCH ?)")
             }
         }
         Pred::Within {
@@ -815,6 +829,16 @@ fn pred_sql(
                 RelSql::Referent { target_key, fk_col } => (
                     format!("{target} AS {r}"),
                     format!("{r}.{target_key} = {alias}.{fk_col}"),
+                    r.clone(),
+                    target_key.clone(),
+                ),
+                RelSql::Linked {
+                    local_col,
+                    remote_col,
+                    target_key,
+                } => (
+                    format!("{target} AS {r}"),
+                    format!("{r}.{remote_col} = {alias}.{local_col}"),
                     r.clone(),
                     target_key.clone(),
                 ),

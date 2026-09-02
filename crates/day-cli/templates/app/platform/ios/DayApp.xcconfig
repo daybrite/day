@@ -38,7 +38,7 @@ CODE_SIGNING_ALLOWED = NO
 // ===========================================================================
 // The minimum iOS version. `day build` raises it per-invocation when a Day piece requires
 // a newer floor, so raise it here only when your own code needs it.
-IPHONEOS_DEPLOYMENT_TARGET = 15.0
+IPHONEOS_DEPLOYMENT_TARGET = 16.0
 // 1 = iPhone, 2 = iPad. Drop the 2 for an iPhone-only app.
 TARGETED_DEVICE_FAMILY = 1,2
 

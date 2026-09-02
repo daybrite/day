@@ -302,7 +302,7 @@ project's platform configuration. They are unrelated to what your development ma
 | Target | Minimum |
 |---|---|
 | `macos-appkit` | macOS 13 |
-| `ios-uikit` | iOS 15 |
+| `ios-uikit` | iOS 16 |
 | `android-mdc` | API level 24 (Android 7.0), compiled against API 35 |
 | `harmony-arkui` | API level 18 |
 | `windows-xaml` | Windows 10 or 11 |

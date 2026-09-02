@@ -694,6 +694,59 @@ pub struct SpatialCols {
     pub lon: &'static str,
 }
 
+/// One `#[model(link(…))]` as the derive emits it: `owner.local = target.remote` is the join.
+#[derive(Clone, Copy, Debug)]
+pub struct LinkDef {
+    /// The marker field the link was declared on — the name `Owner::field()` answers to.
+    pub field: &'static str,
+    /// The owner's column holding the value.
+    pub local: &'static str,
+    /// The target's (qualified) table.
+    pub target_table: &'static str,
+    /// The target's column the value names.
+    pub remote: &'static str,
+}
+
+/// The marker a `#[model(link(…))]` field carries: no column, no state — the type is what
+/// names the far model for the derive.
+pub struct Linked<M: ?Sized> {
+    _m: std::marker::PhantomData<fn() -> M>,
+}
+
+impl<M: ?Sized> Clone for Linked<M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<M: ?Sized> Copy for Linked<M> {}
+impl<M: ?Sized> Default for Linked<M> {
+    fn default() -> Self {
+        Linked {
+            _m: std::marker::PhantomData,
+        }
+    }
+}
+impl<M: ?Sized> PartialEq for Linked<M> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl<M: ?Sized> std::fmt::Debug for Linked<M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Linked")
+    }
+}
+
+/// A wired link, as the SQL compiler and the query watcher see it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LinkInfo {
+    pub(crate) owner_table: &'static str,
+    pub(crate) field: &'static str,
+    pub(crate) local: &'static str,
+    pub(crate) target_table: &'static str,
+    pub(crate) remote: &'static str,
+}
+
 /// A persistable model: an [`Identified`] observable struct with a schema half. Implemented by
 /// `#[derive(Model)]`; the container consumes it.
 pub trait Model: Identified + day_model::ApplyField + Clone + 'static {
@@ -716,6 +769,14 @@ pub trait Model: Identified + day_model::ApplyField + Clone + 'static {
     const KEY_SQL: SqlType = SqlType::Integer;
     /// Relations declared on this model's `Many` fields (`#[model(relation(…))]`).
     const RELATIONS: &'static [RelationDef] = &[];
+    /// Relations by VALUE (`#[model(link(…))]`): rows of another model whose `remote` column
+    /// equals this row's `local` column, with no foreign key — the shape that reaches across an
+    /// attached database (see [`ModelContainer::attach_database`]).
+    const LINKS: &'static [LinkDef] = &[];
+    /// Declared `external = "alias"`: the table belongs to a database ATTACHed under that alias
+    /// and managed elsewhere. The container creates, migrates, and fingerprints nothing for
+    /// it, and treats it as read-only.
+    const EXTERNAL: bool = false;
     /// One [`Value`] per column, in `COLUMNS` order.
     fn to_row(&self) -> Vec<Value>;
     fn from_row(row: &dyn Row) -> Result<Self, DbError>;
@@ -1019,6 +1080,10 @@ pub(crate) struct ContainerInner {
     pub(crate) relations: RefCell<Vec<Rc<relations::ToOneRel>>>,
     /// The wired many-to-manys, each over its own membership cache.
     pub(crate) joins: RefCell<Vec<Rc<relations::JoinRel>>>,
+    /// The declared value links (`#[model(link(…))]`), from every attached model.
+    pub(crate) links: RefCell<Vec<LinkInfo>>,
+    /// The databases `attach_database` holds open, by alias.
+    attached: RefCell<Vec<String>>,
     sink: Cell<Option<day_model::ChangeSinkId>>,
     autosave: Cell<bool>,
     /// Soft per-table bound on resident rows. Dirty and observed rows never evict, so the
@@ -1075,6 +1140,8 @@ impl ModelContainer {
                 fk_specs: RefCell::new(Vec::new()),
                 relations: RefCell::new(Vec::new()),
                 joins: RefCell::new(Vec::new()),
+                links: RefCell::new(Vec::new()),
+                attached: RefCell::new(Vec::new()),
                 sink: Cell::new(None),
                 autosave: Cell::new(true),
                 cache_limit: Cell::new(DEFAULT_CACHE_LIMIT),
@@ -1548,7 +1615,27 @@ impl ModelContainer {
                 ),
             ));
         }
-        self.ensure_table::<M>()?;
+        // A second attach of the same model — a re-attached database after a catalog swap —
+        // keeps its store and hooks; only the resident rows are stale, and they are dropped
+        // so the next fault reads the new file.
+        if self.inner.stores.borrow().contains_key(&TypeId::of::<M>()) {
+            let store = self.cache::<M>();
+            let keys: Vec<u64> = store.with_untracked(|k| k.keys());
+            store.depopulate_many(&keys);
+            return Ok(());
+        }
+        if !M::EXTERNAL {
+            self.ensure_table::<M>()?;
+        }
+        for l in M::LINKS {
+            self.inner.links.borrow_mut().push(LinkInfo {
+                owner_table: M::TABLE,
+                field: l.field,
+                local: l.local,
+                target_table: l.target_table,
+                remote: l.remote,
+            });
+        }
 
         let store: Store<Keyed<M>> = Store::new(Keyed::new(Vec::new()));
         let store_id = store.store_id();
@@ -2887,6 +2974,92 @@ impl ModelContainer {
         Ok(())
     }
 
+    /// ATTACH another SQLite file under `alias` and bring `schema`'s models — every one
+    /// declared `external = "alias"` — into this container: their tables are read as they
+    /// are, with no DDL, migration, or fingerprint, through the same caches, queries, and
+    /// lists as the container's own. Writes to them fail at flush (the file is attached
+    /// read-only where the engine honors `mode=ro`), which is the contract: the other
+    /// database has its own owner.
+    ///
+    /// Calling it again with the same alias swaps the file: the old one is detached, every
+    /// resident row of its models dropped, and every live query re-run — the shape a
+    /// downloaded catalog update takes.
+    pub fn attach_database(&self, alias: &str, path: &str, schema: Schema) -> Result<(), DbError> {
+        if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(DbError::new(
+                DbErrorKind::Unsupported,
+                format!("attach_database: {alias:?} is not a plain SQL schema name"),
+            ));
+        }
+        let held = self.inner.attached.borrow().iter().any(|a| a == alias);
+        if held {
+            self.detach_database(alias)?;
+        }
+        // Flush first: a DETACH/ATTACH pair inside an open write transaction is refused.
+        if !self.inner.dirty.borrow().is_empty() {
+            self.save()?;
+        }
+        // `file:` URIs carry the read-only mode; a driver without URI filenames (the web
+        // worker) takes the bare path and relies on nobody writing.
+        let uri = if path.starts_with("file:") || path.contains("://") {
+            path.to_string()
+        } else {
+            format!("file:{}?mode=ro", path.replace('?', "%3F"))
+        };
+        let attach = |target: &str| -> Result<(), DbError> {
+            self.conn().execute(
+                &format!("ATTACH DATABASE ? AS {alias}"),
+                &[Value::Text(target.to_string())],
+            )?;
+            Ok(())
+        };
+        if let Err(uri_err) = attach(&uri) {
+            attach(path).map_err(|_| uri_err)?;
+        }
+        self.inner.attached.borrow_mut().push(alias.to_string());
+        let Schema {
+            installers, wirers, ..
+        } = schema;
+        for install in installers {
+            install(self)?;
+        }
+        for wire in wirers {
+            wire(self)?;
+        }
+        self.rescan()
+    }
+
+    /// DETACH a database [`ModelContainer::attach_database`] holds, dropping every resident
+    /// row of its models. Their stores stay registered (empty), so a query over them answers
+    /// nothing until the alias is attached again.
+    pub fn detach_database(&self, alias: &str) -> Result<(), DbError> {
+        let position = self.inner.attached.borrow().iter().position(|a| a == alias);
+        let Some(position) = position else {
+            return Ok(());
+        };
+        if !self.inner.dirty.borrow().is_empty() {
+            self.save()?;
+        }
+        let prefix = format!("{alias}.");
+        type Doomed = Vec<(Rc<dyn Fn() -> Vec<u64>>, EvictFn)>;
+        let doomed: Doomed = self
+            .inner
+            .tables
+            .borrow()
+            .values()
+            .filter(|h| h.table.starts_with(&prefix))
+            .map(|h| (h.resident_keys.clone(), h.evict.clone()))
+            .collect();
+        for (keys, evict) in &doomed {
+            let resident = keys();
+            let _ = evict(&resident, resident.len());
+        }
+        self.conn()
+            .execute(&format!("DETACH DATABASE {alias}"), &[])?;
+        self.inner.attached.borrow_mut().remove(position);
+        self.rescan()
+    }
+
     /// Look for OTHER connections' committed writes — another process, a sync engine, a CLI —
     /// and merge what changed. Detection is one `PRAGMA data_version` (the counter moves only
     /// when another connection commits, never for this one's own writes), so this is cheap
@@ -3080,6 +3253,40 @@ impl ModelContainer {
                 }
             }
             if resolved {
+                continue;
+            }
+            // A link: the far store's read columns matter, and so does the owner's own value
+            // column — rewriting it is what moves the row across the link.
+            if let Some(l) = self
+                .inner
+                .links
+                .borrow()
+                .iter()
+                .find(|l| l.owner_table == dep.owner && l.field == dep.field)
+                .copied()
+            {
+                if dep.owner == state.table && !local_extra.contains(&l.local) {
+                    local_extra.push(l.local);
+                }
+                let far = self
+                    .inner
+                    .tables
+                    .borrow()
+                    .iter()
+                    .find(|(_, h)| h.table == l.target_table)
+                    .map(|(id, _)| *id);
+                if let Some(store) = far {
+                    let mut columns = dep.columns.clone();
+                    if !columns.contains(&l.remote) {
+                        columns.push(l.remote);
+                    }
+                    watches.push(RelWatch {
+                        store,
+                        join_store: None,
+                        fields: Vec::new(),
+                        columns,
+                    });
+                }
                 continue;
             }
             for j in joins.iter() {
@@ -3414,6 +3621,7 @@ impl ModelContainer {
                     child_col: j.child_col,
                 })
                 .collect(),
+            links: self.inner.links.borrow().clone(),
             fold: self.inner.caps.unicode_fold,
         }
     }
@@ -3452,6 +3660,7 @@ struct SqlSnapshot {
     tables: Vec<TableInfo>,
     rels: Vec<RelInfo>,
     joins: Vec<JoinInfo>,
+    links: Vec<LinkInfo>,
     fold: bool,
 }
 
@@ -3489,6 +3698,15 @@ impl SqlIndex for SqlSnapshot {
                     target_col: j.parent_col.to_string(),
                     owner_key: j.b_key.to_string(),
                     target_key: j.a_key.to_string(),
+                });
+            }
+        }
+        for l in &self.links {
+            if l.owner_table == owner && l.field == field {
+                return Some(RelSql::Linked {
+                    local_col: l.local.to_string(),
+                    remote_col: l.remote.to_string(),
+                    target_key: self.key_of(l.target_table)?,
                 });
             }
         }

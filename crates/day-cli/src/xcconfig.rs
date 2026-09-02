@@ -283,7 +283,7 @@ fn render_user_xcconfig(
             &extracted.build,
         ),
         (
-            "IPHONEOS_DEPLOYMENT_TARGET = 15.0",
+            "IPHONEOS_DEPLOYMENT_TARGET = 16.0",
             "IPHONEOS_DEPLOYMENT_TARGET",
             &extracted.deployment,
         ),

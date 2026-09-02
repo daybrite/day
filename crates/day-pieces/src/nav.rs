@@ -1347,9 +1347,10 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
         self.restore = Some(key.into());
         self
     }
-    /// Add a trailing action button to the navigation bar, for the toolkits that have no window
-    /// toolbar (the phones and HarmonyOS — `Cap::Toolbar` is `Unsupported`): an upper-right bar
-    /// button drawn with the bundled `icon` that runs `action` when tapped (docs/navigation.md).
+    /// Add a trailing action button to the navigation bar — the phones' and HarmonyOS's
+    /// upper-right bar button, drawn with the bundled `icon`, that runs `action` when tapped
+    /// (docs/navigation.md). Where the toolkit also has a window toolbar (`Cap::Toolbar`,
+    /// docs/toolbars.md), declare a command in one place or the other, not both.
     /// `icon` is a bundled-image name (typed [`ImageName`](day_spec::ImageName), like
     /// [`item_icon`](Self::item_icon)'s); `label` is the button's accessible name and tooltip.
     ///

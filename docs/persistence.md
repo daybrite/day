@@ -564,6 +564,71 @@ Deleting either side drops its memberships; under `cascade` it also takes the ro
 join that no other row still holds, so deleting one album never takes a shared photo with it.
 `Model::RELATIONS` exposes every declaration as data, for tools and tests.
 
+## Attached databases and links
+
+A container can hold a second SQLite file that someone else owns — a catalog an app
+downloads and replaces wholesale, a database another tool builds — and read it through the
+same caches, queries, and lists as its own tables:
+
+```rust
+#[derive(Model, Clone, Default, PartialEq)]
+#[model(table = "stations", external = "catalog", fts("name"))]
+pub struct Station {
+    #[model(id, column = "rowid")]
+    pub id: u64,                      // the file's implicit rowid: stable within one file
+    pub uuid: Vec<u8>,                // the catalog's own key, stable across files
+    pub name: String,
+    pub country: String,
+    #[model(link(target = Favorite, local = "uuid", remote = "station"))]
+    pub favorites: Linked<Favorite>,  // a marker: no column
+}
+
+#[derive(Model, Clone, Default, PartialEq)]
+#[model(table = "favorites")]
+pub struct Favorite {
+    #[model(id)]
+    pub id: u64,
+    pub station: Vec<u8>,             // the catalog row's uuid, by VALUE
+    #[model(link(target = Station, local = "station", remote = "uuid"))]
+    pub link: Linked<Station>,
+}
+
+let container = ModelContainer::open(Sqlite::app_data("tunes.db")?, schema![Favorite])?;
+container.attach_database("catalog", path_to_stations_sqlite, schema![Station])?;
+
+container.query::<Favorite>().filter(Favorite::link().any(Station::country().eq("US")))
+container.query::<Station>().filter(Station::favorites().is_empty())
+```
+
+`external = "alias"` marks a model whose table lives in the database ATTACHed under `alias`:
+its `TABLE` is the qualified `alias.table`, and the container creates, migrates, and
+fingerprints nothing for it — the file is read as it is, and attached read-only where the
+engine honors `mode=ro`, so a write to an external row fails at flush. Columns map by name
+like any model's; a `NULL` reads as the field's default, which is how a catalog's nullable
+`TEXT` lands in a plain `String`. A table whose primary key is not an integer (a `BLOB` uuid,
+a composite) is addressed through its implicit rowid: `#[model(id, column = "rowid")]`. A
+`WITHOUT ROWID` table has no such handle and is not a model; read it with `with_connection`.
+An external model may declare `fts(…)`, which names an index the file already carries
+(`alias.table_fts`, the same `content=` or contentless FTS5 the file's builder made);
+`matches`, `rank()`, and their dependency tracking work unchanged.
+
+`attach_database(alias, path, schema)` attaches the file and installs the schema's models;
+calling it again with the same alias swaps files: the old one is detached, every resident row
+of its models is dropped, and every live query re-runs — a downloaded update lands with one
+call. `detach_database(alias)` leaves the models registered and empty. Both flush first, since
+SQLite refuses `ATTACH`/`DETACH` inside an open write transaction.
+
+**Links** relate rows by value rather than by key: `#[model(link(target = T, local =
+"column", remote = "column"))]` on a `Linked<T>` marker field declares that this model's
+`local` column names rows of `T` whose `remote` column equals it. No foreign key is written
+(SQLite cannot enforce one across databases, and the catalog side is not ours to constrain),
+so a favorite whose station left the catalog simply has an empty link, which `is_empty()`
+finds. A link's predicate builder is the relation vocabulary — `any`, `none`, `all`,
+`is_empty`, `count_ge` — compiled to the same correlated `EXISTS`, joined on the two columns;
+declaring the link on both sides gives both directions. The query watcher treats the owner's
+`local` column as membership: rewriting it moves the row across the link. Links work between
+two of the container's own tables too; they are simply relations without a key.
+
 ## External changes
 
 Another connection's committed writes (another process, a sync engine, a CLI editing the

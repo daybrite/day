@@ -1045,10 +1045,20 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
     if headless {
         // `swiftshader_indirect` rather than the default `auto`: a runner has no GPU, and auto
         // picks host acceleration and then fails to initialize.
+        //
+        // Vulkan off as well. With it on, the host renderer answers the guest's Vulkan through
+        // SwiftShader too, and a WebView's GPU process probing it on a tablet-sized surface
+        // (2560x1600) hung the whole guest — adbd included — every run of Day-Showcase's
+        // pixel_tablet leg, at the first paint of the Web view page; the emulator's own log ends
+        // at "Created VkInstance". The phone leg survived on the same image because its WebView
+        // stayed on the GL translator. Off, the guest answers `cpuvulkan` with nothing and every
+        // renderer takes the GL path, which is what a headless screenshot run wants anyway.
         cmd.args([
             "-no-window",
             "-gpu",
             "swiftshader_indirect",
+            "-feature",
+            "-Vulkan",
             "-noaudio",
             "-no-boot-anim",
             "-no-snapshot",

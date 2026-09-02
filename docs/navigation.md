@@ -192,7 +192,7 @@ of the two methods to use is decided by **what the command acts on**, not by how
 
 | | rides | for commands that act on |
 |---|---|---|
-| `bar_action` | every page, root and pushed alike | whatever is showing — "show this page's source" |
+| `bar_action` | every page, root and pushed alike; on an expanded split, the detail pane only | whatever is showing — "show this page's source" |
 | `list_action` | the root page only | the list itself — "add an item", "sort", "filter" |
 
 `list_action` exists because on a phone the detail covers the list, so a button that adds to the

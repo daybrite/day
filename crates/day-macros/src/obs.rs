@@ -68,6 +68,17 @@ struct FieldDef {
     /// `#[model(relation(…))]` — a `Many<T>` marker field: no column, no plain accessor;
     /// the Model derive emits a `RelationRef` accessor and the wiring instead.
     relation: Option<RelationAttr>,
+    /// `#[model(link(…))]` — a `Linked<T>` marker field: a relation by VALUE rather than by
+    /// key, across databases (docs/persistence.md). No column, no accessor; the Model derive
+    /// emits the predicate builder and the `LinkDef`.
+    link: Option<LinkAttr>,
+}
+
+/// The parsed `link(target = T, local = "column", remote = "column")`.
+struct LinkAttr {
+    target: String,
+    local: String,
+    remote: String,
 }
 
 /// The parsed `relation(target = T, inverse = "…", delete = "…", ordered = "…", join = "…")`.
@@ -84,7 +95,7 @@ impl FieldDef {
         self.column.as_deref().unwrap_or(&self.name)
     }
     fn persisted(&self) -> bool {
-        !self.skip && !self.transient && self.relation.is_none()
+        !self.skip && !self.transient && self.relation.is_none() && self.link.is_none()
     }
     fn nullable(&self) -> bool {
         self.ty == "Option" || self.ty.starts_with("Option <")
@@ -94,6 +105,9 @@ impl FieldDef {
 struct StructDef {
     name: String,
     table: Option<String>,
+    /// `external = "alias"`: the table lives in a database ATTACHed under `alias`, managed by
+    /// someone else — no DDL, no migration, read-only.
+    external: Option<String>,
     composites: Vec<Vec<String>>,
     fts: Vec<String>,
     fts_tokenize: Option<String>,
@@ -163,7 +177,7 @@ fn emit_observable(def: &StructDef) -> String {
     let observed: Vec<&FieldDef> = def
         .fields
         .iter()
-        .filter(|f| !f.skip && f.relation.is_none())
+        .filter(|f| !f.skip && f.relation.is_none() && f.link.is_none())
         .collect();
     let mut out = String::new();
 
@@ -254,8 +268,24 @@ fn emit_observable(def: &StructDef) -> String {
 /// the named codec's) at compile time.
 fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
     let name = &def.name;
-    let table = def.table.clone().unwrap_or_else(|| snake_case(name));
+    let bare_table = def.table.clone().unwrap_or_else(|| snake_case(name));
+    // An external table is addressed through its database alias everywhere SQL names it —
+    // the fault SELECT, predicates, the FTS shadow (`alias.table_fts`) — which is what one
+    // qualified TABLE constant gives every existing code path at once.
+    let table = match &def.external {
+        Some(alias) => format!("{alias}.{bare_table}"),
+        None => bare_table,
+    };
     let persisted: Vec<&FieldDef> = def.fields.iter().filter(|f| f.persisted()).collect();
+    for f in def.fields.iter().filter(|f| f.link.is_some()) {
+        let l = f.link.as_ref().expect("filtered");
+        if !persisted.iter().any(|p| p.column_name() == l.local) {
+            return Err(format!(
+                "Model: link(…) on `{}` names local = {:?}, which is not a persisted column of `{name}`",
+                f.name, l.local
+            ));
+        }
+    }
 
     let mut columns = String::new();
     for f in &persisted {
@@ -355,6 +385,19 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
              <{} as day_persistence::Model>::TABLE)\n\
              \x20   }}\n",
             f.name, r.target, f.name, r.target,
+        ));
+    }
+    // A link's predicate builder is a plain RelationCol: the container resolves the
+    // (owner, field) pair to the link's join condition at compile time, so `any`/`none`/
+    // `is_empty`/`count_ge` read exactly as they do across a keyed relation.
+    for f in def.fields.iter().filter(|f| f.link.is_some()) {
+        let l = f.link.as_ref().expect("filtered");
+        cols.push_str(&format!(
+            "    pub fn {}() -> day_persistence::RelationCol<{name}, {}> {{\n\
+             \x20       day_persistence::RelationCol::new(\"{}\", \"{table}\", \
+             <{} as day_persistence::Model>::TABLE)\n\
+             \x20   }}\n",
+            f.name, l.target, f.name, l.target,
         ));
     }
     if !def.fts.is_empty() {
@@ -474,6 +517,31 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
                 .join(", ")
         )
     };
+    let links: Vec<(&FieldDef, &LinkAttr)> = def
+        .fields
+        .iter()
+        .filter_map(|f| f.link.as_ref().map(|l| (f, l)))
+        .collect();
+    let links_const = if links.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "    const LINKS: &'static [day_persistence::LinkDef] = &[\n{}    ];\n",
+            links
+                .iter()
+                .map(|(f, l)| format!(
+                    "        day_persistence::LinkDef {{ field: \"{}\", local: \"{}\", \
+                     target_table: <{} as day_persistence::Model>::TABLE, remote: \"{}\" }},\n",
+                    f.name, l.local, l.target, l.remote
+                ))
+                .collect::<String>()
+        )
+    };
+    let external_const = if def.external.is_some() {
+        "    const EXTERNAL: bool = true;\n".to_string()
+    } else {
+        String::new()
+    };
     let spatial_const = match &def.spatial {
         None => String::new(),
         Some((lat, lon)) => format!(
@@ -492,7 +560,7 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
          \x20   const KEY_SQL: day_persistence::SqlType = {key_sql};\n\
          \x20   const COLUMNS: &'static [day_persistence::ColumnDef] = &[\n{columns}    ];\n\
          \x20   const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[{composites}];\n\
-         {fts_const}{spatial_const}{relations_const}\
+         {fts_const}{spatial_const}{relations_const}{links_const}{external_const}\
          \x20   fn to_row(&self) -> Vec<day_persistence::Value> {{\n\
          \x20       vec![\n{to_row}        ]\n\
          \x20   }}\n\
@@ -588,6 +656,7 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
     let tokens: Vec<TokenTree> = input.into_iter().collect();
 
     let mut table = None;
+    let mut external = None;
     let mut composites = Vec::new();
     let mut fts = Vec::new();
     let mut fts_tokenize = None;
@@ -602,6 +671,7 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
                         parse_struct_options(
                             items,
                             &mut table,
+                            &mut external,
                             &mut composites,
                             &mut fts,
                             &mut fts_tokenize,
@@ -634,6 +704,7 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
     Ok(StructDef {
         name,
         table,
+        external,
         composites,
         fts,
         fts_tokenize,
@@ -666,6 +737,7 @@ fn attr_items(bracket: &proc_macro::Group, name: &str) -> Option<Vec<Vec<TokenTr
 fn parse_struct_options(
     items: Vec<Vec<TokenTree>>,
     table: &mut Option<String>,
+    external: &mut Option<String>,
     composites: &mut Vec<Vec<String>>,
     fts: &mut Vec<String>,
     fts_tokenize: &mut Option<String>,
@@ -749,6 +821,20 @@ fn parse_struct_options(
             ] if id.to_string() == "table" && eq.as_char() == '=' => {
                 *table = Some(string_literal(lit)?);
             }
+            [
+                TokenTree::Ident(id),
+                TokenTree::Punct(eq),
+                TokenTree::Literal(lit),
+            ] if id.to_string() == "external" && eq.as_char() == '=' => {
+                let alias = string_literal(lit)?;
+                if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                {
+                    return Err(format!(
+                        "external = {alias:?} must be a plain SQL schema name (letters, digits, `_`)"
+                    ));
+                }
+                *external = Some(alias);
+            }
             [TokenTree::Ident(id), TokenTree::Group(g)]
                 if id.to_string() == "index" && g.delimiter() == Delimiter::Parenthesis =>
             {
@@ -768,7 +854,7 @@ fn parse_struct_options(
             }
             other => {
                 return Err(format!(
-                    "unknown #[model] option on the struct: `{}` (supported: table = \"…\", index(\"a\", \"b\"), fts(\"a\", \"b\"), spatial(lat = \"…\", lon = \"…\"))",
+                    "unknown #[model] option on the struct: `{}` (supported: table = \"…\", external = \"alias\", index(\"a\", \"b\"), fts(\"a\", \"b\"), spatial(lat = \"…\", lon = \"…\"))",
                     tokens_text(other)
                 ));
             }
@@ -809,6 +895,11 @@ fn parse_field_options(items: Vec<Vec<TokenTree>>, f: &mut FieldDef) -> Result<(
                 if id.to_string() == "relation" && g.delimiter() == Delimiter::Parenthesis =>
             {
                 f.relation = Some(parse_relation(g, &f.name)?);
+            }
+            [TokenTree::Ident(id), TokenTree::Group(g)]
+                if id.to_string() == "link" && g.delimiter() == Delimiter::Parenthesis =>
+            {
+                f.link = Some(parse_link(g, &f.name)?);
             }
             other => {
                 return Err(format!(
@@ -891,6 +982,56 @@ fn parse_relation(g: &proc_macro::Group, field: &str) -> Result<RelationAttr, St
         ordered,
         join,
     })
+}
+
+/// `link(target = Type, local = "column", remote = "column")` — a relation matched by VALUE:
+/// rows of `Type` whose `remote` column equals this row's `local` column. No foreign key and
+/// no wiring, which is what lets it cross into an `external` table SQLite cannot constrain.
+fn parse_link(g: &proc_macro::Group, field: &str) -> Result<LinkAttr, String> {
+    let mut items = vec![Vec::new()];
+    for tt in g.stream() {
+        match &tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => items.push(Vec::new()),
+            _ => items.last_mut().expect("never empty").push(tt),
+        }
+    }
+    items.retain(|i| !i.is_empty());
+    let (mut target, mut local, mut remote) = (None, None, None);
+    for item in items {
+        match item.as_slice() {
+            [TokenTree::Ident(k), TokenTree::Punct(eq), rest @ ..]
+                if eq.as_char() == '=' && !rest.is_empty() =>
+            {
+                match k.to_string().as_str() {
+                    "target" => target = Some(tokens_text(rest)),
+                    "local" => local = Some(literal_str(rest, field)?),
+                    "remote" => remote = Some(literal_str(rest, field)?),
+                    other => {
+                        return Err(format!(
+                            "link(…) on `{field}`: unknown option `{other}` (supported: \
+                             target = Type, local = \"column\", remote = \"column\")"
+                        ));
+                    }
+                }
+            }
+            other => {
+                return Err(format!(
+                    "link(…) on `{field}`: expected `name = …`, found `{}`",
+                    tokens_text(other)
+                ));
+            }
+        }
+    }
+    match (target, local, remote) {
+        (Some(target), Some(local), Some(remote)) => Ok(LinkAttr {
+            target,
+            local,
+            remote,
+        }),
+        _ => Err(format!(
+            "link(…) on `{field}` needs target = Type, local = \"column\", and remote = \"column\""
+        )),
+    }
 }
 
 fn literal_str(rest: &[TokenTree], field: &str) -> Result<String, String> {

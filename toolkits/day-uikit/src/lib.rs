@@ -1157,9 +1157,95 @@ mod imp {
         out
     }
 
-    /// The navigation controllers that carry a window's bar: the detail stack, plus the
-    /// sidebar column's stack while a split view is collapsed (pages push there then). The
-    /// sidebar column itself keeps no bar — one bar per window, not one per column.
+    // ── Where a window's bar goes ──────────────────────────────────────────────────────
+    //
+    // The NAVIGATION BAR of the page that is showing, at every width: the detail column's on
+    // an expanded split, the merged stack's when it has collapsed or on a phone. The items go
+    // in as iOS 16 item groups, one per item, ahead of the page's own trailing bar actions, so
+    // what the bar cannot fit folds into its overflow menu rather than crowding the title —
+    // which is why an app declares its least-used items last. No bottom bar anywhere, and the
+    // sidebar and list columns carry none of it: one bar per window, on the content it acts on.
+
+    /// Where one navigation controller shows its window's bar.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum BarPlacement {
+        /// In the navigation bar: the stack that is showing pages.
+        NavBar,
+        /// Nowhere: an expanded split's sidebar or list column.
+        None,
+        /// Not this controller's concern: a stack nested INSIDE another host's page. The
+        /// window's bar rides the outer host, and a nested stack is left entirely alone — a
+        /// toolbar-visibility call on it during its own push transition cancels the push on
+        /// iOS 26 and later (the Showcase's Stack page popped straight back on CI's iPhone).
+        Nested,
+    }
+
+    fn same_nav(a: &DayNavController, b: &objc2_ui_kit::UINavigationController) -> bool {
+        let a: &objc2_ui_kit::UINavigationController = a;
+        std::ptr::eq(a, b)
+    }
+
+    /// A page controller's identity, for the per-page records below.
+    fn vc_key(vc: &UIViewController) -> usize {
+        (vc as *const UIViewController).cast::<()>() as usize
+    }
+
+    fn bar_placement(nav: &objc2_ui_kit::UINavigationController) -> BarPlacement {
+        NAV_STATE.with(|m| {
+            let m = m.borrow();
+            for s in m.values() {
+                let Some(parts) = &s.split else {
+                    if same_nav(&s.nav, nav) {
+                        // A plain stack is the window's host only when no other host's view
+                        // contains it.
+                        let nested = s.nav.view().is_some_and(|nv| {
+                            m.values().any(|o| {
+                                let host_view = match &o.split {
+                                    Some(p) => p.split_vc.view(),
+                                    None => o.nav.view(),
+                                };
+                                host_view.is_some_and(|hv| {
+                                    !std::ptr::eq(&*hv, &*nv)
+                                        && unsafe { nv.isDescendantOfView(&hv) }
+                                })
+                            })
+                        });
+                        return if nested {
+                            BarPlacement::Nested
+                        } else {
+                            BarPlacement::NavBar
+                        };
+                    }
+                    continue;
+                };
+                // UIKit's own answer rather than the `collapsed` mirror, which a presentation
+                // change updates a beat later than the merge it describes.
+                let expanded = !unsafe { parts.split_vc.isCollapsed() };
+                if same_nav(&parts.primary_nav, nav)
+                    || parts
+                        .supplementary_nav
+                        .as_ref()
+                        .is_some_and(|n| same_nav(n, nav))
+                {
+                    // Expanded, these columns show the sidebar and the list; collapsed, the
+                    // primary IS the stack showing pages.
+                    return if expanded {
+                        BarPlacement::None
+                    } else {
+                        BarPlacement::NavBar
+                    };
+                }
+                if same_nav(&s.nav, nav) {
+                    return BarPlacement::NavBar;
+                }
+            }
+            BarPlacement::NavBar
+        })
+    }
+
+    /// Every navigation controller of every host under a window root: the detail stack and
+    /// the sidebar (and list) column stacks. Each is placed by `bar_placement`, so a collapse
+    /// or expand MOVES the bar rather than leaving a copy behind.
     fn toolbar_navs_under(root: &UIView) -> Vec<Retained<DayNavController>> {
         NAV_STATE.with(|m| {
             m.borrow()
@@ -1176,12 +1262,9 @@ mod imp {
                 })
                 .flat_map(|s| {
                     let mut navs = vec![s.nav.clone()];
-                    // UIKit's own answer rather than the `collapsed` mirror, which a
-                    // presentation change updates a beat later than the merge it describes.
-                    if let Some(parts) = &s.split
-                        && unsafe { parts.split_vc.isCollapsed() }
-                    {
+                    if let Some(parts) = &s.split {
                         navs.push(parts.primary_nav.clone());
+                        navs.extend(parts.supplementary_nav.clone());
                     }
                     navs
                 })
@@ -1189,8 +1272,72 @@ mod imp {
         })
     }
 
-    /// Give `vc` the bar of the window it is in, if that window has one. Called on every
-    /// push and on the first page a navigation controller shows.
+    thread_local! {
+        /// Each page's place in its host — (host ptr, is_root, is_sidebar) — so its trailing
+        /// bar actions can be rebuilt later: when the window bar joins them in the detail
+        /// column, and when a collapse or expand moves actions between columns.
+        static PAGE_BAR_SCOPE: RefCell<HashMap<usize, (usize, bool, bool)>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// Which of a host's trailing bar actions ride the page at `(is_root, is_sidebar)`. An
+    /// expanded split's sidebar keeps only its list-scoped actions: the every-page ones act on
+    /// whatever the detail column shows, so they ride that column's bar and would only repeat
+    /// here. Merged into the stack, the sidebar is the root page like any other.
+    fn bar_action_rides(
+        scope: day_spec::props::NavBarScope,
+        is_root: bool,
+        expanded_sidebar: bool,
+    ) -> bool {
+        if expanded_sidebar {
+            scope == day_spec::props::NavBarScope::RootPage
+        } else {
+            is_root || scope == day_spec::props::NavBarScope::EveryPage
+        }
+    }
+
+    /// Fresh bar-button items for a page's own trailing actions, in `setRightBarButtonItems`
+    /// order (element 0 rightmost); `None` for a controller that is not a Day page.
+    fn bar_action_items(
+        mtm: MainThreadMarker,
+        vc: &UIViewController,
+    ) -> Option<Vec<Retained<UIBarButtonItem>>> {
+        let (host, is_root, is_sidebar) =
+            PAGE_BAR_SCOPE.with(|m| m.borrow().get(&vc_key(vc)).copied())?;
+        NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            let expanded_sidebar = is_sidebar
+                && state
+                    .split
+                    .as_ref()
+                    .is_some_and(|p| !unsafe { p.split_vc.isCollapsed() });
+            Some(
+                state
+                    .bar_actions
+                    .iter()
+                    .filter(|ba| bar_action_rides(ba.scope, is_root, expanded_sidebar))
+                    .rev()
+                    .map(|ba| ba.make_item(mtm))
+                    .collect(),
+            )
+        })
+    }
+
+    /// Re-set a page's trailing bar actions from its current place in its host.
+    fn refresh_bar_actions(mtm: MainThreadMarker, vc: &UIViewController) {
+        if let Some(items) = bar_action_items(mtm, vc) {
+            unsafe {
+                vc.navigationItem().setRightBarButtonItems(Some(
+                    &objc2_foundation::NSArray::from_retained_slice(&items),
+                ))
+            };
+        }
+    }
+
+    /// Give `vc` the bar of the window it is in, if that window has one, where
+    /// `bar_placement` says it goes. Called on every push, on the first page a navigation
+    /// controller shows, and again on every model change and presentation change.
     fn apply_window_toolbar_to(nav: &objc2_ui_kit::UINavigationController, vc: &UIViewController) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
@@ -1207,58 +1354,118 @@ mod imp {
         let Some((root, items)) = found else {
             return;
         };
+        let placement = bar_placement(nav);
+        if placement == BarPlacement::Nested {
+            return;
+        }
+        let page_items = bar_action_items(mtm, vc);
         let mut targets = Vec::new();
-        let bar_items = build_toolbar_items(mtm, root, &items, &mut targets);
+        // Only the kinds a navigation bar can hold: spacers have no meaning there, search
+        // rides the navigation surface, and the sidebar toggle is the split view's own.
+        let controls: Vec<day_spec::ToolbarItem> = match placement {
+            BarPlacement::NavBar => items
+                .iter()
+                .filter(|i| {
+                    !matches!(
+                        i.kind,
+                        day_spec::ToolbarItemKind::Separator
+                            | day_spec::ToolbarItemKind::Space
+                            | day_spec::ToolbarItemKind::FlexibleSpace
+                            | day_spec::ToolbarItemKind::Search { .. }
+                            | day_spec::ToolbarItemKind::SidebarToggle
+                    )
+                })
+                .cloned()
+                .collect(),
+            BarPlacement::None | BarPlacement::Nested => Vec::new(),
+        };
+        let bar_items = build_toolbar_items(mtm, root, &controls, &mut targets);
         WINDOW_TOOLBARS.with(|t| {
             if let Some(w) = t.borrow_mut().get_mut(&root) {
                 w.targets.extend(targets);
             }
         });
         unsafe {
-            vc.setToolbarItems(Some(&objc2_foundation::NSArray::from_retained_slice(
-                &bar_items,
-            )));
-            nav.setToolbarHidden_animated(bar_items.is_empty(), false);
+            match placement {
+                BarPlacement::NavBar => {
+                    // One optional group per item, in declaration order, so the bar can fold
+                    // the trailing ones into its overflow menu one at a time; the page's own
+                    // actions as a fixed group after them, at the trailing edge.
+                    let mut groups = Vec::new();
+                    for (item, bar) in controls.iter().zip(bar_items) {
+                        groups.push(
+                            objc2_ui_kit::UIBarButtonItemGroup::optionalGroupWithCustomizationIdentifier_inDefaultCustomization_representativeItem_items(
+                                &NSString::from_str(&item.id),
+                                true,
+                                None,
+                                &objc2_foundation::NSArray::from_retained_slice(&[bar]),
+                                mtm,
+                            ),
+                        );
+                    }
+                    if let Some(page_items) = page_items
+                        && !page_items.is_empty()
+                    {
+                        // Stored rightmost-first (`setRightBarButtonItems` order); a group
+                        // reads left to right.
+                        let ordered: Vec<_> = page_items.into_iter().rev().collect();
+                        groups.push(
+                            objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
+                                None,
+                                &objc2_foundation::NSArray::from_retained_slice(&ordered),
+                                mtm,
+                            ),
+                        );
+                    }
+                    vc.navigationItem().setTrailingItemGroups(
+                        &objc2_foundation::NSArray::from_retained_slice(&groups),
+                    );
+                }
+                BarPlacement::None | BarPlacement::Nested => {
+                    if let Some(page_items) = page_items {
+                        vc.navigationItem().setRightBarButtonItems(Some(
+                            &objc2_foundation::NSArray::from_retained_slice(&page_items),
+                        ));
+                    }
+                }
+            }
+            vc.setToolbarItems(None);
+            nav.setToolbarHidden_animated(true, false);
         }
     }
 
-    /// Rebuild the bar on every page under `root`'s navigation controllers from the stored
-    /// model — after `set_toolbar`, a patch, or an item the user just flipped.
+    /// Re-place a window's bar on every page of every navigation controller under it — after
+    /// a model change, and after a collapse or expand.
     fn reapply_window_toolbar(root: usize) {
+        let Some(root_view) =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
+        else {
+            return;
+        };
+        WINDOW_TOOLBARS.with(|t| {
+            if let Some(w) = t.borrow_mut().get_mut(&root) {
+                w.targets.clear();
+            }
+        });
+        for nav in toolbar_navs_under(&root_view) {
+            for vc in unsafe { nav.viewControllers() }.iter() {
+                apply_window_toolbar_to(&nav, &vc);
+            }
+        }
+    }
+
+    /// Take a window's bar off every page under it, leaving each page's own bar actions.
+    fn clear_window_toolbar(root_view: &UIView) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
-        let Some((root_view, items)) = WINDOW_TOOLBARS.with(|t| {
-            t.borrow()
-                .get(&root)
-                .map(|w| (w.root.clone(), w.items.clone()))
-        }) else {
-            return;
-        };
-        let mut targets = Vec::new();
-        for nav in toolbar_navs_under(&root_view) {
-            for vc in unsafe { nav.viewControllers() }.iter() {
-                let bar_items = build_toolbar_items(mtm, root, &items, &mut targets);
-                unsafe {
-                    vc.setToolbarItems(Some(&objc2_foundation::NSArray::from_retained_slice(
-                        &bar_items,
-                    )));
-                }
-            }
-            unsafe { nav.setToolbarHidden_animated(false, false) };
-        }
-        WINDOW_TOOLBARS.with(|t| {
-            if let Some(w) = t.borrow_mut().get_mut(&root) {
-                w.targets = targets;
-            }
-        });
-    }
-
-    /// Take the bar away from every navigation controller under `root`.
-    fn clear_window_toolbar(root_view: &UIView) {
         for nav in toolbar_navs_under(root_view) {
+            if bar_placement(&nav) == BarPlacement::Nested {
+                continue;
+            }
             for vc in unsafe { nav.viewControllers() }.iter() {
                 unsafe { vc.setToolbarItems(None) };
+                refresh_bar_actions(mtm, &vc);
             }
             unsafe { nav.setToolbarHidden_animated(true, false) };
         }
@@ -2279,6 +2486,20 @@ mod imp {
                     v.setNeedsLayout();
                     v.layoutIfNeeded();
                 }
+                // The window bar and the columns' bar actions follow the presentation
+                // (docs/toolbars.md): the bar moves between the detail column's navigation
+                // bar and the bottom of the merged stack, and the sidebar's every-page actions
+                // leave it or rejoin it. `isCollapsed` has settled by now, one turn later.
+                let roots: Vec<usize> =
+                    WINDOW_TOOLBARS.with(|t| t.borrow().keys().copied().collect());
+                for root in roots {
+                    reapply_window_toolbar(root);
+                }
+                if let Some(mtm) = MainThreadMarker::new() {
+                    for vc in unsafe { parts.primary_nav.viewControllers() }.iter() {
+                        refresh_bar_actions(mtm, &vc);
+                    }
+                }
             });
         });
     }
@@ -2371,7 +2592,10 @@ mod imp {
             fn did_show(
                 &self,
                 nav: &objc2_ui_kit::UINavigationController,
-                vc: &UIViewController,
+                // Nullable in practice: the split view's detail stack reports a show with no
+                // controller when its stack is swapped out under it (iPad), and messaging that
+                // nil tripped objc2's check on every such call.
+                vc: Option<&UIViewController>,
                 _animated: bool,
             ) {
                 // A user pop must satisfy BOTH baselines (each alone has a false positive):
@@ -2387,7 +2611,9 @@ mod imp {
                 day_spec::ffi_guard::contain((), || {
                     // The window's toolbar rides every page (docs/toolbars.md): a pushed page
                     // arrives without items, and the first page shows through here too.
-                    apply_window_toolbar_to(nav, vc);
+                    if let Some(vc) = vc {
+                        apply_window_toolbar_to(nav, vc);
+                    }
                     let host = self.ivars().host.get();
                     let suspicious = NAV_STATE.with(|m| {
                         let mut m = m.borrow_mut();
@@ -2419,7 +2645,13 @@ mod imp {
                             return false;
                         }
                         let prev = state.last_native.replace(native);
-                        let popped = native < prev && native < state.vcs.len();
+                        // An EMPTY stack is never the user's doing — the root cannot be
+                        // popped — so it is one of Day's own wholesale swaps caught mid-flight
+                        // (empty, then the new page). The page can take a beat to arrive: a
+                        // WKWebView's first mount held it past the settle below, the empty
+                        // state read as a back, and the route reset to the sidebar (the
+                        // Showcase's Web view page on iPad, first selection only).
+                        let popped = native > 0 && native < prev && native < state.vcs.len();
                         if *DIAG_NAV {
                             log::debug!(
                                 "DAYDIAG didShow native={native} prev={prev} mirror={} suspicious={popped}",
@@ -2457,7 +2689,7 @@ mod imp {
                                         native < state.vcs.len(),
                                     );
                                 }
-                                if native < state.vcs.len() {
+                                if native > 0 && native < state.vcs.len() {
                                     // Still popped after settling: a real user back. Sync the
                                     // mirror (Day's remove() will find it gone) and record that
                                     // Day's answering NavPatch::Popped must be ABSORBED.
@@ -6770,9 +7002,11 @@ mod imp {
             NAV_PAGES.with(|set| {
                 set.borrow_mut().remove(&ptr_of(&h));
             });
-            PAGE_VCS.with(|m| {
-                m.borrow_mut().remove(&ptr_of(&h));
-            });
+            if let Some(vc) = PAGE_VCS.with(|m| m.borrow_mut().remove(&ptr_of(&h))) {
+                PAGE_BAR_SCOPE.with(|m| {
+                    m.borrow_mut().remove(&vc_key(&vc));
+                });
+            }
             COVER_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
@@ -6877,10 +7111,22 @@ mod imp {
                 // sidebar left every stack's list-scoped action filtered out everywhere, which
                 // renders as a nav bar that is present but empty.
                 let is_root = is_sidebar || state.vcs.len() == 1;
+                // Remembered for the rebuilds that follow (`bar_action_items`): the window bar
+                // joining these items in the detail column, and a collapse or expand moving
+                // the every-page actions between the columns.
+                PAGE_BAR_SCOPE.with(|m| {
+                    m.borrow_mut()
+                        .insert(vc_key(&vc), (ptr_of(parent), is_root, is_sidebar));
+                });
+                let expanded_sidebar = is_sidebar
+                    && state
+                        .split
+                        .as_ref()
+                        .is_some_and(|p| !unsafe { p.split_vc.isCollapsed() });
                 let mine: Vec<_> = state
                     .bar_actions
                     .iter()
-                    .filter(|ba| is_root || ba.scope == day_spec::props::NavBarScope::EveryPage)
+                    .filter(|ba| bar_action_rides(ba.scope, is_root, expanded_sidebar))
                     .collect();
                 if !mine.is_empty() {
                     let mtm =

@@ -972,7 +972,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     // The package floor: the shipped default unless a contribution needs more. The package floor
     // may never exceed the effective app target (xcodebuild errors), which is what the returned
     // override guarantees.
-    let floor = max_platform("15.0", pieces.platform.as_deref().unwrap_or("15.0"));
+    let floor = max_platform("16.0", pieces.platform.as_deref().unwrap_or("16.0"));
     write_if_changed(
         &pkg_dir.join("Package.swift"),
         &package_swift(
@@ -987,7 +987,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
 
     // Override only when the contributions exceed the scaffold's checked-in target — and never
     // lower a value the user raised by hand.
-    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "15.0".into());
+    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "16.0".into());
     Ok((max_platform(&pbx, &floor) != pbx).then_some(floor))
 }
 
@@ -1674,7 +1674,7 @@ mod tests {
         assert_eq!(ios_target_from_pbxproj(&pbx), None);
         let xcc =
             std::fs::read_to_string(format!("{root}/DayApp.xcconfig")).expect("template xcconfig");
-        assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("15.0"));
+        assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("16.0"));
         // Tolerant of spacing, takes the max across configurations.
         let raw = "  IPHONEOS_DEPLOYMENT_TARGET = 15.0;\n\tIPHONEOS_DEPLOYMENT_TARGET=16.0 ;\n";
         assert_eq!(ios_target_from_pbxproj(raw).as_deref(), Some("16.0"));

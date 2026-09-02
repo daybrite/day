@@ -177,7 +177,7 @@ prepass and `cargo rustc` link; both went with that path in 2026-08.)
 
 ### Deployment floors
 
-The generated packages default to iOS 15 / macOS 13; a contribution's `platform` key raises the
+The generated packages default to iOS 16 / macOS 13; a contribution's `platform` key raises the
 floor (the max across contributions wins). On iOS the raise must also reach the app target;
 `day build` passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild, which covers the app and
 the SwiftPM package targets without editing the scaffold. Command-line settings do not apply to

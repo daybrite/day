@@ -146,10 +146,14 @@ if capability(Cap::Toolbar) != Support::Unsupported { /* toolbar(…) */ } else 
 strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
 `toolbar_menu` pops a themed popup under its button, items activated through the same
 `day_dom_toolbar_action` route a plain button takes), and
-**`Native` on iOS and Android too** (2026-09): the bar docks UNDER the navigation controller's
-pages — the `UIToolbar` a `UINavigationController` owns, its items set on every page it shows;
-a second `MaterialToolbar` under the Android nav host's pages, its items shown as actions — so a
-phone carries two bars, the navigation bar above with its `bar_action`s and this one below.
+**`Native` on iOS and Android too** (2026-09). On iOS the items ride the NAVIGATION BAR of the
+page that is showing — the detail column's on an expanded iPad split, the merged stack's when
+it has collapsed or on a phone — as iOS 16 item groups, one per item, ahead of the page's own
+`bar_action`s; what the bar cannot fit folds into its overflow menu, trailing items first, so
+declare the least-used items last. No bottom bar, and the sidebar column never carries the
+window's bar: one bar per window, on the content it acts on. On Android a second
+`MaterialToolbar` under the nav host's pages shows the items as actions, so a phone carries two
+bars there, the app bar above with its `bar_action`s and this one below.
 Buttons, toggles and labels draw as themselves, a menu item drops its menu, and a segmented item
 becomes a pull-down of its segments with the chosen one checked (a segmented control has no room
 in a phone's bar). Two kinds never reach a phone's bar: search, which rides the navigation list

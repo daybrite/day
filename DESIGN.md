@@ -325,7 +325,7 @@ scripts), and `day-cli` (the `day` binary).
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, integer/`Uuid`/`String` keys behind `ModelId<M>`, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive, uuid |
-| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), attached external databases (`attach_database`, `external = "alias"` models over tables the container never migrates, swapped in place for a downloaded update) and value links across them (`link(…)`, relations without a key), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
 | `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), and the statement protocol the main thread speaks over the SharedArrayBuffer channel; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
@@ -3365,7 +3365,7 @@ release = false                     # embed dayscript engine in release builds?
 allow = ["bare-text"]               # per-rule opt-outs (discouraged)
 
 [ios]
-deployment-target = "15.0"
+deployment-target = "16.0"
 capabilities = []                   # entitlements toggles understood by the generator
 
 [android]

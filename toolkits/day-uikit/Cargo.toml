@@ -58,7 +58,7 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIGraphics", "UIGestureRecognizer", "UITapGestureRecognizer", "UIPanGestureRecognizer",
     "UIMenu", "UIMenuElement", "UIMenuLeaf", "UIAction", "UICommand", "UIContextMenuInteraction",
     # The window toolbar under a navigation controller's pages (docs/toolbars.md).
-    "UIBarItem", "UIBarButtonItem", "UIToolbar",
+    "UIBarItem", "UIBarButtonItem", "UIToolbar", "UIBarButtonItemGroup",
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",
     # A focusable canvas and its hardware-keyboard arrows (docs/menus.md): the press stream a
     # first-responder view reads (`pressesBegan:`), the key on each press, and the touch that
