@@ -8,15 +8,16 @@
 // objc2 Foundation FFI; no Day runtime, no Java shim.
 //
 // `setObject:forKey:` writes synchronously to the in-memory store, which the system then flushes
-// to disk on its OWN schedule — so every write here is followed by `synchronize`, which pushes it
-// out now. Apple calls that method unnecessary, and for an app the system suspends politely it is:
-// the suspension flushes. A Day app is regularly not that app. A scripted run exits the moment its
-// last step finishes, a device can kill a backgrounded app outright, and either one drops whatever
-// the periodic flush had not reached yet — silently, since the write itself succeeded. That cost
-// a whole CI matrix once (Day-Tradr's iOS walkthrough: the setting written near the end of one
-// run was gone by the next, and the three later locale variants each failed six assertions
-// against the stale value). A preferences write is rare, small, and made because the user asked
-// for it; paying a daemon round-trip to make it real is the right trade.
+// to disk on its OWN schedule — so every write here is followed by `synchronize`, which hands it
+// to the preferences daemon now. That is as far as an app can push it: the daemon still writes
+// the plist when it chooses, and on the simulator that was measured to be well after a scripted
+// run had ended (three writes to one key, the plist held the first). What survives a plain
+// relaunch is the daemon's copy, which is current; what loses the late writes is a REINSTALL of
+// the app, which migrates its container and rereads the stale plist. That cost Day-Tradr's iOS
+// walkthrough matrix twice: once before `synchronize` was here at all, and once more because
+// `day launch` reinstalled the app for every locale variant — the CLI now installs a build once
+// per simulator and relaunches it. A preferences write is rare, small, and made because the
+// user asked for it; the daemon round-trip is the right trade even so.
 //
 // Only `setObject:forKey:` is `unsafe` in objc2 (the value must be a property-list type) — we
 // always pass a real NSString, which is correct.

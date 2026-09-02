@@ -1160,6 +1160,29 @@ fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Re
     Ok(())
 }
 
+/// Whether `artifact` still has to be installed on the simulator `udid`: true the first time
+/// this process meets the pair, or when the artifact has been rebuilt since (its modification
+/// time moved). Everything else is a relaunch of what is already there — see the caller for
+/// why a reinstall is not free.
+fn simulator_needs_install(udid: &str, artifact: &Path) -> bool {
+    /// (simulator udid, artifact path, the artifact's modification time when installed).
+    type Installed = (String, PathBuf, Option<std::time::SystemTime>);
+    static INSTALLED: std::sync::OnceLock<std::sync::Mutex<Vec<Installed>>> =
+        std::sync::OnceLock::new();
+    let stamp = std::fs::metadata(artifact).and_then(|m| m.modified()).ok();
+    let key = (udid.to_string(), artifact.to_path_buf(), stamp);
+    let installed = INSTALLED.get_or_init(|| std::sync::Mutex::new(Vec::new()));
+    let Ok(mut seen) = installed.lock() else {
+        return true;
+    };
+    if seen.contains(&key) {
+        return false;
+    }
+    seen.retain(|(u, a, _)| !(u == udid && a == artifact));
+    seen.push(key);
+    true
+}
+
 /// UDIDs of every currently-booted iOS simulator (`simctl list devices booted`). All simulators on
 /// a given host share the host arch, so the one `aarch64-apple-ios-sim` build runs on each.
 pub(crate) fn booted_sims() -> Vec<String> {
@@ -1488,13 +1511,30 @@ pub fn launch_ios(
     let multi = sims.len() > 1;
     let mut log_threads = Vec::new();
     for udid in &sims {
-        run_logged_within(
-            Command::new("xcrun")
-                .args(["simctl", "install", udid])
-                .arg(&outcome.artifact),
-            &format!("simctl install ({udid})"),
-            INSTALL_TIMEOUT,
-        )?;
+        // Install ONCE per artifact per simulator for the life of this process. The capture
+        // matrix launches one build several times over, and `simctl install` of an app that is
+        // already installed migrates its data container — which rereads NSUserDefaults from
+        // DISK and drops whatever cfprefsd had not written out yet. `synchronize` does not make
+        // the daemon write on the simulator (measured: three chip-mode writes in a scripted
+        // run, the plist held the first; a relaunch WITHOUT reinstall showed the last, and only
+        // then did the plist follow). So a setting written late in one variant was gone by the
+        // next — Day-Tradr's iOS matrix, where the symbol one run removed was back for the
+        // next. A plain terminate + launch keeps the container and the daemon's cache, and the
+        // app reads what it last wrote.
+        if simulator_needs_install(udid, &outcome.artifact) {
+            run_logged_within(
+                Command::new("xcrun")
+                    .args(["simctl", "install", udid])
+                    .arg(&outcome.artifact),
+                &format!("simctl install ({udid})"),
+                INSTALL_TIMEOUT,
+            )?;
+        } else {
+            crate::ops::status(
+                "Installed",
+                &format!("already on {udid} from this run — relaunching without a reinstall"),
+            );
+        }
         let _ = Command::new("xcrun")
             .args(["simctl", "terminate", udid, &bundle_id])
             .status();
