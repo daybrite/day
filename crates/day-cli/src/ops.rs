@@ -515,6 +515,36 @@ pub fn build(
     Ok(outcome)
 }
 
+/// Keep every piece's renderer registration in the link on the MinGW targets.
+///
+/// A piece registers its renderer through a `linkme` static in its `lib-<toolkit>.rs` module:
+/// a `#[used]` static placed in the slice's link section, referenced by nothing the app
+/// calls. `#[used]` keeps the compiler from dropping it, and on ELF (`SHF_GNU_RETAIN`) and
+/// Mach-O (`S_ATTR_NO_DEAD_STRIP`) the object carries a flag the linker's dead-strip honors;
+/// MSVC gets an `/INCLUDE` directive. COFF linked by GNU `ld` has none of these, so
+/// `--gc-sections`, which rustc passes for every executable, discards the section as
+/// unreferenced — the "dead-strip gamble" DESIGN.md §8.2 records, seen in CI as a piece
+/// drawing Day's placeholder on windows-qt while rendering elsewhere, and as the set of
+/// missing pieces moving between commits. (Archive member selection is not the problem: the
+/// element's type-check shim references the static from the crate's root object, so the
+/// member is pulled on every platform; it is the section that goes.)
+///
+/// So the two MinGW targets link without section garbage collection. The cost is a larger
+/// binary — the unreferenced code and data the collector would have dropped — on an
+/// experimental target; the alternative, `#[used(linker)]`, is nightly-only. Appended to an
+/// inherited `RUSTFLAGS` (CI sets one), the way the web build adds its cfg (web.rs).
+fn apply_mingw_registration_guard(cmd: &mut Command, target: &Target) {
+    if !matches!(target.name, "windows-qt" | "windows-gtk") {
+        return;
+    }
+    let mut rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
+    if !rustflags.is_empty() {
+        rustflags.push(' ');
+    }
+    rustflags.push_str("-C link-arg=-Wl,--no-gc-sections");
+    cmd.env("RUSTFLAGS", rustflags);
+}
+
 /// The per-kind native build pipelines (the pre-dispatch body of [`build`]).
 fn build_native(
     project: &Project,
@@ -530,6 +560,7 @@ fn build_native(
             crate::patch::apply_day_src(&mut cmd);
             apply_app_identity(&mut cmd, project);
             crate::bridge::apply_staged(&mut cmd, project, target.name);
+            apply_mingw_registration_guard(&mut cmd, target);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
             // renderer feature, derived from `cargo metadata` — so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).

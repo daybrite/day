@@ -1496,6 +1496,19 @@ startup-time completeness check is impossible if the registry itself is the only
 CI includes a release+LTO ios-uikit build of showcase + day-piece-searchfield that asserts via
 dayscript that the externally-registered piece actually rendered ([§20](#20-continuous-integration)).
 
+> [!NOTE]
+> **Where the gamble bit (2026-09):** the MinGW targets (windows-qt, windows-gtk). A
+> registration is a `#[used]` static in the slice's link section, referenced by nothing the app
+> calls. ELF and Mach-O objects carry a retain flag the linker's dead-strip honors and MSVC gets
+> an `/INCLUDE` directive, but COFF linked by GNU `ld` has none, so rustc's `--gc-sections`
+> discards the section — which pieces rendered was luck, moving between commits (the stepper
+> joined the missing after 30575556). `day build` now links those two targets with
+> `--no-gc-sections` (`day-cli/src/ops.rs`, `apply_mingw_registration_guard`) at the cost of a
+> larger binary; `#[used(linker)]` would be the precise answer and is nightly-only. The Xcode
+> host projects `-force_load` the Rust archive on Apple for the selective-loading half of the
+> same problem. The generated registrant (item 2 above) remains the design; this is the
+> mitigation shipped ahead of it.
+
 ### §8.3 Events
 
 > [!NOTE]
