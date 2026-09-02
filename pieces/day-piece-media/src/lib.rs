@@ -142,6 +142,73 @@ pub mod report {
     pub const PAUSED: i32 = 3;
     pub const ENDED: i32 = 4;
     pub const ERROR: i32 = 5;
+    /// Not a state: the stream said what it is playing. `text` is the raw in-band value —
+    /// an ICY `StreamTitle` (`Artist - Title`), or the ID3/timed fields packed
+    /// `title\u{1f}artist\u{1f}album` — which [`StreamMetadata::from_report`] parses.
+    pub const METADATA: i32 = 6;
+}
+
+/// What the stream says it is playing, as the arm delivered it and as parsed for display.
+///
+/// Internet radio carries "now playing" in one of two ways: the ICY/Shoutcast in-band
+/// `StreamTitle` that Icecast servers interleave into an MP3/AAC stream on request, or
+/// timed ID3 in an HLS stream. Both reach this struct; `raw` keeps the exact text for a
+/// later lookup (lyrics, a catalog), `title`/`artist`/`album` are the best split of it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StreamMetadata {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    /// The value as received: a `StreamTitle` string, or the timed fields joined with ` - `.
+    pub raw: String,
+}
+
+impl StreamMetadata {
+    /// Parse a [`report::METADATA`] payload. Packed fields (`\u{1f}`-separated) are taken as
+    /// they are; a bare `StreamTitle` splits on its first ` - `, the convention nearly every
+    /// station follows (`Artist - Title`). A value with no dash is all title.
+    pub fn from_report(text: &str) -> StreamMetadata {
+        let text = text.trim();
+        if text.contains('\u{1f}') {
+            let mut parts = text.split('\u{1f}').map(|p| p.trim().to_string());
+            let title = parts.next().unwrap_or_default();
+            let artist = parts.next().unwrap_or_default();
+            let album = parts.next().unwrap_or_default();
+            let raw = [title.as_str(), artist.as_str(), album.as_str()]
+                .iter()
+                .filter(|p| !p.is_empty())
+                .copied()
+                .collect::<Vec<_>>()
+                .join(" - ");
+            return StreamMetadata {
+                title,
+                artist,
+                album,
+                raw,
+            };
+        }
+        match text.split_once(" - ") {
+            Some((artist, title)) if !artist.trim().is_empty() && !title.trim().is_empty() => {
+                StreamMetadata {
+                    title: title.trim().to_string(),
+                    artist: artist.trim().to_string(),
+                    album: String::new(),
+                    raw: text.to_string(),
+                }
+            }
+            _ => StreamMetadata {
+                title: text.to_string(),
+                artist: String::new(),
+                album: String::new(),
+                raw: text.to_string(),
+            },
+        }
+    }
+
+    /// Whether anything was said at all.
+    pub fn is_empty(&self) -> bool {
+        self.raw.is_empty()
+    }
 }
 
 /// A native media player bound to `url`. Attach command triggers with `.play()/.pause()/.load()`;
@@ -159,6 +226,7 @@ pub struct Media {
     stop: Option<Trigger>,
     load: Option<Trigger>,
     state: Option<Signal<PlaybackState>>,
+    metadata: Option<Signal<Option<StreamMetadata>>>,
 }
 
 /// `media(url)` — a native audio/video player for `url` (a string, `Signal<String>`, or closure;
@@ -182,6 +250,7 @@ pub fn media<M>(url: impl IntoText<M>) -> Media {
         stop: None,
         load: None,
         state: None,
+        metadata: None,
     }
 }
 
@@ -245,6 +314,17 @@ impl Media {
         self.state = Some(state);
         self
     }
+    /// Receive what the stream says it is playing (docs/media.md). `None` until the stream
+    /// says anything, and again on every load. Where the native player surfaces the stream's
+    /// own metadata (AVFoundation's timed metadata on macOS and iOS: ICY `StreamTitle` and
+    /// HLS ID3 alike) it arrives from there; elsewhere the piece asks the stream itself, on a
+    /// second, short-lived connection with `Icy-MetaData: 1` every [`ICY_PROBE_SECS`]
+    /// seconds — the same header the players send, read only as far as the first metadata
+    /// block. Not available on the web (a page cannot read a cross-origin stream).
+    pub fn metadata(mut self, metadata: Signal<Option<StreamMetadata>>) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
 }
 
 impl Piece for Media {
@@ -262,6 +342,7 @@ impl Piece for Media {
             stop,
             load,
             state,
+            metadata,
         } = self;
         let initial = MediaProps {
             url: url.initial(),
@@ -288,6 +369,21 @@ impl Piece for Media {
         let send = move |patch: MediaPatch| {
             with_tree(|t| t.patch(node, Box::new(patch), false));
         };
+        // The stream's own metadata: a probe of the stream on the side (icy.rs), started for
+        // every source the player is given and stopped when playback is. The Apple arms also
+        // report what AVFoundation hands over (HLS ID3 rides only that way), and the two say
+        // the same thing when both speak; the web has no way to read a cross-origin stream,
+        // so the probe is off there.
+        let probe: Option<std::rc::Rc<icy::Probe>> = match metadata {
+            Some(m) if cfg!(not(target_arch = "wasm32")) => Some(icy::Probe::new(m)),
+            _ => None,
+        };
+        if let Some(p) = &probe
+            && !initial.url.is_empty()
+            && initial.autoplay
+        {
+            p.start(initial.url.clone());
+        }
 
         // Each command trigger → one patch. `watch` never fires for the initial value, so wiring
         // these does not issue a spurious command at build time (the initial url loads via props).
@@ -298,7 +394,16 @@ impl Piece for Media {
             watch(move || pause.track(), move |_, _| send(MediaPatch::Pause));
         }
         if let Some(stop) = stop {
-            watch(move || stop.track(), move |_, _| send(MediaPatch::Stop));
+            let probe = probe.clone();
+            watch(
+                move || stop.track(),
+                move |_, _| {
+                    if let Some(p) = &probe {
+                        p.stop();
+                    }
+                    send(MediaPatch::Stop)
+                },
+            );
         }
         if let Some(load) = load {
             // Re-read the bound url when the trigger fires: a `Static` source re-loads the fixed
@@ -307,9 +412,16 @@ impl Piece for Media {
                 TextSource::Static(s) => std::rc::Rc::new(move || s.clone()),
                 TextSource::Dyn(f) => f,
             };
+            let probe = probe.clone();
             watch(
                 move || load.track(),
-                move |_, _| send(MediaPatch::Load(untrack(|| read()))),
+                move |_, _| {
+                    let url = untrack(|| read());
+                    if let Some(p) = &probe {
+                        p.start(url.clone());
+                    }
+                    send(MediaPatch::Load(url))
+                },
             );
         }
         // A tracked volume follows its source; the initial value already rode in on the props.
@@ -322,16 +434,26 @@ impl Piece for Media {
         // The readback rail: every arm reports its player's state on this node's Custom channel.
         // A cross-boundary Custom (JNI, C-ABI, ArkTS, wasm) carries only `num`/`text`, so the
         // code is the discriminator — never the tag.
-        if let Some(state) = state {
-            cx.on(node, move |ev| {
-                if let Event::Custom { num, text, .. } = ev {
+        cx.on(node, move |ev| {
+            if let Event::Custom { num, text, .. } = ev {
+                if *num as i32 == report::METADATA {
+                    if let Some(metadata) = metadata {
+                        let next = StreamMetadata::from_report(text);
+                        let next = if next.is_empty() { None } else { Some(next) };
+                        if metadata.get_untracked() != next {
+                            metadata.set(next);
+                        }
+                    }
+                    return;
+                }
+                if let Some(state) = state {
                     let next = PlaybackState::from_report(*num, text);
                     if state.get_untracked() != next {
                         state.set(next);
                     }
                 }
-            });
-        }
+            }
+        });
         node
     }
 }
@@ -344,6 +466,12 @@ impl Piece for Media {
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
+
+/// How often the side probe re-reads a stream's in-band metadata, where it is used.
+pub const ICY_PROBE_SECS: u32 = 20;
+
+#[path = "icy.rs"]
+mod icy;
 
 // GtkVideo is core GTK, so this compiles on every gtk host — but playback needs a gstreamer media
 // backend in the gtk4 build (Linux default; Homebrew gtk4 has none, so macos-gtk shows GtkVideo's
@@ -365,6 +493,7 @@ pub trait MediaBuilder: Sized {
     fn stop(self, trigger: Trigger) -> Self;
     fn load(self, trigger: Trigger) -> Self;
     fn state(self, state: Signal<PlaybackState>) -> Self;
+    fn metadata(self, metadata: Signal<Option<StreamMetadata>>) -> Self;
 }
 
 impl MediaBuilder for Media {
@@ -400,6 +529,9 @@ impl MediaBuilder for Media {
     }
     fn state(self, state: Signal<PlaybackState>) -> Self {
         Media::state(self, state)
+    }
+    fn metadata(self, metadata: Signal<Option<StreamMetadata>>) -> Self {
+        Media::metadata(self, metadata)
     }
 }
 
@@ -438,6 +570,9 @@ impl<Inner: MediaBuilder + day_pieces::prelude::Piece> MediaBuilder
     }
     fn state(self, state: Signal<PlaybackState>) -> Self {
         self.map_inner(|inner_piece| inner_piece.state(state))
+    }
+    fn metadata(self, metadata: Signal<Option<StreamMetadata>>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.metadata(metadata))
     }
 }
 
@@ -502,6 +637,23 @@ mod tests {
 
     /// The wire codes round-trip into the states an app matches on, and an unknown code lands
     /// on `Idle` rather than being dropped.
+    #[test]
+    fn metadata_reports_parse() {
+        let m = StreamMetadata::from_report("Miles Davis - So What");
+        assert_eq!(
+            (m.artist.as_str(), m.title.as_str()),
+            ("Miles Davis", "So What")
+        );
+        assert_eq!(m.raw, "Miles Davis - So What");
+        let m = StreamMetadata::from_report("Morning Show");
+        assert_eq!(m.title, "Morning Show");
+        assert!(m.artist.is_empty());
+        let m = StreamMetadata::from_report("So What\u{1f}Miles Davis\u{1f}Kind of Blue");
+        assert_eq!(m.album, "Kind of Blue");
+        assert_eq!(m.raw, "So What - Miles Davis - Kind of Blue");
+        assert!(StreamMetadata::from_report("  ").is_empty());
+    }
+
     #[test]
     fn reports_decode_to_states() {
         assert_eq!(

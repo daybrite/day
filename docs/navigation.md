@@ -612,8 +612,12 @@ selector(section).style(SelectorStyle::Sidebar)
 - A host with a content list joins the split's default-selection rule at every presentation:
   the pane needs a selection to scope itself to, so a collapsed host opens on the list rather
   than on bare sidebar rows.
-- The list pane is a merge barrier like a chrome page: a `stack` inside it keeps its own
-  container rather than pushing onto the host.
+- The native resident pane (`Native`, and `Emulated` while expanded) is a merge barrier like a
+  chrome page: a `stack` inside it keeps its own container, with the desktop back header above
+  its pages. The composed compact flow is the opposite: there the list is the root page of a
+  push stack (the tab's own navigation controller, or the enclosing host's), so a `stack` inside
+  it merges, and a drill-down from the list (a category, then its stations) is real pushes with
+  the native back, with the gated detail pushed on top of whatever the stack pushed.
 
 Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_key(…)`
 ([docs/focus.md](focus.md)) so the arrows walk the selection, and a `scroll_target` signal

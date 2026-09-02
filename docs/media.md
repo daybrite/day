@@ -82,6 +82,42 @@ and build its own now-playing UI around it. `.controls` is meaningless there. `M
 (`Flex { grow_w, grow_h }` + `day_pieces::fill_measure`), so put it last in a `column` and it
 fills the remaining space.
 
+## What the stream is playing (`.metadata`)
+
+```rust
+let now: Signal<Option<StreamMetadata>> = Signal::new(None);
+media(url).audio_only(true).metadata(now)
+// now.get() → Some(StreamMetadata { title, artist, album, raw }) once the stream says
+```
+
+Internet radio carries its "now playing" in the stream itself, two ways: the ICY/Shoutcast
+in-band block an Icecast server interleaves into an MP3 or AAC stream every `icy-metaint`
+bytes when the client asks with `Icy-MetaData: 1` (`StreamTitle='Artist - Title';`), and
+timed ID3 frames in an HLS stream. `.metadata(signal)` delivers both as a
+[`StreamMetadata`]: `raw` is the text as received (for a later lookup — lyrics, a catalog),
+`title`/`artist`/`album` its best split (`Artist - Title` on the first dash, the convention
+nearly every station follows; a value with no dash is all title). `None` until the stream
+says anything, and again on every load.
+
+Where it comes from:
+
+- **AppKit and UIKit**: the player itself. The observer registers for the item's
+  `timedMetadata` (observing it is what makes AVFoundation process timed metadata at all —
+  it asks the server for the ICY block and decodes it) and an `AVPlayerItemMetadataOutput`
+  on every item delivers the rest (the ID3 frames of an HLS stream) to a delegate on the main
+  queue; both report as `report::METADATA`.
+- **Every native arm, the probe**: the piece also asks the stream on the side. `src/icy.rs`
+  opens a second, short-lived connection with `Icy-MetaData: 1` through `day-part-http`,
+  reads exactly one block (the interval plus the text, a few kilobytes), hangs up, and comes
+  back every `ICY_PROBE_SECS` (20) seconds while the source is loaded; a server that answers
+  without `icy-metaint` has no such metadata and is not asked again. The cost is one extra
+  request per interval, not a second stream. It is the one path the players that keep the
+  block to themselves have (Android's `MediaPlayer`, GStreamer behind `GtkVideo`, Qt, XAML,
+  ArkUI), and on Apple it says the same thing the player does. androidx.media3's `IcyInfo`
+  would make Android a first-class arm; that rides the ExoPlayer upgrade noted below.
+- **Web**: nothing. A page cannot read a cross-origin stream's bytes, and `<audio>` exposes no
+  in-band metadata; the signal stays `None`.
+
 ## Per-backend native realization
 
 | | AppKit | UIKit | Qt | Android | GTK | XAML | HarmonyOS | Web |

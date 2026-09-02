@@ -463,11 +463,18 @@ fn os_crash_findings(
             // wrote on the host is readable regardless, and it is the only record of a wedged
             // renderer or an exited QEMU. Printed, not a Finding: it is context, not evidence
             // of a crash, and a Finding would end the whole run.
-            for (path, tail) in crate::devices::emulator_log_tails(40) {
+            for (path, opening, tail) in crate::devices::emulator_log_excerpts(24, 40) {
                 crate::ops::status(
                     "Emulator",
-                    &format!("log {} (last 40 lines)", path.display()),
+                    &format!(
+                        "log {} (how it booted, then its last 40 lines)",
+                        path.display()
+                    ),
                 );
+                if !opening.trim().is_empty() {
+                    eprintln!("{DIM}{}{DIM:#}", indent(&opening));
+                    eprintln!("{DIM}    …{DIM:#}");
+                }
                 eprintln!("{DIM}{}{DIM:#}", indent(&tail));
             }
             looked.push("adb logcat -b crash".into());
@@ -476,6 +483,7 @@ fn os_crash_findings(
                     .args(["logcat", "-b", "crash", "-d", "-t", "200"]),
                 DEVICE_CMD,
             );
+            let answered = out_cmd.is_some();
             if let Some(o) = out_cmd
                 && o.status.success()
             {
@@ -485,6 +493,27 @@ fn os_crash_findings(
                         source: "android crash buffer (adb logcat -b crash)".into(),
                         body: head(&text, MAX_LINES),
                     });
+                }
+            }
+            // The guest kernel's own tail, for the freeze that is a lockup rather than a crash
+            // (a soft lockup, the OOM killer, a wedged graphics pipe) — but only from a guest
+            // that still answers, since a dead one has already cost one timeout above.
+            if answered {
+                looked.push("adb shell dmesg".into());
+                let dmesg = crate::ops::output_within(
+                    Command::new(day_toolchain::adb_bin()).args(["shell", "dmesg"]),
+                    DEVICE_CMD,
+                );
+                if let Some(o) = dmesg
+                    && o.status.success()
+                {
+                    let text = String::from_utf8_lossy(&o.stdout);
+                    let tail: Vec<&str> = text.lines().rev().take(40).collect();
+                    let tail = tail.into_iter().rev().collect::<Vec<_>>().join("\n");
+                    if !tail.trim().is_empty() {
+                        crate::ops::status("Kernel", "guest dmesg (last 40 lines)");
+                        eprintln!("{DIM}{}{DIM:#}", indent(&tail));
+                    }
                 }
             }
         }

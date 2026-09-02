@@ -16,7 +16,7 @@ build = "build.rs"
 # gtk-rs) without touching any core day crate. See docs/extending.md + docs/media.md.
 
 [features]
-appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-kit", "dep:objc2-av-foundation"]
+appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-kit", "dep:objc2-av-foundation", "dep:dispatch2"]
 # GtkVideo is core GTK, so the gtk feature compiles EVERYWHERE — but actual playback needs gtk4
 # built with a gstreamer media backend (Debian/Fedora default). Homebrew's gtk4 ships none, so on
 # macos-gtk GtkVideo shows its own "no media backend" error UI (the webkitgtk caveat class again).
@@ -24,7 +24,7 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp, linking Qt6MultimediaWidgets when present (else a URL-label fallback)
 # objc2-av-kit 0.3 binds AVPlayerView for macOS only, so UIKit hand-rolls AVPlayerViewController
 # via extern_class!/msg_send! (the WKWebView-on-iOS situation) — see [package.metadata.day.ios].
-uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-foundation"]
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-media", "dep:objc2-av-foundation", "dep:dispatch2"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 # HarmonyOS: no native node kind to construct, so the piece ships its OWN ArkTS (ohos/ets/Index.ets)
 # — an ArkUI `Video` component for pictures, an AVPlayer for sound only — staged into the app's
@@ -66,10 +66,16 @@ day-dom = { workspace = true, optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIViewController", "UIResponder"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSNotification", "NSKeyValueObserving", "NSError", "NSDictionary"] }
+objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSURL", "NSNotification", "NSKeyValueObserving", "NSError", "NSDictionary", "NSArray", "NSEnumerator"] }
 objc2-core-media = { version = "0.3", optional = true, features = ["CMTime"] }
 objc2-av-kit = { version = "0.3", optional = true, features = ["AVPlayerView", "objc2-app-kit", "objc2-av-foundation"] }
-objc2-av-foundation = { version = "0.3", optional = true, features = ["AVPlayer", "AVPlayerItem", "AVTime", "objc2-core-media"] }
+# The timed-metadata output (docs/media.md): the stream's own "now playing", delivered by
+# AVFoundation on a dispatch queue, hence dispatch2 for the main queue.
+objc2-av-foundation = { version = "0.3", optional = true, features = ["AVPlayer", "AVPlayerItem", "AVTime", "objc2-core-media", "AVPlayerItemOutput", "AVPlayerItemTrack", "AVMetadataItem", "AVTimedMetadataGroup", "AVMetadataIdentifiers", "AVMetadataFormat", "dispatch2"] }
+dispatch2 = { version = "0.3", optional = true }
+# The side probe of a stream's in-band metadata where the native player keeps it to itself
+# (src/icy.rs): one short request with `Icy-MetaData: 1`, through the platform's HTTP stack.
+day-part-http = { workspace = true }
 
 [build-dependencies]
 day-toolchain = { workspace = true }

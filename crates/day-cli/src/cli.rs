@@ -839,6 +839,10 @@ pub enum DevicesCmd {
         /// Orientation the emulator starts in (`portrait` or `landscape`)
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
+        /// Guest RAM in MB. Without it a tablet-sized display (past three million pixels)
+        /// gets 4096 where the profile grants less; phones keep the profile's value.
+        #[arg(long, value_name = "MB")]
+        ram: Option<u32>,
     },
 }
 
@@ -1215,6 +1219,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     tag,
                     name,
                     orientation,
+                    ram,
                 },
         } => crate::devices::setup(
             platform.as_str(),
@@ -1225,6 +1230,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 arch: arch.as_deref(),
                 tag: tag.as_deref(),
                 orientation: orientation.as_deref(),
+                ram,
             },
         ),
         Cmd::Ohos {

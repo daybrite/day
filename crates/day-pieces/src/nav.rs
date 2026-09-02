@@ -1639,9 +1639,11 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
             },
             &sizes,
         );
-        // The list is a merge BARRIER, exactly like the native pane (docs/navigation.md): a
-        // stack inside it keeps its own container.
-        with_nav_host(None, || {
+        // The list is this host's ROOT page, so a `stack()` inside it merges here: a drill-down
+        // from the list (a category, then its items) pushes onto the tab's own navigation
+        // controller, and the gated detail lands on top of whatever it pushed
+        // (docs/navigation.md). Only the native resident pane is a barrier.
+        with_nav_host(Some(target.clone()), || {
             let mut pcx = BuildCx::new(root_page);
             let _ = (cfg.list)().grow().build(&mut pcx);
         });
@@ -1674,8 +1676,9 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
 fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
     piece_fn(move |cx| {
         let target = cfg.host_cx.clone();
-        // The list is a merge barrier here too — same rule as the native pane.
-        let node = with_nav_host(None, || (cfg.list)().grow().build(cx));
+        // The list is inline in a page of the enclosing stack, so a `stack()` inside it merges
+        // there, as one inside any pushed page does (docs/navigation.md).
+        let node = with_nav_host(Some(target.clone()), || (cfg.list)().grow().build(cx));
         wire_gated_detail(&cfg, target);
         node
     })

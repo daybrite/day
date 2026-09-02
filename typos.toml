@@ -79,6 +79,9 @@ invalide = "invalide"          # fr
 [default.extend-identifiers]
 WriteableBitmap = "WriteableBitmap"  # the WinRT type, spelled that way by Microsoft
 ariaLabelledBy = "ariaLabelledBy"    # the ARIA DOM property, spelled that way by the spec
+# SQLite's ATTACH keyword used as a past participle, as SQLite's own sources write it; the
+# case change makes typos split it as "ATTAC" + "Hed".
+ATTACHed = "ATTACHed"
 
 [files]
 extend-exclude = [

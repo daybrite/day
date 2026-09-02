@@ -378,6 +378,8 @@ pub struct SetupSpec<'a> {
     /// API level publishes for both ABIs.
     pub tag: Option<&'a str>,
     pub orientation: Option<&'a str>,
+    /// Guest RAM in MB, overriding the profile's — see [`wanted_guest_ram`] for the default.
+    pub ram: Option<u32>,
 }
 
 /// One simulator, as the matcher needs it: display name, UDID, and a runtime spelled "iOS 26.5".
@@ -852,6 +854,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
     // Config last, and on every run: it is the part that has to be true whether the AVD was just
     // created or restored from a cache, and it is cheap.
     enable_hw_keyboard(&name);
+    size_guest_memory(&name, spec.ram);
     if let Some(o) = spec.orientation {
         let value = match o.trim().to_ascii_lowercase().as_str() {
             "portrait" | "portrait-upside-down" => "portrait",
@@ -872,6 +875,68 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
 }
 
 /// Set one key in an AVD's `config.ini`, adding it when absent. True when the file changed.
+/// Give the guest the memory its display needs. `avdmanager` copies a profile's `hw.ramSize`
+/// verbatim, and the profiles size it for a PHONE: `pixel_tablet` boots with the same 2 GB as
+/// `pixel_5` behind a 2560×1600 panel that costs three and a half times the pixels per surface,
+/// and a smaller app heap. Headless under software GL, that guest froze whole — adbd included —
+/// partway through a WebView page on CI (Day-Showcase's pixel_tablet leg, three runs, at a text
+/// input or a script result, never twice at the same step): the shape of a guest thrashing, not
+/// of a crash. Starving the same profile locally reproduces it. So a display past three million
+/// pixels gets 4 GB and a 512 MB app heap unless the profile already grants more; an explicit
+/// `ram` wins outright and leaves the heap alone.
+fn size_guest_memory(avd: &str, ram: Option<u32>) {
+    let Some(cfg) = avd_config_path(avd) else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&cfg) else {
+        return;
+    };
+    let value = |key: &str| {
+        text.lines()
+            .filter_map(|l| l.split_once('='))
+            .find(|(k, _)| k.trim() == key)
+            .map(|(_, v)| v.trim().to_string())
+    };
+    let px = |key: &str| value(key).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+    let pixels = px("hw.lcd.width") * px("hw.lcd.height");
+    let current = value("hw.ramSize").and_then(|v| parse_mb(&v)).unwrap_or(0);
+    let Some(want) = wanted_guest_ram(pixels, current, ram) else {
+        return;
+    };
+    if set_avd_config(avd, "hw.ramSize", &want.to_string()) {
+        crate::ops::status(
+            "Sizing",
+            &format!("{avd}: {want} MB of guest RAM (hw.ramSize) for a {pixels}-pixel display"),
+        );
+    }
+    if ram.is_none() {
+        let heap = value("vm.heapSize").and_then(|v| parse_mb(&v)).unwrap_or(0);
+        if heap < 512 {
+            set_avd_config(avd, "vm.heapSize", "512M");
+        }
+    }
+}
+
+/// The guest RAM an AVD should boot with, in MB, or `None` to leave the profile's value alone:
+/// an explicit size always; otherwise 4 GB for a display past three million pixels (a tablet)
+/// when the profile grants less.
+fn wanted_guest_ram(pixels: u64, current_mb: u32, explicit: Option<u32>) -> Option<u32> {
+    match explicit {
+        Some(mb) => Some(mb),
+        None if pixels >= 3_000_000 && current_mb < 4096 => Some(4096),
+        None => None,
+    }
+}
+
+/// A `config.ini` size — `2G`, `2048`, `2048M`, `192M` — in MB.
+fn parse_mb(v: &str) -> Option<u32> {
+    let v = v.trim();
+    if let Some(g) = v.strip_suffix(['G', 'g']) {
+        return g.trim().parse::<u32>().ok().map(|n| n * 1024);
+    }
+    v.strip_suffix(['M', 'm']).unwrap_or(v).trim().parse().ok()
+}
+
 fn set_avd_config(avd: &str, key: &str, value: &str) -> bool {
     let Some(cfg) = avd_config_path(avd) else {
         return false;
@@ -1102,6 +1167,42 @@ fn emulator_log_tail(avd: &str, lines: usize) -> String {
 /// answering, where every adb call costs its whole timeout and returns nothing. The emulator's own
 /// output is the one record that survives that — a wedged renderer, an exited QEMU, a host that ran
 /// out of something all say so here and nowhere the guest can be asked.
+/// Every emulator log on this host, newest first, as (path, opening, tail): the first `head`
+/// lines that describe the boot — the RAM the emulator settled on, its cores, GPU mode and
+/// feature overrides — and the last `tail` lines, which say what it was doing when it stopped.
+/// Both, because a freeze that only the last lines describe is a freeze whose configuration
+/// stays a guess.
+pub(crate) fn emulator_log_excerpts(
+    head: usize,
+    tail: usize,
+) -> Vec<(std::path::PathBuf, String, String)> {
+    emulator_log_tails(tail)
+        .into_iter()
+        .map(|(path, t)| {
+            let opening = std::fs::read_to_string(&path)
+                .map(|text| {
+                    text.lines()
+                        .filter(|l| {
+                            let l = l.to_ascii_lowercase();
+                            l.contains("ram size")
+                                || l.contains("ramsize")
+                                || l.contains("core")
+                                || l.contains("gpu")
+                                || l.contains("gles_mode")
+                                || l.contains("feature")
+                                || l.contains("accel")
+                                || l.contains("emulator version")
+                        })
+                        .take(head)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default();
+            (path, opening, t)
+        })
+        .collect()
+}
+
 pub(crate) fn emulator_log_tails(lines: usize) -> Vec<(std::path::PathBuf, String)> {
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
         return Vec::new();
@@ -1204,6 +1305,28 @@ fn wait_for_android_boot(
             crate::ops::status(
                 "Booted",
                 &format!("{serial} in {}s", started.elapsed().as_secs()),
+            );
+            // What the guest actually got — the facts a post-mortem needs and cannot ask a
+            // frozen guest for later. A tablet AVD that boots with a phone's RAM behind a
+            // 2560×1600 panel looks exactly like a healthy one until it stops answering.
+            let mem = adb_shell(serial, &["grep", "MemTotal", "/proc/meminfo"])
+                .unwrap_or_default()
+                .split_whitespace()
+                .nth(1)
+                .and_then(|kb| kb.parse::<u64>().ok())
+                .map(|kb| format!("{} MB RAM", kb / 1024))
+                .unwrap_or_else(|| "RAM unknown".into());
+            let cpus = adb_shell(serial, &["nproc"]).unwrap_or_default();
+            let size = adb_shell(serial, &["wm", "size"]).unwrap_or_default();
+            crate::ops::status(
+                "Guest",
+                &format!(
+                    "{mem}, {} cpu(s), {}",
+                    cpus.trim(),
+                    size.trim()
+                        .strip_prefix("Physical size: ")
+                        .unwrap_or(size.trim())
+                ),
             );
             return Ok(());
         }
@@ -1772,5 +1895,32 @@ mod tests {
         assert_eq!(seen["ios-uikit"], "iosSim");
         assert_eq!(seen["android-mdc"], "android");
         assert_eq!(seen["harmony-arkui"], "harmonyOs");
+    }
+}
+
+#[cfg(test)]
+mod guest_memory_tests {
+    use super::{parse_mb, wanted_guest_ram};
+
+    #[test]
+    fn config_sizes_parse_in_every_spelling() {
+        assert_eq!(parse_mb("2G"), Some(2048));
+        assert_eq!(parse_mb("2048"), Some(2048));
+        assert_eq!(parse_mb("2048M"), Some(2048));
+        assert_eq!(parse_mb(" 192M "), Some(192));
+        assert_eq!(parse_mb("lots"), None);
+    }
+
+    #[test]
+    fn tablets_get_four_gigabytes_and_phones_keep_the_profile() {
+        // pixel_tablet: 2560×1600 behind the profile's 2 GB.
+        assert_eq!(wanted_guest_ram(2560 * 1600, 2048, None), Some(4096));
+        // pixel_5: 1080×2340 keeps its 2 GB.
+        assert_eq!(wanted_guest_ram(1080 * 2340, 2048, None), None);
+        // A profile that already grants more is left alone.
+        assert_eq!(wanted_guest_ram(2560 * 1600, 8192, None), None);
+        // An explicit size wins, in both directions.
+        assert_eq!(wanted_guest_ram(1080 * 2340, 2048, Some(3072)), Some(3072));
+        assert_eq!(wanted_guest_ram(2560 * 1600, 8192, Some(2048)), Some(2048));
     }
 }
