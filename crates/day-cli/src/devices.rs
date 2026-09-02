@@ -1118,12 +1118,24 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
         // at "Created VkInstance". The phone leg survived on the same image because its WebView
         // stayed on the GL translator. Off, the guest answers `cpuvulkan` with nothing and every
         // renderer takes the GL path, which is what a headless screenshot run wants anyway.
+        //
+        // The guest's hardware video decoder off too. With `HardwareDecoder` on, the guest's
+        // MediaCodec hands H.264/HEVC/VP9 to the HOST (`androidboot.qemu.hwcodec.*`), where
+        // the emulator tries NVIDIA's cuvid, fails on a runner without a GPU, and falls back
+        // to its bundled ffmpeg. With Vulkan already off, Day-Showcase's pixel_tablet leg still
+        // hung the whole guest at the Web view page — the WebView's media pipeline probing the
+        // decoders — and its emulator log ended in exactly that fallback ("dlopen libcuda.so
+        // failed", then "[h264] no frame!"), twice in a row on the same page. Off, the guest
+        // keeps its own software codecs and the host never sees a frame; a headless screenshot
+        // run plays no video it needs decoded fast.
         cmd.args([
             "-no-window",
             "-gpu",
             "swiftshader_indirect",
             "-feature",
             "-Vulkan",
+            "-feature",
+            "-HardwareDecoder",
             "-noaudio",
             "-no-boot-anim",
             "-no-snapshot",

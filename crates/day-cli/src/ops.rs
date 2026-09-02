@@ -527,12 +527,13 @@ pub fn build(
 /// drawing Day's placeholder on windows-qt while rendering elsewhere, and as the set of
 /// missing pieces moving between commits. (Archive member selection is not the problem: the
 /// element's type-check shim references the static from the crate's root object, so the
-/// member is pulled on every platform; it is the section that goes.)
+/// member is pulled on every platform — measured on a macos-gtk build — and it is the section
+/// that goes.)
 ///
 /// So the two MinGW targets link without section garbage collection. The cost is a larger
 /// binary — the unreferenced code and data the collector would have dropped — on an
-/// experimental target; the alternative, `#[used(linker)]`, is nightly-only. Appended to an
-/// inherited `RUSTFLAGS` (CI sets one), the way the web build adds its cfg (web.rs).
+/// experimental target; the precise alternative, `#[used(linker)]`, is nightly-only. Appended
+/// to an inherited `RUSTFLAGS` (CI sets one), the way the web build adds its cfg (web.rs).
 fn apply_mingw_registration_guard(cmd: &mut Command, target: &Target) {
     if !matches!(target.name, "windows-qt" | "windows-gtk") {
         return;
