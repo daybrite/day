@@ -816,6 +816,16 @@ pub enum DevicesCmd {
         #[arg(long)]
         headless: bool,
     },
+    /// Stop a running simulator or emulator
+    Shutdown {
+        /// Which target's device to stop
+        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        platform: String,
+        /// The device to stop: a simulator's UDID or name, or — for Android — either the
+        /// emulator's adb serial or the name of the AVD it is running.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
     /// Create (or update) an Android AVD from a device profile, ready to boot
     Setup {
         /// Target this device belongs to (only `android-mdc` has AVDs to create)
@@ -1209,6 +1219,9 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 headless,
             },
         ),
+        Cmd::Devices {
+            cmd: DevicesCmd::Shutdown { platform, id },
+        } => crate::devices::shutdown(platform.as_str(), id.as_str()),
         Cmd::Devices {
             cmd:
                 DevicesCmd::Setup {

@@ -218,9 +218,10 @@ mod imp {
         /// A tabs host's page content views → the host, so a nav menu inside a page that is not
         /// in the controller's hierarchy can still find it.
         static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-        static NAV_MENU_ROWS: RefCell<
-            HashMap<usize, (i64, Vec<String>, Vec<Option<Retained<objc2_ui_kit::UIImage>>>)>,
-        > = RefCell::new(HashMap::new());
+        /// Icon NAMES, not resolved images: a tab loads its own through the named-image path at
+        /// the size it draws (`tab_glyph`), which is what keeps it a vector.
+        static NAV_MENU_ROWS: RefCell<HashMap<usize, (i64, Vec<String>, Vec<Option<String>>)>> =
+            RefCell::new(HashMap::new());
 
         /// NAV_MENU table ptr → (data source, row count).
         static NAV_MENUS: RefCell<HashMap<usize, (Retained<DayNavTableData>, usize)>> =
@@ -2264,25 +2265,44 @@ mod imp {
                 // Contained (§8.5): a panic can only arise on the guarded branch, whose
                 // intended answer is the veto — so the default is `false`.
                 day_spec::ffi_guard::contain(false, || {
-                    if self.ivars().guarded.get() {
-                        emit(
-                            NodeId(self.ivars().host.get() as u64),
-                            Event::NavBack {
-                                already_popped: false,
-                            },
-                        );
-                        // UIKit dims the back button after a vetoed pop; restore the bar's
-                        // opacity on the next runloop turn (the documented shouldPop cosmetic
-                        // fix).
-                        let bar: Retained<UINavigationBar> = Retained::from(bar);
-                        modal_after_idle(move || {
-                            for v in unsafe { bar.subviews() }.iter() {
-                                unsafe { v.setAlpha(1.0) };
-                            }
-                        });
-                        false
-                    } else {
-                        true
+                    // The host's NODE, resolved through NAV_STATE — `ivars().host` is the host
+                    // VIEW's pointer, which is the key of that map and not a `NodeId` at all.
+                    // Casting it to one addressed a node that has never existed, so day-core
+                    // never saw the event, the guard never ran, and the veto below stood
+                    // forever: tapping back did nothing at all. Every other `NavBack` emit here
+                    // already went through `state.host_node`; this was the one that did not, and
+                    // it is invisible to the walkthrough because `nav_back:` drives day-core's
+                    // rail directly and never reaches `shouldPopItem:`. Long-pressing the back
+                    // button worked for the same reason — the history menu pops the controller
+                    // itself, so the settle path reports it with the right node.
+                    let node = NAV_STATE.with(|m| {
+                        m.borrow()
+                            .get(&self.ivars().host.get())
+                            .map(|s| s.host_node)
+                    });
+                    match (self.ivars().guarded.get(), node) {
+                        (true, Some(node)) => {
+                            emit(
+                                node,
+                                Event::NavBack {
+                                    already_popped: false,
+                                },
+                            );
+                            // UIKit dims the back button after a vetoed pop; restore the bar's
+                            // opacity on the next runloop turn (the documented shouldPop cosmetic
+                            // fix).
+                            let bar: Retained<UINavigationBar> = Retained::from(bar);
+                            modal_after_idle(move || {
+                                for v in unsafe { bar.subviews() }.iter() {
+                                    unsafe { v.setAlpha(1.0) };
+                                }
+                            });
+                            false
+                        }
+                        // Not guarded, or a host this bar no longer belongs to: let UIKit pop.
+                        // Vetoing with no one to answer is the one outcome that strands the
+                        // user, so an unresolvable host fails OPEN.
+                        _ => true,
                     }
                 })
             }
@@ -2718,7 +2738,8 @@ mod imp {
                         let popped = native > 0 && native < prev && native < state.vcs.len();
                         if *DIAG_NAV {
                             log::debug!(
-                                "DAYDIAG didShow native={native} prev={prev} mirror={} suspicious={popped}",
+                                "DAYDIAG didShow host={host:x} nav={:x} native={native} prev={prev} mirror={} suspicious={popped}",
+                                ptr_of(&view_of(unsafe { nav.view() }.expect("nav view"))),
                                 state.vcs.len(),
                             );
                         }
@@ -3147,7 +3168,7 @@ mod imp {
         tabs: Vec<Retained<objc2_ui_kit::UITab>>,
         /// Row labels and glyphs from the host's NAV_MENU, which is where a selector's rows live.
         titles: Vec<String>,
-        icons: Vec<Option<Retained<objc2_ui_kit::UIImage>>>,
+        icons: Vec<Option<String>>,
         /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
         /// so the two are one event to everything above this backend.
         menu_node: std::cell::Cell<i64>,
@@ -3259,6 +3280,59 @@ mod imp {
     ///
     /// The view-controller provider hands back the page Day already built. `vcs` owns it for the
     /// life of the host, so the block returns a borrow rather than transferring anything.
+    /// One nav glyph sized for a TAB (docs/navigation.md).
+    ///
+    /// A tab bar draws `UITab.image` at the image's own size — UIKit scales an SF Symbol to the
+    /// bar's metrics, but a bundled raster has no metrics to scale by, and Day's are staged from a
+    /// 48pt canvas (docs/vectors.md). Handed over untouched they came out at 48pt: twice the
+    /// height of an iOS tab icon, overlapping their own labels. 25pt is what the HIG asks for.
+    ///
+    /// Template mode is re-applied because the thumbnail is a NEW image and does not inherit it —
+    /// without it the glyph keeps its authored colors instead of taking the bar's selected and
+    /// unselected tints, which is the other half of "these do not look like iOS tabs".
+    /// One nav glyph for a TAB, loaded through the named-image path AT the size it draws.
+    ///
+    /// A tab bar draws `UITab.image` at the image's own size — UIKit scales an SF Symbol to the
+    /// bar's metrics, but a catalog image has no metrics to scale by, and Day's glyphs are authored
+    /// on a 48pt canvas (docs/vectors.md). Asked for plain they came back 48pt: twice the height of
+    /// an iOS tab icon, overlapping their own labels.
+    ///
+    /// The size is asked for at LOAD time, through `imageNamed:inBundle:withConfiguration:` with a
+    /// point-size configuration, so the asset catalog resolves the glyph's own vector at that size.
+    /// Nothing here rasterizes: these imagesets carry `preserves-vector-representation`
+    /// (`resources/apple.rs`), and thumbnailing a loaded 48pt image instead — which is what this
+    /// did first — throws that away and downsamples the catalog's BITMAP rendition.
+    ///
+    /// Template mode last, so the glyph takes the bar's selected and unselected tints instead of
+    /// its authored colors.
+    /// One nav glyph for a TAB: the ICON-SIZED vector, loaded through the named-image path.
+    ///
+    /// A tab bar draws `UITab.image` at the image's own natural size — UIKit scales an SF Symbol to
+    /// the bar's metrics, but a catalog image has no metrics to scale by, and Day's glyphs are
+    /// authored on a 48pt canvas (docs/vectors.md). Asked for plain they came back 48pt: twice the
+    /// height of an iOS tab icon, overlapping their own labels.
+    ///
+    /// Nothing resizes here, and nothing rasterizes. day-cli stages every glyph a second time
+    /// under `__icon` presenting at an icon's point size (`resources/apple.rs`), so this asks the
+    /// asset catalog for that one and gets the SAME vector at the size it draws. The alternatives
+    /// both lose: a point-size `UIImageSymbolConfiguration` is honored by SYMBOLS only and comes
+    /// back 48pt, and thumbnailing the loaded image downsamples the catalog's BITMAP rendition,
+    /// throwing away the `preserves-vector-representation` that put it there.
+    ///
+    /// Template mode last, so the glyph takes the bar's selected and unselected tints instead of
+    /// its authored colors.
+    fn tab_glyph(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        let img = load_bundled_uiimage(&format!("{name}__icon"))
+            // A glyph staged before `__icon` existed, or a loose file in a dev build.
+            .or_else(|| load_bundled_uiimage(name))?;
+        if *DIAG_NAV {
+            log::debug!("DAYDIAG tab_glyph {name} -> {:?}", unsafe { img.size() });
+        }
+        Some(unsafe {
+            img.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+        })
+    }
+
     fn nav_tabs_sync(host: usize) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
@@ -3268,16 +3342,17 @@ mod imp {
         let built: Option<(
             Retained<UITabBarController>,
             Vec<Retained<objc2_ui_kit::UITab>>,
-        )> = NAV_TABS.with(|m| {
-            let m = m.borrow();
-            let t = m.get(&host)?;
-            let tabs: Vec<Retained<objc2_ui_kit::UITab>> = t
+        )> =
+            NAV_TABS.with(|m| {
+                let m = m.borrow();
+                let t = m.get(&host)?;
+                let tabs: Vec<Retained<objc2_ui_kit::UITab>> = t
                 .vcs
                 .iter()
                 .enumerate()
                 .map(|(i, vc)| {
                     let title = t.titles.get(i).cloned().unwrap_or_default();
-                    let image = t.icons.get(i).and_then(|o| o.clone());
+                    let image = t.icons.get(i).and_then(|o| o.as_deref()).and_then(tab_glyph);
                     unsafe { vc.setTitle(Some(&NSString::from_str(&title))) };
                     // REUSE the tab that already stands for this page. A `UITab` is a model
                     // object with an identity, not a per-render descriptor: its provider
@@ -3319,8 +3394,8 @@ mod imp {
                     }
                 })
                 .collect();
-            Some((t.tabbar.clone(), tabs))
-        });
+                Some((t.tabbar.clone(), tabs))
+            });
         let Some((tabbar, tabs)) = built else { return };
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow_mut().get_mut(&host) {
@@ -3521,13 +3596,19 @@ mod imp {
     /// DayPieces asset catalog first — the reliable iOS path, same as the `image()` piece — then a
     /// loose staged file (dev / assets). Callers apply `.alwaysTemplate` so it tints with the
     /// control's color.
-    fn load_bundled_uiimage(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
-        let nsname = NSString::from_str(name);
+    /// The bundle Day's staged glyphs live in — the SwiftPM resource bundle the Apple stager
+    /// writes its asset catalog into (`resources/apple.rs`).
+    fn day_pieces_bundle() -> Option<Retained<objc2_foundation::NSBundle>> {
         let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
         let bname = NSString::from_str("DayPieces_DayPieces");
         let bext = NSString::from_str("bundle");
-        if let Some(url) = unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
-            && let Some(day_bundle) = unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+        let url = unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }?;
+        unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+    }
+
+    fn load_bundled_uiimage(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        let nsname = NSString::from_str(name);
+        if let Some(day_bundle) = day_pieces_bundle()
             && let Some(img) = unsafe {
                 objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
                     &nsname,
@@ -6028,14 +6109,7 @@ mod imp {
                     NAV_MENU_ROWS.with(|m| {
                         m.borrow_mut().insert(
                             ptr_of(&view),
-                            (
-                                id.0 as i64,
-                                p.items.clone(),
-                                p.icons
-                                    .iter()
-                                    .map(|n| n.as_deref().and_then(load_bundled_uiimage))
-                                    .collect(),
-                            ),
+                            (id.0 as i64, p.items.clone(), p.icons.clone()),
                         )
                     });
                     view

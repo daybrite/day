@@ -579,7 +579,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             let avd = match (spec.id, spec.device) {
                 (Some(id), _) => id.to_string(),
                 (None, Some(want)) => {
-                    let have: Vec<String> = avds().iter().map(|a| str_of(a, "name")).collect();
+                    let have = avd_names();
                     let found = have
                         .iter()
                         .find(|n| n.as_str() == want)
@@ -670,6 +670,113 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
         }
         _ => Err(CliError::usage(format!(
             "{target} has no device to boot — `day devices` covers {}",
+            MOBILE.join(", ")
+        ))),
+    }
+}
+
+/// `day devices shutdown` — stop a running simulator or emulator, the other half of `boot`.
+///
+/// The pair exists because a mobile device is a RESOURCE, not just a destination: a booted
+/// simulator holds a gigabyte of memory and an emulator holds several, and an editor that can
+/// start one without being able to stop it leaves the machine's state to be cleaned up somewhere
+/// else. Everything the CLI already knew about identifying these devices lives here, so day-vscode
+/// can offer Stop on a row without learning `simctl` and `adb` for itself.
+///
+/// Stopping is deliberately IDEMPOTENT in the same sense `boot` is: asking to stop something that
+/// is already stopped is the state the caller wanted, not a failure.
+///
+/// Physical phones are refused rather than acted on. `adb -s <serial> emu kill` reaches only an
+/// emulator console, and the plausible-looking alternatives for a real device (`adb reboot -p`)
+/// power off hardware someone is holding — a very different thing from closing a window.
+pub fn shutdown(target: &str, id: &str) -> Result<i32, CliError> {
+    let t = crate::targets::find(target)
+        .ok_or_else(|| CliError::usage(format!("unknown target {target}")))?;
+    match t.kind {
+        TargetKind::IosSim => {
+            // `simctl` resolves a NAME as readily as a UDID, so whatever `devices list` reported
+            // and whatever a person typed both land here unchanged.
+            crate::ops::status("Stopping", &format!("simulator {id}"));
+            let out = Command::new("xcrun")
+                .args(["simctl", "shutdown", id])
+                .output()
+                .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
+            let err = String::from_utf8_lossy(&out.stderr);
+            // Already shut down is the success this command means: the caller wanted the
+            // simulator not running, and it is not running.
+            if !out.status.success() && !err.contains("Unable to shutdown device in current state")
+            {
+                return Err(CliError::failure(format!(
+                    "simctl shutdown failed: {}",
+                    err.trim()
+                )));
+            }
+            Ok(0)
+        }
+        TargetKind::Android => {
+            // Either spelling of the same emulator: the adb serial `devices list` reports, or the
+            // AVD name `boot` takes. An editor holds a serial (that is what `--android-device`
+            // selects) while a person at a terminal thinks in AVD names, and a serial is not even
+            // stable across boots — the console port slides when one is taken.
+            let serials = android_serials();
+            let serial = if serials.iter().any(|s| s == id) {
+                id.to_string()
+            } else {
+                match serials
+                    .iter()
+                    .find(|s| avd_of_serial(s).as_deref() == Some(id))
+                {
+                    Some(s) => s.clone(),
+                    // Nothing running under either name is the state that was asked for.
+                    None => {
+                        crate::ops::status("Found", &format!("no running emulator for {id}"));
+                        return Ok(0);
+                    }
+                }
+            };
+            if !serial.starts_with("emulator-") {
+                return Err(CliError::usage(format!(
+                    "{serial} is a connected device, not an emulator — unplug it rather than \
+                     stopping it from here"
+                )));
+            }
+            crate::ops::status("Stopping", &format!("emulator {serial}"));
+            let out = Command::new(day_toolchain::adb_bin())
+                .args(["-s", &serial, "emu", "kill"])
+                .output()
+                .map_err(|e| CliError::failure(format!("adb: {e}")))?;
+            if !out.status.success() {
+                return Err(CliError::failure(format!(
+                    "`adb -s {serial} emu kill` failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                )));
+            }
+            // `emu kill` returns as soon as the console accepts it, and QEMU takes a moment to go.
+            // Waiting means the listing a caller reads next describes the machine it will act on,
+            // rather than an emulator that is on its way out — the same reason `boot --wait`
+            // exists, at a scale that costs seconds rather than minutes.
+            for _ in 0..40 {
+                if !android_serials().contains(&serial) {
+                    return Ok(0);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(CliError::failure(format!(
+                "{serial} still answers adb 20s after `emu kill` — it may be wedged; end its \
+                 process to be sure"
+            )))
+        }
+        // No stop to offer: the OpenHarmony emulator is a detached `qemu-system-x86_64` this
+        // command line spawned and never recorded, so there is nothing here to address it by.
+        // Saying so is better than killing every QEMU on the machine, which is the only thing a
+        // by-name match could do.
+        TargetKind::HarmonyOs => Err(CliError::usage(
+            "the OpenHarmony emulator has no stop command — close its window, or end its \
+             `qemu-system-x86_64` process"
+                .to_string(),
+        )),
+        _ => Err(CliError::usage(format!(
+            "{target} has no device to stop — `day devices` covers {}",
             MOBILE.join(", ")
         ))),
     }
@@ -823,7 +930,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
         )?;
     }
 
-    let existing = avds().iter().any(|a| str_of(a, "name") == name);
+    let existing = avd_names().iter().any(|a| a == &name);
     if existing {
         crate::ops::status("Found", &format!("AVD {name}"));
     } else {
@@ -1762,18 +1869,35 @@ fn android() -> Report {
     // everything that is not in the `device` state — an unauthorized phone is exactly what a
     // listing must show, because "it is plugged in but you have not tapped Allow" is the answer.
     let mut devices = Vec::new();
+    let mut live_avds: Vec<String> = Vec::new();
     for line in String::from_utf8_lossy(&out.stdout).lines().skip(1) {
         let mut it = line.split_whitespace();
         let (Some(serial), Some(state)) = (it.next(), it.next()) else {
             continue;
         };
         let ready = state == "device";
+        let emulator = serial.starts_with("emulator-");
+        // Which AVD an emulator is RUNNING, asked over its own console. A serial is not an
+        // identity that survives a restart — the console port slides when one is taken — so it is
+        // the AVD that ties a stopped device to the row it came from, and a caller that means to
+        // start this one again needs the name to hand to `devices boot`.
+        let avd = emulator.then(|| avd_of_serial(serial)).flatten();
+        if let Some(name) = &avd {
+            live_avds.push(name.clone());
+        }
         devices.push(json!({
             "id": serial,
-            "name": if serial.starts_with("emulator-") { format!("Emulator ({serial})") } else { serial.to_string() },
-            "kind": if serial.starts_with("emulator-") { "emulator" } else { "device" },
+            // Named by the AVD it is running where that could be asked: "Pixel_9_API_36" is what
+            // someone chose it by, and "Emulator (emulator-5554)" names only a console port.
+            "name": match (&avd, emulator) {
+                (Some(avd), _) => format!("{avd} ({serial})"),
+                (None, true) => format!("Emulator ({serial})"),
+                (None, false) => serial.to_string(),
+            },
+            "kind": if emulator { "emulator" } else { "device" },
             "state": if ready { "connected" } else { state },
             "arch": ready.then(|| device_abi(serial)),
+            "avd": avd,
             "flag": "--android-device",
         }));
     }
@@ -1781,7 +1905,7 @@ fn android() -> Report {
         available: true,
         note: None,
         devices,
-        bootable: avds(),
+        bootable: avds(&live_avds),
     }
 }
 
@@ -1795,13 +1919,15 @@ fn device_abi(serial: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Defined but not running AVDs — what `day devices boot` can start.
-fn avds() -> Vec<Value> {
-    let mut names = avd_names();
-    names.sort();
-    names.dedup();
-    names
+/// Every AVD this machine has defined, as `devices list` reports them.
+///
+/// `running` is left out rather than listed twice: an AVD that is already up appears in `devices`
+/// under the adb serial a launch selects it by, and repeating it here as something to START reads,
+/// in a picker, as a second device that does not exist.
+fn avds(running: &[String]) -> Vec<Value> {
+    avd_names()
         .into_iter()
+        .filter(|name| !running.contains(name))
         .map(|name| json!({ "id": name.clone(), "name": name }))
         .collect()
 }
@@ -1856,6 +1982,10 @@ fn avd_names() -> Vec<String> {
             }
         }
     }
+    // Sorted and deduped here rather than at each caller: a union of three overlapping sources
+    // names most AVDs more than once, and every caller wants each of them exactly one time.
+    names.sort();
+    names.dedup();
     names
 }
 

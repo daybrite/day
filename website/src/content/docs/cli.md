@@ -241,6 +241,10 @@ day --format json devices list        # for editors and scripts
 # start something to launch onto: a simulator, an AVD, or the OpenHarmony emulator
 day devices boot -p ios-uikit  C4C903E3-95E1-40F3-A3F8-45D3EAE035BB
 day devices boot -p android-mdc Pixel_9_API_36
+
+# and stop one when you are done with it
+day devices shutdown -p ios-uikit  "iPhone 16 Pro"
+day devices shutdown -p android-mdc Pixel_9_API_36
 ```
 
 Booted simulators, attached phones, running emulators and reachable hdc targets come back under
@@ -251,6 +255,14 @@ is plugged in.
 `day devices boot` starts one of the `bootable` entries. That matters most on iOS, where an app
 cannot be installed onto a shut-down simulator: booting one is the step between "none running" and
 being able to launch at all.
+
+`day devices shutdown` is the other direction, for when a simulator or emulator has stopped being
+worth the memory it holds. Both spellings of an Android emulator work — the adb serial the listing
+reports, or the AVD name you booted it by — and the command waits until the emulator has actually
+gone, so the next listing describes the machine you are about to act on. Stopping something that
+is already stopped succeeds. Physical phones are refused: unplugging one is the real action, and
+powering off hardware someone is holding is a different thing entirely. The OpenHarmony emulator
+has no stop yet; close its window.
 
 `--android-device` and `--ohos-device` take precedence over `ANDROID_SERIAL` and
 `DAY_OHOS_TARGET`, so an exported value keeps working as the default and the flag overrides it for

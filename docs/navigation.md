@@ -322,6 +322,13 @@ Three things this backend learned the hard way:
   tab is created once per page and only its title and glyph are re-applied.
 - **The identifier is the PAGE, not the position.** `insert` can put a page in the middle, and an
   identifier is fixed at construction. Day's index is the tab's position in the host's `tabs`.
+- **A tab's glyph needs a SIZE.** A tab bar draws `UITab.image` at the image's own size: UIKit
+  scales an SF Symbol to the bar's metrics, but a bundled raster has no metrics to scale by, and
+  Day's are staged from a 48pt canvas ([docs/vectors.md](vectors.md)). Handed over untouched they
+  drew at 48pt, twice the height of an iOS tab icon and overlapping their own labels. They are
+  thumbnailed to 25pt, and template mode is re-applied afterwards — a thumbnail is a new image and
+  does not inherit it, so without that the glyph keeps its authored colors instead of taking the
+  bar's selected and unselected tints.
 - **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
   `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
   every other two-way control here — without it, installing the tabs reported a selection the user
@@ -357,6 +364,21 @@ Two consequences worth knowing before touching it:
 - **Rows recycle**, so a per-row context menu ([docs/menus.md](menus.md)) cannot be attached once. It goes on
   from `OnChildAttachStateChangeListener`, reading the row a cell is CURRENTLY bound to from its
   own `getItemData()` rather than from its adapter position, which headings and dividers shift.
+
+> [!IMPORTANT]
+> **A vetoed back must name the host's NODE.** `DayNavController`'s `navigationBar:shouldPopItem:`
+> intercepts the back button while `guarded`, emitting `Event::NavBack { already_popped: false }`
+> so Day's guard decides and performs the pop itself. That emit addressed
+> `NodeId(ivars().host)` — but `host` there is the host VIEW's pointer, the key of `NAV_STATE`,
+> not a node id. day-core therefore never saw the event, the guard never ran, and the veto stood:
+> tapping back did nothing at all on any guarded stack (2026-09, the Showcase's Stack page). It
+> resolves `state.host_node` now, like every other `NavBack` emit, and an unresolvable host fails
+> OPEN — vetoing with no one to answer is the one outcome that strands the user.
+>
+> Nothing caught it because the walkthrough's `nav_back:` step drives day-core's rail directly and
+> never reaches `shouldPopItem:`. The tell from a user was that LONG-PRESSING back worked while
+> tapping did not: the history menu pops the controller itself, so the settle path reported it with
+> the right node.
 
 ## Back interception (`on_back`)
 
