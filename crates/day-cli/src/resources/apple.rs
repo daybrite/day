@@ -30,54 +30,6 @@ const CATALOG_ROOT: &str = "{ \"info\" : { \"author\" : \"day\", \"version\" : 1
 /// becomes an SVG imageset with `"preserves-vector-representation": true` (the Xcode 12+ vector
 /// asset), so `UIImage(named:)` renders the outline at display size instead of resampling a
 /// bitmap — the raster-cache PNG of the same name is excluded here in its favor.
-/// The point size a glyph staged for icon use presents itself at — an iOS tab icon's size.
-const ICON_PT: f64 = 25.0;
-
-/// Write one glyph imageset. `at_pt` stages it under `<name>__icon` presenting at that point size.
-///
-/// Resizing WRAPS rather than edits: the glyph is nested inside an outer `<svg>` whose viewBox is
-/// the glyph's own user-space box and whose width/height are the size we want. The art is
-/// untouched — no attribute surgery on someone else's document, and nothing is rasterized.
-fn write_vector_imageset(
-    catalog: &Path,
-    name: &str,
-    svg: &Path,
-    at_pt: Option<f64>,
-    expected: &mut Vec<std::path::PathBuf>,
-) -> Result<(), String> {
-    let staged_name = match at_pt {
-        Some(_) => format!("{name}__icon"),
-        None => name.to_string(),
-    };
-    let imageset = catalog.join(format!("{staged_name}.imageset"));
-    fs::create_dir_all(&imageset).map_err(|e| e.to_string())?;
-    let file = imageset.join(format!("{staged_name}.svg"));
-    match at_pt {
-        None => crate::pieces::copy_if_changed(svg, &file)?,
-        Some(pt) => {
-            let text = fs::read_to_string(svg).map_err(|e| format!("vector {name}: {e}"))?;
-            let tree =
-                day_vector::parse(text.as_bytes()).map_err(|e| format!("vector {name}: {e}"))?;
-            let size = tree.size();
-            let wrapped = format!(
-                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{pt}\" height=\"{pt}\" \
-                 viewBox=\"0 0 {} {}\">{text}</svg>\n",
-                size.width(),
-                size.height(),
-            );
-            crate::pieces::write_if_changed(&file, &wrapped)?;
-        }
-    }
-    expected.push(file);
-    let contents = format!(
-        "{{\n  \"images\" : [\n    {{ \"idiom\" : \"universal\", \"filename\" : \"{staged_name}.svg\" }}\n  ],\n  \"info\" : {{ \"author\" : \"day\", \"version\" : 1 }},\n  \"properties\" : {{ \"preserves-vector-representation\" : true }}\n}}\n"
-    );
-    let contents_path = imageset.join("Contents.json");
-    crate::pieces::write_if_changed(&contents_path, &contents)?;
-    expected.push(contents_path);
-    Ok(())
-}
-
 pub fn write_media_xcassets(
     sources_dir: &Path,
     images: &[ResourceFile],
@@ -135,22 +87,17 @@ pub fn write_media_xcassets(
         expected.push(contents_path);
     }
     for (name, svg) in vectors {
-        write_vector_imageset(&catalog, name, svg, None, &mut expected)?;
-        // The same glyph again at ICON SIZE, under a `__icon` suffix — the naming convention the
-        // weight variants already use (`__light`/`__bold`, docs/vectors.md).
-        //
-        // A tab bar draws `UITab.image` at the image's NATURAL size, and a catalog image has no
-        // metrics to scale by: UIKit scales an SF Symbol to the bar, but Day's glyphs are authored
-        // on a 48pt canvas, so a tab drew them at 48pt — twice an iOS tab icon, overlapping its own
-        // label. Nothing in the named-image path can resize them either: a point-size
-        // `UIImageSymbolConfiguration` is honored by SYMBOLS only, and comes back 48pt here
-        // (measured). The natural size is the only lever, and it belongs to the ASSET.
-        //
-        // A second imageset rather than shrinking the first, because natural size is what an
-        // unsized `image()`/`vector()` piece MEASURES (`sizeThatFits` on a `UIImageView`) — moving
-        // it would resize every bare glyph in every app. This one is additive: nothing that does
-        // not ask for `__icon` sees any change.
-        write_vector_imageset(&catalog, name, svg, Some(ICON_PT), &mut expected)?;
+        let imageset = catalog.join(format!("{name}.imageset"));
+        fs::create_dir_all(&imageset).map_err(|e| e.to_string())?;
+        let staged = imageset.join(format!("{name}.svg"));
+        crate::pieces::copy_if_changed(svg, &staged)?;
+        expected.push(staged);
+        let contents = format!(
+            "{{\n  \"images\" : [\n    {{ \"idiom\" : \"universal\", \"filename\" : \"{name}.svg\" }}\n  ],\n  \"info\" : {{ \"author\" : \"day\", \"version\" : 1 }},\n  \"properties\" : {{ \"preserves-vector-representation\" : true }}\n}}\n"
+        );
+        let contents_path = imageset.join("Contents.json");
+        crate::pieces::write_if_changed(&contents_path, &contents)?;
+        expected.push(contents_path);
     }
     crate::pieces::prune_except(&catalog, &expected.into_iter().collect());
     Ok(true)

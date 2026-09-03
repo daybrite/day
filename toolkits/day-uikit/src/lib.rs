@@ -218,8 +218,8 @@ mod imp {
         /// A tabs host's page content views → the host, so a nav menu inside a page that is not
         /// in the controller's hierarchy can still find it.
         static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-        /// Icon NAMES, not resolved images: a tab loads its own through the named-image path at
-        /// the size it draws (`tab_glyph`), which is what keeps it a vector.
+        /// Icon NAMES, not resolved images: a tab resolves its own through the named-image path,
+        /// so it gets the glyph's vector at the size the ASSET presents itself at.
         static NAV_MENU_ROWS: RefCell<HashMap<usize, (i64, Vec<String>, Vec<Option<String>>)>> =
             RefCell::new(HashMap::new());
 
@@ -3290,49 +3290,6 @@ mod imp {
     /// Template mode is re-applied because the thumbnail is a NEW image and does not inherit it —
     /// without it the glyph keeps its authored colors instead of taking the bar's selected and
     /// unselected tints, which is the other half of "these do not look like iOS tabs".
-    /// One nav glyph for a TAB, loaded through the named-image path AT the size it draws.
-    ///
-    /// A tab bar draws `UITab.image` at the image's own size — UIKit scales an SF Symbol to the
-    /// bar's metrics, but a catalog image has no metrics to scale by, and Day's glyphs are authored
-    /// on a 48pt canvas (docs/vectors.md). Asked for plain they came back 48pt: twice the height of
-    /// an iOS tab icon, overlapping their own labels.
-    ///
-    /// The size is asked for at LOAD time, through `imageNamed:inBundle:withConfiguration:` with a
-    /// point-size configuration, so the asset catalog resolves the glyph's own vector at that size.
-    /// Nothing here rasterizes: these imagesets carry `preserves-vector-representation`
-    /// (`resources/apple.rs`), and thumbnailing a loaded 48pt image instead — which is what this
-    /// did first — throws that away and downsamples the catalog's BITMAP rendition.
-    ///
-    /// Template mode last, so the glyph takes the bar's selected and unselected tints instead of
-    /// its authored colors.
-    /// One nav glyph for a TAB: the ICON-SIZED vector, loaded through the named-image path.
-    ///
-    /// A tab bar draws `UITab.image` at the image's own natural size — UIKit scales an SF Symbol to
-    /// the bar's metrics, but a catalog image has no metrics to scale by, and Day's glyphs are
-    /// authored on a 48pt canvas (docs/vectors.md). Asked for plain they came back 48pt: twice the
-    /// height of an iOS tab icon, overlapping their own labels.
-    ///
-    /// Nothing resizes here, and nothing rasterizes. day-cli stages every glyph a second time
-    /// under `__icon` presenting at an icon's point size (`resources/apple.rs`), so this asks the
-    /// asset catalog for that one and gets the SAME vector at the size it draws. The alternatives
-    /// both lose: a point-size `UIImageSymbolConfiguration` is honored by SYMBOLS only and comes
-    /// back 48pt, and thumbnailing the loaded image downsamples the catalog's BITMAP rendition,
-    /// throwing away the `preserves-vector-representation` that put it there.
-    ///
-    /// Template mode last, so the glyph takes the bar's selected and unselected tints instead of
-    /// its authored colors.
-    fn tab_glyph(name: &str) -> Option<Retained<objc2_ui_kit::UIImage>> {
-        let img = load_bundled_uiimage(&format!("{name}__icon"))
-            // A glyph staged before `__icon` existed, or a loose file in a dev build.
-            .or_else(|| load_bundled_uiimage(name))?;
-        if *DIAG_NAV {
-            log::debug!("DAYDIAG tab_glyph {name} -> {:?}", unsafe { img.size() });
-        }
-        Some(unsafe {
-            img.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
-        })
-    }
-
     fn nav_tabs_sync(host: usize) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
@@ -3342,17 +3299,20 @@ mod imp {
         let built: Option<(
             Retained<UITabBarController>,
             Vec<Retained<objc2_ui_kit::UITab>>,
-        )> =
-            NAV_TABS.with(|m| {
-                let m = m.borrow();
-                let t = m.get(&host)?;
-                let tabs: Vec<Retained<objc2_ui_kit::UITab>> = t
+        )> = NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let t = m.get(&host)?;
+            let tabs: Vec<Retained<objc2_ui_kit::UITab>> = t
                 .vcs
                 .iter()
                 .enumerate()
                 .map(|(i, vc)| {
                     let title = t.titles.get(i).cloned().unwrap_or_default();
-                    let image = t.icons.get(i).and_then(|o| o.as_deref()).and_then(tab_glyph);
+                    let image = t
+                        .icons
+                        .get(i)
+                        .and_then(|o| o.as_deref())
+                        .and_then(load_bundled_uiimage);
                     unsafe { vc.setTitle(Some(&NSString::from_str(&title))) };
                     // REUSE the tab that already stands for this page. A `UITab` is a model
                     // object with an identity, not a per-render descriptor: its provider
@@ -3394,8 +3354,8 @@ mod imp {
                     }
                 })
                 .collect();
-                Some((t.tabbar.clone(), tabs))
-            });
+            Some((t.tabbar.clone(), tabs))
+        });
         let Some((tabbar, tabs)) = built else { return };
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow_mut().get_mut(&host) {

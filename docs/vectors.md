@@ -100,6 +100,21 @@ and a brush on the `Path` shapes on XAML, composed over the geometry when the gl
 One staged glyph therefore serves every tint at every size without a second asset.
 `None` (and every raster `image(…)`) means "as authored".
 
+> [!IMPORTANT]
+> **Author an icon glyph at ICON SIZE.** A glyph's `width`/`height` are its NATURAL size, and some
+> surfaces draw at exactly that: an iOS tab bar draws `UITab.image` at the image's own size (UIKit
+> scales an SF Symbol to the bar's metrics, but a catalog image has no metrics to scale by), and an
+> unsized `image()`/`vector()` piece MEASURES at it. A Material Symbols export carries
+> `width="48" height="48"`, and Day-Showcase's tab icons drew at 48pt — twice an iOS tab icon,
+> overlapping their own labels. Day-Rise's glyphs omit `width`/`height` entirely and carry only
+> `viewBox="0 0 24 24"`, so their natural size is 24pt and its tab bar has always been right.
+>
+> Set `width`/`height` to the size the glyph is meant to be seen at (the `viewBox` — and so the
+> art — is untouched), or omit them and let a small `viewBox` speak. Do NOT resize in a backend:
+> thumbnailing a loaded image downsamples the catalog's BITMAP rendition and throws away the
+> `preserves-vector-representation` that put it there, and a point-size
+> `UIImageSymbolConfiguration` is honored by SYMBOLS only — it returns the image unchanged.
+
 **A tint can follow a signal.** `.tint(…)` takes a plain color or anything reactive; a change
 repaints the realized view through `ImagePatch::Tint` rather than rebuilding it, so a glyph that
 recolors with the selection or the theme keeps its native view (and its layout, and any animation
