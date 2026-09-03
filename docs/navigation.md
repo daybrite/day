@@ -108,7 +108,7 @@ navigation existed.
 | Backend | Tabs presentation | Adaptive |
 |---------|-------------------|----------|
 | macos-appkit | `NSSegmentedControl` docked below the pages | no; a Mac narrows to a stack |
-| ios-uikit | `UITabBarController` in `.tabSidebar` mode, a `UINavigationController` per tab | yes |
+| ios-uikit | `UITabBarController` in `.tabSidebar` mode, driven by `UITab` (2026-09) — see below | yes |
 | android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `SelectorStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
 | linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
@@ -302,6 +302,36 @@ combining a rich master list with native master-detail push is a separate, not-y
 tab widgets is in progress (those backends ignore the item-set patch until then, so the initial set
 still shows). The item logic is backend-independent and covered by
 `mock_e2e::selector_data_driven_items_reconcile`.
+
+### The iOS tabs host is driven by `UITab`
+
+A `Tabs` presentation on ios-uikit is a `UITabBarController` in `.tabSidebar` mode, and since
+2026-09 its destinations are [`UITab`](https://developer.apple.com/documentation/uikit/uitab)
+objects rather than a `viewControllers` array of `UITabBarItem`s. Apple's guidance since iOS 18 is
+that adopting `UITab` is what gives a tab bar its automatic adaptivity — the tab bar and the
+sidebar become two renderings of ONE list of tabs, which is Day's model exactly, and it is what
+`.tabSidebar` is built to consume. The array still works, but the controller has to infer
+everything from view controllers, and the sidebar-side affordances have no tab to hang on.
+
+Three things this backend learned the hard way:
+
+- **A `UITab` is a model object with an identity, not a per-render descriptor.** Its provider hands
+  UIKit a view controller and UIKit then owns that controller as the tab's. This host re-syncs on
+  every page insert and every rows change; minting fresh tabs each time left two tabs claiming one
+  controller, and UIKit asserts in `-[UITab viewController]` as soon as it resolves the second. A
+  tab is created once per page and only its title and glyph are re-applied.
+- **The identifier is the PAGE, not the position.** `insert` can put a page in the middle, and an
+  identifier is fixed at construction. Day's index is the tab's position in the host's `tabs`.
+- **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
+  `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
+  every other two-way control here — without it, installing the tabs reported a selection the user
+  never made and the app's bound signal followed it.
+
+`UITabGroup` is deliberately NOT used. Day's `NavMenuProps::sections` are headings — "a section
+header introducing the row at the same index" — whereas a `UITabGroup` is a destination that
+CONTAINS others: in a sidebar it draws as a heading, but in the compact tab bar the whole group
+collapses to a single tab. Mapping flat sections onto it would turn N tab-bar destinations into G.
+It becomes the right realization if Day's selector ever grows real hierarchy.
 
 ### The Android sidebar is a NavigationView
 

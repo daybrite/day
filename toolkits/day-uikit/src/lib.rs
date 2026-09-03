@@ -3142,12 +3142,24 @@ mod imp {
         tabbar: Retained<UITabBarController>,
         /// Detail pages in insertion order — index i IS the `Select(i)` index.
         vcs: Vec<Retained<UIViewController>>,
+        /// The `UITab` per page, parallel to `vcs`. Each carries its index as its IDENTIFIER,
+        /// which is what turns a delegate callback back into a Day row and what `Select` looks up.
+        tabs: Vec<Retained<objc2_ui_kit::UITab>>,
         /// Row labels and glyphs from the host's NAV_MENU, which is where a selector's rows live.
         titles: Vec<String>,
         icons: Vec<Option<Retained<objc2_ui_kit::UIImage>>>,
         /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
         /// so the two are one event to everything above this backend.
         menu_node: std::cell::Cell<i64>,
+        /// Suppresses the echo while Day drives the controller.
+        ///
+        /// `didSelectViewController:` fired for USER taps only, so the old delegate needed no
+        /// guard. `didSelectTab:previousTab:` also fires for programmatic selection — including
+        /// the one UIKit makes for itself inside `setTabs` — so installing the tabs reported a
+        /// selection the user never made, and the app's bound signal followed it (the Showcase's
+        /// tab demo came up on its third tab). This is the same origin guard every other
+        /// two-way control in this backend carries.
+        suppress: std::cell::Cell<bool>,
         _delegate: Retained<DayNavTabsDelegate>,
     }
 
@@ -3187,18 +3199,33 @@ mod imp {
         unsafe impl NSObjectProtocol for DayNavTabsDelegate {}
 
         unsafe impl UITabBarControllerDelegate for DayNavTabsDelegate {
-            #[unsafe(method(tabBarController:didSelectViewController:))]
-            fn did_select(&self, tabbar: &UITabBarController, _vc: &UIViewController) {
+            /// The tab-based callback, not `didSelectViewController:`. Both fire, but only this
+            /// one names the TAB — and a tab is the thing Day addresses now, so the row comes from
+            /// its identifier rather than from `selectedIndex`, which cannot see into a group.
+            #[unsafe(method(tabBarController:didSelectTab:previousTab:))]
+            fn did_select(
+                &self,
+                _tabbar: &UITabBarController,
+                selected: &objc2_ui_kit::UITab,
+                _previous: Option<&objc2_ui_kit::UITab>,
+            ) {
                 // UIKit calls this only for user taps, not programmatic selection — no echo
                 // guard needed; the panic containment is §8.5.
                 day_spec::ffi_guard::contain((), || {
-                    let idx = unsafe { tabbar.selectedIndex() } as i64;
-                    let node = NAV_TABS.with(|m| {
-                        m.borrow()
-                            .get(&self.ivars().host.get())
-                            .map(|t| t.menu_node.get())
+                    let id = unsafe { selected.identifier() }.to_string();
+                    let found = NAV_TABS.with(|m| {
+                        let m = m.borrow();
+                        let t = m.get(&self.ivars().host.get())?;
+                        if t.suppress.get() {
+                            return None;
+                        }
+                        let idx = t
+                            .tabs
+                            .iter()
+                            .position(|tab| unsafe { tab.identifier() }.to_string() == id)?;
+                        Some((t.menu_node.get(), idx as i64))
                     });
-                    if let Some(n) = node.filter(|n| *n != 0) {
+                    if let Some((n, idx)) = found.filter(|(n, _)| *n != 0) {
                         emit(NodeId(n as u64), Event::SelectionChanged(idx));
                     }
                 });
@@ -3215,28 +3242,97 @@ mod imp {
         }
     }
 
-    /// Re-apply each tab's label and glyph from the host's rows, and install the controllers.
+    /// Rebuild the host's `UITab`s from its rows and hand them to the controller.
     /// Called whenever either side changes — a page joining, or the rows arriving/being re-derived.
+    ///
+    /// `UITab` rather than a `viewControllers` array of `UITabBarItem`s (2026-09). Apple's guidance
+    /// since iOS 18 is that adopting `UITab` is what gives a tab bar its automatic adaptivity —
+    /// the tab bar and the sidebar are then two renderings of ONE list of tabs, which is exactly
+    /// Day's model, and it is what `.tabSidebar` mode is built to consume. The old array still
+    /// works, but the controller has to infer everything from view controllers, and the
+    /// sidebar-side affordances (reordering, customization, `sidebar.preferredPlacement`) have no
+    /// tab to hang on.
+    ///
+    /// Each tab keeps its Day index as its IDENTIFIER, so a delegate callback resolves to a row
+    /// without consulting `selectedIndex` — an index that stops meaning "the nth row" the moment
+    /// tabs nest.
+    ///
+    /// The view-controller provider hands back the page Day already built. `vcs` owns it for the
+    /// life of the host, so the block returns a borrow rather than transferring anything.
     fn nav_tabs_sync(host: usize) {
-        NAV_TABS.with(|m| {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        // Build outside the borrow: creating a tab retains a provider block, and `setTabs` can
+        // call back into UIKit while the map is held.
+        let built: Option<(
+            Retained<UITabBarController>,
+            Vec<Retained<objc2_ui_kit::UITab>>,
+        )> = NAV_TABS.with(|m| {
             let m = m.borrow();
-            let Some(t) = m.get(&host) else { return };
-            for (i, vc) in t.vcs.iter().enumerate() {
-                let title = t.titles.get(i).cloned().unwrap_or_default();
-                let image = t.icons.get(i).and_then(|o| o.clone());
-                unsafe {
-                    let item = objc2_ui_kit::UITabBarItem::initWithTitle_image_tag(
-                        objc2_ui_kit::UITabBarItem::alloc(MainThreadMarker::new_unchecked()),
-                        Some(&NSString::from_str(&title)),
-                        image.as_deref(),
-                        i as isize,
+            let t = m.get(&host)?;
+            let tabs: Vec<Retained<objc2_ui_kit::UITab>> = t
+                .vcs
+                .iter()
+                .enumerate()
+                .map(|(i, vc)| {
+                    let title = t.titles.get(i).cloned().unwrap_or_default();
+                    let image = t.icons.get(i).and_then(|o| o.clone());
+                    unsafe { vc.setTitle(Some(&NSString::from_str(&title))) };
+                    // REUSE the tab that already stands for this page. A `UITab` is a model
+                    // object with an identity, not a per-render descriptor: its provider
+                    // hands UIKit a view controller and UIKit then owns that controller as
+                    // the tab's. Minting a second tab for the same page — which rebuilding
+                    // on every sync did, and this host syncs on every page insert and every
+                    // rows change — leaves two tabs claiming one controller, and UIKit
+                    // asserts in `-[UITab viewController]` the moment it resolves the
+                    // second. Only the title and the glyph are re-applied.
+                    let key = ptr_of(&view_of(unsafe { vc.view() }.expect("page view")));
+                    if let Some(existing) = t
+                        .tabs
+                        .iter()
+                        .find(|tab| unsafe { tab.identifier() }.to_string() == key.to_string())
+                    {
+                        unsafe {
+                            existing.setTitle(&NSString::from_str(&title));
+                            existing.setImage(image.as_deref());
+                        }
+                        return existing.clone();
+                    }
+                    let page = vc.clone();
+                    let provider = block2::RcBlock::new(
+                        move |_tab: NonNull<objc2_ui_kit::UITab>| -> NonNull<UIViewController> {
+                            NonNull::from(&*page)
+                        },
                     );
-                    vc.setTabBarItem(Some(&item));
-                    vc.setTitle(Some(&NSString::from_str(&title)));
-                }
+                    unsafe {
+                        objc2_ui_kit::UITab::initWithTitle_image_identifier_viewControllerProvider(
+                            objc2_ui_kit::UITab::alloc(mtm),
+                            &NSString::from_str(&title),
+                            image.as_deref(),
+                            // The PAGE is the identity, not its position: `insert` can put a
+                            // page in the middle, and a tab's identifier is fixed at
+                            // construction. Day's index is then the tab's position in `tabs`.
+                            &NSString::from_str(&key.to_string()),
+                            Some(&provider),
+                        )
+                    }
+                })
+                .collect();
+            Some((t.tabbar.clone(), tabs))
+        });
+        let Some((tabbar, tabs)) = built else { return };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow_mut().get_mut(&host) {
+                t.tabs = tabs.clone();
+                t.suppress.set(true);
             }
-            let arr = objc2_foundation::NSArray::from_retained_slice(&t.vcs);
-            unsafe { t.tabbar.setViewControllers_animated(Some(&arr), false) };
+        });
+        unsafe { tabbar.setTabs(&objc2_foundation::NSArray::from_retained_slice(&tabs)) };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&host) {
+                t.suppress.set(false);
+            }
         });
     }
 
@@ -5592,9 +5688,11 @@ mod imp {
                                 NavTabsState {
                                     tabbar,
                                     vcs: Vec::new(),
+                                    tabs: Vec::new(),
                                     titles: Vec::new(),
                                     icons: Vec::new(),
                                     menu_node: std::cell::Cell::new(0),
+                                    suppress: std::cell::Cell::new(false),
                                     _delegate: delegate,
                                 },
                             )
@@ -6521,11 +6619,26 @@ mod imp {
                         // this is handled before that lookup.
                         let i = *i;
                         let hp = ptr_of(h);
-                        let found = NAV_TABS
-                            .with(|m| m.borrow().get(&hp).map(|t| (t.tabbar.clone(), t.vcs.len())));
-                        if let Some((tabbar, n)) = found {
-                            if i < n {
-                                unsafe { tabbar.setSelectedIndex(i) };
+                        let found = NAV_TABS.with(|m| {
+                            let m = m.borrow();
+                            let t = m.get(&hp)?;
+                            Some((t.tabbar.clone(), t.tabs.get(i).cloned()))
+                        });
+                        if let Some((tabbar, tab)) = found {
+                            // `setSelectedTab`, not `setSelectedIndex`: the tab is the identity
+                            // now, and an index only ever meant "the nth ROOT tab".
+                            if let Some(tab) = tab {
+                                NAV_TABS.with(|m| {
+                                    if let Some(t) = m.borrow().get(&hp) {
+                                        t.suppress.set(true);
+                                    }
+                                });
+                                unsafe { tabbar.setSelectedTab(Some(&tab)) };
+                                NAV_TABS.with(|m| {
+                                    if let Some(t) = m.borrow().get(&hp) {
+                                        t.suppress.set(false);
+                                    }
+                                });
                             }
                             return;
                         }
