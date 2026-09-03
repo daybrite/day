@@ -58,9 +58,15 @@ to be fulfilled"). `Automatic` is almost always the right answer: it lets the fi
 the toolbar on a desktop window and move into the navigation list on a phone.
 
 `Automatic` resolves to the window toolbar wherever the toolkit has one, and to **`Inline`** where
-it does not, which is the phones. That second case needs no size class, because "this toolkit
-has no toolbar at all" is a static fact about the backend rather than a question about the
-window's width.
+it does not. That second case needs no size class, because "this toolkit has no toolbar at all" is
+a static fact about the backend rather than a question about the window's width.
+
+On **iOS the two placements name one surface**, so the resolution does not matter there:
+`UINavigationItem` owns the navigation bar's buttons AND its search controller, and the window
+toolbar rides that same item ([docs/toolbars.md](toolbars.md)) — so day-uikit installs the field
+whichever way it was asked for. It has to: the day iOS gained `Cap::Toolbar` (2026-09), every
+`.searchable()` surface there resolved to `Toolbar` and the field silently vanished, because a
+`UIBarButtonItem` cannot be a search field and the toolbar builder skipped it.
 
 > [!NOTE]
 > **The case in between still waits on size classes**: a narrow window on a toolkit that
@@ -73,9 +79,18 @@ Each platform keeps its own convention.
 
 | backend | where | resting state | how it is revealed |
 |---|---|---|---|
-| ios-uikit | `UISearchController` on the root page's `navigationItem` | hidden above the list | over-scroll down (`hidesSearchBarWhenScrolling`) |
+| ios-uikit | `UISearchController` on the root page's `navigationItem` | visible, pinned under the title | always there (`hidesSearchBarWhenScrolling` off) |
 | android-mdc | Material `SearchBar` above the nav list | visible, scroll-away | always there; returns on scroll up |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
+
+iOS PINS the field rather than hiding it behind a pull-down (2026-09). The hide is a phone
+idiom — a list that owns the whole screen can trade the field for a row of content — and a sidebar
+is not that: it is a narrow permanent column beside the detail it filters, and a field you have to
+know to pull for is one nobody finds. Deciding it per presentation would mean asking
+`isCollapsed`, which answers nothing on a host that has not met a window yet and never changes
+again on a device that only ever has one shape, so the field's presence would turn on whether a
+rotation happened to fire. One rule at both sizes, with a large title above it — a standard iOS
+configuration either way.
 
 Android has **no** `hidesSearchBarWhenScrolling` equivalent. Material's `SearchBar` supports
 fixed / scroll-away / lift-on-scroll through `CoordinatorLayout` behaviors, but scroll-away hides
@@ -155,7 +170,7 @@ differently from every other one on the system is worse than no completions.
 | linux-qt | `QCompleter` (native popup, case-insensitive) |
 | web-dom | `<datalist>` (the browser's own popup) |
 | windows-xaml | `AutoSuggestBox.ItemsSource` |
-| ios-uikit | `UISearchResultsUpdating`, with the Inline placement |
+| ios-uikit | `UISearchResultsUpdating`, at any placement — see below |
 | macos-appkit | **none.** `NSSearchField`'s menu is a recents list, not completions for the current text, so Day does not present it as one |
 | linux-gtk | **none.** GTK4 deprecated `GtkEntryCompletion` and `GtkSearchEntry` has no replacement |
 | android-mdc, harmony-arkui | with the Inline placement |

@@ -1688,6 +1688,25 @@ mod imp {
     /// [`serialize_menu`] spec (empty = no menu), joined by U+001E — a separator the line
     /// format itself never contains. Ridden best-effort AFTER makeNavMenu/updateNavMenu,
     /// like the tints.
+    /// Move the sidebar's active indicator to `sel`, or clear it (`NavMenuProps::selected`).
+    ///
+    /// Best-effort, like the tint and badge follow-ups: a decoration is never worth taking the
+    /// nav host's build path down with it (the navhost lesson, docs/navigation.md).
+    fn nav_menu_select(env: &mut Env, h: &AHandle, sel: Option<usize>) {
+        let _ = env.dcall_static(
+            BRIDGE,
+            "setNavMenuSelected",
+            "(Landroid/view/View;I)V",
+            &[
+                JValue::Object(h.0.as_obj()),
+                JValue::Int(sel.map(|i| i as i32).unwrap_or(-1)),
+            ],
+        );
+        if env.exception_check() {
+            env.exception_clear();
+        }
+    }
+
     fn nav_menus_joined(menus: &[Vec<day_spec::MenuItem>]) -> String {
         menus
             .iter()
@@ -2199,14 +2218,29 @@ mod imp {
                         .join("\u{1f}");
                     let joined_badge_tints = nav_tints_joined(&p.badge_tints);
                     let joined_menus = nav_menus_joined(&p.menus);
+                    // Headings, index-aligned with the rows ("" continues the current group).
+                    // NavigationView draws them as M3 subheaders; the flat list this replaced
+                    // dropped them, so the showcase's eight groups arrived as twenty bare rows.
+                    let joined_sections = p
+                        .sections
+                        .iter()
+                        .map(|o| o.clone().unwrap_or_default())
+                        .collect::<Vec<_>>()
+                        .join("\u{1f}");
                     with_env(|env| {
                         let s = jstr(env, &joined);
                         let si = jstr(env, &joined_icons);
+                        let ss = jstr(env, &joined_sections);
                         let handle = AHandle(make_view(
                             env,
                             "makeNavMenu",
-                            "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Object(&s), JValue::Object(&si)],
+                            "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/view/View;",
+                            &[
+                                JValue::Long(idj),
+                                JValue::Object(&s),
+                                JValue::Object(&si),
+                                JValue::Object(&ss),
+                            ],
                         ));
                         // Keep the rows for `insert`, which is where a navigation suite above
                         // this menu can finally be found and handed them.
@@ -2239,6 +2273,10 @@ mod imp {
                                 JValue::Object(&sbt),
                             ],
                         );
+                        // The active indicator the model already carries — a rebuilt sidebar
+                        // (a language change, a data-driven item set) has to come back marking
+                        // the same page rather than blank.
+                        nav_menu_select(env, &handle, p.selected);
                         // Per-row context menus (docs/menus.md): same best-effort follow-up.
                         let sm = jstr(env, &joined_menus);
                         let _ = env.dcall_static(
@@ -2501,6 +2539,8 @@ mod imp {
                             menus,
                             badge_icons,
                             badge_tints,
+                            sections,
+                            selected,
                             ..
                         }) => {
                             let joined = items.join("\u{1f}");
@@ -2517,19 +2557,29 @@ mod imp {
                                 .join("\u{1f}");
                             let joined_badge_tints = nav_tints_joined(badge_tints);
                             let joined_menus = nav_menus_joined(menus);
+                            let joined_sections = sections
+                                .iter()
+                                .map(|o| o.clone().unwrap_or_default())
+                                .collect::<Vec<_>>()
+                                .join("\u{1f}");
                             with_env(|env| {
                                 let s = jstr(env, &joined);
                                 let si = jstr(env, &joined_icons);
+                                let ss = jstr(env, &joined_sections);
                                 let _ = env.dcall_static(
                                     BRIDGE,
                                     "updateNavMenu",
-                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
+                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
                                     &[
                                         JValue::Object(h.0.as_obj()),
                                         JValue::Object(&s),
                                         JValue::Object(&si),
+                                        JValue::Object(&ss),
                                     ],
                                 );
+                                // A rebuilt menu comes back unchecked, so re-apply the selection
+                                // the patch carries with it.
+                                nav_menu_select(env, h, *selected);
                                 let st = jstr(env, &joined_tints);
                                 let _ = env.dcall_static(
                                     BRIDGE,
@@ -2561,9 +2611,15 @@ mod imp {
                                 }
                             });
                         }
-                        // Mobile selection is transient (rows ripple, then push) — no highlight
-                        // to sync.
-                        Some(NavMenuPatch::Selected(_)) | None => {}
+                        // The active indicator follows the model (docs/navigation.md). This
+                        // used to be a no-op on the grounds that "mobile selection is transient
+                        // (rows ripple, then push)", which was true of the hand-built list that
+                        // could not draw a resting state — a NavigationView can, and a sidebar
+                        // beside its detail is exactly where that state means "you are here".
+                        Some(NavMenuPatch::Selected(sel)) => {
+                            with_env(|env| nav_menu_select(env, h, *sel));
+                        }
+                        None => {}
                     }
                 }
                 kinds::NAV => {

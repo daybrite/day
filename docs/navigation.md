@@ -109,7 +109,7 @@ navigation existed.
 |---------|-------------------|----------|
 | macos-appkit | `NSSegmentedControl` docked below the pages | no; a Mac narrows to a stack |
 | ios-uikit | `UITabBarController` in `.tabSidebar` mode, a `UINavigationController` per tab | yes |
-| android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width | yes |
+| android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `SelectorStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
 | linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
@@ -302,6 +302,31 @@ combining a rich master list with native master-detail push is a separate, not-y
 tab widgets is in progress (those backends ignore the item-set patch until then, so the initial set
 still shows). The item logic is backend-independent and covered by
 `mock_e2e::selector_data_driven_items_reconcile`.
+
+### The Android sidebar is a NavigationView
+
+`selector(SelectorStyle::Sidebar)` realizes on android-mdc as a Material
+[`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
+the class Android means for a standing navigation column. It was a `LinearLayout` of `TextView`
+rows in a `ScrollView` until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
+leading glyph measured out by hand — a comment called that "the Material nav-drawer idiom", which
+it was imitating. The real one brings the M3 row metrics, the ripple, subheaders between
+`NavMenuProps::sections` (the flat list dropped them, so eight groups arrived as twenty bare rows),
+a RecyclerView so a long sidebar recycles, and the fully-rounded ACTIVE INDICATOR behind the
+checked row — which is why `NavMenuPatch::Selected` is no longer a no-op there.
+
+Two consequences worth knowing before touching it:
+
+- **A row's menu id is not its index.** `NavigationMenuItemView` copies its item's id onto ITSELF,
+  which puts menu ids and view ids in the one namespace `findViewById` searches — and Day's own
+  fragment containers take `View.generateViewId()`, which counts up from 1. Rows keyed by bare
+  index collided immediately: `containerId` was 1, the second row became a view with id 1, it sits
+  earlier in the traversal than the detail container, and `FragmentTransaction.replace` built every
+  detail page INSIDE that sidebar row. Ids start at `ROW_ID_BASE` (0x01000000) for rows and
+  `SECTION_ID_BASE` for headings, above `generateViewId`'s ceiling and below aapt's floor.
+- **Rows recycle**, so a per-row context menu ([docs/menus.md](menus.md)) cannot be attached once. It goes on
+  from `OnChildAttachStateChangeListener`, reading the row a cell is CURRENTLY bound to from its
+  own `getItemData()` rather than from its adapter position, which headings and dividers shift.
 
 ## Back interception (`on_back`)
 

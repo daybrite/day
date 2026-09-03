@@ -2179,6 +2179,19 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             titles.clone(),
         );
         let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
+        // The selection the host is ALREADY on, not `None`. `sync_menu` pushes it a moment later
+        // as `NavMenuPatch::Selected`, and every backend that draws a resting highlight used to
+        // depend on that patch landing after its view existed — which held on UIKit and did not
+        // on Android, where the sidebar came up marking nothing at all. Seeding the props means
+        // the first realization is already right and the patch is only ever a CHANGE.
+        let selected_init = {
+            let key = selection.peek().key().to_string();
+            typed
+                .borrow()
+                .iter()
+                .position(|k| k.key() == key)
+                .filter(|_| !key.is_empty())
+        };
         let (badges_init, sections_init) = (rows0.badges.clone(), rows0.sections.clone());
         let (badge_icons_init, badge_tints_init) =
             (rows0.badge_icons.clone(), rows0.badge_tints.clone());
@@ -2196,7 +2209,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     sections: sections_init,
                     tints: tints_init,
                     menus: menus_init,
-                    selected: None,
+                    selected: selected_init,
                 },
                 Rc::new(LeafLayout),
                 Flex {

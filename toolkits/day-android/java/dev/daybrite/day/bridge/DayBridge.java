@@ -37,6 +37,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.divider.MaterialDivider;
 import com.google.android.material.loadingindicator.LoadingIndicator;
 import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.navigation.NavigationView;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
@@ -1406,15 +1407,35 @@ public final class DayBridge {
     public static void setNavSuiteSelected(View suite, int index) {
         if (suite instanceof DayTabs) ((DayTabs) suite).select(index);
     }
-    /** nav_menu(): standard tappable list rows (ripple, 48dp) for the route table. `joinedIcons`
-     *  is a parallel, index-aligned list of bundled image NAMES ("" = no icon), shown as a tinted
-     *  leading drawable on each row — the Material navigation-drawer idiom. */
-    public static View makeNavMenu(final long id, String joinedItems, String joinedIcons) {
-        android.widget.LinearLayout list = new android.widget.LinearLayout(ctx);
-        list.setOrientation(android.widget.LinearLayout.VERTICAL);
-        // Immersive mode (docs/layout.md): the page runs under the transparent status bar and
-        // floating app bar — start the rows below them. The list lives inside its own
-        // ScrollView, so the padding scrolls away naturally.
+    /** The navigation surface for `selector(SelectorStyle::Sidebar)` (docs/navigation.md): a
+     *  Material {@link NavigationView}, the class Android means for exactly this.
+     *
+     *  It used to be a hand-built `LinearLayout` of `TextView` rows in a `ScrollView`, with the
+     *  48dp height, the padding, the ripple and the 24dp leading glyph all measured out here — a
+     *  comment in it called that "the Material nav-drawer idiom", which it was imitating rather
+     *  than using. NavigationView IS that idiom: M3 row metrics, the ripple, the icon slot, the
+     *  subheaders between groups, a RecyclerView underneath so a long sidebar recycles, and the
+     *  fully-rounded ACTIVE INDICATOR behind the checked row — the thing the hand-built list had
+     *  no way to draw, which is why the showcase's sidebar marked nothing at all.
+     *
+     *  Rows are index-aligned with day's model throughout: a menu item's id IS its index, which
+     *  is what `setNavMenuSelected` and the tint/badge follow-ups address them by. `sections`
+     *  opens a new group before the row at the same index ("" continues the current one), so the
+     *  indices never shift when a heading is added.
+     */
+    public static View makeNavMenu(final long id, String joinedItems, String joinedIcons,
+            String joinedSections) {
+        NavigationView nav = new NavigationView(ctx);
+        // The pane's own background is the window's; the drawer's elevated surface would read as
+        // a second card floating inside the split (docs/navigation.md).
+        nav.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        // Day tints each glyph itself (setNavMenuTints), so the view must not re-tint them all to
+        // one color afterwards.
+        nav.setItemIconTintList(null);
+        nav.setTag(id);
+        // Immersive mode (docs/layout.md): the page runs under the transparent status bar and the
+        // floating app bar, so start the rows below them. `clipToPadding=false` keeps the padding
+        // scrollable rather than fixed.
         if (DayActivity.edgeToEdge) {
             android.util.TypedValue abs = new android.util.TypedValue();
             int bar = 0;
@@ -1422,73 +1443,133 @@ public final class DayBridge {
                 bar = android.util.TypedValue.complexToDimensionPixelSize(
                         abs.data, ctx.getResources().getDisplayMetrics());
             }
-            list.setPadding(0, DayActivity.statusInsetPx + bar, 0, 0);
-            list.setClipToPadding(false);
+            nav.setPadding(0, DayActivity.statusInsetPx + bar, 0, 0);
+            nav.setClipToPadding(false);
         }
-        fillNavMenu(id, list, joinedItems, joinedIcons);
-        // The nav menu can have more items than fit on screen (the showcase sidebar has ~20), so it
-        // must scroll — wrap the row column in a vertical ScrollView (fillViewport so it still fills
-        // when short).
-        ScrollView sv = new ScrollView(ctx);
-        sv.setFillViewport(true);
-        sv.setTag(id); // updateNavMenu re-reads it when rebuilding rows
-        sv.addView(list, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        return sv;
+        nav.setNavigationItemSelectedListener(new NavigationView.OnNavigationItemSelectedListener() {
+            @Override public boolean onNavigationItemSelected(MenuItem item) {
+                // The index IS the id. Report and let day answer with NavMenuPatch::Selected,
+                // which is what moves the indicator — the same rule the other backends follow, so
+                // a route the app declines leaves the sidebar showing where it actually is.
+                nativeOnEvent(id, K_SELECTION_CHANGED, item.getItemId() - ROW_ID_BASE, null);
+                return true;
+            }
+        });
+        fillNavMenu(nav, joinedItems, joinedIcons, joinedSections);
+        return nav;
     }
 
     /** The item set changed (day's NavMenuPatch::Items — a data-driven `selector().items(…)`
-     *  block re-derived): rebuild every row so each click listener carries its CURRENT index.
-     *  Reusing stale rows after a removal shifts every later selection by one and drops the
-     *  last row's selection entirely. */
-    public static void updateNavMenu(View v, String joinedItems, String joinedIcons) {
-        ScrollView sv = (ScrollView) v;
-        long id = (Long) sv.getTag();
-        android.widget.LinearLayout list = (android.widget.LinearLayout) sv.getChildAt(0);
-        list.removeAllViews();
-        fillNavMenu(id, list, joinedItems, joinedIcons);
+     *  block re-derived): rebuild the menu so every item's id carries its CURRENT index.
+     *  Reusing stale rows after a removal shifts every later selection by one. */
+    public static void updateNavMenu(View v, String joinedItems, String joinedIcons,
+            String joinedSections) {
+        if (!(v instanceof NavigationView)) return;
+        fillNavMenu((NavigationView) v, joinedItems, joinedIcons, joinedSections);
     }
 
-    /** Build one tappable row per item into `list` (ripple, 48dp, optional tinted leading icon —
-     *  the Material navigation-drawer idiom). Each row reports its index on click. */
-    private static void fillNavMenu(final long id, android.widget.LinearLayout list,
-            String joinedItems, String joinedIcons) {
+    /** Where a sidebar row's menu-item id starts.
+     *
+     *  A menu id is not a view id — except that `NavigationMenuItemView` copies its item's id onto
+     *  ITSELF, which drops both into the one namespace `findViewById` searches. Day's own
+     *  containers take `View.generateViewId()`, which counts up from 1, so a row keyed by its bare
+     *  index collided with them immediately: `containerId` was 1, the Controls row (index 1) became
+     *  a view with id 1, it sits earlier in the traversal than the detail container, and
+     *  `FragmentTransaction.replace(containerId, …)` therefore built every detail page INSIDE that
+     *  sidebar row — the detail pane stayed empty and the page's first line drew inside the
+     *  selected row's indicator.
+     *
+     *  `generateViewId` never returns above 0x00FFFFFF and aapt's ids start at 0x7F000000, so this
+     *  range belongs to nobody. Section headings get their own so they cannot answer `findItem` for
+     *  a row (`Menu.NONE` is 0, which shadowed row 0). */
+    private static final int ROW_ID_BASE = 0x0100_0000;
+    private static final int SECTION_ID_BASE = 0x0200_0000;
+
+    /** Build one checkable menu item per row, grouped by `sections`. */
+    private static void fillNavMenu(NavigationView nav, String joinedItems, String joinedIcons,
+            String joinedSections) {
+        Menu menu = nav.getMenu();
+        // What is checked NOW, so a rebuild comes back marking the same row. A data-driven
+        // `.items(…)` block re-derives on its own schedule — the showcase's does it once as the
+        // sidebar first paints — and `menu.clear()` takes the indicator with it. day re-applies
+        // the selection it knows about afterwards, but only if the patch that rebuilt the menu
+        // carried one; this covers the rebuild that does not.
+        int checked = -1;
+        for (MenuItem prev : navItems(nav)) {
+            if (prev.isChecked()) {
+                checked = prev.getItemId() - ROW_ID_BASE;
+                break;
+            }
+        }
+        menu.clear();
         String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f");
-        android.util.TypedValue tv = new android.util.TypedValue();
-        ctx.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
-        float d = ctx.getResources().getDisplayMetrics().density;
-        // KeepEmptyParts (limit -1) so icon names stay index-aligned with rows lacking an icon.
+        // KeepEmptyParts (limit -1) so the parallel arrays stay index-aligned with rows that
+        // carry no icon and rows that open no section.
         String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
+        String[] sections =
+                joinedSections.isEmpty() ? new String[0] : joinedSections.split("\u001f", -1);
+        float d = ctx.getResources().getDisplayMetrics().density;
+        Menu into = menu;
+        int group = 0;
         for (int i = 0; i < items.length; i++) {
-            final int index = i;
-            TextView row = new TextView(ctx);
-            row.setText(items[i]);
-            row.setTextSize(16f);
-            row.setMinHeight((int) (48 * d));
-            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding((int) (16 * d), 0, (int) (16 * d), 0);
-            row.setBackgroundResource(tv.resourceId);
-            row.setClickable(true);
-            // Leading icon: a template glyph tinted to the row's text color (so it reads in light
-            // and dark), 24dp, with padding before the label — the Material nav-drawer idiom.
-            String iconName = i < icons.length ? icons[i] : "";
-            android.graphics.drawable.Drawable icon = drawableByName(ctx, iconName);
+            if (i < sections.length && !sections[i].isEmpty()) {
+                // A heading opens a new group. NavigationView draws a SubMenu's title as an M3
+                // subheader and separates the groups, which is what the flat list had no room for.
+                group++;
+                // The heading's own id must stay OUT of the row-index space: a row's id IS its
+                // index, `Menu.NONE` is 0, and a heading carrying 0 made `findItem(0)` answer
+                // with the subheader instead of the first row — so the indicator never appeared
+                // on it. Anything past the row count works; this is unmistakable in a log.
+                into = menu.addSubMenu(group, SECTION_ID_BASE + group, group, sections[i]);
+            }
+            MenuItem it = into.add(group, ROW_ID_BASE + i, i, items[i]);
+            it.setCheckable(true);
+            android.graphics.drawable.Drawable icon = drawableByName(ctx, i < icons.length ? icons[i] : "");
             if (icon != null) {
                 int sz = (int) (24 * d);
                 icon = icon.mutate();
                 icon.setBounds(0, 0, sz, sz);
-                icon.setTint(row.getCurrentTextColor());
-                row.setCompoundDrawablesRelative(icon, null, null, null);
-                row.setCompoundDrawablePadding((int) (16 * d));
+                it.setIcon(icon);
             }
-            row.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) {
-                    nativeOnEvent(id, K_SELECTION_CHANGED, index, null); // kind 4 = SelectionChanged
-                }
-            });
-            list.addView(row, new android.widget.LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
+        if (checked >= 0) setNavMenuSelected(nav, checked);
+    }
+
+    /** Move the active indicator to `index`, or clear it (day's `NavMenuProps::selected`).
+     *
+     *  Applied WITHOUT re-emitting: `setCheckedItem` does not run the selection listener, so
+     *  there is no echo to suppress. Best-effort like the other follow-ups. */
+    public static void setNavMenuSelected(View navMenu, int index) {
+        try {
+            if (!(navMenu instanceof NavigationView)) return;
+            NavigationView nav = (NavigationView) navMenu;
+            if (index < 0) {
+                Menu m = nav.getMenu();
+                for (int i = 0; i < m.size(); i++) m.getItem(i).setChecked(false);
+                return;
+            }
+            MenuItem it = nav.getMenu().findItem(ROW_ID_BASE + index);
+            if (it != null) nav.setCheckedItem(it);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu selection skipped", t);
+        }
+    }
+
+    /** Every menu item in `nav`, in day's index order — the tint and badge follow-ups address
+     *  rows by index, and a grouped menu nests them inside SubMenus. */
+    private static java.util.List<MenuItem> navItems(NavigationView nav) {
+        java.util.ArrayList<MenuItem> out = new java.util.ArrayList<>();
+        Menu m = nav.getMenu();
+        for (int i = 0; i < m.size(); i++) {
+            MenuItem it = m.getItem(i);
+            if (it.hasSubMenu()) {
+                android.view.SubMenu sub = it.getSubMenu();
+                for (int j = 0; j < sub.size(); j++) out.add(sub.getItem(j));
+            } else {
+                out.add(it);
+            }
+        }
+        return out;
     }
 
     /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted —
@@ -1496,19 +1577,15 @@ public final class DayBridge {
      *  makeNavMenu/updateNavMenu so a failure here can never abort the native tree build. */
     public static void setNavMenuTints(View navMenu, String joinedTints) {
         try {
-            if (!(navMenu instanceof android.widget.ScrollView)) return;
-            android.view.ViewGroup list =
-                    (android.view.ViewGroup) ((android.widget.ScrollView) navMenu).getChildAt(0);
-            if (list == null) return;
+            if (!(navMenu instanceof NavigationView)) return;
+            java.util.List<MenuItem> rows = navItems((NavigationView) navMenu);
             String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
-            for (int i = 0; i < list.getChildCount() && i < tints.length; i++) {
-                if (!(list.getChildAt(i) instanceof TextView)) continue;
-                TextView row = (TextView) list.getChildAt(i);
-                android.graphics.drawable.Drawable[] ds = row.getCompoundDrawablesRelative();
-                if (ds.length == 0 || ds[0] == null) continue;
+            for (int i = 0; i < rows.size() && i < tints.length; i++) {
+                android.graphics.drawable.Drawable icon = rows.get(i).getIcon();
+                if (icon == null) continue;
                 long tint;
                 try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { continue; }
-                if (tint != 0) ds[0].setTint((int) tint);
+                if (tint != 0) icon.setTint((int) tint);
             }
         } catch (Throwable t) {
             android.util.Log.e("Day", "nav menu tints skipped", t);
@@ -1525,29 +1602,33 @@ public final class DayBridge {
      *  is never worth that. */
     public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints) {
         try {
-            if (!(navMenu instanceof android.widget.ScrollView)) return;
-            android.view.ViewGroup list =
-                    (android.view.ViewGroup) ((android.widget.ScrollView) navMenu).getChildAt(0);
-            if (list == null) return;
+            if (!(navMenu instanceof NavigationView)) return;
+            java.util.List<MenuItem> rows = navItems((NavigationView) navMenu);
             String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
             String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
             float d = ctx.getResources().getDisplayMetrics().density;
-            for (int i = 0; i < list.getChildCount() && i < icons.length; i++) {
-                if (!(list.getChildAt(i) instanceof TextView)) continue;
-                TextView row = (TextView) list.getChildAt(i);
-                android.graphics.drawable.Drawable[] ds = row.getCompoundDrawablesRelative();
+            for (int i = 0; i < rows.size() && i < icons.length; i++) {
+                MenuItem row = rows.get(i);
                 android.graphics.drawable.Drawable badge = drawableByName(ctx, icons[i]);
-                if (badge != null) {
-                    int sz = (int) (18 * d);
-                    badge = badge.mutate();
-                    badge.setBounds(0, 0, sz, sz);
-                    long tint = 0;
-                    if (i < tints.length) {
-                        try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { tint = 0; }
-                    }
-                    badge.setTint(tint != 0 ? (int) tint : row.getCurrentTextColor());
+                if (badge == null) {
+                    row.setActionView(null);
+                    continue;
                 }
-                row.setCompoundDrawablesRelative(ds.length > 0 ? ds[0] : null, null, badge, null);
+                // The END slot is a menu item's ACTION VIEW here, which NavigationView lays out
+                // opposite the label — the old compound-drawable trick had no menu to hang on.
+                badge = badge.mutate();
+                long tint = 0;
+                if (i < tints.length) {
+                    try { tint = Long.parseLong(tints[i].trim()); } catch (NumberFormatException e) { tint = 0; }
+                }
+                android.widget.ImageView iv = new android.widget.ImageView(ctx);
+                iv.setImageDrawable(badge);
+                int sz = (int) (18 * d);
+                iv.setLayoutParams(new ViewGroup.LayoutParams(sz, sz));
+                if (tint != 0) {
+                    iv.setImageTintList(android.content.res.ColorStateList.valueOf((int) tint));
+                }
+                row.setActionView(iv);
             }
         } catch (Throwable t) {
             android.util.Log.e("Day", "nav menu badges skipped", t);
@@ -2004,16 +2085,69 @@ public final class DayBridge {
      *  abort the native tree build. */
     public static void setNavRowMenus(View navMenu, String joinedSpecs) {
         try {
-            if (!(navMenu instanceof android.widget.ScrollView)) return;
-            android.view.ViewGroup list =
-                    (android.view.ViewGroup) ((android.widget.ScrollView) navMenu).getChildAt(0);
+            if (!(navMenu instanceof NavigationView)) return;
+            final NavigationView nav = (NavigationView) navMenu;
+            final String[] specs =
+                    joinedSpecs.isEmpty() ? new String[0] : joinedSpecs.split("\u001e", -1);
+            navRowMenus.put(nav, specs);
+            // Rows are RECYCLED now, so a menu cannot be attached once and left: a cell is bound
+            // to a different row every time it scrolls back into view. Attach on the one event
+            // that fires for each binding — the child joining the RecyclerView — and read the row
+            // it is CURRENTLY showing from its own menu item rather than from its position, which
+            // headings and dividers shift.
+            android.view.ViewGroup list = navRecycler(nav);
             if (list == null) return;
-            String[] specs = joinedSpecs.isEmpty() ? new String[0] : joinedSpecs.split("\u001e", -1);
-            for (int i = 0; i < list.getChildCount() && i < specs.length; i++) {
-                setContextMenu(list.getChildAt(i), specs[i]);
+            if (navRowMenuWatchers.add(nav)) {
+                ((androidx.recyclerview.widget.RecyclerView) list)
+                        .addOnChildAttachStateChangeListener(
+                                new androidx.recyclerview.widget.RecyclerView
+                                        .OnChildAttachStateChangeListener() {
+                            @Override public void onChildViewAttachedToWindow(View child) {
+                                applyNavRowMenu(nav, child);
+                            }
+                            @Override public void onChildViewDetachedFromWindow(View child) {}
+                        });
+            }
+            for (int i = 0; i < list.getChildCount(); i++) {
+                applyNavRowMenu(nav, list.getChildAt(i));
             }
         } catch (Throwable t) {
             android.util.Log.w("day", "setNavRowMenus (best-effort)", t);
+        }
+    }
+
+    /** The specs a sidebar's rows carry, by nav view — read back as cells recycle. */
+    private static final java.util.WeakHashMap<View, String[]> navRowMenus =
+            new java.util.WeakHashMap<>();
+    /** Nav views whose recycler already has the attach watcher, so it goes on once. */
+    private static final java.util.Set<View> navRowMenuWatchers =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    /** A NavigationView's list, which is the RecyclerView it keeps as its only real child. */
+    private static android.view.ViewGroup navRecycler(NavigationView nav) {
+        for (int i = 0; i < nav.getChildCount(); i++) {
+            if (nav.getChildAt(i) instanceof androidx.recyclerview.widget.RecyclerView) {
+                return (android.view.ViewGroup) nav.getChildAt(i);
+            }
+        }
+        return null;
+    }
+
+    /** Give one bound cell the menu of the row it is showing (docs/menus.md). */
+    private static void applyNavRowMenu(NavigationView nav, View child) {
+        try {
+            if (!(child instanceof com.google.android.material.internal.NavigationMenuItemView)) {
+                return;
+            }
+            MenuItem item = ((com.google.android.material.internal.NavigationMenuItemView) child)
+                    .getItemData();
+            String[] specs = navRowMenus.get(nav);
+            if (item == null || specs == null) return;
+            int row = item.getItemId() - ROW_ID_BASE;
+            if (row < 0 || row >= specs.length) return;
+            setContextMenu(child, specs[row]);
+        } catch (Throwable t) {
+            android.util.Log.w("day", "nav row menu (best-effort)", t);
         }
     }
 

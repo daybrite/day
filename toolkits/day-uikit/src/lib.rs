@@ -79,8 +79,8 @@ mod imp {
         UINavigationBarDelegate, UINavigationController, UINavigationItem,
     };
     use objc2_ui_kit::{
-        UICollectionViewDelegate, UIScrollViewDelegate, UITableViewDataSource, UITableViewDelegate,
-        UITableViewDragDelegate,
+        UICollectionViewDataSource, UICollectionViewDelegate, UIScrollViewDelegate,
+        UITableViewDataSource, UITableViewDelegate, UITableViewDragDelegate,
     };
     use objc2_ui_kit::{
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
@@ -459,7 +459,7 @@ mod imp {
             }
         }
         unsafe {
-            holder.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+            holder.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
             holder.addSubview(&root_view);
             vc.setView(Some(&holder));
             window.setRootViewController(Some(&vc));
@@ -1251,6 +1251,28 @@ mod imp {
             }
             BarPlacement::NavBar
         })
+    }
+
+    /// A `.searchable()` sidebar's field, PINNED under the list's title (docs/search.md).
+    ///
+    /// It used to hide behind a pull-down, which is the phone idiom: a list that owns the whole
+    /// screen can trade the field for a row of content and give it back on a pull. A sidebar
+    /// cannot — it is a narrow permanent column beside the detail it filters, the field belongs
+    /// to it the way Settings' does, and one you have to know to pull for is one nobody finds.
+    ///
+    /// One rule, not two. Deciding it per presentation means asking `isCollapsed`, which answers
+    /// nothing on a host that has not met a window yet and never changes again on a device that
+    /// only ever has one shape — so the field's presence would depend on whether a rotation
+    /// happened to fire. A large title over a pinned field is a standard iOS configuration, and
+    /// it is the same one at both sizes.
+    fn pin_sidebar_search(item: &objc2_ui_kit::UINavigationItem, nav: &DayNavController) {
+        unsafe {
+            item.setHidesSearchBarWhenScrolling(false);
+            item.setLargeTitleDisplayMode(
+                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
+            );
+            nav.navigationBar().setPrefersLargeTitles(true);
+        }
     }
 
     /// Every navigation controller of every host under a window root: the detail stack and
@@ -2203,7 +2225,13 @@ mod imp {
         fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
             let v: Retained<Self> = unsafe { msg_send![super(this), init] };
-            unsafe { v.setBackgroundColor(Some(&UIColor::systemBackgroundColor())) };
+            // GROUPED, not plain. iOS gives content two grounds and they are a matched pair:
+            // `systemGroupedBackground` behind, `secondarySystemGroupedBackground` for the cards
+            // that sit on it — the pairing every Settings-shaped screen and every inset-grouped
+            // list uses, and the one that makes a split's two columns read as one surface rather
+            // than two white sheets meeting at a seam. `SurfaceRole::SectionCard` takes the other
+            // half; changing one without the other leaves grey on grey.
+            unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
             v
         }
     }
@@ -2512,6 +2540,20 @@ mod imp {
                 if let Some(mtm) = MainThreadMarker::new() {
                     for vc in unsafe { parts.primary_nav.viewControllers() }.iter() {
                         refresh_bar_actions(mtm, &vc);
+                    }
+                }
+                // The search field follows it too (docs/search.md): pinned beside the detail,
+                // behind a pull-down once the columns merge. Both stacks are walked because the
+                // sidebar page lives in the primary column expanded and in the merged one
+                // collapsed, and only the page that HAS the controller is touched.
+                if state.search.is_some() {
+                    for nav in [&parts.primary_nav, &state.nav] {
+                        for vc in unsafe { nav.viewControllers() }.iter() {
+                            let item = unsafe { vc.navigationItem() };
+                            if unsafe { item.searchController() }.is_some() {
+                                pin_sidebar_search(&item, nav);
+                            }
+                        }
                     }
                 }
             });
@@ -3199,145 +3241,9 @@ mod imp {
     }
 
     // -------------------------------------------------------------------
-    // -----------------------------------------------------------------------
-    // DayNavCell — a nav row whose icon reads as a natural iOS glyph: a small
-    // (20pt) template image tinted with the neutral secondaryLabel color (NOT
-    // the accent), vertically centered on the row like the label, so the glyph's
-    // optical center matches the text's line center (the UIListContentConfiguration
-    // idiom). The stock UITableViewCell accent-tints its imageView, so we lay the
-    // row out ourselves (docs/navigation.md).
-    // -----------------------------------------------------------------------
-    struct NavCellIvars {
-        icon: Retained<objc2_ui_kit::UIImageView>,
-        title: Retained<UILabel>,
-        /// Trailing status glyph (docs/navigation.md) — a starred page's star. Laid out inside
-        /// the accessory's margin, so it never collides with the disclosure chevron.
-        badge_icon: Retained<objc2_ui_kit::UIImageView>,
-    }
-
-    define_class!(
-        #[unsafe(super(objc2_ui_kit::UITableViewCell))]
-        #[thread_kind = MainThreadOnly]
-        #[name = "DayNavCell"]
-        #[ivars = NavCellIvars]
-        struct DayNavCell;
-
-        impl DayNavCell {
-            #[unsafe(method(layoutSubviews))]
-            fn layout_subviews(&self) {
-                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
-                let iv = self.ivars();
-                let b = self.contentView().bounds();
-                let (cw, ch) = (b.size.width, b.size.height);
-                let Some(font) = (unsafe { iv.title.font() }) else {
-                    return;
-                };
-                let line_h = unsafe { font.lineHeight() };
-                let label_y = ((ch - line_h) / 2.0).max(0.0);
-                const LEADING: f64 = 16.0;
-                const ICON: f64 = 20.0;
-                const GAP: f64 = 12.0;
-                let has_icon = unsafe { iv.icon.image() }.is_some();
-                let text_x = if has_icon { LEADING + ICON + GAP } else { LEADING };
-                // The status glyph takes width off the label's right edge rather than overlaying
-                // it, so a long title truncates instead of running under the star.
-                let has_badge = unsafe { iv.badge_icon.image() }.is_some();
-                let badge_w = if has_badge { ICON + GAP } else { 0.0 };
-                unsafe {
-                    iv.title.setFrame(CGRect::new(
-                        CGPoint::new(text_x, label_y),
-                        CGSize::new((cw - text_x - 6.0 - badge_w).max(0.0), line_h),
-                    ));
-                    iv.badge_icon.setHidden(!has_badge);
-                    if has_badge {
-                        iv.badge_icon.setFrame(CGRect::new(
-                            CGPoint::new((cw - ICON).max(0.0), ((ch - ICON) / 2.0).max(0.0)),
-                            CGSize::new(ICON, ICON),
-                        ));
-                    }
-                    iv.icon.setHidden(!has_icon);
-                    if has_icon {
-                        // Center the icon on the row, matching the centered label. Bottoming
-                        // the box on the text BASELINE rode visibly high: Material template
-                        // PNGs pad the glyph inside the canvas, so the box must align by
-                        // optical center, not by edge.
-                        iv.icon.setFrame(CGRect::new(
-                            CGPoint::new(LEADING, ((ch - ICON) / 2.0).max(0.0)),
-                            CGSize::new(ICON, ICON),
-                        ));
-                    }
-                }
-            }
-        }
-    );
-
-    impl DayNavCell {
-        fn new(mtm: MainThreadMarker) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(NavCellIvars {
-                icon: unsafe { objc2_ui_kit::UIImageView::new(mtm) },
-                title: unsafe { UILabel::new(mtm) },
-                badge_icon: unsafe { objc2_ui_kit::UIImageView::new(mtm) },
-            });
-            let none: Option<&NSString> = None;
-            let cell: Retained<Self> = unsafe {
-                msg_send![
-                    super(this),
-                    initWithStyle: objc2_ui_kit::UITableViewCellStyle::Default,
-                    reuseIdentifier: none,
-                ]
-            };
-            let iv = cell.ivars();
-            unsafe {
-                iv.title
-                    .setFont(Some(&objc2_ui_kit::UIFont::preferredFontForTextStyle(
-                        objc2_ui_kit::UIFontTextStyleBody,
-                    )));
-                iv.icon
-                    .setContentMode(objc2_ui_kit::UIViewContentMode::ScaleAspectFit);
-                iv.icon.setTintColor(Some(&UIColor::secondaryLabelColor()));
-                iv.badge_icon
-                    .setContentMode(objc2_ui_kit::UIViewContentMode::ScaleAspectFit);
-                cell.contentView().addSubview(&iv.title);
-                cell.contentView().addSubview(&iv.icon);
-                cell.contentView().addSubview(&iv.badge_icon);
-                cell.setAccessoryType(
-                    objc2_ui_kit::UITableViewCellAccessoryType::DisclosureIndicator,
-                );
-            }
-            cell
-        }
-
-        fn configure(
-            &self,
-            title: &NSString,
-            image: Option<&objc2_ui_kit::UIImage>,
-            tint: Option<day_spec::Color>,
-            badge_image: Option<&objc2_ui_kit::UIImage>,
-            badge_tint: Option<day_spec::Color>,
-        ) {
-            let iv = self.ivars();
-            unsafe {
-                iv.title.setText(Some(title));
-                iv.icon.setImage(image);
-                // Per-row tint (docs/vectors.md): recolor the template glyph; None keeps the
-                // neutral secondaryLabel look.
-                match tint {
-                    Some(t) => iv.icon.setTintColor(Some(&uicolor(t))),
-                    None => iv.icon.setTintColor(Some(&UIColor::secondaryLabelColor())),
-                }
-                iv.badge_icon.setImage(badge_image);
-                match badge_tint {
-                    Some(t) => iv.badge_icon.setTintColor(Some(&uicolor(t))),
-                    None => iv
-                        .badge_icon
-                        .setTintColor(Some(&UIColor::secondaryLabelColor())),
-                }
-            }
-            self.setNeedsLayout();
-        }
-    }
-
-    // DayNavTableData — nav_menu() as inset-grouped rows with chevrons
+    // DayNavTableData — nav_menu() as a SIDEBAR list: `UICollectionViewListCell` rows whose
+    // content and background configurations are the adaptive ones, so UIKit draws the glyph, the
+    // label, the chevron and the selection pill from the list's own appearance (docs/navigation.md)
     // -------------------------------------------------------------------
 
     struct NavTableIvars {
@@ -3367,21 +3273,32 @@ mod imp {
         unsafe impl NSObjectProtocol for DayNavTableData {}
         unsafe impl UIScrollViewDelegate for DayNavTableData {}
 
-        unsafe impl UITableViewDataSource for DayNavTableData {
-            #[unsafe(method(tableView:numberOfRowsInSection:))]
-            fn rows_in_section(&self, _tv: &objc2_ui_kit::UITableView, _section: isize) -> isize {
+        unsafe impl UICollectionViewDataSource for DayNavTableData {
+            #[unsafe(method(collectionView:numberOfItemsInSection:))]
+            fn rows_in_section(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                _section: isize,
+            ) -> isize {
                 self.ivars().items.borrow().len() as isize
             }
 
-            #[unsafe(method_id(tableView:cellForRowAtIndexPath:))]
+            #[unsafe(method_id(collectionView:cellForItemAtIndexPath:))]
             fn cell_for_row(
                 &self,
-                _tv: &objc2_ui_kit::UITableView,
+                cv: &objc2_ui_kit::UICollectionView,
                 index_path: &objc2_foundation::NSIndexPath,
-            ) -> Retained<objc2_ui_kit::UITableViewCell> {
+            ) -> Retained<objc2_ui_kit::UICollectionViewCell> {
                 let mtm = self.mtm();
-                let cell = DayNavCell::new(mtm);
-                let row = unsafe { index_path.row() } as usize;
+                let cell: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
+                    cv.dequeueReusableCellWithReuseIdentifier_forIndexPath(
+                        &NSString::from_str(NAV_CELL_ID),
+                        index_path,
+                    )
+                }
+                .downcast()
+                .expect("the registered class IS UICollectionViewListCell");
+                let row = unsafe { index_path.item() } as usize;
                 let title = self
                     .ivars()
                     .items
@@ -3404,35 +3321,74 @@ mod imp {
                     .get(row)
                     .copied()
                     .flatten();
-                cell.configure(&title, img.as_deref(), tint, bimg.as_deref(), btint);
+                // Both configurations are the ADAPTIVE ones: each reads the `listEnvironment`
+                // trait the list publishes and resolves itself to that appearance. In a sidebar
+                // list that means the inset rounded pill, the tinted label while selected and no
+                // separators — the Settings look, from UIKit, with nothing here naming a radius
+                // or an inset. (The per-appearance spellings, `sidebarCellConfiguration` and
+                // friends, are deprecated precisely because these adapt; they also draw nothing
+                // useful outside a list that publishes the trait, which is why this had to stop
+                // being a UITableView to work at all.)
+                // `defaultContentConfiguration` rather than the class method: it comes back
+                // already resolved against THIS cell's list environment and its current state,
+                // which is where the selected row's tinted label comes from. The class method
+                // resolves the environment but not the state, so the pill drew and the label
+                // stayed the resting color.
+                let content = unsafe { cell.defaultContentConfiguration() };
+                unsafe {
+                    content.setText(Some(&title));
+                    content.setImage(img.as_deref());
+                    // A glyph needs a SIZE. An SF Symbol scales itself to the row's text style,
+                    // but Day's are staged rasters (docs/vectors.md) whose intrinsic size is the
+                    // 48pt canvas they were authored on — so left alone they draw at 48pt and
+                    // drag the row's height up with them. This is the size an iOS list icon is,
+                    // and it is the one thing here that has to be said rather than inherited.
+                    content
+                        .imageProperties()
+                        .setMaximumSize(CGSize::new(28.0, 28.0));
+                    if let Some(c) = tint {
+                        content.imageProperties().setTintColor(Some(&uicolor(c)));
+                    }
+                    cell.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
+                    cell.setBackgroundConfiguration(Some(
+                        &objc2_ui_kit::UIBackgroundConfiguration::listCellConfiguration(mtm),
+                    ));
+                    cell.setAccessories(&nav_accessories(mtm, bimg.as_deref(), btint));
+                }
                 objc2::rc::Retained::into_super(cell)
             }
         }
 
-        unsafe impl UITableViewDelegate for DayNavTableData {
-            #[unsafe(method(tableView:didSelectRowAtIndexPath:))]
+        unsafe impl UICollectionViewDelegate for DayNavTableData {
+            #[unsafe(method(collectionView:didSelectItemAtIndexPath:))]
             fn did_select(
                 &self,
-                tv: &objc2_ui_kit::UITableView,
+                cv: &objc2_ui_kit::UICollectionView,
                 index_path: &objc2_foundation::NSIndexPath,
             ) {
                 day_spec::ffi_guard::contain((), || {
-                    let row = unsafe { index_path.row() };
-                    unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
+                    let _ = cv;
+                    let row = unsafe { index_path.item() };
+                    // The row STAYS selected. A sidebar beside its detail is the one place a
+                    // list's selection means "you are here" rather than "you just tapped", and
+                    // UIKit draws that as the rounded pill Settings shows. Clearing it here left
+                    // the split with nothing marking the page on screen. The model answers this
+                    // event with `NavMenuPatch::Selected`, which is what actually settles the
+                    // highlight — including back to `None` where a presentation has no selection.
                     emit(self.ivars().node, Event::SelectionChanged(row as i64));
                 });
             }
 
             /// The row's context menu (docs/menus.md): the same UIMenu the piece decorator
             /// builds, served through the table's own long-press affordance.
-            #[unsafe(method_id(tableView:contextMenuConfigurationForRowAtIndexPath:point:))]
+            #[unsafe(method_id(collectionView:contextMenuConfigurationForItemAtIndexPath:point:))]
             fn context_menu_for_row(
                 &self,
-                _tv: &objc2_ui_kit::UITableView,
+                _cv: &objc2_ui_kit::UICollectionView,
                 index_path: &objc2_foundation::NSIndexPath,
                 _point: CGPoint,
             ) -> Option<Retained<UIContextMenuConfiguration>> {
-                let row = unsafe { index_path.row() } as usize;
+                let row = unsafe { index_path.item() } as usize;
                 let items = self
                     .ivars()
                     .menus
@@ -3511,6 +3467,65 @@ mod imp {
                 })
             })
             .collect()
+    }
+
+    /// The reuse identifier for a sidebar row.
+    const NAV_CELL_ID: &str = "day.nav.cell";
+
+    /// A row's trailing accessories: the status glyph an app asked for, then the chevron.
+    ///
+    /// `UICellAccessory` rather than subviews placed by hand — the list positions them, sizes them
+    /// and keeps them clear of a label that has to truncate, which the cell this replaced did in
+    /// its own `layoutSubviews`.
+    fn nav_accessories(
+        mtm: MainThreadMarker,
+        badge: Option<&objc2_ui_kit::UIImage>,
+        badge_tint: Option<day_spec::Color>,
+    ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UICellAccessory>> {
+        let mut items: Vec<Retained<objc2_ui_kit::UICellAccessory>> = Vec::new();
+        if let Some(img) = badge {
+            let iv = unsafe {
+                objc2_ui_kit::UIImageView::initWithImage(
+                    objc2_ui_kit::UIImageView::alloc(mtm),
+                    Some(img),
+                )
+            };
+            if let Some(c) = badge_tint {
+                unsafe { iv.setTintColor(Some(&uicolor(c))) };
+            }
+            unsafe { iv.sizeToFit() };
+            let acc = unsafe {
+                objc2_ui_kit::UICellAccessoryCustomView::initWithCustomView_placement(
+                    objc2_ui_kit::UICellAccessoryCustomView::alloc(mtm),
+                    &iv,
+                    objc2_ui_kit::UICellAccessoryPlacement::Trailing,
+                )
+            };
+            items.push(objc2::rc::Retained::into_super(acc));
+        }
+        let chevron = unsafe {
+            objc2_ui_kit::UICellAccessoryDisclosureIndicator::init(
+                objc2_ui_kit::UICellAccessoryDisclosureIndicator::alloc(mtm),
+            )
+        };
+        items.push(objc2::rc::Retained::into_super(chevron));
+        objc2_foundation::NSArray::from_retained_slice(&items)
+    }
+
+    /// Move a sidebar list's highlight to `row`, or clear it (`NavMenuProps::selected`).
+    ///
+    /// Not animated and not scrolled to: this runs while the model syncs the selection, and both
+    /// would read as the list moving under a tap the user already made.
+    fn select_nav_row(cv: &objc2_ui_kit::UICollectionView, row: Option<usize>) {
+        unsafe {
+            let ip = row
+                .map(|r| objc2_foundation::NSIndexPath::indexPathForItem_inSection(r as isize, 0));
+            cv.selectItemAtIndexPath_animated_scrollPosition(
+                ip.as_deref(),
+                false,
+                objc2_ui_kit::UICollectionViewScrollPosition::empty(),
+            );
+        }
     }
 
     impl DayNavTableData {
@@ -5480,10 +5495,16 @@ mod imp {
                     // `props_of` reports it.
                     if let Some(p) = day_spec::props_of::<ContainerProps>(kind, "uikit", props) {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
-                            // tertiarySystemFill is a DYNAMIC UIColor: UIKit re-resolves it on
+                            // The card half of the grouped pair (`DayNavPageView`): a card is
+                            // what LIFTS off the grouped ground, so it takes the lighter of the
+                            // two rather than a fill tinted over whatever is behind it —
+                            // `tertiarySystemFill` is translucent, and on the grouped ground it
+                            // read as grey on grey. Dynamic either way: UIKit re-resolves it on
                             // trait-collection (light/dark) changes automatically.
                             unsafe {
-                                v.setBackgroundColor(Some(&UIColor::tertiarySystemFillColor()));
+                                v.setBackgroundColor(Some(
+                                    &UIColor::secondarySystemGroupedBackgroundColor(),
+                                ));
                                 let layer = v.layer();
                                 layer.setCornerRadius(p.corner_radius);
                                 layer.setMasksToBounds(true);
@@ -5631,7 +5652,9 @@ mod imp {
                             let ph = unsafe { UIViewController::new(mtm) };
                             unsafe {
                                 if let Some(v) = ph.view() {
-                                    v.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+                                    v.setBackgroundColor(Some(
+                                        &UIColor::systemGroupedBackgroundColor(),
+                                    ));
                                 }
                                 let arr =
                                     objc2_foundation::NSArray::from_retained_slice(&[ph.clone()]);
@@ -5648,7 +5671,9 @@ mod imp {
                                 // wholesale when it does.
                                 let ph = UIViewController::new(mtm);
                                 if let Some(v) = ph.view() {
-                                    v.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+                                    v.setBackgroundColor(Some(
+                                        &UIColor::systemGroupedBackgroundColor(),
+                                    ));
                                 }
                                 let arr = objc2_foundation::NSArray::from_retained_slice(&[ph]);
                                 snav.setViewControllers(&arr);
@@ -5742,7 +5767,17 @@ mod imp {
                     let search = p
                         .search
                         .as_ref()
-                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
+                        // EVERY placement lands here, because on iOS the two name one surface.
+                        // `UINavigationItem` owns the bar's buttons AND its search controller, and
+                        // the window toolbar rides that same item (docs/toolbars.md) — so
+                        // "in the toolbar" and "attached to the navigation surface" are the same
+                        // control, and there is nothing for a placement to choose between.
+                        //
+                        // This was a filter on `Inline` alone, which silently dropped the field
+                        // the day iOS gained `Cap::Toolbar`: `SearchPlacement::Automatic` resolves
+                        // to `Toolbar` wherever a toolbar exists, and `build_toolbar_items` skips
+                        // `K::Search` because a `UIBarButtonItem` cannot be a search field. So a
+                        // `.searchable()` surface simply had no field on iOS at all.
                         .map(|sp| {
                             let updater = DaySearchUpdater::new(mtm, id);
                             let sc = unsafe {
@@ -5845,18 +5880,48 @@ mod imp {
                         &p.badge_icons,
                         &p.badge_tints,
                     );
+                    // A SIDEBAR list, not an inset-grouped table (docs/navigation.md). The
+                    // appearance is what publishes the `listEnvironment` trait the cells' adaptive
+                    // configurations read, and it is the whole difference between the Settings
+                    // sidebar and a plain list: the selection draws as an inset rounded pill with
+                    // a tinted label, and the rows carry no separators. A table cannot be told to
+                    // do any of that — its selection is edge to edge whatever background
+                    // configuration the cells are given, which is what this replaced.
+                    let config = unsafe {
+                        objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
+                            objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
+                            objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar,
+                        )
+                    };
+                    let layout = unsafe {
+                        objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(&config)
+                    };
                     let table = unsafe {
-                        objc2_ui_kit::UITableView::initWithFrame_style(
-                            objc2_ui_kit::UITableView::alloc(mtm),
+                        objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
+                            objc2_ui_kit::UICollectionView::alloc(mtm),
                             CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(320.0, 400.0)),
-                            objc2_ui_kit::UITableViewStyle::InsetGrouped,
+                            &layout,
                         )
                     };
                     unsafe {
+                        table.registerClass_forCellWithReuseIdentifier(
+                            Some(
+                                <objc2_ui_kit::UICollectionViewListCell as objc2::ClassType>::class(
+                                ),
+                            ),
+                            &NSString::from_str(NAV_CELL_ID),
+                        );
                         table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                         table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        // The list draws its own ground; letting the page's grouped background
+                        // show through is what puts the rows on it rather than on a white sheet.
+                        table.setBackgroundColor(Some(&objc2_ui_kit::UIColor::clearColor()));
                         table.reloadData();
                     }
+                    // The selection the model already carries (docs/navigation.md). A rebuilt
+                    // sidebar — a language change, a data-driven item set — has to come back
+                    // marking the same page, not blank.
+                    select_nav_row(&table, p.selected);
                     let view = view_of(table);
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
                     // Remember the rows for a `.tabSidebar` host: UIKit draws BOTH its tab bar
@@ -6374,6 +6439,7 @@ mod imp {
                         menus,
                         badge_icons,
                         badge_tints,
+                        selected,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -6388,11 +6454,20 @@ mod imp {
                                     badge_tints,
                                 );
                                 *n = items.len();
-                                if let Some(tv) = h.downcast_ref::<objc2_ui_kit::UITableView>() {
-                                    unsafe { tv.reloadData() };
+                                if let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
+                                {
+                                    unsafe { cv.reloadData() };
+                                    select_nav_row(cv, *selected);
                                 }
                             }
                         });
+                    } else if let Some(NavMenuPatch::Selected(sel)) =
+                        patch.downcast_ref::<NavMenuPatch>()
+                        && let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
+                    {
+                        // Applied WITHOUT re-emitting: `selectRowAtIndexPath` does not call the
+                        // delegate, so there is no echo to suppress here.
+                        select_nav_row(cv, *sel);
                     }
                 }
                 kinds::COVER => {
@@ -7221,7 +7296,11 @@ mod imp {
                         // large title and the two collapse together as the list scrolls, then
                         // come back on a pull down. With a small centered title UIKit keeps the
                         // field pinned and nothing hides (docs/search.md).
-                        item.setHidesSearchBarWhenScrolling(true);
+                        // Whether it PINS is the presentation's call, not this insert's:
+                        // `isCollapsed` is not meaningful yet on a host that has no window, so
+                        // `pin_sidebar_search` settles it here for the shape we have and again
+                        // whenever the split collapses or expands.
+                        pin_sidebar_search(&item, &state.nav);
                         // The collapse is driven by a SCROLL VIEW the navigation controller can
                         // track, and tracking needs the content to extend UNDER the bar rather
                         // than start below it. `DayNavPageView` pins to the safe area, so without
@@ -7230,15 +7309,6 @@ mod imp {
                         // exactly what the flag alone did not fix.
                         vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
                         vc.setExtendedLayoutIncludesOpaqueBars(true);
-                    }
-                    {
-                        item.setLargeTitleDisplayMode(
-                            objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
-                        );
-                        state
-                            .active_nav()
-                            .navigationBar()
-                            .setPrefersLargeTitles(true);
                     }
                 } else if !is_sidebar {
                     // Pushed detail pages keep the compact title: the large one belongs to the
