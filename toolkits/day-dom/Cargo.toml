@@ -23,4 +23,4 @@ log = { workspace = true }
 # no wasm-bindgen runtime for getrandom's own `wasm_js` backend. Target-gated: on native
 # hosts (clippy's cross-target sweep) getrandom keeps its OS backends and the hook is absent.
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.3", default-features = false }
+getrandom = { version = "0.4", default-features = false }
