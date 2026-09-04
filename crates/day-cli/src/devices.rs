@@ -309,16 +309,25 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
 
 /// Whether a screenshot of this simulator comes out wider than tall. `None` when it cannot be
 /// captured or read.
+///
+/// Captured to a temp file, not to stdout: `simctl io screenshot` has no stdout mode, and a `-`
+/// there is taken as a FILE NAME — the capture landed in the CLI's working directory (a 5 MB `-`
+/// in the user's project, one per attempt) while this read got nothing back and every orientation
+/// check silently answered `None`.
 fn simulator_is_landscape(udid: &str) -> Option<bool> {
+    let shot = std::env::temp_dir().join(format!("day-orient-{}.png", std::process::id()));
     let out = Command::new("xcrun")
-        .args(["simctl", "io", udid, "screenshot", "--type=png", "-"])
+        .args(["simctl", "io", udid, "screenshot", "--type=png"])
+        .arg(&shot)
         .output()
         .ok()?;
     if !out.status.success() {
+        let _ = std::fs::remove_file(&shot);
         return None;
     }
+    let png = std::fs::read(&shot).ok()?;
+    let _ = std::fs::remove_file(&shot);
     // A PNG's IHDR puts width and height at bytes 16..24, big-endian — cheaper than decoding it.
-    let png = out.stdout;
     let dims = png.get(16..24)?;
     let w = u32::from_be_bytes(dims[0..4].try_into().ok()?);
     let h = u32::from_be_bytes(dims[4..8].try_into().ok()?);

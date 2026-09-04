@@ -145,10 +145,14 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                         (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
                 int top = edgeToEdge ? 0 : bars.top;
                 statusInsetPx = bars.top;
-                if (lp.leftMargin != bars.left || lp.topMargin != top
+                // A window with no navigation host carries the window toolbar itself
+                // (docs/toolbars.md): the bar takes the top of the safe area, placed in this
+                // same pass, and the root starts below it. 0 when the window has no such bar.
+                int barPx = DayNavHost.WindowBar.layoutDocked(root, bars.left, top, bars.right);
+                if (lp.leftMargin != bars.left || lp.topMargin != top + barPx
                         || lp.rightMargin != bars.right || lp.bottomMargin != bottom) {
                     lp.leftMargin = bars.left;
-                    lp.topMargin = top;
+                    lp.topMargin = top + barPx;
                     lp.rightMargin = bars.right;
                     lp.bottomMargin = bottom;
                     root.setLayoutParams(lp);

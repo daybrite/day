@@ -1528,8 +1528,12 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > `Custom` purely piece-defined. `BridgeKind::ToolbarChanged = 30` (2026-09) carries a phone
 > toolbar item's toggle state or chosen segment up as `Event::ToolbarChanged`, now that the window
 > toolbar rides the mobile navigation chrome — the navigation bar on UIKit, the app bar on Android,
-> in both cases the bar the page already has rather than a second one below it (2026-09;
-> `Cap::Toolbar` is Native on six backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
+> in both cases the bar the page already has rather than a second one below it. A window whose
+> content is no navigation host has no such bar, so both phones give that window one of their own
+> across the top (2026-09) — a UINavigationBar on UIKit, a MaterialToolbar on Android: the app's
+> `Cap::Toolbar` probe ran before the window was built, so answering `Native` and then placing
+> nothing left a canvas app with no commands at all (2026-09; `Cap::Toolbar` is Native on six
+> backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
 [docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
 AppKit needs an NSTextField→NSTextView swap it does not do yet, and ArkUI is unwired — so a
 `.link()` run always draws, and taps report on the six.

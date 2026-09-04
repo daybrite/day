@@ -856,13 +856,16 @@ mod imp {
 
     // ── The window toolbar on a phone (docs/toolbars.md) ───────────────────────────────
     //
-    // A UINavigationController owns a UIToolbar docked under its pages, and each page carries
-    // the items it wants there (`toolbarItems`). Day's window toolbar model becomes that bar:
-    // one item list per window root, built afresh for every page a navigation controller
-    // under that root shows, so the bar reads the same from page to page — the desktop
-    // toolbar's shape on the phone. The navigation bar above keeps `bar_action`; the two
-    // together are the phone's two bars. Search stays on the navigation surface and the
-    // sidebar toggle belongs to the split view, so both item kinds are skipped here.
+    // Day's window toolbar model is one item list per window root, and where it lands depends
+    // on what the window holds. A window whose content is a navigation host puts the items on
+    // the NAVIGATION BAR of the page showing, rebuilt for every page under that root so the
+    // bar reads the same from page to page — the desktop toolbar's shape on the phone, with
+    // the page's own `bar_action`s after it. A window with no navigation host anywhere in it
+    // (a canvas, a form) has no page bar to use, so Day gives it one: a navigation bar across
+    // the top of the window, carrying the same groups, and the day root gives up that strip.
+    //
+    // Search stays on the navigation surface and the sidebar toggle belongs to the split view,
+    // so both item kinds are skipped either way.
 
     const TB_BUTTON: u8 = 0;
     const TB_TOGGLE: u8 = 1;
@@ -947,6 +950,9 @@ mod imp {
         root: Retained<UIView>,
         items: Vec<day_spec::ToolbarItem>,
         targets: Vec<Retained<DayToolbarTarget>>,
+        /// The bar a window with NO navigation host carries instead: a navigation bar of
+        /// the window's own. `None` while the window's pages carry the items.
+        docked: Option<Retained<UINavigationBar>>,
     }
 
     thread_local! {
@@ -1368,6 +1374,49 @@ mod imp {
         }
     }
 
+    /// The items a phone's bar can hold: spacers have no meaning on a bar that folds its
+    /// overflow away, search rides the navigation surface, and the sidebar toggle is the
+    /// split view's own.
+    fn bar_controls(items: &[day_spec::ToolbarItem]) -> Vec<day_spec::ToolbarItem> {
+        items
+            .iter()
+            .filter(|i| {
+                !matches!(
+                    i.kind,
+                    day_spec::ToolbarItemKind::Separator
+                        | day_spec::ToolbarItemKind::Space
+                        | day_spec::ToolbarItemKind::FlexibleSpace
+                        | day_spec::ToolbarItemKind::Search { .. }
+                        | day_spec::ToolbarItemKind::SidebarToggle
+                )
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// One optional group per item, in declaration order, which is what lets a navigation bar
+    /// fold the trailing ones into its overflow menu one at a time as the width runs out
+    /// (docs/toolbars.md) — the reason a phone's bar takes groups rather than plain items.
+    fn optional_item_groups(
+        mtm: MainThreadMarker,
+        controls: &[day_spec::ToolbarItem],
+        bar_items: Vec<Retained<UIBarButtonItem>>,
+    ) -> Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> {
+        controls
+            .iter()
+            .zip(bar_items)
+            .map(|(item, bar)| unsafe {
+                objc2_ui_kit::UIBarButtonItemGroup::optionalGroupWithCustomizationIdentifier_inDefaultCustomization_representativeItem_items(
+                    &NSString::from_str(&item.id),
+                    true,
+                    None,
+                    &objc2_foundation::NSArray::from_retained_slice(&[bar]),
+                    mtm,
+                )
+            })
+            .collect()
+    }
+
     /// Give `vc` the bar of the window it is in, if that window has one, where
     /// `bar_placement` says it goes. Called on every push, on the first page a navigation
     /// controller shows, and again on every model change and presentation change.
@@ -1391,25 +1440,19 @@ mod imp {
         if placement == BarPlacement::Nested {
             return;
         }
+        // A page bar is taking these, so the window's own bar comes down. It is here rather
+        // than in `reapply_window_toolbar` alone because the app installs its toolbar while
+        // it builds the window — before the navigation host it declares has any view — so the
+        // first placement is the docked one, and this is where the host says otherwise.
+        if let Some(root_view) =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
+        {
+            undock_window_toolbar(root, &root_view);
+        }
         let page_items = bar_action_items(mtm, vc);
         let mut targets = Vec::new();
-        // Only the kinds a navigation bar can hold: spacers have no meaning there, search
-        // rides the navigation surface, and the sidebar toggle is the split view's own.
         let controls: Vec<day_spec::ToolbarItem> = match placement {
-            BarPlacement::NavBar => items
-                .iter()
-                .filter(|i| {
-                    !matches!(
-                        i.kind,
-                        day_spec::ToolbarItemKind::Separator
-                            | day_spec::ToolbarItemKind::Space
-                            | day_spec::ToolbarItemKind::FlexibleSpace
-                            | day_spec::ToolbarItemKind::Search { .. }
-                            | day_spec::ToolbarItemKind::SidebarToggle
-                    )
-                })
-                .cloned()
-                .collect(),
+            BarPlacement::NavBar => bar_controls(&items),
             BarPlacement::None | BarPlacement::Nested => Vec::new(),
         };
         let bar_items = build_toolbar_items(mtm, root, &controls, &mut targets);
@@ -1421,21 +1464,9 @@ mod imp {
         unsafe {
             match placement {
                 BarPlacement::NavBar => {
-                    // One optional group per item, in declaration order, so the bar can fold
-                    // the trailing ones into its overflow menu one at a time; the page's own
-                    // actions as a fixed group after them, at the trailing edge.
-                    let mut groups = Vec::new();
-                    for (item, bar) in controls.iter().zip(bar_items) {
-                        groups.push(
-                            objc2_ui_kit::UIBarButtonItemGroup::optionalGroupWithCustomizationIdentifier_inDefaultCustomization_representativeItem_items(
-                                &NSString::from_str(&item.id),
-                                true,
-                                None,
-                                &objc2_foundation::NSArray::from_retained_slice(&[bar]),
-                                mtm,
-                            ),
-                        );
-                    }
+                    // The page's own actions as a fixed group after the window's, at the
+                    // trailing edge.
+                    let mut groups = optional_item_groups(mtm, &controls, bar_items);
                     if let Some(page_items) = page_items
                         && !page_items.is_empty()
                     {
@@ -1480,11 +1511,99 @@ mod imp {
                 w.targets.clear();
             }
         });
-        for nav in toolbar_navs_under(&root_view) {
+        let navs = toolbar_navs_under(&root_view);
+        // A window whose content is not a navigation host has no page bar to put these on
+        // (`toolbar_navs_under` finds nothing) — a canvas or a form filling the window, with
+        // no `nav(…)` anywhere in it. `Cap::Toolbar` answered `Native` before the app built
+        // that window, so dropping the items here would leave the app with neither a bar nor
+        // the in-content strip it skipped on this backend's word. Dock one instead.
+        if navs.is_empty() {
+            dock_window_toolbar(root, &root_view);
+            return;
+        }
+        undock_window_toolbar(root, &root_view);
+        for nav in navs {
             for vc in unsafe { nav.viewControllers() }.iter() {
                 apply_window_toolbar_to(&nav, &vc);
             }
         }
+    }
+
+    /// The window's own bar, built or refreshed: a UINavigationBar across the top of the
+    /// window, carrying the items exactly as a page's own bar carries them — as optional
+    /// groups, so a phone that cannot fit twelve commands folds the trailing ones into the
+    /// bar's overflow menu instead of clipping them. One iOS presentation for the window
+    /// toolbar, whether the window's content brought a navigation host or not.
+    ///
+    /// The day root gives up the strip: `DayHolderView`'s layout pass measures the bar and
+    /// re-pins the root below it, so the content the bar acts on is never underneath it.
+    fn dock_window_toolbar(root: usize, root_view: &UIView) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let Some(holder) = root_view.superview() else {
+            return;
+        };
+        let items = WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.items.clone()));
+        let Some(items) = items else {
+            return;
+        };
+        let mut targets = Vec::new();
+        let controls = bar_controls(&items);
+        let bar_items = build_toolbar_items(mtm, root, &controls, &mut targets);
+        let groups = optional_item_groups(mtm, &controls, bar_items);
+        let existing =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).and_then(|w| w.docked.clone()));
+        let bar = existing.unwrap_or_else(|| {
+            let bar = UINavigationBar::initWithFrame(UINavigationBar::alloc(mtm), CGRect::ZERO);
+            let item = UINavigationItem::new(mtm);
+            unsafe {
+                bar.setItems(Some(&objc2_foundation::NSArray::from_retained_slice(&[
+                    item,
+                ])))
+            };
+            holder.addSubview(&bar);
+            bar
+        });
+        // `topItem` is the one pushed above; a bar with no item would drop the groups.
+        if let Some(item) = unsafe { bar.topItem() } {
+            unsafe {
+                item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(&groups))
+            };
+        }
+        WINDOW_TOOLBARS.with(|t| {
+            if let Some(w) = t.borrow_mut().get_mut(&root) {
+                w.targets.extend(targets);
+                w.docked = Some(bar);
+            }
+        });
+        // The re-pin is the holder's, so it stays one computation for the safe area, the
+        // keyboard rail and this bar — and so the `WindowResized` the shrink causes is
+        // reported through the same path a rotation takes.
+        holder.setNeedsLayout();
+        holder.layoutIfNeeded();
+    }
+
+    /// Take the window's own bar away and give the strip back to the day root — when the app
+    /// clears its toolbar, and when a navigation host appears in the window to carry it.
+    fn undock_window_toolbar(root: usize, root_view: &UIView) {
+        let bar =
+            WINDOW_TOOLBARS.with(|t| t.borrow_mut().get_mut(&root).and_then(|w| w.docked.take()));
+        let Some(bar) = bar else {
+            return;
+        };
+        bar.removeFromSuperview();
+        // Marked, not forced: this runs inside a navigation push as often as not, and the
+        // re-pin emits `WindowResized` back into day-core. The next pass is soon enough.
+        if let Some(holder) = root_view.superview() {
+            holder.setNeedsLayout();
+        }
+    }
+
+    /// The bar this window docks at its top, if it has one.
+    fn docked_window_toolbar(root_view: &UIView) -> Option<Retained<UINavigationBar>> {
+        let key = ptr_of(root_view);
+        WINDOW_TOOLBARS.with(|t| t.borrow().get(&key).and_then(|w| w.docked.clone()))
     }
 
     /// Take a window's bar off every page under it, leaving each page's own bar actions.
@@ -3039,13 +3158,32 @@ mod imp {
                     };
                     let bounds = self.bounds();
                     let insets = self.safeAreaInsets();
-                    let inner = CGRect::new(
+                    let mut inner = CGRect::new(
                         CGPoint::new(insets.left, insets.top),
                         CGSize::new(
                             (bounds.size.width - insets.left - insets.right).max(0.0),
                             (bounds.size.height - insets.top - insets.bottom).max(0.0),
                         ),
                     );
+                    // A window with no navigation host of its own carries the window toolbar
+                    // here, across the top (docs/toolbars.md), where a page's bar would be.
+                    // Framed on every pass rather than autoresized: its height is the bar's
+                    // own answer for THIS width and it starts at the safe area's top edge,
+                    // both of which a rotation changes — and the root's own frame is measured
+                    // from them. A standalone bar lays its items out in the frame it is GIVEN
+                    // (a navigation controller's insets itself), so a bar spanning the top
+                    // inset would center its items over the status bar.
+                    if let Some(bar) = docked_window_toolbar(&root) {
+                        let h = bar.sizeThatFits(bounds.size).height;
+                        unsafe {
+                            bar.setFrame(CGRect::new(
+                                CGPoint::new(0.0, insets.top),
+                                CGSize::new(bounds.size.width, h),
+                            ))
+                        };
+                        inner.origin.y += h;
+                        inner.size.height = (inner.size.height - h).max(0.0);
+                    }
                     if inner.origin.x == base.origin.x
                         && inner.origin.y == base.origin.y
                         && inner.size.width == base.size.width
@@ -5502,6 +5640,9 @@ mod imp {
         fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
             let root = ptr_of(h);
             if items.is_empty() {
+                // Before the entry goes: the window's own bar lives in it, and a dropped
+                // `Retained` would leave the strip on screen with nothing driving it.
+                undock_window_toolbar(root, h);
                 WINDOW_TOOLBARS.with(|t| {
                     t.borrow_mut().remove(&root);
                 });
@@ -5509,12 +5650,17 @@ mod imp {
                 return;
             }
             WINDOW_TOOLBARS.with(|t| {
-                t.borrow_mut().insert(
+                let mut t = t.borrow_mut();
+                // A model change re-fills the SAME bar (`dock_window_toolbar` sets its items
+                // afresh); rebuilding the view would flash the strip on every enable change.
+                let docked = t.get_mut(&root).and_then(|w| w.docked.take());
+                t.insert(
                     root,
                     WindowToolbar {
                         root: h.clone(),
                         items: items.to_vec(),
                         targets: Vec::new(),
+                        docked,
                     },
                 );
             });

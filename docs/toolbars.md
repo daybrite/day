@@ -151,8 +151,17 @@ page that is showing — the detail column's on an expanded iPad split, the merg
 it has collapsed or on a phone — as iOS 16 item groups, one per item, ahead of the page's own
 `bar_action`s; what the bar cannot fit folds into its overflow menu, trailing items first, so
 declare the least-used items last. No bottom bar, and the sidebar column never carries the
-window's bar: one bar per window, on the content it acts on. Android does the same in the nav
-host's APP BAR (2026-09): the items go in as menu items shown as actions, leading the page's own
+window's bar: one bar per window, on the content it acts on.
+
+A window whose content is not a navigation host anywhere — a canvas or a form filling the
+window — has no page bar to put them on, so both phones give it one (2026-09): iOS a navigation
+bar of the window's own across the top under the status bar, Android a Material app bar in the
+same place, each carrying the same items with the same overflow, and the window's content starts
+below it. The app's own `capability(Cap::Toolbar)` probe runs before it builds that window, so a
+backend that answered `Native` and then had nowhere to put the items left the app with neither a
+bar nor the in-content strip it skipped.
+
+Android does the same in the nav host's APP BAR (2026-09): the items go in as menu items shown as actions, leading the page's own
 `bar_action`s, and what the bar cannot fit folds into its overflow (⋮) in declaration order.
 Day used to dock a second `MaterialToolbar` under the pages, which read as a phone's bottom bar
 and, tiled on a tablet, as a strip of icons stranded below both panes with the titled bar above

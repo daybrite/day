@@ -54,10 +54,15 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
                 int bottom = Math.max(bars.bottom, ime.bottom);
                 android.widget.FrameLayout.LayoutParams lp =
                         (android.widget.FrameLayout.LayoutParams) root.getLayoutParams();
-                if (lp.leftMargin != bars.left || lp.topMargin != bars.top
+                // A secondary window with no navigation host carries the window toolbar the
+                // same way the primary does (docs/toolbars.md): the bar takes the top of the
+                // safe area and the root starts below it.
+                int barPx = DayNavHost.WindowBar.layoutDocked(root, bars.left, bars.top,
+                        bars.right);
+                if (lp.leftMargin != bars.left || lp.topMargin != bars.top + barPx
                         || lp.rightMargin != bars.right || lp.bottomMargin != bottom) {
                     lp.leftMargin = bars.left;
-                    lp.topMargin = bars.top;
+                    lp.topMargin = bars.top + barPx;
                     lp.rightMargin = bars.right;
                     lp.bottomMargin = bottom;
                     root.setLayoutParams(lp);

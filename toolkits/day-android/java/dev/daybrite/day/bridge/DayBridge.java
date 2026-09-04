@@ -1105,6 +1105,9 @@ public final class DayBridge {
         if (windowToolbarSpec != null && !windowToolbarSpec.isEmpty()) {
             try {
                 host.setWindowToolbar(windowToolbarSpec);
+                // The window carried the items itself until this host existed; its app bar has
+                // them now, so that bar comes down (docs/toolbars.md).
+                DayNavHost.WindowBar.undockAll();
             } catch (Throwable t) {
                 android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
             }
@@ -1129,16 +1132,25 @@ public final class DayBridge {
         return null;
     }
 
-    // The window toolbar (docs/toolbars.md): a MaterialToolbar docked under the nav host's
-    // pages, one record per item (day-android `serialize_toolbar`). Applied to the host under
-    // `root` when there is one, and remembered for the host that comes later (makeNavHost).
-    // Wrapped like setNavMenu: a throw here can never reach the native tree build.
+    // The window toolbar (docs/toolbars.md): one record per item (day-android
+    // `serialize_toolbar`), painted onto the app bar of the nav host under `root`, and
+    // remembered for the host that comes later (makeNavHost). A window with NO nav host gets a
+    // bar of its own instead — `Cap::Toolbar` answered Native before the app built the window,
+    // so an app that skipped its in-content strip on that answer would otherwise show no
+    // commands at all. Wrapped like setNavMenu: a throw here can never reach the tree build.
     public static void setWindowToolbar(View root, String spec) {
         windowToolbarSpec = spec;
         try {
             DayNavHost h = findNavHost(root);
             if (h == null) h = DayNavHost.active;
-            if (h != null) h.setWindowToolbar(spec);
+            if (h != null) {
+                DayNavHost.WindowBar.undock(root);
+                h.setWindowToolbar(spec);
+            } else if (spec == null || spec.isEmpty()) {
+                DayNavHost.WindowBar.undock(root);
+            } else {
+                DayNavHost.WindowBar.dock(root, spec);
+            }
         } catch (Throwable t) {
             android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
         }
@@ -1149,7 +1161,11 @@ public final class DayBridge {
         try {
             DayNavHost h = findNavHost(root);
             if (h == null) h = DayNavHost.active;
-            if (h != null) h.updateWindowToolbar(id, op, num);
+            if (h != null) {
+                h.updateWindowToolbar(id, op, num);
+            } else {
+                DayNavHost.WindowBar.updateDocked(root, id, op, num);
+            }
         } catch (Throwable t) {
             android.util.Log.e("Day", "window toolbar update failed; continuing", t);
         }
