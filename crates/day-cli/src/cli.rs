@@ -478,10 +478,17 @@ enum Cmd {
     /// Build a standalone app against a LOCAL day checkout (writes .cargo/config.toml), and
     /// verify no day crate is still resolving from git
     Patch {
-        /// Path to the day checkout to build against. Omit to only verify the current resolution.
-        #[arg(long)]
-        local: Option<std::path::PathBuf>,
-        /// Exit non-zero when any day crate resolves from git (CI's guard against a stale table)
+        /// A checkout to build against (repeatable): the day framework, or an external piece or
+        /// part repository. Omit everything to only verify the current resolution.
+        #[arg(long, value_name = "CHECKOUT")]
+        local: Vec<std::path::PathBuf>,
+        /// A fork of the day repository to build against, as `URL[@REF]`; REF is a branch, a
+        /// 40-hex commit, or an explicit `tag=`/`branch=`/`rev=`. Written for the whole graph, so
+        /// external pieces follow the fork too. Meant to be committed.
+        #[arg(long, value_name = "URL[@REF]")]
+        git: Option<String>,
+        /// Exit non-zero when a patched source still resolves from git (CI's guard against a
+        /// stale table)
         #[arg(long)]
         check: bool,
     },
@@ -1056,9 +1063,27 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             let json = json || cli.format == OutputFormat::Json;
             Ok(crate::lint::run(project, strict, &allow, json, fix))
         }),
-        Cmd::Patch { local, check } => with_project(cli.project.as_deref(), |project| {
-            crate::patch::run(project, local.as_deref(), check).map(|()| 0)
-        }),
+        Cmd::Patch { local, git, check } => {
+            // A piece or part crate is a cargo package with no Day.toml, and it depends on day
+            // from git exactly like an app — so `day patch` takes any cargo package root, and
+            // only falls back to the Day-project search when the directory is not one.
+            let root = match meta::find_project(cli.project.as_deref()) {
+                Ok(project) => project.root,
+                Err(e) => {
+                    let dir = match cli.project.clone() {
+                        Some(p) => p,
+                        None => std::env::current_dir()
+                            .map_err(|e| CliError::failure(format!("current directory: {e}")))?,
+                    };
+                    if !dir.join("Cargo.toml").is_file() {
+                        return Err(CliError::usage(e));
+                    }
+                    dir.canonicalize()
+                        .map_err(|e| CliError::failure(format!("{}: {e}", dir.display())))?
+                }
+            };
+            crate::patch::run(&root, &local, git.as_deref(), check).map(|()| 0)
+        }
         Cmd::Store { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::store::run(project, &cmd).map(|()| 0)
         }),
@@ -1431,6 +1456,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             // Cargo records the patched sources in Cargo.lock; the guard puts it back when the
             // build phase ends, so a flag that promises to change nothing leaves nothing changed.
             let _lock = crate::patch::LockGuard::new(project);
+            // One copy of every day crate, before anything compiles (crate::patch::verify_graph).
+            crate::patch::verify_graph(project).map_err(CliError::usage)?;
             let mut results = Vec::new();
             for p in &platforms {
                 let target = crate::external::find_target(project, p).map_err(CliError::usage)?;
@@ -1489,6 +1516,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             };
             with_project(start.as_deref(), |project| {
                 use_day_src(day_src.as_deref(), project)?;
+                crate::patch::verify_graph(project).map_err(CliError::usage)?;
                 // No `-p`: run what this machine natively is. Announced rather than assumed — the
                 // chosen target decides which toolkit gets built, so a silent pick would be a
                 // surprising several-minute build of something the caller did not name.

@@ -341,7 +341,8 @@ resolves against the whole window and the component covers the page.
 
 The Swift shim exposes a flat C ABI (`@_cdecl`) that the piece's Rust calls (mirroring the Android Java
 shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust wraps via
-`Retained::from_raw`. See `pieces/day-piece-lottie/{ios/swift/DayLottie.swift,src/lib-uikit.rs}`.
+`Retained::from_raw`. See `ios/swift/DayLottie.swift` and `src/lib-uikit.rs` in
+[day-piece-lottie](https://github.com/daybrite/day-piece-lottie).
 
 ### The Android bridging contract
 
@@ -514,10 +515,17 @@ backend (an embedded browser) that additionally contributes an Android permissio
 `WKWebView` (`dlopen`-ing WebKit.framework so the piece stays self-contained), and returns the proposal
 from `measure` so a growing leaf fills on Android.
 
-`pieces/day-piece-lottie` (see [lottie.md](lottie.md)) is a third reference: an iOS/Android-only piece
-that pulls an external native package on each platform, the lottie-ios SwiftPM package (via the
-`[package.metadata.day.ios]` mechanism above) and `com.airbnb.android:lottie` (Gradle). Its Swift
-and Java shims each wrap a `LottieAnimationView` behind a flat C ABI / static method.
+[day-piece-lottie](https://github.com/daybrite/day-piece-lottie) is a third reference, and the first
+piece to live in its own repository: an iOS/Android-only piece that pulls an external native package
+on each platform, the lottie-ios SwiftPM package (via the `[package.metadata.day.ios]` mechanism
+above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each wrap a
+`LottieAnimationView` behind a flat C ABI / static method. It is also the reference for an external
+repository: bare canonical `git = "https://github.com/daybrite/day.git"` dependencies with no ref (so
+the consuming app's `Cargo.lock` picks one day revision for the whole graph), a
+`[package.metadata.day] compat = "0.4"` line naming the day minor it was tested against, a `demo/`
+app whose dayscript is the on-device test, and a headless `model` module tested on the host. In
+this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg
+with a fixture piece that pulls swift-collections.
 
 `parts/day-part-speech` (see [speech.md](speech.md)) is the reference for the other mechanism:
 a headless part whose every platform implementation is a [bridge](bridge.md) arm — Swift, Java,

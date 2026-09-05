@@ -1038,24 +1038,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-piece-lottie"
-version = "0.4.1"
-dependencies = [
- "day-android",
- "day-core",
- "day-mock",
- "day-pieces",
- "day-reactive",
- "day-spec",
- "day-uikit",
- "linkme",
- "log",
- "objc2",
- "objc2-foundation",
- "objc2-ui-kit",
-]
-
-[[package]]
 name = "day-piece-map"
 version = "0.4.1"
 dependencies = [

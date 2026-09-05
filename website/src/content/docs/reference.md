@@ -74,7 +74,7 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | [webview-eval](/docs/internal/webview-eval) | web view JavaScript evaluation: API and per-platform support |
 | [map](/docs/internal/map) | `day-piece-map` — native maps |
 | [media](/docs/internal/media) | `day-piece-media` — audio/video playback |
-| [lottie](/docs/internal/lottie) | `day-piece-lottie` — Lottie animations |
+| [lottie](https://github.com/daybrite/day-piece-lottie) | `day-piece-lottie` — Lottie animations (its own repository) |
 | [combobox](/docs/internal/combobox) | `day-piece-combobox` — free-form text plus a native dropdown |
 | [searchfield](/docs/internal/searchfield) | `day-piece-searchfield` — the search input |
 | [activity](/docs/internal/activity) | `day-piece-activity` — activity spinners |

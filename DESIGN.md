@@ -85,7 +85,7 @@ the architecture-level view and the rationale.
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (webview, media, map, lottie, searchfield, combobox, color picker, …) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [docs/lottie.md](docs/lottie.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (webview, media, map, searchfield, combobox, color picker, …) and external ones (lottie) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | built-in controls — picker, text area | [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -2497,8 +2497,10 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 Two package kinds share the mechanism:
 
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
-  datetime, color picker, styled-text editor, pull-refresh, webview, media, map, lottie,
-  remote-image.
+  datetime, color picker, styled-text editor, pull-refresh, webview, media, map,
+  remote-image. Lottie is the same kind of package in its own repository
+  ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie)); see the note
+  under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
@@ -2509,6 +2511,25 @@ Two package kinds share the mechanism:
   registration and metadata machinery, no widget.
 
 ### §15.2 Package layout and aggregation
+
+> [!NOTE]
+> **External repositories (2026-09).** `day-piece-lottie`, the layout example below, moved out of
+> this tree into [daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie) — the
+> first piece to live in its own repository, and the reference for the next one. Nothing about
+> the layout or the aggregation changed; what an external repository adds is a dependency rule
+> and a test harness. Its day dependencies name the BARE canonical URL
+> (`git = "https://github.com/daybrite/day.git"`, no branch, tag, or rev): cargo unifies a git
+> dependency only when URL and ref match, and it refuses a `[patch]` that points a URL at itself
+> on another ref, so a piece that pinned a tag would double every day crate in an app on `main`.
+> The consuming app's `Cargo.lock` picks one revision for the whole graph;
+> `[package.metadata.day] compat = "X.Y"` records the day minor the crate was tested against and
+> `day build` notes a mismatch; `day build`/`launch` refuse a graph carrying two copies of any
+> day crate (`crate::patch::verify_graph`). A `demo/` app in the repository depends on the crate
+> by path, and its dayscript is the on-device test; `day patch --local <checkout>` takes any
+> number of checkouts (day, pieces, parts) and works from a piece crate's own root, and
+> `day patch --git <fork>[@<ref>]` writes a committable table that redirects the canonical URL
+> to a fork for the whole graph, external pieces included. In this tree the `swift-packages`
+> key is exercised by a fixture piece in `scripts/ci/scaffold-check.sh` (ios-uikit).
 
 The shipped layout — everything rides `Cargo.toml`, no side manifest:
 
@@ -2901,7 +2922,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `split-xcconfig` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
-| `day patch [--local <checkout>] [--check]` | build a standalone app against a LOCAL day checkout: writes the machine-local `.cargo/config.toml` `[patch]` table, and `--check` fails when any day crate still resolves from git — the guard against a stale table silently mixing a local framework with a published one |
+| `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256. App sites serve it at `/gallery/gallery.json`; `--out` places it |
@@ -3701,7 +3722,8 @@ day/                                # THIS repository
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
   pieces/                           # external-style UI pieces (day-piece-combobox, -searchfield,
                                     #   -picker, -rating, -activity, -webview, -media, -map,
-                                    #   -lottie, -remote-image, -colorpicker, -texteditor)
+                                    #   -remote-image, -colorpicker, -texteditor); day-piece-lottie
+                                    #   lives in its own repository (§15.2)
   parts/                            # headless platform services (day-part-battery, -network,
                                     #   -sensors, -clipboard, -prefs, -haptics, -deviceinfo,
                                     #   -http, -permissions, -location)
@@ -4940,7 +4962,8 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 ### B.4 Lottie (tier 2 — bridging famous native libraries)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-lottie` ([docs/lottie.md](docs/lottie.md)): lottie-ios via
+> **Shipped** as `day-piece-lottie`, since 2026-09 in its own repository
+> ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [§15.2](#152-package-layout-and-aggregation)): lottie-ios via
 > `[package.metadata.day.ios]` `swift-packages`, lottie-android via
 > `[package.metadata.day.android]` `gradle-dependencies` — the exact third-party-coordinate
 > flow this example was designed to prove, minus `piece.yaml` ([§15.2](#152-package-layout-and-aggregation)). `Cap::Lottie` gates

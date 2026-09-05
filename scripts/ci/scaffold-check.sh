@@ -128,6 +128,55 @@ if [ -n "$COMBO" ]; then
             ;;
     esac
 
+    # ios-uikit only: keep `[package.metadata.day.ios] swift-packages` exercised end to end. The
+    # piece that introduced that key (day-piece-lottie) lives in its own repository now, so this
+    # tree needs a fixture of its own: a native piece scaffolded beside the app that declares one
+    # small, stable public SwiftPM package and a Swift shim importing it. `day pack` below then
+    # generates the DayPieces package, xcodebuild resolves swift-collections, and the shim links —
+    # the whole path a real third-party package takes, in the job that already builds for iOS.
+    # The piece is never drawn; being in the app's dependency closure with the uikit feature is
+    # what puts its metadata in front of the aggregator.
+    if [ "$COMBO" = ios-uikit ]; then
+        mkdir -p pieces
+        ( cd pieces && "$DAY" new piece ci-swiftpm --toolkits uikit --local "$ROOT" --no-input )
+        cat >> pieces/ci-swiftpm/Cargo.toml <<'TOML'
+
+# The scaffold-check fixture: one real SwiftPM package, resolved and linked by `day pack`.
+[package.metadata.day.ios]
+swift = ["ios/swift"]
+swift-packages = [
+    { url = "https://github.com/apple/swift-collections", from = "1.1.0", products = ["Collections"] },
+]
+TOML
+        # The template already carries an (empty) [package.metadata.day.ios]; the append above must
+        # be the only one, or cargo refuses the duplicate table.
+        python3 - <<'PY'
+import re, pathlib
+p = pathlib.Path("pieces/ci-swiftpm/Cargo.toml"); s = p.read_text()
+first = s.find("[package.metadata.day.ios]")
+last = s.rfind("[package.metadata.day.ios]")
+if first != last:
+    # Drop the template's block: from its header up to the next table header or the append.
+    end = s.find("\n[", first + 1)
+    s = s[:first] + s[end + 1:]
+p.write_text(s)
+PY
+        mkdir -p pieces/ci-swiftpm/ios/swift
+        cat > pieces/ci-swiftpm/ios/swift/CiSwiftpm.swift <<'SWIFT'
+import Collections
+
+/// Reached by nothing; its existence is the test. `import Collections` fails to compile unless
+/// `day pack` resolved the swift-collections package this piece declares in Cargo.toml.
+@_cdecl("day_ci_swiftpm_probe")
+public func day_ci_swiftpm_probe() -> Int {
+    var deque = Deque<Int>()
+    deque.append(1)
+    return deque.count
+}
+SWIFT
+        printf '\n[dependencies.ci-swiftpm]\npath = "pieces/ci-swiftpm"\n' >> Cargo.toml
+    fi
+
     "$DAY" pack -p "$COMBO" --profile release --no-version-in-name
 
     # The installable containers, not the SBOM/buildinfo sidecars beside them (which are named

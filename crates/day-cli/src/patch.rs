@@ -1,25 +1,39 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day patch` — build a standalone app against a LOCAL day checkout instead of the git dependency.
+//! `day patch` — build an app against a LOCAL checkout, or a FORK, of the crates it takes from git.
 //!
 //! An app outside this repository declares its framework dependencies from git:
 //!
 //! ```toml
 //! day = { git = "https://github.com/daybrite/day.git" }
+//! day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
 //! ```
 //!
-//! which is what a user's app looks like and what CI should resolve. Developing the framework and
-//! the app together needs those to come from a checkout instead, and Cargo's answer is a `[patch]`
-//! table in a machine-local `.cargo/config.toml`. Writing that table by hand is the problem this
-//! command exists to remove: it is a list of absolute paths that goes stale when a dependency is
-//! added, and a MISSING ENTRY DOES NOT FAIL. Cargo simply resolves that crate from the git cache,
-//! and the build silently mixes a local framework with a published one — green, and testing
-//! something other than what you think.
+//! which is what a user's app looks like and what CI should resolve. Two situations need those to
+//! come from somewhere else, and Cargo's answer to both is a `[patch]` table:
 //!
-//! Only DIRECT dependencies need an entry. A patched crate's own dependencies are path deps inside
-//! the same checkout, so they follow automatically; `--check` is what proves that, by asserting no
-//! `day*` package in the resolved graph carries a git source.
+//! * **Developing the framework (or an external piece) and the app together.** The crates come
+//!   from a checkout on disk: `day patch --local ../day --local ../day-piece-lottie`. The table is
+//!   machine-local and gitignored.
+//! * **Building against a fork.** Every day crate comes from another git repository:
+//!   `day patch --git https://github.com/acme/day.git@acme`. Cargo applies the table to the WHOLE
+//!   graph, so an external piece that depends on the canonical `daybrite/day` URL builds against
+//!   the fork too, unchanged. That table is meant to be committed.
+//!
+//! Writing either table by hand is the problem this command exists to remove: it is a list of
+//! entries that goes stale when a dependency is added, and a MISSING ENTRY DOES NOT FAIL. Cargo
+//! simply resolves that crate from the git cache, and the build silently mixes a local (or forked)
+//! framework with a published one — green, and testing something other than what you think.
+//!
+//! Only DIRECT dependencies of each source need an entry. A patched crate's own dependencies are
+//! path deps inside the same checkout, so they follow automatically; `--check` is what proves
+//! that, by asserting no package from a patched source still carries its git source.
+//!
+//! The one thing a `[patch]` cannot do is re-point a URL at ITSELF on another ref (cargo refuses:
+//! "patches must point to different sources"). That is why external crates depend on the bare
+//! canonical URL and let the app's `Cargo.lock` pick the revision, and why `--day-src` clones a
+//! ref into a directory and patches to the PATH ([`resolve_day_src`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -29,13 +43,11 @@ use crate::cli::CliError;
 use crate::meta::Project;
 use crate::ops::status;
 
-/// The git URL an app's framework dependencies point at, and the key of the `[patch]` table.
-const DAY_GIT: &str = "https://github.com/daybrite/day.git";
+/// The git URL an app's framework dependencies point at, and the key of the framework's `[patch]`
+/// table. A checkout that carries the `day` crate stands for this URL whatever its manifest's
+/// `repository` says, so a fork checked out locally still patches the canonical name.
+pub(crate) const DAY_GIT: &str = "https://github.com/daybrite/day.git";
 
-/// Every crate a day checkout publishes: package name → absolute directory.
-///
-/// Read from the checkout's own workspace members rather than a hardcoded list, so a crate added
-/// to the framework needs no change here.
 /// One triple per platform Day targets. A day crate reaches an app THROUGH the umbrella and the
 /// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself — so the set to
 /// patch is the resolved graph of every platform, not the app's own manifest. Resolving for the
@@ -51,11 +63,118 @@ const PATCH_TRIPLES: &[&str] = &[
     "aarch64-unknown-linux-ohos",
 ];
 
-/// Every day crate in `project`'s resolved graph for one platform, whether it comes from the day
-/// git remote or (on a re-run, when the patch is already in place) from the checkout itself.
-fn day_crates_for(project: &Project, triple: &str, checkout: Option<&Path>) -> Vec<String> {
+/// One source URL the table redirects, and where it goes.
+pub struct Source {
+    /// The URL the dependencies name, as they write it (`https://github.com/daybrite/day.git`).
+    pub url: String,
+    pub target: Target,
+}
+
+/// Where a patched source's crates come from instead.
+pub enum Target {
+    /// A checkout on disk: every crate the graph takes from the URL becomes a path dependency.
+    Checkout(PathBuf),
+    /// Another git repository: every crate becomes `{ git = <fork>, <branch|tag|rev> = <ref> }`.
+    Fork {
+        url: String,
+        git_ref: Option<GitRef>,
+    },
+}
+
+/// How a fork ref is spelled in the table. `--git URL@REF` guesses from the ref's shape; an
+/// explicit `URL@tag=v1.2.0` / `@branch=x` / `@rev=<sha>` says so.
+#[derive(Clone, Debug, PartialEq)]
+pub enum GitRef {
+    Branch(String),
+    Tag(String),
+    Rev(String),
+}
+
+impl GitRef {
+    /// `tag=v1`, `branch=main`, `rev=<sha>`, or a bare ref: 40 hex digits are a commit, and
+    /// everything else a branch. Tags are named explicitly, since `v1.2.0` and `release` are both
+    /// plausible branch names and cargo fails a wrong guess with a fetch error minutes later.
+    pub fn parse(spec: &str) -> Self {
+        if let Some(rest) = spec.strip_prefix("tag=") {
+            return GitRef::Tag(rest.to_string());
+        }
+        if let Some(rest) = spec.strip_prefix("branch=") {
+            return GitRef::Branch(rest.to_string());
+        }
+        if let Some(rest) = spec.strip_prefix("rev=") {
+            return GitRef::Rev(rest.to_string());
+        }
+        if spec.len() == 40 && spec.chars().all(|c| c.is_ascii_hexdigit()) {
+            return GitRef::Rev(spec.to_string());
+        }
+        GitRef::Branch(spec.to_string())
+    }
+
+    fn key(&self) -> &'static str {
+        match self {
+            GitRef::Branch(_) => "branch",
+            GitRef::Tag(_) => "tag",
+            GitRef::Rev(_) => "rev",
+        }
+    }
+
+    fn value(&self) -> &str {
+        match self {
+            GitRef::Branch(v) | GitRef::Tag(v) | GitRef::Rev(v) => v,
+        }
+    }
+}
+
+/// A git URL reduced to what cargo compares: no `git+` scheme prefix, no `?branch=…` query, no
+/// `#<sha>` fragment, no trailing slash or `.git`, lowercase. Two dependencies on
+/// `https://github.com/daybrite/day.git` and `https://github.com/daybrite/day` are one source to
+/// cargo, and must be one source here.
+pub(crate) fn canon(url: &str) -> String {
+    let url = url.trim().trim_start_matches("git+");
+    let url = url.split(['?', '#']).next().unwrap_or(url);
+    let url = url.trim_end_matches('/');
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    url.to_ascii_lowercase()
+}
+
+/// The package's git source, canonicalized, when the resolved package is one this project may
+/// patch — or `None` for anything else: the project's own packages, registry crates, path deps.
+///
+/// A package already patched to one of `checkouts` reports that checkout's URL, so a re-run keeps
+/// the entry it wrote the first time instead of shrinking the table.
+fn package_source(
+    manifest_path: Option<&str>,
+    source: Option<&str>,
+    project_root: &Path,
+    checkouts: &[(String, PathBuf)],
+) -> Option<String> {
+    // The project's OWN packages are never crates to patch, whatever they are called. CI checks
+    // an app out INSIDE the day workspace (`day/showcase-src`), which puts the app's manifest
+    // under the checkout root and made the checkout arm below claim it.
+    if manifest_path.is_some_and(|m| Path::new(m).starts_with(project_root)) {
+        return None;
+    }
+    if let Some(s) = source
+        && s.starts_with("git+")
+    {
+        return Some(canon(s));
+    }
+    let manifest = manifest_path.map(Path::new)?;
+    checkouts
+        .iter()
+        .find(|(_, root)| manifest.starts_with(root))
+        .map(|(url, _)| url.clone())
+}
+
+/// Every git-sourced package in `project`'s resolved graph for one platform: name → canonical
+/// source URL. Packages already patched to a checkout in `checkouts` count as that checkout's.
+fn resolved_git_packages(
+    root: &Path,
+    triple: &str,
+    checkouts: &[(String, PathBuf)],
+) -> Vec<(String, String)> {
     let Ok(out) = Command::new("cargo")
-        .current_dir(&project.root)
+        .current_dir(root)
         .args([
             "metadata",
             "--format-version",
@@ -77,7 +196,7 @@ fn day_crates_for(project: &Project, triple: &str, checkout: Option<&Path>) -> V
     let Ok(doc) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
         return Vec::new();
     };
-    let mut names = Vec::new();
+    let mut found = Vec::new();
     for pkg in doc
         .get("packages")
         .and_then(|p| p.as_array())
@@ -87,61 +206,38 @@ fn day_crates_for(project: &Project, triple: &str, checkout: Option<&Path>) -> V
         let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
         let manifest_path = pkg.get("manifest_path").and_then(|m| m.as_str());
         let source = pkg.get("source").and_then(|s| s.as_str());
-        if needs_patch_entry(name, manifest_path, source, &project.root, checkout) {
-            names.push(name.to_string());
+        if let Some(url) = package_source(manifest_path, source, root, checkouts) {
+            found.push((name.to_string(), url));
         }
     }
-    names
+    found
 }
 
-/// Whether one resolved package is a day crate this project must patch.
+/// Every crate a checkout publishes: package name → absolute directory.
 ///
-/// Split out of [`day_crates_for`] so the decision is testable without a resolver — the
-/// `day-showcase` regression below is a three-line predicate that took a CI job to notice.
-fn needs_patch_entry(
-    name: &str,
-    manifest_path: Option<&str>,
-    source: Option<&str>,
-    project_root: &Path,
-    checkout: Option<&Path>,
-) -> bool {
-    if !name.starts_with("day") {
-        return false;
-    }
-    // The project's OWN packages are never crates to patch, whatever they are called. Apps are
-    // named `day-<something>` by convention, so the name filter above does not separate them
-    // from the framework — and CI checks an app out INSIDE the day workspace
-    // (`day/showcase-src`), which puts the app's manifest under the checkout root and made the
-    // `from_checkout` arm below claim it. `day patch` then went looking for `day-showcase`
-    // among day's own crates and failed every toolkit job.
-    if manifest_path.is_some_and(|m| Path::new(m).starts_with(project_root)) {
-        return false;
-    }
-    let from_git = source.is_some_and(|s| {
-        s.trim_start_matches("git+")
-            .starts_with(DAY_GIT.trim_end_matches(".git"))
-    });
-    // Already patched to the checkout: keep it, or a second `day patch` would shrink the table
-    // it wrote the first time.
-    let from_checkout =
-        checkout.is_some_and(|root| manifest_path.is_some_and(|m| Path::new(m).starts_with(root)));
-    from_git || from_checkout
-}
-
+/// Read from the checkout's own workspace members rather than a hardcoded list, so a crate added
+/// to the framework needs no change here. A single-crate repository (an external piece) is its
+/// own one-entry map.
 fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
     let manifest = root.join("Cargo.toml");
     let text = std::fs::read_to_string(&manifest)
-        .map_err(|e| format!("{}: {e} — is that a day checkout?", manifest.display()))?;
+        .map_err(|e| format!("{}: {e} — is that a checkout?", manifest.display()))?;
     let doc: toml::Value =
         toml::from_str(&text).map_err(|e| format!("{}: {e}", manifest.display()))?;
+
+    let mut out = BTreeMap::new();
+    if let Some(name) = doc
+        .get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+    {
+        out.insert(name.to_string(), root.to_path_buf());
+    }
     let members = doc
         .get("workspace")
         .and_then(|w| w.get("members"))
-        .and_then(|m| m.as_array())
-        .ok_or_else(|| format!("{}: no [workspace] members", manifest.display()))?;
-
-    let mut out = BTreeMap::new();
-    for m in members.iter().filter_map(|m| m.as_str()) {
+        .and_then(|m| m.as_array());
+    for m in members.into_iter().flatten().filter_map(|m| m.as_str()) {
         let dir = root.join(m);
         let Ok(text) = std::fs::read_to_string(dir.join("Cargo.toml")) else {
             continue;
@@ -158,30 +254,55 @@ fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
         }
     }
     if out.is_empty() {
-        return Err(format!("{}: no workspace members resolved", root.display()));
+        return Err(format!(
+            "{}: neither a package nor a workspace with members",
+            root.display()
+        ));
     }
     Ok(out)
 }
 
-/// The project's DIRECT dependencies that come from the day git repository.
-fn git_deps(project: &Project, checkout: Option<&Path>) -> Result<Vec<String>, String> {
-    let mut names = manifest_git_deps(project)?;
-    for triple in PATCH_TRIPLES {
-        for name in day_crates_for(project, triple, checkout) {
-            if !names.contains(&name) {
-                names.push(name);
-            }
-        }
+/// The git URL a checkout on disk stands for.
+///
+/// A checkout carrying the `day` crate is the framework, whatever its manifest says — a fork
+/// cloned locally must patch the canonical URL the app's dependencies name, not the fork's own.
+/// Anything else is identified by its manifest's `repository` (the package's, or the workspace's),
+/// which is the URL its consumers depend on.
+fn checkout_url(root: &Path, crates: &BTreeMap<String, PathBuf>) -> Result<String, String> {
+    if crates.contains_key("day") {
+        return Ok(DAY_GIT.to_string());
     }
-    names.sort();
-    Ok(names)
+    let manifest = root.join("Cargo.toml");
+    let text =
+        std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
+    let doc: toml::Value =
+        toml::from_str(&text).map_err(|e| format!("{}: {e}", manifest.display()))?;
+    let repo = doc
+        .get("package")
+        .and_then(|p| p.get("repository"))
+        .and_then(|r| r.as_str())
+        .or_else(|| {
+            doc.get("workspace")
+                .and_then(|w| w.get("package"))
+                .and_then(|p| p.get("repository"))
+                .and_then(|r| r.as_str())
+        })
+        .filter(|r| !r.trim().is_empty());
+    match repo {
+        Some(url) => Ok(url.trim().to_string()),
+        None => Err(format!(
+            "{}: cannot tell which git URL this checkout stands for — set `repository = \
+             \"https://…\"` in its [package] (or [workspace.package]) to the URL apps depend on",
+            root.display()
+        )),
+    }
 }
 
-/// The app's OWN git-sourced day dependencies, read straight from its manifest. The floor under
-/// [`git_deps`]: it needs no resolver, so a project that cannot resolve offline still patches the
-/// crates it names itself.
-fn manifest_git_deps(project: &Project) -> Result<Vec<String>, String> {
-    let manifest = project.root.join("Cargo.toml");
+/// The app's OWN git-sourced dependencies, read straight from its manifest: name → canonical
+/// URL. The floor under [`wanted_by_source`]: it needs no resolver, so a project that cannot
+/// resolve offline still patches the crates it names itself.
+fn manifest_git_deps(root: &Path) -> Result<Vec<(String, String)>, String> {
+    let manifest = root.join("Cargo.toml");
     let text =
         std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let doc: toml::Value =
@@ -209,12 +330,11 @@ fn manifest_git_deps(project: &Project) -> Result<Vec<String>, String> {
             continue;
         };
         for (name, spec) in table {
-            let from_day_git = spec
-                .get("git")
-                .and_then(|g| g.as_str())
-                .is_some_and(|g| g.trim_end_matches(".git") == DAY_GIT.trim_end_matches(".git"));
-            if from_day_git && !names.contains(name) {
-                names.push(name.clone());
+            if let Some(git) = spec.get("git").and_then(|g| g.as_str()) {
+                let entry = (name.clone(), canon(git));
+                if !names.contains(&entry) {
+                    names.push(entry);
+                }
             }
         }
     }
@@ -222,70 +342,131 @@ fn manifest_git_deps(project: &Project) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
-/// The `[patch]` table mapping every git-sourced day dependency of `project` to `checkout`, as
-/// TOML text — and the number of entries in it.
+/// For each source, the crates the project takes from it — the manifest's own entries plus every
+/// platform's resolved graph — keyed by canonical URL. Sources the graph never names map to an
+/// empty list, which the table builder reports.
+fn wanted_by_source(
+    root: &Path,
+    sources: &[Source],
+) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let checkouts: Vec<(String, PathBuf)> = sources
+        .iter()
+        .filter_map(|s| match &s.target {
+            Target::Checkout(dir) => Some((canon(&s.url), dir.clone())),
+            Target::Fork { .. } => None,
+        })
+        .collect();
+    let mut wanted: BTreeMap<String, Vec<String>> = sources
+        .iter()
+        .map(|s| (canon(&s.url), Vec::new()))
+        .collect();
+    let mut add = |name: String, url: String| {
+        if let Some(list) = wanted.get_mut(&url)
+            && !list.contains(&name)
+        {
+            list.push(name);
+        }
+    };
+    for (name, url) in manifest_git_deps(root)? {
+        add(name, url);
+    }
+    for triple in PATCH_TRIPLES {
+        for (name, url) in resolved_git_packages(root, triple, &checkouts) {
+            add(name, url);
+        }
+    }
+    for list in wanted.values_mut() {
+        list.sort();
+    }
+    Ok(wanted)
+}
+
+/// The `[patch]` tables mapping every git-sourced dependency of `project` from each source to its
+/// target, as TOML text — and the number of entries across them.
 ///
-/// One table, two lifetimes: `day patch` writes it to `.cargo/config.toml` and every later build
+/// One text, two lifetimes: `day patch` writes it to `.cargo/config.toml` and every later build
 /// picks it up, while `--day-src` writes it to a scratch file handed to ONE cargo invocation
 /// through `--config`. The crate set, the missing-crate error, and the wording are therefore the
 /// same for both, which is the point of computing it here.
 ///
-/// `header` leads the file, since the two lifetimes need to say different things about it.
-fn patch_table(
-    project: &Project,
-    checkout: &Path,
-    header: &str,
-) -> Result<(String, usize), String> {
-    let available = checkout_crates(checkout)?;
-    let wanted = git_deps(project, Some(checkout))?;
-    if wanted.is_empty() {
-        return Err(
-            "this project has no dependencies from the day git repository — nothing to patch \
-             (a workspace member of the day repo needs no patch table)"
-                .into(),
-        );
-    }
-
+/// `header` leads the file, since the lifetimes need to say different things about it.
+fn patch_tables(root: &Path, sources: &[Source], header: &str) -> Result<(String, usize), String> {
+    let wanted = wanted_by_source(root, sources)?;
     let mut lines = String::from(header);
-    lines.push_str(&format!("[patch.{DAY_GIT:?}]\n"));
     let mut written = 0;
-    let mut missing = Vec::new();
-    for name in &wanted {
-        match available.get(name) {
-            Some(dir) => {
-                lines.push_str(&format!(
-                    "{name} = {{ path = {:?} }}\n",
-                    dir.display().to_string()
-                ));
-                written += 1;
-            }
-            None => missing.push(name.clone()),
+    for source in sources {
+        let names = wanted.get(&canon(&source.url)).cloned().unwrap_or_default();
+        if names.is_empty() {
+            return Err(format!(
+                "this project has no dependencies from {} — nothing to patch there (a workspace \
+                 member of that repository needs no patch table)",
+                source.url
+            ));
         }
-    }
-    if !missing.is_empty() {
-        return Err(format!(
-            "{} is not in the day checkout at {} — is it the right checkout, or the wrong branch?",
-            missing.join(", "),
-            checkout.display()
-        ));
+        lines.push_str(&format!("[patch.{:?}]\n", source.url));
+        match &source.target {
+            Target::Checkout(checkout) => {
+                let available = checkout_crates(checkout)?;
+                let mut missing = Vec::new();
+                for name in &names {
+                    match available.get(name) {
+                        Some(dir) => {
+                            lines.push_str(&format!(
+                                "{name} = {{ path = {:?} }}\n",
+                                dir.display().to_string()
+                            ));
+                            written += 1;
+                        }
+                        None => missing.push(name.clone()),
+                    }
+                }
+                if !missing.is_empty() {
+                    return Err(format!(
+                        "{} is not in the checkout at {} — is it the right checkout, or the \
+                         wrong branch?",
+                        missing.join(", "),
+                        checkout.display()
+                    ));
+                }
+            }
+            Target::Fork { url, git_ref } => {
+                for name in &names {
+                    match git_ref {
+                        Some(r) => lines.push_str(&format!(
+                            "{name} = {{ git = {url:?}, {} = {:?} }}\n",
+                            r.key(),
+                            r.value()
+                        )),
+                        None => lines.push_str(&format!("{name} = {{ git = {url:?} }}\n")),
+                    }
+                    written += 1;
+                }
+            }
+        }
+        lines.push('\n');
     }
     Ok((lines, written))
 }
 
-/// Write `.cargo/config.toml` mapping every git-sourced day dependency to the checkout.
-fn write_patch(project: &Project, checkout: &Path) -> Result<usize, String> {
-    let checkout = checkout
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", checkout.display()))?;
-    let (lines, written) = patch_table(
-        project,
-        &checkout,
+/// Write `.cargo/config.toml` mapping every git-sourced dependency of each source to its target.
+fn write_patch(root: &Path, sources: &[Source]) -> Result<usize, String> {
+    let forked = sources
+        .iter()
+        .any(|s| matches!(s.target, Target::Fork { .. }));
+    let header = if forked {
+        "# Generated by `day patch --git`. Builds this project against the fork below instead of\n\
+         # the canonical repository its dependencies name; cargo applies the table to the whole\n\
+         # graph, so external pieces follow the fork too. COMMIT this file to keep the fork (the\n\
+         # scaffold's .gitignore lists it, since `day patch --local` writes machine-local paths\n\
+         # here — remove that line first).\n"
+    } else {
         "# Generated by `day patch` — machine-local, gitignored, and safe to delete.\n\
-         # Builds this project against the day checkout below instead of fetching the git\n\
-         # dependency. CI has no such file and resolves git, which is what a user's build does.\n",
-    )?;
+         # Builds this project against the checkout(s) below instead of fetching the git\n\
+         # dependency. CI has no such file and resolves git, which is what a user's build does.\n"
+    };
+    let (lines, written) = patch_tables(root, sources, header)?;
 
-    let dir = project.root.join(".cargo");
+    let dir = root.join(".cargo");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join("config.toml");
     std::fs::write(&path, lines).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -298,7 +479,7 @@ fn write_patch(project: &Project, checkout: &Path) -> Result<usize, String> {
     // crate. Committed, that lock describes a machine nobody else has — it cannot be resolved, and
     // `cargo update -p day` cannot even find a `day` package in it. Said here because the rewrite
     // happens silently, on the next build, long after this command has scrolled away.
-    if project.root.join("Cargo.lock").exists() {
+    if !forked && root.join("Cargo.lock").exists() {
         status(
             "Note",
             "cargo will rewrite Cargo.lock to point at this checkout — do not commit it while \
@@ -309,22 +490,52 @@ fn write_patch(project: &Project, checkout: &Path) -> Result<usize, String> {
     Ok(written)
 }
 
-/// Assert that no `day*` package in the resolved graph comes from git.
+/// The URLs a project's `.cargo/config.toml` patches — or the framework's, when there is no table
+/// yet (so a bare `--check` still asks the question it always asked).
+fn patched_urls(root: &Path) -> Vec<String> {
+    let path = root.join(".cargo/config.toml");
+    let keys = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| toml::from_str::<toml::Value>(&t).ok())
+        .and_then(|doc| {
+            doc.get("patch")
+                .and_then(|p| p.as_table())
+                .map(|t| t.keys().map(|k| canon(k)).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+    if keys.is_empty() {
+        vec![canon(DAY_GIT)]
+    } else {
+        keys
+    }
+}
+
+/// What [`check`] found: packages that should have been patched and were not, and packages from
+/// git sources nothing patches.
+#[derive(Default)]
+pub struct CheckReport {
+    /// `(name, url)`: from a patched URL, still resolving from git — a missing table entry.
+    pub missing: Vec<(String, String)>,
+    /// `(name, url)`: from a git URL the table does not cover — published as far as this build is
+    /// concerned, which may or may not be what the developer wants.
+    pub unpatched: Vec<(String, String)>,
+}
+
+/// Assert that no package from a patched source still comes from git.
 ///
 /// The check the whole command exists for. A direct dependency without a patch entry resolves from
 /// the git cache and builds green, so a build that believes it is testing this checkout may be
 /// testing a published crate for part of the graph. Resolution is asked of cargo rather than read
-/// out of `Cargo.lock`, so it is correct for a project that has not locked yet.
-/// Day crates still resolving from git, across EVERY platform — not just the host's. A check that
-/// asks only the host says "all local" while the Android, Linux, Windows, web, and HarmonyOS
-/// builds quietly use the git cache, which is a stale-toolkit bug that looks like the fix not
-/// working.
-pub fn check(project: &Project) -> Result<Vec<String>, String> {
-    let mut from_git: Vec<String> = Vec::new();
+/// out of `Cargo.lock`, so it is correct for a project that has not locked yet — and across EVERY
+/// platform, not just the host's: a check that asks only the host says "all local" while the
+/// Android, Linux, Windows, web, and HarmonyOS builds quietly use the git cache.
+pub fn check(root: &Path) -> Result<CheckReport, String> {
+    let patched = patched_urls(root);
+    let mut report = CheckReport::default();
     let mut asked = false;
     for triple in PATCH_TRIPLES {
         let out = Command::new("cargo")
-            .current_dir(&project.root)
+            .current_dir(root)
             .args([
                 "metadata",
                 "--format-version",
@@ -348,53 +559,117 @@ pub fn check(project: &Project) -> Result<Vec<String>, String> {
             .flatten()
         {
             let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-            if !name.starts_with("day") {
-                continue;
-            }
-            if pkg
+            let Some(source) = pkg
                 .get("source")
                 .and_then(|s| s.as_str())
-                .is_some_and(|s| s.starts_with("git+"))
-                && !from_git.iter().any(|n| n == name)
-            {
-                from_git.push(name.to_string());
+                .filter(|s| s.starts_with("git+"))
+            else {
+                continue;
+            };
+            let url = canon(source);
+            let entry = (name.to_string(), url.clone());
+            let list = if patched.contains(&url) {
+                &mut report.missing
+            } else {
+                &mut report.unpatched
+            };
+            if !list.contains(&entry) {
+                list.push(entry);
             }
         }
     }
     if !asked {
         return Err("cargo metadata failed for every platform".into());
     }
-    from_git.sort();
-    Ok(from_git)
+    report.missing.sort();
+    report.unpatched.sort();
+    Ok(report)
 }
 
-/// `day patch [--local <checkout>] [--check]`.
+/// `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]`.
 pub fn run(
-    project: &Project,
-    local: Option<&Path>,
+    root: &Path,
+    locals: &[PathBuf],
+    git: Option<&str>,
     check_only: bool,
-) -> Result<(), crate::cli::CliError> {
-    if let Some(checkout) = local {
-        write_patch(project, checkout).map_err(crate::cli::CliError::failure)?;
+) -> Result<(), CliError> {
+    let mut sources = Vec::new();
+    for local in locals {
+        let checkout = local
+            .canonicalize()
+            .map_err(|e| CliError::usage(format!("--local {}: {e}", local.display())))?;
+        let crates = checkout_crates(&checkout).map_err(CliError::usage)?;
+        let url = checkout_url(&checkout, &crates).map_err(CliError::usage)?;
+        sources.push(Source {
+            url,
+            target: Target::Checkout(checkout),
+        });
     }
-    match check(project) {
-        Ok(from_git) if from_git.is_empty() => {
-            status("Verified", "every day crate resolves from a local path");
+    if let Some(arg) = git {
+        let spec = crate::git::parse_spec(arg).map_err(CliError::usage)?;
+        if !crate::git::looks_remote(&spec.url) {
+            return Err(CliError::usage(format!(
+                "--git {arg}: not a git URL — pass the fork like \
+                 https://github.com/acme/day.git@<branch> (for a checkout on disk use --local)"
+            )));
+        }
+        if canon(&spec.url) == canon(DAY_GIT) {
+            return Err(CliError::usage(format!(
+                "--git {arg}: that is the canonical day repository — cargo cannot patch a URL \
+                 with itself on another ref (\"patches must point to different sources\"); to \
+                 build against a branch or tag of it use `--day-src {arg}` for one build, or \
+                 clone it and pass the checkout with --local"
+            )));
+        }
+        sources.push(Source {
+            url: DAY_GIT.to_string(),
+            target: Target::Fork {
+                url: spec.url,
+                git_ref: spec.git_ref.as_deref().map(GitRef::parse),
+            },
+        });
+    }
+    if !sources.is_empty() {
+        write_patch(root, &sources).map_err(CliError::failure)?;
+    }
+    match check(root) {
+        Ok(report) if report.missing.is_empty() => {
+            status("Verified", "every patched source resolves away from git");
+            if !report.unpatched.is_empty() {
+                let list = report
+                    .unpatched
+                    .iter()
+                    .map(|(n, u)| format!("{n} ← {u}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                status(
+                    "Note",
+                    &format!(
+                        "still from git, unpatched: {list} — add `--local <checkout>` for any \
+                         you are developing"
+                    ),
+                );
+            }
             Ok(())
         }
-        Ok(from_git) => Err(crate::cli::CliError::failure(format!(
-            "{} day crate(s) still resolve from git: {} — add them to the [patch] table \
-             (`day patch --local <checkout>` rewrites it) or this build mixes a local \
-             framework with a published one",
-            from_git.len(),
-            from_git.join(", ")
+        Ok(report) => Err(CliError::failure(format!(
+            "{} crate(s) still resolve from a patched source: {} — add them to the [patch] table \
+             (`day patch --local <checkout>` / `--git <fork>` rewrites it) or this build mixes a \
+             local framework with a published one",
+            report.missing.len(),
+            report
+                .missing
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ))),
         Err(e) => {
             // Not fatal without --check: writing the table succeeded, and resolution may need the
             // network the caller does not have.
             status("Warning", &format!("could not verify resolution: {e}"));
             if check_only {
-                Err(crate::cli::CliError::failure(format!(
+                Err(CliError::failure(format!(
                     "could not verify resolution: {e}"
                 )))
             } else {
@@ -402,6 +677,125 @@ pub fn run(
             }
         }
     }
+}
+
+// --- One copy of each day crate --------------------------------------------------------------
+
+/// Assert that the resolved graph carries exactly ONE copy of every day crate, and say which
+/// consumers disagree when it does not.
+///
+/// Cargo unifies a git dependency only when URL and ref both match, so an app on the bare
+/// canonical URL plus a piece that pins `tag = "v0.4.1"` resolves two `day-core`s — and the
+/// failure that follows is a wall of "expected `day_core::Piece`, found `day_core::Piece`", or
+/// worse, two `RENDERERS` slices and a widget that quietly renders as a placeholder. Asked of
+/// cargo here, once, before anything compiles, so the answer is one sentence naming both sources.
+///
+/// Also the home of the `[package.metadata.day] compat = "X.Y"` note: an external crate says
+/// which day minor it was built and tested against, and a mismatch is worth a line before the
+/// build rather than a linker error after it.
+pub fn verify_graph(project: &Project) -> Result<(), String> {
+    let mut cmd = Command::new("cargo");
+    apply_day_src(&mut cmd);
+    let out = cmd
+        .current_dir(&project.root)
+        .args(["metadata", "--format-version", "1", "--all-features"])
+        .output()
+        .map_err(|e| format!("cargo metadata: {e}"))?;
+    if !out.status.success() {
+        // Resolution itself failing is the build's problem to report, with cargo's own words.
+        return Ok(());
+    }
+    let doc: serde_json::Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("cargo metadata: {e}"))?;
+    let packages: Vec<&serde_json::Value> = doc
+        .get("packages")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .collect();
+
+    // name → every distinct (version, source) the graph resolved for it.
+    let mut copies: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    let mut day_version: Option<String> = None;
+    for pkg in &packages {
+        let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+        if !name.starts_with("day") {
+            continue;
+        }
+        let manifest = pkg.get("manifest_path").and_then(|m| m.as_str());
+        if manifest.is_some_and(|m| Path::new(m).starts_with(&project.root)) {
+            continue;
+        }
+        let version = pkg.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+        let source = match pkg.get("source").and_then(|s| s.as_str()) {
+            Some(s) => s.to_string(),
+            None => format!("path {}", manifest.unwrap_or("?")),
+        };
+        if name == "day" {
+            day_version = Some(version.to_string());
+        }
+        copies
+            .entry(name)
+            .or_default()
+            .push(format!("{version} from {source}"));
+    }
+    let doubled: Vec<(&str, &Vec<String>)> = copies
+        .iter()
+        .filter(|(_, v)| v.len() > 1)
+        .map(|(n, v)| (*n, v))
+        .collect();
+    if let Some((name, sources)) = doubled.first() {
+        let more = if doubled.len() > 1 {
+            format!(
+                " (and {} more: {})",
+                doubled.len() - 1,
+                doubled[1..]
+                    .iter()
+                    .map(|(n, _)| *n)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        } else {
+            String::new()
+        };
+        return Err(format!(
+            "{name} is in the dependency graph {} times{more}:\n  {}\n\
+             cargo unifies a git dependency only when its URL and ref match, so every crate that \
+             depends on day must name the same source: the bare `git = \"{DAY_GIT}\"` with no \
+             branch, tag, or rev (Cargo.lock pins the revision), or one `[patch]` table that \
+             redirects the URL for the whole graph (`day patch --local <checkout>`, \
+             `day patch --git <fork>`, or `--day-src` for one build)",
+            sources.len(),
+            sources.join("\n  "),
+        ));
+    }
+
+    // The compat note: external crates declare the day minor they were tested against.
+    if let Some(day_version) = day_version {
+        let minor = |v: &str| v.splitn(3, '.').take(2).collect::<Vec<_>>().join(".");
+        let resolved = minor(&day_version);
+        for pkg in &packages {
+            let Some(compat) = pkg
+                .get("metadata")
+                .and_then(|m| m.get("day"))
+                .and_then(|d| d.get("compat"))
+                .and_then(|c| c.as_str())
+            else {
+                continue;
+            };
+            if minor(compat) != resolved {
+                let name = pkg.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+                status(
+                    "Note",
+                    &format!(
+                        "{name} declares compat = {compat:?} but this build resolves day \
+                         {day_version}; it may need a newer release (or `cargo update`)"
+                    ),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 // --- `--day-src`: the same patch, for exactly one build ------------------------------------------
@@ -528,9 +922,13 @@ fn slug(checkout: &Path) -> String {
 /// Called once, from the `build`/`launch` dispatch. Everything downstream reads [`ACTIVE`] (or, in
 /// the xcode-backend process, [`DAY_SRC_DIR_ENV`]) and needs no argument of its own.
 pub fn activate(src: &DaySrc, project: &Project) -> Result<(), CliError> {
-    let (table, count) = patch_table(
-        project,
-        &src.checkout,
+    let source = Source {
+        url: DAY_GIT.to_string(),
+        target: Target::Checkout(src.checkout.clone()),
+    };
+    let (table, count) = patch_tables(
+        &project.root,
+        std::slice::from_ref(&source),
         "# Generated by `day launch --day-src` / `day build --day-src` for ONE build.\n\
          # Handed to cargo with `--config`; nothing in the project is modified, and the next\n\
          # build without the flag resolves the git dependency as usual.\n",
@@ -665,7 +1063,7 @@ mod tests {
         crate::meta::find_project(Some(dir)).expect("project")
     }
 
-    /// A day checkout, as far as [`patch_table`] and [`resolve_day_src`] are concerned: a
+    /// A day checkout, as far as [`patch_tables`] and [`resolve_day_src`] are concerned: a
     /// workspace whose members include a `day` crate.
     fn day_checkout(root: &Path, members: &[&str]) -> PathBuf {
         let list = members
@@ -691,6 +1089,26 @@ mod tests {
         root.to_path_buf()
     }
 
+    /// An external piece checkout: ONE package, identified by its `repository`.
+    fn piece_checkout(root: &Path, name: &str, repository: &str) -> PathBuf {
+        std::fs::create_dir_all(root).expect("mkdir");
+        std::fs::write(
+            root.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nrepository = \"{repository}\"\n"
+            ),
+        )
+        .expect("piece");
+        root.to_path_buf()
+    }
+
+    fn checkout_source(url: &str, dir: &Path) -> Source {
+        Source {
+            url: url.to_string(),
+            target: Target::Checkout(dir.to_path_buf()),
+        }
+    }
+
     /// The table names every git-sourced day dependency, and points each at the checkout. This is
     /// the text both lifetimes use — `day patch` writes it to `.cargo/config.toml`, `--day-src`
     /// hands it to one cargo run.
@@ -712,7 +1130,12 @@ day-build = { git = "https://github.com/daybrite/day.git" }
         );
         let checkout = day_checkout(&tmp.join("day"), &["day", "day-build", "day-core"]);
 
-        let (table, count) = patch_table(&project, &checkout, "# header\n").expect("table");
+        let (table, count) = patch_tables(
+            &project.root,
+            &[checkout_source(DAY_GIT, &checkout)],
+            "# header\n",
+        )
+        .expect("table");
         assert_eq!(count, 2, "only the crates the app actually names");
         assert!(
             table.contains("[patch.\"https://github.com/daybrite/day.git\"]"),
@@ -725,6 +1148,115 @@ day-build = { git = "https://github.com/daybrite/day.git" }
             "an unused entry would make cargo warn on every build: {table}"
         );
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Two sources, two tables: the framework and an external piece each patched to their own
+    /// checkout, keyed by the URL the app's dependencies name.
+    #[test]
+    fn each_source_gets_its_own_table() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-multi-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let project = fixture(
+            &tmp.join("app"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
+"#,
+        );
+        let day = day_checkout(&tmp.join("day"), &["day"]);
+        let lottie = piece_checkout(
+            &tmp.join("lottie"),
+            "day-piece-lottie",
+            "https://github.com/daybrite/day-piece-lottie",
+        );
+        let sources = [
+            checkout_source(DAY_GIT, &day),
+            checkout_source("https://github.com/daybrite/day-piece-lottie.git", &lottie),
+        ];
+        let (table, count) = patch_tables(&project.root, &sources, "").expect("table");
+        assert_eq!(count, 2, "{table}");
+        assert!(
+            table.contains("[patch.\"https://github.com/daybrite/day.git\"]\nday = { path ="),
+            "{table}"
+        );
+        assert!(
+            table.contains(
+                "[patch.\"https://github.com/daybrite/day-piece-lottie.git\"]\nday-piece-lottie = { path ="
+            ),
+            "{table}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A fork is a git entry per crate, spelled with the ref kind the caller named or that the
+    /// ref's shape implies — and the canonical URL stays the table's key, which is what lets an
+    /// external piece depending on it follow the fork unchanged.
+    #[test]
+    fn a_fork_writes_git_entries_under_the_canonical_key() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-fork-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let project = fixture(
+            &tmp.join("app"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+"#,
+        );
+        let fork = Source {
+            url: DAY_GIT.to_string(),
+            target: Target::Fork {
+                url: "https://github.com/acme/day.git".into(),
+                git_ref: Some(GitRef::Branch("acme".into())),
+            },
+        };
+        let (table, count) = patch_tables(&project.root, &[fork], "").expect("table");
+        assert_eq!(count, 1);
+        assert!(
+            table.contains("[patch.\"https://github.com/daybrite/day.git\"]"),
+            "{table}"
+        );
+        assert!(
+            table
+                .contains("day = { git = \"https://github.com/acme/day.git\", branch = \"acme\" }"),
+            "{table}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// `--git URL@REF`: a commit is 40 hex digits, a tag has to be named, the rest is a branch.
+    #[test]
+    fn refs_are_spelled_the_way_cargo_wants_them() {
+        assert_eq!(GitRef::parse("main"), GitRef::Branch("main".into()));
+        assert_eq!(GitRef::parse("tag=v0.4.1"), GitRef::Tag("v0.4.1".into()));
+        assert_eq!(
+            GitRef::parse("branch=v0.4.1"),
+            GitRef::Branch("v0.4.1".into())
+        );
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(GitRef::parse(sha), GitRef::Rev(sha.into()));
+        assert_eq!(GitRef::parse("rev=abc123"), GitRef::Rev("abc123".into()));
+    }
+
+    /// Cargo compares sources by canonical URL, so every spelling of one repository is one key.
+    #[test]
+    fn urls_canonicalize_the_way_cargo_compares_them() {
+        let want = "https://github.com/daybrite/day";
+        assert_eq!(canon("https://github.com/daybrite/day.git"), want);
+        assert_eq!(canon("https://github.com/daybrite/day/"), want);
+        assert_eq!(
+            canon("git+https://github.com/daybrite/day.git?branch=main#abcdef"),
+            want
+        );
+        assert_eq!(canon("https://GitHub.com/daybrite/day"), want);
     }
 
     /// The wrong-branch case: a day-src that no longer carries a crate the app depends on must
@@ -746,8 +1278,39 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
         let checkout = day_checkout(&tmp.join("day"), &["day"]);
-        let err = patch_table(&project, &checkout, "").expect_err("day-part-http is absent");
+        let err = patch_tables(&project.root, &[checkout_source(DAY_GIT, &checkout)], "")
+            .expect_err("day-part-http is absent");
         assert!(err.contains("day-part-http"), "{err}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A checkout with the `day` crate is the framework whatever its manifest says (a fork
+    /// cloned locally still patches the canonical URL); anything else is named by `repository`,
+    /// and a checkout that names nothing is refused rather than guessed.
+    #[test]
+    fn a_checkout_is_identified_by_what_it_carries() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-ident-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let day = day_checkout(&tmp.join("day"), &["day", "day-core"]);
+        let crates = checkout_crates(&day).expect("workspace");
+        assert_eq!(checkout_url(&day, &crates).expect("url"), DAY_GIT);
+
+        let lottie = piece_checkout(
+            &tmp.join("lottie"),
+            "day-piece-lottie",
+            "https://github.com/daybrite/day-piece-lottie",
+        );
+        let crates = checkout_crates(&lottie).expect("package");
+        assert_eq!(crates.len(), 1, "a single-crate repository maps itself");
+        assert_eq!(
+            checkout_url(&lottie, &crates).expect("url"),
+            "https://github.com/daybrite/day-piece-lottie"
+        );
+
+        let anon = piece_checkout(&tmp.join("anon"), "mystery", "");
+        let crates = checkout_crates(&anon).expect("package");
+        let err = checkout_url(&anon, &crates).expect_err("no repository");
+        assert!(err.contains("repository"), "{err}");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -794,59 +1357,84 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
-    /// An app is named `day-<something>` too, so the `day` prefix cannot tell one from a
-    /// framework crate. CI checks the showcase out INSIDE the day workspace, which put the app's
-    /// own manifest under the checkout root — and `day patch` then demanded `day-showcase` be one
-    /// of day's crates and failed every toolkit job.
+    /// An app is named `day-<something>` too, so a name cannot tell one from a framework crate.
+    /// CI checks the showcase out INSIDE the day workspace, which put the app's own manifest
+    /// under the checkout root — and `day patch` then demanded `day-showcase` be one of day's
+    /// crates and failed every toolkit job.
     #[test]
     fn the_app_is_never_a_crate_to_patch() {
         let checkout = Path::new("/w/day");
         let app = Path::new("/w/day/showcase-src");
+        let checkouts = [(canon(DAY_GIT), checkout.to_path_buf())];
 
         // The app itself, nested inside the checkout the way CI arranges it.
-        assert!(!needs_patch_entry(
-            "day-showcase",
-            Some("/w/day/showcase-src/Cargo.toml"),
-            None,
-            app,
-            Some(checkout),
-        ));
+        assert_eq!(
+            package_source(
+                Some("/w/day/showcase-src/Cargo.toml"),
+                None,
+                app,
+                &checkouts
+            ),
+            None
+        );
         // …and a local sub-crate of the app (Day-Matrix has one).
-        assert!(!needs_patch_entry(
-            "day-matrix-core",
-            Some("/w/day/showcase-src/core/Cargo.toml"),
-            None,
-            app,
-            Some(checkout),
-        ));
-        // A real framework crate from git still needs its entry.
-        assert!(needs_patch_entry(
-            "day-pieces",
-            Some("/home/u/.cargo/git/checkouts/day-abc/1234/crates/day-pieces/Cargo.toml"),
-            Some("git+https://github.com/daybrite/day.git#1234"),
-            app,
-            Some(checkout),
-        ));
+        assert_eq!(
+            package_source(
+                Some("/w/day/showcase-src/core/Cargo.toml"),
+                None,
+                app,
+                &checkouts
+            ),
+            None
+        );
+        // A real framework crate from git reports the framework's URL.
+        assert_eq!(
+            package_source(
+                Some("/home/u/.cargo/git/checkouts/day-abc/1234/crates/day-pieces/Cargo.toml"),
+                Some("git+https://github.com/daybrite/day.git#1234"),
+                app,
+                &checkouts,
+            )
+            .as_deref(),
+            Some("https://github.com/daybrite/day")
+        );
         // As does one already resolving from the checkout, or a re-run would shrink the table.
-        assert!(needs_patch_entry(
-            "day-core",
-            Some("/w/day/crates/day-core/Cargo.toml"),
-            None,
-            app,
-            Some(checkout),
-        ));
-        // Non-day packages are never in scope.
-        assert!(!needs_patch_entry(
-            "serde",
-            Some("/home/u/.cargo/registry/src/serde/Cargo.toml"),
-            Some("registry+https://github.com/rust-lang/crates.io-index"),
-            app,
-            Some(checkout),
-        ));
+        assert_eq!(
+            package_source(
+                Some("/w/day/crates/day-core/Cargo.toml"),
+                None,
+                app,
+                &checkouts
+            )
+            .as_deref(),
+            Some("https://github.com/daybrite/day")
+        );
+        // An external piece from its own repository reports THAT URL.
+        assert_eq!(
+            package_source(
+                Some("/home/u/.cargo/git/checkouts/lottie-1/9/Cargo.toml"),
+                Some("git+https://github.com/daybrite/day-piece-lottie.git#9"),
+                app,
+                &checkouts,
+            )
+            .as_deref(),
+            Some("https://github.com/daybrite/day-piece-lottie")
+        );
+        // Registry crates are never in scope.
+        assert_eq!(
+            package_source(
+                Some("/home/u/.cargo/registry/src/serde/Cargo.toml"),
+                Some("registry+https://github.com/rust-lang/crates.io-index"),
+                app,
+                &checkouts,
+            ),
+            None
+        );
     }
 
-    /// Which dependencies need a patch entry: the DIRECT ones from the day git repo, including the
-    /// per-target tables where an app's backend crates live — the easiest ones to forget.
+    /// Which dependencies need a patch entry: the DIRECT ones from git, including the per-target
+    /// tables where an app's backend crates live — the easiest ones to forget — each with the
+    /// source it comes from.
     #[test]
     fn git_deps_are_collected_from_every_dependency_table() {
         let tmp = std::env::temp_dir().join(format!("day-patch-deps-{}", std::process::id()));
@@ -861,6 +1449,7 @@ version = "0.1.0"
 [dependencies]
 day = { git = "https://github.com/daybrite/day.git" }
 day-part-http = { git = "https://github.com/daybrite/day.git" }
+day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
 serde = "1"
 day-local = { path = "../elsewhere" }
 
@@ -869,10 +1458,22 @@ day-part-battery = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
         // The manifest floor alone (no resolver: this fixture has no lockfile and no network).
-        let deps = manifest_git_deps(&project).expect("deps");
-        assert_eq!(deps, ["day", "day-part-battery", "day-part-http"]);
+        let deps = manifest_git_deps(&project.root).expect("deps");
+        let day = "https://github.com/daybrite/day".to_string();
+        assert_eq!(
+            deps,
+            [
+                ("day".to_string(), day.clone()),
+                ("day-part-battery".to_string(), day.clone()),
+                ("day-part-http".to_string(), day),
+                (
+                    "day-piece-lottie".to_string(),
+                    "https://github.com/daybrite/day-piece-lottie".to_string()
+                ),
+            ]
+        );
         // A path dependency is already local, and a non-day crate is none of our business.
-        assert!(!deps.iter().any(|d| d == "day-local" || d == "serde"));
+        assert!(!deps.iter().any(|(d, _)| d == "day-local" || d == "serde"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -893,12 +1494,12 @@ version = "0.1.0"
 day = { git = "https://github.com/daybrite/day.git" }
 "#,
         );
-        let deps = manifest_git_deps(&project).expect("deps");
-        assert_eq!(deps, ["day"], "the manifest names one crate");
+        let deps = manifest_git_deps(&project.root).expect("deps");
+        assert_eq!(deps.len(), 1, "the manifest names one crate");
         assert!(
-            !deps.iter().any(|d| d == "day-android"),
+            !deps.iter().any(|(d, _)| d == "day-android"),
             "and the toolkit it pulls in per platform is invisible here — which is why \
-             `git_deps` also resolves each platform's graph"
+             `wanted_by_source` also resolves each platform's graph"
         );
         assert!(
             PATCH_TRIPLES.contains(&"aarch64-linux-android")

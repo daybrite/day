@@ -236,7 +236,7 @@ cross-protocol redirects (https→http) are now followed, matching the other pla
 response headers now arrive in arrival order with duplicates preserved, where the old
 `Map`-shaped API merged them. The
 coordinate rides the part's own `[package.metadata.day.android] gradle-dependencies`, the
-day-piece-lottie mechanism.
+day-piece-lottie mechanism ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie)).
 
 ## v2 notes (out of scope)
 

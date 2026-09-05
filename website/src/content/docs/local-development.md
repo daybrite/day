@@ -27,6 +27,14 @@ the switch:
 cd my-app
 day patch --local ../day     # build against the checkout at ../day
 day patch --check            # verify: no day crate resolves from git
+
+# More than one checkout: day and an external piece you are changing together. Each is
+# recognized by what it carries (the `day` crate, or its manifest's `repository`).
+day patch --local ../day --local ../day-piece-lottie
+
+# A fork of day, for good: a committable table that redirects the canonical URL for the
+# whole graph, so external pieces build against the fork too, unchanged.
+day patch --git https://github.com/acme/day.git@acme
 rm .cargo/config.toml        # back to the git dependency
 ```
 

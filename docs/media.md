@@ -162,7 +162,7 @@ Where it comes from:
   `android.permission.INTERNET` via `[package.metadata.day.android] permissions`; plain `http://`
   sources additionally need the app's `android:usesCleartextTraffic="true"`. androidx.media3/
   ExoPlayer (HLS/DASH, a `MediaSession` for the lock screen) is the v2 upgrade via the
-  `gradle-dependencies` key lottie already uses.
+  `gradle-dependencies` key [day-piece-lottie](https://github.com/daybrite/day-piece-lottie) already uses.
 - **GTK**: `gtk4::Video` is a core widget so the feature compiles everywhere, but playback needs
   gtk4 built with a gstreamer media backend. Linux distro gtk4 has it (`-Dmedia-gstreamer`);
   Homebrew's gtk4 ships no media backend, so on macos-gtk GtkVideo shows its own "no media backend"

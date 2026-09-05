@@ -80,7 +80,7 @@ where those would be added later.
 
 ## What it shows about the extension system
 
-`day-piece-map` is the counterpart to `day-piece-lottie`: a piece whose demo page is `#[cfg]`-gated
+`day-piece-map` is the counterpart to [day-piece-lottie](https://github.com/daybrite/day-piece-lottie): a piece whose demo page is `#[cfg]`-gated
 to the platforms it supports (`macos` + `ios`). The front-end compiles everywhere (it depends only
 on core day crates), but the `map` page and the crate's backend features are enabled only for the
 Apple backends; every other backend renders the placeholder leaf for the `day.piece.map` kind.

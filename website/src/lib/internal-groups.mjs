@@ -69,7 +69,6 @@ export const groups = [
       ['webview-eval', 'web view JavaScript evaluation: API and per-platform support'],
       ['map', '`day-piece-map` — native maps'],
       ['media', '`day-piece-media` — audio/video playback'],
-      ['lottie', '`day-piece-lottie` — Lottie animations'],
       ['combobox', '`day-piece-combobox` — free-form text plus a native dropdown'],
       ['searchfield', '`day-piece-searchfield` — the search input'],
       ['activity', '`day-piece-activity` — activity spinners'],

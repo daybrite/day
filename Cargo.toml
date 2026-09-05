@@ -36,7 +36,6 @@ members = [
     "toolkits/day-dom",
     "pieces/day-piece-combobox",
     "pieces/day-piece-webview",
-    "pieces/day-piece-lottie",
     "pieces/day-piece-media",
     "pieces/day-piece-swiftui",
     "parts/day-part-speech",
@@ -131,7 +130,6 @@ day-sqlite-worker = { path = "crates/day-sqlite-worker", version = "0.4.1" }
 day = { path = "crates/day", version = "0.4.1" }
 day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.4.1" }
 day-piece-webview = { path = "pieces/day-piece-webview", version = "0.4.1" }
-day-piece-lottie = { path = "pieces/day-piece-lottie", version = "0.4.1" }
 day-part-battery = { path = "parts/day-part-battery", version = "0.4.1" }
 day-part-speech = { path = "parts/day-part-speech", version = "0.4.1" }
 day-part-sensors = { path = "parts/day-part-sensors", version = "0.4.1" }

@@ -37,13 +37,14 @@ day stop --all               # stop running launches (sessions in build/day/sess
 day clean                    # remove all build artifacts (build/, target/, gradle/hvigor outputs); --dry-run lists them
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a running app with dayscript steps
-day patch --local <checkout> # build against a local day checkout (--check: no day crate from git)
+day patch --local <checkout> # build against a local day (or piece) checkout; repeatable (--check: verify)
+day patch --git <url>[@<ref>] # build against a fork of day, for the whole graph; commit the table
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
 day version                  # print the CLI version, build profile, and git ref (always the commit)
 ```
 
-`day patch` switches an app from the published git dependency to a local day checkout and
-verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
+`day patch` switches an app from the published git dependency to a local checkout of day, or
+of an external piece or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
 when and how to use it.
 
 `day pack` produces a standalone, installable package per target. See
