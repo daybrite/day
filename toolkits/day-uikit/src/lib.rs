@@ -892,39 +892,48 @@ mod imp {
             fn fire(&self, _sender: &AnyObject) {
                 day_spec::ffi_guard::contain((), || {
                     let iv = self.ivars();
-                    match iv.kind {
-                        TB_TOGGLE => {
-                            // Flip the model first, so the re-applied bar shows the new state
-                            // before the app's own `ToolbarPatch::On` confirms it.
-                            let on = WINDOW_TOOLBARS.with(|t| {
-                                let mut t = t.borrow_mut();
-                                let bar = t.get_mut(&iv.root)?;
-                                let it = bar.items.iter_mut().find(|i| i.id == iv.item)?;
-                                match &mut it.kind {
-                                    day_spec::ToolbarItemKind::Toggle { on } => {
-                                        *on = !*on;
-                                        Some(*on)
-                                    }
-                                    _ => None,
-                                }
-                            });
-                            if let Some(on) = on {
-                                reapply_window_toolbar(iv.root);
-                                emit(
-                                    WINDOW_NODE,
-                                    Event::ToolbarChanged {
-                                        action: iv.action,
-                                        value: day_spec::ToolbarValue::On(on),
-                                    },
-                                );
-                            }
-                        }
-                        _ => emit(WINDOW_NODE, Event::MenuAction(iv.action)),
-                    }
+                    fire_toolbar_item(iv.action, iv.kind, &iv.item, iv.root);
                 });
             }
         }
     );
+
+    /// Run one toolbar item's command.
+    ///
+    /// Shared by the bar button's target/action and by the `menuRepresentation` the bar's
+    /// overflow shows in its place, so an item folded into "More" does exactly what it did on
+    /// the bar — including a toggle's model flip, which the overflow would otherwise skip.
+    fn fire_toolbar_item(action: u64, kind: u8, item: &str, root: usize) {
+        match kind {
+            TB_TOGGLE => {
+                // Flip the model first, so the re-applied bar shows the new state
+                // before the app's own `ToolbarPatch::On` confirms it.
+                let on = WINDOW_TOOLBARS.with(|t| {
+                    let mut t = t.borrow_mut();
+                    let bar = t.get_mut(&root)?;
+                    let it = bar.items.iter_mut().find(|i| i.id == item)?;
+                    match &mut it.kind {
+                        day_spec::ToolbarItemKind::Toggle { on } => {
+                            *on = !*on;
+                            Some(*on)
+                        }
+                        _ => None,
+                    }
+                });
+                if let Some(on) = on {
+                    reapply_window_toolbar(root);
+                    emit(
+                        WINDOW_NODE,
+                        Event::ToolbarChanged {
+                            action,
+                            value: day_spec::ToolbarValue::On(on),
+                        },
+                    );
+                }
+            }
+            _ => emit(WINDOW_NODE, Event::MenuAction(action)),
+        }
+    }
 
     impl DayToolbarTarget {
         fn new(
@@ -1168,10 +1177,80 @@ mod imp {
             unsafe {
                 bar.setEnabled(item.enabled);
                 bar.setAccessibilityLabel(Some(&title), mtm);
+                if let Some(rep) = menu_representation(mtm, item, root, &bar) {
+                    bar.setMenuRepresentation(Some(&rep));
+                }
             }
             out.push(bar);
         }
         out
+    }
+
+    /// What the bar's overflow ("More") shows in an item's place once the width runs out.
+    ///
+    /// A bar button built from an image alone carries NO title, and UIKit's own substitution
+    /// shows exactly what the item has: the recorder's Record and Play folded away to two bare
+    /// glyphs with nothing to read. `menuRepresentation` is the documented override, and Day
+    /// always gives one, so a folded item shows its localized label — with its icon beside it,
+    /// which is what the item wears on the bar (docs/toolbars.md).
+    fn menu_representation(
+        mtm: MainThreadMarker,
+        item: &day_spec::ToolbarItem,
+        root: usize,
+        bar: &UIBarButtonItem,
+    ) -> Option<Retained<UIMenuElement>> {
+        use day_spec::ToolbarItemKind as K;
+        // A control that declared no name of its own is named by the choice in force, the way
+        // its bar button already draws that choice's glyph — a nameless entry in the overflow
+        // is the same blank row android-mdc grew before `nameSegmentHead`.
+        let title = match (item.label.as_str(), &item.kind) {
+            ("", K::Segmented { segments, selected }) => segments
+                .get(*selected)
+                .map(|s| s.title.clone())
+                .unwrap_or_default(),
+            (label, _) => label.to_string(),
+        };
+        if title.is_empty() {
+            return None;
+        }
+        // A pull-down keeps its children and gains the title and icon it lacked; everything
+        // else becomes one action that runs the same command the button runs.
+        if let Some(menu) = unsafe { bar.menu() } {
+            let image = menu_image(item.icon.as_ref());
+            return Some(Retained::into_super(unsafe {
+                UIMenu::menuWithTitle_image_identifier_options_children(
+                    &NSString::from_str(&title),
+                    image.as_deref(),
+                    None,
+                    UIMenuOptions::empty(),
+                    &menu.children(),
+                    mtm,
+                )
+            }));
+        }
+        let kind = if matches!(item.kind, K::Toggle { .. }) {
+            TB_TOGGLE
+        } else {
+            TB_BUTTON
+        };
+        let (action, id) = (item.action, item.id.clone());
+        let el = ui_action(mtm, &title, item.enabled, item.icon.as_ref(), move || {
+            fire_toolbar_item(action, kind, &id, root)
+        });
+        if let K::Toggle { on } = item.kind
+            && let Some(a) = el.downcast_ref::<UIAction>()
+        {
+            // A toggle reads as a checked row in a menu, the way it reads as a pressed button
+            // on the bar.
+            unsafe {
+                a.setState(if on {
+                    objc2_ui_kit::UIMenuElementState::On
+                } else {
+                    objc2_ui_kit::UIMenuElementState::Off
+                })
+            };
+        }
+        Some(el)
     }
 
     // ── Where a window's bar goes ──────────────────────────────────────────────────────
@@ -3706,7 +3785,6 @@ mod imp {
                     else {
                         return;
                     };
-                    let row = row as i64;
                     // The row STAYS selected. A sidebar beside its detail is the one place a
                     // list's selection means "you are here" rather than "you just tapped", and
                     // UIKit draws that as the rounded pill Settings shows. Clearing it here left
@@ -3895,16 +3973,28 @@ mod imp {
         objc2_foundation::NSArray::from_retained_slice(&items)
     }
 
-    /// Move a sidebar list's highlight to `row`, or clear it (`NavMenuProps::selected`).
+    /// Move a sidebar list's highlight to `row`, or clear it (`NavMenuProps::selected`), looking
+    /// the row's index path up through the list's registered data source.
     ///
-    /// Not animated and not scrolled to: this runs while the model syncs the selection, and both
-    /// would read as the list moving under a tap the user already made.
+    /// Only for callers that hold NO borrow of `NAV_MENUS` and no `DayNavTableData` of their own.
+    /// The ones that do call [`select_nav_path`] with `path_of` applied to the data they already
+    /// have: this lookup borrows the map, and doing that from inside a `borrow_mut` panicked the
+    /// whole nav build ("RefCell already mutably borrowed", contained at the FFI boundary, so the
+    /// app came up with no navigation host at all).
     fn select_nav_row(cv: &objc2_ui_kit::UICollectionView, row: Option<usize>) {
-        // Through the data source, because a row's flat index is not its index PATH once the list
-        // has headings — the grouping is private to the list (`DayNavTableData::path_of`).
         let path = row.and_then(|r| {
             NAV_MENUS.with(|m| m.borrow().get(&ptr_of(&view_of(cv.retain())))?.0.path_of(r))
         });
+        select_nav_path(cv, path);
+    }
+
+    /// Move a sidebar list's highlight to `path` — a (section, item) pair, because a row's flat
+    /// index is not its index PATH once the list has headings and the grouping is private to the
+    /// list (`DayNavTableData::path_of`).
+    ///
+    /// Not animated and not scrolled to: this runs while the model syncs the selection, and both
+    /// would read as the list moving under a tap the user already made.
+    fn select_nav_path(cv: &objc2_ui_kit::UICollectionView, path: Option<(usize, usize)>) {
         unsafe {
             let ip = path.map(|(section, item)| {
                 objc2_foundation::NSIndexPath::indexPathForItem_inSection(
@@ -3993,6 +4083,9 @@ mod imp {
         }
 
         /// Data-driven rows changed (`NavMenuPatch::Items`): swap labels/icons in place.
+        // One parallel array per row attribute, which is the shape `NavMenuPatch::Items`
+        // arrives in; bundling them into a struct here would only unpack it again.
+        #[allow(clippy::too_many_arguments)]
         fn set_items(
             &self,
             items: &[String],
@@ -6104,8 +6197,9 @@ mod imp {
                                         &UIColor::systemGroupedBackgroundColor(),
                                     ));
                                 }
-                                let arr =
-                                    objc2_foundation::NSArray::from_retained_slice(&[ph.clone()]);
+                                let arr = objc2_foundation::NSArray::from_retained_slice(
+                                    std::slice::from_ref(&ph),
+                                );
                                 nav.setViewControllers(&arr);
                             }
                             ph
@@ -6367,8 +6461,9 @@ mod imp {
                     }
                     // The selection the model already carries (docs/navigation.md). A rebuilt
                     // sidebar — a language change, a data-driven item set — has to come back
-                    // marking the same page, not blank.
-                    select_nav_row(&table, p.selected);
+                    // marking the same page, not blank. Through `data` rather than the map,
+                    // which this row is not in until the insert below.
+                    select_nav_path(&table, p.selected.and_then(|r| data.path_of(r)));
                     let view = view_of(table);
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
                     // Remember the rows for a `.tabSidebar` host: UIKit draws BOTH its tab bar
@@ -6913,7 +7008,9 @@ mod imp {
                                         };
                                     }
                                     unsafe { cv.reloadData() };
-                                    select_nav_row(cv, *selected);
+                                    // Resolved from THIS data source, which the borrow above
+                                    // holds: `select_nav_row` would borrow the same map again.
+                                    select_nav_path(cv, selected.and_then(|r| data.path_of(r)));
                                 }
                             }
                         });
@@ -7640,17 +7737,16 @@ mod imp {
             // to find its host through.
             if let Some((node, titles, icons)) =
                 NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&ptr_of(child)))
+                && let Some(hp) = enclosing_tabs_host(parent)
             {
-                if let Some(hp) = enclosing_tabs_host(parent) {
-                    NAV_TABS.with(|m| {
-                        if let Some(t) = m.borrow_mut().get_mut(&hp) {
-                            t.menu_node.set(node);
-                            t.titles = titles;
-                            t.icons = icons;
-                        }
-                    });
-                    nav_tabs_sync(hp);
-                }
+                NAV_TABS.with(|m| {
+                    if let Some(t) = m.borrow_mut().get_mut(&hp) {
+                        t.menu_node.set(node);
+                        t.titles = titles;
+                        t.icons = icons;
+                    }
+                });
+                nav_tabs_sync(hp);
             }
             // Adaptive tabs host (`.tabSidebar`). Its DETAIL pages become tabs; its `Pane::Sidebar`
             // page does not, because UIKit draws the sidebar itself from the same tabs — adding

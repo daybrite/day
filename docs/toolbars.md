@@ -170,7 +170,15 @@ Buttons, toggles and labels draw as themselves, a menu item drops its menu, and 
 becomes a pull-down of its segments with the chosen one checked (a segmented control has no room
 in a phone's bar). That pull-down is titled by the segment IN FORCE, since a segmented control
 carries no label of its own: on iOS by that segment's icon where it has one, otherwise its word;
-on Android by its word. Two kinds never reach a phone's bar: search, which rides the navigation
+on Android by its word.
+
+**A folded item keeps its name.** What the overflow shows for an item is its localized `label`
+and its icon, never the icon alone — on iOS through the `menuRepresentation` Day gives every
+item, because a bar button built from an image carries no title of its own and the recorder's
+Record and Play folded away to two bare glyphs. A toggle folds to a checked row, a pull-down to
+a titled submenu of the same children, and a segmented item to its segments under the name of
+the segment in force. Tapping the row runs what the button would have run, the toggle's own
+flip included. Two kinds never reach a phone's bar: search, which rides the navigation
 list there ([docs/search.md](search.md)), and the sidebar toggle, which the split view owns.
 Android stages no glyph for a `Symbol`, so an item with only a symbol has no glyph to show in
 the bar and lives in the overflow, where its label reads as a menu row — a Material app bar
