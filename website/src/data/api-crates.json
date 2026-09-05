@@ -36,7 +36,6 @@
         { "pkg": "day-piece-media", "blurb": "Each platform's native media/video player, behind one Rust API." },
         { "pkg": "day-piece-remote-image", "blurb": "A native image view that decodes and caches an image from a URL." },
         { "pkg": "day-piece-map", "blurb": "The platform's native map view (Apple platforms)." },
-        { "pkg": "day-piece-lottie", "blurb": "A Lottie vector animation, on iOS and Android." },
         { "pkg": "day-piece-activity", "blurb": "The platform's native share / activity sheet." }
       ]
     },
