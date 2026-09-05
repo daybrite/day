@@ -3437,9 +3437,44 @@ mod imp {
         unsafe impl NSObjectProtocol for DayNavTabsDelegate {}
 
         unsafe impl UITabBarControllerDelegate for DayNavTabsDelegate {
-            /// The tab-based callback, not `didSelectViewController:`. Both fire, but only this
-            /// one names the TAB — and a tab is the thing Day addresses now, so the row comes from
-            /// its identifier rather than from `selectedIndex`, which cannot see into a group.
+            /// The pre-`UITab` callback (iOS 17 and older, where `setTabs:` does not exist and the
+            /// host runs on `setViewControllers:`). The controller IS the identity there, so the
+            /// row is its position in `vcs` — the same mirror `NavPatch::Select` indexes.
+            #[unsafe(method(tabBarController:didSelectViewController:))]
+            fn did_select_vc(&self, _tabbar: &UITabBarController, selected: &UIViewController) {
+                day_spec::ffi_guard::contain((), || {
+                    let sel = ptr_of(&view_of(
+                        unsafe { selected.view() }.expect("selected page view"),
+                    ));
+                    let found = NAV_TABS.with(|m| {
+                        let m = m.borrow();
+                        let t = m.get(&self.ivars().host.get())?;
+                        if t.suppress.get() {
+                            return None;
+                        }
+                        let idx = t.vcs.iter().position(|vc| {
+                            unsafe { vc.view() }.is_some_and(|v| ptr_of(&view_of(v)) == sel)
+                        })?;
+                        Some((t.menu_node.get(), idx as i64))
+                    });
+                    if let Some((n, idx)) = found.filter(|(n, _)| *n != 0) {
+                        emit(NodeId(n as u64), Event::SelectionChanged(idx));
+                    }
+                });
+            }
+        }
+
+        /// The tab-based callback, not `didSelectViewController:`. Both fire on iOS 18+, but only
+        /// this one names the TAB — and a tab is the thing Day addresses there, so the row comes
+        /// from its identifier rather than from `selectedIndex`, which cannot see into a group.
+        ///
+        /// Declared OUTSIDE the protocol block on purpose. A protocol block asks the RUNTIME for
+        /// the selector's type encoding, and `tabBarController:didSelectTab:previousTab:` is iOS
+        /// 18's — on an older runtime the class fails to register at all ("method not found"),
+        /// which took the whole scene down the moment a tabs host was realized. As a plain method
+        /// objc2 derives the encoding from these types instead, UIKit dispatches it by selector
+        /// where it exists, and nothing asks for it where it does not.
+        impl DayNavTabsDelegate {
             #[unsafe(method(tabBarController:didSelectTab:previousTab:))]
             fn did_select(
                 &self,
@@ -3497,20 +3532,33 @@ mod imp {
     ///
     /// The view-controller provider hands back the page Day already built. `vcs` owns it for the
     /// life of the host, so the block returns a borrow rather than transferring anything.
-    /// One nav glyph sized for a TAB (docs/navigation.md).
+    /// The host's tabs, rebuilt from its pages and its rows (docs/navigation.md).
     ///
-    /// A tab bar draws `UITab.image` at the image's own size — UIKit scales an SF Symbol to the
-    /// bar's metrics, but a bundled raster has no metrics to scale by, and Day's are staged from a
-    /// 48pt canvas (docs/vectors.md). Handed over untouched they came out at 48pt: twice the
-    /// height of an iOS tab icon, overlapping their own labels. 25pt is what the HIG asks for.
-    ///
-    /// Template mode is re-applied because the thumbnail is a NEW image and does not inherit it —
-    /// without it the glyph keeps its authored colors instead of taking the bar's selected and
-    /// unselected tints, which is the other half of "these do not look like iOS tabs".
+    /// The glyph is handed over exactly as the app staged it: a tab bar draws the image at its own
+    /// size, so a tab icon is a matter of AUTHORING the glyph at icon size (docs/vectors.md), not
+    /// of resizing it here — thumbnailing downsamples the catalog's bitmap rendition and throws
+    /// away the vector representation that put it there.
     fn nav_tabs_sync(host: usize) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
         };
+        // `UITab` and `setTabs:` are iOS 18's. Asked of the CONTROLLER rather than of a version
+        // number, the way `setMode:` is asked above: it is the fact the call depends on, and an
+        // older runtime then takes the `setViewControllers:` shape an iOS 17 app always had
+        // instead of dying on a class that is not there (docs/navigation.md).
+        let modern = NAV_TABS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .map(|t| t.tabbar.respondsToSelector(objc2::sel!(setTabs:)))
+        });
+        match modern {
+            None => return,
+            Some(false) => {
+                nav_tabs_sync_classic(host);
+                return;
+            }
+            Some(true) => {}
+        }
         // Build outside the borrow: creating a tab retains a provider block, and `setTabs` can
         // call back into UIKit while the map is held.
         let built: Option<(
@@ -3581,6 +3629,70 @@ mod imp {
             }
         });
         unsafe { tabbar.setTabs(&objc2_foundation::NSArray::from_retained_slice(&tabs)) };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&host) {
+                t.suppress.set(false);
+            }
+        });
+    }
+
+    /// The same sync on a runtime without `UITab` (iOS 17 and older): the controller's own
+    /// `viewControllers`, each page carrying its title and glyph on the `UITabBarItem` UIKit
+    /// makes for it. `NavTabsState::tabs` stays empty there, which is what tells `Select` and
+    /// the delegate to address a page by its INDEX — the position in `vcs` — rather than by a
+    /// tab identity that does not exist.
+    ///
+    /// The roster is only re-set when it really changed: `setViewControllers:` rebuilds the bar
+    /// and can drop the selection, and this host syncs on every page insert and every rows
+    /// change. The showing page is restored either way, since a rebuild that keeps the same
+    /// pages must not send the user back to the first one.
+    fn nav_tabs_sync_classic(host: usize) {
+        let built = NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let t = m.get(&host)?;
+            for (i, vc) in t.vcs.iter().enumerate() {
+                let title = t.titles.get(i).cloned().unwrap_or_default();
+                let image = t
+                    .icons
+                    .get(i)
+                    .and_then(|o| o.as_deref())
+                    .and_then(load_bundled_uiimage);
+                unsafe {
+                    vc.setTitle(Some(&NSString::from_str(&title)));
+                    // UIKit makes the item on first access; `None` only before the controller
+                    // has one at all, which a page that is already in `vcs` always does.
+                    if let Some(item) = vc.tabBarItem() {
+                        item.setTitle(Some(&NSString::from_str(&title)));
+                        item.setImage(image.as_deref());
+                    }
+                }
+            }
+            Some((t.tabbar.clone(), t.vcs.clone()))
+        });
+        let Some((tabbar, vcs)) = built else { return };
+        let current = unsafe { tabbar.viewControllers() };
+        let unchanged = current.is_some_and(|cur| {
+            cur.len() == vcs.len()
+                && cur
+                    .iter()
+                    .zip(vcs.iter())
+                    .all(|(a, b)| Retained::as_ptr(&a) == Retained::as_ptr(b))
+        });
+        if unchanged {
+            return;
+        }
+        let showing = unsafe { tabbar.selectedIndex() };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&host) {
+                t.suppress.set(true);
+            }
+        });
+        unsafe {
+            tabbar.setViewControllers(Some(&objc2_foundation::NSArray::from_retained_slice(&vcs)));
+            if showing < vcs.len() {
+                tabbar.setSelectedIndex(showing);
+            }
+        }
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow().get(&host) {
                 t.suppress.set(false);
@@ -7077,24 +7189,28 @@ mod imp {
                         let found = NAV_TABS.with(|m| {
                             let m = m.borrow();
                             let t = m.get(&hp)?;
-                            Some((t.tabbar.clone(), t.tabs.get(i).cloned()))
+                            Some((t.tabbar.clone(), t.tabs.get(i).cloned(), t.vcs.len()))
                         });
-                        if let Some((tabbar, tab)) = found {
-                            // `setSelectedTab`, not `setSelectedIndex`: the tab is the identity
-                            // now, and an index only ever meant "the nth ROOT tab".
-                            if let Some(tab) = tab {
-                                NAV_TABS.with(|m| {
-                                    if let Some(t) = m.borrow().get(&hp) {
-                                        t.suppress.set(true);
-                                    }
-                                });
-                                unsafe { tabbar.setSelectedTab(Some(&tab)) };
-                                NAV_TABS.with(|m| {
-                                    if let Some(t) = m.borrow().get(&hp) {
-                                        t.suppress.set(false);
-                                    }
-                                });
+                        if let Some((tabbar, tab, pages)) = found {
+                            NAV_TABS.with(|m| {
+                                if let Some(t) = m.borrow().get(&hp) {
+                                    t.suppress.set(true);
+                                }
+                            });
+                            match tab {
+                                // `setSelectedTab`, not `setSelectedIndex`: the tab is the
+                                // identity now, and an index only ever meant "the nth ROOT tab".
+                                Some(tab) => unsafe { tabbar.setSelectedTab(Some(&tab)) },
+                                // No tabs means the pre-`UITab` shape (`nav_tabs_sync_classic`),
+                                // where the index IS the address.
+                                None if i < pages => unsafe { tabbar.setSelectedIndex(i) },
+                                None => {}
                             }
+                            NAV_TABS.with(|m| {
+                                if let Some(t) = m.borrow().get(&hp) {
+                                    t.suppress.set(false);
+                                }
+                            });
                             return;
                         }
                     }

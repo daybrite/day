@@ -14,7 +14,10 @@
 //!
 //!   * each device names the **flag** that selects it. iOS alone needs two different flags
 //!     depending on whether the pick is a simulator or a physical phone, and keeping that mapping
-//!     here rather than in every editor means a new device class costs no editor release.
+//!     here rather than in every editor means a new device class costs no editor release. The
+//!     `bootable` half carries it too, for the same reason and one more: an editor that shows a
+//!     row for a device WHILE it boots has to record how that device will be selected before it
+//!     exists, and deriving it from the target there would put the mapping back in the editor.
 //!   * a target that cannot be enumerated reports `available: false` with a `note` rather than an
 //!     empty list, so a caller can say WHY there is nothing to choose. One missing toolchain must
 //!     never blank out the other two — the same reason `day metadata` degrades instead of failing.
@@ -1824,7 +1827,11 @@ fn ios() -> Report {
                         "runtime": runtime, "flag": "--ios-simulator",
                     }));
                 } else {
-                    bootable.push(json!({ "id": udid, "name": name, "runtime": runtime }));
+                    bootable.push(json!({
+                        "id": udid, "name": name, "runtime": runtime,
+                        "kind": "simulator", "state": "shutdown",
+                        "flag": "--ios-simulator",
+                    }));
                 }
             }
         }
@@ -1937,7 +1944,13 @@ fn avds(running: &[String]) -> Vec<Value> {
     avd_names()
         .into_iter()
         .filter(|name| !running.contains(name))
-        .map(|name| json!({ "id": name.clone(), "name": name }))
+        .map(|name| {
+            json!({
+                "id": name.clone(), "name": name.clone(), "avd": name,
+                "kind": "emulator", "state": "shutdown",
+                "flag": "--android-device",
+            })
+        })
         .collect()
 }
 

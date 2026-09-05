@@ -249,9 +249,10 @@ day devices shutdown -p android-mdc Pixel_9_API_36
 ```
 
 Booted simulators, attached phones, running emulators and reachable hdc targets come back under
-`devices`; simulators and AVDs that exist but are not running come back under `bootable`. A target
-whose toolchain is missing reports `available: false` with a note, instead of looking like nothing
-is plugged in.
+`devices`; simulators and AVDs that exist but are not running come back under `bootable`. Both
+halves name the **flag** that selects a device, so an editor can show a row for one before it has
+booted. A target whose toolchain is missing reports `available: false` with a note, instead of
+looking like nothing is plugged in.
 
 `day devices boot` starts one of the `bootable` entries. That matters most on iOS, where an app
 cannot be installed onto a shut-down simulator: booting one is the step between "none running" and

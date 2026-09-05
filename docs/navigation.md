@@ -108,7 +108,7 @@ navigation existed.
 | Backend | Tabs presentation | Adaptive |
 |---------|-------------------|----------|
 | macos-appkit | `NSSegmentedControl` docked below the pages | no; a Mac narrows to a stack |
-| ios-uikit | `UITabBarController` in `.tabSidebar` mode, driven by `UITab` (2026-09) — see below | yes |
+| ios-uikit | `UITabBarController` in `.tabSidebar` mode, driven by `UITab` on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
 | android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `SelectorStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
 | linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
@@ -323,17 +323,29 @@ Three things this backend learned the hard way:
   tab is created once per page and only its title and glyph are re-applied.
 - **The identifier is the PAGE, not the position.** `insert` can put a page in the middle, and an
   identifier is fixed at construction. Day's index is the tab's position in the host's `tabs`.
-- **A tab's glyph needs a SIZE.** A tab bar draws `UITab.image` at the image's own size: UIKit
-  scales an SF Symbol to the bar's metrics, but a bundled raster has no metrics to scale by, and
-  Day's are staged from a 48pt canvas ([docs/vectors.md](vectors.md)). Handed over untouched they
-  drew at 48pt, twice the height of an iOS tab icon and overlapping their own labels. They are
-  thumbnailed to 25pt, and template mode is re-applied afterwards — a thumbnail is a new image and
-  does not inherit it, so without that the glyph keeps its authored colors instead of taking the
-  bar's selected and unselected tints.
+- **A tab's glyph needs a SIZE, and the ASSET is where it comes from.** A tab bar draws
+  `UITab.image` at the image's own size: UIKit scales an SF Symbol to the bar's metrics, but a
+  catalog image has no metrics to scale by. A Material Symbols export carries `width="48"
+  height="48"` and drew at 48pt, twice the height of an iOS tab icon and overlapping its own
+  label. The backend hands the image over untouched and the glyph is authored at icon size
+  instead ([docs/vectors.md](vectors.md)): thumbnailing here downsamples the catalog's bitmap
+  rendition and throws away the vector representation that put it there. Day-Showcase's Grids
+  tabs were the last 48pt holdouts (2026-09-05).
 - **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
   `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
   every other two-way control here — without it, installing the tabs reported a selection the user
   never made and the app's bound signal followed it.
+
+**Below iOS 18 the same host runs on `viewControllers`.** `UITab` and `setTabs:` are iOS 18's, so
+the sync asks the CONTROLLER whether it answers `setTabs:` — the same shape the `.tabSidebar`
+`setMode:` probe takes — and where it does not, each page carries its title and glyph on the
+`UITabBarItem` UIKit makes for it, the roster goes in through `setViewControllers:`, `Select`
+addresses a page by INDEX, and the delegate's `didSelectViewController:` reports a tap. An iOS 17
+device therefore gets the plain tab bar an iOS 17 app always had rather than a crash. The
+`didSelectTab:previousTab:` method is declared OUTSIDE the delegate's protocol block for the same
+reason: a protocol block asks the runtime for the selector's type encoding, and asking for an iOS
+18 selector on an older runtime fails the class registration itself, which took down the whole
+scene as soon as a tabs host was realized.
 
 `UITabGroup` is deliberately NOT used. Day's `NavMenuProps::sections` are headings — "a section
 header introducing the row at the same index" — whereas a `UITabGroup` is a destination that
