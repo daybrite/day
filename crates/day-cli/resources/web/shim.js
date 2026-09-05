@@ -1113,7 +1113,7 @@ const env = {
       case 'dark': v = (q.get('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? '1' : '0'; break;
       case 'locales': v = (q.get('locale') ? [q.get('locale')] : navigator.languages).join(','); break;
       case 'route': v = location.hash.slice(1) || q.get('route') || ''; break;
-      // The browser's IANA time zone (day-part-timezone's local-zone source on web).
+      // The browser's IANA time zone (a zone-aware app's local-zone source on web).
       // `?tz=` overrides for testing, mirroring the other reserved keys.
       case 'tz': v = q.get('tz') ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); break;
       default:

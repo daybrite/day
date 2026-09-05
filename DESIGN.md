@@ -2505,10 +2505,12 @@ Two package kinds share the mechanism:
   battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
   plus the build-time declarations each platform requires, [docs/permissions.md](docs/permissions.md)), location
-  ([docs/location.md](docs/location.md)), fs (app-local file storage, [docs/fs.md](docs/fs.md)), local-notify (local notifications:
-  post or schedule, channels, tap-to-route, [docs/notify.md](docs/notify.md)), and timezone (the wall clock — also on
-  wasm, where std has none — plus IANA zone facts from a bundled tzdb, [docs/timezone.md](docs/timezone.md)). Same
-  registration and metadata machinery, no widget.
+  ([docs/location.md](docs/location.md)), fs (app-local file storage, [docs/fs.md](docs/fs.md)), and local-notify (local
+  notifications: post or schedule, channels, tap-to-route, [docs/notify.md](docs/notify.md)). Same
+  registration and metadata machinery, no widget. (A timezone part — the wall clock, also on wasm,
+  plus IANA zone facts from jiff's bundled tzdb — shipped here until 2026-09; its one consumer,
+  Day-Time, now carries that module itself, since a pure-Rust dependency with no platform arm
+  needs no part.)
 
 ### §15.2 Package layout and aggregation
 

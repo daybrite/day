@@ -103,7 +103,6 @@ Headless capability crates, the non-UI counterpart of Pieces. They provide devic
 | [http](/docs/internal/http) | `day-part-http` |
 | [permissions](/docs/internal/permissions) | `day-part-permissions` |
 | [location](/docs/internal/location) | `day-part-location` |
-| [timezone](/docs/internal/timezone) | `day-part-timezone` |
 | [speech](/docs/internal/speech) | `day-part-speech`, also daybridge’s reference implementation |
 
 ## Platform & tooling

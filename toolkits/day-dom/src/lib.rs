@@ -301,8 +301,8 @@ pub fn host_env(key: &str) -> Option<String> {
 }
 
 /// Milliseconds since the Unix epoch, from the page's `Date.now()`. The wasm target has no
-/// working `SystemTime::now()`, so time-of-day code asks the host page instead (day-part-timezone
-/// routes through here on `web-dom`).
+/// working `SystemTime::now()`, so time-of-day code asks the host page instead (a zone-aware app's
+/// clock routes through here on `web-dom`).
 pub fn now_epoch_ms() -> u64 {
     let ms = unsafe { day_dom_now_ms() };
     if ms.is_finite() && ms > 0.0 {

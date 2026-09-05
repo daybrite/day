@@ -3530,6 +3530,13 @@ mod imp {
         /// Per-row context menu (docs/menus.md), empty = none — served through the table
         /// delegate's row-context hook, the standard iOS long-press row menu.
         menus: RefCell<Vec<Vec<day_spec::MenuItem>>>,
+        /// A heading introducing the row at the same index (`NavMenuProps::sections`): `Some`
+        /// opens a group before that row, `None` continues the current one. Parallel to `items`,
+        /// which is what keeps a heading from shifting the indices rows are addressed by.
+        sections: RefCell<Vec<Option<String>>>,
+        /// Whether the LAYOUT currently draws headings — it is baked in at construction, so a
+        /// data-driven set that changes the answer has to install a new one.
+        headers: std::cell::Cell<bool>,
     }
 
     define_class!(
@@ -3543,13 +3550,63 @@ mod imp {
         unsafe impl UIScrollViewDelegate for DayNavTableData {}
 
         unsafe impl UICollectionViewDataSource for DayNavTableData {
+            /// One section per heading (`NavMenuProps::sections`). A list with no headings is one
+            /// section, which is the flat list this always drew.
+            #[unsafe(method(numberOfSectionsInCollectionView:))]
+            fn number_of_sections(&self, _cv: &objc2_ui_kit::UICollectionView) -> isize {
+                self.groups().len().max(1) as isize
+            }
+
             #[unsafe(method(collectionView:numberOfItemsInSection:))]
             fn rows_in_section(
                 &self,
                 _cv: &objc2_ui_kit::UICollectionView,
-                _section: isize,
+                section: isize,
             ) -> isize {
-                self.ivars().items.borrow().len() as isize
+                self.groups()
+                    .get(section as usize)
+                    .map(|(_, _, len)| *len as isize)
+                    .unwrap_or(0)
+            }
+
+            /// The section's heading, as a list HEADER supplementary (docs/navigation.md).
+            ///
+            /// `headerConfiguration` is the adaptive one, like the cells': it reads the
+            /// `listEnvironment` trait the sidebar appearance publishes and resolves itself to
+            /// that appearance's header — the small, uppercase-ish group label a source list uses
+            /// — so nothing here names a font or an inset.
+            #[unsafe(method_id(collectionView:viewForSupplementaryElementOfKind:atIndexPath:))]
+            fn header_for_section(
+                &self,
+                cv: &objc2_ui_kit::UICollectionView,
+                kind: &NSString,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> Retained<objc2_ui_kit::UICollectionReusableView> {
+                let mtm = self.mtm();
+                let view: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
+                    cv.dequeueReusableSupplementaryViewOfKind_withReuseIdentifier_forIndexPath(
+                        kind,
+                        &NSString::from_str(NAV_HEADER_ID),
+                        index_path,
+                    )
+                }
+                .downcast()
+                .expect("the registered header class IS UICollectionViewListCell");
+                let title = self
+                    .groups()
+                    .get(unsafe { index_path.section() } as usize)
+                    .and_then(|(t, _, _)| t.clone());
+                let content =
+                    unsafe { objc2_ui_kit::UIListContentConfiguration::headerConfiguration(mtm) };
+                unsafe {
+                    // A leading run of rows before the first heading has none to draw. The
+                    // configuration still applies, so the header collapses to nothing rather than
+                    // reserving a blank band.
+                    content.setText(title.as_deref().map(NSString::from_str).as_deref());
+                    view.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
+                }
+                // ListCell -> Cell -> ReusableView: the supplementary method answers in the base.
+                objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(view))
             }
 
             #[unsafe(method_id(collectionView:cellForItemAtIndexPath:))]
@@ -3567,7 +3624,12 @@ mod imp {
                 }
                 .downcast()
                 .expect("the registered class IS UICollectionViewListCell");
-                let row = unsafe { index_path.item() } as usize;
+                let row = self
+                    .row_of(
+                        unsafe { index_path.section() } as usize,
+                        unsafe { index_path.item() } as usize,
+                    )
+                    .unwrap_or(0);
                 let title = self
                     .ivars()
                     .items
@@ -3637,7 +3699,14 @@ mod imp {
             ) {
                 day_spec::ffi_guard::contain((), || {
                     let _ = cv;
-                    let row = unsafe { index_path.item() };
+                    let Some(row) = self.row_of(unsafe { index_path.section() } as usize, unsafe {
+                        index_path.item()
+                    }
+                        as usize)
+                    else {
+                        return;
+                    };
+                    let row = row as i64;
                     // The row STAYS selected. A sidebar beside its detail is the one place a
                     // list's selection means "you are here" rather than "you just tapped", and
                     // UIKit draws that as the rounded pill Settings shows. Clearing it here left
@@ -3657,7 +3726,12 @@ mod imp {
                 index_path: &objc2_foundation::NSIndexPath,
                 _point: CGPoint,
             ) -> Option<Retained<UIContextMenuConfiguration>> {
-                let row = unsafe { index_path.item() } as usize;
+                let row = self
+                    .row_of(
+                        unsafe { index_path.section() } as usize,
+                        unsafe { index_path.item() } as usize,
+                    )
+                    .unwrap_or(usize::MAX);
                 let items = self
                     .ivars()
                     .menus
@@ -3746,6 +3820,40 @@ mod imp {
 
     /// The reuse identifier for a sidebar row.
     const NAV_CELL_ID: &str = "day.nav.cell";
+    /// The reuse identifier for a sidebar section heading.
+    const NAV_HEADER_ID: &str = "day.nav.header";
+
+    /// The sidebar list's layout. `headers` turns section headings on: left off for a list that
+    /// declares none, so a flat list reserves no band where a heading would go.
+    fn nav_list_layout(
+        mtm: MainThreadMarker,
+        headers: bool,
+    ) -> Retained<objc2_ui_kit::UICollectionViewLayout> {
+        // A SIDEBAR list, not an inset-grouped table (docs/navigation.md). The appearance is what
+        // publishes the `listEnvironment` trait the cells' adaptive configurations read, and it is
+        // the whole difference between the Settings sidebar and a plain list: the selection draws
+        // as an inset rounded pill with a tinted label, and the rows carry no separators. A table
+        // cannot be told to do any of that — its selection is edge to edge whatever background
+        // configuration the cells are given, which is what this replaced.
+        let config = unsafe {
+            objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
+                objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
+                objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar,
+            )
+        };
+        unsafe {
+            config.setHeaderMode(if headers {
+                objc2_ui_kit::UICollectionLayoutListHeaderMode::Supplementary
+            } else {
+                objc2_ui_kit::UICollectionLayoutListHeaderMode::None
+            });
+            objc2::rc::Retained::into_super(
+                objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(
+                    &config,
+                ),
+            )
+        }
+    }
 
     /// A row's trailing accessories: the status glyph an app asked for, then the chevron.
     ///
@@ -3792,9 +3900,18 @@ mod imp {
     /// Not animated and not scrolled to: this runs while the model syncs the selection, and both
     /// would read as the list moving under a tap the user already made.
     fn select_nav_row(cv: &objc2_ui_kit::UICollectionView, row: Option<usize>) {
+        // Through the data source, because a row's flat index is not its index PATH once the list
+        // has headings — the grouping is private to the list (`DayNavTableData::path_of`).
+        let path = row.and_then(|r| {
+            NAV_MENUS.with(|m| m.borrow().get(&ptr_of(&view_of(cv.retain())))?.0.path_of(r))
+        });
         unsafe {
-            let ip = row
-                .map(|r| objc2_foundation::NSIndexPath::indexPathForItem_inSection(r as isize, 0));
+            let ip = path.map(|(section, item)| {
+                objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                    item as isize,
+                    section as isize,
+                )
+            });
             cv.selectItemAtIndexPath_animated_scrollPosition(
                 ip.as_deref(),
                 false,
@@ -3817,6 +3934,7 @@ mod imp {
             menus: &[Vec<day_spec::MenuItem>],
             badge_icons: &[Option<String>],
             badge_tints: &[Option<day_spec::Color>],
+            sections: &[Option<String>],
         ) -> Retained<Self> {
             let resolved = resolve_nav_images(icons);
             let this = Self::alloc(mtm).set_ivars(NavTableIvars {
@@ -3827,8 +3945,51 @@ mod imp {
                 badge_tints: RefCell::new(badge_tints.to_vec()),
                 tints: RefCell::new(tints.to_vec()),
                 menus: RefCell::new(menus.to_vec()),
+                sections: RefCell::new(sections.to_vec()),
+                headers: std::cell::Cell::new(sections.iter().any(|s| s.is_some())),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// The row groups this menu draws, as `(heading, first row, row count)`.
+        ///
+        /// `NavMenuProps::sections` is parallel to the rows — a heading INTRODUCES the row at its
+        /// own index — so the groups are runs, and a row's flat index is `first + item`. Rows
+        /// before the first heading form a leading group with none, which is what lets a list open
+        /// with ungrouped rows.
+        fn groups(&self) -> Vec<(Option<String>, usize, usize)> {
+            let rows = self.ivars().items.borrow().len();
+            let sections = self.ivars().sections.borrow();
+            let mut out: Vec<(Option<String>, usize, usize)> = Vec::new();
+            for row in 0..rows {
+                match sections.get(row).cloned().flatten() {
+                    Some(title) => out.push((Some(title), row, 1)),
+                    None if out.is_empty() => out.push((None, row, 1)),
+                    None => {
+                        let last = out.last_mut().expect("non-empty");
+                        last.2 += 1;
+                    }
+                }
+            }
+            out
+        }
+
+        /// The flat row an index path addresses, and the reverse — everything above this backend
+        /// speaks in flat row indices (`SelectionChanged`, `NavMenuProps::selected`, the tint and
+        /// badge arrays), so the grouping stays private to the list.
+        fn row_of(&self, section: usize, item: usize) -> Option<usize> {
+            let g = self.groups();
+            let (_, first, len) = g.get(section)?;
+            (item < *len).then_some(first + item)
+        }
+
+        fn path_of(&self, row: usize) -> Option<(usize, usize)> {
+            self.groups()
+                .iter()
+                .enumerate()
+                .find_map(|(s, (_, first, len))| {
+                    (row >= *first && row < first + len).then_some((s, row - first))
+                })
         }
 
         /// Data-driven rows changed (`NavMenuPatch::Items`): swap labels/icons in place.
@@ -3840,9 +4001,11 @@ mod imp {
             menus: &[Vec<day_spec::MenuItem>],
             badge_icons: &[Option<String>],
             badge_tints: &[Option<day_spec::Color>],
+            sections: &[Option<String>],
         ) {
             *self.ivars().items.borrow_mut() =
                 items.iter().map(|s| NSString::from_str(s)).collect();
+            *self.ivars().sections.borrow_mut() = sections.to_vec();
             *self.ivars().tints.borrow_mut() = tints.to_vec();
             *self.ivars().menus.borrow_mut() = menus.to_vec();
             *self.ivars().icons.borrow_mut() = resolve_nav_images(icons);
@@ -6164,23 +6327,14 @@ mod imp {
                         &p.menus,
                         &p.badge_icons,
                         &p.badge_tints,
+                        &p.sections,
                     );
-                    // A SIDEBAR list, not an inset-grouped table (docs/navigation.md). The
-                    // appearance is what publishes the `listEnvironment` trait the cells' adaptive
-                    // configurations read, and it is the whole difference between the Settings
-                    // sidebar and a plain list: the selection draws as an inset rounded pill with
-                    // a tinted label, and the rows carry no separators. A table cannot be told to
-                    // do any of that — its selection is edge to edge whatever background
-                    // configuration the cells are given, which is what this replaced.
-                    let config = unsafe {
-                        objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
-                            objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
-                            objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar,
-                        )
-                    };
-                    let layout = unsafe {
-                        objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(&config)
-                    };
+                    // Section headings (`NavMenuProps::sections`), which macos-appkit and
+                    // android-mdc already draw and iOS used to flatten away. A list header is the
+                    // sidebar's own idiom for them, so the model needs no new vocabulary — the
+                    // rows are grouped into sections and each carries its heading as a header
+                    // supplementary.
+                    let layout = nav_list_layout(mtm, p.sections.iter().any(|s| s.is_some()));
                     let table = unsafe {
                         objc2_ui_kit::UICollectionView::initWithFrame_collectionViewLayout(
                             objc2_ui_kit::UICollectionView::alloc(mtm),
@@ -6195,6 +6349,14 @@ mod imp {
                                 ),
                             ),
                             &NSString::from_str(NAV_CELL_ID),
+                        );
+                        table.registerClass_forSupplementaryViewOfKind_withReuseIdentifier(
+                            Some(
+                                <objc2_ui_kit::UICollectionViewListCell as objc2::ClassType>::class(
+                                ),
+                            ),
+                            objc2_ui_kit::UICollectionElementKindSectionHeader,
+                            &NSString::from_str(NAV_HEADER_ID),
                         );
                         table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                         table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
@@ -6718,6 +6880,7 @@ mod imp {
                         badge_icons,
                         badge_tints,
                         selected,
+                        sections,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -6730,10 +6893,25 @@ mod imp {
                                     menus,
                                     badge_icons,
                                     badge_tints,
+                                    sections,
                                 );
                                 *n = items.len();
                                 if let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
                                 {
+                                    // Header mode is baked into the LAYOUT, so a data-driven set
+                                    // that gains or loses its headings needs a new one — without
+                                    // this those headings would simply never draw.
+                                    let headers = sections.iter().any(|s| s.is_some());
+                                    if headers != data.ivars().headers.get()
+                                        && let Some(mtm) = MainThreadMarker::new()
+                                    {
+                                        data.ivars().headers.set(headers);
+                                        unsafe {
+                                            cv.setCollectionViewLayout(&nav_list_layout(
+                                                mtm, headers,
+                                            ))
+                                        };
+                                    }
                                     unsafe { cv.reloadData() };
                                     select_nav_row(cv, *selected);
                                 }
@@ -7778,11 +7956,22 @@ mod imp {
             };
             match kind {
                 kinds::NAV_MENU => {
-                    let rows = NAV_MENUS
-                        .with(|m| m.borrow().get(&ptr_of(h)).map(|(_, n)| *n).unwrap_or(0));
+                    // Headings take room too, so a sectioned sidebar measures taller than its rows
+                    // alone — the flat count under-reported it by a heading band per group.
+                    let (rows, headings) = NAV_MENUS.with(|m| {
+                        m.borrow()
+                            .get(&ptr_of(h))
+                            .map(|(data, n)| {
+                                let headings =
+                                    data.groups().iter().filter(|(t, _, _)| t.is_some()).count();
+                                (*n, headings)
+                            })
+                            .unwrap_or((0, 0))
+                    });
                     Size::new(
                         p.width.unwrap_or(320.0),
-                        p.height.unwrap_or(rows as f64 * 44.0 + 40.0),
+                        p.height
+                            .unwrap_or(rows as f64 * 44.0 + headings as f64 * 30.0 + 40.0),
                     )
                 }
                 kinds::LABEL => {

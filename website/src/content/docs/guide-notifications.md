@@ -116,7 +116,7 @@ Notification::new("Good morning")
 ```
 
 `At` takes an instant, not a civil time: resolve "06:30 tomorrow" to a `SystemTime` yourself
-(day-part-timezone has the zone arithmetic), and re-derive on each foreground if you're tracking
+(a tzdb crate such as jiff has the zone arithmetic; Day-Time's `timezone` module shows the pattern), and re-derive on each foreground if you're tracking
 a local-time target across DST changes. An instant already in the past fires immediately.
 
 Where `capabilities().schedule_while_dead` is true, the OS holds the trigger and fires it even if

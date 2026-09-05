@@ -78,7 +78,7 @@ pub enum Trigger {
     /// [`In`](Trigger::In). An instant already in the past fires immediately rather than erroring.
     ///
     /// This is an INSTANT, not a civil time: "06:30 tomorrow" must be resolved to a `SystemTime`
-    /// by the caller (day-part-timezone has the zone arithmetic), and if the zone's rules change
+    /// by the caller (a tzdb crate such as jiff has the zone arithmetic), and if the zone's rules change
     /// between arming and firing, the fire moment does not move — re-derive and re-post to track
     /// civil time, as clock apps re-arm on every foreground anyway.
     At(SystemTime),
