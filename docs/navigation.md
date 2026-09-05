@@ -283,6 +283,7 @@ the only way a row is reachable, and a row's icon tint is the grouping signal th
 there. AppKit draws them as source-list group rows (small, bold, secondary, pinned as their
 group scrolls under them); the outline keys its rows by index, not by title, so a header may
 share its text with an item ("Controls" over Controls) without the two collapsing into one row.
+UIKit and Android draw them from their list's own header slot, described below.
 
 ```rust
 selector(section)
@@ -339,6 +340,29 @@ header introducing the row at the same index" — whereas a `UITabGroup` is a de
 CONTAINS others: in a sidebar it draws as a heading, but in the compact tab bar the whole group
 collapses to a single tab. Mapping flat sections onto it would turn N tab-bar destinations into G.
 It becomes the right realization if Day's selector ever grows real hierarchy.
+
+### The iOS sidebar is a collection-view list
+
+`selector(SelectorStyle::Sidebar)` realizes on ios-uikit as a `UICollectionView` laid out by
+`UICollectionLayoutListConfiguration` with the **`.sidebar` appearance**, in the primary column of
+a `UISplitViewController`. That appearance publishes the `listEnvironment` trait the cells'
+adaptive `UIListContentConfiguration::cellConfiguration` reads, and it is what gives the Settings
+sidebar its look: an inset rounded selection pill with a tinted label, and rows with no separators.
+A `UITableView` draws its selection edge to edge whatever background configuration its cells carry,
+so the rounded shape is the list appearance's to give.
+
+**Section headings ride the same list configuration.** `setHeaderMode(.supplementary)` turns them
+on, and a heading is a supplementary view carrying the adaptive
+`UIListContentConfiguration::headerConfiguration`, so its type, color and insets come from the same
+sidebar environment the rows do. A list that declares no heading sets `.none` instead, so a flat
+sidebar reserves no band where a heading would go, and flipping heading-ness re-installs the
+layout, header mode being a property of the layout rather than of the data.
+
+The grouping stays private to the list. `NavMenuProps::sections` is parallel to the rows (a heading
+introduces the row at its own index), the backend folds that into runs of `(heading, first, len)`,
+and `row_of`/`path_of` translate between a flat row index and an `NSIndexPath`. Everything above
+the backend — `SelectionChanged`, `NavMenuProps::selected`, the per-row tint and badge arrays —
+keeps speaking in flat row indices.
 
 ### The Android sidebar is a NavigationView
 
