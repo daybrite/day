@@ -31,7 +31,7 @@ my-app/
 │   ├── images/               # processed images       → res::images::logo, logo@2x.png variants
 │   ├── vectors/              # SVG glyphs, staged natively per backend → res::vectors::…
 │   ├── fonts/                # custom fonts (.ttf/.otf), referenced by family name
-│   ├── icons/                # app icon sources, staged per platform (dock, taskbar, launcher)
+│   ├── icons/                # the app icon master; `day prepare` renders every platform's set under build/day/host
 │   └── locales/
 │       ├── en/app.ftl        # Fluent translations, embedded at compile time; a new
 │       └── fr/app.ftl        #   directory here is a new language (res::locales::install())

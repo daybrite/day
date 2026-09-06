@@ -16,7 +16,7 @@
 		DA0000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DA0000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA0000000000000000000003 /* $(PRODUCT_NAME).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "$(PRODUCT_NAME).app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		DA0000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		DA0000000000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = "../../build/day/host/macos/Assets.xcassets"; sourceTree = "<group>"; };
 		DA0000000000000000000006 /* DayApp.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = DayApp.xcconfig; sourceTree = "<group>"; };
 		DA0000000000000000000007 /* App */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "../.."; sourceTree = "<group>"; };
 /* End PBXFileReference section */

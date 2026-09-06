@@ -253,6 +253,10 @@ pub use day_build::sanitize_ident;
 /// matches a per-platform icon export set — `icons/{macos,linux,windows,png}/…` — falling back to
 /// any icon at the `icons/` root.
 pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
+    // The generated set under build/day/host (`day prepare`, run by every build) comes first;
+    // the legacy export tree under resource/icons/ is the fallback for a project that has not
+    // migrated.
+    let host = project.root.join(crate::icon::HOST_DIR);
     let icons = project.root.join("resource/icons");
     // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
     let (subdirs, ext): (&[&str], &str) = match toolkit {
@@ -260,12 +264,20 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
         _ if cfg!(target_os = "macos") => (&["macos", "png", ""], "png"),
         _ => (&["linux", "png", ""], "png"),
     };
+    let mut dirs: Vec<PathBuf> = Vec::new();
     for sub in subdirs {
-        let dir = if sub.is_empty() {
+        if !sub.is_empty() {
+            dirs.push(host.join(sub));
+        }
+    }
+    for sub in subdirs {
+        dirs.push(if sub.is_empty() {
             icons.clone()
         } else {
             icons.join(sub)
-        };
+        });
+    }
+    for dir in dirs {
         let mut best: Option<(u64, PathBuf)> = None;
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;

@@ -492,6 +492,33 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// Render the derived host files (icon catalogs, launcher mipmaps, HarmonyOS media) under
+    /// build/day/host from resource/icons/icon.svg — what the Xcode, Gradle, and hvigor projects
+    /// reference, and never checked in (docs/icons.md). Every build runs this itself; run it by
+    /// hand before opening a native project on a fresh clone
+    Prepare {
+        /// Limit to these targets' families (repeatable; default: every target in Day.toml)
+        #[arg(short = 'p', long = "platform")]
+        platforms: Vec<String>,
+        /// Verify the host files are present and current without writing — exits 5 and lists
+        /// what is missing or stale (CI's gate, and what the editor asks before opening Xcode)
+        #[arg(long, conflicts_with = "migrate")]
+        check: bool,
+        /// Move a project from committed derived files to the generated layout: delete the
+        /// files the old lock proves were generated, repoint the Xcode and Gradle projects at
+        /// build/day/host, and gitignore the HarmonyOS links. Prints what it removed; commit
+        /// the deletions yourself
+        #[arg(long)]
+        migrate: bool,
+    },
+    /// Open a target's native project in its IDE — Xcode for ios-uikit and macos-appkit,
+    /// Android Studio for android-mdc, DevEco Studio for harmony-arkui — after `day prepare`,
+    /// so the generated catalogs and media the project references are in place
+    Open {
+        /// The target whose host project to open
+        #[arg(short = 'p', long = "platform")]
+        platform: String,
+    },
     /// Store listings: scaffold `store/`, or stage the fastlane tree a release uploads
     Store {
         #[command(subcommand)]
@@ -1440,13 +1467,64 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             );
                         }
                         Err(CliError::drift(
-                            "icon outputs drifted — run `day icon` to regenerate",
+                            "host files are missing or stale — run `day prepare`",
                         ))
                     }
                     Err(crate::icon::IconError::Other(e)) => Err(CliError::build(e)),
                 }
             })
         }
+        Cmd::Prepare {
+            platforms,
+            check,
+            migrate,
+        } => with_project(cli.project.as_deref(), |project| {
+            if migrate {
+                crate::icon::migrate(project).map_err(CliError::build)?;
+                return Ok(0);
+            }
+            let opts = crate::icon::IconOptions {
+                master: None,
+                check,
+                platforms: platforms.clone(),
+            };
+            match crate::icon::run(project, &opts) {
+                Ok(n) => {
+                    if cli.format == OutputFormat::Json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "event": "result", "command": "prepare", "ok": true, "outputs": n,
+                            })
+                        );
+                    }
+                    Ok(0)
+                }
+                Err(crate::icon::IconError::Drift(lines)) => {
+                    for l in &lines {
+                        crate::ops::status("Stale", l);
+                    }
+                    if cli.format == OutputFormat::Json {
+                        println!(
+                            "{}",
+                            serde_json::json!({
+                                "event": "result", "command": "prepare", "ok": false, "stale": lines,
+                            })
+                        );
+                    }
+                    Err(CliError::drift(
+                        "host files are missing or stale — run `day prepare`",
+                    ))
+                }
+                Err(crate::icon::IconError::Other(e)) => Err(CliError::build(e)),
+            }
+        }),
+        Cmd::Open { platform } => with_project(cli.project.as_deref(), |project| {
+            let target =
+                crate::external::find_target(project, &platform).map_err(CliError::usage)?;
+            crate::icon::ensure(project, &[target.name]).map_err(CliError::build)?;
+            crate::ops::open_native(project, target).map(|()| 0)
+        }),
         Cmd::Build {
             platforms,
             profile,

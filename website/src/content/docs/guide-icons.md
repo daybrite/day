@@ -16,7 +16,7 @@ app-icon set with one command, and every SVG in `resource/vectors/` becomes a ty
 you draw with one piece:
 
 ```sh
-day icon    # resource/icons/icon.svg → .icns, .ico, adaptive + themed, layered, appiconset …
+day prepare # resource/icons/icon.svg → .icns, .ico, adaptive + themed, layered, catalogs, under build/day/host/
 ```
 
 ```rust
@@ -55,40 +55,57 @@ renders everything from it. `--seed <int|string>` reproduces a specific icon (th
 always printed), and `--out preview.svg` writes a preview to a path of your choosing, which
 works without a project.
 
-## 2. Run `day icon`
+## 2. Run `day prepare`
 
-One run renders, per platform family:
+One run renders, per platform family, into `build/day/host/`:
 
-- **macOS** — a margin-composed squircle PNG set and `day-icon.icns`.
-- **iOS** — an opaque `AppIcon-1024.png`, synced into the committed `AppIcon.appiconset`, plus
-  an Icon Composer package (`AppIcon.icon/`) for Xcode 26's Liquid Glass icons; the appiconset
-  stays as the pre-26 fallback.
-- **Android** — adaptive `ic_launcher_{foreground,background}.png`, the legacy 192 px icon,
-  and `play-store-512.png`. A layered master also produces the Android 13 themed icon: a
-  monochrome drawable the system tints, wired into `mipmap-anydpi-v26/ic_launcher.xml`.
-- **HarmonyOS** — `startIcon.png` in both media dirs, plus a layered icon
-  (`layered_image.json` with foreground and background) wired into `app.json5`/`module.json5`.
+- **macOS** — a margin-composed squircle PNG set, `day-icon.icns`, and the asset catalog the
+  Xcode project compiles.
+- **iOS** — the asset catalog with an opaque 1024 px image, plus an Icon Composer package
+  (`AppIcon.icon/`) for Xcode 26's Liquid Glass icons.
+- **Android** — the launcher resource tree: adaptive `ic_launcher_{foreground,background}.png`,
+  the legacy icon, `mipmap-anydpi-v26/ic_launcher.xml`, and, from a layered master, the
+  Android 13 themed icon; beside it `play-store-512.png` for the listing.
+- **HarmonyOS** — `startIcon.png` and the layered icon (`layered_image.json` with foreground
+  and background), linked into both module resource roots and wired into
+  `app.json5`/`module.json5`.
 - **Windows** — a multi-size `day.ico` (16/32/48/256) and `day-icon-256.png`.
 - **Linux** — PNGs at the sizes appstream tooling accepts (48/128/256/512).
 - **`png/`** — `day-icon-{16…1024}.png` for favicons and general use.
 
-The command writes both the `resource/icons/` export tree and the committed `platform/` copies
-each build consumes, so the icon in version control is the icon that ships. `-p <target>`
-limits a run to one target's family.
+Nothing under `build/day/host/` is checked in. The Xcode and Gradle projects reference it by
+path, `day pack` reads it, and every `day build`, `launch`, and `pack` runs `prepare` first
+when the master or the day version changed, so the icon that ships is always the master's
+current render. `-p <target>` limits a run to one target's family.
 
-## 3. Gate drift in CI
+To change one platform's icon, add a source rather than editing an output:
+`resource/icons/macos.svg` replaces the master for macOS alone, and a checked-in
+`resource/icons/ios/AppIcon.icon/` bundle (tuned in Icon Composer) is copied through as-is.
 
-`day icon --check` renders everything in memory, compares bytes against the tree, and writes
-nothing. When the outputs match it exits 0; when they don't it lists the drifted files and
-exits 5, the same gate pattern the duty-matrix check uses:
+## 3. Open the native project, and gate CI
+
+`day open -p ios-uikit` prepares and opens `platform/ios/DayApp.xcodeproj`; `day open -p
+android-mdc` does the same for Android Studio. The VS Code extension's "Open in Xcode" and
+"Open in Android Studio" run `day prepare` first too. On a fresh clone, that is the one step
+between checkout and the IDE.
+
+`day prepare --check` renders everything in memory, compares bytes against `build/day/host`,
+and writes nothing. When the outputs are present and current it exits 0; otherwise it lists
+what is missing or stale and exits 5, the same gate pattern the duty-matrix check uses:
 
 ```sh
-day icon --check    # exit 5 = someone edited the master and forgot to run `day icon`
+day prepare --check    # exit 5 = build/day/host is missing or older than the master
 ```
 
-`resource/icons/icons.lock.json` records the generator version, the master's digest, and a
-digest per output. Renders are byte-stable within one generator version; a `--check` under a
-different day version reports "regenerate with this day version" instead of false byte drift.
+`build/day/host/host.lock.json` records the generator version and a digest per source and per
+output. Renders are byte-stable within one generator version; a `--check` under a different
+day version reports "run `day prepare`" instead of false byte drift.
+
+An app that still commits its derived icons moves over with one command:
+
+```sh
+day prepare --migrate    # deletes the generated files, repoints the projects, gitignores the links
+```
 
 ## 4. Draw in-app glyphs from `resource/vectors/`
 

@@ -92,6 +92,9 @@ android {
             assets.srcDir(rootProject.projectDir.resolve("../../resource/assets"))
             // Processed images (§18.3): images/ staged into res/drawable* -> R.drawable, crunched by aapt2.
             res.srcDir(rootProject.projectDir.resolve("../../build/day/android/res"))
+            // The launcher icon set (mipmaps, the adaptive and themed drawables), rendered by
+            // `day prepare` from resource/icons/icon.svg (docs/icons.md). Never checked in.
+            res.srcDir(rootProject.projectDir.resolve("../../build/day/host/android/res"))
         }
         // Android <uses-permission>s AND any <receiver>/<service> components contributed by
         // standalone pieces (docs/extending.md) live in a generated overlay manifest that AGP merges

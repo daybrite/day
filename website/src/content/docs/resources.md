@@ -185,18 +185,13 @@ heavier stroke, a slant), not true bold or italic cuts.
 
 ## The app icon: `resource/icons/`
 
-`resource/icons/` holds one master (`icon.svg`, `day-icon.svg`, or `icon.png`); `day icon`
-renders it into every platform's icon set (the macOS `.icns`, a multi-size Windows `.ico`,
-Android's adaptive and themed icons, the HarmonyOS layered icon, an Xcode Icon Composer
-package), writing the export tree under `resource/icons/` and the `platform/` copies each build
-consumes. `icons.lock.json` records what was generated, and `day icon --check` fails CI when
-the outputs drift from the master.
-
-During development, `day launch` wires the icon into the running window; at packaging time,
-[`day pack`](/docs/packaging) bundles the generated artifacts (the `.icns` inside your macOS
-bundle, hicolor icons inside the flatpak, MSIX logo assets). The
-[icons reference](/docs/internal/icons) covers layered SVG masters (separate background,
-foreground, and monochrome layers) and the full output table.
+`resource/icons/` holds one master (`icon.svg`, `day-icon.svg`, or `icon.png`), and that is
+the only icon file in the repository. `day prepare` renders every platform's set from it
+(`.icns`, `.ico`, Android's adaptive and themed icons, the HarmonyOS layered icon, the Xcode
+asset catalogs, an Icon Composer package) under `build/day/host/`, which the host projects
+reference by path and every build refreshes when the master changes. A per-platform override
+beside the master (`macos.svg`, `android.svg`, …) replaces it for that platform alone. The
+[icons guide](/docs/guide-icons) covers the layered master and the outputs.
 
 ## Localized strings are resources too
 

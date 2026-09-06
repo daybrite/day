@@ -116,6 +116,32 @@ cargo clippy --workspace --all-targets --features mock -- -D warnings || {
 # code has to be clear, and --strict turns any of them into a failure.
 "$DAY" lint --strict --allow store-placeholder
 
+# The host projects come out of `day new` on a diet (docs/icons.md): the Xcode catalogs, the
+# Android mipmaps and the harmony media dirs are derived from resource/icons/icon.svg into
+# build/day/host/ by `day prepare`, and the checked-in projects point there. A derived file
+# reappearing in the template would put the two side by side, which is exactly the drift this
+# layout was made to end — Gradle refuses duplicate resources, and Xcode would ship whichever
+# catalog it resolved first. `find` rather than `git`: the scaffold is not a repository yet.
+STRAY="$(find platform -not -path '*/build/*' \( -name '*.xcassets' -o -name 'mipmap-*' -o -name '*.icon' \) -print)"
+[ -z "$STRAY" ] || {
+    echo "the scaffold carries derived icon files; they belong under build/day/host:" >&2
+    echo "$STRAY" >&2
+    exit 1
+}
+# …and the derivation itself must work from a fresh scaffold: prepare renders every family, and
+# --check is the CI drift gate the generated apps run, so both are exercised here first.
+"$DAY" prepare
+"$DAY" prepare --check
+for f in build/day/host/ios/Assets.xcassets/AppIcon.appiconset/Contents.json \
+    build/day/host/macos/Assets.xcassets/AppIcon.appiconset/Contents.json \
+    build/day/host/android/res/mipmap-anydpi-v26/ic_launcher.xml \
+    build/day/host/harmony/media/startIcon.png; do
+    [ -f "$f" ] || {
+        echo "day prepare left no $f" >&2
+        exit 1
+    }
+done
+
 if [ -n "$COMBO" ]; then
     case "$COMBO" in
         # The combos `day pack` supports (pack/mod.rs) — only these can go on to the rebuild.

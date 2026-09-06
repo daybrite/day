@@ -20,7 +20,9 @@ day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively (--no-website to skip the site config)
 day app add-toolkit android-mdc   # add a target to an existing app
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
-day icon                     # generate every platform's app-icon set from one master (--check: CI drift gate)
+day prepare                  # render the derived host files (icon catalogs, mipmaps) under build/day/host (--check: CI gate)
+day open -p <target>         # prepare, then open the host project in Xcode / Android Studio / DevEco
+day icon --generate          # write a seeded master icon to resource/icons/icon.svg (--check: CI drift gate)
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed

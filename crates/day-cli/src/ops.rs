@@ -469,6 +469,11 @@ pub fn build(
         ));
     }
     let start = std::time::Instant::now();
+    // The derived host files (icon catalogs, mipmaps, HarmonyOS media) live under
+    // build/day/host and are never checked in; regenerate them when the master moved
+    // (crate::icon::ensure — cheap when the lock is current). A failure here is a real one:
+    // the host build would compile a catalog that does not exist.
+    crate::icon::ensure(project, &[target.name])?;
     // Stage declared resources (images/ + assets/) into this target's native locations before its
     // platform build runs, so actool/aapt2/rcc/hvigor can process them (§18.3). Best-effort: this
     // needs the toolkit's native resource compiler (rcc / glib-compile-resources / …), which isn't
@@ -1310,5 +1315,62 @@ mod wait_tests {
             .expect("echo finishes well inside 30s");
         assert!(out.status.success());
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "ok");
+    }
+}
+
+/// `day open -p <target>`: open the target's host project in the IDE that owns it. The caller
+/// has already run `crate::icon::ensure`, so the catalogs and media the project references
+/// exist. Xcode and DevEco Studio are macOS applications; Android Studio is opened through
+/// `open -a` on macOS and the `studio` launcher elsewhere.
+pub fn open_native(
+    project: &Project,
+    target: &'static crate::targets::Target,
+) -> Result<(), crate::cli::CliError> {
+    let (dir, app): (PathBuf, &str) = match target.name {
+        "ios-uikit" => (project.root.join("platform/ios/DayApp.xcodeproj"), "Xcode"),
+        "macos-appkit" => (
+            project.root.join("platform/macos/DayApp.xcodeproj"),
+            "Xcode",
+        ),
+        "android-mdc" => (project.root.join("platform/android"), "Android Studio"),
+        "harmony-arkui" => (crate::ohos::harmony_dir(project), "DevEco-Studio"),
+        other => {
+            return Err(crate::cli::CliError::usage(format!(
+                "{other} has no native IDE project to open (Xcode: ios-uikit, macos-appkit; \
+                 Android Studio: android-mdc; DevEco Studio: harmony-arkui)"
+            )));
+        }
+    };
+    if !dir.exists() {
+        return Err(crate::cli::CliError::usage(format!(
+            "{} is missing — the {app} host project for {} was never scaffolded",
+            dir.display(),
+            target.name
+        )));
+    }
+    status(
+        "Opening",
+        &format!("{} in {app}", crate::git::display_path(&dir)),
+    );
+    let ok = if cfg!(target_os = "macos") {
+        let mut cmd = Command::new("open");
+        if app != "Xcode" {
+            cmd.arg("-a").arg(app);
+        }
+        cmd.arg(&dir).status().map(|s| s.success()).unwrap_or(false)
+    } else if app == "Android Studio" {
+        ["studio", "studio.sh", "studio64"]
+            .iter()
+            .any(|bin| Command::new(bin).arg(&dir).spawn().is_ok())
+    } else {
+        false
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(crate::cli::CliError::env(format!(
+            "could not open {app}: it is not installed here, or not on PATH — open {} yourself",
+            dir.display()
+        )))
     }
 }

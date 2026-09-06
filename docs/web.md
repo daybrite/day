@@ -293,6 +293,11 @@ Query parameters the host page reads: `theme=light|dark` (else the OS preference
 `locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`.
 A browser sandbox has no process environment, so `day launch --env K=V` forwards each pair
 as `?K=V` (percent-encoded) and `day::env("K")` reads it back through the shim. The shim's
-page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`; the last carries the
-browser's IANA zone for zone-aware apps such as Day-Time, overridable as `?tz=` for testing) and the reserved
+page-fact keys (`vw`, `vh`, `dpr`, `dark`, `locales`, `route`, `tz`, `tzoffset`) and the reserved
 `theme`, `locale`, and `dayscript` names shadow same-named app keys; avoid those as env names.
+`tz` carries the browser's IANA zone for zone-aware apps such as Day-Time, and `tzoffset` the
+offset that zone is running at in MINUTES EAST of UTC — `tzoffset` for now, `tzoffset:<epoch-ms>`
+for a moment, since daylight saving makes the answer a function of the instant. Both honor `?tz=`
+for testing, so a run can be pinned to a zone the machine is not in. Together they are what lets a
+web app compute a local calendar day without shipping a copy of the IANA database: the browser
+already has one, and Day-News's "Today" reads it through `daynews-time`.

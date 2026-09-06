@@ -60,7 +60,7 @@ the architecture-level view and the rationale.
 | toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
-| app icons — `day icon`, the layered master, per-platform exports + drift gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
+| app icons — `day prepare`, the layered master, the generated `build/day/host` tree the host projects reference, `--check` gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | [docs/vectors.md](docs/vectors.md) | [§18.3](#183-images-and-data) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
@@ -334,7 +334,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
-| `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day icon`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
+| `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon --generate`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
@@ -3019,18 +3019,43 @@ pre-split scaffold in place (also available standalone as `day app split-xcconfi
 unrecognized pbxproj degrades to a warning, never a half-edit).
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
 
-#### `day icon`
+#### `day prepare`, `day open`, and `day icon`
 
-`day icon [master] [--check] [-p <target>]` renders every platform's app-icon set from one
-master (`resource/icons/icon.svg` layered via `day:` group ids, or a plain svg/png) into the
-`resource/icons/` exports plus the committed `platform/` copies, writing `icons.lock.json`.
-`--check` re-renders in memory and exits 5 on drift — the CI gate. Engine: `day-vector`
-(resvg with text shaping off; `<text>` masters are refused with an outline hint).
+> [!NOTE]
+> **Derived host files left git (2026-09).** Until then every app committed the icon
+> renditions the host projects consume (36 binaries in the scaffold: catalogs, mipmaps,
+> `.icns`, `.ico`, HarmonyOS media), all derived from one `resource/icons/icon.svg`. They now
+> live under `build/day/host/<family>/`, written by `day prepare` and never checked in; the
+> Xcode projects reference `../../build/day/host/{ios,macos}/Assets.xcassets` by relative
+> path, the Gradle module adds `build/day/host/android/res` to its `res` source set, `day pack`
+> reads the Linux and Windows icons there, and hvigor — the one host with a fixed resource
+> root — gets gitignored symlinks from both `resources/base/media` directories to
+> `build/day/host/harmony/media`. The rule is one sentence: a file in git is a source; a
+> derived file is under `build/`.
+
+`day prepare [-p <target>]… [--check] [--migrate]` renders every derived host file from the
+master (`resource/icons/icon.svg` layered via `day:` group ids, or a plain svg/png) into
+`build/day/host/` and writes `host.lock.json` there (generator, source digests, output
+digests). A per-family override beside the master (`resource/icons/ios.svg`, `macos.svg`,
+`android.svg`, …) replaces it for that family, and a checked-in
+`resource/icons/ios/AppIcon.icon/` bundle is copied through instead of generated. `--check`
+re-renders in memory and exits 5 when anything under `build/day/host` is missing or stale — the
+CI gate, and what the VS Code extension asks before "Open in Xcode". `--migrate` moves an
+existing app to the layout: deletes the committed derived files the legacy lock proves were
+generated (hand-edited ones stay, and are named), repoints the Xcode and Gradle projects, and
+gitignores the HarmonyOS links. Every `day build`/`launch`/`pack` calls `crate::icon::ensure`
+first (a no-op while the lock vouches for the master and the generator), and so does the Xcode
+target's "Build Rust (day)" phase, so a GUI build never compiles a stale catalog.
+
+`day open -p <target>` prepares, then opens the target's host project in its IDE (Xcode,
+Android Studio, DevEco Studio).
+
 `day icon --generate [--seed <int|string>] [--overwrite] [--out <file.svg>]` writes a seeded
-pseudo-random layered master instead (`day-vector`'s `icongen`) and regenerates the outputs
-from it; `--out` is the project-less preview form (SVG + 512 px PNG at the given path).
-`day new app --icon-seed <seed>` overrides the scaffold's default (the app id). Normative:
-[docs/icons.md](docs/icons.md).
+pseudo-random layered master (`day-vector`'s `icongen`) and prepares the outputs from it;
+`--out` is the project-less preview form (SVG + 512 px PNG at the given path). A plain
+`day icon` is `day prepare`. `day new app --icon-seed <seed>` overrides the scaffold's default
+(the app id). Engine: `day-vector` (resvg with text shaping off; `<text>` masters are refused
+with an outline hint). Normative: [docs/icons.md](docs/icons.md).
 
 #### `day sign`
 
@@ -3625,7 +3650,7 @@ Assets ship platform-idiomatically, with the per-target mechanics specified now:
 > In-app images are pre-exported PNGs under `resource/images/` ([§18.3](#183-processed-images--random-access-data-resources-docsresourcesmd)) — the Skip lesson
 > (bundle the glyphs; don't rely on platform symbol names) is the working practice, with
 > Material Symbols exports as the common source. The **app icon** comes from
-> `resource/icons/{macos,linux,windows,png}/` PNG export sets (falling back to any root icon):
+> `build/day/host/{macos,linux,windows,png}/` PNG sets from `day prepare` (falling back to the legacy `resource/icons/` exports, then any root icon):
 > `day pack` assembles `.icns` via `sips` + `iconutil` on macOS, `.ico` on Windows, and the
 > freedesktop policy sizes (48/64/128) for flatpak — with embedded defaults so a bare project
 > still packs. Dark/light theming is native per toolkit ([§6.3](#63-semantic-theme-tokens)), forced only by `DAY_THEME`.

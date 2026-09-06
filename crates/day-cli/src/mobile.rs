@@ -170,6 +170,15 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     } else {
         Profile::Debug
     };
+    // The asset catalog this build compiles is generated under build/day/host (docs/icons.md).
+    // This phase runs before "Resources", so a GUI build never compiles a stale or missing one.
+    let host_target = if platform.contains("macos") {
+        "macos-appkit"
+    } else {
+        "ios-uikit"
+    };
+    crate::icon::ensure(&project, &[host_target])
+        .map_err(|e| CliError::build(format!("day xcode-backend: prepare: {e}")))?;
     // Freshness (§17.5): Xcode resolved the generated xcconfig BEFORE this phase ran, so if
     // Day.toml changed since it was last written, the bundle this build is assembling
     // carries stale identity. Refresh the file and fail with the designed message — the

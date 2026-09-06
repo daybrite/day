@@ -247,6 +247,26 @@ const foreignStubs = (module, imports) => {
   return imports;
 };
 
+// Minutes EAST of UTC at `ms`, for the page's own zone or for the `?tz=` override the `tz` key
+// honors. `Date.getTimezoneOffset` counts the other way (minutes to ADD to reach UTC), and a
+// named zone states its offset through `Intl` as "GMT+09:00" — "GMT" alone being UTC. An
+// unknown id answers 0 rather than throwing into the app.
+function tzOffsetMinutes(ms) {
+  const override = new URLSearchParams(location.search).get('tz');
+  if (!override) return -new Date(ms).getTimezoneOffset();
+  try {
+    const named = new Intl.DateTimeFormat('en-US', { timeZone: override, timeZoneName: 'longOffset' })
+      .formatToParts(new Date(ms))
+      .find((p) => p.type === 'timeZoneName')?.value ?? '';
+    const m = /GMT([+-])(\d{1,2}):(\d{2})/.exec(named);
+    if (!m) return 0;
+    const mins = Number(m[2]) * 60 + Number(m[3]);
+    return m[1] === '-' ? -mins : mins;
+  } catch {
+    return 0;
+  }
+}
+
 const env = {
   // Seconds since the Unix epoch, for day-piece-datetime: wasm32-unknown-unknown has no clock of
   // its own, and `SystemTime::now()` traps there rather than failing.
@@ -1147,9 +1167,19 @@ const env = {
       // The browser's IANA time zone (a zone-aware app's local-zone source on web).
       // `?tz=` overrides for testing, mirroring the other reserved keys.
       case 'tz': v = q.get('tz') ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); break;
+      // The offset that zone is running at, in MINUTES EAST of UTC, for the current instant.
+      case 'tzoffset': v = String(tzOffsetMinutes(Date.now())); break;
       default:
         // Reserved `vector:` keys answer "is NAME a bundled vector glyph?" from the list
         // the assemble step injects into the page (docs/vectors.md) — '1' or empty.
+        // `tzoffset:<epoch-ms>` answers for a MOMENT rather than for now: daylight saving makes
+        // the offset a function of the instant, which is what a "local midnight" boundary
+        // needs. The browser's own tz database answers, so a web app bundles none.
+        if (key.startsWith('tzoffset:')) {
+          const ms = Number(key.slice(9));
+          v = Number.isFinite(ms) ? String(tzOffsetMinutes(ms)) : '';
+          break;
+        }
         if (key.startsWith('vector:')) {
           v = (window.__DAY_VECTORS || []).includes(key.slice(7)) ? '1' : '';
           break;

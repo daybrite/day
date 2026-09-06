@@ -36,3 +36,8 @@ platform/android/.idea/
 website/.daysite/
 website/appindex.json
 website/gallery-manifest.json
+
+# HarmonyOS reads its icon media from a fixed place under each module, so `day prepare` links
+# these two directories to the generated set under build/day/host/harmony/media.
+/platform/harmony/entry/src/main/resources/base/media
+/platform/harmony/AppScope/resources/base/media
