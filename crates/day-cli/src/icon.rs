@@ -198,8 +198,16 @@ pub fn run(project: &Project, opts: &IconOptions) -> Result<usize, IconError> {
                 Err(_) => drift.push(format!("{rel}: missing")),
             }
         }
-        for (link, _) in harmony_links(project, &families) {
-            if !project.root.join(&link).is_dir() {
+        for (link, target) in harmony_links(project, &families) {
+            let path = project.root.join(&link);
+            if path.is_dir() {
+                continue;
+            }
+            // A link that exists but resolves to nothing is a different failure from no link
+            // at all: it is what a target spelled with the wrong separator looks like.
+            if std::fs::symlink_metadata(&path).is_ok() {
+                drift.push(format!("{link}: links to nothing (expected {target})"));
+            } else {
                 drift.push(format!("{link}: not linked"));
             }
         }
@@ -450,12 +458,7 @@ fn link_dir(root: &Path, link: &str, target: &str) -> Result<(), String> {
     let link_path = root.join(link);
     let target_path = root.join(target);
     std::fs::create_dir_all(&target_path).map_err(|e| format!("mkdir {target}: {e}"))?;
-    let depth = Path::new(link).components().count().saturating_sub(1);
-    let mut rel = PathBuf::new();
-    for _ in 0..depth {
-        rel.push("..");
-    }
-    rel.push(target);
+    let rel = link_relative(link, target);
     match std::fs::symlink_metadata(&link_path) {
         Ok(meta) if meta.file_type().is_symlink() => {
             if std::fs::read_link(&link_path).ok().as_deref() == Some(rel.as_path()) {
@@ -484,20 +487,47 @@ fn link_dir(root: &Path, link: &str, target: &str) -> Result<(), String> {
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(&rel, &link_path)
-            .map_err(|e| format!("link {link} → {}: {e}", rel.display()))
+            .map_err(|e| format!("link {link} → {}: {e}", rel.display()))?;
     }
     #[cfg(windows)]
     {
-        if std::os::windows::fs::symlink_dir(&rel, &link_path).is_ok() {
-            return Ok(());
+        if std::os::windows::fs::symlink_dir(&rel, &link_path).is_err() {
+            status(
+                "Note",
+                &format!("symlinks are unavailable here; copying {target} to {link} instead"),
+            );
+            copy_dir(&target_path, &link_path)?;
+            return std::fs::write(link_path.join(".day-copied"), b"")
+                .map_err(|e| format!("mark {link}: {e}"));
         }
-        status(
-            "Note",
-            &format!("symlinks are unavailable here; copying {target} to {link} instead"),
-        );
-        copy_dir(&target_path, &link_path)?;
-        std::fs::write(link_path.join(".day-copied"), b"").map_err(|e| format!("mark {link}: {e}"))
     }
+    // Creating the link proves nothing about where it points: prove it resolves here, in the
+    // command that made it, rather than one command later in `--check`.
+    if link_path.is_dir() {
+        Ok(())
+    } else {
+        Err(format!(
+            "link {link} → {} was created but does not resolve to {target}",
+            rel.display()
+        ))
+    }
+}
+
+/// The path `link` stores to reach `target`, both project-relative: enough `..` to climb from
+/// the link's directory to the project root, then the target. Built component by component so
+/// every separator is the host's own — Windows stores a symlink target verbatim in the reparse
+/// point and its resolver does not treat `/` as a separator, so a target pushed as one
+/// `build/day/host/…` string made a link that created fine and resolved to nothing.
+fn link_relative(link: &str, target: &str) -> PathBuf {
+    let depth = Path::new(link).components().count().saturating_sub(1);
+    let mut rel = PathBuf::new();
+    for _ in 0..depth {
+        rel.push("..");
+    }
+    for component in Path::new(target).components() {
+        rel.push(component);
+    }
+    rel
 }
 
 #[cfg(windows)]
@@ -1653,6 +1683,24 @@ mod tests {
         <rect id=\"day:background\" width=\"100\" height=\"100\" fill=\"#123456\"/>\
         <g id=\"day:foreground\"><circle cx=\"50\" cy=\"50\" r=\"20\" fill=\"#fff\"/></g>\
         <g id=\"day:monochrome\"><circle cx=\"50\" cy=\"50\" r=\"20\"/></g></svg>";
+
+    #[test]
+    fn link_relative_climbs_to_the_root_in_host_separators() {
+        let rel = link_relative(
+            "platform/harmony/entry/src/main/resources/base/media",
+            "build/day/host/harmony/media",
+        );
+        let expected: PathBuf = ["..", "..", "..", "..", "..", "..", ".."]
+            .iter()
+            .chain(["build", "day", "host", "harmony", "media"].iter())
+            .collect();
+        assert_eq!(rel, expected);
+        // No `/` survives on a host whose separator is `\`: the reparse resolver reads it as
+        // part of a name.
+        let text = rel.to_string_lossy();
+        assert!(!text.contains(if cfg!(windows) { '/' } else { '\\' }));
+        assert_eq!(text.matches(std::path::MAIN_SEPARATOR).count(), 11);
+    }
 
     #[test]
     fn layers_split_and_splice() {

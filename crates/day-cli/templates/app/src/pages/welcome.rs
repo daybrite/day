@@ -1,7 +1,7 @@
 use day::prelude::*;
 
-/// The opening screen: vector art, a greeting, and markdown prose whose emphasis and link live
-/// in the translation (https://daybrite.dev/docs/vectors, https://daybrite.dev/docs/markdown).
+/// The opening screen: vector art, a greeting, and markdown prose that lives in the
+/// translation (https://daybrite.dev/docs/resources).
 pub(crate) fn welcome_page() -> impl Piece {
     column((
         spacer(),
@@ -22,7 +22,7 @@ pub(crate) fn welcome_page() -> impl Piece {
     ))
     .spacing(20.0)
     .align(HAlign::Center)
-    // Fill the pane first, so the centering has room to mean anything.
+    // Fill the pane first, so centering has room to work.
     .grow()
     .padding(24.0)
 }

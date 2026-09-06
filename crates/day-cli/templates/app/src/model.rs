@@ -1,92 +1,71 @@
-//! The app's domain object, and the per-window state that holds one.
+//! The app's domain object, and the per-window `Scene` that holds one.
 //!
-//! Everything a window shows is a projection of ONE [`Scene`] — its store, its filter, its
-//! selection — so no page owns state and no page has to tell another that something changed.
-//! The store is observable PER PROPERTY (https://daybrite.dev/docs/model):
-//! `#[derive(Observable)]` turns every field of [`Item`] into a typed accessor, and
-//! `scene.items.elem(id).name()` is a two-way binding a `text_field` takes directly — the editor
-//! needs no draft signals and no write-back plumbing. Editing a name wakes exactly the readers of
-//! that name; the list re-runs only when the collection's SHAPE changes.
+//! Everything a window shows is a projection of its `Scene`: the store, the filter, the
+//! selection. `#[derive(Observable)]` makes every `Item` field a two-way binding, so the editor
+//! writes the store directly and each edit wakes only the readers of that field
+//! (https://daybrite.dev/docs/reactivity).
 //!
-//! A `Scene` is per WINDOW, not per app (https://daybrite.dev/docs/state). That is the whole
-//! reason it is a struct rather than a handful of `thread_local!` globals: File ▸ New Window
-//! builds the same shell a second time, and a global would hand both windows one selection.
-//!
-//! Persistence is deliberately boring: the whole list is one JSON blob under one `day::prefs`
-//! key, written by one coarse subscription in [`Scene::persist`]. That is enough for a starter,
-//! survives an Android process death (prefs is disk-backed), and is the piece you are most
-//! likely to replace first — swap it for your database and nothing above this file changes.
+//! Persistence is one JSON blob under a `day::prefs` key, saved by one subscription in
+//! [`Scene::persist`]. It is the part you will most likely replace first, and nothing above
+//! this file cares.
 
 use crate::Section;
 use day::model::Op;
 use day::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// One row. `id` is stable across reorders and edits: the list keys on it, a route segment
-/// carries it, and `#[obs(key)]` makes it the key an `elem(id)` handle addresses — never the
-/// index, which changes the moment a row moves.
+/// One row. `id` is the stable key: the list, the routes, and `elem(id)` all address a row by
+/// it, never by index.
 #[derive(Observable, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Item {
     #[obs(key)]
     pub id: u32,
     pub name: String,
     pub count: i64,
-    /// ISO-8601 (`YYYY-MM-DD`). Stored as a string so the JSON stays readable and the date
-    /// piece's own type does not leak into the persisted shape.
+    /// ISO-8601, kept as a string so the JSON stays readable.
     pub date: String,
-    /// Index into `KINDS` — a segmented picker's selection.
+    /// Index into `KINDS`.
     pub kind: usize,
     pub done: bool,
     pub notes: String,
     pub rating: usize,
-    /// `#RRGGBB`, the color well's value.
+    /// `#RRGGBB`.
     pub color: String,
 }
 
-/// The `kind` picker's options. Fluent keys rather than literals so they localize
-/// (https://daybrite.dev/docs/localization).
+/// The kind picker's options, as Fluent keys so they localize.
 pub(crate) const KINDS: [&str; 3] = ["item_kind_note", "item_kind_task", "item_kind_idea"];
 
 const STORE_KEY: &str = "app.items";
 const SHOW_DONE_KEY: &str = "app.show_done";
 const SEED_COUNT: u32 = 100;
 
-/// Everything ONE WINDOW owns: its document, its filter, and where it is looking
-/// (https://daybrite.dev/docs/state).
+/// Everything one window owns: its document, its filter, and where it is looking.
 ///
-/// `Copy`, because every field is a HANDLE — `Store` and `Signal` are both pointer-sized and
-/// both cheap — so a `Scene` rides into an event handler or a page function with no `Rc` and no
-/// `clone()`. That is what makes passing state around cost as little as reaching for a global.
-///
-/// [`Ambient`] is how pieces get one without threading it through every signature: the window's
-/// shell provides it once with `Scene::scoped(…)` and anything built below reads it back with
-/// `Scene::ambient()` — SwiftUI's `@EnvironmentObject`. The app-wide menu bar, which belongs to
-/// no window, reaches the front one's with `Scene::focused()`.
+/// `Copy`, because every field is a handle, so a `Scene` goes into any closure without an
+/// `Rc`. The window shell provides one with `Scene::scoped`, pages read it back with
+/// `Scene::ambient()`, and the menu bar reaches the front window's with `Scene::focused()`.
 #[derive(Clone, Copy)]
 pub(crate) struct Scene {
     /// This window's document.
     pub items: Store<Keyed<Item>>,
-    /// Whether finished items are listed at all. A VIEW preference rather than data, but the
-    /// primary window persists it all the same — a filter the user has to re-apply on every
-    /// launch is a filter they stop using.
+    /// Whether finished items are listed. A view preference, but persisted anyway: a filter you
+    /// have to reapply every launch is one you stop using.
     pub show_done: Signal<bool>,
-    /// Which section the navigation is showing.
+    /// The section the navigation is showing.
     pub section: Signal<Section>,
-    /// The row the editor is editing. The seam between the list and the editor.
+    /// The row the editor is editing; the one field the list and the editor share.
     pub selected: Signal<Option<u32>>,
-    /// The row the list should scroll into view; cleared once it has.
+    /// A row the list should scroll to, cleared once it has.
     pub scroll_to: Signal<Option<usize>>,
-    /// Whether the EDITOR is showing. A three-column window always shows it beside the list; a
-    /// shape that shows one pane at a time pushes it over the list and pops back, and this is
-    /// the signal the navigation host drives in both directions — `selector(…).detail_visible`
-    /// in `lib.rs` (https://daybrite.dev/docs/navigation).
+    /// Whether the editor is showing, on the shapes that show one pane at a time. The nav host
+    /// drives it both ways through `.detail_visible` in `lib.rs`.
     pub detail_open: Signal<bool>,
 }
 
 impl Ambient for Scene {
-    /// A window's state, seeded from what was last saved (or from a fresh sample list on first
-    /// launch). Called once per window: a second window starts as a COPY of the saved document
-    /// and then diverges, because each window owns its own store.
+    /// A window's state, seeded from the last save or a fresh sample list. A second window
+    /// starts as a copy of the saved document and diverges from there.
     fn create() -> Self {
         let saved = day::prefs::get(STORE_KEY)
             .and_then(|s| serde_json::from_str::<Vec<Item>>(&s).ok())
@@ -107,16 +86,13 @@ impl Ambient for Scene {
 }
 
 impl Scene {
-    /// Write this scene's document and filter back to `day::prefs` on every change.
+    /// Save the document and filter to `day::prefs` on every change.
     ///
-    /// Installed by the PRIMARY window only (`window_shell` in lib.rs). Every window owns its
-    /// own store, so letting each one save would make the last window touched the winner and
-    /// the others' edits vanish on the next launch. If you would rather every window edit ONE
-    /// shared document, replace `Scene::scoped` in `window_shell` with `Scene::app` — then
-    /// there is a single scene, this runs once, and the question does not arise.
+    /// Only the primary window installs this; if every window saved, the last one touched would
+    /// win. To have all windows share one document instead, swap `Scene::scoped` for
+    /// `Scene::app` in `window_shell`.
     pub(crate) fn persist(self) {
-        // On the ROOT scope, not the window's: closing the window that installed these must not
-        // stop the app saving (https://daybrite.dev/docs/state).
+        // On the root scope, so closing the window that installed these does not stop saving.
         Scope::root().enter(move || {
             watch(
                 move || self.show_done.get(),
@@ -124,10 +100,8 @@ impl Scene {
                     day::prefs::set(SHOW_DONE_KEY, if *v { "1" } else { "0" });
                 },
             );
-            // ONE coarse subscription instead of a save call at every write site. The tracked
-            // whole-store read wakes for any field write, insert, delete or reorder — precision
-            // is something a reader opts OUT of by reading coarsely — and the version number is
-            // the cheap value `watch` diffs.
+            // One coarse subscription: a whole-store read wakes on any write, and the version
+            // number is the cheap value `watch` diffs.
             let store = self.items;
             watch(
                 move || {
@@ -143,14 +117,12 @@ impl Scene {
         });
     }
 
-    /// Row KEYS as the list shows them: finished ones first, optionally hidden altogether, each
-    /// group keeping the user's own order.
+    /// Row keys in display order: finished ones first, or hidden when the filter says so, each
+    /// group in the user's own order.
     ///
-    /// Sorting and filtering HERE rather than in the page is what keeps the list, the editor's
-    /// neighbors, and the reorder indices agreeing on what "row 3" means. And it is a projection
-    /// of KEYS, not items: nothing is cloned, and its tracked reads are exactly the collection's
-    /// shape, the filter flag, and each row's `done` — the only facts the ORDER depends on.
-    /// Renaming an item cannot re-run it, so the list never reloads for a keystroke in the editor.
+    /// Sorting here keeps the list, the editor, and the reorder indices agreeing on what "row 3"
+    /// means. It reads only the shape, the filter, and each row's `done`, so renaming an item
+    /// never reloads the list.
     pub(crate) fn ordered_keys(self) -> Vec<u64> {
         let show = self.show_done.get();
         let store = self.items;
@@ -162,7 +134,7 @@ impl Scene {
                 (show || !done).then_some((k, done))
             })
             .collect();
-        // A STABLE sort, so the user's own order survives inside each group.
+        // Stable, so the user's order survives inside each group.
         keys.sort_by_key(|(_, done)| !done);
         keys.into_iter().map(|(k, _)| k).collect()
     }
@@ -180,13 +152,12 @@ impl Scene {
     }
 
     pub(crate) fn toggle_done(self, id: u32) {
-        // A field write through the same accessor the editor binds — one path for every writer.
+        // The same accessor the editor binds, so every writer takes one path.
         self.items.elem(id as u64).done().update(|d| *d = !*d);
     }
 
-    /// Move row `from` to row `to` in the UNDERLYING list. The list hands us DISPLAY indices,
-    /// which differ from storage order whenever a finished item has floated to the top — so both
-    /// ends are resolved back to keys before anything moves.
+    /// Move a row by its display indices. Those differ from storage order once a finished item
+    /// has floated up, so both ends resolve to keys first.
     pub(crate) fn move_row(self, from: usize, to: usize) {
         let display = self.ordered_keys();
         let (Some(&a), Some(&b)) = (display.get(from), display.get(to)) else {
@@ -203,25 +174,22 @@ impl Scene {
         });
     }
 
-    // --- the commands the toolbar, the menu bar, and the row menus all run ------------------
+    // --- the commands the toolbar, the menu bar, and the row menus share -------------------
 
-    /// Open `id` in the editor — the one path every "show me this item" command takes. The
-    /// layout is not this function's business: a wide window already has the editor beside the
-    /// list, a narrow one pushes it, and the host decides which
-    /// (https://daybrite.dev/docs/navigation).
+    /// Open `id` in the editor. Where it appears is the nav host's call: beside the list on a
+    /// wide window, pushed over it on a narrow one.
     pub(crate) fn open(self, id: u32) {
         self.selected.set(Some(id));
         self.detail_open.set(true);
     }
 
-    /// Close the editor — the inverse of [`Self::open`], for a cleared list selection.
-    /// `detail_open` stays as it is, so a pushed phone page is not popped from under the user.
+    /// Close the editor for a cleared selection. `detail_open` stays put, so a pushed phone
+    /// page is not popped from under the user.
     pub(crate) fn clear_selection(self) {
         self.selected.set(None);
     }
 
-    /// Create an item and open its editor straight away — the "new" flow every list app has,
-    /// where the row you just made is the row you want to be typing into.
+    /// Create an item and open it, so the row you just made is the one you are typing into.
     pub(crate) fn new_item(self) {
         let id = self
             .items
@@ -241,9 +209,7 @@ impl Scene {
             })
         });
         self.open(id);
-        // A hundred rows in, a new one lands off screen. Ask the list to bring it into view by
-        // its DISPLAY index, which is not the order it was appended in — finished items float to
-        // the top (https://daybrite.dev/docs/list).
+        // A hundred rows in, a new row lands off screen; scroll to its display index.
         self.scroll_to
             .set(self.ordered_keys().iter().position(|k| *k == id as u64));
     }
@@ -252,7 +218,7 @@ impl Scene {
         if let Some(id) = self.selected.get_untracked() {
             self.remove(id);
             self.selected.set(None);
-            // Nothing left to edit: on the shapes that pushed the editor, this pops back.
+            // Nothing left to edit; the shapes that pushed the editor pop back.
             self.detail_open.set(false);
         }
     }
@@ -264,14 +230,13 @@ impl Scene {
     }
 }
 
-/// Today as `YYYY-MM-DD`, via the date piece's own calendar so the app carries no date crate.
+/// Today as `YYYY-MM-DD`, via the date piece's calendar, so the app needs no date crate.
 fn today_iso() -> String {
     let d = day_piece_datetime::DayDate::today();
     format!("{:04}-{:02}-{:02}", d.year, d.month, d.day)
 }
 
-/// The first-launch list. Enough rows to make scrolling, reordering, and recycling real —
-/// a ten-row list proves nothing about a list widget.
+/// The first-launch list. A hundred rows, enough to make scrolling and reordering real.
 fn seed() -> Vec<Item> {
     let base = day_piece_datetime::DayDate::today().to_epoch_days();
     (1..=SEED_COUNT)

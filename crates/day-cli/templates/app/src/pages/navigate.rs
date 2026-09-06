@@ -3,20 +3,12 @@ use crate::model::{Item, ItemFields, KINDS, Scene};
 use crate::res;
 use day::prelude::*;
 
-// This file owns CHOOSING an item — the list, the selection, the routes — and `detail.rs` owns
-// editing the one that was chosen. The seam between the two is one field of the window's
-// [`Scene`]: `scene.selected`.
-//
-// Nothing here is a global. Every page function starts by asking the environment for the window
-// it is being built into (`Scene::ambient()`, https://daybrite.dev/docs/state) and passes that
-// value down, so the same functions serve the first window and every File ▸ New Window without
-// knowing which is which.
+// This file chooses an item: the list, the selection, the routes. `detail.rs` edits the one
+// chosen. Every page asks the environment for its window with `Scene::ambient()` rather than
+// touching a global, so the same code serves every File ▸ New Window.
 
-/// The pushed editor's navigation-bar title — `selector(…).detail_title` in `lib.rs`
-/// (https://daybrite.dev/docs/navigation). The item being edited, by name, so the bar answers
-/// "what am I looking at" the way a native detail page does; the section's own title stands in
-/// while the name is empty (a just-created item) or nothing is selected. Reading the name
-/// through its field binding is what keeps the bar live as the user types into the name field.
+/// The pushed editor's bar title: the item's name, live as the user types it, or the section's
+/// title while nothing is named.
 pub(crate) fn detail_title(scene: Scene) -> String {
     let name = scene
         .selected
@@ -31,36 +23,25 @@ pub(crate) fn detail_title(scene: Scene) -> String {
     }
 }
 
-/// The Navigate section's DETAIL — the editor for whichever row the content list has selected.
-///
-/// There is no width check here and no second layout: the list is the section's CONTENT-LIST
-/// pane (`item_list_pane`, handed to the selector in `lib.rs`), so the navigation host owns the
-/// columns and re-presents them itself as the window changes — a real split on a desktop, a
-/// pushed middle layer on a phone (https://daybrite.dev/docs/navigation).
-///
-/// A bare `fn() -> impl Piece`, because that is what `selector(…).item_icon(…)` takes — so the
-/// window it belongs to arrives through the environment rather than through an argument. This is
-/// the case ambient state exists for (https://daybrite.dev/docs/state).
+/// The Navigate section's detail: the editor for whichever row the content list selected.
+/// The nav host owns the columns, so there is no width check here; it splits on a desktop and
+/// pushes on a phone (https://daybrite.dev/docs/navigation).
 pub(crate) fn navigate_page() -> impl Piece {
     let scene = Scene::ambient();
-    // "Done" acts on the item being edited, so it belongs to the editor's own chrome: it appears
-    // with the editor and leaves with it, on every shape (https://daybrite.dev/docs/toolbars).
+    // Done acts on the open item, so it belongs to the editor's own chrome and comes and goes
+    // with it (https://daybrite.dev/docs/guide-desktop).
     editor_pane(scene).grow().toolbar(
         toolbar_button("tb-done", res::str::cmd_done())
             .icon(Symbol::Check)
             .tooltip(res::str::cmd_done())
-            // It marks the OPEN item done, so it is unavailable until one is open. The section
-            // is showing either way, so this is the item's own guard rather than the page's.
+            // Disabled until an item is open.
             .enabled_when(move || scene.selected.get().is_some())
             .action(move || scene.done_selected()),
     )
 }
 
-/// The content-list pane: the item list in its own column, with the commands that act on it.
-///
-/// The commands are declared HERE, on the pane itself, so they ride whichever chrome that pane
-/// has — its own column's toolbar on a desktop, the pushed middle layer's navigation bar on a
-/// phone — and go away with it (https://daybrite.dev/docs/toolbars).
+/// The content-list pane, with the commands that act on it. Declared here, they ride the
+/// pane's own chrome: a column toolbar on a desktop, the navigation bar on a phone.
 pub(crate) fn item_list_pane() -> impl Piece {
     let scene = Scene::ambient();
     item_list(scene).grow().toolbar([
@@ -75,33 +56,23 @@ pub(crate) fn item_list_pane() -> impl Piece {
     ])
 }
 
-/// The list itself — one widget, every layout, driven straight by this window's STORE.
+/// The list, driven straight by the store. Rows bind their fields through the slot, so editing
+/// a name patches one label, while a change to the order re-runs only the key projection.
 ///
-/// `items.rows(ordered_keys)` hands the list a projection of row KEYS; the rows themselves bind
-/// their fields through the slot. The division of labor is the whole performance story
-/// (https://daybrite.dev/docs/list): editing a name patches one label in one row — no reload,
-/// no rebind, nothing cloned — while a change the ORDER depends on (a done toggle, the filter,
-/// an insert) re-runs only the key projection and reloads natively.
-///
-/// Reorder and delete are turned on unconditionally and the backends decide what that means:
-/// every toolkit has a drag gesture, and the phones add swipe-to-delete while the desktops
-/// answer `Unsupported` for it (https://daybrite.dev/docs/list). That is why the context menu
-/// below carries Delete too — a list that must be editable everywhere pairs the gesture with an
-/// explicit control, rather than assuming the gesture exists.
+/// Reorder and delete are always on; the phones add swipe-to-delete and the desktops answer
+/// `Unsupported`, which is why the context menu carries Delete too.
 fn item_list(scene: Scene) -> impl Piece {
     list(
         scene.items.rows(move || scene.ordered_keys()),
         move |slot| row_view(scene, slot),
     )
     .row_height(RowHeight::Uniform(58.0))
-    // `on_selection`, not `on_select`: only the full set can report a CLEARED selection.
+    // `on_selection`, not `on_select`: only the full set can report a cleared selection.
     .on_selection(move |rows: Vec<Elem<Item>>| match rows.first() {
         Some(it) => scene.open(it.key() as u32),
         None => scene.clear_selection(),
     })
-    // Two-way selection. `on_select` writes the signal; this reads it back, so a row opened
-    // any other way — the "+" command, a restored launch — highlights in the list rather
-    // than leaving the editor and the list disagreeing about what is open.
+    // Read the selection back too, so a row opened any other way highlights in the list.
     .selected_rows(move || {
         scene
             .selected
@@ -123,22 +94,12 @@ fn item_list(scene: Scene) -> impl Piece {
     .id("item-list")
 }
 
-/// One row: the kind's glyph in the item's own color, its name and kind, its rating, and a
-/// check when it is finished.
-///
-/// The slot is the row's live connection to the store. Every read is a per-FIELD tracked read
-/// inside a reactive closure, so an edit to one field patches exactly the widgets showing it —
-/// and when the recycling list rebinds this physical row to a different item, the same closures
-/// follow, because the slot resolves its row on every read
-/// (https://daybrite.dev/docs/list).
+/// One row: the kind's glyph in the item's color, name and kind, rating, and a check when done.
+/// Every read goes through the slot, so a recycled row follows whichever item it is bound to.
 fn row_view(scene: Scene, slot: ModelSlot<Item>) -> impl Piece {
     row((
-        // The kind says WHAT it is, the tint says which one it is — two facts in one glyph, and
-        // the same color the editor's well sets.
-        //
-        // `each` over a single-element list, rather than a bare `vector(…)`: a vector's name and
-        // tint are fixed when it is built, and a recycled row rebinds to a different item. Keying
-        // on the pair rebuilds the glyph exactly when one of them changes, and never otherwise.
+        // `each` over a one-element list rather than a bare `vector(…)`: a vector's name and
+        // tint are fixed at build, and a recycled row rebinds to a different item.
         each(
             items(
                 move || vec![(slot.kind().read(), slot.color().read())],
@@ -159,7 +120,7 @@ fn row_view(scene: Scene, slot: ModelSlot<Item>) -> impl Piece {
         .spacing(1.0)
         .align(HAlign::Leading)
         .grow(),
-        // Filled stars up to the rating, hollow after — readable at a glance without a number.
+        // Filled stars up to the rating, hollow after.
         label(move || {
             let r = slot.rating().read();
             "\u{2605}".repeat(r) + &"\u{2606}".repeat(5 - r.min(5))
@@ -183,10 +144,8 @@ fn row_view(scene: Scene, slot: ModelSlot<Item>) -> impl Piece {
         bottom: 8.0,
         trailing: 12.0,
     })
-    // Secondary-click / long-press. The same two commands the menu bar carries, so however the
-    // user reaches for them they run one closure. The key is read when the command RUNS, not
-    // when the row is built — a recycled row points at a different item by then, and the slot
-    // follows it.
+    // Secondary click or long press, running the same closures as the menu bar. The key is
+    // read when the command runs, since a recycled row points elsewhere by then.
     .context_menu(vec![
         menu_item(res::str::cmd_done().format())
             .action(move || scene.toggle_done(slot.key() as u32)),
@@ -195,8 +154,7 @@ fn row_view(scene: Scene, slot: ModelSlot<Item>) -> impl Piece {
     ])
 }
 
-/// The glyph for a kind, by index — the one place the `KINDS` order and the icons are tied
-/// together, so adding a kind is a line here and a line there.
+/// The glyph for a kind, by index. Adding a kind is a line here and a line in `KINDS`.
 fn kind_icon(kind: usize) -> VectorName {
     match kind {
         1 => res::vectors::kind_task,

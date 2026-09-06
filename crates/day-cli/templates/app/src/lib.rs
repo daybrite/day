@@ -1,6 +1,5 @@
-//! {{title}}, a [Day](https://daybrite.dev) app. `root()` sets the app up once and opens the
-//! first window; `window_shell` is one window's UI, shared by every platform and by File ▸ New
-//! Window. Each navigation destination lives in its own module under `pages/`.
+//! {{title}}, a [Day](https://daybrite.dev) app. `root()` runs once and opens the first window;
+//! `window_shell` builds one window's UI, and each section lives under `pages/`.
 
 use day::prelude::*;
 
@@ -9,30 +8,30 @@ mod pages;
 use crate::model::Scene;
 use crate::pages::*;
 
-// The mobile / embedded entry point; a plain cargo desktop build enters through src/main.rs.
+// Entry point for the mobile hosts; a desktop build enters through src/main.rs.
 day::day_start!(options: window(), root);
 
-/// The window every entry point opens. The locale catalog and title are handed to `launch`
-/// rather than installed here (https://daybrite.dev/docs/localization).
+/// Options for every window. The catalog and title go to `launch`, which installs them
+/// (https://daybrite.dev/docs/localization).
 pub fn window() -> day::WindowOptions {
     day::WindowOptions {
         locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
         title_fn: Some(|| res::str::app_title().format()),
-        // A desktop default; mobile fills the screen regardless.
+        // Desktop only; phones fill the screen.
         size: day::prelude::Size::new(960.0, 640.0),
         ..Default::default()
     }
 }
 
-// Typed constants for everything under `resource/` (https://daybrite.dev/docs/resources).
+// Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
 day::resources!();
 
-/// The two settings' `day::prefs` keys: read at startup, written by the Settings page.
+/// The `day::prefs` keys the Settings page writes and startup reads.
 const THEME_KEY: &str = "app.theme";
 const LOCALE_KEY: &str = "app.locale";
 
 day::routes! {
-    /// The app's sections, typed (https://daybrite.dev/docs/navigation).
+    /// The app's sections, as typed routes (https://daybrite.dev/docs/navigation).
     pub(crate) enum Section {
         Welcome => "welcome",
         Navigate => "navigate",
@@ -40,66 +39,58 @@ day::routes! {
     }
 }
 
-/// Whether this platform has a menu bar; there, Settings lives in the App menu instead of the
-/// navigation (https://daybrite.dev/docs/menus).
+/// True where there is a menu bar, so Settings lives in the App menu instead of the nav.
 pub(crate) fn has_menu_bar() -> bool {
     capability(Cap::AppMenu) != Support::Unsupported
 }
 
-/// App startup: everything that happens ONCE, however many windows open, and then the first
-/// window's content.
+/// One-time app setup, then the first window's content.
 pub fn root() -> impl Piece {
-    // `info!` and friends need no setup: Day installs a logger at launch.
+    // Day installs a logger at launch, so `info!` works as is.
     info!("{{title}} starting");
-    // Re-apply the saved theme and language before anything is built.
+    // Reapply the saved theme and language before anything is built.
     day_piece_settings::apply_startup(THEME_KEY, LOCALE_KEY);
 
-    // A real Settings window plus the App ▸ Settings… item on desktop; a fullscreen cover
-    // where windows are unsupported (https://daybrite.dev/docs/windows).
+    // A Settings window and App ▸ Settings… on desktop; a fullscreen cover elsewhere.
     day::register_preferences(settings_body);
-    // File ▸ New Window (⌘N / Ctrl+N) and the macOS tab-bar "+": the SAME shell as the first
-    // window, which is exactly why the state it needs is a `Scene` rather than a global —
-    // each call builds a second one (https://daybrite.dev/docs/state).
+    // File ▸ New Window builds the same shell again, which is why the state is a `Scene`
+    // per window rather than a global.
     day::register_new_window(|| window_shell(false));
     app_menu(menus());
 
     window_shell(true)
 }
 
-/// One window's UI — the first window's, and every File ▸ New Window's.
+/// One window's UI, for the first window and every File ▸ New Window.
 ///
-/// `Scene::scoped` creates this window's state inside the window's own scope and provides it to
-/// everything below, so the two windows share no selection, no filter, and no document
-/// (https://daybrite.dev/docs/state). `primary` marks the window that owns the app's persisted
-/// state and its route namespace; a second window is a scratch copy of both.
+/// `Scene::scoped` gives the window its own state, so two windows share no selection or
+/// document. The primary window also owns the persisted state and the route namespace.
 fn window_shell(primary: bool) -> impl Piece {
     Scene::scoped(move |scene| {
         if primary {
             scene.persist();
         }
-        // Name the WINDOW after what it shows (https://daybrite.dev/docs/windows). Everywhere
-        // the system lists windows — the macOS Window menu and tab bar, the iPad app switcher,
-        // the Android recents card — it labels them by this, so two windows sharing one title
-        // are two windows the user cannot tell apart.
+        // Title the window after the open item: the Window menu, the tab bar, and the app
+        // switchers all label windows by it.
         day::window_title(
             move || match scene.selected.get().and_then(|id| scene.find(id)) {
                 Some(item) if !item.name.is_empty() => item.name,
                 _ => res::str::app_title().format(),
             },
         );
-        // A selector is adaptive by default: tabs on a phone, a rail on a tablet, a sidebar on a
-        // desktop (https://daybrite.dev/docs/navigation).
+        // Tabs on a phone, a rail on a tablet, a sidebar on a desktop
+        // (https://daybrite.dev/docs/navigation).
         let nav = selector(scene.section)
             .title(res::str::app_title())
-            // The item list as a real content-list pane: its own column where the toolkit has
-            // one, the pushed middle layer on a phone (https://daybrite.dev/docs/navigation).
+            // The list is a content-list pane: its own column where there is room, a pushed
+            // layer on a phone.
             .content_list(item_list_pane)
             .content_list_width(320.0)
-            // Only Navigate has a list; Welcome and Settings keep the whole detail area.
+            // Only Navigate has a list.
             .content_list_for(|s: &Section| matches!(s, Section::Navigate))
-            // Whether the editor is up, on the shapes that show one pane at a time.
+            // Whether the editor is up, where only one pane shows at a time.
             .detail_visible(scene.detail_open)
-            // The pushed editor's bar names the item it shows, live.
+            // The pushed editor's bar title, kept live.
             .detail_title(move || detail_title(scene))
             .item_icon(
                 Section::Welcome,
@@ -107,7 +98,7 @@ fn window_shell(primary: bool) -> impl Piece {
                 res::vectors::tab_welcome,
                 welcome_page,
             )
-            // One tint per section, so the icons read apart at a glance.
+            // One tint per section, so the icons read apart.
             .icon_tint(Color::hex(0xF59E0B))
             .item_icon(
                 Section::Navigate,
@@ -116,7 +107,7 @@ fn window_shell(primary: bool) -> impl Piece {
                 navigate_page,
             )
             .icon_tint(Color::hex(0x3B82F6))
-            // Settings is a row only where there is no menu bar (see `has_menu_bar`).
+            // Settings is a nav row only where there is no menu bar.
             .items(
                 move || {
                     if has_menu_bar() {
@@ -133,9 +124,8 @@ fn window_shell(primary: bool) -> impl Piece {
             )
             .destination(|_: &Section| settings_page())
             .id("nav");
-        // Only the first window joins the route namespace and restores where it left off. Two
-        // routed navs would make `navigate()` and a deep link ambiguous, and two restorers would
-        // fight over one key (https://daybrite.dev/docs/navigation).
+        // Only the first window joins the route namespace and restores its place; two routed
+        // navs would make deep links ambiguous.
         if primary {
             nav.restore("app.section")
         } else {
@@ -144,11 +134,8 @@ fn window_shell(primary: bool) -> impl Piece {
     })
 }
 
-/// Run a command on the window that currently has FOCUS.
-///
-/// A desktop menu bar is ONE bar for the whole app, so its items belong to no window and cannot
-/// capture a `Scene`; they resolve the front one when they run, which is what makes ⌘⇧N add a row
-/// to the window you are looking at (https://daybrite.dev/docs/state).
+/// Run a command against the focused window. Menu bar items belong to no window, so they
+/// look the front one up when they run.
 fn front(f: impl Fn(Scene) + 'static) -> impl Fn() + 'static {
     move || {
         if let Some(scene) = Scene::focused() {
@@ -157,25 +144,23 @@ fn front(f: impl Fn(Scene) + 'static) -> impl Fn() + 'static {
     }
 }
 
-/// The desktop menu bar; mobile toolkits ignore it (https://daybrite.dev/docs/menus).
+/// The desktop menu bar; the mobile toolkits ignore it (https://daybrite.dev/docs/guide-desktop).
 fn menus() -> Vec<MenuEntry> {
     vec![
         sub_menu(
             res::str::menu_file().format(),
             vec![
-                // Lowers to the builder `register_new_window` named above, with the platform's
-                // own New Window label and ⌘N; disabled when no builder is registered.
+                // The platform's own New Window item and ⌘N; disabled until a builder exists.
                 menu_role(MenuRole::NewWindow),
                 menu_item(res::str::cmd_add().format())
-                    // ⌘N belongs to New Window on every desktop, so the app's own "new" takes
-                    // the shifted accelerator.
+                    // ⌘N is taken by New Window, so this gets ⌘⇧N.
                     .shortcut(Shortcut::new("n").shift())
                     .action(front(|scene| scene.new_item())),
                 menu_separator(),
                 menu_role(MenuRole::CloseWindow),
             ],
         ),
-        // The desktop counterpart to the list's swipe actions (https://daybrite.dev/docs/list).
+        // The desktop counterpart to the list's swipe actions.
         sub_menu(
             res::str::menu_edit().format(),
             vec![

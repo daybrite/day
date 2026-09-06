@@ -1,10 +1,8 @@
-# The page-declared command's live enablement (https://daybrite.dev/docs/toolbars).
+# A page-declared command's live enablement (https://daybrite.dev/docs/guide-desktop).
 #
-# A command declared on a page seeds its `enabled_when` at BUILD time, when nothing is selected
-# yet, and a binding patches it live. That patch used to reach a per-chrome copy of the model
-# while the toolkit drew the WINDOW's — so on any window that did not re-compose for some other
-# reason (a tiled Android tablet, where selecting a row changes no chrome), Done stayed disabled
-# and tapping it did nothing. This is the case that caught it.
+# `enabled_when` is seeded at build time, before anything is selected, and patched live after.
+# That patch once reached a per-chrome copy of the model while the toolkit drew the window's,
+# so on a window that never re-composed (a tiled Android tablet) Done stayed disabled.
 flow:
   - wait_for: { id: nav }
   - navigate: { route: navigate }
@@ -12,9 +10,7 @@ flow:
   - select: { id: item-list, index: 1 }
   - wait_idle:
   - pause: 1
-  # The regression: with a row open, the page's own command must be ENABLED and must dispatch.
-  # It was stuck at the value it was built with — disabled, because nothing was selected then —
-  # on any window that did not happen to re-compose after the selection.
+  # With a row open, the command must be enabled and must dispatch.
   - toolbar: { item: tb-done }
   - wait_idle:
   - toolbar: { item: tb-done }

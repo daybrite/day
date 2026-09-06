@@ -11,7 +11,7 @@ pub(crate) fn settings_body() -> impl Piece {
     ),))
 }
 
-/// The same body as a navigable section, for the platforms with no menu bar (see `root()`).
+/// The same body as a section, for the platforms with no menu bar (see `has_menu_bar`).
 pub(crate) fn settings_page() -> impl Piece {
     column((
         label(res::str::nav_settings())
