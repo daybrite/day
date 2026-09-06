@@ -42,12 +42,37 @@ pub(crate) fn detail_title(scene: Scene) -> String {
 /// window it belongs to arrives through the environment rather than through an argument. This is
 /// the case ambient state exists for (https://daybrite.dev/docs/state).
 pub(crate) fn navigate_page() -> impl Piece {
-    editor_pane(Scene::ambient()).grow()
+    let scene = Scene::ambient();
+    // "Done" acts on the item being edited, so it belongs to the editor's own chrome: it appears
+    // with the editor and leaves with it, on every shape (https://daybrite.dev/docs/toolbars).
+    editor_pane(scene).grow().toolbar(
+        toolbar_button("tb-done", res::str::cmd_done())
+            .icon(Symbol::Check)
+            .tooltip(res::str::cmd_done())
+            // It marks the OPEN item done, so it is unavailable until one is open. The section
+            // is showing either way, so this is the item's own guard rather than the page's.
+            .enabled_when(move || scene.selected.get().is_some())
+            .action(move || scene.done_selected()),
+    )
 }
 
-/// The content-list pane: the item list in its own column.
+/// The content-list pane: the item list in its own column, with the commands that act on it.
+///
+/// The commands are declared HERE, on the pane itself, so they ride whichever chrome that pane
+/// has — its own column's toolbar on a desktop, the pushed middle layer's navigation bar on a
+/// phone — and go away with it (https://daybrite.dev/docs/toolbars).
 pub(crate) fn item_list_pane() -> impl Piece {
-    item_list(Scene::ambient()).grow()
+    let scene = Scene::ambient();
+    item_list(scene).grow().toolbar([
+        toolbar_toggle("tb-show-done", res::str::cmd_show_done(), scene.show_done)
+            .icon(Symbol::Filter)
+            .tooltip(res::str::cmd_show_done()),
+        toolbar_button("tb-add", res::str::cmd_add())
+            .icon(Symbol::Add)
+            .tooltip(res::str::cmd_add())
+            .placement(ToolbarPlacement::Primary)
+            .action(move || scene.new_item()),
+    ])
 }
 
 /// The list itself — one widget, every layout, driven straight by this window's STORE.

@@ -87,29 +87,6 @@ fn window_shell(primary: bool) -> impl Piece {
                 _ => res::str::app_title().format(),
             },
         );
-        // Desktop-only by nature; the phones carry the same commands as list actions below.
-        // Installed HERE rather than in `root()` because a toolbar belongs to the window being
-        // built — from `root()`'s body every window would get the first one's bar
-        // (https://daybrite.dev/docs/toolbars).
-        toolbar_reactive(move || {
-            vec![
-                toolbar_sidebar_toggle("tb-sidebar", res::str::cmd_sidebar()),
-                toolbar_flexible_space(),
-                // Bound to this window's own filter signal, so button, menu, and list agree.
-                toolbar_toggle("tb-show-done", res::str::cmd_show_done(), scene.show_done)
-                    .icon(Symbol::Filter)
-                    .tooltip(res::str::cmd_show_done()),
-                toolbar_button("tb-done", res::str::cmd_done())
-                    .icon(Symbol::Check)
-                    .tooltip(res::str::cmd_done())
-                    .action(move || scene.done_selected()),
-                toolbar_button("tb-add", res::str::cmd_add())
-                    .icon(Symbol::Add)
-                    .tooltip(res::str::cmd_add())
-                    .action(move || scene.new_item()),
-            ]
-        });
-
         // A selector is adaptive by default: tabs on a phone, a rail on a tablet, a sidebar on a
         // desktop (https://daybrite.dev/docs/navigation).
         let nav = selector(scene.section)
@@ -124,17 +101,6 @@ fn window_shell(primary: bool) -> impl Piece {
             .detail_visible(scene.detail_open)
             // The pushed editor's bar names the item it shows, live.
             .detail_title(move || detail_title(scene))
-            // List commands: these ride the list pane's navigation bar on the phones
-            // (https://daybrite.dev/docs/toolbars).
-            .list_action(res::vectors::filter, res::str::cmd_show_done(), move || {
-                scene.show_done.update(|v| *v = !*v)
-            })
-            .list_action(res::vectors::check, res::str::cmd_done(), move || {
-                scene.done_selected()
-            })
-            .list_action(res::vectors::add, res::str::cmd_add(), move || {
-                scene.new_item()
-            })
             .item_icon(
                 Section::Welcome,
                 res::str::nav_welcome(),

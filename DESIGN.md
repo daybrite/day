@@ -3358,6 +3358,7 @@ fieldnotes/
     images/app_logo.png      # processed images (§18.3); assets/ and fonts/ join as needed
   dayscript/
     demo.yaml                # starter walkthrough; real apps grow it further
+    toolbar-enable.yaml      # a page-declared command's live enablement, kept as a regression check
   platform/                  # only for toolkits with a native host project:
     ios/                     #   DayApp.xcodeproj + Runner (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4);

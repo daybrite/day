@@ -99,53 +99,60 @@ label("Right-click me").context_menu(vec![
 Submenus nest inside a context menu the same way, `menu_role` items keep their native
 behavior, and passing an empty `Vec` removes the menu.
 
-## 3. Put commands in the window toolbar
+## 3. Put commands in a toolbar
 
-A toolbar belongs to the window chrome. It doesn't live in the piece tree, and Day doesn't lay
-it out. Probe for it first, the way the showcase's Toolbars [page](/docs/glossary#page) does, and put the same commands
-in the content where there is no bar:
+Declare a toolbar on the piece its commands act on, with `.toolbar(…)`. Where you declare an
+item is where it appears, and it stays as long as the declaring piece does. Items on the
+window's root piece ride every page of that window. Items on a content-list pane ride the
+list's column on a desktop and the list's own navigation bar on a phone. Items on a
+destination page ride the detail column. A command leaves the bar when the content it acts on
+leaves the screen, so one declaration serves every desktop and phone, and there is no
+capability to probe first.
 
 ```rust
-if capability(Cap::Toolbar) == Support::Native {
-    toolbar(vec![
-        toolbar_button("refresh", "Refresh").icon(Symbol::Refresh).action(refresh_all),
-        toolbar_separator(),
-        toolbar_toggle("star", "Star", starred).icon(Symbol::Star),
-        toolbar_flexible_space(),
-    ]);
-}
+item_list(scene).grow().toolbar([
+    toolbar_toggle("show-done", "Show Done", scene.show_done).icon(Symbol::Filter),
+    toolbar_button("add", "Add")
+        .icon(Symbol::Add)
+        .placement(ToolbarPlacement::Primary)
+        .action(move || scene.new_item()),
+])
 ```
 
 The items are `toolbar_button(id, label)` for a command, `toolbar_toggle(id, label, signal)`
-for a two-state button bound two-way, `toolbar_menu(id, label, entries)` for a pull-down built
-from the same `MenuEntry`s the menu bar takes, `toolbar_label(id, text)` for static text, and
-`toolbar_separator()` / `toolbar_space()` / `toolbar_flexible_space()` for the gaps. The
-modifiers are `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(bool)`, and
-`.enabled_when(f)`.
+for a two-state button bound two-way, `toolbar_segmented(id, segments, signal)` for one native
+segmented control, `toolbar_menu(id, label, entries)` for a pull-down built from the same
+`MenuEntry`s the menu bar takes, `toolbar_label(id, text)` for static text, and
+`toolbar_separator()` for a divider. The modifiers are `.icon(Symbol)`, `.image(name)`,
+`.action(f)`, `.tooltip(t)`, `.enabled(bool)`, `.enabled_when(f)`, `.placement(…)`,
+`.label_style(…)`, and `.prominent()`.
 
 Search has no toolbar item. Declare it on the navigation surface it filters, with
 `selector(section).searchable(query)`, and Day draws the field where the platform puts search.
 That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/glossary#sidebar) without your code
-changing.
+changing. A sidebar supplies its own toggle button, so an app declares nothing for that either.
 
-There is no leading/trailing property: items before the first `toolbar_flexible_space()` pack
-to the leading edge and the rest to the trailing edge, and each backend expresses that with
-its own layout. `.icon(Symbol::Refresh)` names what the icon means; each backend draws its
-platform's own glyph (an SF Symbol on macOS, a freedesktop name on GTK and Qt, a Segoe Fluent
-glyph on Windows), which is how one icon looks native on four desktops.
+There are no spacers and no leading/trailing property. `.placement(…)` names the item's role,
+and each backend lays that role out its own way: `Navigation` sits at the leading edge of its
+column, `Principal` is centered, `Primary` and `Secondary` go trailing, with secondaries folding
+into an overflow menu first, and `Bottom` asks for a phone's bottom bar. `.icon(Symbol::Refresh)`
+names what the icon means; each backend draws its platform's own glyph (an SF Symbol on macOS,
+a freedesktop name on GTK and Qt, a Segoe Fluent glyph on Windows), which is how one icon looks
+native on four desktops.
 
-Per desktop, the bar is an `NSToolbar` in the unified title-bar style on macOS; on GTK the
-items pack into the window's `AdwHeaderBar`, because in GNOME the header bar is the toolbar;
-on Qt it is a real `QToolBar` that takes its icon size and style from the user's settings; on
-Windows it is a `CommandBar`, whose one limit is that search fields, labels, and fixed spaces
-always render on the leading side.
+Per desktop, the bar is an `NSToolbar` in the unified title-bar style on macOS, where each
+column's items sit over that column; on GTK the items pack into the window's `AdwHeaderBar`,
+because in GNOME the header bar is the toolbar; on Qt it is a real `QToolBar` that takes its
+icon size and style from the user's settings; on Windows it is a `CommandBar`, whose one limit
+is that search fields and labels always render on the leading side.
 
-Use `toolbar_reactive(builder)` when the item list or its labels derive from state; each pass
-replaces the bar. Keep the values that change often out
-of that builder: a toggle's [signal](/docs/glossary#signal), a search field's signal, and `.enabled_when(…)` patch the
-one item in place, so a command greying out never disturbs a search in progress. On mobile,
-the counterpart for a single app-wide command is the navigation bar's trailing
-`.bar_action(icon, label, action)`; one registered closure can back both.
+`.toolbar(…)` also takes a closure, `page.toolbar(move || vec![…])`, which re-runs whenever the
+state it reads changes and replaces that piece's items. Keep the values that change often out
+of that closure: a toggle's [signal](/docs/glossary#signal), a search field's signal, and `.enabled_when(…)` patch the
+one item in place, so a command greying out never disturbs a search in progress. An item that
+should come and go is a piece that comes and goes: put it under `when`, and it leaves with its
+subtree. The [Toolbars](/docs/internal/toolbars) reference covers placement per platform and what each
+backend draws.
 
 ## 4. Open a secondary window
 
@@ -207,12 +214,12 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
   builder is registered, and the auto Settings item needs the preferences registration. Call
   `register_preferences_with` and `register_new_window` before installing the app menu (the
   showcase's `root()` does exactly this), so the items lower live.
-- **Toolbars install per window.** `toolbar(…)` targets the window being built: the primary
-  window at startup, and each new window inside its `register_new_window` builder. A builder
-  that skips the install opens a window with no bar.
-- **Keep bound values out of `toolbar_reactive`.** A [reactive](/docs/glossary#reactive) rebuild replaces the whole bar
-  and would drop the search field's focus mid-word. Structure and labels go in the builder;
-  a toggle's signal, a search signal, and `.enabled_when` patch single items.
+- **Toolbars follow their pieces into new windows.** Items declared on the root piece a
+  `register_new_window` builder returns ride that window, and a page's items ride it wherever
+  the page is shown. A builder whose pieces declare none opens a window with an empty bar.
+- **Keep bound values out of a derived toolbar closure.** A [reactive](/docs/glossary#reactive) rebuild replaces that
+  piece's items and would drop the search field's focus mid-word. Structure and labels go in
+  the closure; a toggle's signal, a search signal, and `.enabled_when` patch single items.
 - **Don't put the toolkit name in your window title.** Debug builds append a
   `(<version>/<toolkit>)` tag to every title so you can tell windows apart; add your own and
   it appears twice. Release builds never show the tag.

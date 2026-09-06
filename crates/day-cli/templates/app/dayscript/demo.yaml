@@ -81,24 +81,26 @@ flow:
   - wait_idle: { only_on: [uikit, mdc] }
   - assert_route: { route: navigate, only_on: [uikit, mdc] }
   - assert_visible: { id: item-list, only_on: [uikit, mdc] }
-  # Reopen it, so every platform leaves this section in the same state.
-  - select: { id: item-list, index: 0, only_on: [uikit, mdc] }
-  - wait_for: { id: field-name, only_on: [uikit, mdc] }
-
   # --- Done, and the filter -----------------------------------------------------------------
   # Finished items sort to the top of the list, and the toolbar's filter hides them entirely.
   # Both read one signal, so the button, the menu item and the list cannot disagree.
-  - toolbar: { item: tb-show-done, on: false, skip_on: [uikit, mdc, arkui] }
+  #
+  # Driven WITH THE LIST SHOWING, on every shape. These commands are declared on the list pane,
+  # so where one layer shows at a time they leave the bar the moment an editor covers it
+  # (https://daybrite.dev/docs/toolbars) — the phones came back to the list just above, and this
+  # is the state the desktops are already in.
+  - toolbar: { item: tb-show-done, on: false, skip_on: [arkui] }
   - wait_idle: {}
   - screenshot: filtered
-  - toolbar: { item: tb-show-done, on: true, skip_on: [uikit, mdc, arkui] }
+  - toolbar: { item: tb-show-done, on: true, skip_on: [arkui] }
   - wait_idle: {}
 
   # The "+" command: a new row, selected and opened for editing straight away. On the phones the
   # same command rides the navigation bar instead of a window toolbar.
-  - toolbar: { item: tb-add, skip_on: [uikit, mdc, arkui] }
+  - toolbar: { item: tb-add, skip_on: [arkui] }
   - wait_idle: {}
-  - assert_visible: { id: field-name, skip_on: [uikit, mdc, arkui] }
+  - assert_visible: { id: field-name, skip_on: [arkui] }
+  # "+" left an item open, so every platform leaves this section in the same state.
 
   # --- Settings -----------------------------------------------------------------------------
   # A SECTION on the phones; on a desktop it is a real Settings window reached from the App
