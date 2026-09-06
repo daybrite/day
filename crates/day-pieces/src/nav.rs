@@ -324,10 +324,12 @@ fn list_layer_gate(
     detail_open: Option<Signal<bool>>,
     pres: Option<Signal<day_spec::props::NavPresentation>>,
 ) -> Rc<dyn Fn() -> bool> {
+    // `try_get` throughout: a gate is asked at merge time, which can be a window's own
+    // teardown — a disposed signal answers "not showing" rather than panicking.
     Rc::new(move || {
-        let shown = visible.is_none_or(|v| v.get());
-        let side_by_side = pres.is_some_and(|p| p.get().is_split());
-        shown && (side_by_side || detail_open.is_none_or(|d| !d.get()))
+        let shown = visible.is_none_or(|v| v.try_get().unwrap_or(false));
+        let side_by_side = pres.is_some_and(|p| p.try_get().is_some_and(|p| p.is_split()));
+        shown && (side_by_side || detail_open.is_none_or(|d| !d.try_get().unwrap_or(false)))
     })
 }
 
@@ -2182,7 +2184,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             {
                 crate::contribute(
                     day_core::Chrome::Page(root_page),
-                    crate::ToolbarSource::Fixed(vec![crate::sidebar_toggle_item()]),
+                    crate::ToolbarSource::Fixed(vec![crate::sidebar_toggle_item(host)]),
                 );
             }
             for source in host_toolbar {
@@ -2327,8 +2329,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         // they leave the bar with it (docs/toolbars.md). Side by side, both panes are up and
         // both keep their commands.
         let (dv, pres_sig) = (detail_visible, presentation_sig);
+        // `try_get`: a gate is asked at merge time, which can be a window's own teardown —
+        // a disposed signal answers "not showing" rather than panicking (docs/toolbars.md).
         let gate: Rc<dyn Fn() -> bool> = Rc::new(move || {
-            visible.get() && (pres_sig.get().is_split() || dv.is_none_or(|d| !d.get()))
+            visible.try_get().unwrap_or(false)
+                && (pres_sig.try_get().is_some_and(|p| p.is_split())
+                    || dv.is_none_or(|d| !d.try_get().unwrap_or(false)))
         });
         with_nav_host(None, || {
             day_core::with_page_gated(page, Some(gate), day_spec::ToolbarColumn::List, || {

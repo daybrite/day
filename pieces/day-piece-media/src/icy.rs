@@ -111,7 +111,12 @@ mod native {
     impl Drop for Probe {
         fn drop(&mut self) {
             self.stop();
-            SINKS.with(|s| {
+            // `try_with`, not `with`: the last probes die with the reactive graph's own
+            // thread-local at process exit, and by then this registry may be gone too. A
+            // panic inside a thread-local destructor aborts the process (Day-Tunes crashed on
+            // closing its last window); a registry that has already been torn down has
+            // nothing left to remove from.
+            let _ = SINKS.try_with(|s| {
                 s.borrow_mut().remove(&self.id);
             });
         }

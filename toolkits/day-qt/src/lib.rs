@@ -196,6 +196,9 @@ struct ListEntry {
     /// Last host width a populate ran at — so `set_frame` only repopulates on a real width change
     /// (a populate's own child `set_frame`s must not schedule another, or it loops forever).
     last_width: c_int,
+    /// The width the cells were last laid out to: the VIEWPORT's, which a legacy scroll bar
+    /// makes narrower than the host. A viewport resize that changes it repopulates.
+    cell_width: c_int,
     /// Selection (docs/list.md): whether rows select at all, whether several may be selected,
     /// the currently selected rows, and the last plainly-clicked row (the shift-range anchor).
     node: u64,
@@ -382,6 +385,26 @@ fn schedule_list_scroll_row(host_key: usize, row: usize) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
+/// The viewport under an emulated list resized (a legacy scroll bar came or went): the rows
+/// are laid out to a width the viewport no longer has, so re-lay them. A viewport that still
+/// matches the cells — the usual overlay-bar case, where every host resize also lands here —
+/// is left alone, and so is a list that has not built a row yet.
+extern "C" fn on_list_viewport_resized(host: *mut c_void) {
+    ffi_guard::contain((), || {
+        let stale = LIST_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(st) = m.get(&(host as usize)) else {
+                return false;
+            };
+            let vw = unsafe { ffi::day_qt_scroll_viewport_width(st.host) };
+            st.cell_width > 0 && vw > 0.0 && (vw as c_int) != st.cell_width
+        });
+        if stale {
+            schedule_list_populate(host as usize);
+        }
+    });
+}
+
 /// A source change under the cells: everything realized is now showing the wrong row's data, so
 /// mark it all dirty and refill the window. Reload, reorder, and a width that re-lays every row
 /// all come through here — the callers that used to rebind all n rows.
@@ -429,7 +452,12 @@ fn list_fill_window(host_key: usize) {
         }
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
         unsafe { ffi::day_qt_widget_size(st.host, &mut w, &mut h) };
-        let width = w.max(1.0) as c_int;
+        // Rows lay out to the VIEWPORT's width, not the host's: under a legacy scroll bar the
+        // two differ by the bar, and a row framed to the host slides its trailing column under
+        // it. The viewport reports nothing until Qt has laid the scroll area out; the host
+        // stands in until then.
+        let vw = unsafe { ffi::day_qt_scroll_viewport_width(st.host) };
+        let width = if vw > 0.0 { vw } else { w }.max(1.0) as c_int;
         let n = (source.len)();
         let rowh = st.row_height.max(1.0);
         // The rows on screen, plus the overscan. The viewport reports nothing until Qt has laid
@@ -475,7 +503,8 @@ fn list_fill_window(host_key: usize) {
                 work.push((i, st.cells[i]));
             }
         }
-        st.last_width = width;
+        st.last_width = w.max(1.0) as c_int;
+        st.cell_width = width;
         Some((st.host, rowh, source, work, n, width))
     }) else {
         return;
@@ -818,28 +847,50 @@ struct NavState {
     /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
     split: bool,
     /// Whether the sidebar pane is showing. Tracked rather than read back because the shim
-    /// exposes `day_qt_set_visible` and no getter — what a `SidebarToggle` item flips.
+    /// exposes `day_qt_set_visible` and no getter — what the sidebar toggle flips.
     sidebar_shown: bool,
+    /// The content-list pane (docs/navigation.md), splitter pane 1. It exists on every host
+    /// and is hidden on one that declared no content list; `list_width` is `Some` only where
+    /// the app asked for the pane (`NavProps::list_width`). The pane PERSISTS through every
+    /// presentation (`Cap::NavContentList` = Native): a narrow window collapses the sidebar
+    /// into the stack and keeps the list beside the detail, as a narrow Mail.app does.
+    list_pane: *mut std::os::raw::c_void,
+    list_width: Option<f64>,
+    /// The `Pane::List` page, once it has one — sized by its pane, never a member of the
+    /// detail stack.
+    list_page: Option<QtHandle>,
+    /// Whether the pane is showing (`NavProps::list_visible`, then `NavPatch::ListVisible`).
+    list_shown: bool,
+    /// Whether the pane has been given the app's requested width yet. A pane hidden since
+    /// construction keeps the constructor's placeholder size, so the first reveal places it.
+    list_positioned: bool,
     /// Stack presentation: title per level (index 0 = root) for the back header — desktop has
     /// no system back affordance, so the header gives a pushed page its way out.
     titles: Vec<String>,
 }
 
-/// Show/hide the sidebar of this process's `selector(Sidebar)` host — what a
-/// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives (docs/toolbars.md). `false` when
-/// there is no split host, which is how the item knows to render disabled. Same
-/// single-window limit as the GTK twin: `NAV_STATE` is not keyed by window.
-pub(crate) fn toggle_sidebar() -> bool {
-    NAV_STATE.with(|m| {
-        for st in m.borrow_mut().values_mut() {
-            if st.split {
-                st.sidebar_shown = !st.sidebar_shown;
-                unsafe { ffi::day_qt_set_visible(st.sidebar_pane, i32::from(st.sidebar_shown)) };
-                return true;
-            }
+/// Show/hide the sidebar of the navigation host `host` — what the sidebar affordance a
+/// selector contributes for itself drives (`day_spec::SIDEBAR_TOGGLE_ID`, docs/toolbars.md).
+/// Per host, so a second window's button toggles that window's own pane. `false` when the
+/// host is not split (nothing to toggle).
+pub(crate) fn toggle_sidebar(host: *mut std::os::raw::c_void) -> bool {
+    // The pane flips OUTSIDE the borrow: the sibling panes' resize reports read `NAV_STATE`.
+    let flip = NAV_STATE.with(|m| {
+        let mut m = m.borrow_mut();
+        let st = m.get_mut(&(host as usize))?;
+        if !st.split {
+            return None;
         }
-        false
-    })
+        st.sidebar_shown = !st.sidebar_shown;
+        Some((st.sidebar_pane, st.sidebar_shown))
+    });
+    match flip {
+        Some((pane, shown)) => {
+            unsafe { ffi::day_qt_set_visible(pane, i32::from(shown)) };
+            true
+        }
+        None => false,
+    }
 }
 
 /// The stack-nav header's back button: a day-initiated pop — the host's handler writes it
@@ -880,6 +931,13 @@ fn is_sidebar_page(page: *mut std::os::raw::c_void) -> bool {
         .with(|m| m.borrow().get(&(page as usize)).copied() == Some(day_spec::props::Pane::Sidebar))
 }
 
+/// Is this page the host's content-list pane? Never part of the detail stack, at any
+/// presentation (docs/navigation.md).
+fn is_list_page(page: *mut std::os::raw::c_void) -> bool {
+    PAGE_PANE
+        .with(|m| m.borrow().get(&(page as usize)).copied() == Some(day_spec::props::Pane::List))
+}
+
 /// Re-present a live nav host (docs/size-classes.md): the window crossed a breakpoint, so the
 /// chrome changes but the pages do not.
 ///
@@ -911,11 +969,12 @@ fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
         if let Some(s) = m.get_mut(&(host as usize)) {
             s.split = split;
             s.sidebar_shown = split;
-            // Only the top detail page shows; the sidebar page, when split, sits outside that.
+            // Only the top detail page shows; the sidebar page, when split, sits outside that,
+            // and the list page always does.
             let detail: Vec<QtHandle> = s
                 .pages
                 .iter()
-                .filter(|(p, _)| !(split && is_sidebar_page(p.0)))
+                .filter(|(p, _)| !(split && is_sidebar_page(p.0)) && !is_list_page(p.0))
                 .map(|(p, _)| *p)
                 .collect();
             let last = detail.len().saturating_sub(1);
@@ -940,9 +999,10 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
         let Some(state) = m.get(&(host as usize)) else {
             return Vec::new();
         };
-        let (mut sw, mut sh, mut dw, mut dh) = (0.0, 0.0, 0.0, 0.0);
+        let (mut sw, mut sh, mut lw, mut lh, mut dw, mut dh) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         unsafe {
             ffi::day_qt_widget_size(state.sidebar_pane, &mut sw, &mut sh);
+            ffi::day_qt_widget_size(state.list_pane, &mut lw, &mut lh);
             ffi::day_qt_widget_size(state.detail_pane, &mut dw, &mut dh);
         }
         if sh <= 0.0 && dh <= 0.0 {
@@ -952,9 +1012,12 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
             .pages
             .iter()
             .map(|(page, id)| {
-                // A page in the sidebar pane is sized by it; everything else fills the detail.
+                // A page in the sidebar pane is sized by it, the list page by its pane;
+                // everything else fills the detail.
                 let size = if state.split && is_sidebar_page(page.0) {
                     Size::new(sw, sh)
+                } else if is_list_page(page.0) {
+                    Size::new(lw, lh)
                 } else {
                     Size::new(dw, dh)
                 };
@@ -968,7 +1031,11 @@ fn nav_sync_panes(host: *mut std::os::raw::c_void) {
 }
 
 extern "C" fn nav_splitter_moved(host: *mut std::os::raw::c_void) {
-    ffi_guard::contain((), || nav_sync_panes(host));
+    ffi_guard::contain((), || {
+        nav_sync_panes(host);
+        // The window toolbar's columns follow the panes (docs/toolbars.md).
+        unsafe { ffi::day_qt_toolbar_sync_columns(host) };
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -1456,6 +1523,9 @@ impl Toolkit for Qt {
             // way — so re-presenting is a pane visibility flip plus one re-parent of the
             // sidebar page (docs/size-classes.md).
             | Cap::NavRepresent
+            // The same QSplitter's middle pane, with a real draggable divider on each side;
+            // it persists through every presentation, the AppKit shape (docs/navigation.md).
+            | Cap::NavContentList
             | Cap::Dialogs
             | Cap::FileDialogs
             | Cap::TextEditable
@@ -1589,9 +1659,24 @@ impl Toolkit for Qt {
                         return QtHandle(w);
                     }
                     let is_split = nav_props.map(|p| p.presentation.is_split()).unwrap_or(true);
-                    let host = ffi::day_qt_splitter_new();
+                    // The content-list pane (docs/navigation.md): pane 1 of the same splitter,
+                    // hidden on a host that declared none — the same shape either way, so the
+                    // header and the pane indices never move.
+                    let list_width = nav_props.and_then(|p| p.list_width);
+                    let list_visible = nav_props.is_none_or(|p| p.list_visible);
+                    let host = ffi::day_qt_splitter_new(
+                        list_width.unwrap_or(0.0),
+                        day_spec::NAV_SIDEBAR_MIN_W,
+                        day_spec::NAV_LIST_MIN_W,
+                    );
                     let sidebar_pane = ffi::day_qt_splitter_pane(host, 0);
-                    let mut detail_pane = ffi::day_qt_splitter_pane(host, 1);
+                    let list_pane = ffi::day_qt_splitter_pane(host, 1);
+                    let mut detail_pane = ffi::day_qt_splitter_pane(host, 2);
+                    // Collapsed for a destination that spans the whole detail area
+                    // (`content_list_for`); `NavPatch::ListVisible` brings it back.
+                    if list_width.is_some() && !list_visible {
+                        ffi::day_qt_set_visible(list_pane, 0);
+                    }
                     ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
                     ffi::day_qt_splitter_on_resized(host, nav_splitter_moved);
                     // The back header goes in for BOTH presentations, hidden until a stack
@@ -1621,6 +1706,13 @@ impl Toolkit for Qt {
                                 sidebar_page: None,
                                 split: is_split,
                                 sidebar_shown: is_split,
+                                list_pane,
+                                list_width,
+                                list_page: None,
+                                list_shown: list_visible,
+                                // Sized at construction when it opened showing; a hidden
+                                // pane is placed on its first reveal.
+                                list_positioned: list_visible,
                                 titles,
                             },
                         )
@@ -1825,6 +1917,9 @@ impl Toolkit for Qt {
                         return placeholder_handle(kind);
                     };
                     let host = ffi::day_qt_scroll_new(0);
+                    // A legacy scroll bar appearing or leaving resizes the viewport under
+                    // the rows without the host moving: re-lay them to the width they have.
+                    ffi::day_qt_scroll_on_viewport_resized(host, on_list_viewport_resized);
                     let row_height = match p.row_height {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
@@ -1855,6 +1950,7 @@ impl Toolkit for Qt {
                                 frame_height: -1,
                                 fill_pending: false,
                                 last_width: -1,
+                                cell_width: -1,
                                 node: id.0,
                                 selectable: p.selectable,
                                 multi: p.multi_select,
@@ -2025,18 +2121,25 @@ impl Toolkit for Qt {
                         return;
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
+                        // A pane shown or hidden OUTSIDE the borrow below: Qt resizes the
+                        // sibling panes synchronously, the pane filter reports them, and
+                        // that report reads `NAV_STATE` — a re-entrant borrow otherwise.
+                        let mut list_apply: Option<(*mut c_void, bool, Option<f64>)> = None;
                         NAV_STATE.with(|m| {
                             let mut m = m.borrow_mut();
                             let Some(state) = m.get_mut(&(h.0 as usize)) else {
                                 return;
                             };
                             // Split: the sidebar's page is not part of the detail stack.
-                            // Stack: every page participates, its root included.
+                            // Stack: every page participates, its root included. The list
+                            // page never is; its pane persists at every presentation.
                             let split_now = state.split;
                             let detail: Vec<(QtHandle, NodeId)> = state
                                 .pages
                                 .iter()
-                                .filter(|(p, _)| !(split_now && is_sidebar_page(p.0)))
+                                .filter(|(p, _)| {
+                                    !(split_now && is_sidebar_page(p.0)) && !is_list_page(p.0)
+                                })
                                 .copied()
                                 .collect();
                             let detail = &detail[..];
@@ -2089,16 +2192,42 @@ impl Toolkit for Qt {
                                         }
                                     }
                                 }
-                                // Never arrives: this backend answers `Cap::NavContentList`
-                                // Unsupported, so the pieces layer composes the pane itself
-                                // (docs/navigation.md).
-                                NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
+                                // Show or collapse the content-list pane (docs/navigation.md).
+                                // The sibling panes take their new widths on Qt's next layout
+                                // pass, so the frame report is deferred one turn below, like
+                                // a pop's.
+                                NavPatch::ListVisible(v) => {
+                                    state.list_shown = *v;
+                                    if state.list_width.is_some() {
+                                        // First time on screen: the width the app asked for.
+                                        // The constructor sized a pane that was showing; one
+                                        // hidden since then still holds its placeholder.
+                                        let place = if *v && !state.list_positioned {
+                                            state.list_positioned = true;
+                                            state.list_width
+                                        } else {
+                                            None
+                                        };
+                                        list_apply = Some((state.list_pane, *v, place));
+                                    }
+                                }
+                                // Never arrives: the pane persists through every presentation
+                                // (`Cap::NavContentList` = Native), so the pieces layer never
+                                // asks for the merged-stack shape.
+                                NavPatch::ListInStack(_) => {}
                             }
                         });
+                        if let Some((pane, shown, place)) = list_apply {
+                            ffi::day_qt_set_visible(pane, c_int::from(shown));
+                            if let Some(w) = place {
+                                ffi::day_qt_splitter_set_pane_width(h.0, 1, w);
+                            }
+                        }
                         // Header visibility follows the depth AFTER the pop completes (the
                         // popped page leaves `pages` via remove()); defer one turn so the
                         // header + page sizes settle against the final stack. The raw QWidget
-                        // pointer crosses the (main-thread-only) post as usize.
+                        // pointer crosses the (main-thread-only) post as usize. The same
+                        // deferral gives a shown or hidden list pane its settled sizes.
                         let host = h.0 as usize;
                         <Qt as Platform>::post(Box::new(move || {
                             nav_sync_header(host as *mut std::os::raw::c_void)
@@ -2345,6 +2474,7 @@ impl Toolkit for Qt {
         }
         // Nav host: pages land by their PANE, not their position (docs/size-classes.md).
         let sidebar = is_sidebar_page(child.0);
+        let list = is_list_page(child.0);
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&(parent.0 as usize)) else {
@@ -2356,7 +2486,14 @@ impl Toolkit for Qt {
             if sidebar {
                 state.sidebar_page = Some(*child);
             }
-            let pane = if state.split && sidebar {
+            if list {
+                state.list_page = Some(*child);
+            }
+            // The content-list page fills its own pane at every presentation
+            // (docs/navigation.md) — never a member of the detail stack.
+            let pane = if list {
+                state.list_pane
+            } else if state.split && sidebar {
                 state.sidebar_pane
             } else {
                 state.detail_pane
@@ -2401,6 +2538,9 @@ impl Toolkit for Qt {
                 state.pages.retain(|(p, _)| p.0 != child.0);
                 if state.sidebar_page.map(|p| p.0) == Some(child.0) {
                     state.sidebar_page = None;
+                }
+                if state.list_page.map(|p| p.0) == Some(child.0) {
+                    state.list_page = None;
                 }
             }
         });
@@ -2775,8 +2915,8 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_dark_mode() != 0 }
     }
 
-    fn toggle_sidebar(&mut self) -> bool {
-        crate::toggle_sidebar()
+    fn toggle_sidebar(&mut self, host: &QtHandle) -> bool {
+        crate::toggle_sidebar(host.0)
     }
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {

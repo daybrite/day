@@ -2753,9 +2753,10 @@ impl Toolkit for Xaml {
         snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png2(win, path) })
     }
 
-    fn toggle_sidebar(&mut self) -> bool {
-        // The same call the toolbar's own AppBarButton makes, so a dayscript walkthrough drives
-        // the real path (docs/toolbars.md).
+    fn toggle_sidebar(&mut self, _host: &WinHandle) -> bool {
+        // The primary window's NavigationView is the only split here (secondary windows carry
+        // no chrome), so the host is implied. The same call the toolbar's own AppBarButton
+        // makes, so a dayscript walkthrough drives the real path (docs/toolbars.md).
         unsafe { ffi::day_xaml_toggle_sidebar() != 0 }
     }
 

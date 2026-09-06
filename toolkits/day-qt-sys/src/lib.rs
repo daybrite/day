@@ -148,6 +148,10 @@ unsafe extern "C" {
     pub fn day_qt_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
 
     pub fn day_qt_scroll_new(horizontal: c_int) -> *mut c_void;
+    /// The viewport's width: what a row can use (narrower than the host under a legacy bar).
+    pub fn day_qt_scroll_viewport_width(w: *mut c_void) -> c_double;
+    /// Report the viewport resizing, which a legacy scroll bar does without the host moving.
+    pub fn day_qt_scroll_on_viewport_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
     pub fn day_qt_scroll_to_bottom(w: *mut c_void);
@@ -284,7 +288,15 @@ unsafe extern "C" {
         badge_tints: *const c_char,
     );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
-    pub fn day_qt_splitter_new() -> *mut c_void;
+    /// The navigation splitter: sidebar, content list, detail. `list_width` <= 0 hides the
+    /// list pane; the minimums are the drag limits (docs/navigation.md).
+    pub fn day_qt_splitter_new(
+        list_width: c_double,
+        sidebar_min: c_double,
+        list_min: c_double,
+    ) -> *mut c_void;
+    /// Give one pane a width, taking the difference from the last pane.
+    pub fn day_qt_splitter_set_pane_width(w: *mut c_void, index: c_int, width: c_double);
     /// `leading` nonzero puts the panel pane FIRST (docs/inspector.md `.edge`).
     pub fn day_qt_inspector_new(panel_width: c_double, leading: c_int) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
@@ -345,6 +357,13 @@ unsafe extern "C" {
     pub fn day_qt_toolbar_add_label(bar: *mut c_void, id: *const c_char, text: *const c_char);
     pub fn day_qt_toolbar_add_separator(bar: *mut c_void);
     pub fn day_qt_toolbar_add_space(bar: *mut c_void, expand: c_int);
+    /// Whether this bar's window has a navigation splitter for columns to follow.
+    pub fn day_qt_toolbar_has_columns(bar: *mut c_void) -> c_int;
+    /// Open a column track (0 sidebar, 1 list, 2 detail); items land in it until `end_column`.
+    pub fn day_qt_toolbar_begin_column(bar: *mut c_void, col: c_int);
+    pub fn day_qt_toolbar_end_column(bar: *mut c_void);
+    /// Re-size the column tracks to the splitter's panes.
+    pub fn day_qt_toolbar_sync_columns(splitter: *mut c_void);
     pub fn day_qt_toolbar_set_text(id: *const c_char, text: *const c_char);
     pub fn day_qt_toolbar_set_checked(id: *const c_char, on: c_int);
     pub fn day_qt_toolbar_add_segmented(

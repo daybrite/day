@@ -623,8 +623,9 @@ breakpoints, what survives a re-presentation, and which backends morph today.
 ## The content list (three panes)
 
 > **Status: implemented** (2026-08). Native pane on macos-appkit (a real `contentList`
-> `NSSplitViewItem`) and ios-uikit (`UISplitViewController` triple-column, merging into the
-> stack at compact width); composed by the selector everywhere else, including the mock.
+> `NSSplitViewItem`), on Qt (the middle pane of the navigation `QSplitter`, since 2026-09) and
+> ios-uikit (`UISplitViewController` triple-column, merging into the stack at compact width);
+> composed by the selector everywhere else, including the mock.
 > `Cap::NavContentList` carries the three-way answer. Since 2026-08 the composed compact flow
 > is push navigation: a list-backed tab is a nested navigation controller, not a swap.
 
@@ -653,9 +654,12 @@ selector(section).style(SelectorStyle::Sidebar)
     .destination(…)                            // the DETAIL only — the list is not in here
 ```
 
-- **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit): a real
-  pane at every presentation; a narrow window collapses the sidebar and keeps the list, as a
-  narrow Mail.app does. `Emulated` (ios-uikit): a real column while expanded that merges into
+- **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit, Qt): a
+  real pane at every presentation, with a draggable divider on each side; a narrow window
+  collapses the sidebar and keeps the list, as a narrow Mail.app does. On Qt the pane is the
+  middle of the same three-pane `QSplitter` the sidebar lives in, hidden on a host that declared
+  no list, so pane indices and the back header never move. `Emulated` (ios-uikit): a real
+  column while expanded that merges into
   the navigation stack when the host collapses. `Unsupported` (everything else): the selector
   composes the list beside each list-backed destination while split, and as the root layer of
   the gated push flow while compact.

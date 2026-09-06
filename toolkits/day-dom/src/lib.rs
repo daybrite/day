@@ -2232,9 +2232,9 @@ impl Toolkit for Dom {
         json.push('}');
         unsafe { day_dom_toolbar_patch(json.as_ptr(), json.len()) };
     }
-    fn toggle_sidebar(&mut self) -> bool {
-        // Same call the strip's own button makes, so a dayscript walkthrough drives the real
-        // path (docs/toolbars.md).
+    fn toggle_sidebar(&mut self, _host: &DomHandle) -> bool {
+        // One window, one split: the host is implied. Same call the strip's own button makes,
+        // so a dayscript walkthrough drives the real path (docs/toolbars.md).
         unsafe { day_dom_toolbar_sidebar() != 0 }
     }
 

@@ -963,11 +963,10 @@ struct NavHeader {
 /// Height of the stack-nav back header while a pushed page is showing.
 const NAV_HEADER_H: f64 = 34.0;
 
-/// Drag limits for the sidebar pane, around `day_spec::NAV_SIDEBAR_WIDTH`. A sidebar
-/// NSSplitViewItem enforces these itself, which is why the divider no longer needs restoring
-/// by hand after every window resize.
-const NAV_SIDEBAR_MIN_W: f64 = 160.0;
-const NAV_SIDEBAR_MAX_W: f64 = 400.0;
+// Drag limits for both draggable panes come from day-spec (`NAV_SIDEBAR_MIN_W` and friends): a
+// sidebar NSSplitViewItem enforces them itself, which is why the divider no longer needs
+// restoring by hand after every window resize.
+use day_spec::{NAV_LIST_MAX_W, NAV_LIST_MIN_W, NAV_SIDEBAR_MAX_W, NAV_SIDEBAR_MIN_W};
 
 /// The content-list width to place divider 1 at, once, the first time the pane is showing —
 /// `None` when the pane is collapsed or has already been placed. Latches on the way out, so the
@@ -979,11 +978,6 @@ fn take_list_placement(state: &mut NavState) -> Option<f64> {
     state.list_positioned = true;
     state.list_width
 }
-
-/// Drag limits for the content-list pane (`NavProps::list_width`, docs/navigation.md), around
-/// the app's preferred width — Mail's message-list proportions.
-const NAV_LIST_MIN_W: f64 = 220.0;
-const NAV_LIST_MAX_W: f64 = 560.0;
 
 /// Height of the `NavPresentation::Tabs` bottom bar.
 const NAV_TABBAR_H: f64 = 36.0;
@@ -6695,27 +6689,29 @@ impl Toolkit for AppKit {
         OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
         unsafe { h.setNeedsDisplay(true) };
     }
-    fn toggle_sidebar(&mut self) -> bool {
+    fn toggle_sidebar(&mut self, host: &Self::Handle) -> bool {
         NAV_STATE.with(|m| {
-            for st in m.borrow().values() {
-                // A pane to toggle exists in `Split` and `Rail`; a stack has none and a tab
-                // bar keeps its rows in the chrome, where hiding them would strand the user.
-                if matches!(
-                    st.presentation,
-                    NavPresentation::Split | NavPresentation::Rail
-                ) {
-                    let item = &st.sidebar_item;
-                    // Set DIRECTLY, not through the `animator` proxy. The proxy defers the
-                    // change to an animation the dayscript screenshot step does not wait on, so
-                    // a scripted toggle captured a sidebar that had not moved yet. AppKit's own
-                    // NSToolbarToggleSidebarItem still animates — it runs `toggleSidebar:` on
-                    // the controller and never comes through here.
-                    let collapsed = unsafe { item.isCollapsed() };
-                    unsafe { item.setCollapsed(!collapsed) };
-                    return true;
-                }
+            let m = m.borrow();
+            let Some(st) = m.get(&ptr_of(host)) else {
+                return false;
+            };
+            // A pane to toggle exists in `Split` and `Rail`; a stack has none and a tab bar
+            // keeps its rows in the chrome, where hiding them would strand the user.
+            if !matches!(
+                st.presentation,
+                NavPresentation::Split | NavPresentation::Rail
+            ) {
+                return false;
             }
-            false
+            let item = &st.sidebar_item;
+            // Set DIRECTLY, not through the `animator` proxy. The proxy defers the change to
+            // an animation the dayscript screenshot step does not wait on, so a scripted
+            // toggle captured a sidebar that had not moved yet. AppKit's own
+            // NSToolbarToggleSidebarItem still animates — it runs `toggleSidebar:` on the
+            // controller and never comes through here.
+            let collapsed = unsafe { item.isCollapsed() };
+            unsafe { item.setCollapsed(!collapsed) };
+            true
         })
     }
 

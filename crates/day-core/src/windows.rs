@@ -517,8 +517,11 @@ fn teardown(root: RNode) {
     }) else {
         return;
     };
-    record.scope.dispose();
+    // The toolbar forgets the window FIRST: its contributions' cleanups run inside the
+    // dispose below and would otherwise re-compose a bar through gates whose signals the same
+    // dispose has already dropped (a contained panic that left the next New Window blank).
     crate::toolbar::forget_window(root);
+    record.scope.dispose();
     crate::ambient::forget_window(root);
     match record.tier {
         Tier::Native | Tier::PendingNative { .. } => {

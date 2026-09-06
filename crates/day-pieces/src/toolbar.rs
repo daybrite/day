@@ -298,15 +298,17 @@ impl<F: Fn() -> Vec<ToolbarEntry> + 'static> ToolbarContent<DerivedMark> for F {
 
 /// The item a sidebar host draws for itself: leading, the platform's own glyph, and no app
 /// action — the click drives that window's split directly.
-pub fn sidebar_toggle_item() -> ToolbarEntry {
+pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     toolbar_button(
         day_spec::SIDEBAR_TOGGLE_ID,
         day_l10n::t("day-toggle-sidebar"),
     )
     .icon(Symbol::Sidebar)
     .placement(day_spec::ToolbarPlacement::Navigation)
-    .action(|| {
-        day_core::toggle_sidebar();
+    // The HOST rides in the closure: a second window's button toggles that window's own
+    // sidebar, never the first host the toolkit happens to find.
+    .action(move || {
+        day_core::toggle_sidebar(host);
     })
 }
 

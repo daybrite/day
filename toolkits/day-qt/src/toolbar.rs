@@ -133,11 +133,6 @@ pub(crate) fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     }
 }
 
-/// The reserved dispatch id a `SidebarToggle` item carries. Qt routes every toolbar click
-/// through an action id, and this item has no app action to route — so it rides a sentinel that
-/// `on_toolbar_value` intercepts and never forwards to the app's registry.
-pub(crate) const SIDEBAR_TOGGLE_ACTION: u64 = u64::MAX;
-
 /// Values from the shim: kind 0 = a toggle's new state, kind 1 = a search field's text.
 pub(crate) extern "C" fn on_toolbar_value(
     action: u64,
@@ -147,11 +142,6 @@ pub(crate) extern "C" fn on_toolbar_value(
 ) {
     // Contained: a panic unwinding into the C++ shim frame is UB (day-spec's ffi_guard).
     day_spec::ffi_guard::contain((), || {
-        // The sidebar toggle is Day's own, not the app's: drive the split host and stop here.
-        if action == SIDEBAR_TOGGLE_ACTION {
-            crate::toggle_sidebar();
-            return;
-        }
         let value = if kind == 2 {
             ToolbarValue::Selected(on.max(0) as usize)
         } else if kind == 0 {
@@ -169,6 +159,145 @@ pub(crate) extern "C" fn on_toolbar_value(
     });
 }
 
+/// The items of `cols`, in bar order, with stretches where the packing turns around
+/// (docs/toolbars.md): leading roles first, a stretch, the principal item between two of them,
+/// then the trailing ones — so the prominent action sits at the column's right edge, a lone
+/// leading group stays at its left, and a principal item centers. A box layout centers a
+/// single fixed-size widget in leftover space, which is why the stretch after the leading
+/// group is unconditional. `spread` = false packs everything after the caller's own leading
+/// stretch (the sidebar column, against its divider).
+fn column_items(
+    bar: *mut c_void,
+    items: &[ToolbarItem],
+    cols: &[day_spec::ToolbarColumn],
+    spread: bool,
+) {
+    use day_spec::ToolbarPlacement as P;
+    let mine: Vec<&ToolbarItem> = items.iter().filter(|i| cols.contains(&i.column)).collect();
+    let lead = [P::Navigation, P::Automatic];
+    let trail = [P::Primary, P::Secondary, P::Bottom];
+    let has_principal = mine.iter().any(|i| i.placement == P::Principal);
+    for i in mine.iter().filter(|i| lead.contains(&i.placement)) {
+        add_item(bar, i);
+    }
+    if spread {
+        unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
+    }
+    for i in mine.iter().filter(|i| i.placement == P::Principal) {
+        add_item(bar, i);
+    }
+    if spread && has_principal {
+        unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
+    }
+    for i in mine.iter().filter(|i| trail.contains(&i.placement)) {
+        add_item(bar, i);
+    }
+}
+
+/// One model item onto the bar, or into the column it is packing.
+fn add_item(bar: *mut c_void, item: &ToolbarItem) {
+    let id = cstr(&item.id);
+    let label = cstr(&item.label);
+    let tip = cstr(item.tooltip.as_deref().unwrap_or(&item.label));
+    let (icon, fallback) = icon_args(item.icon.as_ref());
+    let icon = cstr(&icon);
+    match &item.kind {
+        ToolbarItemKind::Button | ToolbarItemKind::Toggle { .. } => {
+            let (checkable, checked) = match item.kind {
+                ToolbarItemKind::Toggle { on } => (1, on as c_int),
+                _ => (0, 0),
+            };
+            let action = item.action;
+            unsafe {
+                ffi::day_qt_toolbar_add_action(
+                    bar,
+                    id.as_ptr(),
+                    label.as_ptr(),
+                    icon.as_ptr(),
+                    fallback,
+                    tip.as_ptr(),
+                    action,
+                    item.enabled as c_int,
+                    checkable,
+                    checked,
+                )
+            };
+        }
+        ToolbarItemKind::Segmented { segments, selected } => {
+            // Titles and theme icon names as unit-separated lists — one call rather than
+            // one per segment, the same shape the canvas op stream and the label runs use.
+            let titles = segments
+                .iter()
+                .map(|s| s.title.clone())
+                .collect::<Vec<_>>()
+                .join("\u{1f}");
+            let icons = segments
+                .iter()
+                .map(|s| match &s.icon {
+                    Some(day_spec::Icon::Symbol(sym)) => {
+                        icon_args(Some(&day_spec::Icon::Symbol(*sym))).0
+                    }
+                    _ => String::new(),
+                })
+                .collect::<Vec<_>>()
+                .join("\u{1f}");
+            let (titles, icons) = (cstr(&titles), cstr(&icons));
+            unsafe {
+                ffi::day_qt_toolbar_add_segmented(
+                    bar,
+                    id.as_ptr(),
+                    titles.as_ptr(),
+                    icons.as_ptr(),
+                    *selected as c_int,
+                    item.action,
+                    item.enabled as c_int,
+                )
+            };
+        }
+        ToolbarItemKind::Menu { items } => {
+            let menu = unsafe {
+                ffi::day_qt_toolbar_add_menu(
+                    bar,
+                    id.as_ptr(),
+                    label.as_ptr(),
+                    icon.as_ptr(),
+                    fallback,
+                    tip.as_ptr(),
+                    item.enabled as c_int,
+                )
+            };
+            if !menu.is_null() {
+                build_qt_menu(menu, items);
+            }
+        }
+        ToolbarItemKind::Search {
+            text,
+            placeholder,
+            suggestions,
+        } => {
+            let text = cstr(text);
+            let ph = cstr(placeholder);
+            unsafe {
+                ffi::day_qt_toolbar_add_search(
+                    bar,
+                    id.as_ptr(),
+                    text.as_ptr(),
+                    ph.as_ptr(),
+                    item.action,
+                    item.enabled as c_int,
+                );
+                // Qt's own QCompleter drives the popup (docs/search.md).
+                let joined = cstr(&suggestions.join("\n"));
+                ffi::day_qt_toolbar_set_suggestions(id.as_ptr(), joined.as_ptr());
+            };
+        }
+        ToolbarItemKind::Label => unsafe {
+            ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr())
+        },
+        ToolbarItemKind::Separator => unsafe { ffi::day_qt_toolbar_add_separator(bar) },
+    }
+}
+
 impl Qt {
     /// Install `items` as this window's toolbar (docs/toolbars.md).
     pub(crate) fn install_toolbar(&mut self, h: &QtHandle, items: &[ToolbarItem]) {
@@ -177,123 +306,34 @@ impl Qt {
         if bar.is_null() {
             return;
         }
-        // Placement decides the packing (docs/toolbars.md): leading roles first, then an
-        // EXPANDING spacer, then the trailing ones. Qt has no way to align a group with a
-        // splitter's divider, so the column an item was declared in is not expressible here and
-        // is dropped — every item still draws, in one bar, in the order the app declared.
-        use day_spec::ToolbarPlacement as P;
-        let leading = |p: P| matches!(p, P::Navigation | P::Principal);
-        let ordered: Vec<ToolbarItem> = items
-            .iter()
-            .filter(|i| leading(i.placement))
-            .chain(items.iter().filter(|i| !leading(i.placement)))
-            .cloned()
-            .collect();
-        let split = items.iter().filter(|i| leading(i.placement)).count();
-        for (n, item) in ordered.iter().enumerate() {
-            if n == split && split > 0 && split < ordered.len() {
-                unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
-            }
-            let id = cstr(&item.id);
-            let label = cstr(&item.label);
-            let tip = cstr(item.tooltip.as_deref().unwrap_or(&item.label));
-            let (icon, fallback) = icon_args(item.icon.as_ref());
-            let icon = cstr(&icon);
-            match &item.kind {
-                ToolbarItemKind::Button | ToolbarItemKind::Toggle { .. } => {
-                    let (checkable, checked) = match item.kind {
-                        ToolbarItemKind::Toggle { on } => (1, on as c_int),
-                        _ => (0, 0),
-                    };
-                    let action = item.action;
-                    unsafe {
-                        ffi::day_qt_toolbar_add_action(
-                            bar,
-                            id.as_ptr(),
-                            label.as_ptr(),
-                            icon.as_ptr(),
-                            fallback,
-                            tip.as_ptr(),
-                            action,
-                            item.enabled as c_int,
-                            checkable,
-                            checked,
-                        )
-                    };
-                }
-                ToolbarItemKind::Segmented { segments, selected } => {
-                    // Titles and theme icon names as unit-separated lists — one call rather than
-                    // one per segment, the same shape the canvas op stream and the label runs use.
-                    let titles = segments
-                        .iter()
-                        .map(|s| s.title.clone())
-                        .collect::<Vec<_>>()
-                        .join("\u{1f}");
-                    let icons = segments
-                        .iter()
-                        .map(|s| match &s.icon {
-                            Some(day_spec::Icon::Symbol(sym)) => {
-                                icon_args(Some(&day_spec::Icon::Symbol(*sym))).0
-                            }
-                            _ => String::new(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\u{1f}");
-                    let (titles, icons) = (cstr(&titles), cstr(&icons));
-                    unsafe {
-                        ffi::day_qt_toolbar_add_segmented(
-                            bar,
-                            id.as_ptr(),
-                            titles.as_ptr(),
-                            icons.as_ptr(),
-                            *selected as c_int,
-                            item.action,
-                            item.enabled as c_int,
-                        )
-                    };
-                }
-                ToolbarItemKind::Menu { items } => {
-                    let menu = unsafe {
-                        ffi::day_qt_toolbar_add_menu(
-                            bar,
-                            id.as_ptr(),
-                            label.as_ptr(),
-                            icon.as_ptr(),
-                            fallback,
-                            tip.as_ptr(),
-                            item.enabled as c_int,
-                        )
-                    };
-                    if !menu.is_null() {
-                        build_qt_menu(menu, items);
-                    }
-                }
-                ToolbarItemKind::Search {
-                    text,
-                    placeholder,
-                    suggestions,
-                } => {
-                    let text = cstr(text);
-                    let ph = cstr(placeholder);
-                    unsafe {
-                        ffi::day_qt_toolbar_add_search(
-                            bar,
-                            id.as_ptr(),
-                            text.as_ptr(),
-                            ph.as_ptr(),
-                            item.action,
-                            item.enabled as c_int,
-                        );
-                        // Qt's own QCompleter drives the popup (docs/search.md).
-                        let joined = cstr(&suggestions.join("\n"));
-                        ffi::day_qt_toolbar_set_suggestions(id.as_ptr(), joined.as_ptr());
-                    };
-                }
-                ToolbarItemKind::Label => unsafe {
-                    ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr())
-                },
-                ToolbarItemKind::Separator => unsafe { ffi::day_qt_toolbar_add_separator(bar) },
-            }
+        use day_spec::ToolbarColumn as C;
+        // A window with a navigation splitter lays the bar out in COLUMNS (docs/toolbars.md):
+        // three tracks whose widths follow the panes, so a column's items sit over the pane
+        // they act on — the sidebar's against its divider, the list's over the list, the
+        // detail's and the window's own over the content. Everything else (a settings window,
+        // a stack-only app) packs one flat bar by placement.
+        if unsafe { ffi::day_qt_toolbar_has_columns(bar) } != 0 {
+            unsafe { ffi::day_qt_toolbar_begin_column(bar, 0) };
+            // Packed against the divider it acts on: a leading stretch pushes the show/hide
+            // button to the sidebar's trailing edge, where Notes and Xcode put theirs.
+            unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
+            column_items(bar, items, &[C::Sidebar], false);
+            unsafe { ffi::day_qt_toolbar_end_column(bar) };
+            // Always opened, even empty: its width is what puts the detail column over the
+            // detail. It collapses to nothing with the pane.
+            unsafe { ffi::day_qt_toolbar_begin_column(bar, 1) };
+            column_items(bar, items, &[C::List], true);
+            unsafe { ffi::day_qt_toolbar_end_column(bar) };
+            unsafe { ffi::day_qt_toolbar_begin_column(bar, 2) };
+            column_items(bar, items, &[C::Detail, C::Window], true);
+            unsafe { ffi::day_qt_toolbar_end_column(bar) };
+        } else {
+            column_items(
+                bar,
+                items,
+                &[C::Sidebar, C::List, C::Detail, C::Window],
+                true,
+            );
         }
         unsafe { ffi::day_qt_window_toolbar_done(win) };
     }

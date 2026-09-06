@@ -93,17 +93,23 @@ with `NSTrackingSeparatorToolbarItem` bound to the split at divider 1. Windows c
 `NSWindowStyleMaskFullSizeContentView` so those items can find their dividers. The sidebar's
 commands pack against its trailing edge; every other column packs leading roles first, then the
 trailing ones at that column's own right edge. `web-dom` does the same with three flex tracks
-whose widths follow the panes'.
+whose widths follow the panes'. Qt does it inside its one `QToolBar`: three track widgets, the
+sidebar's and the list's given the width of their splitter pane every time the splitter lays
+out, the detail's taking the rest — the same packing within each. A window with no navigation
+splitter (a settings window, a stack-only app) packs one flat bar by placement.
 
-Everywhere else the column is DROPPED, never the item: GTK and Qt draw one bar with no divider to
-track, XAML's `CommandBar` spans the window, and ArkUI's `.menus()` is a flat list. Degradation
-always removes the specialization and keeps the command.
+Everywhere else the column is DROPPED, never the item: GTK draws one header bar with no divider
+to track, XAML's `CommandBar` spans the window, and ArkUI's `.menus()` is a flat list.
+Degradation always removes the specialization and keeps the command.
 
 ## The sidebar affordance
 
 A `selector(Sidebar)` supplies its own, so an app declares nothing for it. It reaches the backends
-as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID`, and each does what its
-platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`, XAML drops it because
+as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID` whose action names the
+host it was built for (`Toolkit::toggle_sidebar(host)`), so a second window's button collapses
+that window's sidebar and a dayscript `toolbar:` step presses it like any other item. Each
+backend does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`,
+Qt keeps the button on the bar when its pane collapses (the track shrinks to it), XAML drops it because
 `NavigationView` draws its own pane button, and **UIKit drops it entirely** — `UISplitViewController`
 and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
 Suppress it with `.sidebar_toggle(false)`.
@@ -247,7 +253,7 @@ phones, and Android re-tints it to the app bar's own color.
 | | AppKit | GTK | Qt | XAML | UIKit | Android | ArkUI | web-dom |
 |---|---|---|---|---|---|---|---|---|
 | placement | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
-| column | ✓ | — | — | — | — | — | — | ✓ |
+| column | ✓ | — | ✓ | — | — | — | — | ✓ |
 
 | | AppKit | GTK | Qt | XAML |
 |---|---|---|---|---|
@@ -279,7 +285,16 @@ Notes that are not obvious from the table:
   `QMainWindow` dock; the geometry there is already hand-managed. It is a real `QToolBar` either
   way: it takes its icon size and its icon/text style from the user's Qt settings, which is the
   KDE convention and why the backend sets neither. It does not get dragging between dock
-  areas, which needs `QMainWindow`.
+  areas, which needs `QMainWindow`. Columns are three plain widgets on that bar, each with a
+  row layout; an action inside one is the same `QAction` shown through an auto-raise
+  `QToolButton` of the bar's own style, so patches by action are unchanged. A re-lower releases
+  the previous actions and their widgets (`QToolBar::clear` only removes them). Icons: Qt has no
+  glyph set of its own beyond QStyle's few dialog bitmaps, so a symbol is the desktop theme's
+  icon where one exists (a freedesktop theme on Linux; on macOS Qt 6.7+ maps the freedesktop
+  names it knows to SF Symbols), then Day's own outline, then QStyle's. Those drawings never
+  agreed on a box, so every toolbar glyph is fitted by its ink to the same fraction of the bar's
+  icon box and tinted to the palette text color; the box is 24 points on macOS (an NSToolbar
+  glyph's), and the user's setting on the Linux desktops.
 - **XAML**: `CommandBar` right-aligns `PrimaryCommands`, left-aligns `Content` and folds
   `SecondaryCommands` into its overflow — which is exactly the three groups Day's placements
   reduce to, so `Navigation`/`Principal` land in `Content`, `Automatic`/`Primary` in

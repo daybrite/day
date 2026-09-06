@@ -424,9 +424,21 @@ pub enum SurfaceRole {
 
 pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
 
+/// Drag limits for a navigation host's sidebar pane, around [`NAV_SIDEBAR_WIDTH`]. Shared by the
+/// desktops whose divider the user can drag (docs/navigation.md): AppKit enforces both through
+/// its `NSSplitViewItem`; Qt honors the minimum through the pane's own minimum size and leaves
+/// the maximum to the user.
+pub const NAV_SIDEBAR_MIN_W: f64 = 160.0;
+pub const NAV_SIDEBAR_MAX_W: f64 = 400.0;
+
 /// Default preferred width of a navigation host's content-list pane
 /// (`props::NavProps::list_width`, docs/navigation.md) — Mail's message-list proportion.
 pub const NAV_LIST_WIDTH: f64 = 300.0;
+
+/// Drag limits for the content-list pane, around the app's preferred width; the same split of
+/// duties as the sidebar's.
+pub const NAV_LIST_MIN_W: f64 = 220.0;
+pub const NAV_LIST_MAX_W: f64 = 560.0;
 
 /// Reserved id for window-level events (resize, lifecycle): day-core routes it to the root.
 pub const WINDOW_NODE: NodeId = NodeId(u64::MAX);
@@ -4605,15 +4617,16 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
         self.snapshot_window()
     }
-    /// Show/hide this window's `selector(Sidebar)` pane — what a
-    /// [`ToolbarItemKind::SidebarToggle`] item drives. `false` when there is no split host to
-    /// toggle, which is how the caller knows to render the item disabled.
+    /// Show/hide the sidebar pane of the navigation host `host` — what the sidebar affordance
+    /// a `selector(Sidebar)` contributes for itself drives ([`SIDEBAR_TOGGLE_ID`]). `false`
+    /// when `host` has no pane to toggle (a stack, a tab bar, no sidebar concept at all).
     ///
-    /// A duty rather than an action id, because the item carries no app closure: the native
-    /// toolbar button and dayscript's `toolbar:` step both land here, so a walkthrough drives
-    /// exactly the path a click takes. Defaulted, so a backend with no sidebar needs no code.
-    /// docs/toolbars.md, docs/navigation.md.
-    fn toggle_sidebar(&mut self) -> bool {
+    /// Per HOST, not per process: a second window's button collapses that window's sidebar
+    /// and not the first's. The item's own action makes the call, and dayscript's `toolbar:`
+    /// step presses the item like any other, so a walkthrough drives exactly the path a click
+    /// takes. Defaulted, so a backend with no sidebar needs no code. docs/toolbars.md,
+    /// docs/navigation.md.
+    fn toggle_sidebar(&mut self, _host: &Self::Handle) -> bool {
         false
     }
     /// Whether the UI has settled — no native transition (modal present/dismiss, nav push)

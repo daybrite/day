@@ -1377,20 +1377,9 @@ fn exec(step: Step) -> Reply {
                 if !found.enabled {
                     return Err(Reply::fail(format!("toolbar: {item:?} is disabled"), false));
                 }
-                // The sidebar affordance a host supplies for itself carries the toolkit's own
-                // behavior, not an app closure, so it is driven through the duty. Same call the
-                // native button makes, which is the point: the walkthrough exercises the real
-                // path (docs/toolbars.md).
-                if found.id == day_spec::SIDEBAR_TOGGLE_ID {
-                    if !day_core::toolbar::toggle_sidebar() {
-                        return Err(Reply::fail(
-                            format!("toolbar: {item:?} found no sidebar to toggle"),
-                            false,
-                        ));
-                    }
-                    day_reactive::flush_sync();
-                    return Ok(Reply::ok());
-                }
+                // The sidebar affordance a host supplies for itself is an ordinary button
+                // whose action carries its host, so it is pressed like any other: the same
+                // path a click takes (docs/toolbars.md).
                 if found.action == 0 {
                     return Err(Reply::fail(
                         format!("toolbar: {item:?} has no command"),

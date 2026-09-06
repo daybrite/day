@@ -1036,30 +1036,30 @@ fn paned_split() -> bool {
 /// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives (docs/toolbars.md). `false` when
 /// there is no split host to toggle, which is how the item knows to render disabled.
 ///
-/// KNOWN LIMIT: `NAV_STATE` is not keyed by window, so with two split-hosting windows open this
-/// toggles the first one found rather than the one whose toolbar was clicked. Day apps are
-/// single-window today; keying nav state by window is the fix when that stops being true.
-pub(crate) fn toggle_sidebar() -> bool {
+/// Per HOST: the item's action names the host it was built for, so a second window's button
+/// toggles that window's own sidebar.
+pub(crate) fn toggle_sidebar(host: &Handle) -> bool {
     NAV_STATE.with(|m| {
-        for st in m.borrow().values() {
-            match &st.present {
-                // Adw's own property: collapsed shows the content alone, exactly what the
-                // GNOME sidebar button does.
-                NavPresent::Split(sv) => {
-                    sv.set_show_sidebar(!sv.shows_sidebar());
-                    return true;
-                }
-                NavPresent::Paned(paned) => {
-                    if let Some(child) = paned.start_child() {
-                        child.set_visible(!child.is_visible());
-                        return true;
-                    }
-                }
-                NavPresent::Stack(_) => {}
-                NavPresent::Suite { .. } => {}
+        let m = m.borrow();
+        let Some(st) = m.get(&widget_key(host)) else {
+            return false;
+        };
+        match &st.present {
+            // Adw's own property: collapsed shows the content alone, exactly what the
+            // GNOME sidebar button does.
+            NavPresent::Split(sv) => {
+                sv.set_show_sidebar(!sv.shows_sidebar());
+                true
             }
+            NavPresent::Paned(paned) => match paned.start_child() {
+                Some(child) => {
+                    child.set_visible(!child.is_visible());
+                    true
+                }
+                None => false,
+            },
+            NavPresent::Stack(_) | NavPresent::Suite { .. } => false,
         }
-        false
     })
 }
 
@@ -4817,8 +4817,8 @@ impl Toolkit for Gtk {
         h.queue_draw();
     }
 
-    fn toggle_sidebar(&mut self) -> bool {
-        crate::toggle_sidebar()
+    fn toggle_sidebar(&mut self, host: &Handle) -> bool {
+        crate::toggle_sidebar(host)
     }
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         // A PLAIN render of the widget tree — no main-loop iteration. This runs inside the

@@ -1377,7 +1377,7 @@ pub trait Toolkit: Sized + 'static {
     // item carries no app closure: the native button and dayscript's `toolbar:` step both land
     // here, so a walkthrough exercises the path a click takes. `false` = no sidebar in this
     // window. Defaulted, so a backend without one needs no code.
-    fn toggle_sidebar(&mut self) -> bool { false }
+    fn toggle_sidebar(&mut self, host: &Self::Handle) -> bool { false }
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
@@ -1936,6 +1936,8 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   compact width, interposed by `NavPatch::ListInStack` and gated by the app's
 >   `.detail_visible(sig)` binding), composed by the selector everywhere else.
 >   `.content_list_for(pred)` collapses the pane per destination (`NavPatch::ListVisible`).
+>   Outcome (2026-09): Qt answers `Native` too — the middle pane of its three-pane
+>   navigation `QSplitter`, and its toolbar packs columns over the panes.
   Since 2026-09 the composed compact flow's list is a merge target: a `stack` built inside it
   pushes onto the tab's navigation controller (a drill-down with a native back), while the
   native resident pane stays a barrier.

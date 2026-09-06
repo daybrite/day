@@ -511,20 +511,25 @@ pub fn toolbar_model() -> Vec<ToolbarItem> {
     MODELS.with(|m| m.borrow().iter().flat_map(|(_, i)| i.clone()).collect())
 }
 
-/// Show/hide the window's `selector(Sidebar)` pane — the behavior behind a
-/// [`day_spec::ToolbarItemKind::SidebarToggle`] item. `false` when this toolkit has no split
-/// host to toggle. The native toolbar button and dayscript's `toolbar:` step share this call,
-/// so a walkthrough drives the same path a click does (docs/toolbars.md).
-pub fn toggle_sidebar() -> bool {
-    with_tree(|t| t.toggle_sidebar())
+/// Show/hide the sidebar pane of the navigation host `host` — the behavior behind the sidebar
+/// affordance a selector contributes for itself (`day_spec::SIDEBAR_TOGGLE_ID`). `false` when
+/// the toolkit has no pane to toggle there. The item's action makes this call, and dayscript's
+/// `toolbar:` step presses the item like any other, so a walkthrough drives the same path a
+/// click does (docs/toolbars.md).
+pub fn toggle_sidebar(host: RNode) -> bool {
+    with_tree(|t| t.toggle_sidebar(host))
 }
 
-/// Drop a closed window's chrome models and the value closures only they owned.
+/// Drop a closed window's contributions, chrome model and the value closures only they owned.
 ///
-/// Its pages' chromes go too: a page node cannot outlive the window it was built in, and its
-/// contributions are withdrawn by scope disposal, but the retained models would otherwise keep
-/// the closures alive.
+/// Called BEFORE the window's scope is disposed. Disposal runs every contribution's cleanup,
+/// and each one re-composes the window it belonged to — a merge that asks the OTHER
+/// contributions' gates whether their page is showing, through signals the same disposal has
+/// already dropped. Withdrawing the whole window here first leaves those cleanups nothing to
+/// re-compose (a token that is already gone is a no-op), so a closed window never merges its
+/// own dying bar.
 pub(crate) fn forget_window(root: RNode) {
+    CONTRIBUTIONS.with(|m| m.borrow_mut().retain(|_, c| c.window != root));
     let gone: Vec<ToolbarItem> = MODELS.with(|m| {
         let mut m = m.borrow_mut();
         let mut gone = Vec::new();

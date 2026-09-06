@@ -16,6 +16,7 @@
 #include <QFontDatabase>
 #include <QEasingCurve>
 #include <QFrame>
+#include <algorithm>
 #include <QGraphicsEffect>
 #include <QButtonGroup>
 #include <QHBoxLayout>
@@ -67,6 +68,7 @@
 #include <QPixmap>
 #include <QResource>
 #include <QPushButton>
+#include <QAbstractScrollArea>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QCompleter>
@@ -388,6 +390,20 @@ void day_qt_widget_set_section_card(void *w, double radius) {
 void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, double radius,
                                int clips) {
     QWidget *widget = static_cast<QWidget *>(w);
+    // A scroll area's fill goes on its viewport's palette, never on a stylesheet (see
+    // day_qt_scroll_new): the bars would stop being native. The radius is not honored here;
+    // a rounded scroll is a clip the caller can put on a container around it.
+    if (auto *sa = qobject_cast<QAbstractScrollArea *>(widget)) {
+        (void)radius;
+        (void)clips;
+        QWidget *vp = sa->viewport();
+        QPalette p = vp->palette();
+        p.setColor(QPalette::Window, QColor::fromRgbF(r, g, b, a));
+        vp->setPalette(p);
+        vp->setBackgroundRole(QPalette::Window);
+        vp->setAutoFillBackground(a > 0.0);
+        return;
+    }
     // A unique object name scopes the stylesheet to THIS widget (`#name { ... }`) so the fill does
     // not bleed into child widgets the way a bare `background-color` on a parent QWidget would.
     static unsigned long counter = 0;
@@ -723,14 +739,24 @@ void *day_qt_scroll_new(int horizontal) {
         sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     // Transparent like AppKit's `setDrawsBackground(false)` scroll (and GTK's day-scroll CSS):
     // content layered BEHIND the scroll (e.g. a gradient backdrop in a zstack) must show
-    // through. Both the palette flags AND the stylesheet are needed — QScrollArea otherwise
-    // erases its viewport with the palette Window brush on some styles.
+    // through. Through the widget flags, never a stylesheet: a stylesheet on the scroll area
+    // reaches its scroll bars, and a scroll bar under one is drawn by QStyleSheetStyle itself
+    // (arrow buttons, an opaque track) and answers `SH_ScrollBar_Transient` with 0 — which is
+    // how the macOS overlay bar became a Windows-looking one that also ate viewport width.
+    // The flag that matters is the CONTENT widget's, and it goes AFTER `setWidget`, which
+    // turns autoFillBackground back on (that erase, with the Window brush, is what the old
+    // stylesheet's `QScrollArea > QWidget > QWidget` rule was undoing).
     sa->viewport()->setAutoFillBackground(false);
-    sa->setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }");
     QWidget *content = new QWidget();
-    content->setAutoFillBackground(false);
     sa->setWidget(content);
+    content->setAutoFillBackground(false);
     return sa;
+}
+// The viewport's width — what a row can actually use. Equal to the host's width under an
+// overlay scroll bar, narrower under a legacy one (System Settings "show scroll bars: always").
+double day_qt_scroll_viewport_width(void *w) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    return sa && sa->viewport() ? sa->viewport()->width() : 0.0;
 }
 void *day_qt_scroll_content(void *w) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
@@ -866,16 +892,48 @@ void day_qt_set_accessible_description(void *w, const char *text) {
 }
 
 // --- misc ---
-// --- navigation (docs/navigation.md): QSplitter host with two plain-widget panes ---
-void *day_qt_splitter_new() {
+// --- navigation (docs/navigation.md): QSplitter host with three plain-widget panes, in the
+// model's own order — sidebar, content list, detail. The list pane exists on every host and is
+// hidden on one that declared no content list (`list_width` <= 0), so pane indices never move.
+// The minimums are the drag limits day-spec shares with AppKit; QSplitter has no per-pane
+// maximum, and the user's drag is not fought. ---
+void *day_qt_splitter_new(double list_width, double sidebar_min, double list_min) {
     auto *s = new QSplitter(Qt::Horizontal);
+    // Marked so the window's toolbar can find the panes its columns follow. A property, not
+    // the object name: an app's `.id` on the host lands in the object name (dayscript's
+    // lookup key) and would erase a name set here.
+    s->setProperty("dayNavSplit", true);
     s->setChildrenCollapsible(false);
-    s->addWidget(new QWidget());
-    s->addWidget(new QWidget());
+    for (int i = 0; i < 3; ++i)
+        s->addWidget(new QWidget());
     s->setStretchFactor(0, 0);
-    s->setStretchFactor(1, 1);
-    s->setSizes({240, 480});
+    s->setStretchFactor(1, 0);
+    s->setStretchFactor(2, 1);
+    s->widget(0)->setMinimumWidth(static_cast<int>(sidebar_min));
+    const bool has_list = list_width > 0.0;
+    if (has_list)
+        s->widget(1)->setMinimumWidth(static_cast<int>(std::min(list_min, list_width)));
+    else
+        s->widget(1)->hide();
+    s->setSizes({240, has_list ? static_cast<int>(list_width) : 0, 480});
     return s;
+}
+// Give pane `index` a width, taking the difference from the last (stretching) pane. What the
+// first reveal of a pane hidden since construction needs: QSplitter kept the constructor's
+// placeholder for it, not the width the app asked for.
+void day_qt_splitter_set_pane_width(void *w, int index, double width) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    if (!s || index < 0 || index >= s->count())
+        return;
+    QList<int> sizes = s->sizes();
+    const int last = s->count() - 1;
+    if (index == last)
+        return;
+    const int want = static_cast<int>(width);
+    const int delta = want - sizes[index];
+    sizes[index] = want;
+    sizes[last] = std::max(0, sizes[last] - delta);
+    s->setSizes(sizes);
 }
 void *day_qt_splitter_pane(void *w, int index) {
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
@@ -947,6 +1005,17 @@ void day_qt_splitter_on_resized(void *w, void (*cb)(void *)) {
     }
 }
 
+// Report the VIEWPORT resizing — which happens without the host resizing when a legacy scroll
+// bar appears or leaves — so the emulated list re-lays its rows to the width they really have.
+void day_qt_scroll_on_viewport_resized(void *w, void (*cb)(void *)) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa || !sa->viewport())
+        return;
+    auto *f = new DayPaneResizeFilter(sa, cb);
+    f->setParent(sa->viewport());
+    sa->viewport()->installEventFilter(f);
+}
+
 void day_qt_splitter_on_moved(void *w, void (*cb)(void *)) {
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
     if (s) {
@@ -961,7 +1030,7 @@ void *day_qt_nav_header_install(void *splitter, uint64_t id, void (*cb)(uint64_t
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(splitter));
     if (!s)
         return nullptr;
-    QWidget *detail = s->widget(1);
+    QWidget *detail = s->widget(s->count() - 1);
     auto *header = new QWidget();
     header->setObjectName("day-nav-header");
     header->setFixedHeight(36);
@@ -1002,7 +1071,7 @@ void day_qt_nav_header_update(void *splitter, int visible, const char *title) {
         t->setText(QString::fromUtf8(title));
     if (auto *h = s->findChild<QWidget *>("day-nav-header"))
         h->setVisible(visible != 0);
-    if (QWidget *detail = s->widget(1); detail && detail->layout())
+    if (QWidget *detail = s->widget(s->count() - 1); detail && detail->layout())
         detail->layout()->activate();
 }
 void day_qt_widget_size(void *w, double *out_w, double *out_h) {
@@ -1133,6 +1202,53 @@ static QPixmap day_qt_tint_glyph(const QPixmap &src, const QColor &color) {
 static QIcon day_qt_tinted_icon(const QString &path, const QColor &color, int px = 0) {
     QPixmap pm = day_qt_load_glyph(path, px);
     if (pm.isNull()) return QIcon();
+    return QIcon(day_qt_tint_glyph(pm, color));
+}
+
+// A toolbar glyph normalized to the bar: the glyph's INK (its alpha bounds, not its viewBox)
+// scaled to fill `fill` of a `px`-point box and centered in it, from a LARGE render of it.
+// Toolbar icons here come from four drawings that never agreed on a box — the platform's
+// themed icons (SF Symbols on macOS, where Qt maps the freedesktop names it knows), Day's
+// 24-unit symbol outlines, an app's own vectors (Material glyphs on a 960 box), and QStyle's
+// bitmaps — and drawn as-is they land on one bar at three or four visual sizes. AppKit never
+// sees this (every glyph there is an SF Symbol), so the bar is the place to even them out,
+// not the assets. Every source is tinted to the palette's text color on the way, which is
+// what the themed template icons would have got anyway.
+static QIcon day_qt_fit_glyph(const QPixmap &big, const QColor &color, int px, qreal fill) {
+    const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+    if (big.isNull()) return QIcon();
+    const QImage img = big.toImage().convertToFormat(QImage::Format_ARGB32);
+    int minx = img.width(), miny = img.height(), maxx = -1, maxy = -1;
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            if (qAlpha(row[x]) > 8) {
+                minx = std::min(minx, x); maxx = std::max(maxx, x);
+                miny = std::min(miny, y); maxy = std::max(maxy, y);
+            }
+        }
+    }
+    if (maxx < minx || maxy < miny) return QIcon();
+    const QRect ink(minx, miny, maxx - minx + 1, maxy - miny + 1);
+    const int box = static_cast<int>(px * dpr);
+    const qreal target = box * fill;
+    const qreal scale = target / std::max(ink.width(), ink.height());
+    const QSize inkSize(std::max(1, static_cast<int>(ink.width() * scale)),
+                        std::max(1, static_cast<int>(ink.height() * scale)));
+    // Composed in DEVICE pixels throughout (a plain image, no ratio on it), so no coordinate
+    // is scaled twice; the ratio goes on at the end, once.
+    QImage out(box, box, QImage::Format_ARGB32_Premultiplied);
+    out.fill(Qt::transparent);
+    {
+        QImage cropped = img.copy(ink);
+        cropped.setDevicePixelRatio(1.0);
+        cropped = cropped.scaled(inkSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        QPainter p(&out);
+        p.setRenderHint(QPainter::SmoothPixmapTransform);
+        p.drawImage(QPoint((box - inkSize.width()) / 2, (box - inkSize.height()) / 2), cropped);
+    }
+    QPixmap pm = QPixmap::fromImage(out);
+    pm.setDevicePixelRatio(dpr);
     return QIcon(day_qt_tint_glyph(pm, color));
 }
 
@@ -2217,12 +2333,32 @@ static std::map<std::string, QPointer<QWidget>> g_toolbar_widgets;
 // echo — the group emits for the button going off as well as the one coming on.
 static std::map<std::string, QPointer<QButtonGroup>> g_toolbar_groups;
 static std::map<std::string, QAction *> g_toolbar_actions;
+static void day_qt_toolbar_sync_columns_for(DayWindow *win);
+// The column track items are being added into, when the bar is laid out in columns
+// (docs/toolbars.md): a plain widget with a row layout, sized to the navigation pane it sits
+// over. Null = items go straight onto the bar.
+static QWidget *g_toolbar_track = nullptr;
+
+// Put an item widget where the bar is currently packing: the open column track, or the bar.
+static void day_qt_toolbar_place(QToolBar *tb, QWidget *w) {
+    if (g_toolbar_track && g_toolbar_track->layout())
+        g_toolbar_track->layout()->addWidget(w);
+    else if (QAction *a = tb->addWidget(w))
+        a->setProperty("dayItem", true);
+}
 
 // The icon for a standard symbol: the freedesktop theme first (Linux, where KDE and GNOME
 // both ship one), then the Qt style's own standard pixmap, which exists on every platform —
 // so a macOS or Windows Qt build still gets real icons for the common commands.
-static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
+static QIcon day_qt_fitted_file(const QString &path, const QColor &color, int px, qreal fill) {
+    // Render large, measure, then scale down: the measurement is what the fit is built on.
+    return day_qt_fit_glyph(day_qt_load_glyph(path, px * 4), color, px, fill);
+}
+
+static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap, int px) {
     QString spec = QString::fromUtf8(theme);
+    // The ink fills this much of the bar's icon box — SF Symbols' proportion on an NSToolbar.
+    constexpr qreal kFill = 0.72;
     // A symbol arrives as `theme-name|/path/to/outline.svg`: the platform's icon if the desktop
     // has one, and Day's own drawing of the symbol when it does not. The freedesktop names are
     // a GNOME/KDE fact, so off those desktops the theme lookup finds nothing and a toolbar item
@@ -2240,12 +2376,21 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
     // exactly as the sidebar rows do — the file test is what tells a path from a theme NAME.
     if (!name.isEmpty() && QFileInfo(name).isFile()) {
         QColor fg = QApplication::palette().color(QPalette::WindowText);
-        QIcon tinted = day_qt_tinted_icon(name, fg);
+        QIcon tinted = day_qt_fitted_file(name, fg, px, kFill);
         if (!tinted.isNull()) return tinted;
     }
     if (!name.isEmpty()) {
         QIcon themed = QIcon::fromTheme(name);
-        if (!themed.isNull()) return themed;
+        if (!themed.isNull()) {
+            // The platform's own glyph, through the same fit as everything else on the bar.
+            const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+            QPixmap big = themed.pixmap(QSize(px * 4, px * 4) * dpr);
+            big.setDevicePixelRatio(dpr);
+            QColor fg = QApplication::palette().color(QPalette::WindowText);
+            QIcon fitted = day_qt_fit_glyph(big, fg, px, kFill);
+            if (!fitted.isNull()) return fitted;
+            return themed;
+        }
     }
     // Day's own drawing BEFORE QStyle's standard set. A themed icon above is the desktop's real
     // answer and wins outright; QStyle's is a small dialog-oriented set whose semantics often
@@ -2253,7 +2398,7 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap) {
     // outline at least has the right shape, and it is the shape every other backend falls back to.
     if (!outline.isEmpty() && QFileInfo(outline).isFile()) {
         QColor fg = QApplication::palette().color(QPalette::WindowText);
-        QIcon own = day_qt_tinted_icon(outline, fg);
+        QIcon own = day_qt_fitted_file(outline, fg, px, kFill);
         if (!own.isNull()) return own;
     }
     if (standard_pixmap >= 0 && QApplication::style())
@@ -2267,14 +2412,37 @@ void *day_qt_window_toolbar(void *win) {
     QToolBar *bar = window->toolbar;
     if (!bar) {
         bar = new QToolBar(window);
-        // No explicit tool-button style or icon size: inheriting them is what makes the bar
-        // match the rest of the user's Qt desktop.
+        // No explicit tool-button style or icon size on the Linux desktops: inheriting them
+        // is what makes the bar match the rest of the user's Qt desktop. macOS has no such
+        // setting, and QMacStyle's toolbar metric is the old 32-point large-icon bar; an
+        // NSToolbar glyph is a 24-point box, so that is the box here.
+#ifdef Q_OS_MACOS
+        bar->setIconSize(QSize(24, 24));
+#endif
         bar->setMovable(false);
         bar->setFloatable(false);
         bar->show();
         window->toolbar = bar;
     }
     bar->clear();
+    // `clear()` only REMOVES the actions; they and the widgets they carry stay the bar's
+    // children. Release the ones DAY added (marked `dayItem` — the bar owns a QAction of its
+    // own, its toggle-view action, and deleting that one crashed the next Show event) —
+    // deferred, since a re-lower can run from one of their own triggered slots — and take a
+    // stale column track out of the lookup at once, or the next `sync_columns` sizes the old,
+    // hidden track instead of the new one.
+    for (QObject *child : bar->children()) {
+        auto *action = qobject_cast<QAction *>(child);
+        if (!action || !action->property("dayItem").toBool())
+            continue;
+        if (auto *wa = qobject_cast<QWidgetAction *>(action)) {
+            if (QWidget *w = wa->defaultWidget()) {
+                w->setProperty("dayToolbarCol", QVariant());
+                w->hide();
+            }
+        }
+        action->deleteLater();
+    }
     g_toolbar_widgets.clear();
     g_toolbar_groups.clear();
     g_toolbar_actions.clear();
@@ -2283,16 +2451,33 @@ void *day_qt_window_toolbar(void *win) {
 
 void day_qt_window_toolbar_done(void *win) {
     auto *window = static_cast<DayWindow *>(win);
+    g_toolbar_track = nullptr;
     if (window->toolbar) window->toolbar->setVisible(!window->toolbar->actions().isEmpty());
     window->relayoutChrome();
+    day_qt_toolbar_sync_columns_for(window);
 }
 
 void day_qt_toolbar_add_action(void *bar, const char *id, const char *label, const char *theme,
                                int standard_pixmap, const char *tooltip, uint64_t action,
                                int enabled, int checkable, int checked) {
     auto *tb = static_cast<QToolBar *>(bar);
-    QAction *a = tb->addAction(QString::fromUtf8(label));
-    QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap);
+    QAction *a;
+    if (g_toolbar_track) {
+        // Inside a column: the same QAction, shown through a tool button of the bar's own
+        // style, so patches by action (checked, enabled) keep working unchanged.
+        a = new QAction(QString::fromUtf8(label), tb);
+        a->setProperty("dayItem", true);
+        auto *button = new QToolButton(g_toolbar_track);
+        button->setDefaultAction(a);
+        button->setAutoRaise(true);
+        button->setToolButtonStyle(tb->toolButtonStyle());
+        button->setIconSize(tb->iconSize());
+        day_qt_toolbar_place(tb, button);
+    } else {
+        a = tb->addAction(QString::fromUtf8(label));
+        a->setProperty("dayItem", true);
+    }
+    QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap, tb->iconSize().width());
     if (!icon.isNull()) a->setIcon(icon);
     a->setToolTip(QString::fromUtf8(tooltip));
     a->setEnabled(enabled != 0);
@@ -2347,7 +2532,7 @@ void day_qt_toolbar_add_segmented(void *bar, const char *id, const char *titles,
     });
     g_toolbar_widgets[std::string(id)] = host;
     g_toolbar_groups[std::string(id)] = group;
-    tb->addWidget(host);
+    day_qt_toolbar_place(tb, host);
 }
 
 void day_qt_toolbar_set_selected(const char *id, int index) {
@@ -2368,14 +2553,18 @@ void *day_qt_toolbar_add_menu(void *bar, const char *id, const char *label, cons
     auto *button = new QToolButton(tb);
     auto *menu = new QMenu(button);
     button->setText(QString::fromUtf8(label));
-    QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap);
+    QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap, tb->iconSize().width());
     if (!icon.isNull()) button->setIcon(icon);
     button->setToolTip(QString::fromUtf8(tooltip));
     button->setEnabled(enabled != 0);
     button->setMenu(menu);
     button->setPopupMode(QToolButton::InstantPopup);
     button->setToolButtonStyle(tb->toolButtonStyle());
-    tb->addWidget(button);
+    if (g_toolbar_track) {
+        button->setAutoRaise(true);
+        button->setIconSize(tb->iconSize());
+    }
+    day_qt_toolbar_place(tb, button);
     g_toolbar_widgets[std::string(id)] = button;
     return menu;
 }
@@ -2388,6 +2577,9 @@ void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
     edit->setClearButtonEnabled(true);
     edit->addAction(QIcon::fromTheme(QStringLiteral("edit-find")), QLineEdit::LeadingPosition);
     edit->setEnabled(enabled != 0);
+    // Wide enough to read a query in, however crowded its column is; capped so it does not
+    // swallow a whole bar.
+    edit->setMinimumWidth(120);
     edit->setMaximumWidth(240);
     const uint64_t aid = action;
     if (aid) {
@@ -2396,7 +2588,7 @@ void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
             if (g_toolbar_cb) g_toolbar_cb(aid, 1, 0, ba.constData());
         });
     }
-    tb->addWidget(edit);
+    day_qt_toolbar_place(tb, edit);
     g_toolbar_widgets[std::string(id)] = edit;
 }
 
@@ -2436,22 +2628,138 @@ void day_qt_toolbar_set_suggestions(const char *id, const char *joined) {
 void day_qt_toolbar_add_label(void *bar, const char *id, const char *text) {
     auto *tb = static_cast<QToolBar *>(bar);
     auto *label = new QLabel(QString::fromUtf8(text), tb);
-    tb->addWidget(label);
+    day_qt_toolbar_place(tb, label);
     g_toolbar_widgets[std::string(id)] = label;
 }
 
-void day_qt_toolbar_add_separator(void *bar) { static_cast<QToolBar *>(bar)->addSeparator(); }
+void day_qt_toolbar_add_separator(void *bar) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    if (g_toolbar_track) {
+        auto *line = new QFrame(g_toolbar_track);
+        line->setFrameShape(QFrame::VLine);
+        line->setFrameShadow(QFrame::Sunken);
+        day_qt_toolbar_place(tb, line);
+        return;
+    }
+    if (QAction *a = tb->addSeparator())
+        a->setProperty("dayItem", true);
+}
 
 // `expand` != 0 makes the spacer absorb the leftover width, which is how the model's flexible
-// space pushes everything after it to the trailing edge.
+// space pushes everything after it to the trailing edge — of the bar, or of the open column.
 void day_qt_toolbar_add_space(void *bar, int expand) {
     auto *tb = static_cast<QToolBar *>(bar);
+    if (g_toolbar_track && g_toolbar_track->layout()) {
+        auto *lay = static_cast<QHBoxLayout *>(g_toolbar_track->layout());
+        if (expand)
+            lay->addStretch(1);
+        else
+            lay->addSpacing(12);
+        return;
+    }
     auto *spacer = new QWidget(tb);
     if (expand)
         spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     else
         spacer->setFixedWidth(12);
-    tb->addWidget(spacer);
+    if (QAction *a = tb->addWidget(spacer))
+        a->setProperty("dayItem", true);
+}
+
+// --- toolbar columns (docs/toolbars.md): the bar laid out as three tracks whose widths follow
+// the navigation splitter's panes, so a column's items sit over the pane they act on. ---
+
+// The window's navigation splitter, if it has one: the columns have something to follow.
+static QSplitter *day_qt_nav_split_of(QWidget *win) {
+    if (!win)
+        return nullptr;
+    for (QSplitter *s : win->findChildren<QSplitter *>()) {
+        if (s->property("dayNavSplit").toBool())
+            return s;
+    }
+    return nullptr;
+}
+
+// The column track for `col` on this bar, if the bar is laid out in columns.
+static QWidget *day_qt_toolbar_track(QToolBar *tb, int col) {
+    for (QWidget *w : tb->findChildren<QWidget *>()) {
+        const QVariant c = w->property("dayToolbarCol");
+        if (c.isValid() && c.toInt() == col)
+            return w;
+    }
+    return nullptr;
+}
+
+int day_qt_toolbar_has_columns(void *bar) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    return day_qt_nav_split_of(tb->window()) ? 1 : 0;
+}
+
+// Open column `col` (0 sidebar, 1 list, 2 detail): items added until `end_column` land in it.
+void day_qt_toolbar_begin_column(void *bar, int col) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    auto *track = new QWidget(tb);
+    track->setProperty("dayToolbarCol", col);
+    auto *lay = new QHBoxLayout(track);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(tb->layout() ? tb->layout()->spacing() : 4);
+    if (col == 2) {
+        // The detail column takes what the panes leave.
+        track->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    } else {
+        // Sized by `sync_columns` once the splitter has laid its panes out; until then the
+        // model's own default keeps the first paint close.
+        track->setFixedWidth(col == 0 ? 240 : 300);
+    }
+    if (QAction *a = tb->addWidget(track))
+        a->setProperty("dayItem", true);
+    g_toolbar_track = track;
+}
+
+void day_qt_toolbar_end_column(void *bar) {
+    (void)bar;
+    g_toolbar_track = nullptr;
+}
+
+// Size the sidebar and list tracks to their panes: each track ends where its pane's divider
+// does, in the bar's own coordinates. The bar's item spacing sits between tracks, so it comes
+// off each width to keep the edges lined up.
+static void day_qt_toolbar_sync_columns_for(DayWindow *win) {
+    if (!win || !win->toolbar)
+        return;
+    QSplitter *s = day_qt_nav_split_of(win);
+    if (!s)
+        return;
+    QToolBar *tb = win->toolbar;
+    const int spacing = tb->layout() ? tb->layout()->spacing() : 0;
+    const int hw = s->handleWidth();
+    int prev = tb->layout() ? tb->layout()->contentsMargins().left() : 0;
+    for (int i = 0; i < 2; ++i) {
+        QWidget *track = day_qt_toolbar_track(tb, i);
+        if (!track)
+            continue;
+        QWidget *pane = s->widget(i);
+        if (!pane || pane->isHidden()) {
+            // A collapsed LIST pane takes its items off the bar with it (they are gated on
+            // the pane), so its track goes to nothing. A collapsed SIDEBAR keeps the one item
+            // that brings it back: the track shrinks to what it holds, and the toggle stays
+            // at the window's leading edge, where AppKit keeps its own.
+            track->setFixedWidth(i == 0 ? track->sizeHint().width() : 0);
+            continue;
+        }
+        const int edge = tb->mapFrom(win, pane->mapTo(win, QPoint(pane->width() + hw, 0))).x();
+        track->setFixedWidth(std::max(0, edge - prev - spacing));
+        prev = edge;
+    }
+}
+
+// Called by day-qt every time the splitter lays its panes out (the same hook that re-lays the
+// pages), and by `toolbar_done` once a new bar is built.
+void day_qt_toolbar_sync_columns(void *splitter) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(splitter));
+    if (!s)
+        return;
+    day_qt_toolbar_sync_columns_for(dynamic_cast<DayWindow *>(s->window()));
 }
 
 void day_qt_toolbar_set_text(const char *id, const char *text) {
@@ -2528,7 +2836,10 @@ void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
     // The item's glyph, resolved exactly like a toolbar item's (docs/menus.md): theme name,
     // Day's own outline, then the QStyle standard set.
     if ((icon && *icon) || icon_fallback >= 0) {
-        QIcon ic = day_qt_toolbar_icon(icon ? icon : "", icon_fallback);
+        const int px = QApplication::style()
+                           ? QApplication::style()->pixelMetric(QStyle::PM_SmallIconSize)
+                           : 16;
+        QIcon ic = day_qt_toolbar_icon(icon ? icon : "", icon_fallback, px);
         if (!ic.isNull()) a->setIcon(ic);
     }
     uint64_t aid = id;
