@@ -26,7 +26,7 @@ myapp/
 All five subdirectories **use each platform's native resource system**. On Android your images
 become real `res/drawable-*` entries crunched by
 aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource bundle; on Qt, a
-Qt resource file. `day build` does the staging automatically, per target, before the platform
+Qt resource file. `day build` does the staging automatically, per [target](/docs/glossary#target), before the platform
 build runs.
 
 ## Typed names, generated at build
@@ -70,7 +70,7 @@ image(res::images::wave)   // finds wave.png / wave@2x.png / wave@3x.png
     .frame(240.0, 120.0)
 ```
 
-At build time each toolkit gets the format it expects: density buckets on Android
+At build time each [toolkit](/docs/glossary#toolkit) gets the format it expects: density buckets on Android
 (`drawable-xhdpi/…`), an asset catalog imageset on iOS, resource bundles on GTK/Qt. The
 platform picks the right density at runtime the same way it does for any native app. The
 [resources reference](/docs/internal/resources) documents the exact per-platform staging.
@@ -78,7 +78,7 @@ platform picks the right density at runtime the same way it does for any native 
 - **`resource/images/` is raster.** Photos and artwork belong here, with `@2x`/`@3x` density
   variants; SVG glyphs belong in `resource/vectors/` (next section), which ships them as
   vectors.
-- **Remote images** (URL-loaded, cached) are a separate piece, `day-piece-remote-image`,
+- **Remote images** (URL-loaded, cached) are a separate [piece](/docs/glossary#piece), `day-piece-remote-image`,
   because they involve networking and cache policy that the core leaves to the piece.
 
 ## Vector glyphs: `resource/vectors/`
@@ -111,9 +111,9 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 | [linux-qt](/docs/platforms/linux-qt) | the SVG, rendered at the size asked for by Qt's SVG icon engine | a `SourceIn` fill over the rendered glyph |
 
 > [!NOTE]
-> Every backend recolors a template glyph, and on six of them (AppKit, UIKit, Android, GTK, Qt,
-> and web) a tint bound to a signal repaints the realized view instead of rebuilding it. XAML and
-> ArkUI take the tint when the glyph is realized, so a reactive tint there lands on the next
+> Every [backend](/docs/glossary#backend) recolors a template glyph, and on six of them (AppKit, UIKit, Android, GTK, Qt,
+> and web) a tint bound to a [signal](/docs/glossary#signal) repaints the realized view instead of rebuilding it. XAML and
+> ArkUI take the tint when the glyph is realized, so a [reactive](/docs/glossary#reactive) tint there lands on the next
 > rebuild.
 
 ### Where a vector degrades to a raster

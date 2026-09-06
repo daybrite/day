@@ -10,15 +10,15 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The twelve targets differ in maturity, and this page records the differences. It reflects what
+The twelve [targets](/docs/glossary#target) differ in maturity, and this page records the differences. It reflects what
 runs in CI on every push and what real applications have exercised, and it is updated when that
 changes.
 
 ## Support tiers
 
 Every target sits in one of four support tiers. The tier says how much testing and maintenance
-that `(OS, toolkit)` pair gets, independent of how complete its backend is. A Tier 4 target can
-render the whole piece vocabulary and still be a combination nobody ships.
+that `(OS, toolkit)` pair gets, independent of how complete its [backend](/docs/glossary#backend) is. A Tier 4 target can
+render the whole [piece](/docs/glossary#piece) vocabulary and still be a combination nobody ships.
 
 | Tier | Targets | What the tier means |
 |---|---|---|
@@ -33,7 +33,7 @@ section.
 > [!TIP] Tiers move up
 > A tier records the maintenance a target has today. Any target moves up
 > when there are people to keep it there: someone to own the
-> backend, run the walkthrough on real hardware, triage that platform's bugs, and review patches
+> backend, run the [walkthrough](/docs/glossary#walkthrough) on real hardware, triage that platform's bugs, and review patches
 > against it. If that could be you or your team, start a discussion;
 > [CONTRIBUTING](https://github.com/daybrite/day/blob/main/CONTRIBUTING.md#platform-support-tiers)
 > explains how, and what maintaining a tier commits you to.
@@ -65,7 +65,7 @@ rooms, live timeline, media) built on Day runs its full checklist on `macos-appk
 
 [Tier 4 · Development](/docs/platforms#support-tiers)
 The GTK/Qt-on-macOS/Windows combos exist so one development machine can run five desktop
-toolkits, and because some teams standardize on Qt across Linux and Windows. They are not
+[toolkits](/docs/glossary#toolkit), and because some teams standardize on Qt across Linux and Windows. They are not
 supported shipping targets. Packaging for them is deferred, and
 `macos-gtk`/`windows-gtk` have no accessibility tree.
 
@@ -123,10 +123,10 @@ CI is tolerated-flaky.
 [Tier 3 · Experimental](/docs/platforms#support-tiers)
 The same Rust compiled to WebAssembly drives real DOM elements (`<button>`, `<dialog>`,
 `<input type="range">`) that the browser lays out and draws; the build runs through cargo and
-the `day` CLI alone. `day build -p web-dom` emits a self-contained static `dist/` you can host
+the [`day` CLI](/docs/glossary#day-cli) alone. `day build -p web-dom` emits a self-contained static `dist/` you can host
 anywhere; there is no `day pack` step because `dist/` is already the artifact. It is
 **experimental**: most external pieces (web view, map, Lottie, pickers, search field) render
-placeholders, there are no file dialogs or context menus, the list is emulated rather than
+[placeholders](/docs/glossary#placeholder), there are no file dialogs or context menus, the list is emulated rather than
 recycled, and accessibility is thinner than on native because pieces that realize as `<div>`s
 carry no compensating ARIA roles. The
 [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI.
@@ -149,7 +149,7 @@ list:
   ([styling](/docs/styling#color-backgrounds-shape))
 - **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.
 - **Gestures**: tap and drag are wired; pinch, rotation, and long-press are not.
-- **Forms**: no validation framework; roll your own with signals and memos.
+- **Forms**: no validation framework; roll your own with [signals](/docs/glossary#signal) and memos.
 - **Hot reload**: not present; see [the tradeoffs page](/docs/benefits#what-you-give-up).
 
 Check this list before you adopt the framework; if something you need is missing from it and

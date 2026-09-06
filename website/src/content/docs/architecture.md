@@ -64,14 +64,14 @@ A Day binary contains exactly one backend, selected by a Cargo feature at compil
 backend is chosen when the binary is built, so the AppKit build contains only AppKit code, and
 a call like "set this label's text" compiles down to the backend's concrete function.
 
-The cost is that n targets mean n compilations (CI budgets around it; your laptop builds one at
+The cost is that n [targets](/docs/glossary#target) mean n compilations (CI budgets around it; your laptop builds one at
 a time), and a Linux app ships as a GTK build or a Qt build rather than one binary that picks at
 runtime. The benefit is that a widget update compiles to a direct call into the one linked
-backend, and dead-code elimination works on whole toolkits.
+backend, and dead-code elimination works on whole [toolkits](/docs/glossary#toolkit).
 
-The same idea extends to piece renderers: backends expose a link-time registry (a `linkme`
+The same idea extends to [piece](/docs/glossary#piece) renderers: backends expose a link-time registry (a `linkme`
 distributed slice), and each piece crate's renderer registers into it during linking. Startup
-iterates the slice once to build the kind → renderer table. Registration failures are link
+iterates the slice once to build the [kind](/docs/glossary#kind) → renderer table. Registration failures are link
 errors, not runtime surprises. The one exception is `day-dom`: `linkme` has no wasm32
 implementation, so the web backend keeps a runtime registry that pieces register into from
 their constructors.
@@ -104,7 +104,7 @@ and neither goes stale.
 The same shape covers OpenHarmony (hvigor builds the ArkTS host around a cross-compiled
 `libentry.so`), and `macos-appkit` generates its own `DayPieces` SwiftPM package (at
 `build/day/macos/DayPieces`), referenced by the `platform/macos/`
-Xcode host project. Metadata flows one way: `Day.toml` (identity) and the Cargo
+Xcode host project. Metadata flows one way: [`Day.toml`](/docs/glossary#day-toml) (identity) and the Cargo
 `version` are conveyed into generated, gitignored files that the checked-in projects read; the
 scaffolds themselves are never edited by tooling. [Project structure](/docs/project-structure) documents every directory;
 [Packaging](/docs/packaging) covers the signed-artifact pipeline built on top.

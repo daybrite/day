@@ -66,6 +66,7 @@ day_core::tls_group! {
     static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     /// NAV_PAGE widget → its title (for the AdwNavigationPage).
     static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+
     /// NAV_MENU widget → its list box + suppression flag.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
 

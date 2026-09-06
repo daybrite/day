@@ -10,11 +10,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day app is a normal Cargo package plus a small `Day.toml` manifest and a few conventional
-directories. The `day` CLI reads that layout to build every target: the same Rust code becomes a
+A Day app is a normal Cargo package plus a small [`Day.toml`](/docs/glossary#day-toml) manifest and a few conventional
+directories. The [`day` CLI](/docs/glossary#day-cli) reads that layout to build every [target](/docs/glossary#target): the same Rust code becomes a
 plain desktop binary, a static library inside an Xcode app, a JNI `.so` inside a Gradle APK, or a
 NAPI `.so` inside a HarmonyOS `.hap`. This page walks the layout, then each build pipeline, then
-how resources travel from your project into each platform's native store.
+how [resources](/docs/glossary#resource) travel from your project into each platform's native store.
 
 ## The conventional project
 
@@ -52,13 +52,13 @@ These rules keep the layout predictable.
   `[permissions]`, `[signing]`, and `[sbom]` sections live here, while `name` and `version` are
   derived from Cargo.toml's `[package]`, so they can never drift. The identity properties
   (`id`, `title`, `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
-  toolkit (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform scaffolds read the
+  [toolkit](/docs/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform scaffolds read the
   resolved values at build time.
 - **The scaffolds are thin hosts.** `platform/ios`, `platform/android`, and `platform/ohos` contain
   no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
   view. They change so rarely that diffs to them are meaningful.
 - **Everything generated lands in `build/day/`:** Cargo target directories (one per target and
-  profile, so parallel builds never contend), staged resources, packed artifacts, and dayscript
+  profile, so parallel builds never contend), staged resources, packed artifacts, and [dayscript](/docs/glossary#dayscript)
   screenshots all live under one ignorable directory.
 
 ## How a build works
@@ -83,8 +83,8 @@ day build -p <target>
     └── harmony   cargo + hvigor + sign  → app.hap     (bundles the cargo cdylib)
 ```
 
-One backend is compiled per binary. The AppKit build contains no GTK code, the Android build only
-its JNI bridge. Standalone pieces (say, a Lottie or map piece) contribute their own native code and
+One [backend](/docs/glossary#backend) is compiled per binary. The AppKit build contains no GTK code, the Android build only
+its JNI bridge. Standalone [pieces](/docs/glossary#piece) (say, a Lottie or map piece) contribute their own native code and
 dependencies through Cargo metadata, so the app never re-declares per-piece build wiring.
 
 ### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-xaml`, and the GTK/Qt combinations
@@ -270,8 +270,8 @@ by-name API (`UIImage(named:)`, `R.drawable`, `gtk_picture_new_for_resource`, `Q
 `resource://RAWFILE/…`), so density variants like `logo@2x.png` map onto the platform's own
 scale-selection mechanism.
 
-Fluent translations under `resource/locales/` take a different, simpler path: they are embedded into the
-binary at compile time with `include_str!`, so locale switching never touches the filesystem.
+[Fluent](/docs/glossary#fluent) translations under `resource/locales/` take a different, simpler path: they are embedded into the
+binary at compile time with `include_str!`, so [locale](/docs/glossary#locale) switching never touches the filesystem.
 
 The full per-platform details, including the limits (what gets optimized where, and which stores
 allow zero-copy), are in the [resources reference](/docs/internal/resources); the HarmonyOS

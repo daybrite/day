@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day computes layout itself. Native toolkits each have their own layout system (Auto Layout, GTK's
+Day computes layout itself. Native [toolkits](/docs/glossary#toolkit) each have their own layout system (Auto Layout, GTK's
 size groups, Android's measure/layout passes), and they don't agree with each other, so Day
 bypasses them, computes every widget's frame itself, and positions widgets absolutely inside their
 native container. Day still asks the platform to measure: the toolkit is always the authority on
@@ -62,7 +62,7 @@ content.
 Leaf Pieces answer `measure` by asking the real widget. This matters most for text, which is
 **height-for-width**: propose a width, and the toolkit's own text engine (Core Text, Pango,
 minikin, QFontMetrics) reports the wrapped height. Day never guesses at glyph metrics, so a
-label wraps exactly where the platform would wrap it, in every script and locale.
+label wraps exactly where the platform would wrap it, in every script and [locale](/docs/glossary#locale).
 
 The cost is that measurement is a real call into the toolkit, and on Android it's a JNI
 round-trip. Negotiation multiplies these probes, so Day carries a **measure cache** per node,
@@ -72,7 +72,7 @@ a caching regression fails tests.
 
 ## Incremental relayout
 
-When a binding changes something size-affecting (a label's text grows, a font changes), the node
+When a [binding](/docs/glossary#binding) changes something size-affecting (a label's text grows, a font changes), the node
 is marked dirty and the dirt bubbles up to the nearest **layout boundary**: a node whose size is
 externally fixed, like the window root, a `scroll`, or a node with an explicit two-axis
 `.frame(w, h)`. At the turn boundary, layout re-enters *there*, not at the root:
@@ -127,7 +127,7 @@ create no native widget, so nesting them is cheap.
   and pad the content by those insets to run it under the system bars.
 - **Right-to-left**: since Day owns placement, RTL is a single x-mirror applied at place time.
   `Layout` implementations are written direction-naive with leading/trailing coordinates, and the
-  backends set the native per-view direction so text, cursors, and assistive technology agree
+  [backends](/docs/glossary#backend) set the native per-view direction so text, cursors, and assistive technology agree
   with the mirrored layout.
 
 ## Tradeoffs

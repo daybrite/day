@@ -43,7 +43,7 @@ platform's users expect, because the parts they touch are the platform's own.
 **A runtime profile you can reason about.** Day builds the widget tree once and binds state to
 native attributes. A state change re-runs only the closures that read that value — a label's
 text closure, say — and each ends in one native setter call ([how this works](/docs/reactivity)).
-The compiler monomorphizes your app against one toolkit backend per binary, so a widget update
+The compiler monomorphizes your app against one toolkit [backend](/docs/glossary#backend) per binary, so a widget update
 is a direct call. Binaries are ordinary Rust binaries that link the system's libraries.
 
 **One language for everything.** UI, state, logic, tests, and build tooling are Rust, so the
@@ -52,16 +52,16 @@ that's a benefit depends on your team; see the costs below.
 
 ### Localized, accessible, scriptable, extensible
 
-These four compose: localized strings are reactive, so
-locale switches update a running app; accessibility identifiers double as automation ids; one
-dayscript walkthrough, run per-locale, is simultaneously an end-to-end test
+These four compose: localized strings are [reactive](/docs/glossary#reactive), so
+[locale](/docs/glossary#locale) switches update a running app; accessibility identifiers double as automation ids; one
+[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough), run per-locale, is simultaneously an end-to-end test
 ([dayscript](/docs/dayscript)), an accessibility audit ([accessibility](/docs/accessibility)),
 and a screenshot generator ([localization](/docs/localization)). These four are designed
 together, which is what lets one walkthrough serve all three jobs.
 
-1. **Localizable** — Mozilla Fluent throughout, with ICU-correct plurals, number and date
+1. **Localizable** — Mozilla [Fluent](/docs/glossary#fluent) throughout, with ICU-correct plurals, number and date
    formatting, and collation-aware sorting, with locale data thinned to the locales you ship.
-   The current locale is a signal. ([guide](/docs/localization))
+   The current locale is a [signal](/docs/glossary#signal). ([guide](/docs/localization))
 2. **Accessible** — real native widgets give a real native accessibility tree as the baseline;
    Day adds uniform annotations and stable identifiers, and CI can diff the native tree against
    your declarations. ([guide](/docs/accessibility))
@@ -70,7 +70,7 @@ together, which is what lets one walkthrough serve all three jobs.
 4. **Extensible** — new widgets plug in as ordinary crates, from pure composition down to
    per-toolkit native code, without forking Day. ([how](/docs/extending))
 
-**Tooling built for CI and agents as much as humans.** `day doctor` diagnoses all eight target
+**Tooling built for CI and agents as much as humans.** `day doctor` diagnoses all eight [target](/docs/glossary#target)
 toolchains with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
 [produces signed installable artifacts](/docs/packaging); everything speaks JSON when asked.
 
@@ -88,7 +88,7 @@ controls, custom motion, and brand color on every surface, Day's native-widget p
 you, and a renderer (Flutter, or Rust-native options like Slint or egui) is the better fit.
 [Styling](/docs/styling) lists what you can restyle and what stays native. On macOS and iOS the
 escape hatch is [SwiftUI embedding](/docs/internal/swiftui): a custom control written in SwiftUI
-drops into the Day tree as an ordinary piece.
+drops into the Day tree as an ordinary [piece](/docs/glossary#piece).
 
 **Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
 enormous community. Day is young: the widget vocabulary is small, some designed

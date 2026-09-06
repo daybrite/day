@@ -18,7 +18,7 @@ spells differently.
 Parts are ordinary crates. You add one to `Cargo.toml`, call plain functions, and the right
 platform code runs because each function's body dispatches on `#[cfg(target_os)]`: IOKit on
 macOS, `BatteryManager` over JNI on Android, sysfs on Linux, Win32 on Windows. There is no
-plugin registry or runtime lookup; the target selects the implementation at compile time.
+plugin registry or runtime lookup; the [target](/docs/glossary#target) selects the implementation at compile time.
 
 ## The catalog
 
@@ -57,7 +57,7 @@ day_part_prefs::set("theme", "dark");
 let theme = day_part_prefs::get("theme");            // Option<String>
 ```
 
-Wiring a part into UI is the usual reactive pattern (read into a signal, bind the signal):
+Wiring a part into UI is the usual [reactive](/docs/glossary#reactive) pattern (read into a [signal](/docs/glossary#signal), bind the signal):
 
 ```rust
 let battery = Signal::new(day_part_battery::status());
@@ -84,7 +84,7 @@ you write a part. The pattern scales from trivial to involved:
 - Pure-Rust platforms are a `#[cfg]` branch and a system crate (`objc2` on Apple, `windows` on
   Windows, sysfs/D-Bus on Linux).
 - Android usually needs a small Java shim; a part can carry its own Java sources, Android
-  resources, Gradle dependencies, ProGuard keep rules, and even manifest components (a
+  [resources](/docs/glossary#resource), Gradle dependencies, ProGuard keep rules, and even manifest components (a
   `BroadcastReceiver` for a scheduled notification), all declared in Cargo metadata and
   aggregated into the app's Gradle project by `day build`, so the scaffold needs no manual edits.
 - The same channel covers the other platforms: system frameworks and Swift for iOS and macOS

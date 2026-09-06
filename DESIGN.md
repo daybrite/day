@@ -57,7 +57,7 @@ the architecture-level view and the rationale.
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | [docs/recorder-matrix.md](docs/recorder-matrix.md) | [§14.6](#146-recording) |
 | menus — app menu, context menus, roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
 | deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
-| window toolbars — `toolbar`, the item vocabulary, `Symbol` icons, per-desktop realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
+| toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day icon`, the layered master, per-platform exports + drift gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
@@ -812,7 +812,9 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.focusable()` (opt a composed container into the focus system — the canvas contract behind
 `Toolkit::set_focusable`, [docs/focus.md](docs/focus.md); appkit today, a no-op elsewhere),
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
-`.context_menu()`, `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
+`.context_menu()`, `.toolbar()` (declare toolbar items on the chrome this piece sits under —
+one item, a list, or a closure that derives one, [docs/toolbars.md](docs/toolbars.md)),
+`.defers_system_gestures()` / `.interactive_dismiss_disabled()`
 ([docs/cover.md](docs/cover.md)), `.tweak()` / `.native_ref()` ([docs/tweaks.md](docs/tweaks.md)), `.modifier(impl Modifier)`,
 and `.any()`.
 
@@ -1360,18 +1362,21 @@ pub trait Toolkit: Sized + 'static {
     // presentation on a backend with no native menu (web-dom).
     fn set_context_menu_fn(&mut self, h, node: NodeId, f: ContextMenuFn) {}
 
-    // window toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend
-    // walks from it to the window. A full install replaces the bar; `update_toolbar` is the
-    // targeted path a bound signal writes through, so syncing a search field does not rebuild
-    // (and refocus) the bar. Defaulted no-ops — a toolkit with no toolbar shows nothing and
-    // answers Cap::Toolbar = Unsupported rather than drawing an imitation.
+    // toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend walks from
+    // it to the window. ONE model per window, already composed from the window's own items and
+    // whichever page chromes are showing — a backend draws what it has always drawn and never
+    // has to know that a page contributed any of it. Each item carries a `ToolbarPlacement`
+    // (its role on the bar) and a `ToolbarColumn` (which pane of a split it came from); a
+    // backend honors what it can express and DROPS the rest, never the item. `update_toolbar`
+    // is the targeted path a bound signal writes through, so syncing a search field does not
+    // rebuild (and refocus) the bar. Defaulted no-ops.
     fn set_toolbar(&mut self, h, items: &[ToolbarItem]) {}
     fn update_toolbar(&mut self, h, patch: &ToolbarPatch) {}
-    // Show/hide the window's `selector(Sidebar)` pane — what a `ToolbarItemKind::SidebarToggle`
-    // item drives. A DUTY rather than a dispatch id, because that item carries no app closure:
-    // the native button and dayscript's `toolbar:` step both land here, so a walkthrough
-    // exercises the path a click takes. `false` = no sidebar in this window, and the item
-    // renders disabled. Defaulted, so a backend without one needs no code.
+    // Show/hide the window's `selector(Sidebar)` pane — what the reserved
+    // `day_spec::SIDEBAR_TOGGLE_ID` item drives. A DUTY rather than a dispatch id, because that
+    // item carries no app closure: the native button and dayscript's `toolbar:` step both land
+    // here, so a walkthrough exercises the path a click takes. `false` = no sidebar in this
+    // window. Defaulted, so a backend without one needs no code.
     fn toggle_sidebar(&mut self) -> bool { false }
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
@@ -1948,6 +1953,11 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   `.detail_title(text)` names the detail layer's bar, reactively, on the native pane shapes
 >   too. To keep a mid-build inner push ordered, a stacked destination page is now PRESENTED
 >   (`NavPatch::Pushed`) before its content builds, not after.
+> - **Superseded (2026-09) by toolbar contributions.** `bar_action`/`list_action`, `NavBarAction`
+>   and `NavBarScope` are gone: a command on the chrome is a toolbar item declared on the piece it
+>   acts on, and which bar it rides — and when it leaves — follows from that
+>   ([docs/toolbars.md](docs/toolbars.md)). The note below is kept as the record of what it
+>   replaced.
 > - **Nav bar actions, plural and scoped** *(2026-08)* — `NavProps::bar_action: Option<_>` became
 >   `bar_actions: Vec<NavBarAction>`, and each action carries a `NavBarScope`. `bar_action` appends
 >   an `EveryPage` action (the old behavior, unchanged for existing callers); `list_action` appends
@@ -5111,7 +5121,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `expand` | `id`, `row`, `expanded?` | disclose/collapse a tree row by its `.row_id` string — emits the same `TreeExpanded` a native disclosure does ([docs/tree.md](docs/tree.md)); omitted `expanded` = true |
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `item` \| `key`, `path?` | invoke an app-menu action by label or Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
-| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?` | drive a window-toolbar item by its id: bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one), `on` sets a toggle. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
+| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?` | drive a toolbar item by its id: bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one), `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll ([docs/scroll.md](docs/scroll.md)); unanimated |

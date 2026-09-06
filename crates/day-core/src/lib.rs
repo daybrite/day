@@ -67,8 +67,11 @@ pub use menu::{
 pub use nav::*;
 pub use present::*;
 pub use toolbar::{
-    current_window, dispatch_toolbar_value, patch_toolbar, patch_window_toolbar,
-    register_toolbar_value, set_toolbar, set_window_search, set_window_toolbar,
+    Chrome, chrome_changed, current_chrome, current_page_column, current_page_gate,
+    current_page_window, dispatch_toolbar_value, patch_chrome, patch_toolbar,
+    register_contribution, register_contribution_gated, register_toolbar_value, toggle_sidebar,
+    unregister_contribution, update_contribution, window_being_built, with_page, with_page_gated,
+    with_page_in,
 };
 pub use tree_driver::{
     TreeBuiltRow, TreeDriver, TreeMovesDriver, install_tree, tree_driver, tree_reload, tree_reveal,

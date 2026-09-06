@@ -34,6 +34,7 @@ day-settings-theme = 外観
 day-theme-light = ライト
 day-theme-dark = ダーク
 day-theme-system = システム
+day-toggle-sidebar = サイドバーの表示切り替え
 day-file = ファイル
 day-view = 表示
 day-help = ヘルプ

@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Sometimes the widget Day gives you is exactly right except for one platform-specific detail: you
 want the standard button, but with AppKit's toolbar bezel; the standard slider, but with XAML's
-tick marks. Writing a whole custom piece for two method calls is disproportionate, so Day has
+tick marks. Writing a whole custom [piece](/docs/glossary#piece) for two method calls is disproportionate, so Day has
 **tweaks**: a supported way to reach the real native widget behind a built-in piece and configure
 it, while Day keeps owning layout, lifecycle, and everything else. A piece with a tweak applied
 is a **Tweaked Piece**; it keeps the same widget and handle, with a little more configured.
@@ -79,13 +79,13 @@ column((
 ```
 
 The ref clears automatically when the piece unmounts, so a late timer or async completion is a
-safe `None`, never a dangling widget. Reads are reactive, too: a label whose closure calls
+safe `None`, never a dangling widget. Reads are [reactive](/docs/glossary#reactive), too: a label whose closure calls
 `save_ref.node()` re-renders when the referenced piece mounts or disappears.
 
 ## Packaged tweaks
 
 To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in
-one modifier and no-ops on toolkits it doesn't cover, so the *app* using it stays completely
+one modifier and no-ops on [toolkits](/docs/glossary#toolkit) it doesn't cover, so the *app* using it stays completely
 free of `#[cfg]`. Three in-tree examples span the range from trivial to fully cross-platform:
 
 ```rust

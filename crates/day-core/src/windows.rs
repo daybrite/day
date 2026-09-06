@@ -782,7 +782,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
 /// is resolved ONCE, here, for the same reason `toolbar_reactive` captures it — the binding
 /// re-runs long after this build, when "the window being built" is no longer this one.
 pub fn window_title(f: impl Fn() -> String + 'static) {
-    let root = crate::toolbar::current_window();
+    let root = crate::toolbar::window_being_built();
     day_reactive::bind(f, move |title| {
         let title = crate::decorate_window_title(title);
         with_tree(|t| t.set_native_window_title(root, &title));

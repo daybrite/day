@@ -91,7 +91,7 @@ fn initial_safe_area() -> day_geometry::Insets {
 /// [`crate::toolbar`], which scopes the same way for the same reason — an app's one `toolbar(…)`
 /// or `size_class()` call inside a shared `build_shell` must mean "this window".
 fn target_window() -> RNode {
-    crate::toolbar::current_window()
+    crate::toolbar::window_being_built()
 }
 
 /// The current window's size class, or `None` on a backend that does not report one yet.

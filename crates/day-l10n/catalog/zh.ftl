@@ -34,6 +34,7 @@ day-settings-theme = 外观
 day-theme-light = 浅色
 day-theme-dark = 深色
 day-theme-system = 跟随系统
+day-toggle-sidebar = 显示/隐藏边栏
 day-file = 文件
 day-view = 显示
 day-help = 帮助

@@ -45,7 +45,7 @@ Two parts of that signature shape everything else about Day.
   view description that Day re-runs and diffs against the last frame. The builder is spent the
   moment the native widget exists.
 - **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
-  owns the native widget, its layout state, and the reactive scope its bindings live in.
+  owns the native widget, its layout state, and the [reactive](/docs/glossary#reactive) scope its [bindings](/docs/glossary#binding) live in.
 
 Your Piece functions run once, at mount time. Everything dynamic afterward flows through
 [signals](/docs/reactivity), which are bound to individual native attributes during that single
@@ -93,7 +93,7 @@ fn status_badge(online: bool) -> AnyPiece {
 }
 ```
 
-An ordinary page or component function does **not** erase. It returns its own piece type, or
+An ordinary [page](/docs/glossary#page) or component function does **not** erase. It returns its own piece type, or
 `impl Piece` when that type is tedious to write:
 
 ```rust
@@ -172,7 +172,7 @@ When a Piece's `build` runs, three things are created together and live together
 
 - The **node** records the Piece's kind, its place in the tree, its layout behavior, and its
   accessibility annotations.
-- The **native widget** is created immediately through the toolkit backend (an `NSButton`, a
+- The **native widget** is created immediately through the toolkit [backend](/docs/glossary#backend) (an `NSButton`, a
   `GtkEntry`, …) and inserted into its native parent at the right index. Containers like
   `column` and `row` get a plain native container view; decorators (`padding`, `frame`) get no
   widget at all and exist purely in Day's tree.
@@ -232,7 +232,7 @@ button(tr("save")).action(save).id("save-button")
 Ids serve three audiences at once: [dayscript](/docs/dayscript) targets elements by id,
 [accessibility](/docs/accessibility) uses them as stable automation identifiers, and you'll see
 them in debug output. They're optional everywhere, but pages you intend to test should id their
-interactive elements; `day lint` catches an id used twice and a `navigate` to a route that
+interactive elements; `day lint` catches an id used twice and a `navigate` to a [route](/docs/glossary#route) that
 doesn't exist.
 
 ## Where Pieces come from
@@ -242,7 +242,7 @@ There are exactly three kinds of Piece, and you can write all three:
 1. **Built-ins**: the vocabulary above, implemented in `day-pieces` with a renderer in every
    toolkit backend.
 2. **Composite pieces**: plain Rust functions or builder structs that compose existing Pieces.
-   They need no native code and work on every target automatically. Most of your app is this; so
+   They need no native code and work on every [target](/docs/glossary#target) automatically. Most of your app is this; so
    are the
    in-tree `day-piece-rating` and `day-piece-settings`, and the
    [star-rating tutorial](/docs/tutorial-composite-piece).
@@ -253,9 +253,9 @@ There are exactly three kinds of Piece, and you can write all three:
    [native piece tutorial](/docs/tutorial-native-piece).
 
 Composite pieces cost nothing beyond the Rust you write; native pieces cost one implementation
-per toolkit you care about (a piece that only implements AppKit and UIKit renders a labeled
-placeholder elsewhere, so the gap is visible and the app keeps running).
+per [toolkit](/docs/glossary#toolkit) you care about (a piece that only implements AppKit and UIKit renders a labeled
+[placeholder](/docs/glossary#placeholder) elsewhere, so the gap is visible and the app keeps running).
 
 ---
 
-Next: [Reactivity](/docs/reactivity), the signals that make a built-once tree move.
+Next: [Reactivity](/docs/reactivity), the [signals](/docs/glossary#signal) that make a built-once tree move.

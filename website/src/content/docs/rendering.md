@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 [Architecture](/docs/architecture) covered the structure; this page follows a widget through the
 running system. It traces a
-widget from `build` to pixels, a click from the native event to your closure, and a signal write
+widget from `build` to pixels, a click from the native event to your closure, and a [signal](/docs/glossary#signal) write
 back out to the screen. None of this is required reading to *use* Day, but once you can picture
 the mechanism, the framework's behavior is predictable.
 
@@ -31,9 +31,9 @@ NodeData
 └─ measure cache   proposal → size, plus a needs_measure flag
 ```
 
-The `handle` is whatever the backend wants it to be: a retained `NSView` pointer on AppKit, a
+The `handle` is whatever the [backend](/docs/glossary#backend) wants it to be: a retained `NSView` pointer on AppKit, a
 JNI `GlobalRef` on Android, an opaque C++ pointer on Qt. `day-core` never looks inside it; it
-only hands it back to the toolkit.
+only hands it back to the [toolkit](/docs/glossary#toolkit).
 
 The tree has no shadow copy for diffing; it is the only representation of the UI that Day keeps.
 
@@ -74,7 +74,7 @@ signal write ─► binding re-runs ─► eq-gate ─► tree.patch(node, patch
                                                        mark needs_measure, bubble to boundary
 ```
 
-The `affects_size` flag is decided by the piece author: a text change might, a color change
+The `affects_size` flag is decided by the [piece](/docs/glossary#piece) author: a text change might, a color change
 doesn't. Size-affecting patches queue incremental relayout
 ([how that works](/docs/layout#incremental-relayout)); everything else is done after one native
 call.
@@ -163,7 +163,7 @@ When structure changes (`when` flips, an `each` row leaves), the subtree's scope
 (bindings and handlers die with it), and the nodes go onto a release queue drained at the turn
 boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like
 Qt's `deleteLater`). A signal write racing a disposed binding is a checked no-op. The ownership
-model is short enough to state completely: the scope owns the reactive machinery, the tree owns
+model is short enough to state completely: the scope owns the [reactive](/docs/glossary#reactive) machinery, the tree owns
 the handles, and both are torn down together, once, at a safe point.
 
 ---

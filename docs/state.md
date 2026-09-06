@@ -129,7 +129,7 @@ its way out: a phone presents a secondary window as a cover and animates its dis
 from the moment the close is requested the window behind it is the front one again, so a
 command fired during that animation acts on it rather than on the departing sheet.
 
-Toolbars need none of this: `toolbar(…)` / `toolbar_reactive(…)` install on the window being
+Toolbars need none of this: a contribution belongs to the window being
 built, so a toolbar declared inside the window shell already belongs to its own window, but for
 the same reason it must be declared *there* and not in `root()`, or every window gets the first
 one's bar ([docs/toolbars.md](toolbars.md)).

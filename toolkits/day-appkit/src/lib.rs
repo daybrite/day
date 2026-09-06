@@ -1035,6 +1035,9 @@ struct NavState {
     /// The host's sidebar page, once it has one — what a re-present moves between the sidebar
     /// pane and the head of `pages` (docs/size-classes.md).
     sidebar_page: Option<Retained<NSView>>,
+    /// The content-list pane's page, re-framed when the pane is first revealed: it was inserted
+    /// into a collapsed wrap, where autoresizing can only keep it at zero.
+    list_page: Option<Retained<NSView>>,
     positioned: bool,
     /// Which of the four presentations is drawn right now (docs/size-classes.md). All of them are
     /// the same `NSSplitViewController`: a stack is that split with its sidebar collapsed, a rail
@@ -1244,6 +1247,23 @@ fn apply_sidebar_item(item: &objc2_app_kit::NSSplitViewItem, pres: NavPresentati
 /// Show/hide the stack-nav back header for the given page stack and re-frame the pages under
 /// it. The header shows exactly while a pushed page (depth ≥ 1 above the root) is on top; each
 /// page's `DayNavPage::setFrameSize` reports the new size so Day re-lays its content.
+/// The split view of the navigation host in `window` that HAS a content-list pane, for the
+/// tracking separator pinned to its second divider (docs/toolbars.md).
+pub(crate) fn list_split_view(window: usize) -> Option<Retained<objc2_app_kit::NSSplitView>> {
+    NAV_STATE.with(|m| {
+        m.borrow()
+            .values()
+            .find(|st| {
+                st.list_item.is_some()
+                    && st
+                        .sidebar_wrap
+                        .window()
+                        .is_some_and(|w| Retained::as_ptr(&w) as usize == window)
+            })
+            .map(|st| unsafe { st._split_vc.splitView() })
+    })
+}
+
 fn sync_nav_header(hdr: &NavHeader, wrap: &NSView, pages: &[Retained<NSView>]) {
     let visible = pages.len() >= 2;
     hdr.bar.setHidden(!visible);
@@ -3896,6 +3916,11 @@ impl AppKit {
         let mut style = NSWindowStyleMask::Titled | NSWindowStyleMask::Closable;
         if !prefs_style {
             style |= NSWindowStyleMask::Miniaturizable | NSWindowStyleMask::Resizable;
+            // The unified title bar runs the full width, which is what lets a toolbar's
+            // SIDEBAR TRACKING SEPARATOR find the split's divider and pin the sidebar's own
+            // items over the sidebar (docs/toolbars.md). AppKit only configures that item on a
+            // window with this mask, and Mail, Finder and Notes all carry it.
+            style |= NSWindowStyleMask::FullSizeContentView;
         }
         let window = unsafe {
             NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -4912,6 +4937,7 @@ impl Toolkit for AppKit {
                             list_wrap,
                             list_item,
                             pages: Vec::new(),
+                            list_page: None,
                             sidebar_page: None,
                             list_width,
                             list_visible,
@@ -5583,6 +5609,21 @@ impl Toolkit for AppKit {
                                             );
                                         }
                                     }
+                                    // Re-frame the pane's page to the wrap it fills. A page
+                                    // inserted while the pane was COLLAPSED got a zero-width
+                                    // frame, and `ViewWidthSizable` scales zero to zero however
+                                    // wide the wrap becomes — so the list stayed invisible while
+                                    // its rows were still there to click. An app opening on a
+                                    // full-page section hits this on the first reveal.
+                                    if *v
+                                        && let Some(wrap) = state.list_wrap.as_ref()
+                                        && let Some(page) = state.list_page.as_ref()
+                                    {
+                                        unsafe {
+                                            wrap.layoutSubtreeIfNeeded();
+                                            page.setFrame(wrap.bounds());
+                                        }
+                                    }
                                 }
                             }
                             // Never arrives here: the pane persists through every presentation
@@ -5985,6 +6026,7 @@ impl Toolkit for AppKit {
             if page_pane == Some(day_spec::props::Pane::List)
                 && let Some(wrap) = state.list_wrap.as_ref()
             {
+                state.list_page = Some(child.clone());
                 unsafe {
                     child.setFrame(wrap.bounds());
                     child.setAutoresizingMask(

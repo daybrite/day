@@ -124,7 +124,7 @@ consequences:
 
 - every backend that already drew a toolbar search field draws this one, with no per-backend code;
 - the merge happens inside `set_window_toolbar`, not at the app's call site, because the app
-  installs its bar *before* the tree builds and `toolbar_reactive` re-installs the whole model on
+  installs its bar *before* the tree builds and a derived contribution re-lowers on
   any reactive change. An item injected once would be dropped by the next rebuild.
 
 dayscript addresses the field by that id: `toolbar: { item: day.search, text: "…" }`.

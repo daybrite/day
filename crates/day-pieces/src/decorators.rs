@@ -402,6 +402,22 @@ fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) ->
     }
 }
 
+/// Declare toolbar items for the chrome this piece sits under (docs/toolbars.md).
+///
+/// The chrome is resolved WHERE THE PIECE IS BUILT, not where the modifier was written: the
+/// innermost navigation page being built, or the window when there is none. That is the whole
+/// design — a command sits beside the content it acts on, and the app never says twice which bar
+/// it belongs to.
+fn op_toolbar(source: crate::ToolbarSource) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            crate::contribute(day_core::current_chrome(), source);
+            n
+        })
+    }
+}
+
 fn op_focusable() -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -897,6 +913,9 @@ impl<P: Piece> Decorated<P> {
     pub fn focusable(self) -> Self {
         self.push(op_focusable())
     }
+    pub fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
+        self.push(op_toolbar(content.into_source()))
+    }
     pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
         self.push(op_context_menu(items))
     }
@@ -1141,6 +1160,25 @@ pub trait Decorate: Piece + Sized {
     /// is focusable on the backends that draw one from a real view (appkit, web-dom today).
     fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_key(f)
+    }
+
+    /// Declare toolbar items on the chrome this piece sits under (docs/toolbars.md).
+    ///
+    /// Takes ONE item, a list of them, or a closure that derives the list and re-runs whenever
+    /// its reactive reads change:
+    ///
+    /// ```ignore
+    /// page.toolbar(toolbar_button("share", tr("share")).icon(Symbol::Share).action(share))
+    /// page.toolbar([reply, forward, archive])
+    /// page.toolbar(move || vec![toolbar_button("undo", tr("undo")).enabled_when(can_undo)])
+    /// ```
+    ///
+    /// WHICH chrome carries them follows from where this piece is built — a destination page's
+    /// own bar, a content-list pane's, or the window's if it is under no page at all — and the
+    /// items are withdrawn when this piece is disposed. Where on that chrome they sit is
+    /// [`ToolbarEntry::placement`](crate::ToolbarEntry::placement).
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Decorated<Self> {
+        Decorated::new(self).toolbar(content)
     }
 
     /// Opt this piece into the platform's focus system (docs/focus.md) — the canvas contract

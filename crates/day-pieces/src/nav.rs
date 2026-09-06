@@ -312,6 +312,33 @@ fn nav_page(
     page
 }
 
+/// Whether a LIST LAYER is the thing the user is looking at (docs/toolbars.md).
+///
+/// One rule, three sites: the native content-list pane, and the composed gated flow's two shapes.
+/// A list's own commands — add, filter, sort — act on rows the user can see, so they leave the
+/// window's bar the moment something covers them. Two ways that happens: the destination
+/// collapses the pane (`content_list_for`), or a detail is pushed over it on a shape that shows
+/// one layer at a time. Side by side, both layers are up and both keep their commands.
+fn list_layer_gate(
+    visible: Option<Signal<bool>>,
+    detail_open: Option<Signal<bool>>,
+    pres: Option<Signal<day_spec::props::NavPresentation>>,
+) -> Rc<dyn Fn() -> bool> {
+    Rc::new(move || {
+        let shown = visible.is_none_or(|v| v.get());
+        let side_by_side = pres.is_some_and(|p| p.get().is_split());
+        shown && (side_by_side || detail_open.is_none_or(|d| !d.get()))
+    })
+}
+
+/// Whether a DESTINATION page is the one showing — the selection is on it (docs/toolbars.md).
+fn destination_gate<K: Route, S: Binding<K> + 'static>(
+    selection: S,
+    key: String,
+) -> Rc<dyn Fn() -> bool> {
+    Rc::new(move || selection.read().key() == key)
+}
+
 /// Register a string-route adapter over a route surface's own signal, so `navigate()` /
 /// deep links / dayscript keep working by key. This is a *convenience layer* — the surface
 /// itself is driven by the signal, not by this registry (docs/navigation.md).
@@ -368,18 +395,6 @@ fn note_routed_one_of_n(kind: &str) {
             }
         });
     });
-}
-
-/// A merged stack has no host of its own to hang bar actions on, and the enclosing host's were
-/// settled when IT was built. Without this the buttons simply never appear, which reads as a
-/// backend bug rather than as a shape the app can change.
-#[cfg(debug_assertions)]
-fn warn_merged_bar_actions(n: usize) {
-    log::warn!(
-        "this stack's {n} bar action(s) are not drawn — it MERGED into the enclosing \
-         navigation host, which owns the bar (docs/navigation.md). Declare them on that host \
-         instead, or keep this stack standalone."
-    );
 }
 
 #[cfg(debug_assertions)]
@@ -802,9 +817,10 @@ pub struct Selector<S: Binding<K>, K: Route = String> {
     restore: Option<String>,
     /// A header from [`Selector::section`] waiting to be attached to the next item added.
     pending_section: Option<TextSource>,
-    /// An optional trailing nav-bar action ([`Selector::bar_action`]) — the mobile stand-in for a
-    /// desktop toolbar button. `None` unless set.
-    bar_actions: Vec<BarActionSpec>,
+    /// Items declared on this host's own chrome ([`Selector::toolbar`]).
+    toolbar: Vec<crate::ToolbarSource>,
+    /// Draw the platform's own sidebar toggle ([`Selector::sidebar_toggle`]).
+    sidebar_toggle: bool,
     /// Search over this surface ([`Selector::searchable`]). `None` unless set.
     search: Option<SearchSpec>,
     /// The presentation pinned by [`Selector::presentation`]; `None` = automatic, resolved from
@@ -903,7 +919,7 @@ impl SearchSpec {
     /// widget, so re-rendering into the other target is a patch rather than a rebuild. The
     /// remaining step for the size-class work is a `SearchPatch::Placement` that swaps the render
     /// target on a live host — see docs/search.md.
-    fn install(&self, host: RNode, seed: &day_spec::props::SearchProps) {
+    fn install(&self, host: RNode, chrome: day_core::Chrome, seed: &day_spec::props::SearchProps) {
         use day_spec::props::{SearchPatch, SearchPlacement as P};
         let placement = Self::resolve(self.placement);
         let query = self.query;
@@ -933,9 +949,11 @@ impl SearchSpec {
                         query.set(t.clone());
                     }
                 }));
-            day_core::set_window_search(
-                day_core::toolbar::current_window(),
-                Some(day_spec::ToolbarItem {
+            // An ordinary contribution on this host's own chrome, placed last — where every
+            // desktop puts search — and withdrawn with the surface it filters.
+            let token = day_core::register_contribution(
+                chrome,
+                vec![day_spec::ToolbarItem {
                     id: SEARCH_ITEM_ID.to_string(),
                     kind: day_spec::ToolbarItemKind::Search {
                         text: seed.text.clone(),
@@ -947,30 +965,33 @@ impl SearchSpec {
                     icon: None,
                     enabled: true,
                     action,
-                }),
+                    placement: day_spec::ToolbarPlacement::Secondary,
+                    label_style: day_spec::LabelStyle::Automatic,
+                    prominent: false,
+                    // Search filters the LIST this host shows, so it belongs over that column.
+                    column: day_spec::ToolbarColumn::Sidebar,
+                }],
             );
+            Scope::current().on_cleanup(move || day_core::unregister_contribution(token));
         }
 
         // The one outbound binding: the app writing its query reaches whichever target this
         // placement renders into. Seeded, because `lower` already put the value in the realize
         // props — re-applying it here would be the duplicate op §5.2 forbids.
-        let window = day_core::toolbar::current_window();
         bind_seeded(
             seed.text.clone(),
             move || query.get(),
             move |t: &String| {
-                // Before the comparison, because this has to happen for BOTH directions: the
-                // stored item is what a toolbar REBUILD re-seeds the field from, and a rebuild can
-                // be triggered by anything else on the bar. Skipping it on the field-originated
-                // path is what left the box empty while the query kept filtering.
-                day_core::toolbar::set_window_search_state(window, Some(t.as_str()), None);
                 if *shown.borrow() == *t {
                     return; // the field already shows this; patching it back fights the caret
                 }
                 *shown.borrow_mut() = t.clone();
                 match placement {
-                    P::Toolbar => day_core::patch_window_toolbar(
-                        window,
+                    // The patch mirrors into the owning contribution as well, so a later
+                    // re-lower of this chrome rebuilds the field with the text it is showing
+                    // rather than the one it was declared with.
+                    P::Toolbar => day_core::patch_chrome(
+                        chrome,
                         day_spec::ToolbarPatch::Text {
                             item: SEARCH_ITEM_ID.to_string(),
                             text: t.clone(),
@@ -1001,18 +1022,13 @@ impl SearchSpec {
                 seed.suggestions.clone(),
                 move || f(&query.get()),
                 move |list| match placement {
-                    P::Toolbar => {
-                        // Same staleness as the text: a rebuild re-seeds completions from the
-                        // stored item, so it has to carry the current list too.
-                        day_core::toolbar::set_window_search_state(window, None, Some(list));
-                        day_core::patch_window_toolbar(
-                            window,
-                            day_spec::ToolbarPatch::Suggestions {
-                                item: SEARCH_ITEM_ID.to_string(),
-                                list: list.clone(),
-                            },
-                        )
-                    }
+                    P::Toolbar => day_core::patch_chrome(
+                        chrome,
+                        day_spec::ToolbarPatch::Suggestions {
+                            item: SEARCH_ITEM_ID.to_string(),
+                            list: list.clone(),
+                        },
+                    ),
                     _ => {
                         let p = SearchPatch::Suggestions(list.clone());
                         with_tree(|t| t.patch(host, Box::new(p), false));
@@ -1023,44 +1039,19 @@ impl SearchSpec {
     }
 }
 
-/// A pending nav-bar action ([`Selector::bar_action`] / [`Stack::bar_action`]): the bundled icon
-/// name, the label source, and the closure to run. Lowered at build into [`NavProps::bar_action`]
-/// (docs/navigation.md) — the closure is registered with day-core for a dispatch id the backend
-/// emits as `Event::MenuAction` on tap.
-struct BarActionSpec {
-    icon: Option<String>,
-    label: TextSource,
-    action: Rc<dyn Fn()>,
-    scope: day_spec::props::NavBarScope,
-}
-
-impl BarActionSpec {
-    /// Register the closure (getting a dispatch id) and resolve the label, producing the spec
-    /// value the NAV host carries. Called once, at build.
-    fn lower(self) -> day_spec::props::NavBarAction {
-        day_spec::props::NavBarAction {
-            // Scoped: the id dies with the nav build's scope — bar actions are re-lowered
-            // on every rebuild and were previously never reclaimed.
-            action: day_core::register_scoped_menu_action(self.action),
-            label: self.label.initial(),
-            icon: self.icon,
-            scope: self.scope,
-        }
-    }
-}
-
 pub fn selector<K: Route, S: Binding<K>>(selection: S) -> Selector<S, K> {
     Selector {
         selection,
         style: SelectorStyle::default(),
         pending_section: None,
+        sidebar_toggle: true,
         title: TextSource::Static(String::new()),
         header: None,
         sources: Vec::new(),
         destination: None,
         routed: true,
         restore: None,
-        bar_actions: Vec::new(),
+        toolbar: Vec::new(),
         search: None,
         presentation: None,
         content_list: None,
@@ -1347,59 +1338,31 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
         self.restore = Some(key.into());
         self
     }
-    /// Add a trailing action button to the navigation bar — the phones' and HarmonyOS's
-    /// upper-right bar button, drawn with the bundled `icon`, that runs `action` when tapped
-    /// (docs/navigation.md). Where the toolkit also has a window toolbar (`Cap::Toolbar`,
-    /// docs/toolbars.md), declare a command in one place or the other, not both.
-    /// `icon` is a bundled-image name (typed [`ImageName`](day_spec::ImageName), like
-    /// [`item_icon`](Self::item_icon)'s); `label` is the button's accessible name and tooltip.
+    /// Declare toolbar items on THIS HOST's own chrome (docs/toolbars.md) — the sidebar column
+    /// where the presentation has one, and the root list when it has collapsed to a stack.
     ///
-    /// Desktop split presentations ignore it — they have a real toolbar, so put the same command
-    /// there (docs/toolbars.md). The action is app-wide: it rides the current top page's bar, so
-    /// the same handler serves every section (read [`current_route`] inside it to act on whatever
-    /// is showing).
+    /// This is where a command that acts on the LIST belongs: "add an item", "sort", "filter".
+    /// A command that acts on whatever page is open belongs on the page instead, declared with
+    /// the same method on the piece that page builds — and then it comes and goes with that page
+    /// rather than riding a list it cannot act on.
     ///
-    /// Call it more than once for more than one button; they draw left to right in declaration
-    /// order, trailing-aligned. Use [`list_action`](Self::list_action) for a command that acts on
-    /// the LIST rather than on whatever page is open.
-    pub fn bar_action<M>(
-        mut self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.bar_actions.push(BarActionSpec {
-            icon: Some(icon.into().as_str().to_owned()),
-            label: label.into_text(),
-            action: Rc::new(action),
-            scope: day_spec::props::NavBarScope::EveryPage,
-        });
+    /// Takes one item, a list of them, or a closure that derives the list and re-runs whenever
+    /// its reactive reads change.
+    ///
+    /// ```ignore
+    /// selector(section)
+    ///     .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))
+    /// ```
+    pub fn toolbar<M>(mut self, content: impl crate::ToolbarContent<M>) -> Self {
+        self.toolbar.push(content.into_source());
         self
     }
 
-    /// Like [`bar_action`](Self::bar_action), but the button rides the LIST only — it is gone from
-    /// the detail pages the list pushes (docs/navigation.md).
-    ///
-    /// Which one to reach for is decided by what the command acts on, not by how it looks. "Add an
-    /// item" and "sort" act on the list, and on a detail page the thing they act on is not even on
-    /// screen — a narrow phone has pushed it away — so a button for them there is at best inert
-    /// and at worst acts on something the user cannot see. "Show this page's source" is the other
-    /// kind: it follows the user down.
-    ///
-    /// Where the presentation keeps the list in its own pane, its bar is the list's bar and the
-    /// button simply stays there while details come and go.
-    pub fn list_action<M>(
-        mut self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.bar_actions.push(BarActionSpec {
-            icon: Some(icon.into().as_str().to_owned()),
-            label: label.into_text(),
-            action: Rc::new(action),
-            scope: day_spec::props::NavBarScope::RootPage,
-        });
+    /// Draw the platform's own show/hide-sidebar affordance on this host's chrome. On by default
+    /// for a sidebar presentation, since every desktop expects one and the toolkit owns both the
+    /// button and the behavior; pass `false` for a window that should not offer it.
+    pub fn sidebar_toggle(mut self, on: bool) -> Self {
+        self.sidebar_toggle = on;
         self
     }
 
@@ -1543,9 +1506,9 @@ struct GatedDetail<K: Route> {
     detail_title: Option<TextSource>,
     /// The enclosing selector's host — the merge target while stacked.
     host_cx: NavHostCx,
-    /// The selector's lowered bar actions, re-homed onto the nested host in a chrome
+    /// The selector's own toolbar sources, re-homed onto the nested host in a chrome
     /// presentation, whose tabs chrome draws none of its own.
-    bar_actions: Vec<day_spec::props::NavBarAction>,
+    toolbar: Vec<crate::ToolbarSource>,
 }
 
 impl<K: Route> Clone for GatedDetail<K> {
@@ -1559,7 +1522,7 @@ impl<K: Route> Clone for GatedDetail<K> {
             retitle: self.retitle.clone(),
             detail_title: self.detail_title.clone(),
             host_cx: self.host_cx.clone(),
-            bar_actions: self.bar_actions.clone(),
+            toolbar: self.toolbar.clone(),
         }
     }
 }
@@ -1608,10 +1571,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
                 // adapts, so this host must never try to.
                 presentation: NavPresentation::Stack,
                 adaptive: false,
-                // The selector's own bar actions ride this bar (docs/navigation.md): the tabs
-                // chrome draws none, and this is the list's navigation bar the phones put a
-                // `list_action` on.
-                bar_actions: cfg.bar_actions.clone(),
+                sidebar_toggle: false,
                 search: None,
                 list_width: None,
                 list_visible: true,
@@ -1643,10 +1603,25 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         // from the list (a category, then its items) pushes onto the tab's own navigation
         // controller, and the gated detail lands on top of whatever it pushed
         // (docs/navigation.md). Only the native resident pane is a barrier.
+        // This shape shows ONE layer at a time, so the list's commands leave once the detail is
+        // pushed over it — the same rule the native pane follows.
+        let covered = list_layer_gate(None, Some(cfg.open), None);
         with_nav_host(Some(target.clone()), || {
-            let mut pcx = BuildCx::new(root_page);
-            let _ = (cfg.list)().grow().build(&mut pcx);
+            day_core::with_page_gated(
+                root_page,
+                Some(covered),
+                day_spec::ToolbarColumn::List,
+                || {
+                    let mut pcx = BuildCx::new(root_page);
+                    let _ = (cfg.list)().grow().build(&mut pcx);
+                },
+            );
         });
+        // The selector's own items, re-homed: a chrome presentation draws no bar of its own, so
+        // this nested host's root page IS where the list's commands belong (docs/toolbars.md).
+        for source in cfg.toolbar.clone() {
+            crate::contribute(day_core::Chrome::Page(root_page), source);
+        }
         // This host's one back dispatcher: the topmost owner — the detail layer's, or a
         // stack's that merged inside the detail.
         {
@@ -1678,7 +1653,20 @@ fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         let target = cfg.host_cx.clone();
         // The list is inline in a page of the enclosing stack, so a `stack()` inside it merges
         // there, as one inside any pushed page does (docs/navigation.md).
-        let node = with_nav_host(Some(target.clone()), || (cfg.list)().grow().build(cx));
+        // Same rule as the nested shape: the detail pushes over this list, so the list's own
+        // commands leave the bar while it is covered (docs/toolbars.md).
+        let covered = list_layer_gate(None, Some(cfg.open), None);
+        // The page this list is inline in, whichever it is: the gate is what matters, and the
+        // frame keeps the chrome it was already going to land on.
+        let page = match day_core::current_chrome() {
+            day_core::Chrome::Page(p) => p,
+            day_core::Chrome::Window(w) => w,
+        };
+        let node = with_nav_host(Some(target.clone()), || {
+            day_core::with_page_gated(page, Some(covered), day_spec::ToolbarColumn::List, || {
+                (cfg.list)().grow().build(cx)
+            })
+        });
         wire_gated_detail(&cfg, target);
         node
     })
@@ -1748,8 +1736,10 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
                 // whichever scope happened to be current when the push landed.
                 let content = items.build_page(&key);
                 with_nav_host(Some(tc), || {
-                    let mut c = BuildCx::new(page);
-                    let _ = content.grow().build(&mut c);
+                    day_core::with_page(page, || {
+                        let mut c = BuildCx::new(page);
+                        let _ = content.grow().build(&mut c);
+                    });
                 });
             });
             // Out here for the usual reason: `immersive_of` can run app code, which must not
@@ -1871,9 +1861,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     };
     // Presentation (docs/size-classes.md). Resolved from the window's size class on every change,
     // not fixed at build time — `NavPatch::Presentation` re-presents the live host. The window
-    // root is captured HERE: the effect below re-runs long after this build, when
-    // `current_window` would answer the primary window instead of ours.
-    let window = day_core::current_window();
+    // root is captured HERE: the effect below re-runs long after this build, when the ambient
+    // window would answer the primary one instead of ours.
+    let window = day_core::window_being_built();
     let can_split =
         with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
     // WHO DECIDES the presentation (docs/size-classes.md), which is what `Cap::NavRepresent`'s
@@ -2052,17 +2042,18 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     let routed = sel.routed;
     let restore = sel.restore;
     let title_s = sel.title.initial();
-    // Register the optional nav-bar action once (getting its dispatch id) and lower it into the
-    // host props — the mobile backends draw it as an upper-right bar button (docs/navigation.md).
-    let bar_actions: Vec<_> = sel
-        .bar_actions
-        .into_iter()
-        .map(BarActionSpec::lower)
-        .collect();
+    // This host's own toolbar items (docs/toolbars.md). They land on the SIDEBAR page's chrome
+    // below, which is the sidebar column while split and the root list while collapsed — the two
+    // shapes of "the chrome over the list".
+    let host_toolbar = sel.toolbar;
     // Cloned for the composed gated flow below: its nested host re-homes them in a chrome
-    // presentation, where the tabs chrome draws none of its own (docs/navigation.md). The
-    // registered actions are shared — same dispatch ids, one closure each.
-    let gated_bar_actions = bar_actions.clone();
+    // presentation, where the tabs chrome draws none of its own (docs/navigation.md).
+    let gated_toolbar = host_toolbar.clone();
+    // Automatic resolves to a sidebar wherever the window is wide enough, so the affordance
+    // follows what the toolkit CAN present rather than what the app spelled out — an app that
+    // never wrote `.style(Sidebar)` still gets the platform's own toggle on a desktop.
+    let sidebar_toggle = sel.sidebar_toggle
+        && matches!(sel.style, SelectorStyle::Sidebar | SelectorStyle::Automatic);
     let detail_title = sel.detail_title;
     // Search over this surface (docs/search.md). Lowered to the host's props with its CURRENT
     // values; the live bindings below keep the field in step through targeted patches, so the
@@ -2107,7 +2098,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             title: title_s.clone(),
             presentation: lowered,
             adaptive,
-            bar_actions,
+            sidebar_toggle,
             search,
             list_width: native_list.then_some(sel.content_list_width),
             list_visible: initial_list_visible,
@@ -2127,25 +2118,6 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         },
         Boundary::Yes,
     );
-
-    // Search, both directions (docs/search.md). The app's writes patch the live field; the user's
-    // edits arrive as events against this host and write the app's own signals. Nothing here
-    // touches the widget directly, which is what lets a later placement change relocate the field
-    // without disturbing the query.
-    if let Some((spec, seed)) = search_spec.as_ref().zip(search_seed.as_ref()) {
-        spec.install(host, seed);
-        let query = spec.query;
-        let scope_sig = spec.scope;
-        cx.on(host, move |ev| match ev {
-            Event::SearchChanged(text) => query.set(text.clone()),
-            Event::SearchScopeChanged(i) => {
-                if let Some(s) = scope_sig {
-                    s.set(*i);
-                }
-            }
-            _ => {}
-        });
-    }
 
     // The per-host back-owner stack (docs/navigation.md): the detail page pushes its "deselect"
     // owner, and a nested stack that merges into this host pushes its page owners on top. The
@@ -2170,6 +2142,54 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         &sizes,
     );
     sidebar_cell.set(Some(root_page));
+
+    // Search, both directions (docs/search.md). The app's writes patch the live field; the user's
+    // edits arrive as events against this host and write the app's own signals. Nothing here
+    // touches the widget directly, which is what lets a later placement change relocate the field
+    // without disturbing the query.
+    if let Some((spec, seed)) = search_spec.as_ref().zip(search_seed.as_ref()) {
+        spec.install(host, day_core::Chrome::Page(root_page), seed);
+        let query = spec.query;
+        let scope_sig = spec.scope;
+        cx.on(host, move |ev| match ev {
+            Event::SearchChanged(text) => query.set(text.clone()),
+            Event::SearchScopeChanged(i) => {
+                if let Some(s) = scope_sig {
+                    s.set(*i);
+                }
+            }
+            _ => {}
+        });
+    }
+
+    // This host's OWN items (docs/toolbars.md): the sidebar column's chrome while split, the
+    // root list's while collapsed. Registered under the build's scope, so they are withdrawn if
+    // the whole surface goes.
+    // The sidebar affordance the host supplies for itself, ahead of the app's own items. Every
+    // desktop expects one and the toolkit owns the behavior, so an app that used to declare the
+    // button by hand now declares nothing (docs/toolbars.md).
+    // The host's own chrome IS the sidebar column (docs/toolbars.md): a three-pane desktop draws
+    // these over the sidebar, against the divider they act on.
+    day_core::with_page_in(
+        root_page,
+        None,
+        day_spec::ToolbarColumn::Sidebar,
+        window,
+        || {
+            if sidebar_toggle
+                && with_tree(|t| t.capability(day_spec::Cap::Toolbar))
+                    != day_spec::Support::Unsupported
+            {
+                crate::contribute(
+                    day_core::Chrome::Page(root_page),
+                    crate::ToolbarSource::Fixed(vec![crate::sidebar_toggle_item()]),
+                );
+            }
+            for source in host_toolbar {
+                crate::contribute(day_core::Chrome::Page(root_page), source);
+            }
+        },
+    );
     let menu_holder: Rc<Cell<Option<RNode>>> = Rc::new(Cell::new(None));
     {
         let (mh, ks, s, ts) = (
@@ -2263,8 +2283,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // presentation has built them all), and a presentation change that rebuilds the shape
     // around an unchanged selection. Missing any one of them strands the pane — collapsed
     // because some other destination was the last to speak, with nothing left to reopen it.
+    // Set when the content-list page is built below; `apply_list_visible` writes through it so
+    // the pane's chrome follows its visibility (docs/toolbars.md).
+    let list_visible_sig: Rc<Cell<Option<Signal<bool>>>> = Rc::new(Cell::new(None));
     let apply_list_visible: Rc<dyn Fn(&K)> = {
         let (shown, pred) = (list_shown.clone(), list_pred.clone());
+        let mirror = list_visible_sig.clone();
         Rc::new(move |key: &K| {
             if !native_list {
                 return;
@@ -2272,6 +2296,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             let want = pred.as_ref().is_none_or(|p| p(key));
             if want != shown.get() {
                 shown.set(want);
+                // The chrome mirror, so the pane's own commands leave the bar with the pane.
+                if let Some(sig) = mirror.get() {
+                    sig.set(want);
+                }
                 with_tree(|t| t.patch(host, Box::new(NavPatch::ListVisible(want)), false));
             }
         })
@@ -2286,9 +2314,27 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             &sizes,
         );
         list_cell.set(Some(page));
+        // The pane collapses for a destination that spans the whole detail area
+        // (`content_list_for`), and a collapsed pane's commands must leave the bar with it
+        // (docs/toolbars.md) — otherwise a full-page section shows the list's Add and Filter.
+        // Reactive, so a collapse re-composes the bar: the Cell above is what `NavLayout` reads
+        // during layout, and this mirrors it for the chrome.
+        let visible = Signal::new(initial_list_visible);
+        list_visible_sig.set(Some(visible));
+        // Two ways this pane stops being what the user is looking at: the destination collapses
+        // it (`content_list_for`), or — on a shape that shows ONE pane at a time — a detail is
+        // pushed over it. Its Add and Filter act on a list that is then behind the editor, so
+        // they leave the bar with it (docs/toolbars.md). Side by side, both panes are up and
+        // both keep their commands.
+        let (dv, pres_sig) = (detail_visible, presentation_sig);
+        let gate: Rc<dyn Fn() -> bool> = Rc::new(move || {
+            visible.get() && (pres_sig.get().is_split() || dv.is_none_or(|d| !d.get()))
+        });
         with_nav_host(None, || {
-            let mut pcx = BuildCx::new(page);
-            let _ = build_list().build(&mut pcx);
+            day_core::with_page_gated(page, Some(gate), day_spec::ToolbarColumn::List, || {
+                let mut pcx = BuildCx::new(page);
+                let _ = build_list().build(&mut pcx);
+            });
         });
     }
     // The COMPOSED content list (`Cap::NavContentList` Unsupported): every list-backed
@@ -2314,7 +2360,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             let (i1, i2) = (items_c.clone(), items_c.clone());
             let (k1, k2) = (key.clone(), key.clone());
             let (hc, dt) = (host_cx_g.clone(), detail_title_g.clone());
-            let ba = gated_bar_actions.clone();
+            let ba = gated_toolbar.clone();
             AnyPiece::new(
                 when(
                     move || {
@@ -2358,7 +2404,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                                     retitle,
                                     detail_title: dt.clone(),
                                     host_cx: hc.clone(),
-                                    bar_actions: ba.clone(),
+                                    toolbar: ba.clone(),
                                 },
                                 pres,
                                 win,
@@ -2588,10 +2634,22 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 // container rather than pushing onto the enclosing host, because the enclosing
                 // host is not a stack (docs/navigation.md).
                 let inner = if chrome { None } else { Some(host_cx.clone()) };
+                // The page's own commands ride the window's bar only while it IS the page
+                // showing (docs/toolbars.md): a resident tab that is not in front, and a
+                // destination the selection has moved off, both leave the bar.
+                let sel_gate = Some(destination_gate(selection.clone(), key.to_string()));
                 let build = || {
                     with_nav_host(inner, || {
-                        let mut c = BuildCx::new(page);
-                        let _ = content.build(&mut c);
+                        day_core::with_page_in(
+                            page,
+                            sel_gate.clone(),
+                            day_spec::ToolbarColumn::Detail,
+                            window,
+                            || {
+                                let mut c = BuildCx::new(page);
+                                let _ = content.build(&mut c);
+                            },
+                        );
                     });
                 };
                 if chrome {
@@ -3195,9 +3253,8 @@ pub struct Stack<S: Binding<Vec<K>>, K: Route = String> {
     /// The persistence key set by [`Stack::restore`]: the path is saved here (its keys `/`-joined)
     /// on every change and restored at build. `None` = not persisted.
     restore: Option<String>,
-    /// An optional trailing nav-bar action ([`Stack::bar_action`]) — the mobile stand-in for a
-    /// desktop toolbar button. `None` unless set.
-    bar_actions: Vec<BarActionSpec>,
+    /// Items declared on the stack's ROOT page chrome ([`Stack::toolbar`]).
+    toolbar: Vec<crate::ToolbarSource>,
 }
 
 pub fn stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
@@ -3210,7 +3267,7 @@ pub fn stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Stack<S
         }),
         on_back: None,
         restore: None,
-        bar_actions: Vec::new(),
+        toolbar: Vec::new(),
     }
 }
 
@@ -3219,46 +3276,16 @@ impl<K: Route, S: Binding<Vec<K>>> Stack<S, K> {
         self.title = t.into_text();
         self
     }
-    /// Add a trailing action button to the navigation bar, for the toolkits with no window toolbar
-    /// (the phones and HarmonyOS): an upper-right bar button drawn with the bundled `icon` that
-    /// runs `action` (docs/navigation.md). Mirrors [`Selector::bar_action`]; ignored on desktop.
+    /// Declare toolbar items on this stack's ROOT page chrome (docs/toolbars.md) — the commands
+    /// that act on what the root shows, and that have nothing to act on once a pushed page covers
+    /// it. A pushed page declares its own with the same method on the piece it builds.
     ///
-    /// Call it more than once for more than one button; they draw left to right in declaration
-    /// order. Use [`list_action`](Self::list_action) for a command that acts on the stack's ROOT
-    /// rather than on whatever page is on top of it.
-    pub fn bar_action<M>(
-        mut self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.bar_actions.push(BarActionSpec {
-            icon: Some(icon.into().as_str().to_owned()),
-            label: label.into_text(),
-            action: Rc::new(action),
-            scope: day_spec::props::NavBarScope::EveryPage,
-        });
+    /// Takes one item, a list of them, or a closure that derives the list.
+    pub fn toolbar<M>(mut self, content: impl crate::ToolbarContent<M>) -> Self {
+        self.toolbar.push(content.into_source());
         self
     }
 
-    /// Like [`bar_action`](Self::bar_action), but the button rides the stack's ROOT page only — it
-    /// is gone from everything pushed on top of it. Mirrors [`Selector::list_action`], and the
-    /// same rule decides between them: a command that acts on the root's content (adding to the
-    /// list it shows, filtering it) has nothing to act on once a detail covers it.
-    pub fn list_action<M>(
-        mut self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.bar_actions.push(BarActionSpec {
-            icon: Some(icon.into().as_str().to_owned()),
-            label: label.into_text(),
-            action: Rc::new(action),
-            scope: day_spec::props::NavBarScope::RootPage,
-        });
-        self
-    }
     /// Build the view for a pushed key (`&String` for raw keys, the typed value otherwise).
     pub fn destination<P: Piece>(mut self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.destination = Rc::new(move |k| AnyPiece::new(build(k)));
@@ -3297,12 +3324,9 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
             destination: dest,
             on_back,
             restore,
-            bar_actions,
+            toolbar,
         } = self;
         let title_s = title.initial();
-        // Lower the optional nav-bar action for the standalone host below (a merged stack rides
-        // the enclosing host's bar instead). Registered once; the mobile backends draw it.
-        let bar_actions: Vec<_> = bar_actions.into_iter().map(BarActionSpec::lower).collect();
 
         // Restore the saved path before the reconcile binding runs, so its pages build on first
         // pass. A launch deep link wins (skip). The path is decoded from the SAME percent-encoded
@@ -3345,11 +3369,13 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
             host_cx = ctx;
             let hc = host_cx.clone();
             ret_node = with_nav_host(Some(hc), || root.build(cx));
-            merged = true;
-            #[cfg(debug_assertions)]
-            if !bar_actions.is_empty() {
-                warn_merged_bar_actions(bar_actions.len());
+            // A merged stack has no chrome of its own — its root renders inside the enclosing
+            // host's page, and that page's bar is the one the user sees. Its items go there,
+            // where they used to be dropped with a debug warning.
+            for source in toolbar {
+                crate::contribute(day_core::current_chrome(), source);
             }
+            merged = true;
         } else {
             // STANDALONE: create the native host + root page (an app-root stack, or a nested stack
             // under a split/desktop host).
@@ -3365,7 +3391,8 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                     // an Emulated toolkit must build a PLAIN navigation container for it rather
                     // than its adaptive one (docs/size-classes.md).
                     adaptive: false,
-                    bar_actions,
+                    // A stack has no sidebar pane, so nothing to toggle.
+                    sidebar_toggle: false,
                     // Stacks are not searchable yet — `.searchable()` is on `Selector` only
                     // (docs/search.md); a stack gains the same surface when the placement
                     // resolver lands, since it is the same lowering.
@@ -3400,9 +3427,16 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
             );
             let hc = host_cx.clone();
             with_nav_host(Some(hc), || {
-                let mut pcx = BuildCx::new(root_page);
-                let _ = root.build(&mut pcx);
+                day_core::with_page(root_page, || {
+                    let mut pcx = BuildCx::new(root_page);
+                    let _ = root.build(&mut pcx);
+                });
             });
+            // A standalone stack's own items ride its ROOT page's chrome — the commands that act
+            // on what the root shows, and that a pushed page covers along with it.
+            for source in toolbar {
+                crate::contribute(day_core::Chrome::Page(root_page), source);
+            }
             ret_node = host;
             merged = false;
         }
@@ -3518,8 +3552,10 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                         // Inside the page's own scope — see the pushed-detail site above.
                         let content = (dest)(key);
                         with_nav_host(Some(hc), || {
-                            let mut c = BuildCx::new(page);
-                            let _ = content.build(&mut c);
+                            day_core::with_page(page, || {
+                                let mut c = BuildCx::new(page);
+                                let _ = content.build(&mut c);
+                            });
                         });
                     });
                     with_tree(|t| {
@@ -3994,18 +4030,8 @@ pub trait SelectorBuilder<K: Route>: Sized {
     fn detail_title<M>(self, t: impl IntoText<M>) -> Self;
     fn local(self) -> Self;
     fn restore(self, key: impl Into<String>) -> Self;
-    fn bar_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self;
-    fn list_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self;
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self;
+    fn sidebar_toggle(self, on: bool) -> Self;
     fn searchable(self, query: Signal<String>) -> Self;
     fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self;
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self;
@@ -4080,21 +4106,11 @@ impl<K: Route, S: Binding<K>> SelectorBuilder<K> for Selector<S, K> {
     fn restore(self, key: impl Into<String>) -> Self {
         Selector::restore(self, key)
     }
-    fn bar_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        Selector::bar_action(self, icon, label, action)
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
+        Selector::toolbar(self, content)
     }
-    fn list_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        Selector::list_action(self, icon, label, action)
+    fn sidebar_toggle(self, on: bool) -> Self {
+        Selector::sidebar_toggle(self, on)
     }
     fn searchable(self, query: Signal<String>) -> Self {
         Selector::searchable(self, query)
@@ -4180,21 +4196,11 @@ impl<K: Route, Inner: SelectorBuilder<K> + Piece> SelectorBuilder<K> for Decorat
     fn restore(self, key: impl Into<String>) -> Self {
         self.map_inner(|inner_piece| inner_piece.restore(key))
     }
-    fn bar_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.bar_action(icon, label, action))
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.toolbar(content))
     }
-    fn list_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.list_action(icon, label, action))
+    fn sidebar_toggle(self, on: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.sidebar_toggle(on))
     }
     fn searchable(self, query: Signal<String>) -> Self {
         self.map_inner(|inner_piece| inner_piece.searchable(query))
@@ -4217,18 +4223,7 @@ impl<K: Route, Inner: SelectorBuilder<K> + Piece> SelectorBuilder<K> for Decorat
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait StackBuilder<K: Route>: Sized {
     fn title<M>(self, t: impl IntoText<M>) -> Self;
-    fn bar_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self;
-    fn list_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self;
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self;
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
     fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self;
     fn restore(self, key: impl Into<String>) -> Self;
@@ -4238,21 +4233,8 @@ impl<K: Route, S: Binding<Vec<K>>> StackBuilder<K> for Stack<S, K> {
     fn title<M>(self, t: impl IntoText<M>) -> Self {
         Stack::title(self, t)
     }
-    fn bar_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        Stack::bar_action(self, icon, label, action)
-    }
-    fn list_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        Stack::list_action(self, icon, label, action)
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
+        Stack::toolbar(self, content)
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
         Stack::destination(self, build)
@@ -4269,21 +4251,8 @@ impl<K: Route, Inner: StackBuilder<K> + Piece> StackBuilder<K> for Decorated<Inn
     fn title<M>(self, t: impl IntoText<M>) -> Self {
         self.map_inner(|inner_piece| inner_piece.title(t))
     }
-    fn bar_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.bar_action(icon, label, action))
-    }
-    fn list_action<M>(
-        self,
-        icon: impl Into<day_spec::ImageName>,
-        label: impl IntoText<M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.list_action(icon, label, action))
+    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
+        self.map_inner(|inner_piece| StackBuilder::toolbar(inner_piece, content))
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.destination(build))

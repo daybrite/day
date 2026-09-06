@@ -34,6 +34,7 @@ day-settings-theme = Apariencia
 day-theme-light = Claro
 day-theme-dark = Oscuro
 day-theme-system = Sistema
+day-toggle-sidebar = Mostrar/ocultar barra lateral
 day-file = Archivo
 day-view = Visualización
 day-help = Ayuda

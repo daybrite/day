@@ -13,7 +13,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 The pages linked here are the framework's internal reference documentation, published as-is from
 the repository's `docs/` directory. They're terser than the guides (per-API detail, per-platform
 support tables, edge cases), and they're the same files Day's own developers keep current, so
-they tend to lead the guides when something changes.
+they tend to lead the guides when something changes. For the words themselves, the
+[Glossary](/docs/glossary) defines each term the guides use and names the page that introduces it.
 
 <!-- BEGIN GENERATED: internal-docs-index (integrations/gallery.mjs, from src/lib/internal-groups.mjs) -->
 ## Core & UI
@@ -74,7 +75,6 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | [webview-eval](/docs/internal/webview-eval) | web view JavaScript evaluation: API and per-platform support |
 | [map](/docs/internal/map) | `day-piece-map` — native maps |
 | [media](/docs/internal/media) | `day-piece-media` — audio/video playback |
-| [lottie](https://github.com/daybrite/day-piece-lottie) | `day-piece-lottie` — Lottie animations (its own repository) |
 | [combobox](/docs/internal/combobox) | `day-piece-combobox` — free-form text plus a native dropdown |
 | [searchfield](/docs/internal/searchfield) | `day-piece-searchfield` — the search input |
 | [activity](/docs/internal/activity) | `day-piece-activity` — activity spinners |

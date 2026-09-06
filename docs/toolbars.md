@@ -8,33 +8,105 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Window toolbars
+# Toolbars
 
-> **Status: implemented** on the four desktop backends: AppKit, GTK, Qt, XAML. A toolbar is
-> window chrome, not a piece: it does not live in the tree and day does not lay it out. Each
-> backend realizes the model with its platform's own toolbar; where the platform has none, day
-> installs nothing.
+> **Status: implemented** on every backend. A toolbar is chrome, not a piece: it does not live in
+> the tree and day does not lay it out. Each backend realizes the model with its platform's own
+> bar — `NSToolbar`, `AdwHeaderBar`, `QToolBar`, `CommandBar`, a `UINavigationItem`, a Material
+> app bar's menu, a `Navigation`'s `.menus()`, a drawn strip on the web.
 
-## Authoring
+## The rule
+
+**Where you declare an item is where it appears, and how long the declaring piece lives is how
+long it stays.** Everything else follows from that one sentence.
 
 ```rust
 use day::prelude::*;
 
-toolbar(vec![
-    toolbar_button("refresh", tr("refresh")).icon(Symbol::Refresh).action(refresh_all),
-    toolbar_separator(),
-    toolbar_toggle("star", tr("star"), starred).icon(Symbol::Star),
-    toolbar_flexible_space(),
-]);
+reader_page(article).toolbar([
+    toolbar_button("next-unread", tr("next-unread")).icon(Symbol::Down).action(open_next),
+    toolbar_toggle("star", tr("star"), article.is_starred).icon(Symbol::Star),
+])
 ```
 
-Call it from the window's content builder. day names the window being built, so the same
-`build_shell` used for the primary window and for File ▸ New Window gives each window its own
-bar without the app tracking any of it.
+| Declared on | Rides |
+|---|---|
+| the window's root piece | every page of that window |
+| a `selector` host (`Selector::toolbar`) | its sidebar column, and the root list when collapsed |
+| a content-list pane | the list column, and the middle layer when collapsed |
+| a destination page | the detail column, and every page pushed onto it |
+| any piece inside a page | that page's chrome |
 
-[`toolbar_reactive`] is the [`app_menu_reactive`](menus.md) counterpart: it re-lowers whenever a
-reactive read inside the builder changes, which is how the labels follow a runtime language
-switch and how items are added and removed.
+Nothing declares which bar it belongs to, and nothing declares when to hide: a command leaves the
+bar when the content it acts on leaves the screen. A collapsed content-list pane, a destination
+the selection has moved off, and a list a detail has been pushed over all take their commands with
+them. That is what a window's bar showing a page's commands one level out of step used to be.
+
+[`Decorate::toolbar`] takes one item, a list of them, an array, or a closure that derives the list
+and re-runs whenever its reactive reads change — one name for all four, through a disjoint marker
+parameter (the same `IntoText` shape §12.2 uses). There is no separate reactive spelling.
+
+```rust
+page.toolbar(one_item)
+page.toolbar([a, b, c])
+page.toolbar(vec![a, b, c])
+page.toolbar(move || vec![…])          // re-derived on change
+```
+
+An item that should come and go is a piece that comes and goes — `when` adds and withdraws it
+through the same scope disposal that tears down any other subtree. Use `.enabled_when(…)` instead
+where the command should stay visible but unavailable; that patches the one item rather than
+rebuilding the bar.
+
+## Placement
+
+Placement names an item's ROLE on the chrome carrying it, never a surface: which bar it rides
+already follows from where it was declared.
+
+| Placement | Desktop toolbar | iOS | Android | web-dom |
+|---|---|---|---|---|
+| `Automatic` (default) | after the leading group | trailing item group | menu action, `IF_ROOM` | strip, declaration order |
+| `Navigation` | leading edge of its column | `leftBarButtonItems`, after the back button | leading | leading |
+| `Principal` | centered in its column | `titleView` | the bar's centered slot | centered |
+| `Primary` | trailing, before secondaries | trailing, folds last | `SHOW_AS_ACTION_ALWAYS` | trailing |
+| `Secondary` | trailing, after primaries | folds into ⋯ first | `SHOW_AS_ACTION_NEVER` | overflow |
+| `Bottom` | falls back to `Secondary` | `toolbarItems`, the bottom bar | falls back to `Secondary` | falls back |
+
+There is deliberately no `Cancel`/`Confirm`: a modal's affirmative and dismissive buttons are
+dialog buttons with their own roles ([docs/dialogs.md](dialogs.md)), and a second, weaker spelling
+of the same idea would leave two right answers for one question.
+
+`.label_style(…)` chooses the title, the icon, or both where a platform can draw more than one; an
+item folded into an overflow menu shows its title whatever it asks for, because a menu row with no
+words is not a menu row. `.prominent()` asks for the platform's emphasized style.
+
+## Columns
+
+A desktop toolbar spans every column of a split window at once, and a three-pane app expects each
+column's commands to sit over that column — Mail, Notes and Finder all do. Day knows which column
+an item came from, because the declaration site already said so, and stamps it on the item.
+**An app never writes it.**
+
+`macos-appkit` realizes it with a tracking separator at each divider: AppKit vends
+`NSToolbarSidebarTrackingSeparatorItemIdentifier` for the sidebar's, and Day builds the second
+with `NSTrackingSeparatorToolbarItem` bound to the split at divider 1. Windows carry
+`NSWindowStyleMaskFullSizeContentView` so those items can find their dividers. The sidebar's
+commands pack against its trailing edge; every other column packs leading roles first, then the
+trailing ones at that column's own right edge. `web-dom` does the same with three flex tracks
+whose widths follow the panes'.
+
+Everywhere else the column is DROPPED, never the item: GTK and Qt draw one bar with no divider to
+track, XAML's `CommandBar` spans the window, and ArkUI's `.menus()` is a flat list. Degradation
+always removes the specialization and keeps the command.
+
+## The sidebar affordance
+
+A `selector(Sidebar)` supplies its own, so an app declares nothing for it. It reaches the backends
+as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID`, and each does what its
+platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`, XAML drops it because
+`NavigationView` draws its own pane button, and **UIKit drops it entirely** — `UISplitViewController`
+and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
+Suppress it with `.sidebar_toggle(false)`.
 
 ### The items
 
@@ -44,20 +116,19 @@ switch and how items are added and removed.
 | `toolbar_toggle(id, label, signal)` | a two-state button, bound two-way |
 | `toolbar_segmented(id, segments, signal)` | one native segmented control over a `Signal<usize>` |
 | `toolbar_menu(id, label, entries)` | a pull-down, from the same `MenuEntry`s the menu bar takes |
-| `toolbar_sidebar_toggle(id, label)` | show/hide the window's `selector(Sidebar)` pane |
+| `toolbar_label(id, text)` | static text — a status or a caption |
+| `toolbar_separator()` | a divider between neighbors in the same placement bucket |
+
+There are no spacers. Alignment is [placement](#placement), which is a fact about what the command
+IS rather than about where it happens to sit in a list, and it survives a bar that has to fold.
 
 **Search is declared elsewhere.** It belongs to the navigation surface it filters
 (`Selector::searchable`, [docs/search.md](search.md)), and Day merges the resulting field into this bar under the
 reserved id `day.search`. Declaring it on the surface lets the platform move it (into the
 navigation list on a window too narrow for a sidebar) without the app re-declaring anything.
 
-| `toolbar_label(id, text)` | static text |
-| `toolbar_separator()` | a divider where the platform has one |
-| `toolbar_space()` | a fixed gap |
-| `toolbar_flexible_space()` | a gap that absorbs the leftover width |
-
-Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.placeholder(t)`,
-`.enabled(bool)`, `.enabled_when(f)`.
+Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(bool)`,
+`.enabled_when(f)`, `.placement(…)`, `.label_style(…)`, `.prominent()`.
 
 **Use `toolbar_segmented` wherever exactly one of a set is on at a time**, such as a theme
 chooser or a view mode. Three toggles instead say "three independent switches" to the eye and to
@@ -77,24 +148,8 @@ on Qt, a tight `ToggleButton` row inside one `AppBarElementContainer` on XAML, a
 `.day-segmented` element the picker piece uses on the web. The control enforces exclusivity; the
 signal only ever holds the chosen index.
 
-`toolbar_sidebar_toggle` takes no `.action` and needs no icon. It is the one item whose behavior
-belongs to the toolkit rather than the app: each backend binds it to the `selector(Sidebar)` host
-in that window and drives that host's own collapse (`NSToolbarToggleSidebarItem` on AppKit,
-`AdwOverlaySplitView`'s `show-sidebar` on GTK, the splitter pane on Qt,
-`NavigationView.PaneDisplayMode` on Windows, a class on the split element on the web). Declare it
-first, before any `toolbar_flexible_space()`, which is where every desktop expects it. In a window
-with no sidebar it renders disabled rather than disappearing, so the bar keeps its shape as the
-route changes.
-
 Every item takes an `id`. It is the item's identity everywhere: the native item identifier, the
 dayscript target, and the key a targeted update addresses. Ids are unique within a bar.
-
-### The flexible space is the layout
-
-There is no leading/trailing property. Items before the first `toolbar_flexible_space()` are
-leading and the rest are trailing, and each backend expresses that with its own packing: GTK
-packs start/end, XAML splits `Content` from `PrimaryCommands`, AppKit and Qt insert a real
-expanding spacer. One ordered list produces four native layouts.
 
 ### What rebuilds and what patches
 
@@ -106,7 +161,7 @@ ride their own bindings and patch a single item instead:
 - a `.searchable()` surface's query signal ([docs/search.md](search.md))
 - `.enabled_when(…)`
 
-Keep those out of a `toolbar_reactive` builder's reactive reads. Put structure there: which
+Keep those out of a derived builder's reactive reads. Put structure there: which
 items exist, and their labels.
 
 ### Icons
@@ -134,38 +189,38 @@ falls back to its label, never to a broken-image placeholder. GTK additionally c
 icon theme before setting a name, because icon themes vary in completeness and a missing name
 paints GTK's broken-image glyph.
 
-### Where there is no toolbar
-
-Probe it:
+### What `Cap::Toolbar` means now
 
 ```rust
-if capability(Cap::Toolbar) != Support::Unsupported { /* toolbar(…) */ } else { /* in the content */ }
+capability(Cap::Toolbar)   // does this platform have WINDOW-LEVEL chrome that persists?
 ```
 
-`Cap::Toolbar` is `Native` on the four desktop backends, **`Emulated` on web-dom** (2026-08: a
-strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
-`toolbar_menu` pops a themed popup under its button, items activated through the same
-`day_dom_toolbar_action` route a plain button takes), and
-**`Native` on iOS and Android too** (2026-09). On iOS the items ride the NAVIGATION BAR of the
-page that is showing — the detail column's on an expanded iPad split, the merged stack's when
-it has collapsed or on a phone — as iOS 16 item groups, one per item, ahead of the page's own
-`bar_action`s; what the bar cannot fit folds into its overflow menu, trailing items first, so
-declare the least-used items last. No bottom bar, and the sidebar column never carries the
-window's bar: one bar per window, on the content it acts on.
+It no longer decides whether a command can be SHOWN. Every platform has somewhere to draw a
+contribution — a title bar, a navigation bar, a Material app bar, a `Navigation`'s `.menus()`, a
+drawn strip — so an app never needs a fallback branch for "there is no toolbar here", and the ones
+that had them have been deleted. `Native` on the desktops and the phones, `Emulated` on web-dom
+(a strip docked above the app root, since a browser tab has no title bar to hang chrome on) and on
+HarmonyOS (the bar belongs to the navigation destination, not the window). Probe it only for a
+layout decision that really turns on a persistent bar existing — Day-Tunes chooses between a
+toolbar transport and a Now Playing tab that way.
 
-A window whose content is not a navigation host anywhere — a canvas or a form filling the
-window — has no page bar to put them on, so both phones give it one (2026-09): iOS a navigation
-bar of the window's own across the top under the status bar, Android a Material app bar in the
-same place, each carrying the same items with the same overflow, and the window's content starts
-below it. The app's own `capability(Cap::Toolbar)` probe runs before it builds that window, so a
-backend that answered `Native` and then had nowhere to put the items left the app with neither a
-bar nor the in-content strip it skipped.
+A window whose content is not a navigation host anywhere — a canvas or a form filling the window —
+has no page bar to put items on, so both phones give it one: iOS a navigation bar of the window's
+own across the top under the status bar, Android a Material app bar in the same place.
 
-Android does the same in the nav host's APP BAR (2026-09): the items go in as menu items shown as actions, leading the page's own
-`bar_action`s, and what the bar cannot fit folds into its overflow (⋮) in declaration order.
-Day used to dock a second `MaterialToolbar` under the pages, which read as a phone's bottom bar
-and, tiled on a tablet, as a strip of icons stranded below both panes with the titled bar above
-them empty.
+On iOS the items ride the NAVIGATION BAR of the page that is showing, as item groups (one per
+item) so what the bar cannot fit folds into its overflow, trailing items first. A leading item
+SUPPLEMENTS the back button rather than replacing it (`leftItemsSupplementBackButton`, the flag
+SwiftUI sets for the same reason).
+
+On Android they go in as menu items on the nav host's app bar. The bar rests at `colorSurface`
+with `AppBarLayout` LIFT ON SCROLL, which is Material 3's answer to the same question iOS answers
+by blending its bar into the content: flat and continuous with the panes at rest, tonally lifted
+only once content scrolls beneath it. A `colorPrimary` band is the Material 2 look and reads, on a
+tiled tablet, as a stripe between the status bar and the panes. Only the OUTERMOST navigation host
+carries the window's items — a window can hold several, and giving each of them the same items
+painted a second app bar directly under the first.
+
 Buttons, toggles and labels draw as themselves, a menu item drops its menu, and a segmented item
 becomes a pull-down of its segments with the chosen one checked (a segmented control has no room
 in a phone's bar). That pull-down is titled by the segment IN FORCE, since a segmented control
@@ -185,21 +240,14 @@ the bar and lives in the overflow, where its label reads as a menu row — a Mat
 carries icon buttons and sends the rest to its overflow, and two text actions were enough to
 squeeze the Showcase's own title to "Day Showc…". An `Icon::Image` draws as the image on both
 phones, and Android re-tints it to the app bar's own color.
-`Unsupported` on HarmonyOS. Probe for `!= Support::Unsupported` rather than `== Native` unless
-the difference matters to the app; a caller usually wants to know whether the commands belong
-in a bar at all. Where the answer is `Unsupported`, `toolbar(…)` installs nothing and the app
-puts those commands in the content instead.
 
-For commands that belong on the chrome rather than in the page (Settings, Compose, "Show Source",
-"Add"), the navigation bar's trailing actions are the mobile counterpart:
-`selector(…).bar_action(icon, label, action)` ([docs/navigation.md](navigation.md)) draws an upper-right bar button
-on iOS/Android/HarmonyOS and is ignored on the desktop split, where the same command rides the
-toolbar. Call it repeatedly for several buttons, and use `list_action` for the ones that act on
-the list rather than on whatever page is open; a toolbar's commands usually map to those, since a
-desktop toolbar sits over the list and detail together. One registered closure can back both a
-toolbar button here and a bar action there.
 
 ## Per-backend native realization
+
+| | AppKit | GTK | Qt | XAML | UIKit | Android | ArkUI | web-dom |
+|---|---|---|---|---|---|---|---|---|
+| placement | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ |
+| column | ✓ | — | — | — | — | — | — | ✓ |
 
 | | AppKit | GTK | Qt | XAML |
 |---|---|---|---|---|
@@ -220,6 +268,9 @@ Notes that are not obvious from the table:
   arrangement would be in permanent conflict with the next install. Installing or removing a
   toolbar resizes the content view without a window resize, so the backend reports the new
   content size itself.
+- **GTK**: could express COLUMNS — `AdwOverlaySplitView` with a per-pane `AdwHeaderBar` is the
+  GNOME idiom, and Nautilus and Text Editor both do it. Day does not yet; the column is dropped
+  and one header bar carries everything. That is a gap, not a toolkit limit.
 - **GTK**: GNOME has no separate toolbar. The header bar is the toolbar, and GTK4 removed
   `GtkToolbar` outright, so items pack into the `AdwHeaderBar` the window already has, around the
   title. Buttons get the `flat` class, per the GNOME HIG. `pack_end` grows right-to-left, so the
@@ -229,26 +280,29 @@ Notes that are not obvious from the table:
   way: it takes its icon size and its icon/text style from the user's Qt settings, which is the
   KDE convention and why the backend sets neither. It does not get dragging between dock
   areas, which needs `QMainWindow`.
-- **XAML**: `CommandBar` right-aligns `PrimaryCommands` and left-aligns `Content`, which is
-  the flexible-space split, with one divergence: system XAML's `PrimaryCommands` accepts
+- **XAML**: `CommandBar` right-aligns `PrimaryCommands`, left-aligns `Content` and folds
+  `SecondaryCommands` into its overflow — which is exactly the three groups Day's placements
+  reduce to, so `Navigation`/`Principal` land in `Content`, `Automatic`/`Primary` in
+  `PrimaryCommands` and `Secondary` in the overflow. One divergence: system XAML's
+  `PrimaryCommands` accepts
   only `ICommandBarElement`, so a search field, a label or a fixed space cannot go there. Those
-  three always render in `Content` (on the leading side) wherever the app placed them. A search
-  item written after the flexible space therefore sits left on Windows and right on the other
-  three. That limit is the toolkit's; the alternative would be drawing a search box by hand,
+  three always render in `Content` (on the leading side) whatever placement they asked for. A
+  trailing search field therefore sits left on Windows and right on the other three. That limit is
+  the toolkit's; the alternative would be drawing a search box by hand,
   which this design does not do. XAML is Windows-only, so it is built and exercised in CI rather
   than on a developer's Mac or Linux box. Secondary windows get no toolbar there, the
   same as the menu bar: this shim's chrome lives on the primary window only.
 
 ## Re-installing the same bar
 
-An app declares its toolbar inside the page build, so a route change re-installs it, with freshly
-registered closures every time, since the ids come from `register_toolbar_value` /
-`register_menu_action`. Handing that to a backend rebuilds the native bar, which is invisible for a
-button and destructive for the search field: recreating the widget takes the keyboard focus and the
-caret with it. Typing a letter that moved the nav selection re-ran the page build and threw away the
-field being typed into, on every backend that rebuilds what it is handed, which is all of them.
+A derived contribution re-runs whenever anything it reads changes, with freshly registered closures
+every time, since the ids come from `register_toolbar_value` / `register_menu_action`. Handing that
+to a backend rebuilds the native bar, which is invisible for a button and destructive for the
+search field: recreating the widget takes the keyboard focus and the caret with it. Typing a letter
+that moved the nav selection re-ran the page build and threw away the field being typed into, on
+every backend that rebuilds what it is handed, which is all of them.
 
-`set_window_toolbar` therefore compares the incoming model with the installed one, ignoring what
+`set_toolbar` therefore compares the incoming model with the installed one, ignoring what
 cannot matter to the widgets: the action ids, and the search field's live text and completions
 (kept current through `ToolbarPatch::Text`/`Suggestions`, never through a rebuild). Same items in
 the same order, with the same kinds, labels, icons and enablement, means the native bar is already
@@ -257,6 +311,19 @@ at all. Anything else is a real change and installs as before.
 
 This is why a backend never has to preserve focus across an install: an install that would have
 disturbed the focus does not happen.
+
+## One model per window
+
+Every contribution — the window's own and each showing page's — is composed into ONE model per
+window before it crosses to the toolkit, so a backend draws what it has always drawn and never has
+to know that a page contributed any of it. There is deliberately no per-page model: one authority,
+so a live `enabled_when` patch and a re-compose cannot disagree. (They did once, and a page command
+declared while nothing was selected stayed disabled on a window that never re-composed afterwards —
+a tiled Android tablet, where selecting a row changes no chrome. Day-Rise's
+`dayscript/toolbar-enable.yaml` is that case, kept.)
+
+The corollary for scripting: `toolbar:` can only reach what is actually ON the bar. A step that
+drives a list pane's command has to run while that list is showing.
 
 ## Events
 
@@ -299,19 +366,29 @@ disable one, write both bound signals, and read back what the bar did. The walkt
 button, types into the search field, sets the toggle, adds the optional item and runs it, then
 disables one and clears the search, asserting the page's live readouts after each.
 
-Day News carries the applied version: refresh and mark-all-read, next-unread and a star toggle,
-then search at the trailing edge, with the same search signal moving into the timeline's own
-field on a phone.
+Day-Rise carries the applied version, and it is the three-column case: the sidebar host's own
+commands, the content-list pane's filter and add, and the editor's Done, each declared on the piece
+it acts on. `dayscript/demo.yaml` drives all three, and `dayscript/toolbar-enable.yaml` is the
+regression for a page command's live enablement.
 
-Verified by running the showcase and Day News walkthroughs on macos-appkit, macos-gtk and
-macos-qt, and by capturing the real windows (an offscreen snapshot cannot show the title bar on
-AppKit, and omits the header bar on GTK). XAML is CI-only.
+Verified by running Day-Rise's demo on macos-appkit, macos-gtk, macos-qt, web-dom, ios-uikit
+(iPhone and iPad) and android-mdc (phone and tablet), and the Showcase walkthrough on
+macos-appkit and web-dom. A green `toolbar:` step proves the MODEL, never the pixels — an
+offscreen snapshot cannot show the title bar on AppKit — so any change to a placement path is
+also checked by capturing the real window.
 
 ## Follow-ups
 
 - macOS toolbar customization, which needs the model and an autosaved arrangement to be
   reconciled rather than in conflict.
 - Qt dock-area dragging, which needs `DayWindow` to become a `QMainWindow`.
-- The phone bars (2026-09) take the desktop model as is; a segmented item and a search field are
-  the two kinds that change shape there. Edge-to-edge Android does not yet pad the bar past the
-  system navigation bar.
+- GTK columns, through `AdwOverlaySplitView` with a per-pane `AdwHeaderBar` (see the backend
+  notes) — the only platform where the column is dropped for want of work rather than for want of
+  an API.
+- Contributions order by registration, not by tree position: a `when` arm switching on late
+  appends within its placement bucket rather than inserting where it sits.
+- `web-dom` measures the panes once per re-lower, so a track's width is stale until the next one.
+- On an iPad the backend infers whether a tab page will bring its own navigation host from the
+  tab bar's horizontal size class — the same question `gated_detail_piece` asks in the pieces
+  layer. Two layers deriving one fact; the fix is for the tabs presentation to build each
+  destination as a navigation host, as SwiftUI's `TabView { NavigationStack { … } }` does.

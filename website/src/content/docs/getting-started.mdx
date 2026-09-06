@@ -19,7 +19,7 @@ of which is the first compile.
 
 ## 1. Install the day CLI
 
-The `day` CLI is on crates.io:
+The [`day` CLI](/docs/glossary#day-cli) is on crates.io:
 
 <InstallCommand />
 
@@ -58,16 +58,16 @@ HarmonyOS emulators.
 ### Run a sample app first
 
 If you'd rather see a real app before scaffolding your own, `--git` takes a repository URL and
-does the rest — clone, find the project inside, build for your host's default toolkit, run:
+does the rest — clone, find the project inside, build for your host's default [toolkit](/docs/glossary#toolkit), run:
 
 ```bash
 day launch --git https://github.com/daybrite/Day-Rise.git
 ```
 
 It prints where it put the checkout, so you can `cd` there and edit the code. Every sample app
-works this way: [Day Rise](https://github.com/daybrite/Day-Rise) (the scaffold, four pages),
+works this way: [Day Rise](https://github.com/daybrite/Day-Rise) (the scaffold, four [pages](/docs/glossary#page)),
 [Day Skies](https://github.com/daybrite/Day-Skies) (live weather),
-[Day Showcase](https://github.com/daybrite/Day-Showcase) (every subsystem, four locales).
+[Day Showcase](https://github.com/daybrite/Day-Showcase) (every subsystem, four [locales](/docs/glossary#locale)).
 [CLI & projects](/docs/cli#running-a-repository-directly) covers the flag in full.
 
 ## 2. Install the Day extension for VS Code
@@ -86,12 +86,12 @@ npx vsce package`, then install the produced `.vsix`.)
 
 Two companions are worth installing alongside it, and the extension recommends both in any Day
 workspace: **rust-analyzer** (the Rust language service) and **Even Better TOML** (which the Day
-extension wires up to validate `Day.toml` against its published schema automatically).
+extension wires up to validate [`Day.toml`](/docs/glossary#day-toml) against its published schema automatically).
 
 ## 3. Create a project
 
 In VS Code: **⇧⌘P → "Day: New Project…"**. Name the app, pick the platform-toolkits it should
-target (start with your desktop; you can add more later), choose a parent folder, and the
+[target](/docs/glossary#target) (start with your desktop; you can add more later), choose a parent folder, and the
 extension scaffolds with `day new` and opens the project.
 
 Terminal equivalent:
@@ -101,9 +101,9 @@ day new app hello --toolkit macos-appkit --appid com.example.hello && cd hello &
 ```
 
 The scaffold is a normal Cargo project (`cargo build` and `cargo clippy` work without the
-`day` CLI) plus a `Day.toml` manifest, a `build.rs` that generates the typed `res::` resource
-constants, per-target platform folders, a Fluent `resource/locales/` tree, a dayscript
-walkthrough, store-listing and website stubs (`store/`, `website/` — skip the latter with
+`day` CLI) plus a `Day.toml` manifest, a `build.rs` that generates the typed `res::` [resource](/docs/glossary#resource)
+constants, per-target platform folders, a [Fluent](/docs/glossary#fluent) `resource/locales/` tree, a [dayscript](/docs/glossary#dayscript)
+[walkthrough](/docs/glossary#walkthrough), store-listing and website stubs (`store/`, `website/` — skip the latter with
 `--no-website`), and an `AGENTS.md` that teaches AI agents this project's conventions.
 The two files that matter first:
 
@@ -123,7 +123,7 @@ Look at the **status bar**, where the Day extension lives:
 - **⚙ debug/release** switches the build profile.
 
 Pick your desktop target and press ▶. The first build takes a while (it's compiling a native
-toolkit backend); after that it's an incremental compile plus relaunch, a few seconds on a warm
+toolkit [backend](/docs/glossary#backend)); after that it's an incremental compile plus relaunch, a few seconds on a warm
 build. Compile errors land in the Problems panel with clickable locations.
 
 Terminal equivalent: `day launch -p macos-appkit`.
@@ -168,7 +168,7 @@ Open the Chat view (**⌃⌘I**), switch to **Agent** mode, and try prompts like
 A well-behaved agent will follow the loop the scaffolded `AGENTS.md` teaches it:
 
 1. **`day_metadata`** — learn the targets and locales that exist.
-2. **Edit** — create `src/pages/configuration.rs`, register the route, add `nav-configuration`
+2. **Edit** — create `src/pages/configuration.rs`, register the [route](/docs/glossary#route), add `nav-configuration`
    keys to *every* locale, give controls stable `.id()`s.
 3. **`day_relaunch`** — compile errors come back inside the tool result; it fixes and retries.
 4. **`day_drive`** — `navigate` to the new page, `assert_text` the ids, `screenshot`. The

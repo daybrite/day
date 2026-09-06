@@ -47,8 +47,8 @@ column((avatar, name, bio))
 ```
 
 `Color` is a plain sRGB value (`Color::rgb`, `Color::rgba`, `Color::hex(0xRRGGBB)`, plus `BLACK`,
-`WHITE`, `CLEAR`). `.background()` accepts a static color or a reactive one (a closure or
-signal), so appearance can follow state:
+`WHITE`, `CLEAR`). `.background()` accepts a static color or a [reactive](/docs/glossary#reactive) one (a closure or
+[signal](/docs/glossary#signal)), so appearance can follow state:
 
 ```rust
 label(move || status.get().to_string())
@@ -57,7 +57,7 @@ label(move || status.get().to_string())
 
 There is no `theme::` token module, because the default appearance is already native: text,
 controls, separators, and window grounds take the platform's own dynamic colors inside each
-backend (`NSColor.labelColor`, Material surface attributes, QPalette roles), so dark/light
+[backend](/docs/glossary#backend) (`NSColor.labelColor`, Material surface attributes, QPalette roles), so dark/light
 tracking needs no app-side tokens. The semantic roles that must cross the spec do so as typed
 values: `SurfaceRole` for grouped-card surfaces, `Font` for typography. Colors *you* specify
 are applied as given: a hardcoded `Color::hex(0xFFFFFF)` background is white in both modes, so
@@ -95,7 +95,7 @@ with_environment(Palette::dark(), || {
 ## Per-platform divergence
 
 Sometimes the right style differs per platform: denser padding on desktop, larger touch targets
-on mobile. Today you branch on the compiled toolkit, which is a process constant and costs
+on mobile. Today you branch on the compiled [toolkit](/docs/glossary#toolkit), which is a process constant and costs
 nothing at runtime:
 
 ```rust
@@ -108,7 +108,7 @@ never shipped, and `cfg!` branches are the settled idiom. Either way, where plat
 Day gives you a targeted override.
 
 Piece-specific style hooks exist where a control has real variants (`button(...).style(...)`
-takes a `ButtonStyle`, `selector(...).style(SelectorStyle::Sidebar)` picks sidebar vs. tab
+takes a `ButtonStyle`, `selector(...).style(SelectorStyle::Sidebar)` picks [sidebar](/docs/glossary#sidebar) vs. tab
 presentation), and these map to native variants, not custom drawing.
 
 ## What you can't restyle

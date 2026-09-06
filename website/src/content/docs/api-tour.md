@@ -42,8 +42,8 @@ fn root() -> impl Piece {
 
 ## Signals: state that binds
 
-A `Signal<T>` is a `Copy` reactive cell; copying copies a handle to one shared slot, not the
-value, so the same signal can live in as many closures as you like. Reading inside
+A `Signal<T>` is a `Copy` [reactive](/docs/glossary#reactive) cell; copying copies a handle to one shared slot, not the
+value, so the same [signal](/docs/glossary#signal) can live in as many closures as you like. Reading inside
 a bound closure subscribes it; writing re-runs exactly the closures that read it
 ([Reactivity](/docs/reactivity) explains the model).
 
@@ -57,7 +57,7 @@ count.with(|c| c.abs());     // borrow without cloning
 count.get_untracked();  // read without creating a dependency
 ```
 
-Any closure that reads a signal *becomes reactive*: when the signal changes, only that binding
+Any closure that reads a signal *becomes reactive*: when the signal changes, only that [binding](/docs/glossary#binding)
 re-runs, and nothing else in the tree is touched.
 
 ```rust
@@ -93,7 +93,7 @@ Wrap any subtree in `scroll(...)` to make it scroll natively.
 
 ## Inputs
 
-(Each input is a piece; [Pieces](/docs/pieces) covers the vocabulary.)
+(Each input is a [piece](/docs/glossary#piece); [Pieces](/docs/pieces) covers the vocabulary.)
 
 Two-way controls take a signal directly; the user's edits flow back into it (origin-tagged, so
 there is no feedback echo).
@@ -188,7 +188,7 @@ stack(path, home_view).destination(|key| detail_view(key))
 // the native back button writes the pop back into `path`.
 ```
 
-Because each surface owns its own signal, nesting costs nothing: a `Tabs` selector or a `stack`
+Because each surface owns its own signal, nesting costs nothing: a `Tabs` [selector](/docs/glossary#selector) or a `stack`
 inside a `Sidebar` selector needs no extra wiring. Keys don't have to be strings: declare a
 `day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
 keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the selector to
@@ -197,7 +197,7 @@ keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the sele
 
 ## Deep links and dayscript
 
-A thin string-route adapter sits over those signals, so keys double as routes:
+A thin string-route adapter sits over those signals, so keys double as [routes](/docs/glossary#route):
 
 ```rust
 navigate("settings");   // select the settings section / tab
@@ -206,12 +206,12 @@ current_route();        // the full path, outermost surface first
 ```
 
 The same keys drive deep links (`DAY_DEEPLINK=settings`;
-[deep links reference](/docs/internal/deep-links)) and dayscript automation
+[deep links reference](/docs/internal/deep-links)) and [dayscript](/docs/glossary#dayscript) automation
 (`navigate: { route: settings }`; [testing with dayscript](/docs/dayscript)).
 
 ## Localization and accessibility
 
-Text localizes through Fluent with `tr`, including interpolated signal arguments. Every Piece can
+Text localizes through [Fluent](/docs/glossary#fluent) with `tr`, including interpolated signal arguments. Every Piece can
 carry accessibility metadata.
 
 ```rust

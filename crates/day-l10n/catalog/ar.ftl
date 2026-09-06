@@ -36,6 +36,7 @@ day-settings-theme = المظهر
 day-theme-light = فاتح
 day-theme-dark = داكن
 day-theme-system = النظام
+day-toggle-sidebar = إظهار/إخفاء الشريط الجانبي
 day-file = ملف
 day-view = عرض
 day-help = مساعدة

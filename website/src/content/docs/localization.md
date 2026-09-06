@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day localizes with [Mozilla Fluent](https://projectfluent.org/), a message format built for the
 grammar problems that `printf`-style formats handle badly: plurals, gender, and languages that
-reorder everything. Localization runs through Day's core: the locale is a reactive signal,
+reorder everything. Localization runs through Day's core: the locale is a [reactive](/docs/glossary#reactive) [signal](/docs/glossary#signal),
 every built-in string mechanism goes through it, and the test tooling understands it.
 
 ## Files and setup
@@ -101,7 +101,7 @@ day launch -p macos-appkit --locale fr --script dayscript/walkthrough.yaml
 day launch -p macos-appkit --locale en-XA
 ```
 
-The first runs your [dayscript](/docs/dayscript) walkthrough under French; the CI configuration
+The first runs your [dayscript](/docs/dayscript) [walkthrough](/docs/glossary#walkthrough) under French; the CI configuration
 does exactly this, so the [gallery](/gallery) screenshots double as translation review. Scripts
 can assert by Fluent key rather than literal text, so one script passes in every locale.
 
@@ -120,7 +120,7 @@ from a locale.
   up when you test with `--locale`.
 - **RTL:** layout mirroring is built into the layout engine (leading/trailing resolve at
   placement) and exercised: the showcase ships an Arabic locale, CI captures screenshots in en,
-  fr, ar, and zh-CN, and a dedicated `rtl-check` dayscript verifies the mirroring. There's no
+  fr, ar, and zh-CN, and a dedicated `rtl-check` [dayscript](/docs/glossary#dayscript) verifies the mirroring. There's no
   `ar-XB` RTL pseudolocale yet, so test with a real RTL locale.
 - **Number/date formatting** follows the locale through Fluent; for formatting outside messages
   you're in ordinary Rust and choose your own crates.

@@ -177,27 +177,35 @@ impl Qt {
         if bar.is_null() {
             return;
         }
-        for item in items {
+        // Placement decides the packing (docs/toolbars.md): leading roles first, then an
+        // EXPANDING spacer, then the trailing ones. Qt has no way to align a group with a
+        // splitter's divider, so the column an item was declared in is not expressible here and
+        // is dropped — every item still draws, in one bar, in the order the app declared.
+        use day_spec::ToolbarPlacement as P;
+        let leading = |p: P| matches!(p, P::Navigation | P::Principal);
+        let ordered: Vec<ToolbarItem> = items
+            .iter()
+            .filter(|i| leading(i.placement))
+            .chain(items.iter().filter(|i| !leading(i.placement)))
+            .cloned()
+            .collect();
+        let split = items.iter().filter(|i| leading(i.placement)).count();
+        for (n, item) in ordered.iter().enumerate() {
+            if n == split && split > 0 && split < ordered.len() {
+                unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
+            }
             let id = cstr(&item.id);
             let label = cstr(&item.label);
             let tip = cstr(item.tooltip.as_deref().unwrap_or(&item.label));
             let (icon, fallback) = icon_args(item.icon.as_ref());
             let icon = cstr(&icon);
             match &item.kind {
-                ToolbarItemKind::Button
-                | ToolbarItemKind::Toggle { .. }
-                | ToolbarItemKind::SidebarToggle => {
-                    // A checkable action whose checked state IS the sidebar's visibility, so
-                    // the button reads pressed while the pane is open (docs/toolbars.md).
+                ToolbarItemKind::Button | ToolbarItemKind::Toggle { .. } => {
                     let (checkable, checked) = match item.kind {
                         ToolbarItemKind::Toggle { on } => (1, on as c_int),
-                        ToolbarItemKind::SidebarToggle => (1, 1),
                         _ => (0, 0),
                     };
-                    let action = match item.kind {
-                        ToolbarItemKind::SidebarToggle => SIDEBAR_TOGGLE_ACTION,
-                        _ => item.action,
-                    };
+                    let action = item.action;
                     unsafe {
                         ffi::day_qt_toolbar_add_action(
                             bar,
@@ -285,8 +293,6 @@ impl Qt {
                     ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr())
                 },
                 ToolbarItemKind::Separator => unsafe { ffi::day_qt_toolbar_add_separator(bar) },
-                ToolbarItemKind::Space => unsafe { ffi::day_qt_toolbar_add_space(bar, 0) },
-                ToolbarItemKind::FlexibleSpace => unsafe { ffi::day_qt_toolbar_add_space(bar, 1) },
             }
         }
         unsafe { ffi::day_qt_window_toolbar_done(win) };
@@ -321,7 +327,7 @@ impl Qt {
 
     /// The window a day root handle belongs to: the primary window, or the secondary whose
     /// content area is this handle.
-    fn window_of(&self, h: &QtHandle) -> Option<*mut c_void> {
+    pub(crate) fn window_of(&self, h: &QtHandle) -> Option<*mut c_void> {
         if let Some(w) = self.secondary.iter().find(|w| w.content == h.0) {
             return Some(w.win);
         }

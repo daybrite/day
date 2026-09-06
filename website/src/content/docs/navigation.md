@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day's navigation model is two Pieces and a route registry. `selector` handles "one of several
 top-level sections" (a sidebar on desktop, tabs where that's the platform idiom); `stack` handles
 "drill in, come back" (push/pop with the platform's own transitions and back gestures). Both are
-driven by plain signals, so navigation state is app state that you can inspect, set, and test.
+driven by plain [signals](/docs/glossary#signal), so navigation state is app state that you can inspect, set, and test.
 
 ## Sections: `selector`
 
@@ -114,7 +114,7 @@ stack(path, editor())
 ```
 
 Return `Proceed` to pop now or `Handled` to consume it; a `Handled` guard can hold the
-`BackRequest` and call `proceed()` later. While a guard is armed Day stops the toolkit from
+`BackRequest` and call `proceed()` later. While a guard is armed Day stops the [toolkit](/docs/glossary#toolkit) from
 auto-popping on a native gesture and routes the back through your guard instead: on iOS the
 swipe is disabled and the back button is intercepted, on Android a back callback takes priority
 (the predictive-back preview is unavailable while armed), on GTK the page's swipe is disabled.
@@ -153,7 +153,7 @@ It saves the selected key (or the stack's path) on every change and reads it bac
 launch deep link outranks it, and a saved value that no longer fits is ignored. Persistence runs
 through a store you install once (`day_part_prefs::install_nav_store()` in `main`), which is
 disk-backed, so restore also survives an Android process death. With no store installed, `.restore`
-is a no-op, so you can persist on one target and start fresh on another with the same code.
+is a no-op, so you can persist on one [target](/docs/glossary#target) and start fresh on another with the same code.
 
 [dayscript](/docs/dayscript) uses the same mechanism: `navigate: { route: controls }` in
 a script performs the write your UI would, and `assert_route` compares the full
@@ -181,7 +181,7 @@ selector(section)
 
 A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
 enum since a tab is always selected. Under the hood each variant maps to its declared string, so
-deep links, dayscript, and `current_route()` are unchanged.
+deep links, [dayscript](/docs/glossary#dayscript), and `current_route()` are unchanged.
 
 Typed routes pay off most for **routes that carry data**. Implement the `Route` trait by hand
 (`key()` encodes, `from_key()` parses), and stack destinations receive the typed value:
@@ -235,7 +235,7 @@ stringly, move to an enum when the app grows, mix the two freely (a typed select
 - **State restoration:** `.restore(key)` persists and restores selection and path through the
   installed nav store, as described above. Persist your own signals (see
   [parts: prefs](/docs/parts)) only for custom state beyond navigation.
-- **More windows:** `day::open_window` opens secondary windows on every backend
+- **More windows:** `day::open_window` opens secondary windows on every [backend](/docs/glossary#backend)
   (`WindowKind::Normal` or `Preferences`, plus `register_preferences_with` for the settings
   window): native windows on the desktop backends, iPad scenes, Android activities, and OHOS
   abilities; iPhone and the web present them as a fullscreen cover. See

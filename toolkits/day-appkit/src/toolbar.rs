@@ -238,6 +238,7 @@ struct WinToolbar {
     /// The toolbar holds its delegate weakly, and each item holds its target weakly — both
     /// must be owned here for the window's lifetime.
     _delegate: Retained<BarDelegate>,
+    /// The window's whole bar, as Day composed it (docs/toolbars.md).
     items: Vec<ToolbarItem>,
     targets: HashMap<String, Retained<ItemTarget>>,
 }
@@ -255,31 +256,102 @@ day_core::tls_group! {
 
 }
 
-/// The identifier each model item occupies, in bar order. Spacers use the system identifiers —
-/// they are what AppKit recognizes as spacers, and they may legitimately repeat.
+/// The identifier each model item occupies, in bar order, with the system spacers synthesized
+/// from the items' placements (docs/toolbars.md).
+///
+/// The app no longer writes spacers. `Navigation` items lead, a flexible space follows them, a
+/// `Principal` item sits between two more, and everything trailing packs to the right — which is
+/// the packing every desktop toolbar wants and the one apps used to spell out by hand, wrongly as
+/// often as not. A window whose navigation host asked for one opens with AppKit's own
+/// `NSToolbarToggleSidebarItem`: the system glyph, the localized name, the position beside the
+/// split's divider, and the `toggleSidebar:` action `NSSplitViewController` implements.
 fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
+    use day_spec::ToolbarColumn as C;
     let names: Vec<Retained<NSString>> = BARS.with(|b| {
-        b.with(key, |w| w.items.iter().map(identifier_of).collect())
-            .unwrap_or_default()
+        b.with(key, |w| {
+            let mut out: Vec<Retained<NSString>> = Vec::new();
+            let has = |c: C| w.items.iter().any(|i| i.column == c);
+            // The SIDEBAR column, packed against the divider it acts on: a leading flexible
+            // space pushes the show/hide button to the sidebar's trailing edge, which is where
+            // Notes and Xcode put theirs.
+            if has(C::Sidebar) {
+                out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
+                column_items(&mut out, &w.items, C::Sidebar, false);
+            }
+            // AppKit tracks the sidebar's divider itself, so everything after this sits over
+            // what is to the right of the sidebar (docs/toolbars.md).
+            out.push(unsafe {
+                objc2_app_kit::NSToolbarSidebarTrackingSeparatorItemIdentifier.copy()
+            });
+            // The CONTENT-LIST column, and a second separator pinned to ITS divider — the one
+            // Day builds itself, because AppKit only vends the sidebar's.
+            if has(C::List) {
+                column_items(&mut out, &w.items, C::List, true);
+                out.push(NSString::from_str(LIST_SEPARATOR_ID));
+            }
+            // The DETAIL column, and the window's own items with it: side by side, a command
+            // that acts on the whole window belongs over the content it is looking at.
+            column_items(&mut out, &w.items, C::Detail, true);
+            column_items(&mut out, &w.items, C::Window, true);
+            out
+        })
+        .unwrap_or_default()
     });
     let refs: Vec<&NSToolbarItemIdentifier> = names.iter().map(|n| n.as_ref()).collect();
     NSArray::from_slice(&refs)
 }
 
+/// One column's items in bar order, with a flexible space where the packing turns around:
+/// leading roles first, then the space, then the trailing ones — so the prominent action sits at
+/// that column's right edge rather than adrift in the middle of it.
+fn column_items(
+    out: &mut Vec<Retained<NSString>>,
+    items: &[ToolbarItem],
+    col: day_spec::ToolbarColumn,
+    spread: bool,
+) {
+    use day_spec::ToolbarPlacement as P;
+    let mine: Vec<&ToolbarItem> = items.iter().filter(|i| i.column == col).collect();
+    if mine.is_empty() {
+        return;
+    }
+    let lead = [P::Navigation, P::Automatic];
+    let trail = [P::Primary, P::Secondary, P::Bottom];
+    let has_lead = mine.iter().any(|i| lead.contains(&i.placement));
+    let has_trail = mine.iter().any(|i| trail.contains(&i.placement));
+    for i in mine.iter().filter(|i| lead.contains(&i.placement)) {
+        out.push(identifier_of(i));
+    }
+    if spread && has_lead && has_trail {
+        out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
+    }
+    for i in mine.iter().filter(|i| i.placement == P::Principal) {
+        out.push(identifier_of(i));
+    }
+    if spread && !has_lead && has_trail {
+        out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
+    }
+    for i in mine.iter().filter(|i| trail.contains(&i.placement)) {
+        out.push(identifier_of(i));
+    }
+}
+
+/// The identifier of the tracking separator Day pins to the content-list divider. AppKit vends
+/// one for the SIDEBAR divider only, so a three-pane window builds its second here.
+const LIST_SEPARATOR_ID: &str = "day.toolbar.list-separator";
+
 fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
+    // The sidebar affordance a `selector(Sidebar)` contributes for itself resolves to AppKit's
+    // OWN item (docs/toolbars.md): the system glyph, the localized name, the position beside the
+    // split's divider, and the `toggleSidebar:` action `NSSplitViewController` implements. Day's
+    // button is never built — one affordance, the platform's.
+    if item.id == day_spec::SIDEBAR_TOGGLE_ID {
+        return unsafe { objc2_app_kit::NSToolbarToggleSidebarItemIdentifier.copy() };
+    }
     match item.kind {
-        ToolbarItemKind::FlexibleSpace => unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() },
         // macOS toolbars have no separator: a fixed gap is the honest stand-in, and the one
         // the system itself uses between groups.
-        ToolbarItemKind::Space | ToolbarItemKind::Separator => unsafe {
-            NSToolbarSpaceItemIdentifier.copy()
-        },
-        // The system item, not one of ours: AppKit gives it the right glyph, the localized
-        // name, the leading position next to the split's divider, and the `toggleSidebar:`
-        // action that NSSplitViewController implements (docs/toolbars.md, docs/navigation.md).
-        ToolbarItemKind::SidebarToggle => unsafe {
-            objc2_app_kit::NSToolbarToggleSidebarItemIdentifier.copy()
-        },
+        ToolbarItemKind::Separator => unsafe { NSToolbarSpaceItemIdentifier.copy() },
         _ => NSString::from_str(&item.id),
     }
 }
@@ -287,6 +359,22 @@ fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
 /// Build the NSToolbarItem for `ident`. AppKit asks for a fresh item each time (including when
 /// it builds the overflow menu), so nothing here is cached.
 fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<NSToolbarItem>> {
+    // The content-list divider's tracking separator. AppKit builds the sidebar's from its own
+    // identifier but has none for a third pane, so Day binds this one to the split itself
+    // (docs/toolbars.md) — the items after it then sit over the detail, and the ones before it
+    // over the list, at whatever width the user drags the dividers to.
+    if ident == LIST_SEPARATOR_ID {
+        let _ = mtm;
+        let split = crate::list_split_view(key)?;
+        return Some(Retained::into_super(unsafe {
+            objc2_app_kit::NSTrackingSeparatorToolbarItem::
+                trackingSeparatorToolbarItemWithIdentifier_splitView_dividerIndex(
+                    &NSString::from_str(LIST_SEPARATOR_ID),
+                    &split,
+                    1,
+                )
+        }));
+    }
     let (item, target) = BARS.with(|b| {
         b.with(key, |w| {
             let item = w.items.iter().find(|i| i.id == ident)?.clone();
@@ -447,7 +535,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
 }
 
 /// The window a day root handle belongs to.
-fn window_of(h: &Handle) -> Option<Retained<NSWindow>> {
+pub(crate) fn window_of(h: &Handle) -> Option<Retained<NSWindow>> {
     h.window()
 }
 
@@ -455,9 +543,10 @@ impl AppKit {
     /// Install `items` as this window's toolbar (docs/toolbars.md). An empty slice removes it.
     pub(crate) fn install_toolbar(&mut self, h: &Handle, items: &[ToolbarItem]) {
         let Some(window) = window_of(h) else { return };
-        let mtm = self.mtm();
         let key = Retained::as_ptr(&window) as usize;
-
+        // An empty model takes the bar away. Day composes what the app declared with whichever
+        // page chromes are showing before it gets here (docs/toolbars.md), so empty really does
+        // mean this window has no commands at all right now.
         if items.is_empty() {
             window.setToolbar(None);
             BARS.with(|b| {
@@ -466,6 +555,8 @@ impl AppKit {
             report_content_size(&window);
             return;
         }
+        let mtm = self.mtm();
+        let key = Retained::as_ptr(&window) as usize;
 
         // One target per item that has something to report, created up front so the delegate's
         // item factory only ever reads.

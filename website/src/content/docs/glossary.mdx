@@ -1,0 +1,46 @@
+---
+title: Glossary
+description: The words Day uses, each in a sentence or two, with the page that introduces it.
+order: 62
+section: Reference
+---
+
+{/*
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+*/}
+
+import { sorted } from '../../lib/glossary.mjs';
+
+The words these docs use, in the sense Day gives them. Where a term has an everyday meaning too,
+the entry says which one applies. Each entry names the page that introduces the concept; that is
+the place to read next. Elsewhere in the docs, a term with a dotted underline is one of these, and
+hovering it shows the definition.
+
+<dl class="glossary">
+  {sorted.map((t) => (
+    <div class="glossary-entry" id={t.id}>
+      <dt>
+        <a href={`#${t.id}`}>{t.term}</a>
+        {t.also && <span class="glossary-also">also {t.also.join(', ')}</span>}
+      </dt>
+      <dd>
+        {t.definition.split('`').map((part, i) => (i % 2 ? <code>{part}</code> : part))}
+        <span class="glossary-see">Defined in <a href={t.see.href}>{t.see.title}</a></span>
+      </dd>
+    </div>
+  ))}
+</dl>
+
+<style>{`
+  .glossary { margin: 28px 0; }
+  .glossary-entry { padding: 14px 0; border-top: 1px solid var(--border-soft); scroll-margin-top: 84px; }
+  .glossary-entry:last-child { border-bottom: 1px solid var(--border-soft); }
+  .glossary dt { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-weight: 650; color: var(--text); }
+  .glossary dt a { color: var(--text); text-decoration: none; }
+  .glossary dt a:hover { text-decoration: underline; }
+  .glossary-also { font-weight: 400; font-size: 0.86rem; color: var(--faint); }
+  .glossary dd { margin: 6px 0 0; color: var(--muted); }
+  .glossary-see { display: block; margin-top: 6px; font-size: 0.88rem; }
+  .glossary-entry:target dt a { color: var(--brand); }
+`}</style>

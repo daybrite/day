@@ -23,7 +23,7 @@ menu_item("Save").key("s").action(save)     // ⌘S on macOS, Ctrl+S everywhere 
 
 **Works on:** context menus render natively everywhere (`NSMenu`, `GtkPopoverMenu`, `QMenu`,
 `UIMenu`, Android `PopupMenu`, XAML `MenuFlyout`). The app menu is a menu bar on the four
-desktop backends and the app-bar overflow (⋮) on Android; on iPhone it is a no-op, since
+desktop [backends](/docs/glossary#backend) and the app-bar overflow (⋮) on Android; on iPhone it is a no-op, since
 touch platforms have no global menu bar. Toolbars exist only where the platform has them:
 `Cap::Toolbar` is `Native` on the four desktop backends and `Unsupported` everywhere else.
 Secondary windows work on every backend: native windows on the desktops, iPad, Android, and
@@ -78,13 +78,13 @@ About and Quit, so your submenus start at File), in a bar at the top of the wind
 Windows, in a `QMenuBar` on Qt (the native global bar on `macos-qt`), and in the app-bar
 overflow on Android. Android allows one level of submenu; deeper ones flatten.
 
-`app_menu` resolves labels once, in the install-time locale. If your app has a runtime
+`app_menu` resolves labels once, in the install-time [locale](/docs/glossary#locale). If your app has a runtime
 language picker, install with `app_menu_reactive(builder)` instead; the builder re-runs on a
 locale change and reinstalls the bar in the new language.
 
 ## 2. Attach context menus
 
-The same entries attach to any piece with `.context_menu(…)`, shown on secondary-click on
+The same entries attach to any [piece](/docs/glossary#piece) with `.context_menu(…)`, shown on secondary-click on
 desktop and long-press on touch:
 
 ```rust
@@ -102,7 +102,7 @@ behavior, and passing an empty `Vec` removes the menu.
 ## 3. Put commands in the window toolbar
 
 A toolbar belongs to the window chrome. It doesn't live in the piece tree, and Day doesn't lay
-it out. Probe for it first, the way the showcase's Toolbars page does, and put the same commands
+it out. Probe for it first, the way the showcase's Toolbars [page](/docs/glossary#page) does, and put the same commands
 in the content where there is no bar:
 
 ```rust
@@ -125,7 +125,7 @@ modifiers are `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.en
 
 Search has no toolbar item. Declare it on the navigation surface it filters, with
 `selector(section).searchable(query)`, and Day draws the field where the platform puts search.
-That lets it move into the navigation list on a window too narrow for a sidebar without your code
+That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/glossary#sidebar) without your code
 changing.
 
 There is no leading/trailing property: items before the first `toolbar_flexible_space()` pack
@@ -142,7 +142,7 @@ always render on the leading side.
 
 Use `toolbar_reactive(builder)` when the item list or its labels derive from state; each pass
 replaces the bar. Keep the values that change often out
-of that builder: a toggle's signal, a search field's signal, and `.enabled_when(…)` patch the
+of that builder: a toggle's [signal](/docs/glossary#signal), a search field's signal, and `.enabled_when(…)` patch the
 one item in place, so a command greying out never disturbs a search in progress. On mobile,
 the counterpart for a single app-wide command is the navigation bar's trailing
 `.bar_action(icon, label, action)`; one registered closure can back both.
@@ -167,7 +167,7 @@ opened it. Close is asynchronous everywhere: the title-bar button, a platform ge
 `WindowHandle::close()` all wait for the platform to confirm, then the content is disposed and
 `on_close` runs. Closing the primary window quits the app.
 
-All of this works on every backend. Where the toolkit cannot open windows (iPhone, web, and
+All of this works on every backend. Where the [toolkit](/docs/glossary#toolkit) cannot open windows (iPhone, web, and
 the `Preferences` kind on all mobile), the content presents as a fullscreen cover in the
 primary window instead, with the same API, keys, and close path. That tier has no native title
 bar or close button, so probe `Cap::MultiWindow` and give cover-tier content its own close
@@ -210,7 +210,7 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
 - **Toolbars install per window.** `toolbar(…)` targets the window being built: the primary
   window at startup, and each new window inside its `register_new_window` builder. A builder
   that skips the install opens a window with no bar.
-- **Keep bound values out of `toolbar_reactive`.** A reactive rebuild replaces the whole bar
+- **Keep bound values out of `toolbar_reactive`.** A [reactive](/docs/glossary#reactive) rebuild replaces the whole bar
   and would drop the search field's focus mid-word. Structure and labels go in the builder;
   a toggle's signal, a search signal, and `.enabled_when` patch single items.
 - **Don't put the toolkit name in your window title.** Debug builds append a
@@ -220,7 +220,7 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
 ## Reference
 
 - [menus](/docs/internal/menus) — the full role table per backend, how action dispatch works,
-  and driving menus from dayscript.
+  and driving menus from [dayscript](/docs/glossary#dayscript).
 - [toolbars](/docs/internal/toolbars) — the per-backend realization table, patch semantics,
   and the `toolbar:` script step.
 - [windows](/docs/internal/windows) — the backend tier table, the pending-open path, the

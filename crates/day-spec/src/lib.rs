@@ -1304,15 +1304,6 @@ pub enum ToolbarItemKind {
     /// A two-state button. `on` seeds it; the user flipping it emits
     /// [`ToolbarValue::On`], and the app's own writes arrive as [`ToolbarPatch::On`].
     Toggle { on: bool },
-    /// Show/hide this window's sidebar. The item carries NO `action`: the toolkit binds it to
-    /// whatever `selector(Sidebar)` host the window contains and drives that host's own
-    /// collapse, so the app declares the affordance and the platform supplies the behavior —
-    /// `NSToolbarToggleSidebarItemIdentifier` on AppKit, the split view's collapse on GTK,
-    /// `NavigationView.IsPaneOpen` on XAML. Place it where the platform expects it (leading,
-    /// before the first [`ToolbarItemKind::FlexibleSpace`]); a window with no sidebar renders
-    /// it disabled rather than dropping it, so the toolbar's shape does not change with the
-    /// route. docs/toolbars.md.
-    SidebarToggle,
     /// A button that drops a menu — the same [`MenuItem`] model the menu bar uses, so a
     /// toolbar menu and its menu-bar twin are one list of commands.
     Menu { items: Vec<MenuItem> },
@@ -1344,16 +1335,10 @@ pub enum ToolbarItemKind {
     },
     /// Static text, for a status or a caption.
     Label,
-    /// A divider, where the platform draws one (macOS toolbars have no separator, so AppKit
-    /// renders it as a fixed space — docs/toolbars.md).
+    /// A divider between neighbors in the same placement bucket, where the platform draws one
+    /// (macOS toolbars have no separator, so AppKit renders it as a fixed space —
+    /// docs/toolbars.md). Grouping is all it does: alignment is [`ToolbarPlacement`]'s job.
     Separator,
-    /// A fixed gap.
-    Space,
-    /// A gap that absorbs the leftover width. This is how the model expresses each platform's
-    /// packing: items before the first flexible space are leading, items after it trailing —
-    /// GTK packs them start/end, XAML splits them across `Content`/`PrimaryCommands`, and
-    /// AppKit and Qt place a real expanding spacer.
-    FlexibleSpace,
 }
 
 /// One choice inside a [`ToolbarItemKind::Segmented`] control.
@@ -1363,6 +1348,12 @@ pub struct ToolbarSegment {
     pub title: String,
     pub icon: Option<Icon>,
 }
+
+/// The reserved id of the sidebar affordance a `selector(Sidebar)` supplies for itself
+/// (docs/toolbars.md). Backends with a SYSTEM item for the job — AppKit's
+/// `NSToolbarToggleSidebarItem` — recognize it by this id and draw theirs instead; dayscript
+/// recognizes it to drive the toolkit's own duty rather than an app closure.
+pub const SIDEBAR_TOGGLE_ID: &str = "day.sidebar-toggle";
 
 /// One item in a window's toolbar (docs/toolbars.md).
 #[derive(Clone, Debug, PartialEq)]
@@ -1382,6 +1373,78 @@ pub struct ToolbarItem {
     /// The item's command, as a dispatch id from the same registry [`Event::MenuAction`] uses
     /// (0 = no command), so a toolbar button and its menu twin can share one closure.
     pub action: u64,
+    /// This item's role on the chrome carrying it (docs/toolbars.md). It never names a surface:
+    /// WHICH chrome an item rides is decided by where the app declared it, so this says only
+    /// where on that chrome it belongs.
+    pub placement: ToolbarPlacement,
+    /// Whether the item draws its title, its icon, or both, where the platform can do more than
+    /// one. An item folded into an overflow menu shows its title whatever this asks for — a menu
+    /// row with no words is not a menu row.
+    pub label_style: LabelStyle,
+    /// Draw this item in the platform's emphasized style (a tinted/filled bar button, a
+    /// prominent `NSToolbarItem`). For the one action a chrome is really offering.
+    pub prominent: bool,
+    /// Which COLUMN of a multi-pane window this item came from (docs/toolbars.md) — set by Day
+    /// from the piece that declared it, never by an app.
+    ///
+    /// A desktop toolbar spans every column at once, and a three-pane app expects each column's
+    /// commands to sit over that column: the sidebar's against the first divider, the list's over
+    /// the list, the rest over the detail. That is what Mail, Notes and Finder do, and it is only
+    /// expressible because the declaration site already said which pane the command belongs to.
+    /// Backends that draw one undivided bar ignore it.
+    pub column: ToolbarColumn,
+}
+
+/// Which pane of a window's navigation a toolbar item was declared in (docs/toolbars.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ToolbarColumn {
+    /// The window itself, over no particular column. Draws with the detail's items, which is
+    /// where a command that acts on the whole window belongs when the panes are side by side.
+    #[default]
+    Window,
+    /// The sidebar / master column.
+    Sidebar,
+    /// The content-list column between the sidebar and the detail.
+    List,
+    /// The detail column.
+    Detail,
+}
+
+/// Where an item sits on the chrome that carries it (docs/toolbars.md).
+///
+/// A placement is a ROLE, never a surface. Which toolbar, navigation bar or column an item
+/// rides follows from the piece that declared it, so an app never spells that out twice.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ToolbarPlacement {
+    /// The natural spot on this chrome: after the leading group on a desktop toolbar, the
+    /// trailing item group on a navigation bar, an `IF_ROOM` menu action on Android.
+    #[default]
+    Automatic,
+    /// The leading edge — a pane toggle, a control that reveals what is to its left.
+    Navigation,
+    /// Centered: a title accessory, a transport, a status readout.
+    Principal,
+    /// Trailing, and the last thing a crowded chrome gives up.
+    Primary,
+    /// Trailing, and the first thing a crowded chrome folds into its overflow.
+    Secondary,
+    /// A bottom bar where the platform has one (iOS `toolbarItems`, an Android bottom app bar);
+    /// [`ToolbarPlacement::Secondary`] everywhere else.
+    Bottom,
+}
+
+/// Which halves of an item's label a platform draws, where it can draw more than one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LabelStyle {
+    /// The platform's own convention for this chrome.
+    #[default]
+    Automatic,
+    /// The icon alone (the title stays as the accessible name and the tooltip).
+    IconOnly,
+    /// The title alone, even where an icon was given.
+    TitleOnly,
+    /// Both, where the chrome has room for both.
+    TitleAndIcon,
 }
 
 /// A value a toolbar item produced.
@@ -1944,10 +2007,13 @@ pub enum Cap {
     AppBadgeText,
     /// The toolkit can show a valueless indicator (`AppBadge::Dot`).
     AppBadgeDot,
-    /// The toolkit gives a window a native toolbar (`Toolkit::set_toolbar`, docs/toolbars.md):
-    /// `Native` on the desktop backends, `Unsupported` elsewhere — a phone has no toolbar, and
-    /// day does not draw a fake one. Probe it to decide where a command lives: an app puts its
-    /// refresh button on the toolbar where there is one and in the content where there is not.
+    /// The toolkit gives a window CHROME OF ITS OWN that persists across pages
+    /// (`Toolkit::set_toolbar`, docs/toolbars.md): `Native` on the desktop backends and the
+    /// phones, `Emulated` on web-dom, `Unsupported` where the only chrome belongs to a page.
+    ///
+    /// It no longer decides whether a command can be shown at all — a toolbar item declared on a
+    /// piece rides that piece's own chrome everywhere. Probe it only for a layout decision that
+    /// really turns on a persistent bar existing.
     Toolbar,
     /// The toolkit realizes `kinds::INSPECTOR` as its own trailing-pane container
     /// (docs/inspector.md): an `NSSplitView` inspector pane, an `AdwOverlaySplitView` with the
@@ -3588,43 +3654,6 @@ pub mod props {
         Value(Option<f64>),
     }
 
-    /// A trailing action button on the navigation bar (docs/navigation.md) — the phones' and
-    /// HarmonyOS's stand-in for a desktop toolbar button, since those toolkits have no window
-    /// toolbar (`Cap::Toolbar` is `Unsupported`). Rendered upper-right on the nav bar by the
-    /// mobile backends (iOS `rightBarButtonItem`, Android/HarmonyOS a menu action); ignored by
-    /// desktop split presentations, which carry their commands in a real toolbar instead.
-    ///
-    /// `action` is a menu-action dispatch id (`register_menu_action`): the backend emits
-    /// `Event::MenuAction(action)` when the button is tapped, and the tree runs the registered
-    /// closure. `icon` is a bundled image name (resolved via [`resolve_image_file`], the same
-    /// convention as [`NavMenuProps::icons`]); `label` is its accessible name and tooltip.
-    #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct NavBarAction {
-        pub action: u64,
-        pub label: String,
-        pub icon: Option<String>,
-        /// Which of the host's pages carry this button.
-        pub scope: NavBarScope,
-    }
-
-    /// Which pages a [`NavBarAction`] rides (docs/navigation.md).
-    ///
-    /// A nav bar is shared: the same bar draws the list and then every detail pushed on top of
-    /// it. Whether a command belongs on all of them depends on what it acts ON, which only the
-    /// app knows — "show this page's source" follows the user down, "add an item" does not,
-    /// because on a detail page there is no list in front of them to add to.
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-    pub enum NavBarScope {
-        /// Every page, root and pushed alike — a command that acts on WHATEVER IS SHOWING.
-        #[default]
-        EveryPage,
-        /// The root page only — a command that acts on the LIST rather than on a detail opened
-        /// from it. Where a split presentation keeps the list in its own pane, that pane's bar is
-        /// the root page's bar, so the button stays put while details come and go. This is where
-        /// inline search already lives (docs/search.md), for the same reason.
-        RootPage,
-    }
-
     /// How a navigation host lays its panes out (docs/navigation.md).
     ///
     /// This is the RESOLVED presentation — what the toolkit must draw right now. The app asks for
@@ -3687,10 +3716,13 @@ pub mod props {
         /// `Native` re-presenters ignore it — they are told each presentation as it is resolved —
         /// and so do toolkits that cannot re-present.
         pub adaptive: bool,
-        /// Trailing bar-button commands for the mobile nav bar (see [`NavBarAction`]), in the
-        /// order the app declared them; empty on desktop, where the toolbar carries commands
-        /// instead. A backend that can only draw one shows the first.
-        pub bar_actions: Vec<NavBarAction>,
+        /// Draw the platform's own show/hide-sidebar affordance on this host's chrome
+        /// (docs/toolbars.md). `true` for every `selector(Sidebar)` unless the app opted out:
+        /// the toolkit owns both the button and the behavior
+        /// (`NSToolbarToggleSidebarItemIdentifier`, the split view's collapse on GTK,
+        /// `NavigationView.IsPaneOpen` on XAML), so an app that once declared the item by hand
+        /// now declares nothing. Hosts with no sidebar ignore it.
+        pub sidebar_toggle: bool,
         /// Search over this navigation surface (`Selector::searchable`, docs/search.md).
         /// `None` = the surface is not searchable and no field is rendered anywhere.
         pub search: Option<SearchProps>,

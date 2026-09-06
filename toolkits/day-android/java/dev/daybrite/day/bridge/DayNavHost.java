@@ -151,12 +151,24 @@ public class DayNavHost extends LinearLayout {
                 }
             }
         });
+        // Allocated before the bar, which names it as the view whose scrolling lifts it.
+        containerId = View.generateViewId();
         appBar = new AppBarLayout(ctx);
         appBar.addView(toolbar, new AppBarLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // LIFT ON SCROLL (docs/toolbars.md) — Material 3's answer to the same question iOS
+        // answers with a bar that blends into the content until you scroll: at rest the bar is
+        // `colorSurface`, the SAME tone as the panes below it, so there is no band across the
+        // window; once a scrolling child passes beneath it, `AppBarLayout` raises it to
+        // `colorSurfaceContainer` and the separation appears exactly when it means something.
+        //
+        // It matters most on a tablet. A full-width bar in a DIFFERENT color above two tiled
+        // panes reads as a stripe between the content and the status bar rather than as chrome
+        // belonging to either pane; toned with the panes, it reads as their shared header.
+        appBar.setLiftOnScroll(true);
+        appBar.setLiftOnScrollTargetViewId(containerId);
 
         pages = new FrameLayout(ctx);
-        containerId = View.generateViewId();
         pages.setId(containerId);
         listContainerId = View.generateViewId();
         View content;
@@ -456,26 +468,6 @@ public class DayNavHost extends LinearLayout {
         searchSyncing = false;
     }
 
-    /** One installed nav-bar action, kept as its DECLARATION rather than only as the live item:
-     *  the window toolbar shares this menu, so setting one clears and repaints the whole thing and
-     *  every action has to be re-addable. `glyph` is the UNTINTED master (re-tinted whenever the
-     *  bar changes color, so it must survive); `rootOnly` marks the ones that belong to the list. */
-    private static final class BarAction {
-        final String iconName;
-        final String label;
-        final long actionId;
-        final boolean rootOnly;
-        MenuItem item;
-        android.graphics.drawable.Drawable glyph;
-        BarAction(String iconName, String label, long actionId, boolean rootOnly) {
-            this.iconName = iconName;
-            this.label = label == null ? "" : label;
-            this.actionId = actionId;
-            this.rootOnly = rootOnly;
-        }
-    }
-
-    private final java.util.ArrayList<BarAction> barActions = new java.util.ArrayList<>();
     /** Set the window toolbar (docs/toolbars.md) from day-android's `serialize_toolbar` spec and
      *  repaint the app bar. The spec is retained because the bar's menu is shared with the page's
      *  own bar actions, and either side changing repaints both. */
@@ -497,21 +489,6 @@ public class DayNavHost extends LinearLayout {
      *  window's own items down and answers where they end. */
     private void paintBarMenu() {
         windowBar.paint();
-        Menu menu = toolbar.getMenu();
-        // The page's own actions trail the window's, at orders no toolbar item can reach.
-        for (int i = 0; i < barActions.size(); i++) {
-            BarAction ba = barActions.get(i);
-            ba.item = menu.add(Menu.NONE, Menu.NONE, 1000 + i, ba.label);
-            ba.item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-            ba.glyph = DayBridge.drawableByName(getContext(), ba.iconName);
-            final long actionId = ba.actionId;
-            ba.item.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
-                @Override public boolean onMenuItemClick(MenuItem item) {
-                    DayBridge.nativeOnEvent(actionId, DayBridge.K_MENU_ACTION, 0.0, "");
-                    return true;
-                }
-            });
-        }
         syncBarActions();
     }
 
@@ -582,11 +559,16 @@ public class DayNavHost extends LinearLayout {
                 boolean enabled = f.length > 4 && f[4].equals("1");
                 final long action = f.length > 5 ? parseActionId(f[5]) : 0L;
                 String extra = f.length > 6 ? f[6] : "";
+                // The item's placement (docs/toolbars.md). `Primary` is what a Material app bar
+                // shows as an action come what may; `Secondary` is what it folds into the
+                // overflow first; `Automatic` keeps the old rule — an icon earns a slot IF ROOM,
+                // and a wordless item would be a blank square, so it goes to the overflow.
+                String placement = f.length > 7 ? f[7] : "auto";
                 android.graphics.drawable.Drawable glyph = DayBridge.drawableByName(ctx, icon);
                 if (kind.equals("button") || kind.equals("toggle")) {
                     MenuItem it = menu.add(Menu.NONE, Menu.NONE, order++, label);
                     it.setEnabled(enabled);
-                    showAsAction(it, glyph);
+                    showAsAction(it, glyph, placement);
                     final boolean toggle = kind.equals("toggle");
                     if (toggle) {
                         it.setCheckable(true);
@@ -612,7 +594,7 @@ public class DayNavHost extends LinearLayout {
                     SubMenu sm = menu.addSubMenu(Menu.NONE, Menu.NONE, order++, label);
                     MenuItem it = sm.getItem();
                     it.setEnabled(enabled);
-                    showAsAction(it, glyph);
+                    showAsAction(it, glyph, placement);
                     DayBridge.buildMenu(sm, extra);
                     items.put(id, it);
                 } else if (kind.equals("segmented")) {
@@ -626,7 +608,7 @@ public class DayNavHost extends LinearLayout {
                     SubMenu sm = menu.addSubMenu(Menu.NONE, Menu.NONE, order++, label);
                     final MenuItem head = sm.getItem();
                     head.setEnabled(enabled);
-                    showAsAction(head, glyph);
+                    showAsAction(head, glyph, placement);
                     final ArrayList<MenuItem> segments = new ArrayList<>();
                     // A segmented control carries no label of its own — it is a row of choices, and
                     // the platforms that draw one draw the choices (day-pieces `toolbar_segmented`).
@@ -711,10 +693,27 @@ public class DayNavHost extends LinearLayout {
         /** An item with a glyph shows as an icon; without one, as its text — and only while the
          *  bar has room for it, since words are wide: the rest fold into the bar's overflow menu
          *  rather than running off its trailing edge. */
-        private void showAsAction(MenuItem it, android.graphics.drawable.Drawable glyph) {
+        private void showAsAction(MenuItem it, android.graphics.drawable.Drawable glyph,
+                String placement) {
+            if ("secondary".equals(placement)) {
+                // The app asked for this one to fold first (docs/toolbars.md). It reads as a
+                // full menu row in the overflow, which is what a de-emphasized command wants.
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+                if (glyph != null) {
+                    glyphs.put(it, glyph);
+                    it.setIcon(glyph);
+                }
+                return;
+            }
             if (glyph != null) {
                 glyphs.put(it, glyph);
                 it.setIcon(glyph);
+                if ("primary".equals(placement)) {
+                    // The one action this chrome is really offering: it keeps its slot however
+                    // crowded the bar gets.
+                    it.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+                    return;
+                }
                 // IF_ROOM, not ALWAYS: the app bar carries the destination's title as well, and a
                 // window toolbar is long enough (the Showcase declares eight items) that forcing
                 // every one into the bar would leave no room to read where you are. What does not
@@ -870,37 +869,15 @@ public class DayNavHost extends LinearLayout {
         }
     }
 
-    /** Add one trailing action to the app bar's menu (docs/navigation.md). Called once per action,
-     *  in declaration order, by {@link DayBridge#setNavMenu} AFTER construction and inside a
-     *  try/catch — never from the constructor — so a failure here can't blank the host.
-     *  The MaterialToolbar keeps its menu across pushes and pops, so an item rides every page
-     *  until {@link #syncBarActions} hides it. */
-    void addBarAction(String iconName, String label, final long actionId, boolean rootOnly) {
-        barActions.add(new BarAction(iconName, label, actionId, rootOnly));
-        paintBarMenu();
-    }
-
     /** Re-tint every glyph on the app bar — the window toolbar's and the page's own — to the bar's
      *  CURRENT color, and hide the list-only actions off the list.
      *  Driven from {@link #syncChrome}, which already runs on every push, pop and re-present —
      *  the three moments that change what is behind these glyphs or which page they are on. */
     private void syncBarActions() {
-        if (barActions.isEmpty() && windowBar.glyphs.isEmpty()) {
+        if (windowBar.glyphs.isEmpty()) {
             return;
         }
-        int tint = barGlyphColor();
-        windowBar.tint(tint);
-        boolean atRoot = !stacked() || titles.isEmpty();
-        for (BarAction ba : barActions) {
-            ba.item.setVisible(!ba.rootOnly || atRoot);
-            if (ba.glyph != null) {
-                // mutate() per apply: a bundled drawable can be shared with other views through
-                // the resource cache, and tinting the shared instance would recolor them too.
-                android.graphics.drawable.Drawable d = ba.glyph.mutate();
-                d.setTint(tint);
-                ba.item.setIcon(d);
-            }
-        }
+        windowBar.tint(barGlyphColor());
     }
 
     /** The color the bar's own glyphs take, derived from what is actually BEHIND them.
@@ -919,10 +896,11 @@ public class DayNavHost extends LinearLayout {
     private int barBackgroundColor() {
         if (DayActivity.edgeToEdge) {
             boolean topImmersive = !immersives.isEmpty() && immersives.get(immersives.size() - 1);
-            // The immersive chrome is a black scrim gradient; the ordinary bar is colorPrimary.
+            // The immersive chrome is a black scrim gradient; the ordinary bar is the M3
+            // surface tone, which is what lets it lift rather than stand apart.
             return topImmersive
                     ? 0xFF000000
-                    : themeColor(androidx.appcompat.R.attr.colorPrimary, 0xFF0B57D0);
+                    : themeColor(com.google.android.material.R.attr.colorSurface, 0xFFFFFFFF);
         }
         android.graphics.drawable.Drawable d = appBar.getBackground();
         if (d instanceof android.graphics.drawable.ColorDrawable) {
@@ -986,13 +964,12 @@ public class DayNavHost extends LinearLayout {
                         android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
                         new int[] { 0x66000000, 0x00000000 }));
             } else {
-                android.util.TypedValue tv = new android.util.TypedValue();
-                int color = 0xFF0B57D0;
-                if (getContext().getTheme().resolveAttribute(
-                        androidx.appcompat.R.attr.colorPrimary, tv, true)) {
-                    color = tv.data;
-                }
-                appBar.setBackgroundColor(color);
+                // Surface, not `colorPrimary`: an M3 top app bar shares the content's tone and
+                // earns its separation by lifting (see the constructor). A primary-colored band
+                // is the Material 2 look, and on a tiled tablet it reads as a stripe.
+                appBar.setBackgroundColor(themeColor(
+                        com.google.android.material.R.attr.colorSurface, 0xFFFFFFFF));
+                appBar.setLiftOnScroll(true);
             }
         }
         // AFTER the background above: the glyph color is derived from it, and the list-only items

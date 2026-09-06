@@ -21,8 +21,8 @@ every tier below and is not an extension at all.
 
 ## Tier 0: composite pieces, pure composition
 
-A composite piece is Rust code that arranges existing Pieces. It needs no native code or
-registration, and it works on every target automatically because it bottoms out in Pieces that
+A composite [piece](/docs/glossary#piece) is Rust code that arranges existing Pieces. It needs no native code or
+registration, and it works on every [target](/docs/glossary#target) automatically because it bottoms out in Pieces that
 already do.
 
 ```rust
@@ -39,7 +39,7 @@ and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one en
 ## Tier 1: native pieces, a new leaf widget per toolkit
 
 When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
-**native piece**: one cross-platform front end plus a renderer per toolkit you support.
+**native piece**: one cross-platform front end plus a renderer per [toolkit](/docs/glossary#toolkit) you support.
 
 The front end defines the piece's identity and its props/patch protocol, and creates a leaf node
 (abridged from `pieces/day-piece-combobox`):
@@ -62,7 +62,7 @@ impl Piece for ComboBox {
 }
 ```
 
-Each backend contributes `make` (create the native widget) and `update` (apply a patch),
+Each [backend](/docs/glossary#backend) contributes `make` (create the native widget) and `update` (apply a patch),
 registered at link time:
 
 ```rust
@@ -133,7 +133,7 @@ registration, adapted to Cargo.)
 The original design reserved a third tier for pieces implemented in a platform's own language
 (Swift, Kotlin, C++) behind **dayffi**, a versioned C ABI. It was never built, and it is now
 retired, because none of it turned out to be needed (DESIGN.md §15.3). Day shipped the ladder
-above (tweaks, then composition, then Rust renderers) plus **native halves**: the
+above ([tweaks](/docs/glossary#tweak), then composition, then Rust renderers) plus **native halves**: the
 crate ships its own Swift, Java, ArkTS, or C++ sources, declares them under
 `[package.metadata.day.<platform>]`, and its tier-1 Rust renderer adopts the views those shims
 create.
@@ -146,7 +146,7 @@ Kotlin/Compose leg is not built yet.
 ## Parts: capabilities without UI
 
 Extensions that don't render (battery, clipboard, Bluetooth) are [parts](/docs/parts), which
-skip all of the above machinery: a part is plain `#[cfg]`-dispatched functions, with no kind,
+skip all of the above machinery: a [part](/docs/glossary#part) is plain `#[cfg]`-dispatched functions, with no [kind](/docs/glossary#kind),
 renderer, or registry (plus the same Cargo-metadata mechanism when Android needs Java or permissions). The
 [part tutorial](/docs/tutorial-part) covers six platform implementations of one API.
 

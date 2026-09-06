@@ -950,14 +950,11 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         let kind = match &it.kind {
             K::Button => "B",
             K::Toggle { .. } => "T",
-            K::SidebarToggle => "S",
             K::Menu { .. } => "M",
             K::Search { .. } => "F",
             K::Segmented { .. } => "G",
             K::Label => "L",
             K::Separator => "-",
-            K::Space => "_",
-            K::FlexibleSpace => ">",
         };
         json.push_str("{\"kind\":");
         json_str(&mut json, kind);
@@ -971,6 +968,31 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         json.push_str(&it.action.to_string());
         json.push_str(",\"enabled\":");
         json.push_str(if it.enabled { "true" } else { "false" });
+        // Placement and column (docs/toolbars.md). Day draws this strip itself, so it can honor
+        // both: the columns become three tracks whose widths follow the split's own panes, and
+        // within each the roles pack leading, center and trailing.
+        json.push_str(",\"place\":");
+        json_str(
+            &mut json,
+            match it.placement {
+                day_spec::ToolbarPlacement::Navigation => "nav",
+                day_spec::ToolbarPlacement::Principal => "mid",
+                day_spec::ToolbarPlacement::Primary => "primary",
+                day_spec::ToolbarPlacement::Secondary | day_spec::ToolbarPlacement::Bottom => {
+                    "secondary"
+                }
+                day_spec::ToolbarPlacement::Automatic => "auto",
+            },
+        );
+        json.push_str(",\"col\":");
+        json_str(
+            &mut json,
+            match it.column {
+                day_spec::ToolbarColumn::Sidebar => "sidebar",
+                day_spec::ToolbarColumn::List => "list",
+                day_spec::ToolbarColumn::Detail | day_spec::ToolbarColumn::Window => "detail",
+            },
+        );
         if let K::Toggle { on } = it.kind {
             json.push_str(",\"on\":");
             json.push_str(if on { "true" } else { "false" });
@@ -1031,7 +1053,6 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
             // The sidebar toggle carries no icon from the app — every other toolkit draws its
             // own platform glyph for it (docs/toolbars.md). The web has none to draw, so it takes
             // the standard one here rather than being the one item in the bar showing bare text.
-            None if matches!(it.kind, K::SidebarToggle) => symbol_svg(day_spec::Symbol::Sidebar),
             None => None,
         };
         if let Some(url) = icon {

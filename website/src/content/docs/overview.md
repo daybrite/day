@@ -16,7 +16,7 @@ applications on every platform, because they are native applications.
 You write your UI once, in Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View
 and Flutter calls a Widget). Each Piece is realized by a real platform widget (an
 `NSTextField`, a `UILabel`, a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox`)
-through a per-platform **toolkit backend**. Day owns layout, reactivity, localization,
+through a per-platform **toolkit [backend](/docs/glossary#backend)**. Day owns layout, reactivity, localization,
 accessibility policy, and scripting; the platform owns pixels, text input, scrolling physics,
 and assistive technology.
 
@@ -47,7 +47,7 @@ don't share:
   ([Layout](/docs/layout));
 - fine-grained reactivity that builds the widget tree once and binds state directly to
   native attributes ([Reactivity](/docs/reactivity));
-- localization (Fluent), accessibility, and scripting designed into the core from
+- localization ([Fluent](/docs/glossary#fluent)), accessibility, and scripting designed into the core from
   the start ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
 - a CLI that builds, runs, tests, and [packages](/docs/packaging) for every target from one
   machine.
@@ -84,7 +84,7 @@ defines all four, and [Platform support](/docs/platforms) has the per-target det
 
 ## What it's like day to day
 
-Everything is one Cargo project plus a small `Day.toml` manifest. `day launch -p <target>`
+Everything is one Cargo project plus a small [`Day.toml`](/docs/glossary#day-toml) manifest. `day launch -p <target>`
 builds and runs; several `-p` flags launch targets in parallel. Tests run against a headless
 mock toolkit in ordinary `cargo test`, and [dayscript](/docs/dayscript) drives the real app.
 The same YAML script taps buttons and asserts labels on every platform, which is also how the
@@ -103,7 +103,7 @@ framework will suit you better.
 - **Native on each platform rather than identical across them.** The goal is consistent
   behavior and information architecture with each platform's own look and feel.
 - **Platform differences stay visible.** Where platforms diverge, the API shows the divergence
-  (per-platform styling, capability flags); where a platform lacks a control, the backend
+  (per-platform styling, [capability](/docs/glossary#capability) flags); where a platform lacks a control, the backend
   composes one from primitives. Where you need a platform's own UI framework, you can use it:
   on macOS and iOS, [`day-piece-swiftui`](/docs/internal/swiftui) hosts your own SwiftUI views
   inside the Day tree, with typed Rust constructors generated from your Swift package.
@@ -134,5 +134,6 @@ The documentation is sequenced so each section assumes only the ones before it:
 6. **Extend** — [how the extension model works](/docs/extending) and three worked tutorials.
 7. **Under the hood** — [architecture](/docs/architecture) and
    [how rendering works](/docs/rendering), for when you want to see the machinery.
-8. **Reference** — [per-widget and per-subsystem reference pages](/docs/reference), and a
-   [condensed page for AI coding agents](/docs/for-agents).
+8. **Reference** — [per-widget and per-subsystem reference pages](/docs/reference), a
+   [condensed page for AI coding agents](/docs/for-agents), and a [glossary](/docs/glossary) of
+   the words these pages use.

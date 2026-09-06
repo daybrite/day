@@ -594,6 +594,19 @@ body.day-has-toolbar #day-root {
   user-select: none;
 }
 .day-toolbar-flex { flex: 1; }
+/* One track per column of a split window (docs/toolbars.md): the sidebar's and the list's take
+   their pane's width, the detail's takes the rest, and inside each the first `trailing` item
+   pushes itself and everything after it to that column's own right edge. */
+.day-toolbar-track {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.day-toolbar-detail { flex: 1; }
+.day-toolbar-track > .trailing:first-of-type { margin-left: auto; }
+.day-toolbar-track > .principal { margin: 0 auto; }
 .day-toolbar-gap { width: 12px; flex: none; }
 .day-toolbar-sep {
   width: 1px;

@@ -705,12 +705,38 @@ const env = {
     if (!spec.items.length) { document.body.classList.remove('day-has-toolbar'); return; }
     bar = div('day-toolbar'); bar.id = 'day-toolbar';
     toolbarItems = {};
-    let trailing = false;
+    // THREE TRACKS, one per column of a split window (docs/toolbars.md). Day draws this strip
+    // itself, so it can do what a desktop toolbar does: the sidebar's commands over the sidebar,
+    // the content list's over the list, the rest over the detail. The track widths follow the
+    // panes' own, measured from the split; a window with no split gets one track and the columns
+    // collapse into it.
+    const nav = document.querySelector('.day-nav.split');
+    const paneWidth = (sel) => {
+      const el = nav && nav.querySelector(sel);
+      return el ? Math.round(el.getBoundingClientRect().width) : 0;
+    };
+    const widths = { sidebar: paneWidth('.day-nav-sidebar'), list: paneWidth('.day-nav-list') };
+    const tracks = {};
+    const trackFor = (col) => {
+      // A column with no pane of its own — a composed content list, a collapsed sidebar — has no
+      // width to align to, so its commands join the detail's track rather than claiming a strip
+      // of their own.
+      if (!nav || ((col === 'sidebar' || col === 'list') && !widths[col])) col = 'detail';
+      if (!tracks[col]) {
+        const t = div('day-toolbar-track day-toolbar-' + col);
+        if (col !== 'detail' && widths[col]) t.style.flex = `0 0 ${widths[col]}px`;
+        tracks[col] = t;
+        bar.append(t);
+      }
+      return tracks[col];
+    };
+    // Built in column order so the tracks lay out left to right whatever order the items came in.
+    if (widths.sidebar) trackFor('sidebar');
+    if (widths.list) trackFor('list');
+    trackFor('detail');
     for (const it of spec.items) {
       let el = null;
-      if (it.kind === '>') { trailing = true; el = div('day-toolbar-flex'); }
-      else if (it.kind === '-') el = div('day-toolbar-sep');
-      else if (it.kind === '_') el = div('day-toolbar-gap');
+      if (it.kind === '-') el = div('day-toolbar-sep');
       else if (it.kind === 'L') { el = div('day-toolbar-label'); el.textContent = it.label; }
       else if (it.kind === 'G') {
         // A segmented control, reusing the picker piece's own `.day-segmented` styling so the
@@ -809,8 +835,13 @@ const env = {
         }
       }
       if (it.id) toolbarItems[it.id] = el;
-      if (trailing) el.classList.add('trailing');
-      bar.append(el);
+      // Within a track: leading roles first, then the trailing ones pushed to that column's own
+      // right edge. `Principal` centers, the way it does on every other backend.
+      if (it.place === 'primary' || it.place === 'secondary' || it.place === 'auto') {
+        el.classList.add('trailing');
+      }
+      if (it.place === 'mid') el.classList.add('principal');
+      trackFor(it.col || 'detail').append(el);
     }
     document.body.prepend(bar);
     document.body.classList.add('day-has-toolbar');

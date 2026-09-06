@@ -16,7 +16,7 @@ captures screenshots, identically on macOS, iOS, Android, Linux, Windows, and Op
 because it addresses your UI by the stable ids you gave your Pieces.
 
 It resembles Maestro, but the engine is compiled into your app and executes steps as real Day
-events, which makes the same script portable across all targets and makes waits deterministic
+events, which makes the same script portable across all [targets](/docs/glossary#target) and makes waits deterministic
 instead of sleep-based.
 
 ## A script
@@ -48,8 +48,8 @@ day launch -p android-mdc --script dayscript/walkthrough.yaml --locale fr
 `day launch` builds, starts the app with the scripting engine invited, executes the steps, and
 exits nonzero if any assertion fails (exit code 5). Screenshots land under
 `build/day/screenshots/<target>/<subdir>/`, where the subdirectory is the `--variant` name when
-given, else the locale, else `default`. Several `--script` flags run in sequence, and
-`--locale` makes the run a localization test at the same time; assertions can reference Fluent
+given, else the [locale](/docs/glossary#locale), else `default`. Several `--script` flags run in sequence, and
+`--locale` makes the run a localization test at the same time; assertions can reference [Fluent](/docs/glossary#fluent)
 keys instead of literal strings, so the same script passes in every language.
 
 ## The step vocabulary
@@ -75,13 +75,13 @@ phone and a tablet, since the same build stacks on one and splits on the other.
 
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, so
 scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the
-main thread between flushes, so they are deterministic and behave identically on every toolkit.
+main thread between flushes, so they are deterministic and behave identically on every [toolkit](/docs/glossary#toolkit).
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
 
 Any step can be gated per target: `skip_on:` drops it on the named targets or toolkits
 (`skip_on: [web-dom]`), and `only_on:` is its mirror, for a step whose expectations differ per
-target (an `assert_no_placeholders` allow list, say). One walkthrough then covers every backend
+target (an `assert_no_placeholders` allow list, say). One walkthrough then covers every [backend](/docs/glossary#backend)
 without forking per platform.
 
 ## How it works
@@ -89,7 +89,7 @@ without forking per platform.
 The engine lives in `day-script`, compiled into your app. It activates only when invited: the
 launcher passes a localhost port and a one-time token through the environment; without them the
 engine never binds a socket, in debug or release. Steps arrive as JSON over that socket and
-execute on the main thread between reactive flushes:
+execute on the main thread between [reactive](/docs/glossary#reactive) flushes:
 
 ```text
 day launch --script …          your app process

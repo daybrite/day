@@ -43,6 +43,7 @@ day-settings-theme = Appearance
 day-theme-light = Light
 day-theme-dark = Dark
 day-theme-system = System
+day-toggle-sidebar = Toggle Sidebar
 day-file = File
 day-view = View
 day-help = Help

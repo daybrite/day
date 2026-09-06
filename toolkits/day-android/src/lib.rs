@@ -1551,9 +1551,7 @@ mod imp {
                 }
                 K::Label => ("label", String::new()),
                 K::Separator => ("sep", String::new()),
-                K::Space => ("space", String::new()),
-                K::FlexibleSpace => ("flex", String::new()),
-                K::Search { .. } | K::SidebarToggle => continue,
+                K::Search { .. } => continue,
             };
             // A bundled image resolves by name on the Java side (docs/vectors.md); a symbol is
             // named after itself, and lands as text where no drawable carries that name.
@@ -1565,6 +1563,17 @@ mod imp {
             if !out.is_empty() {
                 out.push('\u{1e}');
             }
+            // An eighth field: the item's placement (docs/toolbars.md). The Java parser reads
+            // fields positionally with `f.length >` guards, so a spec without it still parses.
+            let placement = match item.placement {
+                day_spec::ToolbarPlacement::Navigation => "nav",
+                day_spec::ToolbarPlacement::Principal => "mid",
+                day_spec::ToolbarPlacement::Primary => "primary",
+                day_spec::ToolbarPlacement::Secondary | day_spec::ToolbarPlacement::Bottom => {
+                    "secondary"
+                }
+                day_spec::ToolbarPlacement::Automatic => "auto",
+            };
             out.push_str(
                 &[
                     clean(&item.id),
@@ -1574,6 +1583,7 @@ mod imp {
                     u8::from(item.enabled).to_string(),
                     item.action.to_string(),
                     extra,
+                    placement.to_string(),
                 ]
                 .join("\u{1f}"),
             );
@@ -2072,7 +2082,7 @@ mod imp {
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
                     // nesting one inside a pane re-runs the whole tiling decision at pane width.
                     let adaptive = p.presentation != day_spec::props::NavPresentation::Stack;
-                    let host = with_env(|env| {
+                    with_env(|env| {
                         let s = jstr(env, &p.title);
                         AHandle(make_view(
                             env,
@@ -2087,82 +2097,7 @@ mod imp {
                                 JValue::Float(day_spec::SizeClass::SPLIT_MIN_WIDTH as f32),
                             ],
                         ))
-                    });
-                    // Optional trailing bar action (docs/navigation.md): set on the host AFTER it
-                    // exists, via a best-effort call that SWALLOWS any failure. A bar button is
-                    // decoration; keeping it off `makeNavHost` (whose failure aborts the whole
-                    // native tree build — `make_view` unwraps) means nothing here can blank the app.
-                    // On tap the item re-enters as `MenuAction(id)`.
-                    if !p.bar_actions.is_empty() {
-                        // `\n`-joined parallel fields, the wire shape the other best-effort nav
-                        // calls use — one JNI call however many actions the app declared.
-                        let join = |f: &dyn Fn(&day_spec::props::NavBarAction) -> String| {
-                            p.bar_actions.iter().map(f).collect::<Vec<_>>().join("\n")
-                        };
-                        let icons = join(&|a| a.icon.clone().unwrap_or_default());
-                        let labels = join(&|a| a.label.clone());
-                        let actions = join(&|a| a.action.to_string());
-                        let root_only = join(&|a| {
-                            match a.scope {
-                                day_spec::props::NavBarScope::RootPage => "1",
-                                day_spec::props::NavBarScope::EveryPage => "0",
-                            }
-                            .to_string()
-                        });
-                        with_env(|env| {
-                            let ic = jstr(env, &icons);
-                            let lb = jstr(env, &labels);
-                            let ac = jstr(env, &actions);
-                            let ro = jstr(env, &root_only);
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setNavMenu",
-                                "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;\
-                                 Ljava/lang/String;Ljava/lang/String;)V",
-                                &[
-                                    JValue::Object(host.0.as_obj()),
-                                    JValue::Object(&ic),
-                                    JValue::Object(&lb),
-                                    JValue::Object(&ac),
-                                    JValue::Object(&ro),
-                                ],
-                            );
-                            // A throw (or an old bridge lacking the method) leaves a pending
-                            // exception — clear it so it can't poison the next JNI call.
-                            if env.exception_check() {
-                                env.exception_clear();
-                            }
-                        });
-                    }
-                    // Inline search (docs/search.md), same best-effort discipline as the bar
-                    // action above and for the same reason: a throw on the host's own build path
-                    // blanks the app, so the field goes on afterwards or not at all.
-                    if let Some(sp) = p
-                        .search
-                        .as_ref()
-                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
-                    {
-                        let (prompt, text) = (sp.prompt.clone(), sp.text.clone());
-                        with_env(|env| {
-                            let pr = jstr(env, &prompt);
-                            let tx = jstr(env, &text);
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setNavSearch",
-                                "(Landroid/view/View;JLjava/lang/String;Ljava/lang/String;)V",
-                                &[
-                                    JValue::Object(host.0.as_obj()),
-                                    JValue::Long(idj),
-                                    JValue::Object(&pr),
-                                    JValue::Object(&tx),
-                                ],
-                            );
-                            if env.exception_check() {
-                                env.exception_clear();
-                            }
-                        });
-                    }
-                    host
+                    })
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
                     let h = AHandle(make_view(

@@ -4128,11 +4128,14 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
     lead.Orientation(WUXC::Orientation::Horizontal);
     lead.VerticalAlignment(WUX::VerticalAlignment::Center);
 
-    bool trailing = false; // past the first flexible space
-    // A command: a primary command past the flexible space, a leading-panel child before it.
-    // Either way it is remembered by id, which is what the targeted patches address.
+    bool trailing = false;  // this item's placement says the right-hand group
+    bool secondary = false; // …and the overflow within it
+    // A command: `SecondaryCommands` for one the app marked foldable, `PrimaryCommands` for the
+    // right-hand group, the leading panel otherwise. Either way it is remembered by id, which is
+    // what the targeted patches address.
     auto place_command = [&](FrameworkElement const& e, const std::string& id) {
-        if (trailing) bar.PrimaryCommands().Append(e.as<WUXC::ICommandBarElement>());
+        if (secondary) bar.SecondaryCommands().Append(e.as<WUXC::ICommandBarElement>());
+        else if (trailing) bar.PrimaryCommands().Append(e.as<WUXC::ICommandBarElement>());
         else lead.Children().Append(e);
         if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, e);
     };
@@ -4153,12 +4156,17 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         bool enabled = fld(3) != "0";
         bool on = fld(4) == "1";
         std::string glyph = fld(5), image = fld(6), label = fld(7), tip = fld(8), text = fld(9),
-                    placeholder = fld(10), suggestions = fld(11), geom = fld(12);
+                    placeholder = fld(10), suggestions = fld(11), geom = fld(12),
+                    place = fld(13);
         bool has_icon = !glyph.empty() || !image.empty() || !geom.empty();
+        // WHERE this item sits (docs/toolbars.md). A CommandBar's three slots are exactly the
+        // three roles Day's placements reduce to: `Content` on the left, `PrimaryCommands` on the
+        // right, `SecondaryCommands` in the overflow. Set per item rather than by a running
+        // flag, which is what the model's flexible space used to mean before placement existed.
+        trailing = place != "content";
+        secondary = place == "secondary";
 
-        if (kind == ">") {
-            trailing = true;
-        } else if (kind == "-") {
+        if (kind == "-") {
             if (trailing) {
                 bar.PrimaryCommands().Append(
                     WUXC::AppBarSeparator{}.as<WUXC::ICommandBarElement>());
@@ -4173,14 +4181,6 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                 rule.Margin(WUX::Thickness{ 6, 0, 6, 0 });
                 rule.Background(WUXM::SolidColorBrush(color_argb(0x33'808080u)));
                 lead.Children().Append(rule);
-            }
-        } else if (kind == "_") {
-            // A fixed gap. PrimaryCommands spaces its own commands and takes no filler element,
-            // so a trailing gap has nothing to be.
-            if (!trailing) {
-                WUXC::Border gap;
-                gap.Width(12);
-                lead.Children().Append(gap);
             }
         } else if (kind == "F") {
             WUXC::AutoSuggestBox box;
@@ -4203,7 +4203,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             }
             lead.Children().Append(box);
             if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, box);
-        } else if (kind == "S") {
+        } else if (id == "day.sidebar-toggle") {
             // The sidebar toggle is REALIZED BY THE NAVIGATIONVIEW, not by a bar command: its
             // built-in PaneToggleButton is the hamburger Windows puts at the head of the pane,
             // and drawing our own beside it left the window with two stacked hamburgers doing the
@@ -4218,6 +4218,9 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             // Nothing is lost by always dropping it — in a window with a split nav the built-in
             // button does the job, and in a window WITHOUT one this button drove nothing anyway
             // (`day_xaml_toggle_sidebar` no-ops on an empty `g_navviews`).
+            //
+            // Recognized by its RESERVED ID now that a sidebar host contributes an ordinary
+            // button for it rather than a kind of its own (docs/toolbars.md).
             continue;
         } else if (kind == "L") {
             WUXC::TextBlock caption;

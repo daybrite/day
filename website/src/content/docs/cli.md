@@ -44,10 +44,10 @@ day version                  # print the CLI version, build profile, and git ref
 ```
 
 `day patch` switches an app from the published git dependency to a local checkout of day, or
-of an external piece or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
+of an external [piece](/docs/glossary#piece) or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
 when and how to use it.
 
-`day pack` produces a standalone, installable package per target. See
+`day pack` produces a standalone, installable package per [target](/docs/glossary#target). See
 [Packaging & distribution](/docs/packaging) for formats, signing, and CI:
 
 | target | artifact |
@@ -61,15 +61,15 @@ when and how to use it.
 | `web-dom` | none — `day build` already emits a self-contained static `dist/` |
 
 Run `day new` with no arguments to be walked through choosing what to create (app / piece / part) and
-which platforms and toolkits to support. Every question has an equivalent flag, so the same choices
+which platforms and [toolkits](/docs/glossary#toolkit) to support. Every question has an equivalent flag, so the same choices
 can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --toolkit macos-appkit
 --appid com.example.myapp --title "My App"`. Scaffolds currently depend on `day` from its git
 remote (the framework crates are not yet published to crates.io); once they are, `--registry`
 pins them to your CLI's version from crates.io and will become the default.
 
-`day new app` scaffolds a working starter: a typed-route sidebar over four sample panels (a
-reactive counter, a controls tour, a canvas dial, and a drill-down stack), with locales, a
-dayscript walkthrough (`day launch -p <target> --script dayscript/demo.yaml`), and the thin native
+`day new app` scaffolds a working starter: a typed-route [sidebar](/docs/glossary#sidebar) over four sample panels (a
+[reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
+[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), and the thin native
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders
 (`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
@@ -468,7 +468,7 @@ warning day::lint::unused-key        resource/locales/en: history_hint is never 
 ```
 
 A finding is an **error** when it names something that does not exist, or that will misbehave once
-the app runs: a route nothing declares navigates nowhere, an undeclared permission terminates the
+the app runs: a [route](/docs/glossary#route) nothing declares navigates nowhere, an undeclared permission terminates the
 app on iOS, an unknown target in `Day.toml` is not read. Coverage gaps and store copy are
 **warnings**. Both kinds fail `--strict`, so the split changes what you read rather than what CI
 does.
@@ -525,9 +525,9 @@ hiding an `--allow` that has outlived its reason.
 Under GitHub Actions, findings also become annotations on the lines they name, plus a summary table
 on the run page.
 
-One backend feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
+One [backend](/docs/glossary#backend) feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
-the per-target build pipelines, and how resources are packaged are covered in
+the per-target build pipelines, and how [resources](/docs/glossary#resource) are packaged are covered in
 [Project structure & builds](/docs/project-structure).
 
 ## dayscript

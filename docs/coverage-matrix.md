@@ -103,5 +103,5 @@ An app branches on this rather than on the target name.
 | `AppBadgeCount` | N | N | – | – | – | – | – | E |
 | `AppBadgeText` | N | – | – | – | – | – | – | – |
 | `AppBadgeDot` | N | – | – | – | – | – | – | E |
-| `Toolbar` | N | N | N | N | N | N | – | E |
+| `Toolbar` | N | N | N | N | N | N | E | E |
 | `Inspector` | N | – | N | N | N | – | – | – |

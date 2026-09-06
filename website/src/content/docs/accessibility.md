@@ -35,13 +35,13 @@ canvas(move |d, size| draw_gauge(d, size, value.get()))
 image(res::images::hero_banner).a11y(|a| a.decorative())
 ```
 
-Put `.id` and `.a11y` before `.frame()` and `.padding()` on canvas and leaf pieces: those
+Put `.id` and `.a11y` before `.frame()` and `.padding()` on canvas and leaf [pieces](/docs/glossary#piece): those
 modifiers wrap the piece in a layout-only node, so annotations placed after them don't reach
 the native widget.
 
 The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. Labels are
 plain strings (`tr(...).format()` localizes one), taken as a snapshot at build time: they don't
-re-resolve on a locale switch yet (a listed follow-up). Native controls report their roles on
+re-resolve on a [locale](/docs/glossary#locale) switch yet (a listed follow-up). Native controls report their roles on
 their own, but no built-in invents a *label* for you; a `toggle` has no title parameter, so a
 titled switch is `labeled("Subscribe", toggle(subscribed))`. Your annotations merge onto the
 node's defaults.
@@ -67,7 +67,7 @@ platform mapping is uneven:
 | GTK | no public settable AT-SPI id today — inspector-visible only |
 | Web | DOM `id` |
 
-dayscript is unaffected by this table; it resolves ids inside the app, uniformly everywhere.
+[dayscript](/docs/glossary#dayscript) is unaffected by this table; it resolves ids inside the app, uniformly everywhere.
 The table matters only when pointing external tooling (Appium, UIA scrapers) at a Day app.
 
 ## Auditing the native tree
@@ -81,8 +81,8 @@ declared:
 - a11y_audit:
 ```
 
-The audit walks id'd nodes, asks the toolkit for the realized role, label, and value (via each
-backend's read-back hooks), and fails the script on mismatch. Run in CI, this turns "we set the
+The audit walks id'd nodes, asks the [toolkit](/docs/glossary#toolkit) for the realized role, label, and value (via each
+[backend](/docs/glossary#backend)'s read-back hooks), and fails the script on mismatch. Run in CI, this turns "we set the
 labels" into a regression-tested claim. Read-back is implemented on the Apple backends (AppKit
 and UIKit); backends that can't yet read their native tree skip the audit (read-back for Qt and
 GTK is a listed follow-up).
@@ -91,14 +91,14 @@ GTK is a listed follow-up).
 
 - **GTK off Linux has no accessibility tree.** GTK's AT-SPI bridge is Linux-only, so the
   `macos-gtk` and `windows-gtk` development combos ([Tier 4](/docs/platforms#support-tiers))
-  are invisible to screen readers. Ship the platform-native target for real users.
+  are invisible to screen readers. Ship the platform-native [target](/docs/glossary#target) for real users.
 - **Android annotations are partial:** labels and values map today (`contentDescription`, state
   description); role and hint refinement is still open, and audit read-back isn't implemented.
 - **Qt's `QAccessible` layer bridges to the native accessibility API on every OS** (no other
   Day backend does that today), which makes `linux-qt` a reasonable choice when Linux
   accessibility is a hard requirement.
 - **Reactive values**: an a11y `value` set at build time is a snapshot; live values (a slider
-  announcing as it moves) work through the control's native behavior, but custom reactive a11y
+  announcing as it moves) work through the control's native behavior, but custom [reactive](/docs/glossary#reactive) a11y
   values on canvas pieces are still a designed-not-built refinement.
 - **Focus order** follows layout order; explicit focus groups and custom sort priority aren't
   exposed yet.

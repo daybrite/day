@@ -83,9 +83,8 @@ pub mod prelude {
         navigate, navigate_to, open_file, picker, polygon, progress, prompt, rectangle,
         rounded_rectangle, route, route_param, route_params, row, save_file, scroll, section,
         segment, selector, shape, shape_group, shape_group_fn, slider, spacer, spinner, stack,
-        sub_menu, swipe_action, text_area, text_field, toggle, toolbar, toolbar_button,
-        toolbar_flexible_space, toolbar_label, toolbar_menu, toolbar_reactive, toolbar_segmented,
-        toolbar_separator, toolbar_sidebar_toggle, toolbar_space, toolbar_toggle, vector, when,
+        sub_menu, swipe_action, text_area, text_field, toggle, toolbar_button, toolbar_label,
+        toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when,
         with_environment, zstack,
     };
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
@@ -132,10 +131,12 @@ pub mod prelude {
     // label's runs are, and what `day-piece-texteditor` edits — plus the Markdown / HTML / RTF
     // codecs over it.
     pub use day_spec::{
+        LabelStyle, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPlacement, ToolbarValue,
+    };
+    pub use day_spec::{
         ListStyle, ParagraphAlign, ParagraphRun, ParagraphStyle, RunStyle, StyledText, TextRun,
         Underline,
     };
     pub use day_spec::{MenuBarRole, MenuItem, MenuRole, Shortcut};
-    pub use day_spec::{Symbol, ToolbarItem, ToolbarItemKind, ToolbarValue};
     pub use std::time::Duration;
 }

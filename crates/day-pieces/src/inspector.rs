@@ -284,7 +284,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         content,
         panel,
     } = inspector;
-    let window = day_core::toolbar::current_window();
+    let window = day_core::window_being_built();
     // A LEADING pane is a utility surface (a layer panel, docs/tree.md): it stays a side
     // pane at EVERY width rather than re-homing into the compact sheet — a phone shows a
     // narrow canvas beside it, and everything stays mounted in the window (no modal to

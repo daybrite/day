@@ -233,11 +233,24 @@ impl Gtk {
         let mut widgets: HashMap<String, gtk4::Widget> = HashMap::new();
         let mut packed: Vec<gtk4::Widget> = Vec::new();
 
-        // Everything up to the first flexible space packs to the start, the rest to the end.
-        let split = items
+        // Placement decides the packing (docs/toolbars.md): `Navigation` and `Principal` items
+        // pack to the header bar's start, everything else to its end. GNOME's header bar has no
+        // center slot an app can fill — the title owns it — so a `Principal` item joins the
+        // leading group rather than displacing the window's title.
+        let leading = |p: day_spec::ToolbarPlacement| {
+            matches!(
+                p,
+                day_spec::ToolbarPlacement::Navigation | day_spec::ToolbarPlacement::Principal
+            )
+        };
+        let split = items.iter().filter(|i| leading(i.placement)).count();
+        let ordered: Vec<ToolbarItem> = items
             .iter()
-            .position(|i| matches!(i.kind, ToolbarItemKind::FlexibleSpace))
-            .unwrap_or(items.len());
+            .filter(|i| leading(i.placement))
+            .chain(items.iter().filter(|i| !leading(i.placement)))
+            .cloned()
+            .collect();
+        let items: &[ToolbarItem] = &ordered;
 
         let mut build = |item: &ToolbarItem| -> Option<gtk4::Widget> {
             let w: gtk4::Widget = match &item.kind {
@@ -342,23 +355,6 @@ impl Gtk {
                     }
                     b.upcast()
                 }
-                ToolbarItemKind::SidebarToggle => {
-                    // GNOME's own sidebar affordance: the `sidebar-show-symbolic` button that
-                    // opens Files' and Text Editor's side pane. The app supplies no action —
-                    // the click drives the split host directly (docs/toolbars.md).
-                    let b = gtk4::Button::new();
-                    dress_button(&b, item);
-                    if item.icon.is_none() {
-                        b.set_icon_name("sidebar-show-symbolic");
-                    }
-                    b.set_sensitive(item.enabled);
-                    b.connect_clicked(|b| {
-                        if !crate::toggle_sidebar() {
-                            b.set_sensitive(false); // no sidebar in this window
-                        }
-                    });
-                    b.upcast()
-                }
                 ToolbarItemKind::Menu { items } => {
                     let b = gtk4::MenuButton::new();
                     let group = gtk4::gio::SimpleActionGroup::new();
@@ -435,13 +431,6 @@ impl Gtk {
                 ToolbarItemKind::Separator => {
                     gtk4::Separator::new(gtk4::Orientation::Vertical).upcast()
                 }
-                ToolbarItemKind::Space => {
-                    let b = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-                    b.set_size_request(12, -1);
-                    b.upcast()
-                }
-                // The pack split IS the flexible space; there is no widget for it.
-                ToolbarItemKind::FlexibleSpace => return None,
             };
             if !item.id.is_empty() {
                 widgets.insert(item.id.clone(), w.clone());

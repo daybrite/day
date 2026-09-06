@@ -180,6 +180,101 @@ for (const d of docs) {
 </style>
 
 <!-- prose styling for rendered markdown -->
+<script>
+  // Glossary popovers (plugins/glossary-links.mjs stamps the terms). One popover element is
+  // shared by every term on the page: it opens under the term on hover or keyboard focus,
+  // stays open while the pointer is over it (its "defined in" link is meant to be clicked),
+  // and closes on leave, blur, or Escape. Touch screens have no hover, and the term is a real
+  // link to the glossary, so a tap there simply follows it.
+  const terms = document.querySelectorAll<HTMLAnchorElement>('.doc-body a.gloss');
+  if (terms.length) {
+    const pop = document.createElement('div');
+    pop.className = 'gloss-pop';
+    pop.id = 'gloss-pop';
+    pop.setAttribute('role', 'tooltip');
+    pop.hidden = true;
+    document.body.appendChild(pop);
+
+    // A definition is plain text with `code` spans; built as nodes, never as HTML.
+    const fill = (a: HTMLAnchorElement) => {
+      pop.replaceChildren();
+      const head = document.createElement('b');
+      head.textContent = a.dataset.term ?? '';
+      pop.appendChild(head);
+      const def = document.createElement('span');
+      (a.dataset.def ?? '').split('`').forEach((part, i) => {
+        if (!part) return;
+        if (i % 2) {
+          const code = document.createElement('code');
+          code.textContent = part;
+          def.appendChild(code);
+        } else {
+          def.appendChild(document.createTextNode(part));
+        }
+      });
+      pop.appendChild(def);
+      if (a.dataset.see) {
+        const see = document.createElement('span');
+        see.className = 'gloss-see';
+        see.append('Defined in ');
+        const link = document.createElement('a');
+        link.href = a.dataset.see;
+        link.textContent = a.dataset.seeTitle ?? a.dataset.see;
+        see.appendChild(link);
+        pop.appendChild(see);
+      }
+    };
+
+    let current: HTMLAnchorElement | null = null;
+    let closeTimer = 0;
+    const place = (a: HTMLAnchorElement) => {
+      const r = a.getBoundingClientRect();
+      const width = Math.min(340, window.innerWidth - 24);
+      pop.style.maxWidth = `${width}px`;
+      let left = r.left + window.scrollX;
+      if (left + width > window.scrollX + window.innerWidth - 12) {
+        left = window.scrollX + window.innerWidth - 12 - width;
+      }
+      pop.style.left = `${Math.max(12, left)}px`;
+      pop.style.top = `${r.bottom + window.scrollY + 8}px`;
+    };
+    const open = (a: HTMLAnchorElement) => {
+      window.clearTimeout(closeTimer);
+      if (current !== a) {
+        current = a;
+        fill(a);
+        a.setAttribute('aria-describedby', pop.id);
+      }
+      pop.hidden = false;
+      place(a);
+    };
+    const close = () => {
+      closeTimer = window.setTimeout(() => {
+        pop.hidden = true;
+        current?.removeAttribute('aria-describedby');
+        current = null;
+      }, 160);
+    };
+
+    terms.forEach((a) => {
+      a.addEventListener('mouseenter', () => open(a));
+      a.addEventListener('mouseleave', close);
+      a.addEventListener('focus', () => open(a));
+      a.addEventListener('blur', close);
+    });
+    pop.addEventListener('mouseenter', () => window.clearTimeout(closeTimer));
+    pop.addEventListener('mouseleave', close);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !pop.hidden) {
+        pop.hidden = true;
+        current?.removeAttribute('aria-describedby');
+        current = null;
+      }
+    });
+    window.addEventListener('resize', () => { if (current && !pop.hidden) place(current); });
+  }
+</script>
+
 <style is:global>
   .doc-body h1, .doc-body h2, .doc-body h3 { scroll-margin-top: 84px; }
   .doc-body > h1:first-child, .doc-body > :first-child { margin-top: 0; }

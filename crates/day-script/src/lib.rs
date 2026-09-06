@@ -1366,7 +1366,10 @@ fn exec(step: Step) -> Reply {
                     Some(k) => Some(format_key(&k, args)),
                     None => text,
                 };
-                let model = day_core::toolbar::primary_toolbar_model();
+                // Every live chrome's items (docs/toolbars.md): the window's own, plus whichever
+                // pages are showing. One bar per window at a time, so an id that appears twice is
+                // an app bug rather than an ambiguity to resolve here.
+                let model = day_core::toolbar::toolbar_model();
                 let Some(found) = model.iter().find(|i| i.id == item) else {
                     // Retryable: a reactive toolbar may not have installed yet.
                     return Err(Reply::fail(format!("toolbar: no item {item:?}"), true));
@@ -1374,11 +1377,11 @@ fn exec(step: Step) -> Reply {
                 if !found.enabled {
                     return Err(Reply::fail(format!("toolbar: {item:?} is disabled"), false));
                 }
-                // The sidebar toggle carries no app closure — the toolkit owns the behavior, so
-                // it is driven through the duty rather than the action registry. Same call the
+                // The sidebar affordance a host supplies for itself carries the toolkit's own
+                // behavior, not an app closure, so it is driven through the duty. Same call the
                 // native button makes, which is the point: the walkthrough exercises the real
                 // path (docs/toolbars.md).
-                if matches!(found.kind, day_spec::ToolbarItemKind::SidebarToggle) {
+                if found.id == day_spec::SIDEBAR_TOGGLE_ID {
                     if !day_core::toolbar::toggle_sidebar() {
                         return Err(Reply::fail(
                             format!("toolbar: {item:?} found no sidebar to toggle"),

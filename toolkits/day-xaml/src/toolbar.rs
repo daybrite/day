@@ -159,11 +159,8 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
                 ("F", 0, text.as_str(), placeholder.as_str())
             }
             // "S" — the shim maps it to NavigationView.IsPaneOpen (docs/toolbars.md).
-            ToolbarItemKind::SidebarToggle => ("S", 0, "", ""),
             ToolbarItemKind::Label => ("L", 0, "", ""),
             ToolbarItemKind::Separator => ("-", 0, "", ""),
-            ToolbarItemKind::Space => ("_", 0, "", ""),
-            ToolbarItemKind::FlexibleSpace => (">", 0, "", ""),
         };
         // A bundled image crosses as the staged file's name, the same way nav icons do; only one
         // of the two icon fields is ever set.
@@ -188,8 +185,24 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
                 .unwrap_or_default(),
             _ => String::new(),
         };
+        // A 14th field: where the item sits on the bar (docs/toolbars.md). A `CommandBar` splits
+        // into `Content` (left) and `PrimaryCommands` (right) with `SecondaryCommands` in the
+        // overflow "…", which is exactly the three roles Day's placements reduce to here. The
+        // COLUMN an item came from has nowhere to land — a `CommandBar` spans the window and
+        // knows nothing of a `NavigationView`'s panes — so it is dropped.
+        let place = match item.placement {
+            day_spec::ToolbarPlacement::Navigation | day_spec::ToolbarPlacement::Principal => {
+                "content"
+            }
+            day_spec::ToolbarPlacement::Secondary | day_spec::ToolbarPlacement::Bottom => {
+                "secondary"
+            }
+            day_spec::ToolbarPlacement::Automatic | day_spec::ToolbarPlacement::Primary => {
+                "primary"
+            }
+        };
         out.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             kind,
             clean(&item.id),
             item.action,
@@ -203,6 +216,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             clean(placeholder),
             clean(&sug),
             geom, // already escaped above; `clean` would eat the spec's own tabs
+            place,
         ));
         if let ToolbarItemKind::Menu { items } = &item.kind {
             serialize_menu_xaml(items, &mut out);

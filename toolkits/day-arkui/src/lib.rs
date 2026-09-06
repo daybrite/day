@@ -1503,32 +1503,6 @@ mod imp {
                     }
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
-                    // Trailing title-bar action (NavProps::bar_action, docs/navigation.md): the
-                    // ArkTS side stores it and draws it as a `.menus()` item on each NavDestination.
-                    // A tap re-enters as `day_arkui_nav_menu_action` → MenuAction dispatch.
-                    if !p.bar_actions.is_empty() {
-                        let join = |f: &dyn Fn(&day_spec::props::NavBarAction) -> String| {
-                            p.bar_actions.iter().map(f).collect::<Vec<_>>().join("\n")
-                        };
-                        let icons = cstr(&join(&|a| a.icon.clone().unwrap_or_default()));
-                        let labels = cstr(&join(&|a| a.label.clone()));
-                        let actions = cstr(&join(&|a| a.action.to_string()));
-                        let root_only = cstr(&join(&|a| {
-                            match a.scope {
-                                day_spec::props::NavBarScope::RootPage => "1",
-                                day_spec::props::NavBarScope::EveryPage => "0",
-                            }
-                            .to_string()
-                        }));
-                        unsafe {
-                            ffi::day_ark_nav_set_menu(
-                                icons.as_ptr(),
-                                labels.as_ptr(),
-                                actions.as_ptr(),
-                                root_only.as_ptr(),
-                            )
-                        };
-                    }
                     // A REBUILT host invalidates every pointer the old one tracked — a Pushed
                     // patch that then consumed a stale NAV_ATTACHED entry would re-home a
                     // DISPOSED node (SIGSEGV inside ArkUI RemoveChild).
@@ -2383,6 +2357,11 @@ mod imp {
                 // Every pushed page is an ArkTS NavDestination with a native title bar
                 // (Index.ets) — content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
+                // A `Navigation`'s title bar carries `.menus()` items, which is where a page's
+                // toolbar commands go here (docs/toolbars.md). Emulated rather than Native: the
+                // bar belongs to the navigation destination, not to the window, so an app that
+                // asks whether there is persistent window chrome gets the honest answer.
+                Cap::Toolbar => Support::Emulated,
                 // The composed bottom bar (see NavSuite): ArkUI's native node set has no tab
                 // container, so this one is built from Day's own primitives — Emulated says so.
                 Cap::NavTabs => Support::Emulated,

@@ -198,6 +198,7 @@ mod imp {
         static PAGE_PANE: day_spec::sidetable::SideTable<day_spec::props::Pane> =
             day_spec::sidetable::SideTable::new();
 
+
         /// Cover content view ptr → its presentation state.
         static COVER_STATE: RefCell<HashMap<usize, CoverState>> = RefCell::new(HashMap::new());
         /// The current `defers_system_gestures` union (day `Edges` bits) — read by the root
@@ -783,77 +784,6 @@ mod imp {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // DayBarButtonTarget — the target-action sink for a nav bar's trailing action
-    // (docs/navigation.md, NavProps::bar_action). A UIBarButtonItem holds its target
-    // WEAKLY, so one target is retained for the whole nav host (in NavState) and reused by
-    // every page's item; on tap it emits `Event::MenuAction(action)`, which the tree
-    // dispatches to the app's registered closure.
-    // -----------------------------------------------------------------------
-
-    struct BarButtonIvars {
-        host: NodeId,
-        action: u64,
-    }
-
-    define_class!(
-        #[unsafe(super(NSObject))]
-        #[thread_kind = MainThreadOnly]
-        #[name = "DayUIKitBarButtonTarget"]
-        #[ivars = BarButtonIvars]
-        struct DayBarButtonTarget;
-
-        unsafe impl NSObjectProtocol for DayBarButtonTarget {}
-
-        impl DayBarButtonTarget {
-            #[unsafe(method(tap:))]
-            fn tap(&self, _sender: &AnyObject) {
-                day_spec::ffi_guard::contain((), || {
-                    emit(self.ivars().host, Event::MenuAction(self.ivars().action));
-                });
-            }
-        }
-    );
-
-    impl DayBarButtonTarget {
-        fn new(mtm: MainThreadMarker, host: NodeId, action: u64) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(BarButtonIvars { host, action });
-            unsafe { msg_send![super(this), init] }
-        }
-    }
-
-    /// A nav host's resolved trailing bar action (NavProps::bar_actions): the downscaled template
-    /// image, its accessible label, the pages it rides, and the retained target every page's bar
-    /// button shares.
-    struct NavBarButton {
-        image: Option<Retained<objc2_ui_kit::UIImage>>,
-        label: String,
-        scope: day_spec::props::NavBarScope,
-        target: Retained<DayBarButtonTarget>,
-    }
-
-    impl NavBarButton {
-        /// A fresh `UIBarButtonItem` for one page's `navigationItem` (items are not shared across
-        /// controllers), wired to the shared target.
-        fn make_item(&self, mtm: MainThreadMarker) -> Retained<UIBarButtonItem> {
-            let item = unsafe {
-                UIBarButtonItem::initWithImage_style_target_action(
-                    UIBarButtonItem::alloc(mtm),
-                    self.image.as_deref(),
-                    UIBarButtonItemStyle::Plain,
-                    Some(&self.target),
-                    Some(sel!(tap:)),
-                )
-            };
-            unsafe { item.setAccessibilityLabel(Some(&NSString::from_str(&self.label)), mtm) };
-            item
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // DayFrameTarget — the CADisplayLink target for the frame clock (§8.4)
-    // -----------------------------------------------------------------------
-
     // ── The window toolbar on a phone (docs/toolbars.md) ───────────────────────────────
     //
     // Day's window toolbar model is one item list per window root, and where it lands depends
@@ -1024,10 +954,8 @@ mod imp {
             let image = menu_image(item.icon.as_ref());
             let title = NSString::from_str(&item.label);
             let bar: Retained<UIBarButtonItem> = match &item.kind {
-                K::Search { .. } | K::SidebarToggle => continue,
+                K::Search { .. } => continue,
                 K::Separator => unsafe { UIBarButtonItem::fixedSpaceItemOfWidth(16.0, mtm) },
-                K::Space => unsafe { UIBarButtonItem::fixedSpaceItemOfWidth(8.0, mtm) },
-                K::FlexibleSpace => unsafe { UIBarButtonItem::flexibleSpaceItem(mtm) },
                 K::Label => {
                     let b = unsafe {
                         UIBarButtonItem::initWithTitle_style_target_action(
@@ -1364,6 +1292,20 @@ mod imp {
     /// Every navigation controller of every host under a window root: the detail stack and
     /// the sidebar (and list) column stacks. Each is placed by `bar_placement`, so a collapse
     /// or expand MOVES the bar rather than leaving a copy behind.
+    /// The adaptive tabs host under `root`, if the window has one. Its own bar carries the
+    /// window's commands on iPadOS (docs/toolbars.md).
+    fn tabs_host_under(root: &UIView) -> Option<Retained<UITabBarController>> {
+        NAV_TABS.with(|m| {
+            m.borrow()
+                .values()
+                .find(|t| {
+                    unsafe { t.tabbar.view() }
+                        .is_some_and(|v| unsafe { v.isDescendantOfView(root) })
+                })
+                .map(|t| t.tabbar.clone())
+        })
+    }
+
     fn toolbar_navs_under(root: &UIView) -> Vec<Retained<DayNavController>> {
         NAV_STATE.with(|m| {
             m.borrow()
@@ -1391,66 +1333,20 @@ mod imp {
     }
 
     thread_local! {
-        /// Each page's place in its host — (host ptr, is_root, is_sidebar) — so its trailing
-        /// bar actions can be rebuilt later: when the window bar joins them in the detail
-        /// column, and when a collapse or expand moves actions between columns.
-        static PAGE_BAR_SCOPE: RefCell<HashMap<usize, (usize, bool, bool)>> =
+        /// Per view controller, the targets its bar items fire — kept alive here because a
+        /// `UIBarButtonItem` holds its target weakly, and torn down with the page.
+        static PAGE_TOOLBARS: RefCell<HashMap<usize, PageBar>> = RefCell::new(HashMap::new());
+        /// Per NAVIGATION ITEM, the targets its bar buttons fire. A tabs host's shared bar has
+        /// no view controller of its own to hang them on.
+        static NAV_ITEM_TARGETS: RefCell<HashMap<usize, Vec<Retained<DayToolbarTarget>>>> =
             RefCell::new(HashMap::new());
     }
 
-    /// Which of a host's trailing bar actions ride the page at `(is_root, is_sidebar)`. An
-    /// expanded split's sidebar keeps only its list-scoped actions: the every-page ones act on
-    /// whatever the detail column shows, so they ride that column's bar and would only repeat
-    /// here. Merged into the stack, the sidebar is the root page like any other.
-    fn bar_action_rides(
-        scope: day_spec::props::NavBarScope,
-        is_root: bool,
-        expanded_sidebar: bool,
-    ) -> bool {
-        if expanded_sidebar {
-            scope == day_spec::props::NavBarScope::RootPage
-        } else {
-            is_root || scope == day_spec::props::NavBarScope::EveryPage
-        }
-    }
-
-    /// Fresh bar-button items for a page's own trailing actions, in `setRightBarButtonItems`
-    /// order (element 0 rightmost); `None` for a controller that is not a Day page.
-    fn bar_action_items(
-        mtm: MainThreadMarker,
-        vc: &UIViewController,
-    ) -> Option<Vec<Retained<UIBarButtonItem>>> {
-        let (host, is_root, is_sidebar) =
-            PAGE_BAR_SCOPE.with(|m| m.borrow().get(&vc_key(vc)).copied())?;
-        NAV_STATE.with(|m| {
-            let m = m.borrow();
-            let state = m.get(&host)?;
-            let expanded_sidebar = is_sidebar
-                && state
-                    .split
-                    .as_ref()
-                    .is_some_and(|p| !unsafe { p.split_vc.isCollapsed() });
-            Some(
-                state
-                    .bar_actions
-                    .iter()
-                    .filter(|ba| bar_action_rides(ba.scope, is_root, expanded_sidebar))
-                    .rev()
-                    .map(|ba| ba.make_item(mtm))
-                    .collect(),
-            )
-        })
-    }
-
-    /// Re-set a page's trailing bar actions from its current place in its host.
-    fn refresh_bar_actions(mtm: MainThreadMarker, vc: &UIViewController) {
-        if let Some(items) = bar_action_items(mtm, vc) {
-            unsafe {
-                vc.navigationItem().setRightBarButtonItems(Some(
-                    &objc2_foundation::NSArray::from_retained_slice(&items),
-                ))
-            };
-        }
+    /// One page's bottom-bar targets, kept alive while that page is up: a `UIBarButtonItem`
+    /// holds its target weakly.
+    #[derive(Default)]
+    struct PageBar {
+        targets: Vec<Retained<DayToolbarTarget>>,
     }
 
     /// The items a phone's bar can hold: spacers have no meaning on a bar that folds its
@@ -1460,14 +1356,18 @@ mod imp {
         items
             .iter()
             .filter(|i| {
-                !matches!(
-                    i.kind,
-                    day_spec::ToolbarItemKind::Separator
-                        | day_spec::ToolbarItemKind::Space
-                        | day_spec::ToolbarItemKind::FlexibleSpace
-                        | day_spec::ToolbarItemKind::Search { .. }
-                        | day_spec::ToolbarItemKind::SidebarToggle
-                )
+                // The sidebar affordance is UIKit's, not Day's: `UISplitViewController` shows
+                // its own where a sidebar can be revealed, and `.tabSidebar` draws one in the
+                // strip. Drawing Day's as well put a second, dead button on a phone — where
+                // there is no sidebar to toggle at all — and duplicated the working one on an
+                // iPad (docs/toolbars.md). Search rides the navigation surface, and a separator
+                // means nothing on a bar that folds its overflow away.
+                i.id != day_spec::SIDEBAR_TOGGLE_ID
+                    && !matches!(
+                        i.kind,
+                        day_spec::ToolbarItemKind::Separator
+                            | day_spec::ToolbarItemKind::Search { .. }
+                    )
             })
             .cloned()
             .collect()
@@ -1528,53 +1428,162 @@ mod imp {
         {
             undock_window_toolbar(root, &root_view);
         }
-        let page_items = bar_action_items(mtm, vc);
-        let mut targets = Vec::new();
-        let controls: Vec<day_spec::ToolbarItem> = match placement {
+        // The window's items lead and the page's follow, so a page command sits next to the page
+        // it acts on and the overflow eats from the trailing end (docs/toolbars.md). A column
+        // that is not showing pages takes only its own page's items — the window's act on the
+        // detail, which is one column over.
+        let window_items: Vec<day_spec::ToolbarItem> = match placement {
             BarPlacement::NavBar => bar_controls(&items),
             BarPlacement::None | BarPlacement::Nested => Vec::new(),
         };
-        let bar_items = build_toolbar_items(mtm, root, &controls, &mut targets);
-        WINDOW_TOOLBARS.with(|t| {
-            if let Some(w) = t.borrow_mut().get_mut(&root) {
-                w.targets.extend(targets);
-            }
-        });
+        apply_chrome(mtm, vc, root, &window_items);
+        // The BOTTOM BAR is `UINavigationController`'s own, and it is hidden unless a page put
+        // something on it (docs/toolbars.md). `apply_chrome` has just set this page's items, so
+        // ask the page rather than clearing them and hiding unconditionally — which is what made
+        // `Placement::Bottom` draw nothing on the one platform that has a bottom bar.
+        let has_bottom = unsafe { vc.toolbarItems() }.is_some_and(|i| !i.is_empty());
+        unsafe { nav.setToolbarHidden_animated(!has_bottom, false) };
+    }
+
+    /// Lower one page's chrome: `window_items` first, then that page's own contributions, split
+    /// by placement across the navigation item's leading, title and trailing slots.
+    fn apply_chrome(
+        mtm: MainThreadMarker,
+        vc: &UIViewController,
+        root: usize,
+        window_items: &[day_spec::ToolbarItem],
+    ) {
+        let item = unsafe { vc.navigationItem() };
+        apply_items_to(mtm, &item, root, window_items);
+        // A bottom bar belongs to the view controller, not to its navigation item; the
+        // navigation controller reveals it in `apply_window_toolbar_to` once it has items.
+        let bottom: Vec<day_spec::ToolbarItem> = window_items
+            .iter()
+            .filter(|i| i.placement == day_spec::ToolbarPlacement::Bottom)
+            .cloned()
+            .collect();
+        let mut targets = Vec::new();
+        let bot = build_toolbar_items(mtm, root, &bottom, &mut targets);
         unsafe {
-            match placement {
-                BarPlacement::NavBar => {
-                    // The page's own actions as a fixed group after the window's, at the
-                    // trailing edge.
-                    let mut groups = optional_item_groups(mtm, &controls, bar_items);
-                    if let Some(page_items) = page_items
-                        && !page_items.is_empty()
-                    {
-                        // Stored rightmost-first (`setRightBarButtonItems` order); a group
-                        // reads left to right.
-                        let ordered: Vec<_> = page_items.into_iter().rev().collect();
-                        groups.push(
-                            objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
-                                None,
-                                &objc2_foundation::NSArray::from_retained_slice(&ordered),
-                                mtm,
-                            ),
-                        );
-                    }
-                    vc.navigationItem().setTrailingItemGroups(
-                        &objc2_foundation::NSArray::from_retained_slice(&groups),
-                    );
-                }
-                BarPlacement::None | BarPlacement::Nested => {
-                    if let Some(page_items) = page_items {
-                        vc.navigationItem().setRightBarButtonItems(Some(
-                            &objc2_foundation::NSArray::from_retained_slice(&page_items),
-                        ));
-                    }
-                }
-            }
-            vc.setToolbarItems(None);
-            nav.setToolbarHidden_animated(true, false);
+            vc.setToolbarItems(
+                (!bot.is_empty())
+                    .then(|| objc2_foundation::NSArray::from_retained_slice(&bot))
+                    .as_deref(),
+            );
         }
+        PAGE_TOOLBARS.with(|m| {
+            m.borrow_mut().entry(vc_key(vc)).or_default().targets = targets;
+        });
+    }
+
+    /// Lower `all` onto one navigation item, split by placement across its leading, title and
+    /// trailing slots (docs/toolbars.md).
+    fn apply_items_to(
+        mtm: MainThreadMarker,
+        item: &objc2_ui_kit::UINavigationItem,
+        root: usize,
+        window_items: &[day_spec::ToolbarItem],
+    ) {
+        apply_items_styled(mtm, item, root, window_items, true)
+    }
+
+    /// [`apply_items_to`], choosing how the trailing items are attached. Item GROUPS give a
+    /// navigation bar its overflow behavior, but a tabs host's shared bar draws only plain
+    /// trailing items — so that one asks for `rightBarButtonItems` instead.
+    fn apply_items_styled(
+        mtm: MainThreadMarker,
+        item: &objc2_ui_kit::UINavigationItem,
+        root: usize,
+        window_items: &[day_spec::ToolbarItem],
+        groups_ok: bool,
+    ) {
+        use day_spec::ToolbarPlacement as P;
+        let all: Vec<day_spec::ToolbarItem> = window_items.to_vec();
+
+        let take = |ps: &[P], all: &[day_spec::ToolbarItem]| -> Vec<day_spec::ToolbarItem> {
+            all.iter()
+                .filter(|i| ps.contains(&i.placement))
+                .cloned()
+                .collect()
+        };
+        let leading = take(&[P::Navigation], &all);
+        let principal = take(&[P::Principal], &all);
+        let trailing = take(&[P::Automatic, P::Primary], &all);
+        let secondary = take(&[P::Secondary], &all);
+
+        let mut targets = Vec::new();
+        unsafe {
+            let lead = build_toolbar_items(mtm, root, &leading, &mut targets);
+            // SUPPLEMENT the back button, never replace it. `leftBarButtonItems` takes the back
+            // button's place by default, so a leading item on a pushed page left the user with
+            // no way back — this is the flag SwiftUI sets for exactly the same reason.
+            item.setLeftItemsSupplementBackButton(true);
+            item.setLeftBarButtonItems(
+                (!lead.is_empty())
+                    .then(|| objc2_foundation::NSArray::from_retained_slice(&lead))
+                    .as_deref(),
+            );
+            // A centered item replaces the title view. Only the first is honored: the slot holds
+            // one view, and stacking two there is how a title stops being readable.
+            let mid = build_toolbar_items(mtm, root, &principal, &mut targets);
+            if let Some(first) = mid.first() {
+                item.setTitleView(first.customView().as_deref());
+            }
+            // Primary items ride a FIXED group so a crowded bar never folds them; everything
+            // else rides one optional group apiece, which is what lets UIKit take them into the
+            // overflow one at a time from the trailing end (docs/toolbars.md).
+            let mut groups: Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> = Vec::new();
+            let auto: Vec<_> = trailing
+                .iter()
+                .filter(|i| i.placement != P::Primary)
+                .cloned()
+                .collect();
+            let prime: Vec<_> = trailing
+                .iter()
+                .filter(|i| i.placement == P::Primary)
+                .cloned()
+                .collect();
+            groups.extend(optional_item_groups(
+                mtm,
+                &auto,
+                build_toolbar_items(mtm, root, &auto, &mut targets),
+            ));
+            if !prime.is_empty() {
+                let built = build_toolbar_items(mtm, root, &prime, &mut targets);
+                groups.push(
+                    objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
+                        None,
+                        &objc2_foundation::NSArray::from_retained_slice(&built),
+                        mtm,
+                    ),
+                );
+            }
+            groups.extend(optional_item_groups(
+                mtm,
+                &secondary,
+                build_toolbar_items(mtm, root, &secondary, &mut targets),
+            ));
+            if groups_ok {
+                item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(
+                    &groups,
+                ));
+            } else {
+                // Rightmost first, which is `setRightBarButtonItems`' own order — reversing puts
+                // the app's first-declared item leftmost, the order every other backend draws.
+                let mut flat: Vec<day_spec::ToolbarItem> = trailing.clone();
+                flat.extend(secondary.clone());
+                let built = build_toolbar_items(mtm, root, &flat, &mut targets);
+                let ordered: Vec<_> = built.into_iter().rev().collect();
+                item.setRightBarButtonItems(Some(&objc2_foundation::NSArray::from_retained_slice(
+                    &ordered,
+                )));
+            }
+        }
+        // The targets outlive the bar buttons, which hold theirs weakly. Keyed by the navigation
+        // item, so a tabs host's shared bar and a page's own each keep their own.
+        NAV_ITEM_TARGETS.with(|m| {
+            m.borrow_mut().insert(item as *const _ as usize, targets);
+        });
     }
 
     /// Re-place a window's bar on every page of every navigation controller under it — after
@@ -1590,6 +1599,42 @@ mod imp {
                 w.targets.clear();
             }
         });
+        // An ADAPTIVE TABS host draws its own chrome — the strip of destinations across the top
+        // in `.tabSidebar`, a tab bar below in compact — and iPadOS puts a tabbed app's commands
+        // on that same bar through the controller's `navigationItem`. Day used to dock a
+        // navigation bar of its own ABOVE it, which is what stacked two bars on an iPad and
+        // clipped the content between them (docs/toolbars.md).
+        if let Some(tabbar) = tabs_host_under(&root_view) {
+            undock_window_toolbar(root, &root_view);
+            let items = WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.items.clone()));
+            if let Some(mtm) = MainThreadMarker::new() {
+                let controls = bar_controls(&items.unwrap_or_default());
+                // The tab in front owns the bar. Where the tab holds a navigation controller —
+                // a wide window, where the page brings no host of its own — that controller's
+                // top item IS the bar on screen; otherwise the page composed its own host and
+                // its top item is (docs/toolbars.md).
+                let shown = unsafe { tabbar.selectedViewController() };
+                let item = shown.and_then(|vc| {
+                    let inner = vc
+                        .downcast_ref::<objc2_ui_kit::UINavigationController>()
+                        .map(|n| n.retain())
+                        .or_else(|| {
+                            unsafe { vc.childViewControllers() }.iter().find_map(|c| {
+                                c.downcast::<objc2_ui_kit::UINavigationController>().ok()
+                            })
+                        })?;
+                    unsafe { inner.topViewController() }.map(|top| unsafe { top.navigationItem() })
+                });
+                match item {
+                    Some(it) => apply_items_to(mtm, &it, root, &controls),
+                    None => {
+                        let nav_item = unsafe { tabbar.navigationItem() };
+                        apply_items_styled(mtm, &nav_item, root, &controls, false);
+                    }
+                }
+            }
+            return;
+        }
         let navs = toolbar_navs_under(&root_view);
         // A window whose content is not a navigation host has no page bar to put these on
         // (`toolbar_navs_under` finds nothing) — a canvas or a form filling the window, with
@@ -1687,16 +1732,12 @@ mod imp {
 
     /// Take a window's bar off every page under it, leaving each page's own bar actions.
     fn clear_window_toolbar(root_view: &UIView) {
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
         for nav in toolbar_navs_under(root_view) {
             if bar_placement(&nav) == BarPlacement::Nested {
                 continue;
             }
             for vc in unsafe { nav.viewControllers() }.iter() {
                 unsafe { vc.setToolbarItems(None) };
-                refresh_bar_actions(mtm, &vc);
             }
             unsafe { nav.setToolbarHidden_animated(true, false) };
         }
@@ -2298,9 +2339,6 @@ mod imp {
         /// reads `native < vcs.len()` and a phantom NavBack tears down the just-pushed page.
         /// Only an actual DECREASE in the observed native count is a pop.
         last_native: std::cell::Cell<usize>,
-        /// The trailing bar actions (NavProps::bar_actions), applied to each page's `navigationItem`
-        /// as it joins the stack — `None` when the host declares none (e.g. desktop).
-        bar_actions: Vec<NavBarButton>,
         _delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
@@ -2754,11 +2792,6 @@ mod imp {
                     WINDOW_TOOLBARS.with(|t| t.borrow().keys().copied().collect());
                 for root in roots {
                     reapply_window_toolbar(root);
-                }
-                if let Some(mtm) = MainThreadMarker::new() {
-                    for vc in unsafe { parts.primary_nav.viewControllers() }.iter() {
-                        refresh_bar_actions(mtm, &vc);
-                    }
                 }
                 // The search field follows it too (docs/search.md): pinned beside the detail,
                 // behind a pull-down once the columns merge. Both stacks are walked because the
@@ -3506,15 +3539,6 @@ mod imp {
         }
     );
 
-    impl DayNavTabsDelegate {
-        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(NavTabsDelegateIvars {
-                host: std::cell::Cell::new(host),
-            });
-            unsafe { msg_send![super(this), init] }
-        }
-    }
-
     /// Rebuild the host's `UITab`s from its rows and hand them to the controller.
     /// Called whenever either side changes — a page joining, or the rows arriving/being re-derived.
     ///
@@ -3532,6 +3556,15 @@ mod imp {
     ///
     /// The view-controller provider hands back the page Day already built. `vcs` owns it for the
     /// life of the host, so the block returns a borrow rather than transferring anything.
+    impl DayNavTabsDelegate {
+        fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(NavTabsDelegateIvars {
+                host: std::cell::Cell::new(host),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
     /// The host's tabs, rebuilt from its pages and its rows (docs/navigation.md).
     ///
     /// The glyph is handed over exactly as the app staged it: a tab bar draws the image at its own
@@ -6173,33 +6206,6 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
-                    // Resolve the optional trailing bar action once (docs/navigation.md): downscale
-                    // the shared 96px asset to a bar-sized template glyph (tints with the bar), and
-                    // retain one target the per-page items reuse. Applied in `insert` as pages join.
-                    let bar_actions: Vec<NavBarButton> = p
-                        .bar_actions
-                        .iter()
-                        .map(|a| {
-                            let image =
-                                a.icon.as_deref().and_then(load_bundled_uiimage).map(|img| {
-                                    let sized = unsafe {
-                                        img.imageByPreparingThumbnailOfSize(CGSize::new(24.0, 24.0))
-                                    }
-                                    .unwrap_or(img);
-                                    unsafe {
-                                        sized.imageWithRenderingMode(
-                                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                                        )
-                                    }
-                                });
-                            NavBarButton {
-                                image,
-                                label: a.label.clone(),
-                                scope: a.scope,
-                                target: DayBarButtonTarget::new(mtm, id, a.action),
-                            }
-                        })
-                        .collect();
                     let nav = DayNavController::new(mtm, 0); // host ptr set just below
                     // Child-VC containment under the window's root VC (v1: app root).
                     let root_vc = WINDOW
@@ -6473,7 +6479,6 @@ mod imp {
                                 list_in_stack: std::cell::Cell::new(false),
                                 last_native: std::cell::Cell::new(0),
                                 pending_sync: std::cell::Cell::new(false),
-                                bar_actions,
                                 _delegate: delegate,
                                 search,
                             },
@@ -7160,6 +7165,9 @@ mod imp {
                         }
                     }
                 }
+                // A PAGE's own items changed (docs/toolbars.md): store them and re-lower just
+                // this page's chrome. The window's half is untouched, and so is every other
+                // page — which is the point of contributions being per page.
                 kinds::NAV => {
                     // Inline search: the app writing its query patches the live field, so the
                     // sync never rebuilds it or takes the insertion point (docs/search.md). The
@@ -7825,7 +7833,7 @@ mod imp {
                 set.borrow_mut().remove(&ptr_of(&h));
             });
             if let Some(vc) = PAGE_VCS.with(|m| m.borrow_mut().remove(&ptr_of(&h))) {
-                PAGE_BAR_SCOPE.with(|m| {
+                PAGE_TOOLBARS.with(|m| {
                     m.borrow_mut().remove(&vc_key(&vc));
                 });
             }
@@ -7877,10 +7885,50 @@ mod imp {
                     return;
                 }
                 if let Some(vc) = PAGE_VCS.with(|m| m.borrow().get(&ptr_of(child)).cloned()) {
+                    // A tab holds a NAVIGATION CONTROLLER wherever the page will not bring one of
+                    // its own — the shape every tabbed iOS app has, and the only thing that gives
+                    // a tab a bar for the commands its page declares (docs/toolbars.md).
+                    //
+                    // WHERE the page brings one is not a guess: a list-backed destination
+                    // composes a nested host for its two layers exactly when the window is too
+                    // narrow to show them side by side, which is the same question
+                    // `gated_detail_piece` asks. Both layers ask it, so they agree — and wrapping
+                    // on top of that host is what stacked two bars with the destination's title
+                    // on each.
+                    let mtm =
+                        MainThreadMarker::new().expect("uikit insert runs on the main thread");
+                    // Asked of UIKit, which is the authority on it and answers before Day has
+                    // reported a size class for this window.
+                    let wide = NAV_TABS.with(|m| {
+                        m.borrow().get(&ptr_of(parent)).is_some_and(|t| {
+                            let tc: Option<Retained<objc2_ui_kit::UITraitCollection>> =
+                                unsafe { objc2::msg_send![&*t.tabbar, traitCollection] };
+                            tc.is_some_and(|tc| unsafe {
+                                tc.horizontalSizeClass()
+                                    == objc2_ui_kit::UIUserInterfaceSizeClass::Regular
+                            })
+                        })
+                    });
+                    let entry: Retained<UIViewController> = if wide {
+                        let wrapper = unsafe {
+                            let n =
+                                objc2_ui_kit::UINavigationController::initWithRootViewController(
+                                    objc2_ui_kit::UINavigationController::alloc(mtm),
+                                    &vc,
+                                );
+                            // The strip above already names the destination; a large title over
+                            // every tab would say it twice.
+                            n.navigationBar().setPrefersLargeTitles(false);
+                            n
+                        };
+                        Retained::into_super(wrapper)
+                    } else {
+                        vc.clone()
+                    };
                     NAV_TABS.with(|m| {
                         if let Some(t) = m.borrow_mut().get_mut(&ptr_of(parent)) {
                             let at = index.min(t.vcs.len());
-                            t.vcs.insert(at, vc);
+                            t.vcs.insert(at, entry);
                         }
                     });
                     nav_tabs_sync(ptr_of(parent));
@@ -7893,6 +7941,10 @@ mod imp {
             // shape the phone path has always had, so nothing below changes for it.
             let page_pane = PAGE_PANE.with(|t| t.get(ptr_of(child)));
             let is_sidebar = page_pane == Some(day_spec::props::Pane::Sidebar);
+            // This page's OWN toolbar items (docs/toolbars.md). Every page kind takes them —
+            // the sidebar column's, the content list's, and each detail — so a command sits on
+            // the chrome of the content it acts on. Applied before the placement branches below,
+            // and OUTSIDE any `NAV_STATE` borrow, because building the items runs app code.
             // The CONTENT-LIST page is the supplementary column's root, the same shape one
             // column over (docs/navigation.md): never a member of the `vcs` mirror — while
             // collapsed the pieces layer interposes it explicitly (`NavPatch::ListInStack`).
@@ -7920,51 +7972,6 @@ mod imp {
                 let state = m.get_mut(&ptr_of(parent))?;
                 let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
                 state.vcs.push(vc.clone());
-                // The host's trailing bar actions ride this page's navigation bar
-                // (docs/navigation.md): fresh UIBarButtonItems wired to the shared targets, set on
-                // this page's navigationItem as it joins the stack. `RootPage` actions are on the
-                // list only — the same rule inline search follows just below, and `is_sidebar` is
-                // how both recognize the list.
-                // The host's ROOT page, for `NavBarScope::RootPage`. Two shapes qualify and both
-                // have to: a split selector's list lives in the SIDEBAR pane, while a plain
-                // `stack()` has no sidebar at all and its root is simply the first page to
-                // arrive — `vcs` was just pushed, so length 1 is that page. Testing only for the
-                // sidebar left every stack's list-scoped action filtered out everywhere, which
-                // renders as a nav bar that is present but empty.
-                let is_root = is_sidebar || state.vcs.len() == 1;
-                // Remembered for the rebuilds that follow (`bar_action_items`): the window bar
-                // joining these items in the detail column, and a collapse or expand moving
-                // the every-page actions between the columns.
-                PAGE_BAR_SCOPE.with(|m| {
-                    m.borrow_mut()
-                        .insert(vc_key(&vc), (ptr_of(parent), is_root, is_sidebar));
-                });
-                let expanded_sidebar = is_sidebar
-                    && state
-                        .split
-                        .as_ref()
-                        .is_some_and(|p| !unsafe { p.split_vc.isCollapsed() });
-                let mine: Vec<_> = state
-                    .bar_actions
-                    .iter()
-                    .filter(|ba| bar_action_rides(ba.scope, is_root, expanded_sidebar))
-                    .collect();
-                if !mine.is_empty() {
-                    let mtm =
-                        MainThreadMarker::new().expect("uikit insert runs on the main thread");
-                    // REVERSED: `setRightBarButtonItems` fills from the trailing edge inward, so
-                    // element 0 lands rightmost. Reversing puts the app's first-declared action
-                    // leftmost, which is the order it wrote them in and the order every other
-                    // backend draws them.
-                    let items = objc2_foundation::NSArray::from_retained_slice(
-                        &mine
-                            .iter()
-                            .rev()
-                            .map(|ba| ba.make_item(mtm))
-                            .collect::<Vec<_>>(),
-                    );
-                    unsafe { vc.navigationItem().setRightBarButtonItems(Some(&items)) };
-                }
                 // Inline search rides the ROOT page only (docs/search.md): it filters the
                 // TOP-LEVEL list, so it belongs to that list's navigation item and not to every
                 // pushed detail page. `hidesSearchBarWhenScrolling` defaults to true, which is

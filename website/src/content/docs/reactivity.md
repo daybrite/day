@@ -145,7 +145,7 @@ Scopes also carry **context**: `with_environment(value, || …)` provides a valu
 `environment::<T>()` reads back anywhere below, which is how ambient configuration like theming
 works, and how app state is structured. A window's content builds in a scope of its own, so a
 `Copy` struct of signal handles provided there is *that window's* state: `Scene::scoped(|s| …)`
-to provide it, `Scene::ambient()` to read it back in any piece below, `Scene::focused()` for an
+to provide it, `Scene::ambient()` to read it back in any [piece](/docs/glossary#piece) below, `Scene::focused()` for an
 app-wide menu bar whose items belong to no window. [App state](/docs/internal/state) covers the
 full model, including why a `thread_local!` is the wrong default even when it looks equivalent.
 

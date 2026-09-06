@@ -15,6 +15,7 @@ use std::rc::Rc;
 /// A menu entry under construction. Build a command with [`menu_item`], a nested submenu with
 /// [`sub_menu`], a standard system command with [`menu_role`], and a divider with [`menu_separator`].
 /// Attach to a Piece via [`Decorate::context_menu`] or install app-wide via [`app_menu`].
+#[derive(Clone)]
 pub struct MenuEntry {
     label: String,
     shortcut: Option<day_spec::Shortcut>,

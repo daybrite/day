@@ -1102,7 +1102,15 @@ public final class DayBridge {
         // The window toolbar is usually set BEFORE the nav host exists (an app installs its
         // bar as the first thing the window body does), so a host born after the spec arrived
         // takes it now. Best-effort, like the bar actions below.
-        if (windowToolbarSpec != null && !windowToolbarSpec.isEmpty()) {
+        //
+        // The OUTERMOST host only. A window can hold more than one — a list-backed destination
+        // composes a nested host for its own two layers — and giving each of them the window's
+        // items painted a second app bar directly under the first, which is what a tablet showed
+        // as the toolbar drawn twice (docs/toolbars.md).
+        if (toolbarHost == null || toolbarHost.get() == null) {
+            toolbarHost = new java.lang.ref.WeakReference<DayNavHost>(host);
+        }
+        if (host == toolbarHost.get() && windowToolbarSpec != null && !windowToolbarSpec.isEmpty()) {
             try {
                 host.setWindowToolbar(windowToolbarSpec);
                 // The window carried the items itself until this host existed; its app bar has
@@ -1118,6 +1126,11 @@ public final class DayBridge {
     /** The window toolbar spec as the app last set it (docs/toolbars.md), or null. One per
      *  process: nav is app-root only (v1), so one bar rides every host. */
     static String windowToolbarSpec = null;
+    /** The host drawing the window's bar. A window can hold several — a list-backed destination
+     *  composes a nested one for its own layers — and only the first to appear carries the
+     *  window's items; the rest would stack a second app bar under the first
+     *  (docs/toolbars.md). Weak, so a closed window's host is collectable. */
+    static java.lang.ref.WeakReference<DayNavHost> toolbarHost = null;
 
     /** The nav host under `root`, if one has been built. */
     static DayNavHost findNavHost(View root) {
@@ -1141,8 +1154,14 @@ public final class DayBridge {
     public static void setWindowToolbar(View root, String spec) {
         windowToolbarSpec = spec;
         try {
-            DayNavHost h = findNavHost(root);
+            // The host that owns the window's bar, once one has claimed it — never a nested one
+            // built later for a destination's own layers.
+            DayNavHost h = toolbarHost == null ? null : toolbarHost.get();
+            if (h == null) h = findNavHost(root);
             if (h == null) h = DayNavHost.active;
+            if (h != null && (toolbarHost == null || toolbarHost.get() == null)) {
+                toolbarHost = new java.lang.ref.WeakReference<DayNavHost>(h);
+            }
             if (h != null) {
                 DayNavHost.WindowBar.undock(root);
                 h.setWindowToolbar(spec);
@@ -1159,7 +1178,8 @@ public final class DayBridge {
     /** A targeted change to one live toolbar item: op 0 = enabled, 1 = toggle on, 2 = segment. */
     public static void updateWindowToolbar(View root, String id, int op, double num) {
         try {
-            DayNavHost h = findNavHost(root);
+            DayNavHost h = toolbarHost == null ? null : toolbarHost.get();
+            if (h == null) h = findNavHost(root);
             if (h == null) h = DayNavHost.active;
             if (h != null) {
                 h.updateWindowToolbar(id, op, num);
@@ -1171,38 +1191,6 @@ public final class DayBridge {
         }
     }
 
-    // Trailing nav-bar action (docs/navigation.md, NavProps::bar_action): applied AFTER the host is
-    // built, and wrapped so a failure here can never propagate into the native tree build (where it
-    // would abort the whole surface and blank the app). `action == 0` or a non-nav view is a no-op.
-    // One call for ALL of the host's actions, `\n`-joined per field — the same wire shape
-    // `setNavMenuTints`/`setNavMenuBadges` use. Parallel arrays rather than one call per action so
-    // a partial failure cannot leave half a bar installed: this either adds them all or logs and
-    // adds none. `rootOnly` is "1"/"0" per action (NavBarScope::RootPage).
-    public static void setNavMenu(View navHost, String icons, String labels, String actions,
-            String rootOnly) {
-        if (!(navHost instanceof DayNavHost) || actions == null || actions.isEmpty()) {
-            return;
-        }
-        try {
-            String[] ic = icons == null ? new String[0] : icons.split("\n", -1);
-            String[] lb = labels == null ? new String[0] : labels.split("\n", -1);
-            String[] ac = actions.split("\n", -1);
-            String[] ro = rootOnly == null ? new String[0] : rootOnly.split("\n", -1);
-            for (int i = 0; i < ac.length; i++) {
-                long id = Long.parseLong(ac[i]);
-                if (id == 0) {
-                    continue;
-                }
-                ((DayNavHost) navHost).addBarAction(
-                        i < ic.length ? ic[i] : "",
-                        i < lb.length ? lb[i] : "",
-                        id,
-                        i < ro.length && "1".equals(ro[i]));
-            }
-        } catch (Throwable t) {
-            android.util.Log.e("Day", "nav bar action setup failed; continuing without it", t);
-        }
-    }
     /**
      * Inline search on the navigation list (docs/search.md). Applied AFTER the host is built and
      * wrapped, for the same reason `setNavMenu` above is: a throw on `makeNavHost`'s own path

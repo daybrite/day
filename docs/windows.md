@@ -47,7 +47,7 @@ These rules keep that from happening:
   window is another window of the same app and describes itself that way.
 - `day::window_title(|| …)` binds the title of the window the calling piece is building into, so
   a window names itself after what it shows. It is reactive like any binding, and window-scoped:
-  the target is resolved once, at build, exactly as `toolbar_reactive` resolves its own.
+  the target is resolved once, at build, exactly as a toolbar contribution resolves its own.
 
 ```rust
 fn window_shell() -> impl Piece {

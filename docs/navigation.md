@@ -164,70 +164,25 @@ top-page-only presentation on macOS `NSSplitView` / Qt `QSplitter` in stack mode
 data, so deep-linking is "parse the URL into a path and `set` it," and the stack is unit-testable
 without the framework.
 
-## Nav bar actions (`bar_action`, `list_action`)
+## Commands on the chrome
 
-`selector(sel).bar_action(icon, label, action)` (and the same on `stack(…)`) adds a trailing
-button to the navigation bar. It is the counterpart, on the toolkits that have **no window
-toolbar** (the phones and HarmonyOS, where `Cap::Toolbar` is `Unsupported`), to a desktop toolbar
-command ([docs/toolbars.md](toolbars.md)): an action that belongs on the chrome rather than in the
-page (Settings, Compose, "Show Source").
-
-Call it more than once for more than one button. They draw left to right in declaration order,
-trailing-aligned.
+There is no `bar_action`. A command that belongs on the chrome rather than in the page is a
+TOOLBAR ITEM declared on the piece it acts on ([docs/toolbars.md](toolbars.md)), and which bar it
+rides follows from that:
 
 ```rust
 selector(section)
-    .style(SelectorStyle::Sidebar)
-    .bar_action(res::images::show_source, tr("show-source"), open_current_source)
-    // …items…
+    .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))  // the list's
+    .destination(|k| page(k).toolbar(share_button()))                              // the page's
 ```
 
-`icon` is a bundled-image name (the `.item_icon` convention), `label` its accessible name and
-tooltip, `action` runs on tap.
+`Selector::toolbar` and `Stack::toolbar` put items on that host's own chrome — the sidebar column
+where the presentation has one, the root list when it has collapsed. Items declared on a
+destination page ride the detail. Both leave the bar when what they act on leaves the screen, so
+neither needs a scope to be spelled out.
 
-### Which pages a button rides
-
-A nav bar is shared: the same bar draws the list and then every detail pushed on top of it. Which
-of the two methods to use is decided by **what the command acts on**, not by how it looks.
-
-| | rides | for commands that act on |
-|---|---|---|
-| `bar_action` | every page, root and pushed alike; on an expanded split, the detail pane only | whatever is showing — "show this page's source" |
-| `list_action` | the root page only | the list itself — "add an item", "sort", "filter" |
-
-`list_action` exists because on a phone the detail covers the list, so a button that adds to the
-list would be acting on something the user can no longer see. Where the presentation keeps the
-list in its own pane, that pane's bar is the root's bar and the button stays put while
-details come and go. Inline search already follows this rule ([docs/search.md](search.md)); this
-is the same rule for commands.
-
-`bar_action` is the app-wide kind; read [`current_route()`](navigation.md) inside the handler to
-act on whatever is showing, rather than registering a different action per page.
-
-| Backend | Realization |
-|---------|-------------|
-| iOS (`UINavigationController`) | each page's `navigationItem.rightBarButtonItems`, template-tinted icons |
-| Android (M3 app bar) | `MaterialToolbar` menu actions (`SHOW_AS_ACTION_ALWAYS`), tinted from the bar's own background so they stay legible in either theme |
-| HarmonyOS (`Navigation`) | `.menus()` items on every `NavDestination`; a `list_action` brings out the root title bar, which is otherwise hidden |
-| Desktop split (`NavigationSplitView`) | **ignored** — put the command in the window toolbar instead ([docs/toolbars.md](toolbars.md)) |
-
-On tap the backend emits `Event::MenuAction(id)` against the registered closure, the same
-dispatch a toolbar button or a menu item uses, so a bar action, a toolbar button, and a menu item
-that do the same thing are one registered closure. The actions lower into `NavProps::bar_actions`,
-each carrying its `NavBarScope`; a backend that doesn't render them ignores the field, and one
-that can only draw a single button draws the first.
-
-A tabs presentation's chrome draws no bar of its own. A list-backed destination's nested
-navigation host (see [The content list](#the-content-list-three-panes)) carries the selector's
-bar actions instead (`RootPage`-scoped ones ride the list layer, `EveryPage` ones the pushed
-detail too), which is how a phone's tab gets its "+" button. A tab without a content list has
-no bar, and no bar actions.
-
-> [!NOTE]
-> A `stack()` that merges into an enclosing host (the phone case, where the whole chain is one
-> native navigation controller) has no bar of its own, and its bar actions are not drawn; the
-> enclosing host owns the bar. A debug build says so on stderr. Declare them on that host instead,
-> or keep the stack standalone.
+The affordance that shows and hides the sidebar is the toolkit's, not the app's: a
+`selector(Sidebar)` supplies it, and `.sidebar_toggle(false)` suppresses it.
 
 ## Data-driven items (`selector().items`)
 

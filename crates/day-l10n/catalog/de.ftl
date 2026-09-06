@@ -34,6 +34,7 @@ day-settings-theme = Erscheinungsbild
 day-theme-light = Hell
 day-theme-dark = Dunkel
 day-theme-system = System
+day-toggle-sidebar = Seitenleiste ein-/ausblenden
 day-file = Ablage
 day-view = Darstellung
 day-help = Hilfe

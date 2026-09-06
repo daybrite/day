@@ -419,3 +419,46 @@ a.tier-badge:hover {
   html { scroll-behavior: auto; }
   * { transition: none !important; }
 }
+
+/* Glossary terms in docs prose (plugins/glossary-links.mjs): a light dotted underline marks a
+   word the glossary defines, and DocsLayout's script opens the popover below on hover or focus.
+   The link itself goes to the glossary entry, so with scripts off (or on a touch screen, where
+   there is no hover) a tap simply lands on the definition. */
+.doc-body a.gloss {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--brand) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.doc-body a.gloss:hover,
+.doc-body a.gloss:focus-visible { text-decoration-color: var(--brand); }
+.gloss-pop {
+  position: absolute;
+  z-index: 60;
+  max-width: 340px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  box-shadow: var(--shadow);
+}
+.gloss-pop b { display: block; color: var(--text); font-weight: 650; margin-bottom: 4px; }
+.gloss-pop code { font-size: 0.92em; }
+.gloss-pop .gloss-see {
+  display: block;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 0.84rem;
+}
+.gloss-pop .gloss-see a { color: var(--brand); text-decoration: none; }
+.gloss-pop .gloss-see a:hover { text-decoration: underline; }
+@media (prefers-reduced-motion: no-preference) {
+  .gloss-pop { animation: gloss-in 120ms ease-out; }
+  @keyframes gloss-in { from { opacity: 0; transform: translateY(-2px); } }
+}
