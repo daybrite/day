@@ -544,12 +544,12 @@ jobs:
           # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
           cargo clippy $TARGET ${{ matrix.clippy }} \
             --no-default-features --features ${{ matrix.toolkit }}
-      # The Windows implementations of these parts compile only here, so their lint rides the xaml
-      # row rather than needing a Windows job of its own. day-part-speech's arm is C++ against SAPI
-      # (docs/bridge.md), which means this leg is also where that translation unit is first built.
-      - name: Clippy (day-part-battery, day-part-speech — Windows impls)
+      # The Windows implementation of this part compiles only here, so its lint rides the xaml
+      # row rather than needing a Windows job of its own. (day-part-speech's C++ arm against SAPI
+      # used to ride here too; it lives in its own repository now, whose CI has a Windows host leg.)
+      - name: Clippy (day-part-battery — Windows impl)
         if: matrix.toolkit == 'xaml'
-        run: cargo clippy --locked -p day-part-battery -p day-part-speech --all-targets
+        run: cargo clippy --locked -p day-part-battery --all-targets
       - name: Scaffold check (${{ matrix.combo }})
         run: |
           set -euo pipefail

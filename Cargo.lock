@@ -887,15 +887,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "day-part-speech"
-version = "0.4.1"
-dependencies = [
- "day-android",
- "day-bridge",
- "day-build",
-]
-
-[[package]]
 name = "day-persistence"
 version = "0.4.1"
 dependencies = [

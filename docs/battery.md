@@ -66,5 +66,5 @@ The Android half is a **daybridge** arm ([bridge.md](bridge.md)): the Java that 
 `BatteryManager` lives inline in `parts/day-part-battery/src/android.rs`, beside the declaration it
 implements, and `day build` stages it into the app's Gradle build. It replaced a checked-in
 `DayBattery.java`, a `[package.metadata.day.android] java = [...]` table, and a packed-`i64` wire
-format that was written twice and kept in agreement by comment. `day-part-speech`
-([speech.md](speech.md)) is the fuller demonstration, with six languages in one file.
+format that was written twice and kept in agreement by comment. [day-part-speech](https://github.com/daybrite/day-part-speech) is the
+fuller demonstration, with six languages in one file, in its own repository.

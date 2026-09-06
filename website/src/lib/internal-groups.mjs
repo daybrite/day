@@ -97,7 +97,6 @@ export const groups = [
       ['http', '`day-part-http`'],
       ['permissions', '`day-part-permissions`'],
       ['location', '`day-part-location`'],
-      ['speech', '`day-part-speech`, also daybridge’s reference implementation'],
     ],
   },
   {

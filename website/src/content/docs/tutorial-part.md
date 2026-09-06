@@ -312,7 +312,7 @@ and `Context` that `day-android` already caches.
 > [daybridge](/docs/internal/bridge) arm: the Java lives inline in `src/android.rs` beside the Rust
 > declaration it implements, and the JNI call and the packed-`long` protocol below are generated,
 > so the checked-in `.java` file and the `java = [...]` table are gone. Read this section to
-> understand what a bridge generates for you; read [speech](/docs/internal/speech) for what
+> understand what a bridge generates for you; read [speech](https://github.com/daybrite/day-part-speech/blob/main/docs/speech.md) for what
 > writing one looks like.
 
 The Java shim reads the sticky `ACTION_BATTERY_CHANGED` intent and packs the reading into a `long` so

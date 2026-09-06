@@ -38,7 +38,6 @@ members = [
     "pieces/day-piece-webview",
     "pieces/day-piece-media",
     "pieces/day-piece-swiftui",
-    "parts/day-part-speech",
     "parts/day-part-battery",
     "parts/day-part-sensors",
     "parts/day-part-clipboard",
@@ -130,7 +129,6 @@ day = { path = "crates/day", version = "0.4.1" }
 day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.4.1" }
 day-piece-webview = { path = "pieces/day-piece-webview", version = "0.4.1" }
 day-part-battery = { path = "parts/day-part-battery", version = "0.4.1" }
-day-part-speech = { path = "parts/day-part-speech", version = "0.4.1" }
 day-part-sensors = { path = "parts/day-part-sensors", version = "0.4.1" }
 day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.4.1" }
 day-part-network = { path = "parts/day-part-network", version = "0.4.1" }

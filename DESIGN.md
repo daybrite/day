@@ -2517,7 +2517,10 @@ Two package kinds share the mechanism:
   plus the build-time declarations each platform requires, [docs/permissions.md](docs/permissions.md)), location
   ([docs/location.md](docs/location.md)), fs (app-local file storage, [docs/fs.md](docs/fs.md)), and local-notify (local
   notifications: post or schedule, channels, tap-to-route, [docs/notify.md](docs/notify.md)). Same
-  registration and metadata machinery, no widget. (A timezone part — the wall clock, also on wasm,
+  registration and metadata machinery, no widget. Speech (text to speech, daybridge's reference
+  crate) is the same kind of package in its own repository
+  ([daybrite/day-part-speech](https://github.com/daybrite/day-part-speech)); see the note under
+  [§15.2](#152-package-layout-and-aggregation). (A timezone part — the wall clock, also on wasm,
   plus IANA zone facts from jiff's bundled tzdb — shipped here until 2026-09; its one consumer,
   Day-Time, now carries that module itself, since a pure-Rust dependency with no platform arm
   needs no part.)
@@ -2527,7 +2530,10 @@ Two package kinds share the mechanism:
 > [!NOTE]
 > **External repositories (2026-09).** `day-piece-lottie`, the layout example below, moved out of
 > this tree into [daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie) — the
-> first piece to live in its own repository, and the reference for the next one. Nothing about
+> first piece to live in its own repository, and the reference for the next one. `day-part-speech`
+> followed as the first part ([daybrite/day-part-speech](https://github.com/daybrite/day-part-speech)),
+> under the same rules; a part adds nothing to them, since a bridge crate's arms ride
+> `cargo metadata` and its `build.rs` like any dependency's. Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
 > and a test harness. Its day dependencies name the BARE canonical URL
 > (`git = "https://github.com/daybrite/day.git"`, no branch, tag, or rev): cargo unifies a git
@@ -2732,8 +2738,10 @@ repository in 2026-08; the runtime crate remains, with no in-repo app building a
 
 > [!NOTE]
 > **Status: v1 in the tree through phase 7 (2026-08).** Every arm language ships — Swift, Kotlin,
-> Java, ArkTS, JavaScript, C, C++ — with `parts/day-part-speech` as the reference crate and a
-> Showcase demo driven by a dayscript walkthrough on each target. [docs/bridge.md](docs/bridge.md) is the normative
+> Java, ArkTS, JavaScript, C, C++ — with `day-part-speech` as the reference crate (since 2026-09
+> in its own repository, [daybrite/day-part-speech](https://github.com/daybrite/day-part-speech);
+> [§15.2](#152-package-layout-and-aggregation)) and a Showcase demo driven by a dayscript
+> walkthrough on each target. [docs/bridge.md](docs/bridge.md) is the normative
 > contract (type table, ownership rule, threading rule, name derivation) and remains the place to
 > read before writing an arm; this section is the architecture-level view. What is left is
 > migrating the remaining synchronous parts and the CI gates (phases 8–9). **v1 bridges
@@ -2799,8 +2807,9 @@ generated from the declarations and CI-gated for drift alongside the duty, cover
 matrices ([§8.1](#81-the-toolkit-trait), [§8.2](#82-the-open-renderer-registry)). A crate with no `other` arm fails `day lint`, because it could not
 compile under the mock toolkit.
 
-`parts/day-part-speech` is the reference crate: one file, six arms (Swift, Java, ArkTS,
-JavaScript, C++, C) over each platform's text-to-speech API, plus the Rust fallback.
+[day-part-speech](https://github.com/daybrite/day-part-speech) is the reference crate: one file,
+six arms (Swift, Java, ArkTS, JavaScript, C++, C) over each platform's text-to-speech API, plus
+the Rust fallback. It lives in its own repository, the first part to do so (§15.2).
 
 ### §16.1 Design goals
 

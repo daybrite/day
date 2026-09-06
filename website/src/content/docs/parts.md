@@ -36,7 +36,7 @@ plugin registry or runtime lookup; the [target](/docs/glossary#target) selects t
 | `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/internal/permissions) |
 | `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
 | `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
-| `day-part-speech` | text to speech through each platform's own voice | [speech](/docs/internal/speech) |
+| `day-part-speech` | text to speech through each platform's own voice; in its own repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
 
 ## Using parts
 
@@ -132,7 +132,8 @@ plus the Rust that calls it. The crate still compiles with plain `cargo test` on
 with none of those toolchains, because the last arm answers everywhere else.
 `day-part-speech` carries six languages in one file this way; the
 [bridge reference](/docs/internal/bridge) is the contract, and
-[speech](/docs/internal/speech) is the worked example.
+[day-part-speech](https://github.com/daybrite/day-part-speech) is the worked example, in its own
+repository.
 
 Parts are for *headless* capabilities only. The moment your capability needs to render
 something, it's a [piece](/docs/extending), and a different set of tools applies.

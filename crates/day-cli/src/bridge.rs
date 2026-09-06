@@ -365,7 +365,7 @@ pub fn link_help(missing: &[(String, String)]) -> String {
          into the binary, so the app will not START on a machine without that library — right for \
          a system component, wrong for an optional service. Loading it with `dlopen` at first use \
          keeps the app launchable everywhere and lets the feature report Unsupported instead \
-         (docs/bridge.md \"Linking\"; parts/day-part-speech's Linux arm is the worked example)."
+         (docs/bridge.md \"Linking\"; day-part-speech's Linux arm is the worked example)."
     )
 }
 

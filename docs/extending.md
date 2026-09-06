@@ -125,7 +125,7 @@ extension path so that code lives in the piece crate:
 > shape for a native **view** (a renderer wiring a `UIView`, a `QWidget`, an ArkUI component).
 > daybridge is the shape for a native **call**: one Rust declaration, an implementation per
 > platform written inline in the crate's own `.rs`, and generated glue on both sides.
-> `parts/day-part-speech` ([speech.md](speech.md)) does six languages in one file that way, and
+> [day-part-speech](https://github.com/daybrite/day-part-speech) does six languages in one file that way, and
 > `parts/day-part-battery` migrated its Android half off the `java = [...]` mechanism below.
 
 ### C++ shims: Qt & XAML (`build.rs`)
@@ -527,9 +527,12 @@ app whose dayscript is the on-device test, and a headless `model` module tested 
 this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg
 with a fixture piece that pulls swift-collections.
 
-`parts/day-part-speech` (see [speech.md](speech.md)) is the reference for the other mechanism:
-a headless part whose every platform implementation is a [bridge](bridge.md) arm — Swift, Java,
-ArkTS, JavaScript, C++, and C — inline in one `src/lib.rs` beside the Rust declaration they share.
+[day-part-speech](https://github.com/daybrite/day-part-speech) is the reference for the other mechanism, and the
+first **part** to live in its own repository: a headless part whose every platform implementation
+is a [bridge](bridge.md) arm — Swift, Java, ArkTS, JavaScript, C++, and C — inline in one
+`src/lib.rs` beside the Rust declaration they share. Its `docs/speech.md` walks through the arms.
+As an external repository it follows the same rules as day-piece-lottie above: bare canonical day
+dependencies, a `compat` line, and a `demo/` app whose dayscript is the on-device test.
 
 `parts/day-part-battery` (see [battery.md](battery.md)) is a fourth reference, the first **part**:
 a headless crate with no UI Piece at all. Where `pieces/` holds UI-library extensions (each

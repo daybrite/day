@@ -12,8 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > [!NOTE]
 > **Status: v1 shipped through phase 7 (2026-08).** The synchronous surface described here is in
-> the tree: every arm language, both generators, and `parts/day-part-speech` as the reference
-> crate. What remains is [phase 8](#implementation-phases), migrating the other synchronous parts,
+> the tree: every arm language and both generators, with `day-part-speech` as the reference
+> crate, since 2026-09 in its own repository ([day-part-speech](https://github.com/daybrite/day-part-speech)). What remains is [phase 8](#implementation-phases), migrating the other synchronous parts,
 > and phase 9's gates; async, callbacks, and streams are [after v1](#after-v1). The type table,
 > the ownership rule, the threading rule, and the naming derivation are the API surface; changing
 > them now invalidates every arm written against them.
@@ -255,7 +255,7 @@ the declarations and CI-gated for drift, the way [`docs/duty-matrix.md`](duty-ma
 and [`docs/recorder-matrix.md`](recorder-matrix.md) already are.
 
 ```rust
-// parts/day-part-speech/src/lib.rs — the generator emits one `<fn>_support()` per declaration.
+// day-part-speech/src/lib.rs — the generator emits one `<fn>_support()` per declaration.
 pub fn available() -> Support {
     speak_native_support()
 }
@@ -327,7 +327,7 @@ Windows). It is wrong for anything a user might not have installed. Desktop Linu
 case: speech-dispatcher is a separate package, and linking it would mean an app that will not
 launch at all on a machine with no speech engine, to protect a feature the user may never press.
 
-**Load an optional service at first use instead.** `parts/day-part-speech`'s Linux arm declares no
+**Load an optional service at first use instead.** `day-part-speech`'s Linux arm declares no
 `link`, `dlopen`s `libspeechd.so.2`, and answers "no engine here" when it is absent:
 
 ```c
@@ -458,8 +458,9 @@ restamps, and the second restamps *and* drops the source mtime.
 
 ## Worked example
 
-`parts/day-part-speech` is the reference crate: one file, six foreign arms (Swift, Java, ArkTS,
-JavaScript, C++, C), a Rust fallback, and a Showcase page that speaks a line on every target. The
+[day-part-speech](https://github.com/daybrite/day-part-speech) is the reference crate: one file, six foreign arms (Swift, Java, ArkTS,
+JavaScript, C++, C), a Rust fallback, a demo app whose walkthrough speaks a line on macOS, iOS,
+and Android, and a Showcase page that does the same on every target. The
 C++ arm drove the `encoding = "utf16"` option: SAPI speaks `WCHAR`, so the same `&str`
 declaration is converted for Windows and left as UTF-8 everywhere else.
 Read it before writing a bridge of your own.
