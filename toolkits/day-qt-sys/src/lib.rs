@@ -148,16 +148,40 @@ unsafe extern "C" {
     pub fn day_qt_tabs_content_size(tabs: *mut c_void, w: *mut f64, h: *mut f64);
 
     pub fn day_qt_scroll_new(horizontal: c_int) -> *mut c_void;
-    /// The viewport's width: what a row can use (narrower than the host under a legacy bar).
-    pub fn day_qt_scroll_viewport_width(w: *mut c_void) -> c_double;
-    /// Report the viewport resizing, which a legacy scroll bar does without the host moving.
-    pub fn day_qt_scroll_on_viewport_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
-    pub fn day_qt_scroll_to_bottom(w: *mut c_void);
-    pub fn day_qt_scroll_to_y(w: *mut c_void, y: c_int);
-    pub fn day_qt_list_viewport(w: *mut c_void, out_offset: *mut f64, out_height: *mut f64);
+    // The list (docs/list.md): a real QListWidget. Day's cell widgets are attached to rows as
+    // they scroll into view and stay pinned to them; selection, keys and drag are the view's.
+    pub fn day_qt_list_new(
+        node: u64,
+        row_h: c_int,
+        selectable: c_int,
+        multi: c_int,
+        reorderable: c_int,
+        on_select: extern "C" fn(u64, *const c_int, c_int),
+        can: extern "C" fn(u64, c_int, c_int) -> c_int,
+        mv: extern "C" fn(u64, c_int, c_int),
+    ) -> *mut c_void;
+    /// Bring the item count to `n`; rows past it are hidden, never removed (their cells live on).
+    pub fn day_qt_list_set_count(w: *mut c_void, n: c_int);
+    pub fn day_qt_list_attach_cell(w: *mut c_void, row: c_int, cell: *mut c_void);
+    pub fn day_qt_list_cell_frame(
+        w: *mut c_void,
+        row: c_int,
+        x: *mut c_int,
+        y: *mut c_int,
+        width: *mut c_int,
+        height: *mut c_int,
+    );
+    /// The rows on screen (`last` < `first` before the view has laid anything out).
+    pub fn day_qt_list_visible_rows(w: *mut c_void, first: *mut c_int, last: *mut c_int);
+    pub fn day_qt_list_viewport_width(w: *mut c_void) -> c_double;
     pub fn day_qt_list_on_scroll(w: *mut c_void, node: u64, cb: extern "C" fn(u64));
+    pub fn day_qt_list_on_viewport_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
+    /// Programmatic selection sync: no echo back through `on_select`.
+    pub fn day_qt_list_set_selected(w: *mut c_void, rows: *const c_int, n: c_int);
+    pub fn day_qt_list_scroll_to_row(w: *mut c_void, row: c_int);
+    pub fn day_qt_list_scroll_to_end(w: *mut c_void);
     pub fn day_qt_scroll_to_rect(w: *mut c_void, x: c_int, y: c_int, rw: c_int, rh: c_int);
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);
@@ -200,28 +224,6 @@ unsafe extern "C" {
         kind: c_int,
         cb: extern "C" fn(u64, c_int, c_double, c_double, c_double, c_double),
     );
-    // Emulated list row selection (docs/list.md): a press on a cell reports
-    // (list node, row, modifiers: bit0 ctrl/cmd, bit1 shift); the selected treatment is the
-    // palette highlight fill.
-    pub fn day_qt_list_cell_click(
-        w: *mut c_void,
-        node: u64,
-        row: c_int,
-        cb: extern "C" fn(u64, c_int, c_int),
-    );
-    pub fn day_qt_cell_set_selected(w: *mut c_void, on: c_int);
-    // Emulated list drag-to-reorder (docs/list.md): the content widget accepts day-row drops —
-    // every hovered slot is vetted synchronously through `can` (accepted index or -1; Qt shows
-    // the no-drop cursor on -1, an insertion line otherwise), and the drop commits via `mv`.
-    pub fn day_qt_list_enable_reorder(
-        content: *mut c_void,
-        node: u64,
-        row_h: c_int,
-        can: extern "C" fn(u64, c_int, c_int) -> c_int,
-        mv: extern "C" fn(u64, c_int, c_int),
-    );
-    // Arm the press-and-drag QDrag start on one cell (cell index == row for its whole life).
-    pub fn day_qt_cell_drag(cell: *mut c_void, node: u64, row: c_int);
     // Focus (docs/focus.md): observe via event filter (kind: 1 gained, 0 lost, 2 submitted);
     // drive via setFocus/clearFocus.
     pub fn day_qt_enable_focus(w: *mut c_void, node: u64, cb: extern "C" fn(u64, c_int));

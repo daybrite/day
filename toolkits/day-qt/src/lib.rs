@@ -167,10 +167,13 @@ pub(crate) fn cstr(s: &str) -> CString {
 }
 
 // ---------------------------------------------------------------------------
-// Recycling list (docs/list.md, §10). Qt's item views are paint-based, so a widget list can't
-// recycle natively — Day emulates it (DP-19): a QScrollArea whose content holds one absolutely
-// positioned cell widget per row, each filled through the same `bind_row` seam. Cells are reused
-// across reloads (append-only), so day-core's cell map never dangles.
+// The list (docs/list.md, §10): a real QListWidget. One item per row, and Day's cell widget
+// attached to a row as it scrolls into view — where it STAYS for the list's life: Qt's item
+// views paint rows through a delegate and cannot recycle a widget-hosted one (DP-19), so the
+// pool is append-only (cell index == row index) and `Cap` keeps answering `Emulated` for
+// recycling. Everything else is the view's own — selection and its painting, the keyboard
+// walker, focus and the tab stop, accessibility, drag-and-drop — which is the point of hosting
+// the rows in the platform's list rather than in a scroll area of Day's.
 // ---------------------------------------------------------------------------
 
 /// Rows built beyond each edge of the viewport, so a flick has something to show before the
@@ -188,7 +191,7 @@ struct ListEntry {
     /// changes under the cells; individual rows go true as they are bound.
     bound: Vec<bool>,
     /// The height day's layout last framed the host at, so the first fill — which runs before
-    /// Qt has laid the scroll area out and its viewport still reports nothing — has a window.
+    /// Qt has laid the view out and it still reports no visible rows — has a window.
     frame_height: c_int,
     /// A scroll-driven fill is already posted: one flick emits a stream of valueChanged, and
     /// they would each post a pass that does the same work.
@@ -199,73 +202,43 @@ struct ListEntry {
     /// The width the cells were last laid out to: the VIEWPORT's, which a legacy scroll bar
     /// makes narrower than the host. A viewport resize that changes it repopulates.
     cell_width: c_int,
-    /// Selection (docs/list.md): whether rows select at all, whether several may be selected,
-    /// the currently selected rows, and the last plainly-clicked row (the shift-range anchor).
     node: u64,
-    selectable: bool,
+    /// Whether several rows may be selected (`ListProps::multi_select`): decides which event
+    /// a native selection change reports (docs/list.md).
     multi: bool,
-    reorderable: bool,
-    selected: std::collections::BTreeSet<usize>,
-    anchor: Option<usize>,
 }
 
-/// Repaint every cell's selected treatment from the entry's selection set.
-fn list_paint_selection(entry: &ListEntry) {
-    for (i, &cell) in entry.cells.iter().enumerate() {
-        // Unrealized rows have no cell to paint; they pick the treatment up when they are built
-        // (this runs at the end of every fill, so a row scrolled into a selection lands painted).
-        if cell.is_null() {
-            continue;
-        }
-        unsafe { ffi::day_qt_cell_set_selected(cell, entry.selected.contains(&i) as c_int) };
-    }
-}
-
-/// A press on an emulated list cell (docs/list.md). Owns the selection semantics: plain click
-/// replaces the selection, ctrl/cmd toggles the row, shift extends from the anchor (multi-select
-/// only) — then repaints and reports (`SelectionSet` in multi mode, `SelectionChanged` single).
-extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
+/// The view's selection changed under the user (a click, the keyboard walker, a range): report
+/// it the way docs/list.md wants — the full set where several rows may be selected, the one
+/// row otherwise, and an emptied selection as an empty set either way, since only the set can
+/// say "nothing".
+extern "C" fn on_list_selection(node: u64, rows: *const c_int, count: c_int) {
     // Every extern "C" trampoline in this backend runs its body through `ffi_guard::contain`:
     // a panic unwinding into the C++ shim frame is undefined behavior (day-spec's ffi_guard).
     ffi_guard::contain((), || {
-        let row = row.max(0) as usize;
-        let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
-            return;
+        let rows: Vec<i64> = if rows.is_null() || count <= 0 {
+            Vec::new()
+        } else {
+            // SAFETY: the shim hands a live array of `count` ints for the duration of the call.
+            unsafe { std::slice::from_raw_parts(rows, count as usize) }
+                .iter()
+                .map(|r| *r as i64)
+                .collect()
         };
-        let emit_ev = LIST_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let st = m.get_mut(&host_key)?;
-            if !st.selectable {
-                return None;
-            }
-            let (ctrl, shift) = (mods & 1 != 0, mods & 2 != 0);
-            if st.multi && ctrl {
-                if !st.selected.remove(&row) {
-                    st.selected.insert(row);
-                }
-                st.anchor = Some(row);
-            } else if st.multi && shift {
-                let a = st.anchor.unwrap_or(row);
-                st.selected = (a.min(row)..=a.max(row)).collect();
-            } else {
-                st.selected = std::iter::once(row).collect();
-                st.anchor = Some(row);
-            }
-            list_paint_selection(st);
-            Some(if st.multi {
-                Event::SelectionSet(st.selected.iter().map(|r| *r as i64).collect())
-            } else {
-                Event::SelectionChanged(row as i64)
-            })
-        });
-        if let Some(ev) = emit_ev {
-            emit(NodeId(node), ev);
-        }
+        let multi = LIST_BY_NODE
+            .with(|m| m.borrow().get(&node).copied())
+            .and_then(|k| LIST_STATE.with(|m| m.borrow().get(&k).map(|st| st.multi)));
+        let Some(multi) = multi else { return };
+        let ev = match (multi, rows.as_slice()) {
+            (false, [row]) => Event::SelectionChanged(*row),
+            _ => Event::SelectionSet(rows),
+        };
+        emit(NodeId(node), ev);
     });
 }
 
 /// The reorder guard's verdict for a hovered drop (docs/list.md), called synchronously from the
-/// shim's drag-move filter: the accepted target index, or -1. The reorder Rc is cloned out of
+/// view's drag-move handler: the accepted target index, or -1. The reorder Rc is cloned out of
 /// `LIST_STATE` before the app's guard runs, so no borrow is held.
 extern "C" fn on_list_can_move(node: u64, from: c_int, to: c_int) -> c_int {
     // Runs the app's own guard closure — contained, with "reject the drop" as the default.
@@ -289,8 +262,8 @@ extern "C" fn on_list_can_move(node: u64, from: c_int, to: c_int) -> c_int {
     })
 }
 
-/// Commit a drop the shim's filter accepted: rotate Day's snapshot through the sync seam
-/// (deferring the app callback) and re-bind the cells in the new order.
+/// Commit a drop the view accepted: rotate Day's snapshot through the sync seam (deferring the
+/// app callback) and re-bind the cells in the new order.
 extern "C" fn on_list_move(node: u64, from: c_int, to: c_int) {
     ffi_guard::contain((), || {
         let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
@@ -355,40 +328,35 @@ fn schedule_list_fill(host_key: usize) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
-/// Scroll the (emulated) list to its bottom on the next event-loop turn — deferred so any pending
+/// Scroll the list to its bottom on the next event-loop turn — deferred so any pending
 /// `list_populate` has sized the content first (posted callbacks run FIFO), matching Qt's
 /// scrollToBottom semantics.
 fn schedule_list_scroll_end(host_key: usize) {
     let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
         if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
-            unsafe { ffi::day_qt_scroll_to_bottom(host) };
+            unsafe { ffi::day_qt_list_scroll_to_end(host) };
         }
     });
     let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
-/// Scroll the emulated list so `row` is at the top of the viewport (docs/list.md), on the next
+/// Scroll the list so `row` is at the top of the viewport (docs/list.md), on the next
 /// event-loop turn — the same deferral as `schedule_list_scroll_end`.
 fn schedule_list_scroll_row(host_key: usize, row: usize) {
     let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
-        let target = LIST_STATE.with(|m| {
-            m.borrow()
-                .get(&host_key)
-                .map(|st| (st.host, (row as f64 * st.row_height.max(1.0)) as c_int))
-        });
-        if let Some((host, y)) = target {
-            unsafe { ffi::day_qt_scroll_to_y(host, y) };
+        if let Some(host) = LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| st.host)) {
+            unsafe { ffi::day_qt_list_scroll_to_row(host, row as c_int) };
         }
     });
     let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
-/// The viewport under an emulated list resized (a legacy scroll bar came or went): the rows
-/// are laid out to a width the viewport no longer has, so re-lay them. A viewport that still
-/// matches the cells — the usual overlay-bar case, where every host resize also lands here —
-/// is left alone, and so is a list that has not built a row yet.
+/// The viewport under a list resized (a legacy scroll bar came or went): the rows are laid
+/// out to a width the viewport no longer has, so re-lay them. A viewport that still matches
+/// the cells — the usual overlay-bar case, where every host resize also lands here — is left
+/// alone, and so is a list that has not built a row yet.
 extern "C" fn on_list_viewport_resized(host: *mut c_void) {
     ffi_guard::contain((), || {
         let stale = LIST_STATE.with(|m| {
@@ -396,7 +364,7 @@ extern "C" fn on_list_viewport_resized(host: *mut c_void) {
             let Some(st) = m.get(&(host as usize)) else {
                 return false;
             };
-            let vw = unsafe { ffi::day_qt_scroll_viewport_width(st.host) };
+            let vw = unsafe { ffi::day_qt_list_viewport_width(st.host) };
             st.cell_width > 0 && vw > 0.0 && (vw as c_int) != st.cell_width
         });
         if stale {
@@ -415,7 +383,7 @@ fn list_populate(host_key: usize) {
         st.bound.iter_mut().for_each(|b| *b = false);
         // A source that SHRANK leaves realized cells past its end. They stay in the pool (index
         // == row, so a source that grows back reuses each for the row it always held) and are
-        // simply hidden — the same append-only pool, minus the eager building.
+        // simply hidden with their rows — the same append-only pool, minus the eager building.
         let n = st.source.borrow().as_ref().map_or(0, |src| (src.len)());
         let recycle = st.source.borrow().as_ref().map(|src| src.recycle.clone())?;
         let stale: Vec<*mut c_void> = st
@@ -442,41 +410,42 @@ fn list_populate(host_key: usize) {
 /// nothing moved, which is what lets every scroll notification call it.
 fn list_fill_window(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: realize the window's cells + snapshot what we need.
-    let Some((host, rowh, source, work, n, width)) = LIST_STATE.with(|m| {
+    let Some((host, rowh, source, work, width)) = LIST_STATE.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host_key)?;
         let source = st.source.borrow().clone()?;
-        let content = unsafe { ffi::day_qt_scroll_content(st.host) };
-        if content.is_null() {
-            return None;
-        }
+        let n = (source.len)();
+        let rowh = st.row_height.max(1.0);
+        // The view holds one item per row; the extent is the WHOLE source, built or not, since
+        // the scroll bar is how the user reaches rows that do not exist yet.
+        unsafe { ffi::day_qt_list_set_count(st.host, n as c_int) };
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
         unsafe { ffi::day_qt_widget_size(st.host, &mut w, &mut h) };
         // Rows lay out to the VIEWPORT's width, not the host's: under a legacy scroll bar the
         // two differ by the bar, and a row framed to the host slides its trailing column under
-        // it. The viewport reports nothing until Qt has laid the scroll area out; the host
-        // stands in until then.
-        let vw = unsafe { ffi::day_qt_scroll_viewport_width(st.host) };
+        // it. The viewport reports nothing until Qt has laid the view out; the host stands in.
+        let vw = unsafe { ffi::day_qt_list_viewport_width(st.host) };
         let width = if vw > 0.0 { vw } else { w }.max(1.0) as c_int;
-        let n = (source.len)();
-        let rowh = st.row_height.max(1.0);
-        // The rows on screen, plus the overscan. The viewport reports nothing until Qt has laid
-        // the scroll area out — the framed height stands in until then.
-        let (mut offset, mut vh) = (0.0_f64, 0.0_f64);
-        unsafe { ffi::day_qt_list_viewport(st.host, &mut offset, &mut vh) };
-        if vh <= 0.0 {
-            vh = if st.frame_height > 0 {
+        // The rows on screen, plus the overscan. The view reports none until Qt has laid it
+        // out — the framed height stands in until then.
+        let (mut first, mut last) = (0 as c_int, -1 as c_int);
+        unsafe { ffi::day_qt_list_visible_rows(st.host, &mut first, &mut last) };
+        let (first, last) = if last >= first {
+            (first.max(0) as usize, last.max(0) as usize + 1)
+        } else {
+            let vh = if st.frame_height > 0 {
                 st.frame_height as f64
             } else {
                 // Never framed and never laid out: build a screen's worth so the first paint is
                 // not blank, and let the frame that follows widen the window.
                 600.0
             };
-        }
-        let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
-        let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
+            (0, (vh / rowh).ceil() as usize)
+        };
+        let first = first.saturating_sub(LIST_OVERSCAN);
+        let last = (last + LIST_OVERSCAN).min(n);
         // Slots exist for every row (a Vec of nulls, not of widgets): the cell for row i lives
-        // at i for good, which is what keeps the press filter's baked row honest.
+        // at i for good.
         if st.cells.len() < n {
             st.cells.resize(n, std::ptr::null_mut());
             st.bound.resize(n, false);
@@ -485,17 +454,9 @@ fn list_fill_window(host_key: usize) {
         for i in first..last {
             if st.cells[i].is_null() {
                 let cell = unsafe { ffi::day_qt_container_new() };
-                unsafe { ffi::day_qt_add_child(content, cell) };
-                // Cell index == row for the cell's whole life (docs/list.md): the press filter's
-                // row is fixed at creation.
-                if st.selectable {
-                    unsafe {
-                        ffi::day_qt_list_cell_click(cell, st.node, i as c_int, on_list_row_click)
-                    };
-                }
-                if st.reorderable {
-                    unsafe { ffi::day_qt_cell_drag(cell, st.node, i as c_int) };
-                }
+                // The view owns the cell's place from here: it is positioned over its item,
+                // shown and hidden with it, and painted over the item's selection.
+                unsafe { ffi::day_qt_list_attach_cell(st.host, i as c_int, cell) };
                 st.cells[i] = cell;
             }
             if !st.bound[i] {
@@ -505,29 +466,27 @@ fn list_fill_window(host_key: usize) {
         }
         st.last_width = w.max(1.0) as c_int;
         st.cell_width = width;
-        Some((st.host, rowh, source, work, n, width))
+        Some((st.host, rowh, source, work, width))
     }) else {
         return;
     };
     // Phase 2 — no borrow held (bind_row re-enters with_tree, which may lay out + set_frame the
     // list host, taking LIST_STATE again).
     for (i, cell) in work {
+        // The row's frame, so the bind lays the content out to the size it will be shown at.
+        // The view places the cell itself; before its first layout pass the frame is empty and
+        // the row pitch stands in.
+        let (mut x, mut y, mut cw, mut ch) = (0 as c_int, 0 as c_int, 0 as c_int, 0 as c_int);
+        unsafe { ffi::day_qt_list_cell_frame(host, i as c_int, &mut x, &mut y, &mut cw, &mut ch) };
+        if cw <= 0 || ch <= 0 {
+            (x, y, cw, ch) = (0, (i as f64 * rowh) as c_int, width, rowh as c_int);
+        }
         unsafe {
-            ffi::day_qt_set_geometry(cell, 0, (i as f64 * rowh) as c_int, width, rowh as c_int);
+            ffi::day_qt_set_geometry(cell, x, y, cw, ch);
             ffi::day_qt_set_visible(cell, 1);
         }
         (source.bind_row)(i, cell);
     }
-    // The extent is the WHOLE source, built or not: the scrollbar is how the user reaches rows
-    // that do not exist yet, so it cannot be sized to what happens to be realized.
-    unsafe { ffi::day_qt_scroll_set_content_size(host, width, (n as f64 * rowh) as c_int) };
-    // Rows realized just now start unpainted, and a reload can move which rows are selected
-    // under a selection that never changed — so repaint from the entry's set on every fill.
-    LIST_STATE.with(|m| {
-        if let Some(st) = m.borrow().get(&host_key) {
-            list_paint_selection(st);
-        }
-    });
 }
 
 /// A right-click landed on a widget with a summon-time menu: ask the provider and hand Qt a
@@ -1916,28 +1875,27 @@ impl Toolkit for Qt {
                     let Some(p) = props_of::<ListProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
-                    let host = ffi::day_qt_scroll_new(0);
-                    // A legacy scroll bar appearing or leaving resizes the viewport under
-                    // the rows without the host moving: re-lay them to the width they have.
-                    ffi::day_qt_scroll_on_viewport_resized(host, on_list_viewport_resized);
                     let row_height = match p.row_height {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 44.0,
                     };
-                    if p.reorderable {
-                        // Native QDrag reorder (docs/list.md): the content widget accepts
-                        // day-row drops; verdict + commit call back into the seam above.
-                        let content = ffi::day_qt_scroll_content(host);
-                        if !content.is_null() {
-                            ffi::day_qt_list_enable_reorder(
-                                content,
-                                id.0,
-                                row_height as c_int,
-                                on_list_can_move,
-                                on_list_move,
-                            );
-                        }
-                    }
+                    // A real QListWidget (docs/list.md): selection, the keyboard walker and
+                    // the drag-and-drop machinery are the view's; the guard and the commit of
+                    // a reorder still run through Day's seam (`on_list_can_move`,
+                    // `on_list_move`) so the app's own verdict decides every drop.
+                    let host = ffi::day_qt_list_new(
+                        id.0,
+                        row_height as c_int,
+                        c_int::from(p.selectable),
+                        c_int::from(p.multi_select),
+                        c_int::from(p.reorderable),
+                        on_list_selection,
+                        on_list_can_move,
+                        on_list_move,
+                    );
+                    // A legacy scroll bar appearing or leaving resizes the viewport under
+                    // the rows without the host moving: re-lay them to the width they have.
+                    ffi::day_qt_list_on_viewport_resized(host, on_list_viewport_resized);
                     LIST_STATE.with(|m| {
                         m.borrow_mut().insert(
                             host as usize,
@@ -1952,11 +1910,7 @@ impl Toolkit for Qt {
                                 last_width: -1,
                                 cell_width: -1,
                                 node: id.0,
-                                selectable: p.selectable,
                                 multi: p.multi_select,
-                                reorderable: p.reorderable,
-                                selected: Default::default(),
-                                anchor: None,
                             },
                         )
                     });
@@ -2319,17 +2273,13 @@ impl Toolkit for Qt {
                         schedule_list_scroll_row(h.0 as usize, *row)
                     }
                     Some(ListPatch::Selected(rows)) => {
-                        // Programmatic selection sync (empty = clear): repaint, no re-emit.
-                        LIST_STATE.with(|m| {
-                            if let Some(st) = m.borrow_mut().get_mut(&(h.0 as usize)) {
-                                st.selected = rows.iter().copied().collect();
-                                st.anchor = rows.last().copied();
-                                list_paint_selection(st);
-                            }
-                        });
+                        // Programmatic selection sync (empty = clear): the view repaints and
+                        // does not report it back.
+                        let rows: Vec<c_int> = rows.iter().map(|r| *r as c_int).collect();
+                        ffi::day_qt_list_set_selected(h.0, rows.as_ptr(), rows.len() as c_int);
                     }
-                    // Not implemented: RowSizeInvalidated — the emulated list re-lays out every
-                    // row on the next Reload.
+                    // Not implemented: RowSizeInvalidated — every row stands the declared
+                    // pitch tall, and a Reload re-lays them all.
                     Some(ListPatch::RowSizeInvalidated(_)) | None => {}
                 },
                 _ => {

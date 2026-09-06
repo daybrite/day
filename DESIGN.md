@@ -1891,6 +1891,10 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    `requestLayout` (RecyclerView), `InvalidateMeasure` (ItemsRepeater).
 4. Selection, separators, swipe actions, section headers are host-native features exposed as list
    options gated on `Toolkit::capability` ([§8.1](#81-the-toolkit-trait)); Qt reports `Emulated` recycling (DP-19).
+   Outcome (2026-09): DP-19's premise held (a `QListView` cannot recycle a widget-hosted row)
+   but the scroll-area emulation it justified never recycled either, so the Qt list became a
+   real `QListWidget` with Day's cells attached as index widgets — native selection, keyboard
+   walking, focus and drag — and keeps the append-only cell pool and the `Emulated` answer.
 
 This was the single hardest backend feature, deferred past the MVP by design — and the
 pre-reserved spec hooks did their job: it landed later as a defaulted duty with no breaking

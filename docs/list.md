@@ -153,7 +153,7 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior
 | UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row` |
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
 | GTK 4   | `GtkListView` + `GtkListItemFactory` | native | factory `bind`/`unbind` → `bind_row`/`recycle` |
-| Qt      | `QListView` + abstract model, or delegate | emulated (Cap reports `Emulated`, DP-19) | model `rowCount`/`data` |
+| Qt      | `QListWidget` + one item per row, Day's cell attached with `setIndexWidget` as it scrolls in | none — cells stay pinned to their row (Cap reports `Emulated`, DP-19) | the view owns selection, keys, focus, drag; Day owns the rows |
 
 ## Building it (mock-first, like M0–M1)
 
@@ -196,8 +196,10 @@ twice and shrinks once instead of restarting from wherever the last press ended.
 exactly what a click on the same row reports, so `on_select`/`on_selection` need no keyboard case.
 
 On the desktops this is the native widget's own behavior: nothing in Day sits ahead of the
-responder chain, so a focused table or outline gets its arrow keys the way it always would
-([docs/menus.md](menus.md)). On **web-dom** there is no native list to inherit it from, so the
+responder chain, so a focused table, outline or `QListWidget` gets its arrow keys the way it
+always would ([docs/menus.md](menus.md)). Qt earns it since 2026-09, when its list became a real
+`QListWidget` hosting Day's cells as index widgets; before that it was a scroll area of Day's own,
+and an arrow scrolled it. On **web-dom** there is no native list to inherit it from, so the
 backend builds it: the host carries `role="listbox"` and the tab stop, cells carry `role="option"`
 and `aria-selected`, and the shim routes the keys into `day_dom_list_key`. Focus sits on the host
 rather than a row, because rows are recycled as the list scrolls and focus parked on one would

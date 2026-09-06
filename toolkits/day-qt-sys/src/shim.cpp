@@ -752,12 +752,6 @@ void *day_qt_scroll_new(int horizontal) {
     content->setAutoFillBackground(false);
     return sa;
 }
-// The viewport's width — what a row can actually use. Equal to the host's width under an
-// overlay scroll bar, narrower under a legacy one (System Settings "show scroll bars: always").
-double day_qt_scroll_viewport_width(void *w) {
-    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
-    return sa && sa->viewport() ? sa->viewport()->width() : 0.0;
-}
 void *day_qt_scroll_content(void *w) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
     return sa ? sa->widget() : nullptr;
@@ -786,41 +780,6 @@ void day_qt_scroll_to_rect(void *w, int x, int y, int rw, int rh) {
         sb->setValue(v);
     }
 }
-// Scroll the (emulated) list/scroll area to its very bottom so the last row is fully visible.
-void day_qt_scroll_to_bottom(void *w) {
-    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
-    if (!sa) return;
-    if (QScrollBar *sb = sa->verticalScrollBar()) sb->setValue(sb->maximum());
-}
-
-// What the list is actually SHOWING: the scrolled offset and the visible height. The emulated
-// list positions every row itself, so this is the only way it can know which handful of a
-// ten-thousand-row source needs building — the content widget is the full extent either way.
-void day_qt_list_viewport(void *w, double *out_offset, double *out_height) {
-    *out_offset = 0;
-    *out_height = 0;
-    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
-    if (!sa) return;
-    if (QScrollBar *sb = sa->verticalScrollBar()) *out_offset = sb->value();
-    if (sa->viewport()) *out_height = sa->viewport()->height();
-}
-
-// Report scrolling, so rows coming INTO view get built before they are looked at.
-void day_qt_list_on_scroll(void *w, uint64_t node, void (*cb)(uint64_t)) {
-    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
-    if (!sa) return;
-    QScrollBar *sb = sa->verticalScrollBar();
-    if (!sb) return;
-    QObject::connect(sb, &QScrollBar::valueChanged, sb, [node, cb](int) { cb(node); });
-}
-
-// Scroll a QScrollArea host to an absolute vertical offset (px, clamped by the bar).
-void day_qt_scroll_to_y(void *w, int y) {
-    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
-    if (!sa) return;
-    if (QScrollBar *sb = sa->verticalScrollBar()) sb->setValue(y);
-}
-
 // --- tree / geometry ---
 // Emulated fullscreen cover (docs/cover.md): bring the re-homed cover to the front, and give it
 // an OPAQUE default surface (the palette Window color) so it occludes the page under it.
@@ -1003,17 +962,6 @@ void day_qt_splitter_on_resized(void *w, void (*cb)(void *)) {
         f->setParent(pane);
         pane->installEventFilter(f);
     }
-}
-
-// Report the VIEWPORT resizing — which happens without the host resizing when a legacy scroll
-// bar appears or leaves — so the emulated list re-lays its rows to the width they really have.
-void day_qt_scroll_on_viewport_resized(void *w, void (*cb)(void *)) {
-    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
-    if (!sa || !sa->viewport())
-        return;
-    auto *f = new DayPaneResizeFilter(sa, cb);
-    f->setParent(sa->viewport());
-    sa->viewport()->installEventFilter(f);
 }
 
 void day_qt_splitter_on_moved(void *w, void (*cb)(void *)) {
@@ -2001,178 +1949,291 @@ void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     widget->installEventFilter(f);
 }
 
-// --- emulated list row selection (docs/list.md) ---
-// A press on a list cell reports (list node, row, modifiers) so the Rust side owns the
-// selection semantics. modifiers: bit 0 = ctrl/cmd (toggle), bit 1 = shift (range).
-typedef void (*DayRowClickCb)(uint64_t node, int row, int modifiers);
-
-class DayRowClickFilter : public QObject {
-public:
-    uint64_t node; int row; DayRowClickCb cb;
-    DayRowClickFilter(uint64_t n, int r, DayRowClickCb c) : node(n), row(r), cb(c) {}
-protected:
-    bool eventFilter(QObject *, QEvent *ev) override {
-        if (ev->type() == QEvent::MouseButtonPress) {
-            auto *me = static_cast<QMouseEvent *>(ev);
-            if (me->button() == Qt::LeftButton) {
-                int mods = 0;
-                if (me->modifiers() & (Qt::ControlModifier | Qt::MetaModifier)) mods |= 1;
-                if (me->modifiers() & Qt::ShiftModifier) mods |= 2;
-                cb(node, row, mods);
-            }
-        }
-        return false; // observe only: row content stays interactive
-    }
-};
-
-// The emulated list's cell i shows row i for the cell's whole life (cells are created per
-// row and never re-indexed), so the row is fixed at install time.
-void day_qt_list_cell_click(void *w, uint64_t node, int row, DayRowClickCb cb) {
-    QWidget *widget = static_cast<QWidget *>(w);
-    DayRowClickFilter *f = new DayRowClickFilter(node, row, cb);
-    f->setParent(widget); // freed with the widget
-    widget->installEventFilter(f);
-}
-
-// --- emulated list drag-to-reorder (docs/list.md) ---
-// Qt's own QDrag carries the affordance — the grabbed cell as the drag pixmap, the forbidden
-// cursor over a denied slot, a 2px palette-highlight insertion line — while the DECISIONS stay
-// Rust's: every hovered slot is vetted synchronously through the can-move callback (the app's
-// guard), and the drop commits through the move callback.
+// --- the list (docs/list.md): a real QListWidget ---
+// One QListWidgetItem per row (cheap; a ten-thousand-row source is fine) and Day's own cell
+// widget attached to a row through `setIndexWidget` as it comes into view, so the rows are
+// laid out by Day and the LIST is Qt's: selection and its painting, the keyboard walker
+// (↑ ↓ Home End, shift ranges), focus and the tab stop, accessibility roles, the scroll bar,
+// and the drag-and-drop machinery. What Qt cannot do is recycle a widget-hosted row, which is
+// why realized cells stay pinned to their row for the list's life (the same append-only pool
+// the previous emulation kept) and `Cap` keeps answering `Emulated` for recycling.
+typedef void (*DayListSelectionCb)(uint64_t node, const int *rows, int count);
 typedef int (*DayListCanMoveCb)(uint64_t node, int from, int to);
 typedef void (*DayListMoveCb)(uint64_t node, int from, int to);
 
-static const char *DAY_ROW_MIME = "application/x-day-row";
-
-// Starts a QDrag when a press on cell `row` moves past the platform drag threshold. Cell index
-// == row for the cell's whole life (the click filter above relies on the same invariant).
-class DayCellDragFilter : public QObject {
+// Every row spans the viewport and stands `rowH` tall — asked of the delegate rather than
+// stored on ten thousand items, so a resize re-lays the rows without touching any of them.
+class DayListDelegate : public QStyledItemDelegate {
 public:
-    uint64_t node; int row;
-    DayCellDragFilter(uint64_t n, int r) : node(n), row(r) {}
-protected:
-    bool eventFilter(QObject *obj, QEvent *ev) override {
-        QWidget *w = static_cast<QWidget *>(obj);
-        if (ev->type() == QEvent::MouseButtonPress) {
-            auto *me = static_cast<QMouseEvent *>(ev);
-            if (me->button() == Qt::LeftButton) press = me->pos();
-        } else if (ev->type() == QEvent::MouseMove) {
-            auto *me = static_cast<QMouseEvent *>(ev);
-            if (!press.isNull()
-                && (me->pos() - press).manhattanLength() >= QApplication::startDragDistance()) {
-                QDrag *drag = new QDrag(w);
-                QMimeData *mime = new QMimeData();
-                mime->setData(DAY_ROW_MIME, QByteArray::number(row));
-                drag->setMimeData(mime);
-                drag->setPixmap(w->grab());
-                drag->setHotSpot(press);
-                press = QPoint();
-                drag->exec(Qt::MoveAction);
-                return true;
-            }
-        } else if (ev->type() == QEvent::MouseButtonRelease) {
-            press = QPoint();
-        }
-        return false; // observe until the drag actually starts
+    QListWidget *view; int rowH;
+    DayListDelegate(QListWidget *v, int rh) : QStyledItemDelegate(v), view(v), rowH(rh > 0 ? rh : 1) {}
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override {
+        return QSize(view->viewport()->width(), rowH);
     }
-private:
-    QPoint press;
 };
 
-// Accepts day-row drops on the list's content widget, drawing the insertion line where the
-// (possibly retargeted) drop would land and refusing denied slots so Qt shows the no-drop cursor.
-class DayListDropFilter : public QObject {
+class DayListWidget;
+// The list whose viewport took the last left press, until the button is released or a drag
+// begins — see `DayListDragWatcher`.
+static DayListWidget *g_list_pressed = nullptr;
+static QPoint g_list_press_global;
+
+class DayListWidget : public QListWidget {
 public:
-    uint64_t node; int rowH; DayListCanMoveCb can; DayListMoveCb commit;
-    QWidget *line;
-    DayListDropFilter(uint64_t n, int rh, DayListCanMoveCb c, DayListMoveCb m, QWidget *content)
-        : node(n), rowH(rh > 0 ? rh : 1), can(c), commit(m) {
-        line = new QWidget(content);
-        line->setFixedHeight(2);
-        line->setAutoFillBackground(true);
-        QPalette p = line->palette();
-        p.setColor(QPalette::Window, p.color(QPalette::Highlight));
-        line->setPalette(p);
-        line->hide();
+    uint64_t node; int rowH;
+    DayListSelectionCb onSelect = nullptr;
+    DayListCanMoveCb can = nullptr;
+    DayListMoveCb commit = nullptr;
+    // A programmatic selection sync must not echo back as a report.
+    bool syncing = false;
+
+    DayListWidget(uint64_t n, int rh) : node(n), rowH(rh > 0 ? rh : 1) {
+        setFrameShape(QFrame::NoFrame);
+        setItemDelegate(new DayListDelegate(this, rowH));
+        setUniformItemSizes(true);
+        setSpacing(0);
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        setResizeMode(QListView::Adjust);
+        // Transparent like the scroll piece (day_qt_scroll_new): content behind the list shows
+        // through, and — the same rule — never a stylesheet, or the bars stop being native.
+        viewport()->setAutoFillBackground(false);
+        viewport()->setBackgroundRole(QPalette::NoRole);
+        connect(selectionModel(), &QItemSelectionModel::selectionChanged, this,
+                [this](const QItemSelection &, const QItemSelection &) {
+                    paintSelection();
+                    if (syncing || !onSelect) return;
+                    std::vector<int> rows = selectedRows();
+                    onSelect(node, rows.data(), static_cast<int>(rows.size()));
+                });
     }
-protected:
-    bool eventFilter(QObject *obj, QEvent *ev) override {
-        QWidget *content = static_cast<QWidget *>(obj);
-        if (ev->type() == QEvent::DragEnter || ev->type() == QEvent::DragMove) {
-            auto *e = static_cast<QDragMoveEvent *>(ev);
-            int from = fromOf(e);
-            if (from < 0) return false; // not a day row — none of our business
-            int accepted = can(node, from, slotOf(e));
-            if (accepted < 0) {
-                line->hide();
-                e->ignore();
+
+    std::vector<int> selectedRows() const {
+        std::vector<int> rows;
+        for (const QModelIndex &ix : selectedIndexes()) rows.push_back(ix.row());
+        std::sort(rows.begin(), rows.end());
+        return rows;
+    }
+
+    // A selected row's cell reads in the highlighted text color: the delegate paints the
+    // highlight BEHIND the cell, and the cell's own labels would otherwise keep the plain
+    // text color over it (black on blue in light mode).
+    void paintSelection() {
+        for (int i = 0; i < count(); ++i) {
+            QWidget *w = indexWidget(model()->index(i, 0));
+            if (!w) continue;
+            const bool on = item(i)->isSelected();
+            if (on) {
+                QPalette p = w->palette();
+                p.setColor(QPalette::WindowText, p.color(QPalette::HighlightedText));
+                p.setColor(QPalette::Text, p.color(QPalette::HighlightedText));
+                w->setPalette(p);
             } else {
-                int ins = accepted > from ? accepted + 1 : accepted;
-                line->setGeometry(0, ins * rowH - 1, content->width(), 2);
-                line->raise();
-                line->show();
-                e->acceptProposedAction();
+                w->setPalette(QPalette());
             }
-            return true;
         }
-        if (ev->type() == QEvent::DragLeave) {
-            line->hide();
+    }
+
+    // Where a drop at `pos` lands, as the index Day's `move_row(from, to)` wants: the row the
+    // dragged one ends up AT after it is removed and re-inserted (Vec::remove + insert).
+    int dropTarget(const QPoint &pos, int from) {
+        const int n = count();
+        QModelIndex ix = indexAt(pos);
+        if (!ix.isValid()) return n - 1;
+        const int r = ix.row();
+        const QRect rc = visualRect(ix);
+        const bool below = pos.y() >= rc.center().y();
+        if (r > from) return below ? r : r - 1;
+        if (r < from) return below ? r + 1 : r;
+        return from;
+    }
+
+    // Begin the reorder drag of the current row (from `DayListDragWatcher`).
+    void beginDrag() { startDrag(Qt::MoveAction); }
+
+protected:
+    void mousePressEvent(QMouseEvent *e) override {
+        QListWidget::mousePressEvent(e);
+        // The press lands on the row's cell first and propagates here; Qt's click-to-focus
+        // walk does not reach this view through the cell, so the list takes focus itself —
+        // the keyboard walker and the focused selection color depend on it.
+        if (!hasFocus()) setFocus(Qt::MouseFocusReason);
+        // Arm the drag watcher: the moves that follow this press will not reach this view
+        // (a QLabel in the row swallows them), so the watcher starts the drag for it.
+        if (dragEnabled() && e->button() == Qt::LeftButton
+            && indexAt(e->position().toPoint()).isValid()) {
+            g_list_pressed = this;
+            g_list_press_global = e->globalPosition().toPoint();
+        }
+    }
+    void mouseReleaseEvent(QMouseEvent *e) override {
+        g_list_pressed = nullptr;
+        QListWidget::mouseReleaseEvent(e);
+    }
+    // The drag pixmap is the row's own cell: the delegate paints nothing over an index widget,
+    // so QListWidget's default pixmap would be blank.
+    void startDrag(Qt::DropActions supported) override {
+        QModelIndexList idx = selectedIndexes();
+        if (idx.isEmpty()) return;
+        QMimeData *mime = model()->mimeData(idx);
+        if (!mime) return;
+        QDrag *drag = new QDrag(this);
+        drag->setMimeData(mime);
+        if (QWidget *w = indexWidget(idx.first())) drag->setPixmap(w->grab());
+        drag->exec(supported, Qt::MoveAction);
+        setState(NoState);
+    }
+    // Every hovered slot is vetted synchronously through the app's guard (docs/list.md):
+    // a denied slot shows Qt's no-drop cursor and no indicator.
+    void dragMoveEvent(QDragMoveEvent *e) override {
+        QListWidget::dragMoveEvent(e);
+        const int from = currentRow();
+        if (from < 0 || !can || can(node, from, dropTarget(e->position().toPoint(), from)) < 0)
+            e->ignore();
+    }
+    // The drop commits through Day's own model, never through QListWidget's internal move:
+    // Day's rows rebind into the same cells in the new order on the reload that follows.
+    void dropEvent(QDropEvent *e) override {
+        const int from = currentRow();
+        const int accepted = (from >= 0 && can) ? can(node, from, dropTarget(e->position().toPoint(), from)) : -1;
+        if (accepted >= 0 && accepted != from && commit) {
+            commit(node, from, accepted);
+            e->acceptProposedAction();
+        } else {
+            e->ignore();
+        }
+        stopAutoScroll();
+        setState(NoState);
+        viewport()->update();
+    }
+};
+
+// Starts a list's reorder drag once a press on one of its rows travels past the platform's
+// drag distance. An application-level filter, because the moves that follow the press are
+// delivered to the widget under the press — a QLabel in the row — which swallows them, so the
+// view's own drag detection (in its mouseMoveEvent) never runs. The press itself propagates
+// to the view, which is where the watcher is armed.
+class DayListDragWatcher : public QObject {
+protected:
+    bool eventFilter(QObject *o, QEvent *ev) override {
+        if (!g_list_pressed) return false;
+        if (ev->type() == QEvent::MouseButtonRelease) {
+            g_list_pressed = nullptr;
             return false;
         }
-        if (ev->type() == QEvent::Drop) {
-            auto *e = static_cast<QDropEvent *>(ev);
-            line->hide();
-            int from = fromOf(e);
-            if (from < 0) return false;
-            int accepted = can(node, from, slotOf(e));
-            if (accepted >= 0 && accepted != from) {
-                commit(node, from, accepted);
-                e->acceptProposedAction();
-            } else {
-                e->ignore();
-            }
-            return true;
+        if (ev->type() != QEvent::MouseMove || !qobject_cast<QWidget *>(o)) return false;
+        auto *me = static_cast<QMouseEvent *>(ev);
+        if (!(me->buttons() & Qt::LeftButton)) {
+            g_list_pressed = nullptr;
+            return false;
         }
+        const QPoint gp = me->globalPosition().toPoint();
+        if ((gp - g_list_press_global).manhattanLength() < QApplication::startDragDistance())
+            return false;
+        DayListWidget *l = g_list_pressed;
+        g_list_pressed = nullptr;
+        l->beginDrag();
         return false;
     }
-private:
-    static int fromOf(QDropEvent *e) {
-        QByteArray b = e->mimeData()->data(DAY_ROW_MIME);
-        return b.isEmpty() ? -1 : b.toInt();
-    }
-    int slotOf(QDropEvent *e) const { return (int)(e->position().y()) / rowH; }
 };
 
-void day_qt_list_enable_reorder(void *content, uint64_t node, int row_h,
-                                DayListCanMoveCb can, DayListMoveCb mv) {
-    QWidget *w = static_cast<QWidget *>(content);
-    w->setAcceptDrops(true);
-    auto *f = new DayListDropFilter(node, row_h, can, mv, w);
-    f->setParent(w); // freed with the widget
-    w->installEventFilter(f);
-}
-
-void day_qt_cell_drag(void *cell, uint64_t node, int row) {
-    QWidget *w = static_cast<QWidget *>(cell);
-    auto *f = new DayCellDragFilter(node, row);
-    f->setParent(w);
-    w->installEventFilter(f);
-}
-
-// Paint (or clear) the selected-row treatment on an emulated list cell: the palette
-// highlight fill with its matching text color, the plain QListView look.
-void day_qt_cell_set_selected(void *w, int on) {
-    QWidget *widget = static_cast<QWidget *>(w);
-    widget->setAutoFillBackground(on != 0);
-    if (on) {
-        QPalette p = widget->palette();
-        p.setColor(QPalette::Window, p.color(QPalette::Highlight));
-        p.setColor(QPalette::WindowText, p.color(QPalette::HighlightedText));
-        widget->setPalette(p);
-    } else {
-        widget->setPalette(QPalette());
+void *day_qt_list_new(uint64_t node, int row_h, int selectable, int multi, int reorderable,
+                      DayListSelectionCb on_select, DayListCanMoveCb can, DayListMoveCb mv) {
+    static bool watching = false;
+    if (!watching) {
+        watching = true;
+        qApp->installEventFilter(new DayListDragWatcher());
     }
+    auto *l = new DayListWidget(node, row_h);
+    l->onSelect = on_select;
+    l->can = can;
+    l->commit = mv;
+    l->setSelectionMode(!selectable ? QAbstractItemView::NoSelection
+                        : multi     ? QAbstractItemView::ExtendedSelection
+                                    : QAbstractItemView::SingleSelection);
+    if (reorderable) {
+        l->setDragEnabled(true);
+        l->setAcceptDrops(true);
+        l->setDropIndicatorShown(true);
+        l->setDragDropMode(QAbstractItemView::InternalMove);
+        l->setDefaultDropAction(Qt::MoveAction);
+    }
+    return l;
 }
+
+// Bring the item count to `n`. Rows past a shrunk source are HIDDEN, never removed: removing
+// an item deletes the cell attached to it, and Day's cell map must not dangle (the cell is
+// parked through `recycle` and comes back on growth).
+void day_qt_list_set_count(void *w, int n) {
+    auto *l = static_cast<DayListWidget *>(w);
+    while (l->count() < n) l->addItem(new QListWidgetItem());
+    for (int i = 0; i < l->count(); ++i) l->item(i)->setHidden(i >= n);
+}
+
+// Attach Day's cell to row `row`; the view positions it over the item from here on.
+void day_qt_list_attach_cell(void *w, int row, void *cell) {
+    auto *l = static_cast<DayListWidget *>(w);
+    if (row < 0 || row >= l->count()) return;
+    l->setIndexWidget(l->model()->index(row, 0), static_cast<QWidget *>(cell));
+}
+
+// The row's frame in viewport coordinates — what the cell is laid out to.
+void day_qt_list_cell_frame(void *w, int row, int *x, int *y, int *width, int *height) {
+    auto *l = static_cast<DayListWidget *>(w);
+    *x = *y = *width = *height = 0;
+    if (row < 0 || row >= l->count()) return;
+    const QRect r = l->visualItemRect(l->item(row));
+    *x = r.x(); *y = r.y(); *width = r.width(); *height = r.height();
+}
+
+// The rows on screen, so the ones coming into view get built before they are looked at.
+void day_qt_list_visible_rows(void *w, int *first, int *last) {
+    auto *l = static_cast<DayListWidget *>(w);
+    *first = 0; *last = -1;
+    if (l->count() == 0) return;
+    const int h = l->viewport()->height();
+    QModelIndex a = l->indexAt(QPoint(1, 1));
+    QModelIndex b = l->indexAt(QPoint(1, std::max(0, h - 1)));
+    *first = a.isValid() ? a.row() : 0;
+    *last = b.isValid() ? b.row() : l->count() - 1;
+}
+
+double day_qt_list_viewport_width(void *w) {
+    return static_cast<DayListWidget *>(w)->viewport()->width();
+}
+
+void day_qt_list_on_scroll(void *w, uint64_t node, void (*cb)(uint64_t)) {
+    auto *l = static_cast<DayListWidget *>(w);
+    QObject::connect(l->verticalScrollBar(), &QScrollBar::valueChanged, l, [node, cb](int) { cb(node); });
+}
+
+void day_qt_list_on_viewport_resized(void *w, void (*cb)(void *)) {
+    auto *l = static_cast<DayListWidget *>(w);
+    auto *f = new DayPaneResizeFilter(l, cb);
+    f->setParent(l->viewport());
+    l->viewport()->installEventFilter(f);
+}
+
+// Programmatic selection sync (docs/list.md): no echo, and the cells repaint.
+void day_qt_list_set_selected(void *w, const int *rows, int n) {
+    auto *l = static_cast<DayListWidget *>(w);
+    l->syncing = true;
+    l->clearSelection();
+    for (int i = 0; i < n; ++i) {
+        if (rows[i] >= 0 && rows[i] < l->count()) l->item(rows[i])->setSelected(true);
+    }
+    if (n > 0 && rows[n - 1] >= 0 && rows[n - 1] < l->count())
+        l->setCurrentRow(rows[n - 1], QItemSelectionModel::NoUpdate);
+    l->syncing = false;
+    l->paintSelection();
+}
+
+void day_qt_list_scroll_to_row(void *w, int row) {
+    auto *l = static_cast<DayListWidget *>(w);
+    if (row >= 0 && row < l->count()) l->scrollToItem(l->item(row), QAbstractItemView::PositionAtTop);
+}
+
+void day_qt_list_scroll_to_end(void *w) { static_cast<DayListWidget *>(w)->scrollToBottom(); }
 
 // --- focus (docs/focus.md) ---
 // kind: 1 = gained, 0 = lost, 2 = submitted (line-edit return key).
@@ -2748,8 +2809,13 @@ static void day_qt_toolbar_sync_columns_for(DayWindow *win) {
             continue;
         }
         const int edge = tb->mapFrom(win, pane->mapTo(win, QPoint(pane->width() + hw, 0))).x();
-        track->setFixedWidth(std::max(0, edge - prev - spacing));
-        prev = edge;
+        // Never narrower than what it holds: a column with more items than its pane is wide
+        // keeps them legible and lets the detail column start late, rather than squeezing a
+        // search field under a segmented control.
+        const int fit = track->layout() ? track->layout()->minimumSize().width() : 0;
+        const int width = std::max(std::max(0, edge - prev - spacing), fit);
+        track->setFixedWidth(width);
+        prev = prev + width + spacing;
     }
 }
 
