@@ -132,8 +132,8 @@ Search has no toolbar item. Declare it on the navigation surface it filters, wit
 That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/glossary#sidebar) without your code
 changing. A sidebar supplies its own toggle button, so an app declares nothing for that either.
 
-There are no spacers and no leading/trailing property. `.placement(…)` names the item's role,
-and each backend lays that role out its own way: `Navigation` sits at the leading edge of its
+Alignment comes from `.placement(…)`, which names the item's role rather than a position in
+the list, and each backend lays that role out its own way: `Navigation` sits at the leading edge of its
 column, `Principal` is centered, `Primary` and `Secondary` go trailing, with secondaries folding
 into an overflow menu first, and `Bottom` asks for a phone's bottom bar. `.icon(Symbol::Refresh)`
 names what the icon means; each backend draws its platform's own glyph (an SF Symbol on macOS,

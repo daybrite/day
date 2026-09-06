@@ -29,7 +29,6 @@ cmd_add = New Item
 cmd_delete = Delete
 cmd_done = Done
 cmd_show_done = Show Finished
-cmd_sidebar = Toggle Sidebar
 
 # The item list and its editor.
 item_none = Select an item
