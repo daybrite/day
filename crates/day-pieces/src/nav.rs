@@ -3139,6 +3139,11 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // Ordering here does not decide routing — `NavController::depth` does.
     let (tp_push, s_push) = (typed.clone(), selection.clone());
     let s_pop = selection.clone();
+    let (dv_pop, lis_pop, pres_pop) = (
+        detail_visible,
+        list_in_stack.clone(),
+        presentation_cell.clone(),
+    );
     let s_cur = selection.clone();
     let (tp_enter, s_enter) = (typed.clone(), selection.clone());
     let s_seg = selection.clone();
@@ -3167,6 +3172,19 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             move |_| {
                 if s_pop.peek().key().is_empty() {
                     false
+                } else if merged_list
+                    && pres_pop.get() == NavPresentation::Stack
+                    && lis_pop.get()
+                    && let Some(dv) = dv_pop
+                    && dv.peek()
+                {
+                    // The gated detail is the innermost layer while the list is interposed
+                    // (docs/navigation.md): the native back closes it through the page's
+                    // owner, and an imperative `nav_back` lands in the same place rather
+                    // than leaving the section — which is what it did on a phone, popping
+                    // the list and the section under a script's back.
+                    dv.set(false);
+                    true
                 } else if let Some(root) = K::from_key("") {
                     s_pop.write(root);
                     true

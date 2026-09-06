@@ -446,7 +446,10 @@ builder return the values of the navigation being applied. They describe the nav
 flight; a push you perform by writing the path signal directly carries its data in your own
 state instead.
 
-- `nav_back()`: pops the innermost surface, falling through when it is already at its root.
+- `nav_back()`: pops the innermost surface, falling through when it is already at its root. On a
+  sidebar whose content list is interposed in a collapsed stack, the innermost layer is the
+  gated detail: the call closes it (`detail_visible` := false), the same place the native back
+  lands, and only a second call leaves the section.
 - `current_route()`: the **full** path, every mounted surface's contribution from outermost to
   innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting the *whole*
   route by hand is two lines: save `current_route()` on the way out (day-part-prefs works),
@@ -659,8 +662,14 @@ selector(section).style(SelectorStyle::Sidebar)
   collapses the sidebar and keeps the list, as a narrow Mail.app does. On Qt the pane is the
   middle of the same three-pane `QSplitter` the sidebar lives in, hidden on a host that declared
   no list, so pane indices and the back header never move. `Emulated` (ios-uikit): a real
-  column while expanded that merges into
-  the navigation stack when the host collapses. `Unsupported` (everything else): the selector
+  column while expanded that merges into the navigation stack when the host collapses. A
+  `UISplitViewController` fixes its column count at creation, never shows the primary without
+  the supplementary, and drops a controller re-mounted in another of its columns, so a
+  destination without a list gets a double-column host and one with a list a triple-column
+  host: a change between the two on a wide window rebuilds the host with fresh column
+  controllers and moves the pages across, which is what SwiftUI does when a
+  `NavigationSplitView` changes column count. Day's handle for the host is a container the
+  split's view fills, so the rebuild never touches the tree. `Unsupported` (everything else): the selector
   composes the list beside each list-backed destination while split, and as the root layer of
   the gated push flow while compact.
 - **`detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts

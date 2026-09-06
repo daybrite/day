@@ -1941,7 +1941,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   `.detail_visible(sig)` binding), composed by the selector everywhere else.
 >   `.content_list_for(pred)` collapses the pane per destination (`NavPatch::ListVisible`).
 >   Outcome (2026-09): Qt answers `Native` too — the middle pane of its three-pane
->   navigation `QSplitter`, and its toolbar packs columns over the panes.
+>   navigation `QSplitter`, and its toolbar packs columns over the panes. On ios-uikit a
+>   destination without a list gets a double-column host and one with a list a triple-column
+>   host: the split's column count is init-only and it never shows the primary without the
+>   supplementary, so a change between the two on a wide window rebuilds the host with fresh
+>   column controllers, as SwiftUI rebuilds a `NavigationSplitView` whose column count
+>   changes ([docs/navigation.md](docs/navigation.md)).
   Since 2026-09 the composed compact flow's list is a merge target: a `stack` built inside it
   pushes onto the tab's navigation controller (a drill-down with a native back), while the
   native resident pane stays a barrier.

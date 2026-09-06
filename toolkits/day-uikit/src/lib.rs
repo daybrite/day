@@ -2290,6 +2290,20 @@ mod imp {
         /// collapsed, the pieces layer interposes its root between the sidebar root and the
         /// detail (`NavPatch::ListInStack`) and the `vcs` mirror carries it like any page.
         supplementary_nav: Option<Retained<DayNavController>>,
+        /// The app's content-list width (`NavProps::list_width`), `Some` when the app declares
+        /// a content-list pane: the supplementary column's width on a triple-column host.
+        list_width: Option<f64>,
+        /// Whether the destination in force shows the content list (the last
+        /// `NavPatch::ListVisible`). A split's column count is fixed at creation, it never
+        /// shows the primary without the supplementary, and a controller cannot be re-mounted
+        /// in another of its columns (UIKit drops it) — so a list-backed destination gets a
+        /// TRIPLE-column host and a list-less one a DOUBLE-column host, and a change between
+        /// the two while expanded rebuilds the host (`rehost_split`, docs/navigation.md), the
+        /// way SwiftUI rebuilds a `NavigationSplitView` whose column count changes.
+        list_shown: std::cell::Cell<bool>,
+        /// The host's own view (Day's handle for the node), a plain container the split's
+        /// view fills. Stable across a rebuild, which is what keeps the handle valid.
+        container: Retained<UIView>,
         /// The `Pane::List` page's controller, retained at `insert` — the RELIABLE identity
         /// for the collapse/expand bookkeeping. While merged, the supplementary column's own
         /// stack is empty (UIKit moved the controller into the primary's), so reading
@@ -2660,11 +2674,16 @@ mod imp {
                         }
                         // Day's MIRROR answers, not the native count — the secondary holds a
                         // placeholder while no real detail page exists, and the placeholder
-                        // must never top the collapsed stack.
-                        if state.vcs.is_empty() {
+                        // must never top the collapsed stack. The content list tops it only
+                        // while it belongs to the destination (`NavPatch::ListInStack`);
+                        // a destination without one leaves the sidebar root on top, which
+                        // is what a phone opening on such a section must show.
+                        if !state.vcs.is_empty() {
+                            objc2_ui_kit::UISplitViewControllerColumn::Secondary
+                        } else if state.list_in_stack.get() {
                             objc2_ui_kit::UISplitViewControllerColumn::Supplementary
                         } else {
-                            objc2_ui_kit::UISplitViewControllerColumn::Secondary
+                            objc2_ui_kit::UISplitViewControllerColumn::Primary
                         }
                     })
                 })
@@ -2748,6 +2767,20 @@ mod imp {
         // shape as the Qt fix, where hiding a splitter pane does not resize its sibling until Qt
         // has run its own layout pass (docs/size-classes.md).
         dispatch2::DispatchQueue::main().exec_async(move || {
+            // Expanded again: the host the destination in force calls for
+            // (`SplitParts::list_shown`), before the columns below are laid out.
+            if expanded {
+                rehost_split(host);
+            }
+            split_settle(host);
+        });
+    }
+
+    /// Lay the split host's columns out for the presentation or host they now have, then
+    /// re-place the window toolbar and the search field against them. Runs a turn after a
+    /// collapse or expand, and after a rebuild.
+    fn split_settle(host: usize) {
+        {
             NAV_STATE.with(|m| {
                 let m = m.borrow();
                 let Some(state) = m.get(&host) else { return };
@@ -2808,7 +2841,263 @@ mod imp {
                     }
                 }
             });
+        }
+    }
+
+    /// The column controllers of a split host, built by `realize` and again by `rehost_split`.
+    struct SplitBuild {
+        split_vc: Retained<objc2_ui_kit::UISplitViewController>,
+        primary_nav: Retained<DayNavController>,
+        supplementary_nav: Option<Retained<DayNavController>>,
+        secondary_placeholder: Option<Retained<UIViewController>>,
+    }
+
+    /// A blank, grouped-background controller: the seed a column takes while it has no page.
+    fn blank_vc(mtm: MainThreadMarker) -> Retained<UIViewController> {
+        let vc = unsafe { UIViewController::new(mtm) };
+        if let Some(v) = unsafe { vc.view() } {
+            unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
+        }
+        vc
+    }
+
+    /// Build a split host of the style the destination calls for (docs/size-classes.md,
+    /// docs/navigation.md): a double-column `UISplitViewController` whose SECONDARY column is
+    /// Day's navigation stack (`secondary`) and whose PRIMARY is the sidebar page's own
+    /// stack, with a SUPPLEMENTARY column for the content list when `triple`. UIKit
+    /// collapses it to a single stack at compact width and expands it at regular — which is a
+    /// rotation away on a Plus/Pro Max iPhone and the standing state on an iPad.
+    ///
+    /// Collapsing MERGES: UIKit inserts the primary's controller at the bottom of the
+    /// secondary's navigation stack. That lands on exactly the shape Day's model already has
+    /// in a stack presentation — the sidebar page as the stack's root — so the phone path is
+    /// unchanged and only the mirror needs rebasing.
+    ///
+    /// The secondary column must never be an EMPTY navigation controller on the older
+    /// runtimes (see `SplitParts::secondary_placeholder`): a triple-column host seeds it here
+    /// when it holds nothing, and seeds the supplementary the same way, because the
+    /// window-attach collapse can nest either before its page arrives.
+    fn build_split(
+        mtm: MainThreadMarker,
+        secondary: &DayNavController,
+        list_width: Option<f64>,
+        triple: bool,
+    ) -> SplitBuild {
+        let split_vc = unsafe {
+            objc2_ui_kit::UISplitViewController::initWithStyle(
+                objc2_ui_kit::UISplitViewController::alloc(mtm),
+                if triple {
+                    objc2_ui_kit::UISplitViewControllerStyle::TripleColumn
+                } else {
+                    objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn
+                },
+            )
+        };
+        let primary_nav = DayNavController::new(mtm, 0); // host ptr set by the caller
+        let secondary_placeholder = triple.then(|| {
+            let ph = blank_vc(mtm);
+            if unsafe { secondary.viewControllers() }.count() == 0 {
+                let arr = objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(&ph));
+                unsafe { secondary.setViewControllers(&arr) };
+            }
+            ph
         });
+        let supplementary_nav = triple.then(|| {
+            let snav = DayNavController::new(mtm, 0);
+            unsafe {
+                let arr = objc2_foundation::NSArray::from_retained_slice(&[blank_vc(mtm)]);
+                snav.setViewControllers(&arr);
+                split_vc.setViewController_forColumn(
+                    Some(&snav),
+                    objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
+                );
+                split_vc.setPreferredSupplementaryColumnWidth(
+                    list_width.unwrap_or(day_spec::NAV_LIST_MIN_W),
+                );
+            }
+            snav
+        });
+        unsafe {
+            split_vc.setViewController_forColumn(
+                Some(&primary_nav),
+                objc2_ui_kit::UISplitViewControllerColumn::Primary,
+            );
+            split_vc.setViewController_forColumn(
+                Some(secondary),
+                objc2_ui_kit::UISplitViewControllerColumn::Secondary,
+            );
+            // Every column side by side when there is room; UIKit still collapses to one
+            // stack at compact width. `oneBesideSecondary` is "primary beside secondary" on
+            // a double-column host and "supplementary beside secondary" on a triple-column
+            // one, which is why the list-less destination gets a host of its own.
+            split_vc.setPreferredDisplayMode(if triple {
+                objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
+            } else {
+                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary
+            });
+            // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a portrait iPad:
+            // the sidebar floats above a dimmed detail, and the detail keeps the full window
+            // width — so Day lays its content out for a width the user cannot see the left
+            // edge of. Tiling gives the detail column its own narrower bounds, which is what
+            // the page then reports through `FrameChanged` (docs/size-classes.md).
+            split_vc
+                .setPreferredSplitBehavior(objc2_ui_kit::UISplitViewControllerSplitBehavior::Tile);
+        }
+        SplitBuild {
+            split_vc,
+            primary_nav,
+            supplementary_nav,
+            secondary_placeholder,
+        }
+    }
+
+    /// Mount a split's view in the host's container under the window root's containment.
+    fn mount_split(split_vc: &objc2_ui_kit::UISplitViewController, container: &UIView) {
+        let root_vc = WINDOW
+            .with(|w| w.borrow().clone())
+            .and_then(|w| w.rootViewController());
+        unsafe {
+            if let Some(root_vc) = &root_vc {
+                root_vc.addChildViewController(split_vc);
+            }
+            if let Some(v) = split_vc.view() {
+                v.setFrame(container.bounds());
+                v.setAutoresizingMask(
+                    objc2_ui_kit::UIViewAutoresizing::FlexibleWidth
+                        | objc2_ui_kit::UIViewAutoresizing::FlexibleHeight,
+                );
+                container.addSubview(&v);
+            }
+            if let Some(root_vc) = &root_vc {
+                split_vc.didMoveToParentViewController(Some(root_vc));
+            }
+        }
+    }
+
+    /// Rebuild the split host for the destination in force (`SplitParts::list_shown`,
+    /// docs/navigation.md): a fresh split of the other style with fresh column controllers,
+    /// the pages moved across, swapped into the same container. Expanded only — collapsed,
+    /// the columns are one stack and the list joins it through `NavPatch::ListInStack`. Every
+    /// UIKit call runs outside the state borrow: each re-enters the navigation delegate.
+    fn rehost_split(host: usize) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let plan = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            let parts = state.split.as_ref()?;
+            let list_width = parts.list_width?;
+            if state.collapsed.get() || unsafe { parts.split_vc.isCollapsed() } {
+                return None;
+            }
+            let triple = parts.list_shown.get();
+            if triple == parts.supplementary_nav.is_some() {
+                return None;
+            }
+            Some((
+                parts.split_vc.clone(),
+                parts.primary_nav.clone(),
+                parts.supplementary_nav.clone(),
+                state.nav.clone(),
+                state.vcs.clone(),
+                parts.list_vc.borrow().clone(),
+                parts.container.clone(),
+                parts._split_delegate.clone(),
+                list_width,
+                triple,
+                state._delegate.clone(),
+            ))
+        });
+        let Some((
+            old_split,
+            old_primary,
+            old_snav,
+            old_secondary,
+            vcs,
+            list_vc,
+            container,
+            split_delegate,
+            list_width,
+            triple,
+            delegate,
+        )) = plan
+        else {
+            return;
+        };
+        if *DIAG_NAV {
+            log::debug!("DAYDIAG rehost triple={triple} details={}", vcs.len());
+        }
+        note_ui_transition();
+        let empty = objc2_foundation::NSArray::<UIViewController>::new();
+        let sidebar = unsafe { old_primary.viewControllers() }.firstObject();
+        unsafe {
+            // Pages out of the old columns — a page mounts in one stack at a time — then the
+            // old host out of the window, then a fresh host with fresh column controllers.
+            old_primary.setViewControllers(&empty);
+            if let Some(snav) = &old_snav {
+                snav.setViewControllers(&empty);
+            }
+            old_secondary.setViewControllers(&empty);
+            old_split.willMoveToParentViewController(None);
+            if let Some(v) = old_split.viewIfLoaded() {
+                v.removeFromSuperview();
+            }
+            old_split.removeFromParentViewController();
+        }
+        let secondary = DayNavController::new(mtm, host);
+        secondary
+            .ivars()
+            .guarded
+            .set(old_secondary.ivars().guarded.get());
+        let built = build_split(mtm, &secondary, Some(list_width), triple);
+        built.primary_nav.ivars().host.set(host);
+        unsafe {
+            secondary.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            built
+                .primary_nav
+                .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            if let Some(snav) = &built.supplementary_nav {
+                snav.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                snav.ivars().host.set(host);
+                if let Some(lv) = &list_vc {
+                    let arr =
+                        objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(lv));
+                    snav.setViewControllers(&arr);
+                }
+            }
+            if let Some(sb) = &sidebar {
+                let arr = objc2_foundation::NSArray::from_retained_slice(std::slice::from_ref(sb));
+                built.primary_nav.setViewControllers(&arr);
+            }
+            if !vcs.is_empty() {
+                let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
+                secondary.setViewControllers(&arr);
+            }
+            if let Some(g) = secondary.interactivePopGestureRecognizer() {
+                g.setEnabled(!secondary.ivars().guarded.get());
+            }
+            built
+                .split_vc
+                .setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
+        }
+        NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&host) else {
+                return;
+            };
+            state.nav = secondary.clone();
+            state.last_native.set(state.vcs.len());
+            state.pending_sync.set(false);
+            let Some(parts) = state.split.as_mut() else {
+                return;
+            };
+            parts.split_vc = built.split_vc.clone();
+            parts.primary_nav = built.primary_nav;
+            parts.supplementary_nav = built.supplementary_nav;
+            parts.secondary_placeholder = built.secondary_placeholder;
+        });
+        mount_split(&built.split_vc, &container);
     }
 
     /// Apply Day's model of the stack to the ACTIVE navigation controller in ONE
@@ -2932,6 +3221,21 @@ mod imp {
                         let Some(state) = m.get_mut(&host) else {
                             return false;
                         };
+                        // Only the ACTIVE column's stack is the user's stack. A triple-column
+                        // host's secondary and supplementary controllers keep firing didShow
+                        // while collapsed, as UIKit nests and un-nests them into the merge,
+                        // with counts of their own — read against the mirror, one of those
+                        // settled as a "user back" and popped the section under the user
+                        // (the Showcase's Text and Stack pages on an iPhone).
+                        let active = state.active_nav();
+                        let same = std::ptr::addr_eq(
+                            (&*active as *const DayNavController).cast::<std::ffi::c_void>(),
+                            (nav as *const objc2_ui_kit::UINavigationController)
+                                .cast::<std::ffi::c_void>(),
+                        );
+                        if !same {
+                            return false;
+                        }
                         let native = unsafe { nav.viewControllers() }.count();
                         // A split host MERGES its columns as it collapses and separates them as
                         // it expands, which moves a controller in or out of this stack — a count
@@ -3213,17 +3517,6 @@ mod imp {
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
-            }
-
-            /// The responder chain's answer while no text field holds focus: the app's one
-            /// stack, through its front — a focused field's own manager keeps precedence,
-            /// which is exactly the typing rule (docs/model.md).
-            #[unsafe(method_id(undoManager))]
-            fn undo_manager(&self) -> Option<Retained<objc2_foundation::NSUndoManager>> {
-                day_spec::ffi_guard::contain(None, || {
-                    UNDO_FRONT
-                        .with(|u| u.borrow().as_ref().map(|m| Retained::into_super(m.clone())))
-                })
             }
         }
     );
@@ -6290,104 +6583,21 @@ mod imp {
                         // the stack's root — so the phone path is unchanged and only the mirror
                         // needs rebasing.
                         // A content list (`NavProps::list_width`) makes this a TRIPLE-column
-                        // host — the style is init-only, which is why the prop is read at
-                        // realize (docs/navigation.md).
+                        // host while the first destination shows it; the style is init-only,
+                        // so a later change rebuilds the host (`rehost_split`,
+                        // docs/navigation.md).
                         let list_width = p.list_width;
-                        let split_vc = unsafe {
-                            objc2_ui_kit::UISplitViewController::initWithStyle(
-                                objc2_ui_kit::UISplitViewController::alloc(mtm),
-                                if list_width.is_some() {
-                                    objc2_ui_kit::UISplitViewControllerStyle::TripleColumn
-                                } else {
-                                    objc2_ui_kit::UISplitViewControllerStyle::DoubleColumn
-                                },
-                            )
-                        };
-                        let primary_nav = DayNavController::new(mtm, 0); // host ptr set below
-                        // The secondary column must never be an EMPTY navigation controller
-                        // on the older runtimes (see `secondary_placeholder`); seed it now,
-                        // before the first collapse can nest it.
-                        let secondary_placeholder = list_width.map(|_| {
-                            let ph = unsafe { UIViewController::new(mtm) };
-                            unsafe {
-                                if let Some(v) = ph.view() {
-                                    v.setBackgroundColor(Some(
-                                        &UIColor::systemGroupedBackgroundColor(),
-                                    ));
-                                }
-                                let arr = objc2_foundation::NSArray::from_retained_slice(
-                                    std::slice::from_ref(&ph),
-                                );
-                                nav.setViewControllers(&arr);
-                            }
-                            ph
-                        });
-                        let supplementary_nav = list_width.map(|w| {
-                            let snav = DayNavController::new(mtm, 0); // host ptr set below
-                            unsafe {
-                                // Seeded non-empty for the same iOS 16 rule as the secondary:
-                                // the window-attach collapse can nest this column BEFORE the
-                                // `Pane::List` page arrives, and `insert` replaces the seed
-                                // wholesale when it does.
-                                let ph = UIViewController::new(mtm);
-                                if let Some(v) = ph.view() {
-                                    v.setBackgroundColor(Some(
-                                        &UIColor::systemGroupedBackgroundColor(),
-                                    ));
-                                }
-                                let arr = objc2_foundation::NSArray::from_retained_slice(&[ph]);
-                                snav.setViewControllers(&arr);
-                                split_vc.setViewController_forColumn(
-                                    Some(&snav),
-                                    objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
-                                );
-                                split_vc.setPreferredSupplementaryColumnWidth(w);
-                            }
-                            snav
-                        });
-                        unsafe {
-                            split_vc.setViewController_forColumn(
-                                Some(&primary_nav),
-                                objc2_ui_kit::UISplitViewControllerColumn::Primary,
-                            );
-                            split_vc.setViewController_forColumn(
-                                Some(&nav),
-                                objc2_ui_kit::UISplitViewControllerColumn::Secondary,
-                            );
-                            // Every column side by side when there is room; UIKit still
-                            // collapses to one stack at compact width.
-                            //
-                            // `list_visible` is read here as well as `list_width`: a host whose
-                            // FIRST destination has no content list must open with two columns,
-                            // not three with an empty one. Expressed as the preferred mode rather
-                            // than a `hideColumn` at realize, because the mode is a preference
-                            // UIKit consults when it first lays the columns out, while the
-                            // imperative call is a transition on a controller that is not on
-                            // screen yet. `NavPatch::ListVisible` takes it from there.
-                            split_vc.setPreferredDisplayMode(if list_width.is_some()
-                                && p.list_visible
-                            {
-                                objc2_ui_kit::UISplitViewControllerDisplayMode::TwoBesideSecondary
-                            } else {
-                                objc2_ui_kit::UISplitViewControllerDisplayMode::OneBesideSecondary
-                            });
-                            // TILE, explicitly. Left automatic, UIKit picks an OVERLAY on a
-                            // portrait iPad: the sidebar floats above a dimmed detail, and the
-                            // detail keeps the full window width — so Day lays its content out
-                            // for a width the user cannot see the left edge of. Tiling gives the
-                            // detail column its own narrower bounds, which is what the page then
-                            // reports through `FrameChanged` (docs/size-classes.md).
-                            split_vc.setPreferredSplitBehavior(
-                                objc2_ui_kit::UISplitViewControllerSplitBehavior::Tile,
-                            );
-                        }
-                        if let Some(root_vc) = root_vc {
-                            unsafe {
-                                root_vc.addChildViewController(&split_vc);
-                                split_vc.didMoveToParentViewController(Some(&root_vc));
-                            }
-                        }
-                        let host = view_of(unsafe { split_vc.view() }.expect("split view"));
+                        let triple = list_width.is_some() && p.list_visible;
+                        let built = build_split(mtm, &nav, list_width, triple);
+                        let split_vc = built.split_vc;
+                        let primary_nav = built.primary_nav;
+                        let supplementary_nav = built.supplementary_nav;
+                        let secondary_placeholder = built.secondary_placeholder;
+                        // Day's handle is a container the split's view fills, so a rebuild
+                        // leaves the handle — and the tree — untouched.
+                        let container = unsafe { UIView::new(mtm) };
+                        mount_split(&split_vc, &container);
+                        let host = container.clone();
                         primary_nav.ivars().host.set(ptr_of(&host));
                         let split_delegate = DaySplitDelegate::new(mtm, ptr_of(&host));
                         unsafe {
@@ -6399,6 +6609,9 @@ mod imp {
                                 split_vc,
                                 primary_nav,
                                 supplementary_nav,
+                                list_width,
+                                list_shown: std::cell::Cell::new(p.list_visible),
+                                container,
                                 list_vc: std::cell::RefCell::new(None),
                                 secondary_placeholder,
                                 _split_delegate: split_delegate,
@@ -7229,7 +7442,7 @@ mod imp {
                             Sync,
                             Title(Retained<UIViewController>, String),
                             /// Show/hide the supplementary column (expanded triple only).
-                            Column(bool),
+                            Column,
                             /// Collapsed triple-column ops (docs/navigation.md): UIKit nests
                             /// its columns into the merge and keeps private bookkeeping a
                             /// wholesale set destroys, so the merged stack is driven ONLY
@@ -7240,6 +7453,18 @@ mod imp {
                                 secondary: Retained<DayNavController>,
                                 details: Vec<Retained<UIViewController>>,
                             },
+                            /// Pop the merged stack back to the MIRROR's top (the root when
+                            /// it holds only the sidebar) rather than by one: the pop is
+                            /// deferred, and two Day pops issued back to back would otherwise
+                            /// queue two animated pops on iOS 26, whose intermediate `didShow`
+                            /// counts read as a user back that pops the section itself (the
+                            /// Showcase's Stack page on an iPhone). Popping to a target is
+                            /// idempotent, so the second deferred pop finds nothing left to
+                            /// do. The target is read from the mirror at EXECUTION, not
+                            /// here: a `TriplePush` dispatched after this pop can run before
+                            /// it (the deferrals interleave with the queued transitions), and
+                            /// a target frozen at dispatch then popped the page that push had
+                            /// just landed (the Showcase's Text page on an iPhone).
                             TriplePop {
                                 active: Retained<DayNavController>,
                             },
@@ -7354,10 +7579,13 @@ mod imp {
                                 // collapsed the columns are one stack and `ListInStack` is the
                                 // membership switch (docs/navigation.md).
                                 NavPatch::ListVisible(v) => {
+                                    if let Some(p) = state.split.as_ref() {
+                                        p.list_shown.set(*v);
+                                    }
                                     if state.collapsed.get() {
                                         Act::None
                                     } else {
-                                        Act::Column(*v)
+                                        Act::Column
                                     }
                                 }
                                 // The interposed list joins/leaves the collapsed stack right
@@ -7388,6 +7616,11 @@ mod imp {
                                             primary: parts.primary_nav.clone(),
                                             show: *v,
                                         }
+                                    } else if state.collapsed.get() {
+                                        // A collapsed DOUBLE-column host (its first destination
+                                        // had no list): the list is a page of the merged
+                                        // stack like any other, applied from the mirror.
+                                        Act::Sync
                                     } else {
                                         Act::None
                                     }
@@ -7406,25 +7639,8 @@ mod imp {
                             Act::Title(vc, t) => unsafe {
                                 vc.setTitle(Some(&NSString::from_str(&t)));
                             },
-                            Act::Column(v) => {
-                                let svc = NAV_STATE.with(|m| {
-                                    m.borrow()
-                                        .get(&ptr_of(h))
-                                        .and_then(|s| s.split.as_ref().map(|p| p.split_vc.clone()))
-                                });
-                                if let Some(svc) = svc {
-                                    note_ui_transition();
-                                    unsafe {
-                                        let col =
-                                            objc2_ui_kit::UISplitViewControllerColumn::Supplementary;
-                                        if v {
-                                            svc.showColumn(col);
-                                        } else {
-                                            svc.hideColumn(col);
-                                        }
-                                    }
-                                }
-                            }
+                            // The host the destination calls for (`SplitParts::list_shown`).
+                            Act::Column => rehost_split(ptr_of(h)),
                             Act::TriplePush {
                                 svc,
                                 secondary,
@@ -7434,6 +7650,13 @@ mod imp {
                                 modal_after_idle(move || unsafe {
                                     // Offstage content first, then UIKit pushes it onto the
                                     // merged stack itself — the documented compact flow.
+                                    if *DIAG_NAV {
+                                        log::debug!(
+                                            "DAYDIAG exec TriplePush details={} secondary_native={}",
+                                            details.len(),
+                                            secondary.viewControllers().count()
+                                        );
+                                    }
                                     let arr =
                                         objc2_foundation::NSArray::from_retained_slice(&details);
                                     secondary.setViewControllers(&arr);
@@ -7444,13 +7667,49 @@ mod imp {
                             }
                             Act::TriplePop { active } => {
                                 note_ui_transition();
+                                let host = ptr_of(h);
                                 modal_after_idle(move || unsafe {
-                                    let _ = active.popViewControllerAnimated(true);
+                                    let target = NAV_STATE.with(|m| {
+                                        m.borrow().get(&host).and_then(|s| s.vcs.last().cloned())
+                                    });
+                                    let stack = active.viewControllers();
+                                    let on_stack = target.as_ref().is_some_and(|t| {
+                                        stack.iter().any(|v| std::ptr::eq(&*v, &**t))
+                                    });
+                                    if *DIAG_NAV {
+                                        log::debug!(
+                                            "DAYDIAG exec TriplePop native={} target={} on_stack={on_stack}",
+                                            stack.count(),
+                                            target.is_some()
+                                        );
+                                    }
+                                    // Unanimated: a push dispatched behind this pop (a route
+                                    // jump is a pop and a push) went onto UIKit's transition
+                                    // queue behind an animated pop and never landed — the
+                                    // pop's own didShow arrived only with the next keyboard
+                                    // event, at a count the detector read as a user back.
+                                    // Only Day's route changes pop this way; the user's own
+                                    // back button and swipe animate as ever.
+                                    match target {
+                                        Some(t) if on_stack => {
+                                            let _ = active.popToViewController_animated(&t, false);
+                                        }
+                                        // The mirror's top is not on the stack yet: the push
+                                        // that lands it is still on its way, and lands it
+                                        // above whatever this pop would have removed.
+                                        Some(_) => {}
+                                        None => {
+                                            let _ = active.popToRootViewControllerAnimated(false);
+                                        }
+                                    }
                                 });
                             }
                             Act::TripleList { svc, primary, show } => {
                                 note_ui_transition();
                                 modal_after_idle(move || unsafe {
+                                    if *DIAG_NAV {
+                                        log::debug!("DAYDIAG exec TripleList show={show}");
+                                    }
                                     if show {
                                         svc.showColumn(
                                             objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
@@ -7954,8 +8213,10 @@ mod imp {
                     let state = m.get_mut(&ptr_of(parent))?;
                     let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
                     let parts = state.split.as_ref()?;
-                    let snav = parts.supplementary_nav.clone()?;
+                    // Kept whether or not the host has a column for it yet: a double-column
+                    // host gains one on the first list-backed destination (`rehost_split`).
                     *parts.list_vc.borrow_mut() = Some(vc.clone());
+                    let snav = parts.supplementary_nav.clone()?;
                     Some((snav, vc))
                 });
                 if let Some((snav, vc)) = placed {
