@@ -1512,6 +1512,8 @@ impl Toolkit for Qt {
             // `QWidget::setCursor` per widget; several CSS shapes take their nearest Qt shape
             // (docs/cursor.md).
             Cap::Cursor => Support::Emulated,
+            // `QFontDatabase::families()` + `styles()` (docs/fonts.md).
+            Cap::FontList => Support::Native,
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::TextRuns
@@ -2915,6 +2917,51 @@ impl Toolkit for Qt {
     fn toggle_sidebar(&mut self, host: &QtHandle) -> bool {
         crate::toggle_sidebar(host.0)
     }
+
+    /// `QFontDatabase::families()` + `styles()`, decoded from the shim's list text
+    /// (docs/fonts.md).
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        // SAFETY: the shim returns a NUL-terminated heap string (or null); it is read once and
+        // released through the shim's own free.
+        unsafe {
+            let p = ffi::day_qt_font_families();
+            if p.is_null() {
+                return Vec::new();
+            }
+            let text = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+            ffi::day_qt_string_free(p);
+            day_spec::parse_font_list(&text)
+        }
+    }
+
+    /// `QFontMetricsF` of the font the canvas draws with (docs/fonts.md).
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        let text = cstr(text);
+        let family = cstr(font.family_str());
+        let mut out = [0.0f64; 3];
+        // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
+        unsafe {
+            ffi::day_qt_measure_text(
+                text.as_ptr(),
+                size,
+                c_int::from(font.css_weight()),
+                c_int::from(font.italic),
+                family.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        };
+        Some(day_spec::TextMetrics {
+            width: out[0],
+            height: out[1],
+            ascent: out[2],
+        })
+    }
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         if self.window.is_null() {
             return Err("no window".into());

@@ -47,6 +47,8 @@ implement them, and this table proves it.
 | `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | · | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `font_families` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `measure_text` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `snapshot_window_chrome` | · | ✓ | ✓ | ✓ | · | · | ✓ | · | · | · |
 | `toggle_sidebar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |

@@ -159,6 +159,9 @@ day_reactive::tls_slots! {
 
     static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
         const { std::cell::OnceCell::new() };
+
+    static FONT_FAMILIES: std::cell::OnceCell<std::rc::Rc<[day_spec::FontFamilyInfo]>> =
+        const { std::cell::OnceCell::new() };
 }
 
 use day_spec::{Platform, WindowOptions};
@@ -878,6 +881,65 @@ fn autodrive(spec: &str) {
 /// default text colors already follow.
 pub fn dark_mode() -> bool {
     dark_signal().get()
+}
+
+/// The platform's font families with their faces (docs/fonts.md), enumerated once per
+/// process through `Toolkit::font_families` and cached: the answer is stable for the process
+/// (bundled fonts register before the tree exists, and nothing tracks a system font install
+/// under a running app — the OS font panels cache too), enumeration is expensive, and the
+/// query is synchronous on the UI thread. Sorted case-insensitively by family, deduplicated,
+/// and unioned with the bundled fonts (`day_spec::fonts::bundled_fonts`) the toolkit's own
+/// database did not report — which is how a `res/font/` (Android), `ms-appx` (XAML) or
+/// `registerFont` (HarmonyOS) family reaches a font menu without each shim parsing sfnt.
+/// Empty where the toolkit answers `Cap::FontList` = `Unsupported`.
+pub fn font_families() -> std::rc::Rc<[day_spec::FontFamilyInfo]> {
+    // Headless (no tree on this thread — a model unit test): nothing to enumerate, and
+    // nothing to cache, so the first call with a tree still fills the cache.
+    if !tree::has_tree() {
+        return std::rc::Rc::from(Vec::new());
+    }
+    FONT_FAMILIES.with(|c| {
+        c.get_or_init(|| {
+            let mut list = tree::with_tree(|t| t.font_families());
+            for path in day_spec::fonts::bundled_fonts() {
+                let Some(names) = std::fs::read(&path)
+                    .ok()
+                    .and_then(|bytes| day_spec::fonts::parse_font_names(&bytes))
+                else {
+                    continue;
+                };
+                if list
+                    .iter()
+                    .any(|f| f.family.eq_ignore_ascii_case(&names.family))
+                {
+                    continue;
+                }
+                list.push(day_spec::FontFamilyInfo {
+                    family: names.family,
+                    faces: vec![day_spec::FontFace {
+                        name: "Regular".to_string(),
+                        weight: day_spec::FontWeight::Regular,
+                        italic: false,
+                    }],
+                });
+            }
+            list.sort_by_key(|f| f.family.to_lowercase());
+            list.dedup_by(|a, b| a.family.eq_ignore_ascii_case(&b.family));
+            list.into()
+        })
+        .clone()
+    })
+}
+
+/// Measure one line of canvas text at `size` points in `font` (docs/fonts.md), in the engine
+/// that draws `DrawOp::Text`; a toolkit that cannot measure answers
+/// `TextMetrics::approximate`, so a caller always gets a usable box.
+pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_spec::TextMetrics {
+    // Headless (no tree on this thread) answers the approximation too, so a model unit test
+    // that frames text runs without a toolkit.
+    tree::try_with_tree(|t| t.measure_text(text, size, font))
+        .flatten()
+        .unwrap_or_else(|| day_spec::TextMetrics::approximate(text, size))
 }
 
 /// The reactive backing for [`dark_mode`], lazily seeded from the toolkit's answer.

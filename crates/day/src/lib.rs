@@ -283,6 +283,11 @@ pub fn window_image_support() -> day_spec::Support {
     day_core::with_tree(|t| t.window_image_support())
 }
 
+// The platform font list and canvas text measurement (docs/fonts.md): `font_families()` is
+// cached for the process, `measure_text()` always answers (approximating where a toolkit
+// cannot measure). Probe `Cap::FontList` before offering a font menu.
+pub use day_core::{font_families, measure_text};
+
 /// The request built by [`window_image`].
 #[derive(Clone, Copy, Debug)]
 pub struct WindowImage {

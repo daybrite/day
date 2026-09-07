@@ -143,12 +143,28 @@ impl PathBuilder {
     }
 }
 
-/// Canvas text styling (named fields per the API style rule, docs/api-style.md).
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Canvas text styling (named fields per the API style rule, docs/api-style.md). Fill what you
+/// set and take the rest from `..Default::default()`: 12 points, black, top-leading, the
+/// platform's own face.
+#[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
+    /// Absolute canvas points — no accessibility scale (docs/canvas.md "Text").
     pub size: f64,
     pub color: Color,
     pub anchor: day_spec::TextAnchor,
+    /// Family, weight and slant (docs/fonts.md); the default is the platform's UI face.
+    pub font: day_spec::CanvasFont,
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        TextStyle {
+            size: 12.0,
+            color: Color::BLACK,
+            anchor: day_spec::TextAnchor::Leading,
+            font: day_spec::CanvasFont::default(),
+        }
+    }
 }
 
 impl Draw {
@@ -184,6 +200,8 @@ impl Draw {
         f(self);
         self.restore();
     }
+    /// One line of text hung on `at` per the style's anchor (docs/canvas.md "Text"); measure it
+    /// first with `day::measure_text` when the drawing needs its extent.
     pub fn text(&mut self, text: &str, at: Point, style: TextStyle) {
         self.ops.push(DrawOp::Text {
             text: text.to_owned(),
@@ -191,6 +209,7 @@ impl Draw {
             size: style.size,
             color: style.color,
             anchor: style.anchor,
+            font: style.font,
         });
     }
     /// Save the current transform/clip; pair with [`Draw::restore`].

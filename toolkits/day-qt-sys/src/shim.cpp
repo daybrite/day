@@ -1545,6 +1545,64 @@ void day_qt_dismiss_present(uint64_t req) {
 
 extern "C" {
 
+// ---- canvas fonts (docs/fonts.md) ---------------------------------------------------------
+
+/// The QFont canvas text draws and measures with: the requested family (else `base`, the
+/// painter's — i.e. the application — font), a CSS weight (Qt 6 weights ARE 100 … 900), a
+/// slant, and an absolute point size.
+static QFont day_qt_canvas_font(const QFont &base, double size, int weight, bool italic,
+                                const QString &family) {
+    QFont font = family.isEmpty() ? base : QFont(family);
+    if (weight > 0) font.setWeight(QFont::Weight(std::clamp(weight, 100, 900)));
+    font.setItalic(italic);
+    font.setPointSizeF(size);
+    return font;
+}
+
+extern "C" {
+
+/// Every family QFontDatabase knows, with its styles, in Day's list format (U+001E between
+/// families, U+001F between fields: family, then (style, CSS weight, italic 0/1) per face).
+/// Heap-allocated: release with `day_qt_string_free`.
+char *day_qt_font_families(void) {
+    QString out;
+    const QChar fs(0x1f), rs(0x1e);
+    bool first = true;
+    for (const QString &family : QFontDatabase::families()) {
+        if (family.isEmpty() || family.startsWith(QLatin1Char('.'))) continue;
+        if (!first) out += rs;
+        first = false;
+        out += QString(family).replace(fs, QLatin1Char(' ')).replace(rs, QLatin1Char(' '));
+        for (const QString &style : QFontDatabase::styles(family)) {
+            out += fs;
+            out += QString(style).replace(fs, QLatin1Char(' ')).replace(rs, QLatin1Char(' '));
+            out += fs;
+            out += QString::number(QFontDatabase::weight(family, style));
+            out += fs;
+            out += QFontDatabase::italic(family, style) ? QLatin1String("1") : QLatin1String("0");
+        }
+    }
+    const QByteArray bytes = out.toUtf8();
+    return strdup(bytes.constData());
+}
+
+/// Release a string returned by `day_qt_font_families`. Safe to call with null.
+void day_qt_string_free(char *p) { free(p); }
+
+/// Measure one line of canvas text with the font `day_qt_canvas_font` resolves: `out` receives
+/// the advance width, the line height (ascent + descent) and the ascent, in points.
+void day_qt_measure_text(const char *text, double size, int weight, int italic,
+                         const char *family, double *out) {
+    const QFont font = day_qt_canvas_font(QApplication::font(), size, weight, italic != 0,
+                                          QString::fromUtf8(family ? family : ""));
+    const QFontMetricsF fm(font);
+    out[0] = fm.horizontalAdvance(QString::fromUtf8(text ? text : ""));
+    out[1] = fm.height();
+    out[2] = fm.ascent();
+}
+
+} // extern "C"
+
 class DayCanvasWidget : public QWidget {
 public:
     QVector<double> nums;
@@ -1567,6 +1625,9 @@ protected:
         bool stylePending = false;
         int sCap = 0, sJoin = 0; double sMiter = 10.0, sPhase = 0.0;
         QVector<qreal> sDash;
+        // A decoded kind-19 record (font), applied to the NEXT text record only.
+        bool fontPending = false;
+        int fWeight = 0; bool fItalic = false; QString fFamily;
         // Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a QPainterPath.
         auto parsePath = [](const QString &spec, int rule) {
             QPainterPath path;
@@ -1638,17 +1699,29 @@ protected:
                     p.drawArc(QRectF(a, b, c, d), (int)(-e * 16.0), (int)(-f * 16.0));
                     break;
                 case 6: p.setPen(pen); p.drawLine(QPointF(a, b), QPointF(c, d)); break;
-                case 7: {
+                case 7: { // text at (a,b); e=size, f=anchor (0 top-leading / 1 centered)
                     QString t = ti < texts.size() ? texts[ti++] : QString();
-                    QFont font = p.font(); font.setPointSizeF(e); p.setFont(font);
+                    QFont font = day_qt_canvas_font(p.font(), e,
+                                                    fontPending ? fWeight : 0,
+                                                    fontPending && fItalic,
+                                                    fontPending ? fFamily : QString());
+                    p.setFont(font);
                     p.setPen(QPen(color));
-                    QPointF pos(a, b);
+                    // drawText takes the BASELINE; both anchors position the line box
+                    // (ascent + descent), the box day_qt_measure_text reports.
+                    QFontMetricsF fm(font);
+                    QPointF pos(a, b + fm.ascent());
                     if (f > 0.5) {
-                        QFontMetricsF fm(font);
                         pos.setX(a - fm.horizontalAdvance(t) / 2.0);
-                        pos.setY(b + fm.ascent() / 2.0 - fm.descent() / 2.0);
+                        pos.setY(b - fm.height() / 2.0 + fm.ascent());
                     }
                     p.drawText(pos, t);
+                    break;
+                }
+                case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+                    fFamily = ti < texts.size() ? texts[ti++] : QString();
+                    fWeight = (int)a; fItalic = b > 0.5;
+                    fontPending = true;
                     break;
                 }
                 case 8: p.save(); break;
@@ -1739,8 +1812,9 @@ protected:
                 }
             }
             // A style record applies to ONE stroke; anything else that consumed the pen clears it
-            // too, so it can never leak into a later record.
+            // too, so it can never leak into a later record. Same for a font and its text.
             if (k != 18) stylePending = false;
+            if (k != 19) fontPending = false;
         }
     }
 };

@@ -314,6 +314,22 @@ unsafe extern "C" {
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;
 
+    // Canvas fonts (docs/fonts.md).
+    /// The QFontDatabase families and styles in Day's font-list text format; a heap string to
+    /// release with [`day_qt_string_free`]. Requires a constructed QApplication.
+    pub fn day_qt_font_families() -> *mut c_char;
+    /// Release a string returned by [`day_qt_font_families`]. Safe to call with null.
+    pub fn day_qt_string_free(p: *mut c_char);
+    /// Measure one line of canvas text; `out` (3 doubles) receives width, height, ascent.
+    pub fn day_qt_measure_text(
+        text: *const c_char,
+        size: f64,
+        weight: c_int,
+        italic: c_int,
+        family: *const c_char,
+        out: *mut f64,
+    );
+
     // Lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
     pub fn day_qt_set_lifecycle_cb(cb: extern "C" fn(c_int));
 

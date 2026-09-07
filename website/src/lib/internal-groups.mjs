@@ -41,6 +41,7 @@ export const groups = [
       ['list', 'the native recycling list: row protocol, heights, selection'],
       ['tree', 'the hierarchical tree: nesting, expansion, drag-to-reparent (plan)'],
       ['canvas', 'the canvas display list and gestures'],
+      ['fonts', 'the platform font list, canvas fonts, and text measurement'],
       ['shapes', 'canvas drawing, shape pieces, gestures'],
       ['progress', 'determinate bars and spinners'],
       ['picker', 'the built-in one-of-N picker: menu, segmented, and inline styles'],

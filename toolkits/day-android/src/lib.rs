@@ -1814,6 +1814,9 @@ mod imp {
             match cap {
                 // `View.setPointerIcon` with a system `PointerIcon` per view (docs/cursor.md).
                 Cap::Cursor => Support::Native,
+                // The families `fonts.xml` names — the ones `Typeface.create` resolves
+                // (docs/fonts.md).
+                Cap::FontList => Support::Native,
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
@@ -3513,6 +3516,70 @@ mod imp {
                     ],
                 );
             });
+        }
+
+        /// `DayBridge.fontFamilies()`: the `fonts.xml` families in Day's list text
+        /// (docs/fonts.md), one string across JNI like `locale_hints`.
+        fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+            if !vm_ready() {
+                return Vec::new();
+            }
+            let text = with_env(|env| {
+                let obj = env
+                    .dcall_static(BRIDGE, "fontFamilies", "()Ljava/lang/String;", &[])
+                    .ok()?
+                    .l()
+                    .ok()?;
+                if obj.is_null() {
+                    return None;
+                }
+                env.dstr(&as_jstring(obj)).ok()
+            });
+            day_spec::parse_font_list(&text.unwrap_or_default())
+        }
+
+        /// `DayBridge.measureText(...)`: "width,height,ascent" in dp from the same `Paint`
+        /// the canvas draws with (docs/fonts.md).
+        fn measure_text(
+            &mut self,
+            text: &str,
+            size: f64,
+            font: &day_spec::CanvasFont,
+        ) -> Option<day_spec::TextMetrics> {
+            if !vm_ready() {
+                return None;
+            }
+            let reply = with_env(|env| {
+                let jtext = jstr(env, text);
+                let jfamily = jstr(env, font.family_str());
+                let obj = env
+                    .dcall_static(
+                        BRIDGE,
+                        "measureText",
+                        "(Ljava/lang/String;DIZLjava/lang/String;)Ljava/lang/String;",
+                        &[
+                            JValue::Object(&jtext),
+                            JValue::Double(size),
+                            JValue::Int(i32::from(font.css_weight())),
+                            JValue::Bool(font.italic),
+                            JValue::Object(&jfamily),
+                        ],
+                    )
+                    .ok()?
+                    .l()
+                    .ok()?;
+                if obj.is_null() {
+                    return None;
+                }
+                env.dstr(&as_jstring(obj)).ok()
+            })?;
+            let mut it = reply.split(',').map(|v| v.trim().parse::<f64>().ok());
+            let (width, height, ascent) = (it.next()??, it.next()??, it.next()??);
+            Some(day_spec::TextMetrics {
+                width,
+                height,
+                ascent,
+            })
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

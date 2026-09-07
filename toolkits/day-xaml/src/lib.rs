@@ -1356,6 +1356,8 @@ impl Toolkit for Xaml {
             // PointerEntered/Exited per element plus WM_SETCURSOR on the host; several CSS
             // shapes take their nearest IDC_* shape (docs/cursor.md).
             Cap::Cursor => Support::Emulated,
+            // DirectWrite's system font collection (docs/fonts.md).
+            Cap::FontList => Support::Native,
             Cap::Snapshot => Support::Native,
             // TextBlock.BaselineOffset for text, font-derived for templated controls
             // (docs/baseline.md).
@@ -2829,6 +2831,50 @@ impl Toolkit for Xaml {
         }
         let win = self.window;
         snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png(win, path) })
+    }
+
+    /// DirectWrite's system font collection, decoded from the shim's list text
+    /// (docs/fonts.md).
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        // SAFETY: the shim returns a NUL-terminated heap string (or null); it is read once and
+        // released through the shim's own free.
+        unsafe {
+            let p = ffi::day_xaml_font_families();
+            if p.is_null() {
+                return Vec::new();
+            }
+            let text = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+            ffi::day_xaml_string_free(p);
+            day_spec::parse_font_list(&text)
+        }
+    }
+
+    /// A `TextBlock` measured with the font the canvas draws with (docs/fonts.md).
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        let text = cstr(text);
+        let family = cstr(font.family_str());
+        let mut out = [0.0f64; 3];
+        // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
+        let rc = unsafe {
+            ffi::day_xaml_measure_text(
+                text.as_ptr(),
+                size,
+                c_int::from(font.css_weight()),
+                c_int::from(font.italic),
+                family.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        };
+        (rc == 0).then_some(day_spec::TextMetrics {
+            width: out[0],
+            height: out[1],
+            ascent: out[2],
+        })
     }
 }
 

@@ -56,6 +56,8 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 - `.weight(FontWeight::Semibold)`: `UltraLight, Thin, Light, Regular, Medium, Semibold, Bold, Heavy,
   Black` (matching `UIFont.Weight`). `.bold()` is shorthand for `.weight(FontWeight::Bold)`.
 - `.italic()`: slants the text.
+- Canvas text and a drawing app's font menu are a different surface — the platform's own font
+  list, absolute sizes, measurement — covered in [docs/fonts.md](fonts.md).
 - A weight override keeps the style's accessibility-scaled size (on iOS the weighted font is wrapped in
   `UIFontMetrics` so it also scales with Dynamic Type).
 - `.monospace()`: the platform's fixed-pitch face, at the same semantic size.

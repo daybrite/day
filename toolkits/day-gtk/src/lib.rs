@@ -401,6 +401,60 @@ impl PendingStroke {
     }
 }
 
+/// The family/weight/slant a kind-19 record carries, waiting for the text it applies to.
+#[derive(Default)]
+struct PendingFont {
+    weight: f64,
+    italic: bool,
+    family: String,
+}
+
+/// The Pango description canvas text draws and measures with (docs/fonts.md): the requested
+/// family or, for the default, the family of GTK's own UI font, so canvas text matches labels;
+/// an ABSOLUTE size, so a point stays a cairo user unit whatever the Xft DPI says.
+fn canvas_font_desc(size: f64, font: &PendingFont) -> gtk4::pango::FontDescription {
+    use gtk4::pango;
+    let mut desc = if font.family.is_empty() {
+        default_ui_font_desc()
+    } else {
+        let mut d = pango::FontDescription::new();
+        d.set_family(&font.family);
+        d
+    };
+    let weight = if font.weight > 0.0 {
+        day_spec::FontWeight::from_css(font.weight as u16)
+    } else {
+        day_spec::FontWeight::Regular
+    };
+    desc.set_weight(pango_weight(weight));
+    desc.set_style(if font.italic {
+        pango::Style::Italic
+    } else {
+        pango::Style::Normal
+    });
+    desc.set_absolute_size(size * f64::from(pango::SCALE));
+    desc
+}
+
+/// The family of the GTK UI font (`gtk-font-name`), as a fresh description carrying only
+/// the family — size, weight and slant come from the canvas request.
+fn default_ui_font_desc() -> gtk4::pango::FontDescription {
+    use gtk4::pango;
+    let mut d = pango::FontDescription::new();
+    if let Some(name) = gtk4::Settings::default().and_then(|s| s.gtk_font_name())
+        && let Some(family) = pango::FontDescription::from_string(&name).family()
+    {
+        d.set_family(&family);
+    }
+    d
+}
+
+/// Pango's numeric weight (100 … 1000) to the nearest Day rung.
+fn day_weight(w: gtk4::pango::Weight) -> day_spec::FontWeight {
+    use gtk4::glib::translate::IntoGlib as _;
+    day_spec::FontWeight::from_css(w.into_glib().clamp(100, 900) as u16)
+}
+
 /// Put the stroke state back to Day's defaults, so a styled stroke never leaks into the next one.
 fn reset_stroke(cr: &gtk4::cairo::Context) {
     cr.set_line_cap(gtk4::cairo::LineCap::Butt);
@@ -414,6 +468,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
     let mut ti = 0;
     let mut pending: Option<PendingGradient> = None;
     let mut pending_stroke: Option<PendingStroke> = None;
+    let mut pending_font: Option<PendingFont> = None;
     for chunk in nums.chunks(9) {
         let (k, a, b, c, d, e, f, g, col) = (
             chunk[0] as i32,
@@ -431,6 +486,9 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
         let is_stroke = matches!(k, 1 | 4 | 5 | 6 | 12 | 13 | 16);
         if is_stroke && let Some(st) = pending_stroke.take() {
             st.apply(cr);
+        }
+        if k != 19 && k != 7 {
+            pending_font = None;
         }
         match k {
             0 | 1 => {
@@ -498,19 +556,39 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 cr.line_to(c, d);
                 let _ = cr.stroke();
             }
+            // Text (7): a Pango layout, drawn from its top-left — which IS the `Leading`
+            // anchor — or centered on (a, b) by its logical extents. The layout picks up the
+            // cairo CTM, so it rotates and scales with the drawing.
             7 => {
                 let text = texts.get(ti).cloned().unwrap_or_default();
                 ti += 1;
-                cr.set_font_size(e);
+                let font = pending_font.take().unwrap_or_default();
+                let layout = pangocairo::functions::create_layout(cr);
+                layout.set_font_description(Some(&canvas_font_desc(e, &font)));
+                layout.set_single_paragraph_mode(true);
+                layout.set_text(&text);
                 let (mut x, mut y) = (a, b);
-                if f > 0.5
-                    && let Ok(ext) = cr.text_extents(&text)
-                {
-                    x -= ext.width() / 2.0;
-                    y += ext.height() / 2.0;
+                if f > 0.5 {
+                    let (_, logical) = layout.extents();
+                    let scale = f64::from(gtk4::pango::SCALE);
+                    x -= f64::from(logical.width()) / scale / 2.0;
+                    y -= f64::from(logical.height()) / scale / 2.0;
                 }
                 cr.move_to(x, y);
-                let _ = cr.show_text(&text); // toy API; PangoCairo refinement is a TODO (§11)
+                pangocairo::functions::show_layout(cr, &layout);
+                // The layout leaves cairo's current point where the text ended; the next
+                // arc/ellipse would draw a line from there to its start. Clear it.
+                cr.new_path();
+            }
+            // Font (19): applies to the NEXT text record only.
+            19 => {
+                let family = texts.get(ti).cloned().unwrap_or_default();
+                ti += 1;
+                pending_font = Some(PendingFont {
+                    weight: a,
+                    italic: b > 0.5,
+                    family,
+                });
             }
             8 => {
                 cr.save().ok();
@@ -2426,6 +2504,8 @@ impl Toolkit for Gtk {
         match cap {
             // `gdk::Cursor::from_name` takes the CSS vocabulary as it is (docs/cursor.md).
             Cap::Cursor => Support::Native,
+            // Pango's font map lists every fontconfig family and face (docs/fonts.md).
+            Cap::FontList => Support::Native,
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
             Cap::TextRuns
@@ -4834,6 +4914,68 @@ impl Toolkit for Gtk {
     fn toggle_sidebar(&mut self, host: &Handle) -> bool {
         crate::toggle_sidebar(host)
     }
+    /// The default PangoCairo font map — the one `create_layout` draws canvas text from — listed
+    /// family by family, face by face (docs/fonts.md). Bundled fonts registered in `run` are in
+    /// it; the map is created on first use, after that registration.
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        use gtk4::pango::prelude::*;
+        let context = pangocairo::FontMap::default().create_context();
+        let mut out = Vec::new();
+        for family in context.list_families() {
+            let faces = family
+                .list_faces()
+                .iter()
+                .map(|face| {
+                    let desc = face.describe();
+                    let weight = day_weight(desc.weight());
+                    let italic = desc.style() != gtk4::pango::Style::Normal;
+                    let name = face.face_name().to_string();
+                    day_spec::FontFace {
+                        name: if name.is_empty() {
+                            day_spec::FontFace::synthesized_name(weight, italic)
+                        } else {
+                            name
+                        },
+                        weight,
+                        italic,
+                    }
+                })
+                .collect();
+            out.push(day_spec::FontFamilyInfo {
+                family: family.name().to_string(),
+                faces,
+            });
+        }
+        out
+    }
+
+    /// A layout on the same font map `replay` draws from, at the same absolute size: its
+    /// logical extents are the line box and its baseline the ascent.
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        let context = pangocairo::FontMap::default().create_context();
+        let layout = gtk4::pango::Layout::new(&context);
+        let pending = PendingFont {
+            weight: f64::from(font.css_weight()),
+            italic: font.italic,
+            family: font.family_str().to_string(),
+        };
+        layout.set_font_description(Some(&canvas_font_desc(size, &pending)));
+        layout.set_single_paragraph_mode(true);
+        layout.set_text(text);
+        let (_, logical) = layout.extents();
+        let scale = f64::from(gtk4::pango::SCALE);
+        Some(day_spec::TextMetrics {
+            width: f64::from(logical.width()) / scale,
+            height: f64::from(logical.height()) / scale,
+            ascent: f64::from(layout.baseline()) / scale,
+        })
+    }
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         // A PLAIN render of the widget tree — no main-loop iteration. This runs inside the
         // engine's tree borrow (`with_tree`), and pumping GLib here can dispatch a callback

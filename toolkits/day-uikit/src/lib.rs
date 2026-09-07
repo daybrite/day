@@ -5660,17 +5660,10 @@ mod imp {
                     size,
                     color,
                     anchor,
+                    font,
                 } => {
-                    let font = objc2_ui_kit::UIFont::systemFontOfSize(*size);
-                    let col = uicolor(*color);
-                    let keys: [&NSString; 2] = [
-                        objc2_ui_kit::NSFontAttributeName,
-                        objc2_ui_kit::NSForegroundColorAttributeName,
-                    ];
-                    let objs: [&AnyObject; 2] =
-                        [font.as_ref() as &AnyObject, col.as_ref() as &AnyObject];
-                    let attrs =
-                        objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+                    let font = canvas_uifont(*size, font);
+                    let attrs = canvas_text_attrs(&font, *color);
                     let ns = NSString::from_str(text);
                     let mut origin = CGPoint::new(at.x, at.y);
                     if *anchor == day_spec::TextAnchor::Centered {
@@ -6139,6 +6132,107 @@ mod imp {
         }
     }
 
+    /// Resolve a canvas font (docs/fonts.md) at an absolute size: the system face for `None`,
+    /// else a descriptor for the family with the bold/italic symbolic traits the weight and
+    /// slant ask for (UIKit picks the family's nearest face, or synthesizes), falling back to a
+    /// PostScript/full-name lookup (a bundled font registered in `run`) and then to the system
+    /// font with one warning.
+    fn canvas_uifont(size: f64, font: &day_spec::CanvasFont) -> Retained<objc2_ui_kit::UIFont> {
+        use objc2_ui_kit::*;
+        let weight = font.weight.unwrap_or(day_spec::FontWeight::Regular);
+        let mut traits = UIFontDescriptorSymbolicTraits::empty();
+        if weight >= day_spec::FontWeight::Semibold {
+            traits |= UIFontDescriptorSymbolicTraits::TraitBold;
+        }
+        if font.italic {
+            traits |= UIFontDescriptorSymbolicTraits::TraitItalic;
+        }
+        let with_traits = |base: Retained<UIFont>| -> Retained<UIFont> {
+            if traits.is_empty() {
+                return base;
+            }
+            unsafe {
+                let desc = base.fontDescriptor();
+                match desc.fontDescriptorWithSymbolicTraits(desc.symbolicTraits() | traits) {
+                    Some(d2) => UIFont::fontWithDescriptor_size(&d2, size),
+                    None => base,
+                }
+            }
+        };
+        let Some(family) = font.family.as_deref() else {
+            let base = unsafe { UIFont::systemFontOfSize_weight(size, ui_weight(weight)) };
+            // The weight is already exact; only the slant is left to the descriptor.
+            return if font.italic {
+                unsafe {
+                    let desc = base.fontDescriptor();
+                    match desc.fontDescriptorWithSymbolicTraits(
+                        desc.symbolicTraits() | UIFontDescriptorSymbolicTraits::TraitItalic,
+                    ) {
+                        Some(d2) => UIFont::fontWithDescriptor_size(&d2, size),
+                        None => base,
+                    }
+                }
+            } else {
+                base
+            };
+        };
+        let ns_family = NSString::from_str(family);
+        let known = unsafe { UIFont::fontNamesForFamilyName(&ns_family) }.count() > 0;
+        if known {
+            let keys: [&NSString; 1] = [unsafe { UIFontDescriptorFamilyAttribute }];
+            let objs: [&AnyObject; 1] = [ns_family.as_ref() as &AnyObject];
+            let attrs = objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+            let desc = unsafe { UIFontDescriptor::fontDescriptorWithFontAttributes(&attrs) };
+            let desc = if traits.is_empty() {
+                desc
+            } else {
+                unsafe { desc.fontDescriptorWithSymbolicTraits(traits) }.unwrap_or(desc)
+            };
+            return unsafe { UIFont::fontWithDescriptor_size(&desc, size) };
+        }
+        if let Some(f) = unsafe { UIFont::fontWithName_size(&ns_family, size) } {
+            return with_traits(f);
+        }
+        log::warn!("unknown font family {family:?} — drawing canvas text in the system font");
+        unsafe { UIFont::systemFontOfSize_weight(size, ui_weight(weight)) }
+    }
+
+    /// The attribute dictionary canvas text draws and measures with (the same one, so
+    /// `measure_text` and `replay` agree on the line box).
+    fn canvas_text_attrs(
+        font: &objc2_ui_kit::UIFont,
+        color: day_spec::Color,
+    ) -> Retained<objc2_foundation::NSDictionary<NSString, AnyObject>> {
+        let col = uicolor(color);
+        // SAFETY: both are UIKit's own attribute-name constants, valid for the process lifetime.
+        let keys: [&NSString; 2] = unsafe {
+            [
+                objc2_ui_kit::NSFontAttributeName,
+                objc2_ui_kit::NSForegroundColorAttributeName,
+            ]
+        };
+        let objs: [&AnyObject; 2] = [font as &AnyObject, col.as_ref() as &AnyObject];
+        objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs)
+    }
+
+    /// The Day rung nearest a `UIFontWeightTrait` value (−1 … 1; the constants UIKit documents
+    /// for its own weights: ultraLight −0.8, thin −0.6, light −0.4, regular 0, medium 0.23,
+    /// semibold 0.3, bold 0.4, heavy 0.56, black 0.62).
+    fn weight_from_trait(t: f64) -> day_spec::FontWeight {
+        use day_spec::FontWeight as W;
+        match t {
+            t if t <= -0.7 => W::UltraLight,
+            t if t <= -0.5 => W::Thin,
+            t if t <= -0.2 => W::Light,
+            t if t < 0.15 => W::Regular,
+            t if t < 0.27 => W::Medium,
+            t if t < 0.35 => W::Semibold,
+            t if t < 0.5 => W::Bold,
+            t if t < 0.6 => W::Heavy,
+            _ => W::Black,
+        }
+    }
+
     fn ui_weight(w: day_spec::FontWeight) -> objc2_ui_kit::UIFontWeight {
         use day_spec::FontWeight as W;
         use objc2_ui_kit::*;
@@ -6487,6 +6581,8 @@ mod imp {
                 // A UIPointerInteraction per view answers pointer EFFECTS (beam, highlight,
                 // lift, hidden) for the nearest shapes; iPadOS draws no arrows (docs/cursor.md).
                 Cap::Cursor => Support::Emulated,
+                // `UIFont.familyNames` + `fontNamesForFamilyName:` (docs/fonts.md).
+                Cap::FontList => Support::Native,
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
                 // (docs/window-image.md).
                 // A label carrying a link run is built as a read-only UITextView, whose delegate
@@ -8982,6 +9078,86 @@ mod imp {
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             snapshot_uikit(false)
+        }
+
+        /// `UIFont.familyNames` + `fontNamesForFamilyName:`, each member described through its
+        /// `UIFontDescriptor`: the face name, the italic symbolic trait, and the weight trait
+        /// (docs/fonts.md). `.`-prefixed families are the system's private UI faces.
+        fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+            use objc2_ui_kit::*;
+            let mut out = Vec::new();
+            for family in unsafe { UIFont::familyNames() }.iter() {
+                let name = family.to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                let mut faces = Vec::new();
+                for font_name in unsafe { UIFont::fontNamesForFamilyName(&family) }.iter() {
+                    let Some(font) = (unsafe { UIFont::fontWithName_size(&font_name, 12.0) })
+                    else {
+                        continue;
+                    };
+                    // SAFETY: a font UIKit handed back; the descriptor is its own.
+                    let desc = unsafe { font.fontDescriptor() };
+                    let traits = unsafe { desc.symbolicTraits() };
+                    let italic = traits.contains(UIFontDescriptorSymbolicTraits::TraitItalic);
+                    // SAFETY: the keys are UIKit's own descriptor-attribute constants.
+                    let face: Option<Retained<AnyObject>> =
+                        unsafe { msg_send![&desc, objectForKey: UIFontDescriptorFaceAttribute] };
+                    let trait_dict: Option<Retained<AnyObject>> =
+                        unsafe { msg_send![&desc, objectForKey: UIFontDescriptorTraitsAttribute] };
+                    let weight_trait = trait_dict.and_then(|d| {
+                        let d = d.downcast::<objc2_foundation::NSDictionary>().ok()?;
+                        let key: &NSString = unsafe { UIFontWeightTrait };
+                        let n = d.objectForKey(key as &AnyObject)?;
+                        n.downcast::<objc2_foundation::NSNumber>()
+                            .ok()
+                            .map(|n| n.doubleValue())
+                    });
+                    let weight = match weight_trait {
+                        Some(t) => weight_from_trait(t),
+                        None if traits.contains(UIFontDescriptorSymbolicTraits::TraitBold) => {
+                            day_spec::FontWeight::Bold
+                        }
+                        None => day_spec::FontWeight::Regular,
+                    };
+                    let face = face
+                        .and_then(|f| f.downcast::<NSString>().ok())
+                        .map(|s| s.to_string())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| day_spec::FontFace::synthesized_name(weight, italic));
+                    faces.push(day_spec::FontFace {
+                        name: face,
+                        weight,
+                        italic,
+                    });
+                }
+                out.push(day_spec::FontFamilyInfo {
+                    family: name,
+                    faces,
+                });
+            }
+            out
+        }
+
+        /// `sizeWithAttributes:` with the attributes `replay` draws with; the ascent is the
+        /// font's own, so `at.y + ascent` is where the glyphs' baseline lands.
+        fn measure_text(
+            &mut self,
+            text: &str,
+            size: f64,
+            font: &day_spec::CanvasFont,
+        ) -> Option<day_spec::TextMetrics> {
+            let uifont = canvas_uifont(size, font);
+            let attrs = canvas_text_attrs(&uifont, day_spec::Color::BLACK);
+            let ns = NSString::from_str(text);
+            let sz: CGSize = unsafe { msg_send![&ns, sizeWithAttributes: &*attrs] };
+            Some(day_spec::TextMetrics {
+                width: sz.width,
+                height: sz.height,
+                // SAFETY: a font UIKit handed back; `ascender` is a plain metric read.
+                ascent: unsafe { uifont.ascender() },
+            })
         }
 
         /// The window rather than Day's content view. On iOS the "chrome" is the navigation bar,

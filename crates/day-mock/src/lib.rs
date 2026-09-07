@@ -669,6 +669,8 @@ impl Toolkit for MockToolkit {
             Cap::Snapshot => Support::Native,
             // Records the shape per widget (probe-visible), so a test can assert it.
             Cap::Cursor => Support::Native,
+            // A fixed two-family list (`font_families` below) — composed, not read.
+            Cap::FontList => Support::Emulated,
             // The mock answers `first_baseline` from its synthetic metrics (see below).
             Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
@@ -1307,6 +1309,45 @@ impl Toolkit for MockToolkit {
             ops.len(),
             fmt_size(size)
         ));
+    }
+
+    /// A deterministic list a test can assert on: "Day Sans" in four faces and "Day Mono" in one.
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        self.state.borrow_mut().log("font_families".to_string());
+        let face = |name: &str, weight: day_spec::FontWeight, italic: bool| day_spec::FontFace {
+            name: name.to_string(),
+            weight,
+            italic,
+        };
+        use day_spec::FontWeight::{Bold, Regular};
+        vec![
+            day_spec::FontFamilyInfo {
+                family: "Day Sans".to_string(),
+                faces: vec![
+                    face("Regular", Regular, false),
+                    face("Bold", Bold, false),
+                    face("Italic", Regular, true),
+                    face("Bold Italic", Bold, true),
+                ],
+            },
+            day_spec::FontFamilyInfo {
+                family: "Day Mono".to_string(),
+                faces: vec![face("Regular", Regular, false)],
+            },
+        ]
+    }
+
+    /// The same formula as `TextMetrics::approximate`, so a test can predict a frame.
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        _font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        self.state
+            .borrow_mut()
+            .log(format!("measure_text {text:?} {size}"));
+        Some(day_spec::TextMetrics::approximate(text, size))
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

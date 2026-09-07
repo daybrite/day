@@ -1190,6 +1190,23 @@ const env = {
     mem().set(bytes, out);
     return bytes.length;
   },
+  // The font list (docs/fonts.md), by the day_dom_env buffer protocol: a truncated answer
+  // returns the buffer's size, and the wasm side retries with a larger one.
+  day_dom_fonts(out, cap) {
+    const bytes = utf8enc.encode(fontListText()).slice(0, cap);
+    mem().set(bytes, out);
+    return bytes.length;
+  },
+  // One line of canvas text measured in the font the replay draws it in: width, the line box
+  // (ascent + descent) and the ascent, into three f64 at `out`.
+  day_dom_canvas_measure_text(text, len, size, weight, italic, fam, famLen, out) {
+    const ctx = measureContext();
+    const t = str(text, len);
+    ctx.font = canvasFont(size, weight, italic, famLen > 0 ? str(fam, famLen) : '');
+    const [asc, desc] = fontBox(ctx, t, size);
+    const width = ctx.measureText(t).width;
+    new Float64Array(wasm.memory.buffer, out, 3).set([width, asc + desc, asc]);
+  },
   day_dom_warn: (ptr, len) => console.warn(str(ptr, len)),
   // Logging (docs/logging.md). std's stdout/stderr on wasm32-unknown-unknown accept bytes and
   // DROP them, so the console is the only sink a page has. `level` is log's ordering — 1 Error,
@@ -1728,6 +1745,62 @@ function rgba(packed) {
 // interior on web, which reads correctly for thin lines and diverges for very thick ones.
 function strokeRegion(ctx, p) { return p; }
 
+// ---- canvas fonts (docs/fonts.md) ----------------------------------------------------------
+
+// The CSS font shorthand canvas text draws and measures in: slant, CSS weight (0 = the
+// default), an absolute pixel size, then the requested family ahead of the platform stack —
+// a family the page cannot resolve falls through to the same face the default draws.
+function canvasFont(size, weight, italic, family) {
+  const fam = family ? `${JSON.stringify(family)}, ` : '';
+  return `${italic ? 'italic ' : ''}${weight > 0 ? weight : 400} ${size}px ${fam}-apple-system, BlinkMacSystemFont, sans-serif`;
+}
+
+// Ascent and descent of the font's line box at `ctx.font`, from the measured
+// fontBoundingBox (Baseline 2023); an engine without it gets the portable guess.
+function fontBox(ctx, text, size) {
+  const m = ctx.measureText(text);
+  const asc = Number.isFinite(m.fontBoundingBoxAscent) ? m.fontBoundingBoxAscent : size * 0.9;
+  const desc = Number.isFinite(m.fontBoundingBoxDescent) ? m.fontBoundingBoxDescent : size * 0.3;
+  return [asc, desc];
+}
+
+let measureCtx = null;
+// One offscreen 2D context for day_dom_canvas_measure_text, created on first use.
+function measureContext() {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  return measureCtx;
+}
+
+// The page's font list in Day's list text: U+001E between families, U+001F between fields
+// (family, then face/weight/italic per face). The CSS generic families come first, each with
+// the four faces a browser synthesizes for any family; then every bundled FontFace `boot`
+// registered, grouped by family. queryLocalFonts() is deliberately not asked: Chromium only,
+// asynchronous, and behind a permission prompt (Cap::FontList answers Emulated).
+function fontListText() {
+  const FS = '\u001f', RS = '\u001e';
+  const synth = `${FS}Regular${FS}400${FS}0${FS}Bold${FS}700${FS}0${FS}Italic${FS}400${FS}1${FS}Bold Italic${FS}700${FS}1`;
+  const families = [];
+  for (const g of ['system-ui', 'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy']) {
+    families.push(g + synth);
+  }
+  const bundled = new Map();
+  try {
+    document.fonts.forEach((face) => {
+      const family = String(face.family || '').replace(/^["']|["']$/g, '');
+      if (!family) return;
+      const weight = parseInt(face.weight, 10) || 400;
+      const italic = face.style && face.style !== 'normal' ? 1 : 0;
+      const faces = bundled.get(family) || [];
+      faces.push(`${FS}${FS}${weight}${FS}${italic}`); // an empty name: Day synthesizes it
+      bundled.set(family, faces);
+    });
+  } catch (_) { /* no FontFaceSet — the generic list stands */ }
+  for (const [family, faces] of bundled) {
+    families.push(family.replace(/[\u001e\u001f]/g, ' ') + faces.join(''));
+  }
+  return families.join(RS);
+}
+
 function replay(canvas, ops, strs, w, h) {
   const dpr = devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(w * dpr));
@@ -1811,13 +1884,24 @@ function replay(canvas, ops, strs, w, h) {
     } else if (op === 6) { // clip
       const p = path();
       ctx.clip(p, p.__rule || 'nonzero');
-    } else if (op === 2) { // text
+    } else if (op === 2) { // text: anchor 0 = top-leading of the line box, 1 = its center
       ctx.fillStyle = rgba(next());
       const size = next(), anchor = next(), x = next(), y = next(), off = next(), len = next();
-      ctx.font = `${size}px -apple-system, BlinkMacSystemFont, sans-serif`;
-      ctx.textAlign = anchor === 1 ? 'center' : 'left';
-      ctx.textBaseline = anchor === 1 ? 'middle' : 'alphabetic';
-      ctx.fillText(utf8.decode(strs.slice(off, off + len)), x, y);
+      const weight = next(), italic = next(), famOff = next(), famLen = next();
+      const family = famLen > 0 ? utf8.decode(strs.slice(famOff, famOff + famLen)) : '';
+      const text = utf8.decode(strs.slice(off, off + len));
+      ctx.font = canvasFont(size, weight, italic, family);
+      // fillText takes the BASELINE; the line box is the font's bounding box, the same
+      // numbers day_dom_measure_text reports, so a measured frame hugs what is drawn.
+      const [asc, desc] = fontBox(ctx, text, size);
+      ctx.textBaseline = 'alphabetic';
+      if (anchor === 1) {
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x, y - (asc + desc) / 2 + asc);
+      } else {
+        ctx.textAlign = 'left';
+        ctx.fillText(text, x, y + asc);
+      }
     } else if (op === 3) ctx.save();
     else if (op === 4) ctx.restore();
     else if (op === 5) { const a = next(), b = next(), c = next(), d = next(), e = next(), f = next(); ctx.transform(a, b, c, d, e, f); }

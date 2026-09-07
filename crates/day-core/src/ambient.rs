@@ -101,6 +101,11 @@ fn target_window() -> RNode {
 /// wants a secondary window's class must capture its root at build time and use
 /// [`window_size_class`] — the same discipline `toolbar_reactive` follows.
 pub fn size_class() -> Option<SizeClass> {
+    // Headless (no tree on this thread — an app's model unit test): no window, so no class,
+    // rather than a panic from asking which window is being built.
+    if !crate::tree::has_tree() {
+        return None;
+    }
     window_size_class(target_window())
 }
 

@@ -376,6 +376,7 @@ fn composed_well<C: Binding<Color>>(
                 // Day's own readable-on-a-fill rule, the one `Button::tint` uses.
                 color: day_spec::props::ButtonStyleSpec::on_tint(c),
                 anchor: TextAnchor::Centered,
+                ..Default::default()
             },
         );
     })

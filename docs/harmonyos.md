@@ -274,4 +274,7 @@ until diagnosed:
 Wire the remaining pieces (image / lottie / map), richer accessibility (roles beyond the
 label), interactive tab-bar labels on the swiper, and the image/webview backends. The dayscript
 engine's TCP channel is flaky on the TCG emulator (occasional connection resets), so scripted
-walkthrough screenshots on OHOS are best-effort.
+walkthrough screenshots on OHOS are best-effort. Canvas fonts and the font list
+([docs/fonts.md](fonts.md)) compile against `OH_Drawing_FontMgr` and are verified by CI on a
+device: whether a family the ability registered through `font.registerFont` is visible to
+`OH_Drawing_FontMgrMatchFamilyStyle` (else the default face draws it) is the open question.

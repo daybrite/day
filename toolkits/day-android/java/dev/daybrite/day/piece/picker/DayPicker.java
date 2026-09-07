@@ -33,6 +33,12 @@ public final class DayPicker {
             final int[] fired = {0};
             sp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long i) {
+                    // The first fire is the initial selection above. Later, a PROGRAMMATIC
+                    // setSelection (setPickerSelected, Day moving the mark it already holds)
+                    // fires this exactly like a tap would; the tag it leaves says so, and that
+                    // one echo is swallowed — reporting it would write the app's binding a
+                    // second time (a second undo unit in a drawing app).
+                    if (ECHO.equals(p.getTag())) { p.setTag(null); return; }
                     if (fired[0]++ > 0) DayBridge.nativeOnEvent(id, 4, pos, null);
                 }
                 public void onNothingSelected(android.widget.AdapterView<?> p) {}
@@ -140,9 +146,15 @@ public final class DayPicker {
         }
     }
 
+    /** The tag a programmatic Spinner selection leaves for its own onItemSelected (see makePicker). */
+    private static final Object ECHO = new Object();
+
     public static void setPickerSelected(View v, int idx) {
         if (v instanceof Spinner) {
-            ((Spinner) v).setSelection(idx);
+            Spinner sp = (Spinner) v;
+            if (sp.getSelectedItemPosition() == idx) return; // nothing moves, nothing fires
+            sp.setTag(ECHO);
+            sp.setSelection(idx);
         } else if (v instanceof RadioGroup) {
             if (idx >= 0) ((RadioGroup) v).check(idx + 1);
         } else if (v instanceof LinearLayout) {

@@ -43,6 +43,9 @@
 #include <native_drawing/drawing_canvas.h>
 #include <native_drawing/drawing_error_code.h>
 #include <native_drawing/drawing_font.h>
+#include <native_drawing/drawing_font_mgr.h> // canvas fonts + the font list (docs/fonts.md)
+#include <native_drawing/drawing_text_typography.h> // OH_Drawing_FontStyleStruct
+#include <native_drawing/drawing_typeface.h>
 #include <native_drawing/drawing_matrix.h>
 #include <native_drawing/drawing_path.h>
 #include <native_drawing/drawing_path_effect.h>
@@ -1081,6 +1084,53 @@ void day_ark_res_close(void* handle) {
     delete tok;
 }
 
+/// The family/weight/slant a kind-19 record carries, waiting for the text it applies to
+/// (docs/fonts.md).
+struct PendingFont {
+    bool active = false;
+    int weight = 0; // CSS 100 … 900, 0 = default
+    bool italic = false;
+    std::string family;
+};
+
+/// The process-wide font manager: the system font collection (plus what the ability
+/// registered), created on first use and kept.
+static OH_Drawing_FontMgr* font_mgr() {
+    static OH_Drawing_FontMgr* mgr = OH_Drawing_FontMgrCreate();
+    return mgr;
+}
+
+/// The font canvas text draws and measures with: the family's face nearest the requested
+/// weight and slant through the font manager (a null family asks for the default), else the
+/// default face with a synthesized bold and slant. `*out_typeface` receives the matched
+/// typeface to destroy after the font (null when none matched).
+static OH_Drawing_Font* make_canvas_font(float size, const PendingFont& req,
+                                         OH_Drawing_Typeface** out_typeface) {
+    OH_Drawing_Font* font = OH_Drawing_FontCreate();
+    OH_Drawing_FontSetTextSize(font, size);
+    *out_typeface = nullptr;
+    int weight = req.active && req.weight > 0 ? req.weight : 400;
+    bool italic = req.active && req.italic;
+    OH_Drawing_FontStyleStruct style;
+    style.weight = (OH_Drawing_FontWeight)((weight / 100) - 1); // FONT_WEIGHT_100 == 0
+    style.width = FONT_WIDTH_NORMAL;
+    style.slant = italic ? FONT_STYLE_ITALIC : FONT_STYLE_NORMAL;
+    // The default face keeps the font's own typeface; only a NAMED family goes through the
+    // manager (a null family name is not something every OH_Drawing release matches).
+    OH_Drawing_Typeface* tf = nullptr;
+    if (req.active && !req.family.empty()) {
+        tf = OH_Drawing_FontMgrMatchFamilyStyle(font_mgr(), req.family.c_str(), style);
+    }
+    if (tf) {
+        OH_Drawing_FontSetTypeface(font, tf);
+        *out_typeface = tf;
+    } else {
+        OH_Drawing_FontSetFakeBoldText(font, weight >= 600);
+        OH_Drawing_FontSetTextSkewX(font, italic ? -0.25f : 0.0f);
+    }
+    return font;
+}
+
 // ---- window image (docs/window-image.md) -----------------------------------
 // Capturing a node is entirely native and SYNCHRONOUS here: OH_ArkUI_GetNodeSnapshot renders a
 // mounted node into an OH_PixelmapNative, and the image kit's native packer encodes the PNG in
@@ -1148,6 +1198,90 @@ int32_t day_ark_snapshot_png(void* node, uint8_t** out_data, size_t* out_len) {
 }
 
 void day_ark_snapshot_free(void* p) { free(p); }
+
+// ---- canvas fonts (docs/fonts.md) ---------------------------------------------------------
+
+/// Append `s` with Day's list separators replaced, so a family or style name can never split
+/// the record it sits in.
+static void list_append(std::string& out, const char* s) {
+    for (const char* p = s ? s : ""; *p; ++p) {
+        out.push_back((*p == '\x1f' || *p == '\x1e') ? ' ' : *p);
+    }
+}
+
+/// Every family the font manager knows, with its faces, in Day's list format (U+001E between
+/// families, U+001F between fields: family, then (style name, CSS weight, italic 0/1) per
+/// face). Returns 1 with a malloc'd string in *out (release with day_ark_string_free), else 0.
+int32_t day_ark_font_families(char** out, size_t* out_len) {
+    *out = nullptr;
+    *out_len = 0;
+    OH_Drawing_FontMgr* mgr = font_mgr();
+    if (!mgr) return 0;
+    std::string text;
+    int count = OH_Drawing_FontMgrGetFamilyCount(mgr);
+    for (int i = 0; i < count; ++i) {
+        char* family = OH_Drawing_FontMgrGetFamilyName(mgr, i);
+        if (!family || !*family) {
+            if (family) OH_Drawing_FontMgrDestroyFamilyName(family);
+            continue;
+        }
+        if (!text.empty()) text.push_back('\x1e');
+        list_append(text, family);
+        OH_Drawing_FontMgrDestroyFamilyName(family);
+        OH_Drawing_FontStyleSet* set = OH_Drawing_FontMgrCreateFontStyleSet(mgr, i);
+        if (!set) continue;
+        int faces = OH_Drawing_FontStyleSetCount(set);
+        for (int j = 0; j < faces; ++j) {
+            char* name = nullptr;
+            OH_Drawing_FontStyleStruct st = OH_Drawing_FontStyleSetGetStyle(set, j, &name);
+            text.push_back('\x1f');
+            list_append(text, name);
+            if (name) OH_Drawing_FontStyleSetFreeStyleName(&name);
+            text.push_back('\x1f');
+            text += std::to_string(((int)st.weight + 1) * 100); // FONT_WEIGHT_100 == 0
+            text.push_back('\x1f');
+            text.push_back(st.slant != FONT_STYLE_NORMAL ? '1' : '0');
+        }
+        OH_Drawing_FontMgrDestroyFontStyleSet(set);
+    }
+    char* buf = (char*)malloc(text.size() + 1);
+    if (!buf) return 0;
+    memcpy(buf, text.data(), text.size());
+    buf[text.size()] = 0;
+    *out = buf;
+    *out_len = text.size();
+    return 1;
+}
+
+/// Release a string returned by day_ark_font_families. Safe to call with null.
+void day_ark_string_free(void* p) { free(p); }
+
+/// Measure one line of canvas text with the font make_canvas_font resolves: `out` receives
+/// the advance width, the line height (ascent + descent) and the ascent, in vp. Returns 1.
+int32_t day_ark_measure_text(const char* text, double size, int32_t weight, int32_t italic,
+                             const char* family, double* out) {
+    PendingFont req;
+    req.active = true;
+    req.weight = weight;
+    req.italic = italic != 0;
+    req.family = family ? family : "";
+    OH_Drawing_Typeface* tf = nullptr;
+    OH_Drawing_Font* font = make_canvas_font((float)size, req, &tf);
+    std::string s = text ? text : "";
+    float w = 0.0f;
+    if (OH_Drawing_FontMeasureText(font, s.c_str(), s.size(), TEXT_ENCODING_UTF8, nullptr, &w)
+        != OH_DRAWING_SUCCESS) {
+        w = (float)s.size() * (float)size * 0.56f;
+    }
+    OH_Drawing_Font_Metrics m;
+    OH_Drawing_FontGetMetrics(font, &m);
+    out[0] = w;
+    out[1] = m.descent - m.ascent;
+    out[2] = -m.ascent;
+    OH_Drawing_FontDestroy(font);
+    if (tf) OH_Drawing_TypefaceDestroy(tf);
+    return 1;
+}
 
 } // extern "C"
 
@@ -1304,6 +1438,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     size_t text_i = 0;
     PendingGradient grad;
     PendingStroke style;
+    PendingFont fontp;
     // Dash effects created during this replay, destroyed once the last op has been drawn.
     std::vector<OH_Drawing_PathEffect*> dash_effects;
     for (size_t i = 0; i + 8 < n.size(); i += 9) {
@@ -1381,18 +1516,20 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
             case 6: // line from (a,b) to (c,d)
                 OH_Drawing_CanvasDrawLine(cv, a, b, c, dd);
                 break;
-            case 7: { // text: size=e, anchor=f (0 leading, 1 centered); string on the text channel
+            case 7: { // text: size=e, anchor=f (0 top-leading, 1 centered); string on the text channel
                 std::string s = text_i < texts.size() ? texts[text_i++] : std::string();
-                OH_Drawing_Font* font = OH_Drawing_FontCreate();
-                OH_Drawing_FontSetTextSize(font, e);
+                OH_Drawing_Typeface* tf = nullptr;
+                OH_Drawing_Font* font = make_canvas_font(e, fontp, &tf);
                 OH_Drawing_TextBlob* blob = OH_Drawing_TextBlobCreateFromString(
                     s.c_str(), font, TEXT_ENCODING_UTF8);
-                float x = a, y = b;
+                // DrawTextBlob takes the BASELINE; both anchors position the line box from
+                // the font metrics (Skia-style: ascent negative, descent positive) — the
+                // same formula as the Android canvas backend, so glyphs land in the same
+                // place on every platform (the 2048 tile digits are the acid test).
+                OH_Drawing_Font_Metrics m;
+                OH_Drawing_FontGetMetrics(font, &m);
+                float x = a, y = b - m.ascent;
                 if (f == 1.0f) {
-                    // Centered on (a,b): measured width, and the baseline placed from the
-                    // font metrics (Skia-style: ascent negative, descent positive) — the
-                    // same formula as the Android canvas backend, so glyphs land dead
-                    // center on every platform (the 2048 tile digits are the acid test).
                     float w = 0.0f;
                     if (OH_Drawing_FontMeasureText(font, s.c_str(), s.size(),
                                                    TEXT_ENCODING_UTF8, nullptr,
@@ -1401,13 +1538,19 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                     } else {
                         x = a - (float)s.size() * e * 0.28f; // fallback guess
                     }
-                    OH_Drawing_Font_Metrics m;
-                    OH_Drawing_FontGetMetrics(font, &m);
                     y = b - (m.ascent + m.descent) / 2.0f;
                 }
                 OH_Drawing_CanvasDrawTextBlob(cv, blob, x, y);
                 OH_Drawing_TextBlobDestroy(blob);
                 OH_Drawing_FontDestroy(font);
+                if (tf) OH_Drawing_TypefaceDestroy(tf);
+                break;
+            }
+            case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+                fontp.family = text_i < texts.size() ? texts[text_i++] : std::string();
+                fontp.weight = (int)a;
+                fontp.italic = b > 0.5f;
+                fontp.active = true;
                 break;
             }
             case 8:
@@ -1582,6 +1725,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         else OH_Drawing_CanvasDetachBrush(cv);
         // A style record applies to ONE stroke; anything else clears it.
         if (kind != 18) style.active = false;
+        if (kind != 19) fontp.active = false;
     }
     OH_Drawing_CanvasRestore(cv);
     OH_Drawing_MatrixDestroy(scale);

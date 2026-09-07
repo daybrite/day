@@ -106,3 +106,4 @@ An app branches on this rather than on the target name.
 | `Toolbar` | N | N | N | N | N | N | E | E |
 | `Inspector` | N | – | N | N | N | – | – | – |
 | `Cursor` | N | E | N | E | E | N | – | N |
+| `FontList` | N | N | N | N | N | N | N | E |

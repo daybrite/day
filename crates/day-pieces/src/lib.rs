@@ -126,6 +126,8 @@ pub mod prelude {
     pub use day_spec::{
         DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, UnitPoint,
     };
+    // Canvas fonts and the platform font list (docs/fonts.md).
+    pub use day_spec::{CanvasFont, FontFace, FontFamilyInfo, TextMetrics};
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     // The styled-text document (docs/texteditor.md): what `.markdown()` parses into, what a
     // label's runs are, and what `day-piece-texteditor` edits — plus the Markdown / HTML / RTF

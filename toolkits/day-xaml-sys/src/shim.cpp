@@ -36,6 +36,7 @@
 #include <charconv>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring> // _strdup (the font-list string, docs/fonts.md)
 #include <cmath>
 #include <vector>
 #include <map>
@@ -56,6 +57,7 @@
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Input.h> // HoldingState (long-press gesture)
 #include <winrt/Windows.UI.Text.h>
+#include <dwrite.h> // IDWriteFontCollection: the platform font list (docs/fonts.md)
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Documents.h> // Typography
@@ -270,6 +272,123 @@ static WUXM::Matrix mat_mul(WUXM::Matrix const& x, WUXM::Matrix const& y) {
     r.OffsetY = x.OffsetX * y.M12 + x.OffsetY * y.M22 + y.OffsetY;
     return r;
 }
+// ---- canvas fonts (docs/fonts.md) ---------------------------------------------------------
+
+// Put a canvas font on a TextBlock: the family (empty = the default face), the CSS weight
+// (0 = default; XAML's FontWeight IS the 1 … 999 OpenType weight) and the slant.
+static void canvas_font_apply(WUXC::TextBlock const& tb, int weight, bool italic,
+                              std::string const& family) {
+    if (!family.empty()) tb.FontFamily(WUXM::FontFamily(hs(family.c_str())));
+    if (weight > 0) {
+        winrt::Windows::UI::Text::FontWeight fw{};
+        fw.Weight = (uint16_t)(weight < 1 ? 1 : weight > 999 ? 999 : weight);
+        tb.FontWeight(fw);
+    }
+    tb.FontStyle(italic ? winrt::Windows::UI::Text::FontStyle::Italic
+                        : winrt::Windows::UI::Text::FontStyle::Normal);
+}
+
+// UTF-16 → UTF-8 for DirectWrite's localized strings.
+static std::string dw_utf8(const std::wstring& w) {
+    if (w.empty()) return std::string();
+    int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+    if (n <= 0) return std::string();
+    std::string out((size_t)n, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &out[0], n, nullptr, nullptr);
+    for (char& c : out) if (c == '\x1f' || c == '\x1e') c = ' ';
+    return out;
+}
+
+// The en-us entry of a localized-strings set (else its first), as UTF-8.
+static std::string dw_name(IDWriteLocalizedStrings* names) {
+    if (!names || names->GetCount() == 0) return std::string();
+    UINT32 idx = 0;
+    BOOL exists = FALSE;
+    if (FAILED(names->FindLocaleName(L"en-us", &idx, &exists)) || !exists) idx = 0;
+    UINT32 len = 0;
+    if (FAILED(names->GetStringLength(idx, &len))) return std::string();
+    std::wstring buf((size_t)len + 1, L'\0');
+    if (FAILED(names->GetString(idx, &buf[0], len + 1))) return std::string();
+    buf.resize(len);
+    return dw_utf8(buf);
+}
+
+extern "C" {
+
+// The system font collection, family by family and font by font, in Day's list format
+// (U+001E between families, U+001F between fields: family, then (face, CSS weight, italic
+// 0/1) per face). Simulated (synthesized-bold/oblique) entries are skipped: they are what
+// XAML does for any family anyway. Heap-allocated: release with day_xaml_string_free.
+char* day_xaml_font_families(void) try {
+    winrt::com_ptr<IDWriteFactory> factory;
+    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                   reinterpret_cast<IUnknown**>(factory.put())))) {
+        return _strdup("");
+    }
+    winrt::com_ptr<IDWriteFontCollection> coll;
+    if (FAILED(factory->GetSystemFontCollection(coll.put(), FALSE))) return _strdup("");
+    std::string out;
+    UINT32 n = coll->GetFontFamilyCount();
+    for (UINT32 i = 0; i < n; ++i) {
+        winrt::com_ptr<IDWriteFontFamily> fam;
+        if (FAILED(coll->GetFontFamily(i, fam.put()))) continue;
+        winrt::com_ptr<IDWriteLocalizedStrings> names;
+        if (FAILED(fam->GetFamilyNames(names.put()))) continue;
+        std::string family = dw_name(names.get());
+        if (family.empty()) continue;
+        if (!out.empty()) out.push_back('\x1e');
+        out += family;
+        UINT32 fc = fam->GetFontCount();
+        for (UINT32 j = 0; j < fc; ++j) {
+            winrt::com_ptr<IDWriteFont> font;
+            if (FAILED(fam->GetFont(j, font.put()))) continue;
+            if (font->GetSimulations() != DWRITE_FONT_SIMULATIONS_NONE) continue;
+            winrt::com_ptr<IDWriteLocalizedStrings> faceNames;
+            std::string face = SUCCEEDED(font->GetFaceNames(faceNames.put()))
+                                   ? dw_name(faceNames.get())
+                                   : std::string();
+            int weight = (int)font->GetWeight();
+            weight = ((weight + 50) / 100) * 100;
+            if (weight < 100) weight = 100;
+            if (weight > 900) weight = 900;
+            out.push_back('\x1f');
+            out += face;
+            out.push_back('\x1f');
+            out += std::to_string(weight);
+            out.push_back('\x1f');
+            out.push_back(font->GetStyle() != DWRITE_FONT_STYLE_NORMAL ? '1' : '0');
+        }
+    }
+    return _strdup(out.c_str());
+} catch (...) {
+    return _strdup("");
+}
+
+// Release a string returned by day_xaml_font_families. Safe to call with null.
+void day_xaml_string_free(char* p) { free(p); }
+
+// Measure one line of canvas text as the replay draws it (a TextBlock with the same font):
+// `out` receives the desired width, the desired height (the line box) and the baseline
+// offset. Returns 0 on success.
+int day_xaml_measure_text(const char* text, double size, int weight, int italic,
+                          const char* family, double* out) try {
+    WUXC::TextBlock tb;
+    tb.Text(hs(text ? text : ""));
+    tb.FontSize(size);
+    canvas_font_apply(tb, weight, italic != 0, std::string(family ? family : ""));
+    tb.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
+                         std::numeric_limits<float>::infinity() });
+    auto ds = tb.DesiredSize();
+    out[0] = ds.Width;
+    out[1] = ds.Height;
+    out[2] = tb.BaselineOffset();
+    return 0;
+} catch (...) {
+    return 1;
+}
+
+} // extern "C"
+
 static void place_shape(WUXC::Canvas const& canvas, WUXSh::Shape const& p, WUXM::Matrix const& cur) {
     WUXC::Canvas::SetLeft(p, 0);
     WUXC::Canvas::SetTop(p, 0);
@@ -1464,6 +1583,11 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
     int sCap = 0, sJoin = 0;
     double sMiter = 10.0, sPhase = 0.0;
     std::vector<double> sDash;
+    // A decoded kind-19 record (font), applied to the NEXT text record only (docs/fonts.md).
+    bool fontPending = false;
+    int fWeight = 0;
+    bool fItalic = false;
+    std::string fFamily;
     // The current clip, as a RECTANGLE. See the kind-17 case: this backend is retained-mode and
     // UIElement.Clip only accepts a RectangleGeometry, so a non-rectangular clip degrades to its
     // bounding box (documented in docs/canvas.md).
@@ -1627,26 +1751,43 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             place_shape(canvas, p, cur);
             break;
         }
-        case 7: { // text at (a,b); e=size, f=anchor (0 leading / 1 centered)
+        case 7: { // text at (a,b); e=size, f=anchor (0 top-leading / 1 centered)
             std::string t = ti < texts.size() ? texts[ti++] : std::string();
             WUXC::TextBlock tb;
             tb.Text(hs(t.c_str()));
             tb.FontSize(e);
             tb.Foreground(brush_bits(col));
-            // Fold the CTM into the anchor point (glyph rotation is a follow-up; the demos draw
-            // upright text under an identity CTM).
-            double px = a * cur.M11 + b * cur.M21 + cur.OffsetX;
-            double py = a * cur.M12 + b * cur.M22 + cur.OffsetY;
+            if (fontPending) {
+                canvas_font_apply(tb, fWeight, fItalic, fFamily);
+            }
+            // A TextBlock's layout box IS the line box (ascent + descent), so the top-leading
+            // anchor is its top-left and the centered one offsets by half its desired size.
+            double ox = a, oy = b;
             if (f > 0.5) {
                 tb.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
                                      std::numeric_limits<float>::infinity() });
                 auto ds = tb.DesiredSize();
-                px -= ds.Width / 2;
-                py -= ds.Height / 2;
+                ox -= ds.Width / 2;
+                oy -= ds.Height / 2;
             }
-            WUXC::Canvas::SetLeft(tb, px);
-            WUXC::Canvas::SetTop(tb, py);
+            // Placed under the CTM like a shape (place_shape), so text rotates and scales with
+            // the drawing instead of only having its anchor moved.
+            WUXM::Matrix local = mat_identity();
+            local.OffsetX = ox;
+            local.OffsetY = oy;
+            WUXC::Canvas::SetLeft(tb, 0);
+            WUXC::Canvas::SetTop(tb, 0);
+            WUXM::MatrixTransform mt;
+            mt.Matrix(mat_mul(local, cur));
+            tb.RenderTransform(mt);
             canvas.Children().Append(tb);
+            break;
+        }
+        case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+            fFamily = ti < texts.size() ? texts[ti++] : std::string();
+            fWeight = (int)a;
+            fItalic = b > 0.5;
+            fontPending = true;
             break;
         }
         case 11:
@@ -1792,8 +1933,10 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             break;
         }
         }
-        // A style record applies to ONE stroke; anything else clears it.
+        // A style record applies to ONE stroke; anything else clears it. A font record
+        // likewise applies to one text.
         if (k != 18) stylePending = false;
+        if (k != 19) fontPending = false;
     }
 }
 

@@ -29,7 +29,7 @@ canvas(|d, size| {
 | `stroke(shape, color, width)` | Stroke at a width, everything else default |
 | `stroke_styled(shape, paint, style)` | Stroke with dash, cap, join, and any paint |
 | `clip(shape)` / `clipped(shape, f)` | Confine what follows to a shape |
-| `text(text, at, style)` | A string at a point |
+| `text(text, at, style)` | One line of text at a point, in a size, color and [font](fonts.md) |
 | `save` / `restore` / `concat(affine)` | Transform and clip state |
 
 `Shape` covers `Rect`, `RoundedRect`, `Ellipse`, `Arc`, `Line`, `Polygon`, and `Path`.
@@ -102,6 +102,10 @@ Everything above works on every backend except where noted.
 | **xaml** | Clipping is rectangular: `UIElement.Clip` accepts only a `RectangleGeometry`, so a path, ellipse or polygon clip degrades to its bounding box, and content is still confined, just less tightly. Escaping this means moving the canvas to `Windows.UI.Composition`, whose `CompositionGeometricClip` does take a path. |
 | **appkit** | Quadratic segments are elevated to cubics, exactly (`NSBezierPath`'s own quadratic API is macOS 14+). No visual difference. |
 | **gtk**, **arkui** | Same quadratic elevation, for the same reason: cairo and `OH_Drawing` have cubics. |
+| **web-dom** | `font_families()` is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
+| **android** | `font_families()` is read from `/system/etc/fonts.xml`, the configuration `Typeface.create` resolves names from, so the system's alias families (`sans-serif-condensed`, `sans-serif-medium`, …) appear as families of their own. |
+| **arkui** | Canvas fonts and the font list compile against the SDK's `OH_Drawing_FontMgr` API and are exercised by CI on a device, not by a local emulator run. |
+| all | A weight or slant the family does not ship is synthesized where the platform does that (Skia, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango, CoreText). `face_for` on the family's `FontFamilyInfo` says which face will actually draw. |
 | **qt**, **android**, **xaml** | Dash patterns are specified in pixels by Day and converted to those APIs' stroke-width units on the way in. A zero-width stroke falls back to a width of 1 for the conversion. |
 
 Gradient strokes on Apple work by converting the stroke to the region it covers
@@ -109,9 +113,35 @@ Gradient strokes on Apple work by converting the stroke to the region it covers
 
 ## Text
 
-Canvas text takes a size and a color, not a `FontSpec`: it is for labels inside a drawing, and it
+```rust
+d.text("Aa", Point::new(8.0, 8.0), TextStyle {
+    size: 24.0,
+    color: ink,
+    anchor: TextAnchor::Leading,
+    font: CanvasFont { family: Some("Pacifico".into()), weight: Some(FontWeight::Bold), italic: false },
+});
+d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::Centered, ..Default::default() });
+```
+
+`TextStyle` is a size in absolute canvas points, a color, an anchor and a [`CanvasFont`](fonts.md):
+a family (a platform family or a bundled one, `None` for the platform's own face), a weight and a
+slant. Fill what you set and take the rest from `..Default::default()`. One line: a newline is
+drawn as the engine draws it, not as a line break.
+
+Canvas text takes a size, not a `FontSpec`: it is for labels and type inside a drawing, and it
 carries neither the reader's font-scale setting nor RTL mirroring. Anything a user reads as
 content belongs in a `label` piece, which does.
+
+Both anchors position the **line box**, the ascent-plus-descent box `day::measure_text` reports
+for the same text, size and font: `Leading` puts `at` at its top-leading corner, `Centered` at
+its center, and `at.y + metrics.ascent` is the baseline. A drawing app that frames its text from
+`measure_text` gets a frame that hugs what is drawn on every backend. (Before fonts arrived,
+gtk, qt, android, arkui and web-dom put a `Leading` anchor on the baseline instead; a caller that
+compensated for that with an offset can drop it.)
+
+The platform's font families, with the faces each ships, come from `day::font_families()`; the
+font menu of a drawing app is that list, and [docs/fonts.md](fonts.md) covers it and the
+measurement API.
 
 ## Interaction
 

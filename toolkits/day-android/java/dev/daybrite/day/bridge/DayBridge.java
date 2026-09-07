@@ -191,6 +191,144 @@ public final class DayBridge {
     }
 
     // --- factories + setters (called from Rust over JNI) ---
+    // ---- canvas fonts (docs/fonts.md) -----------------------------------------------------
+
+    private static final java.util.Map<String, Typeface> CANVAS_FONT_CACHE = new java.util.HashMap<>();
+
+    /**
+     * The typeface canvas text draws and measures with: a bundled `res/font/` family, else a
+     * system family or alias by name (`sans-serif-condensed`, `serif`, …, which `Typeface.create`
+     * resolves from `fonts.xml`; an unknown name gives the default face), at a CSS weight (0 =
+     * default) and slant. API 28+ picks the exact weight; older releases take the bold flag.
+     */
+    public static Typeface canvasTypeface(String family, int weight, boolean italic) {
+        String key = family + "|" + weight + "|" + italic;
+        Typeface cached = CANVAS_FONT_CACHE.get(key);
+        if (cached != null) return cached;
+        Typeface base = Typeface.DEFAULT;
+        if (family != null && !family.isEmpty()) {
+            base = bundledFontOrNull(family);
+            if (base == null) base = Typeface.create(family, Typeface.NORMAL);
+        }
+        Typeface tf;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            tf = Typeface.create(base, weight > 0 ? weight : 400, italic);
+        } else {
+            int style = (weight >= 600 ? Typeface.BOLD : Typeface.NORMAL) | (italic ? Typeface.ITALIC : 0);
+            tf = Typeface.create(base, style);
+        }
+        CANVAS_FONT_CACHE.put(key, tf);
+        return tf;
+    }
+
+    /**
+     * Every family Android's font configuration names, with one face per `<font>` entry, in
+     * Day's list format (U+001E between families; U+001F-separated fields: family, then
+     * (face, CSS weight, italic) per face). There is no public API for family NAMES — the
+     * `SystemFonts` API (29+) lists files — so this reads `/system/etc/fonts.xml`, the
+     * configuration `Typeface.create(name, …)` resolves from, so every listed name draws.
+     * An `<alias>` with a weight is a one-face family at that weight; one without takes its
+     * target's faces. Unnamed (fallback-only) families are skipped.
+     */
+    public static String fontFamilies() {
+        java.util.LinkedHashMap<String, java.util.List<String>> families = new java.util.LinkedHashMap<>();
+        java.util.List<String[]> aliases = new java.util.ArrayList<>();
+        try (java.io.FileInputStream in = new java.io.FileInputStream("/system/etc/fonts.xml")) {
+            org.xmlpull.v1.XmlPullParser p = android.util.Xml.newPullParser();
+            p.setInput(in, null);
+            String current = null;
+            for (int ev = p.getEventType(); ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT; ev = p.next()) {
+                if (ev == org.xmlpull.v1.XmlPullParser.START_TAG) {
+                    String tag = p.getName();
+                    if ("family".equals(tag)) {
+                        current = p.getAttributeValue(null, "name");
+                        if (current != null && !families.containsKey(current)) {
+                            families.put(current, new java.util.ArrayList<String>());
+                        }
+                    } else if ("font".equals(tag) && current != null) {
+                        String w = p.getAttributeValue(null, "weight");
+                        String st = p.getAttributeValue(null, "style");
+                        int weight = 400;
+                        try { if (w != null) weight = Integer.parseInt(w.trim()); } catch (NumberFormatException ignored) {}
+                        boolean italic = "italic".equals(st);
+                        families.get(current).add("\u001F" + weight + "\u001F" + (italic ? "1" : "0"));
+                    } else if ("alias".equals(tag)) {
+                        String name = p.getAttributeValue(null, "name");
+                        String to = p.getAttributeValue(null, "to");
+                        String w = p.getAttributeValue(null, "weight");
+                        if (name != null && to != null) aliases.add(new String[] { name, to, w });
+                    }
+                } else if (ev == org.xmlpull.v1.XmlPullParser.END_TAG && "family".equals(p.getName())) {
+                    current = null;
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.w("DayBridge", "fonts.xml unreadable — the font list is empty: " + e);
+        }
+        for (String[] alias : aliases) {
+            java.util.List<String> target = families.get(alias[1]);
+            if (target == null || families.containsKey(alias[0])) continue;
+            java.util.List<String> faces = new java.util.ArrayList<>();
+            if (alias[2] != null) {
+                int weight = 400;
+                try { weight = Integer.parseInt(alias[2].trim()); } catch (NumberFormatException ignored) {}
+                faces.add("\u001F" + weight + "\u001F0");
+                for (String face : target) {
+                    if (face.endsWith("\u001F1") && face.startsWith("\u001F" + weight + "\u001F")) {
+                        faces.add("\u001F" + weight + "\u001F1");
+                        break;
+                    }
+                }
+            } else {
+                faces.addAll(target);
+            }
+            families.put(alias[0], faces);
+        }
+        // The bundled families (`day build` writes their names to res/values/day_fonts.xml):
+        // one Regular face each — the file IS the face — drawable by name through bundledFontOrNull.
+        if (ctx != null) {
+            int id = ctx.getResources().getIdentifier("day_fonts", "array", ctx.getPackageName());
+            if (id != 0) {
+                try {
+                    for (String family : ctx.getResources().getStringArray(id)) {
+                        if (family != null && !family.isEmpty() && !families.containsKey(family)) {
+                            java.util.List<String> faces = new java.util.ArrayList<>();
+                            faces.add("\u001F400\u001F0");
+                            families.put(family, faces);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // A missing or malformed array: the system list stands.
+                }
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (java.util.Map.Entry<String, java.util.List<String>> fam : families.entrySet()) {
+            if (!first) sb.append('\u001E');
+            first = false;
+            sb.append(fam.getKey().replace('\u001F', ' ').replace('\u001E', ' '));
+            for (String face : fam.getValue()) {
+                sb.append('\u001F'); // an empty face name: Day synthesizes it from weight + slant
+                sb.append(face);
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Measure one line of canvas text with the typeface `canvasTypeface` resolves, at an
+     * UNSCALED size (the canvas replay scales by density, so the answer is in dp): the advance
+     * width, the line height and the ascent, comma-joined.
+     */
+    public static String measureText(String text, double size, int weight, boolean italic, String family) {
+        android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        paint.setTextSize((float) size);
+        paint.setTypeface(canvasTypeface(family, weight, italic));
+        android.graphics.Paint.FontMetrics fm = paint.getFontMetrics();
+        return paint.measureText(text) + "," + (fm.descent - fm.ascent) + "," + (-fm.ascent);
+    }
+
     /**
      * The device's ordered language preference as BCP-47 tags, comma-joined ("fr-FR,en-US").
      *
@@ -687,6 +825,18 @@ public final class DayBridge {
      * the system typeface.
      */
     private static Typeface bundledFont(String family) {
+        Typeface tf = bundledFontOrNull(family);
+        if (tf == null) {
+            android.util.Log.w("DayBridge", "unknown font family \"" + family
+                    + "\" — falling back to the system font (is the file in the project's fonts/ directory?)");
+            tf = Typeface.DEFAULT;
+            FONT_CACHE.put(family, tf);
+        }
+        return tf;
+    }
+
+    /** The bundled-font lookup of `bundledFont`, answering null (quietly) for an unknown family. */
+    private static Typeface bundledFontOrNull(String family) {
         Typeface cached = FONT_CACHE.get(family);
         if (cached != null) return cached;
         StringBuilder sb = new StringBuilder();
@@ -707,12 +857,7 @@ public final class DayBridge {
                 }
             }
         }
-        if (tf == null) {
-            android.util.Log.w("DayBridge", "unknown font family \"" + family
-                    + "\" — falling back to the system font (is the file in the project's fonts/ directory?)");
-            tf = Typeface.DEFAULT;
-        }
-        FONT_CACHE.put(family, tf);
+        if (tf != null) FONT_CACHE.put(family, tf);
         return tf;
     }
     /**

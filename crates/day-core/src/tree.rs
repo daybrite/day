@@ -727,6 +727,15 @@ pub trait TreeOps {
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
     /// Whether the toolkit can rasterize its own window at all (`Cap::Snapshot`).
     fn window_image_support(&mut self) -> day_spec::Support;
+    /// The platform's font families (see `Toolkit::font_families`); cached by day-core.
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo>;
+    /// Measure one line of canvas text (see `Toolkit::measure_text`).
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics>;
     /// Whether native transitions have settled (see `Toolkit::ui_idle`).
     fn ui_idle(&mut self) -> bool;
     fn root_node(&self) -> RNode;
@@ -1542,6 +1551,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn window_image_support(&mut self) -> day_spec::Support {
         self.toolkit.capability(day_spec::Cap::Snapshot)
+    }
+
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        self.toolkit.font_families()
+    }
+
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        self.toolkit.measure_text(text, size, font)
     }
 
     fn ui_idle(&mut self) -> bool {

@@ -2287,6 +2287,71 @@ mod imp {
             unsafe { ffi::day_ark_list_reload(host.0) };
         }
 
+        /// `OH_Drawing_FontMgr` families and faces, decoded from the shim's list text
+        /// (docs/fonts.md).
+        fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+            let mut p: *mut c_char = std::ptr::null_mut();
+            let mut len = 0usize;
+            // SAFETY: the shim fills `p` with a NUL-terminated heap string it owns until the
+            // free below; nothing else reads it.
+            unsafe {
+                if ffi::day_ark_font_families(&mut p, &mut len) != 1 || p.is_null() {
+                    return Vec::new();
+                }
+                let text = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
+                ffi::day_ark_string_free(p as *mut c_void);
+                let mut list = day_spec::parse_font_list(&text);
+                // The bundled families the ability registered from `day/fonts.json`
+                // (`[{"family": …, "file": …}]`): one Regular face each, appended when the
+                // manager's own list did not report them.
+                if let Some(res) = open_resource("fonts.json") {
+                    let json = String::from_utf8_lossy(res.as_slice()).into_owned();
+                    for family in manifest_families(&json) {
+                        if !list.iter().any(|f| f.family.eq_ignore_ascii_case(&family)) {
+                            list.push(day_spec::FontFamilyInfo {
+                                family,
+                                faces: vec![day_spec::FontFace {
+                                    name: "Regular".to_string(),
+                                    weight: day_spec::FontWeight::Regular,
+                                    italic: false,
+                                }],
+                            });
+                        }
+                    }
+                }
+                list
+            }
+        }
+
+        /// `OH_Drawing_FontMeasureText` + the font metrics of the face the canvas draws with
+        /// (docs/fonts.md).
+        fn measure_text(
+            &mut self,
+            text: &str,
+            size: f64,
+            font: &day_spec::CanvasFont,
+        ) -> Option<day_spec::TextMetrics> {
+            let text = cstr(text);
+            let family = cstr(font.family_str());
+            let mut out = [0.0f64; 3];
+            // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
+            let ok = unsafe {
+                ffi::day_ark_measure_text(
+                    text.as_ptr(),
+                    size,
+                    i32::from(font.css_weight()),
+                    i32::from(font.italic),
+                    family.as_ptr(),
+                    out.as_mut_ptr(),
+                )
+            };
+            (ok == 1).then_some(day_spec::TextMetrics {
+                width: out[0],
+                height: out[1],
+                ascent: out[2],
+            })
+        }
+
         /// In-process capture of the window root (docs/window-image.md). `hdc shell
         /// snapshot_display` remains what a dayscript screenshot uses on a device — it is the
         /// whole display, including the system status bar this cannot see — but the app itself
@@ -2351,6 +2416,8 @@ mod imp {
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::FileDialogs => Support::Native,
+                // `OH_Drawing_FontMgr` lists every family and style set (docs/fonts.md).
+                Cap::FontList => Support::Native,
                 // OH_ArkUI_GetNodeSnapshot + the native image packer, both synchronous
                 // (docs/window-image.md).
                 Cap::Snapshot => Support::Native,
@@ -2502,6 +2569,26 @@ mod imp {
         fn drop(&mut self) {
             unsafe { ffi::day_ark_res_close(self.0) };
         }
+    }
+
+    /// The `"family"` values of the staged font manifest, by a scan rather than a JSON parser:
+    /// the CLI writes the file (plain strings, no escapes beyond `\"`), and this backend takes no
+    /// JSON dependency for one key.
+    fn manifest_families(json: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = json;
+        while let Some(i) = rest.find("\"family\"") {
+            rest = &rest[i + 8..];
+            let Some(q) = rest.find('"') else { break };
+            let value = &rest[q + 1..];
+            let Some(end) = value.find('"') else { break };
+            let family = value[..end].replace("\\\"", "\"").replace("\\\\", "\\");
+            if !family.is_empty() {
+                out.push(family);
+            }
+            rest = &value[end + 1..];
+        }
+        out
     }
 
     /// The rawfile-backed data-resource opener (§18.3), registered once in [`init`]. Serves

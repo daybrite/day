@@ -327,6 +327,23 @@ unsafe extern "C" {
     /// The same capture against a SECONDARY window's token — a `screenshot: { window: … }` step.
     pub fn day_xaml_snapshot_png2(win: *mut c_void, path: *const c_char) -> c_int;
 
+    // Canvas fonts (docs/fonts.md).
+    /// The DirectWrite system font collection in Day's font-list text; a heap string to
+    /// release with [`day_xaml_string_free`].
+    pub fn day_xaml_font_families() -> *mut c_char;
+    /// Release a string returned by [`day_xaml_font_families`]. Safe to call with null.
+    pub fn day_xaml_string_free(p: *mut c_char);
+    /// Measure one line of canvas text; `out` (3 doubles) receives width, height, ascent.
+    /// Returns 0 on success.
+    pub fn day_xaml_measure_text(
+        text: *const c_char,
+        size: f64,
+        weight: c_int,
+        italic: c_int,
+        family: *const c_char,
+        out: *mut f64,
+    ) -> c_int;
+
     // lifecycle (docs/lifecycle.md): phase codes match day_spec::Lifecycle order.
     pub fn day_xaml_set_lifecycle_cb(cb: extern "C" fn(c_int));
 

@@ -37,6 +37,27 @@ pub fn stage(
             let dest = dir.join(f.staged_name());
             fs::copy(&f.path, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
         }
+        // The family NAMES, for the font list (docs/fonts.md): `R.font` idents are one-way, so
+        // `DayBridge.fontFamilies` reads this string-array to append the bundled families to
+        // what `fonts.xml` names.
+        let values = res.join("values");
+        fs::create_dir_all(&values).map_err(|e| format!("mkdir {}: {e}", values.display()))?;
+        let mut xml = String::from(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <string-array name=\"day_fonts\">\n",
+        );
+        for f in fonts {
+            let family = f
+                .family
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "\\\"")
+                .replace('\'', "\\'");
+            xml.push_str(&format!("        <item>{family}</item>\n"));
+        }
+        xml.push_str("    </string-array>\n</resources>\n");
+        fs::write(values.join("day_fonts.xml"), xml)
+            .map_err(|e| format!("stage day_fonts.xml: {e}"))?;
     }
     // Vectors (docs/vectors.md): the REAL vector form — a VectorDrawable in `drawable/`, which
     // `Resources.getIdentifier(name, "drawable", …)` resolves exactly like a PNG, resolution-

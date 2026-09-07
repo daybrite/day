@@ -1231,6 +1231,8 @@ pub enum Symbol {
     Group,
     /// Dissolve a group back into its members (two separated squares).
     Ungroup,
+    /// Text — a line of type as a drawing element (the drawing-tool "T").
+    Text,
 }
 
 /// The SF Symbol each standard symbol draws as — the system's own glyphs, so they match the
@@ -1295,6 +1297,7 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
         Symbol::Line => "line.diagonal",
         Symbol::Group => "square.on.square",
         Symbol::Ungroup => "square.on.square.dashed",
+        Symbol::Text => "textformat",
     }
 }
 
@@ -2042,6 +2045,17 @@ pub enum Cap {
     /// or one whose pointer API Day does not reach yet. Apps ask before offering an affordance
     /// that only a cursor reveals, such as a resize handle with no other visual.
     Cursor,
+    /// The toolkit can ENUMERATE the platform's font families with the faces each ships
+    /// ([`Toolkit::font_families`], docs/fonts.md). `Native` where an OS font database answers
+    /// (NSFontManager, UIFont, Pango, QFontDatabase, Android's `fonts.xml`,
+    /// `OH_Drawing_FontMgr`, DirectWrite); `Emulated` where the list is composed rather than
+    /// read — web-dom answers the CSS generic families plus the bundled `document.fonts`, since
+    /// a browser exposes no local font list without a permission prompt; `Unsupported` means
+    /// the list is empty and an app should offer only the default face. Measurement
+    /// ([`Toolkit::measure_text`]) has no probe: a `None` answer degrades to
+    /// [`TextMetrics::approximate`]. Probe this before offering a font menu, not before
+    /// drawing — a [`CanvasFont`] draws everywhere.
+    FontList,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -2809,12 +2823,16 @@ impl From<RadialGradient> for Paint {
 }
 
 /// How canvas text hangs on its `at` point (style rule: no bare bools in public APIs).
+///
+/// Both anchors are positions of the LINE BOX (ascent + descent at the font's size), the same
+/// box [`Toolkit::measure_text`] reports, so `at.y + TextMetrics::ascent` is the baseline for a
+/// `Leading` anchor on every backend.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum TextAnchor {
-    /// `at` is the top-leading corner.
+    /// `at` is the top-leading corner of the line box.
     #[default]
     Leading,
-    /// `at` is the center.
+    /// `at` is the center of the line box.
     Centered,
 }
 
@@ -2824,12 +2842,16 @@ pub enum DrawOp {
     /// Stroke `shape`. The paint may be a gradient, and [`StrokeStyle`] carries width, dash, cap
     /// and join — `Draw::stroke` builds the plain width-only case.
     Stroke(Shape, Paint, StrokeStyle),
+    /// One line of text. `size` is absolute canvas points (no accessibility scale — canvas
+    /// text is a label inside a drawing, docs/canvas.md); `font` picks the family, weight and
+    /// slant, and its default is the platform's own UI face.
     Text {
         text: String,
         at: Point,
         size: f64,
         color: Color,
         anchor: TextAnchor,
+        font: CanvasFont,
     },
     /// Intersect the clip with `shape`; everything drawn afterwards is confined to it.
     ///
@@ -2907,6 +2929,215 @@ pub enum FontWeight {
     Bold,
     Heavy,
     Black,
+}
+
+impl FontWeight {
+    /// Every rung, lightest first.
+    pub const ALL: [FontWeight; 9] = [
+        FontWeight::UltraLight,
+        FontWeight::Thin,
+        FontWeight::Light,
+        FontWeight::Regular,
+        FontWeight::Medium,
+        FontWeight::Semibold,
+        FontWeight::Bold,
+        FontWeight::Heavy,
+        FontWeight::Black,
+    ];
+
+    /// The CSS / OpenType numeric weight (100 … 900) — the one number every platform font API
+    /// also speaks (`Typeface.create(base, weight, italic)`, `QFont::Weight`,
+    /// `DWRITE_FONT_WEIGHT`, `OH_Drawing_FontWeight`), and what the canvas wire carries.
+    pub const fn css(self) -> u16 {
+        match self {
+            FontWeight::UltraLight => 100,
+            FontWeight::Thin => 200,
+            FontWeight::Light => 300,
+            FontWeight::Regular => 400,
+            FontWeight::Medium => 500,
+            FontWeight::Semibold => 600,
+            FontWeight::Bold => 700,
+            FontWeight::Heavy => 800,
+            FontWeight::Black => 900,
+        }
+    }
+
+    /// The nearest rung to a CSS weight (ties round heavier, like CSS font matching); anything
+    /// outside 100 … 900 clamps.
+    pub fn from_css(n: u16) -> FontWeight {
+        let n = n.clamp(100, 900);
+        let idx = (usize::from(n) + 50) / 100; // 100 → 1 … 900 → 9
+        FontWeight::ALL[idx.clamp(1, 9) - 1]
+    }
+
+    /// The English face name for a rung ("Semibold"), for platforms whose enumeration names
+    /// no face — see [`FontFace::synthesized_name`].
+    pub const fn name(self) -> &'static str {
+        match self {
+            FontWeight::UltraLight => "Ultra Light",
+            FontWeight::Thin => "Thin",
+            FontWeight::Light => "Light",
+            FontWeight::Regular => "Regular",
+            FontWeight::Medium => "Medium",
+            FontWeight::Semibold => "Semibold",
+            FontWeight::Bold => "Bold",
+            FontWeight::Heavy => "Heavy",
+            FontWeight::Black => "Black",
+        }
+    }
+}
+
+/// One face a font family ships (docs/fonts.md): its display name ("Bold Italic"), weight and
+/// slant. What [`FontFamilyInfo::faces`] lists and what a font menu's style picker offers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontFace {
+    pub name: String,
+    pub weight: FontWeight,
+    pub italic: bool,
+}
+
+impl FontFace {
+    /// A display name from weight + slant ("Semibold Italic") for platforms whose enumeration
+    /// API names no face (Android's `fonts.xml`, the CSS generic families).
+    pub fn synthesized_name(weight: FontWeight, italic: bool) -> String {
+        if italic {
+            format!("{} Italic", weight.name())
+        } else {
+            weight.name().to_string()
+        }
+    }
+}
+
+/// A platform (or bundled) font family and the faces it can draw canvas text in
+/// ([`Toolkit::font_families`], docs/fonts.md).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontFamilyInfo {
+    pub family: String,
+    pub faces: Vec<FontFace>,
+}
+
+impl FontFamilyInfo {
+    /// Whether any face is [`FontWeight::Bold`] or heavier.
+    pub fn has_bold(&self) -> bool {
+        self.faces.iter().any(|f| f.weight >= FontWeight::Bold)
+    }
+    /// Whether any face is italic.
+    pub fn has_italic(&self) -> bool {
+        self.faces.iter().any(|f| f.italic)
+    }
+    /// The nearest face: an exact slant match preferred, then the smallest weight distance
+    /// (ties go heavier, like CSS font matching). `None` only when the family lists no faces.
+    pub fn face_for(&self, weight: FontWeight, italic: bool) -> Option<&FontFace> {
+        let want = i32::from(weight.css());
+        self.faces.iter().min_by_key(|f| {
+            let slant = i32::from(f.italic != italic);
+            let dist = (i32::from(f.weight.css()) - want).abs();
+            // Heavier wins a tie: subtracting the bool sorts the heavier face first.
+            (slant, dist, i32::from(i32::from(f.weight.css()) < want))
+        })
+    }
+}
+
+/// Single-line text measurement in canvas points ([`Toolkit::measure_text`], docs/fonts.md).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextMetrics {
+    /// The advance width of the whole string.
+    pub width: f64,
+    /// The line box: ascent + descent at this size (plus the line gap where the engine reports
+    /// one), which is the box [`TextAnchor`] positions.
+    pub height: f64,
+    /// The baseline's offset from the TOP of the line box.
+    pub ascent: f64,
+}
+
+impl TextMetrics {
+    /// The portable guess `day::measure_text` falls back to when a toolkit cannot measure:
+    /// 0.6 × size per character, 1.2 × size tall, the baseline at 0.9 × size.
+    pub fn approximate(text: &str, size: f64) -> TextMetrics {
+        TextMetrics {
+            width: 0.6 * size * text.chars().count() as f64,
+            height: 1.2 * size,
+            ascent: 0.9 * size,
+        }
+    }
+}
+
+/// What canvas text is drawn WITH beyond its size (docs/canvas.md "Text"): a family, a weight and
+/// a slant. The default is the platform's own UI face, regular, upright — which is what every
+/// backend drew before the field existed, so a default font encodes to nothing on the wire.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct CanvasFont {
+    /// A platform or bundled family name (as [`Toolkit::font_families`] lists it); `None` =
+    /// the platform's default UI face.
+    pub family: Option<String>,
+    /// `None` = Regular.
+    pub weight: Option<FontWeight>,
+    pub italic: bool,
+}
+
+impl CanvasFont {
+    /// The family name to send over the wire — empty for the default.
+    pub fn family_str(&self) -> &str {
+        self.family.as_deref().unwrap_or("")
+    }
+    /// The CSS weight to send over the wire — 0 for the default.
+    pub fn css_weight(&self) -> u16 {
+        self.weight.map(FontWeight::css).unwrap_or(0)
+    }
+}
+
+/// Field separator inside one family of the shim-side font list ([`parse_font_list`]).
+pub const FONT_LIST_FIELD: char = '\u{1f}';
+/// Family separator of the shim-side font list ([`parse_font_list`]).
+pub const FONT_LIST_FAMILY: char = '\u{1e}';
+
+/// Decode the text a non-Rust font enumerator hands back (the Qt, XAML and ArkUI shims, the
+/// Android bridge, the web shim all produce this one format): families separated by U+001E;
+/// inside a family, U+001F-separated fields — the family name, then one (name, CSS weight,
+/// italic `0`/`1`) triple per face. Tolerant: a malformed face or family is skipped, an empty
+/// face name is synthesized from its weight and slant, and a family with no faces is kept
+/// with none (the caller decides what a face-less family means).
+pub fn parse_font_list(s: &str) -> Vec<FontFamilyInfo> {
+    let mut out = Vec::new();
+    for fam in s.split(FONT_LIST_FAMILY) {
+        let mut fields = fam.split(FONT_LIST_FIELD);
+        let Some(family) = fields.next().map(str::trim).filter(|f| !f.is_empty()) else {
+            continue;
+        };
+        let rest: Vec<&str> = fields.collect();
+        let mut faces = Vec::new();
+        for face in rest.chunks(3) {
+            let [name, weight, italic] = face else {
+                continue;
+            };
+            let Ok(weight) = weight.trim().parse::<u16>() else {
+                continue;
+            };
+            let weight = FontWeight::from_css(weight);
+            let italic = matches!(italic.trim(), "1" | "true");
+            let name = name.trim();
+            let name = if name.is_empty() {
+                FontFace::synthesized_name(weight, italic)
+            } else {
+                name.to_string()
+            };
+            if !faces
+                .iter()
+                .any(|f: &FontFace| f.weight == weight && f.italic == italic)
+            {
+                faces.push(FontFace {
+                    name,
+                    weight,
+                    italic,
+                });
+            }
+        }
+        out.push(FontFamilyInfo {
+            family: family.to_string(),
+            faces,
+        });
+    }
+    out
 }
 
 /// The full font descriptor a label carries: a semantic (or custom) [`Font`] style plus an optional
@@ -4749,6 +4980,23 @@ pub trait Toolkit: Sized + 'static {
         A11ySnapshot::default()
     }
     fn replay(&mut self, _h: &Self::Handle, _ops: &[DrawOp], _size: Size) {}
+
+    /// Every family this toolkit can draw canvas text in, with the faces each ships
+    /// (docs/fonts.md; probe [`Cap::FontList`]). Default: none. `day::font_families` calls
+    /// this once per process and caches the answer — enumeration is slow on every platform
+    /// (fontconfig, a DirectWrite collection, an XML parse on Android) and the set does not
+    /// change under a running app.
+    fn font_families(&mut self) -> Vec<FontFamilyInfo> {
+        Vec::new()
+    }
+
+    /// Measure one line of canvas text at `size` points in `font`, in the SAME engine
+    /// [`Toolkit::replay`] draws [`DrawOp::Text`] with, so a `TextAnchor::Leading` anchor plus
+    /// the returned `ascent` lands on the drawn baseline. `None` = cannot measure; the facade
+    /// then answers [`TextMetrics::approximate`].
+    fn measure_text(&mut self, _text: &str, _size: f64, _font: &CanvasFont) -> Option<TextMetrics> {
+        None
+    }
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
@@ -5198,12 +5446,18 @@ pub enum OpCode {
     /// Stroke style for the NEXT stroke record (a=cap, b=join, c=miter limit, d=dash
     /// phase, e=dash count; the dash array rides the texts channel).
     StrokeStyle = 18,
+    /// Font for the NEXT text record (a=CSS weight 100 … 900, 0 = default; b=italic 0/1); the
+    /// family name rides the texts channel, `""` = the platform's default face. Like
+    /// [`OpCode::SetGradient`] and [`OpCode::StrokeStyle`] it is consumed by the record that
+    /// follows and then cleared; a default [`CanvasFont`] emits no record at all, so a drawing
+    /// without fonts encodes exactly as it did before this op existed.
+    SetFont = 19,
 }
 
 impl OpCode {
     /// Every code, in wire order — the density test iterates this so a new variant that
     /// forgets to join fails loudly.
-    pub const ALL: [OpCode; 19] = [
+    pub const ALL: [OpCode; 20] = [
         OpCode::FillRect,
         OpCode::StrokeRect,
         OpCode::FillRrect,
@@ -5223,6 +5477,7 @@ impl OpCode {
         OpCode::StrokePath,
         OpCode::Clip,
         OpCode::StrokeStyle,
+        OpCode::SetFont,
     ];
 
     /// The code back from a wire number (a decoder-side aid and the round-trip test's
@@ -5624,7 +5879,26 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 size,
                 color,
                 anchor,
+                font,
             } => {
+                if *font != CanvasFont::default() {
+                    push(
+                        OpCode::SetFont,
+                        f64::from(font.css_weight()),
+                        f64::from(u8::from(font.italic)),
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        Color::CLEAR,
+                        &mut nums,
+                    );
+                    texts.push(
+                        font.family_str()
+                            .replace([FONT_LIST_FIELD, FONT_LIST_FAMILY], " "),
+                    );
+                }
                 push(
                     OpCode::Text,
                     at.x,
@@ -5681,6 +5955,117 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
         }
     }
     (nums, texts)
+}
+
+#[cfg(test)]
+mod font_list_tests {
+    use super::*;
+
+    #[test]
+    fn css_weights_round_trip_and_snap_to_the_nearest_rung() {
+        for w in FontWeight::ALL {
+            assert_eq!(FontWeight::from_css(w.css()), w);
+        }
+        assert_eq!(FontWeight::from_css(0), FontWeight::UltraLight);
+        assert_eq!(FontWeight::from_css(350), FontWeight::Regular); // ties go heavier
+        assert_eq!(FontWeight::from_css(649), FontWeight::Semibold);
+        assert_eq!(FontWeight::from_css(1200), FontWeight::Black);
+    }
+
+    fn sans() -> FontFamilyInfo {
+        FontFamilyInfo {
+            family: "Day Sans".into(),
+            faces: vec![
+                FontFace {
+                    name: "Regular".into(),
+                    weight: FontWeight::Regular,
+                    italic: false,
+                },
+                FontFace {
+                    name: "Bold".into(),
+                    weight: FontWeight::Bold,
+                    italic: false,
+                },
+                FontFace {
+                    name: "Light Italic".into(),
+                    weight: FontWeight::Light,
+                    italic: true,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn face_for_prefers_the_slant_then_the_nearest_weight() {
+        let f = sans();
+        assert!(f.has_bold() && f.has_italic());
+        assert_eq!(f.face_for(FontWeight::Bold, false).unwrap().name, "Bold");
+        assert_eq!(
+            f.face_for(FontWeight::Semibold, false).unwrap().name,
+            "Bold"
+        );
+        assert_eq!(
+            f.face_for(FontWeight::Medium, false).unwrap().name,
+            "Regular"
+        );
+        let tie = FontFamilyInfo {
+            family: "Tie".into(),
+            faces: vec![
+                FontFace {
+                    name: "Light".into(),
+                    weight: FontWeight::Light,
+                    italic: false,
+                },
+                FontFace {
+                    name: "Bold".into(),
+                    weight: FontWeight::Bold,
+                    italic: false,
+                },
+            ],
+        };
+        // Medium sits 200 from both; the heavier face wins the tie.
+        assert_eq!(
+            tie.face_for(FontWeight::Medium, false).unwrap().name,
+            "Bold"
+        );
+        assert_eq!(
+            f.face_for(FontWeight::Black, true).unwrap().name,
+            "Light Italic"
+        );
+        let none = FontFamilyInfo {
+            family: "Empty".into(),
+            faces: vec![],
+        };
+        assert!(none.face_for(FontWeight::Regular, false).is_none());
+        assert!(!none.has_bold());
+    }
+
+    #[test]
+    fn the_shim_list_format_decodes_tolerantly() {
+        let s = "Day Sans\u{1f}Regular\u{1f}400\u{1f}0\u{1f}\u{1f}700\u{1f}1\u{1f}Broken\u{1f}x\u{1f}0\
+                 \u{1e}\u{1e}Day Mono\u{1f}Regular\u{1f}400\u{1f}0\u{1e}Faceless";
+        let list = parse_font_list(s);
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0].family, "Day Sans");
+        assert_eq!(list[0].faces.len(), 2, "the bad weight is skipped");
+        assert_eq!(list[0].faces[1].name, "Bold Italic"); // synthesized from 700 + italic
+        assert_eq!(list[1].family, "Day Mono");
+        assert_eq!(list[2].family, "Faceless");
+        assert!(list[2].faces.is_empty());
+    }
+
+    #[test]
+    fn approximate_metrics_scale_with_size_and_length() {
+        let m = TextMetrics::approximate("abc", 10.0);
+        assert_eq!((m.width, m.height, m.ascent), (18.0, 12.0, 9.0));
+        assert_eq!(TextMetrics::approximate("", 10.0).width, 0.0);
+    }
+
+    #[test]
+    fn a_default_canvas_font_is_the_platform_face() {
+        let f = CanvasFont::default();
+        assert_eq!((f.family_str(), f.css_weight(), f.italic), ("", 0, false));
+    }
 }
 
 #[cfg(test)]
@@ -5761,6 +6146,19 @@ mod encode_ops_tests {
                 size: 12.0,
                 color: red,
                 anchor: TextAnchor::Leading,
+                font: CanvasFont::default(),
+            },
+            DrawOp::Text {
+                text: "bold".into(),
+                at: Point::new(7.0, 8.0),
+                size: 12.0,
+                color: red,
+                anchor: TextAnchor::Centered,
+                font: CanvasFont {
+                    family: Some("Day Sans".into()),
+                    weight: Some(FontWeight::Bold),
+                    italic: true,
+                },
             },
             DrawOp::Save,
             DrawOp::Concat(Affine::IDENTITY),
@@ -5782,7 +6180,8 @@ mod encode_ops_tests {
                 | OpCode::SetGradient
                 | OpCode::FillPath
                 | OpCode::StrokePath
-                | OpCode::StrokeStyle => 1,
+                | OpCode::StrokeStyle
+                | OpCode::SetFont => 1,
                 // Clip carries a payload only for its path (3) / polygon (4) sub-kinds.
                 OpCode::Clip => usize::from(rec[6] == 3.0 || rec[6] == 4.0),
                 _ => 0,
@@ -5812,12 +6211,21 @@ mod encode_ops_tests {
                 Clip,
                 Clip,
                 Text,
+                SetFont, // a non-default font precedes its text record…
+                Text,
                 Save,
                 Concat,
                 Restore,
             ]
         };
         assert_eq!(decoded, expected);
+        // …carrying the CSS weight and the slant, with the family on the texts channel.
+        let font_rec = nums
+            .chunks(9)
+            .find(|r| r[0] == OpCode::SetFont as i32 as f64)
+            .expect("SetFont record");
+        assert_eq!(&font_rec[1..3], &[700.0, 1.0]);
+        assert_eq!(texts.iter().filter(|t| *t == "Day Sans").count(), 1);
         // …with width 0, per the documented asymmetry.
         let arc = nums
             .chunks(9)

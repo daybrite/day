@@ -17,6 +17,10 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 linkme = { workspace = true }
 gtk4 = { version = "0.11", features = ["v4_10"] }
+# Canvas text (docs/fonts.md, DESIGN §11): a Pango layout drawn through cairo — family, weight,
+# slant, shaping and BiDi, where cairo's own "toy" text API has none. The C library is already
+# linked (gtk4.pc requires pangocairo); this is only the binding, from the same gtk-rs release.
+pangocairo = "0.22"
 # libadwaita: the desktop navigation paradigm (AdwNavigationSplitView / AdwNavigationView),
 # AdwApplicationWindow + AdwToolbarView chrome, AdwViewStack/AdwViewSwitcher tabs, and
 # AdwAlertDialog. v1_5 gates AdwAlertDialog; it is the version shipped by Ubuntu 24.04, so CI

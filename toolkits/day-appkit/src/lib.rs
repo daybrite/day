@@ -3325,18 +3325,10 @@ fn draw_op(op: &DrawOp) {
                 size,
                 color,
                 anchor,
+                font,
             } => {
-                let font = NSFont::systemFontOfSize(*size);
-                let col = nscolor(*color);
-                let keys: [&NSString; 2] = [
-                    objc2_app_kit::NSFontAttributeName,
-                    objc2_app_kit::NSForegroundColorAttributeName,
-                ];
-                let objs: [&objc2::runtime::AnyObject; 2] = [
-                    font.as_ref() as &objc2::runtime::AnyObject,
-                    col.as_ref() as &objc2::runtime::AnyObject,
-                ];
-                let attrs = objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+                let font = canvas_nsfont(*size, font);
+                let attrs = canvas_text_attrs(&font, *color);
                 let ns = NSString::from_str(text);
                 let mut origin = NSPoint::new(at.x, at.y);
                 if *anchor == day_spec::TextAnchor::Centered {
@@ -4132,6 +4124,85 @@ fn ns_weight(w: day_spec::FontWeight) -> objc2_app_kit::NSFontWeight {
     }
 }
 
+/// The `NSFontManager` weight rung (0 … 15) for a Day weight — the scale
+/// `fontWithFamily:traits:weight:size:` matches faces on (5 = regular, 9 = bold).
+fn nsfm_weight(w: day_spec::FontWeight) -> isize {
+    use day_spec::FontWeight as W;
+    match w {
+        W::UltraLight => 2,
+        W::Thin => 3,
+        W::Light => 4,
+        W::Regular => 5,
+        W::Medium => 6,
+        W::Semibold => 8,
+        W::Bold => 9,
+        W::Heavy => 10,
+        W::Black => 12,
+    }
+}
+
+/// Resolve a canvas font (docs/fonts.md) at an absolute size: the system face for `None`,
+/// else the family's nearest member through `NSFontManager` (which also synthesizes a bold or
+/// italic the family lacks), falling back to a PostScript/full-name lookup (a bundled font
+/// registered in `run`) and then to the system font with one warning.
+fn canvas_nsfont(size: f64, font: &day_spec::CanvasFont) -> Retained<NSFont> {
+    use objc2_app_kit::*;
+    let weight = font.weight.unwrap_or(day_spec::FontWeight::Regular);
+    let mtm = objc2::MainThreadMarker::new().expect("canvas draws on the main thread");
+    let manager = unsafe { NSFontManager::sharedFontManager(mtm) };
+    let mut traits = NSFontTraitMask::empty();
+    if weight >= day_spec::FontWeight::Semibold {
+        traits |= NSFontTraitMask::BoldFontMask;
+    }
+    if font.italic {
+        traits |= NSFontTraitMask::ItalicFontMask;
+    }
+    let Some(family) = font.family.as_deref() else {
+        let base = unsafe { NSFont::systemFontOfSize_weight(size, ns_weight(weight)) };
+        return if font.italic {
+            unsafe { manager.convertFont_toHaveTrait(&base, NSFontTraitMask::ItalicFontMask) }
+        } else {
+            base
+        };
+    };
+    let ns_family = NSString::from_str(family);
+    if let Some(f) = unsafe {
+        manager.fontWithFamily_traits_weight_size(&ns_family, traits, nsfm_weight(weight), size)
+    } {
+        return f;
+    }
+    if let Some(f) = unsafe { NSFont::fontWithName_size(&ns_family, size) } {
+        return if traits.is_empty() {
+            f
+        } else {
+            unsafe { manager.convertFont_toHaveTrait(&f, traits) }
+        };
+    }
+    log::warn!("unknown font family {family:?} — drawing canvas text in the system font");
+    unsafe { NSFont::systemFontOfSize_weight(size, ns_weight(weight)) }
+}
+
+/// The attribute dictionary canvas text draws and measures with (the same one, so
+/// `measure_text` and `replay` agree on the line box).
+fn canvas_text_attrs(
+    font: &NSFont,
+    color: day_spec::Color,
+) -> Retained<objc2_foundation::NSDictionary<NSString, objc2::runtime::AnyObject>> {
+    let col = nscolor(color);
+    // SAFETY: both are AppKit's own attribute-name constants, valid for the process lifetime.
+    let keys: [&NSString; 2] = unsafe {
+        [
+            objc2_app_kit::NSFontAttributeName,
+            objc2_app_kit::NSForegroundColorAttributeName,
+        ]
+    };
+    let objs: [&objc2::runtime::AnyObject; 2] = [
+        font as &objc2::runtime::AnyObject,
+        col.as_ref() as &objc2::runtime::AnyObject,
+    ];
+    objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs)
+}
+
 /// Resolve a [`FontSpec`] to a native `NSFont`: a semantic style via `preferredFont(forTextStyle:)`
 /// (or a custom system size), then an optional weight override (at the same size) and italic trait.
 fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
@@ -4545,6 +4616,8 @@ impl Toolkit for AppKit {
             // help, and move take the arrow — AppKit draws no such shapes — and the zoom and
             // diagonal-resize cursors need macOS 15.
             Cap::Cursor => Support::Native,
+            // `NSFontManager` enumerates every family and member (docs/fonts.md).
+            Cap::FontList => Support::Native,
             Cap::Snapshot
             | Cap::NativeSymbols
             // The rows as chrome: `Rail` is the same source list pinned narrow, `Tabs` an
@@ -6899,6 +6972,90 @@ impl Toolkit for AppKit {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         let content = self.content.as_ref().ok_or("no window content")?;
         snapshot_view(content)
+    }
+
+    /// `NSFontManager.availableFontFamilies` + `availableMembersOfFontFamily:`, whose members
+    /// are `[postscriptName, styleName, weight 0 … 15, traits]` (docs/fonts.md). The `.`-prefixed
+    /// families are the system's private UI faces and are skipped, as Font Book skips them.
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        use day_spec::FontWeight as W;
+        let mtm = objc2::MainThreadMarker::new().expect("day-appkit runs on the main thread");
+        let manager = unsafe { objc2_app_kit::NSFontManager::sharedFontManager(mtm) };
+        let mut out = Vec::new();
+        for family in unsafe { manager.availableFontFamilies() }.iter() {
+            let name = family.to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            let mut faces = Vec::new();
+            if let Some(members) = unsafe { manager.availableMembersOfFontFamily(&family) } {
+                for member in members.iter() {
+                    if member.count() < 4 {
+                        continue;
+                    }
+                    let style = member
+                        .objectAtIndex(1)
+                        .downcast_ref::<NSString>()
+                        .map(|s| s.to_string())
+                        .unwrap_or_default();
+                    let weight = member
+                        .objectAtIndex(2)
+                        .downcast_ref::<objc2_foundation::NSNumber>()
+                        .map(|n| n.integerValue())
+                        .unwrap_or(5);
+                    let traits = member
+                        .objectAtIndex(3)
+                        .downcast_ref::<objc2_foundation::NSNumber>()
+                        .map(|n| n.integerValue())
+                        .unwrap_or(0);
+                    let weight = match weight {
+                        ..=2 => W::UltraLight,
+                        3 => W::Thin,
+                        4 => W::Light,
+                        5 => W::Regular,
+                        6 => W::Medium,
+                        7 | 8 => W::Semibold,
+                        9 => W::Bold,
+                        10 | 11 => W::Heavy,
+                        _ => W::Black,
+                    };
+                    let italic = traits & 0x1 != 0; // NSItalicFontMask
+                    faces.push(day_spec::FontFace {
+                        name: if style.is_empty() {
+                            day_spec::FontFace::synthesized_name(weight, italic)
+                        } else {
+                            style
+                        },
+                        weight,
+                        italic,
+                    });
+                }
+            }
+            out.push(day_spec::FontFamilyInfo {
+                family: name,
+                faces,
+            });
+        }
+        out
+    }
+
+    /// `sizeWithAttributes:` with the attributes `replay` draws with; the ascent is the
+    /// font's own, so `at.y + ascent` is where the glyphs' baseline lands.
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        let nsfont = canvas_nsfont(size, font);
+        let attrs = canvas_text_attrs(&nsfont, day_spec::Color::BLACK);
+        let ns = NSString::from_str(text);
+        let sz: NSSize = unsafe { msg_send![&ns, sizeWithAttributes: &*attrs] };
+        Some(day_spec::TextMetrics {
+            width: sz.width,
+            height: sz.height,
+            ascent: nsfont.ascender(),
+        })
     }
 
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {

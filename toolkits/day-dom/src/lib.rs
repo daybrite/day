@@ -149,6 +149,21 @@ unsafe extern "C" {
     /// until the socket is open and drops the line when scripting is not armed).
     fn day_dom_script_send(ptr: *const u8, len: usize);
     fn day_dom_env(key: *const u8, kl: usize, out: *mut u8, cap: usize) -> usize;
+    /// The page's font list in Day's list text (docs/fonts.md) — the CSS generic families plus
+    /// the bundled `document.fonts` faces — by the `day_dom_env` buffer protocol.
+    fn day_dom_fonts(out: *mut u8, cap: usize) -> usize;
+    /// Measure one line of canvas text with the CSS font the canvas replay draws it in;
+    /// `out` receives width, height and ascent (three f64).
+    fn day_dom_canvas_measure_text(
+        text: *const u8,
+        len: usize,
+        size: f64,
+        weight: u32,
+        italic: u32,
+        fam: *const u8,
+        fam_len: usize,
+        out: *mut f64,
+    );
     /// Apply an appearance override on the page: 0 light, 1 dark, 2 follow the browser's
     /// `prefers-color-scheme`. Returns the effective mode (0/1) after applying.
     fn day_dom_set_dark(mode: u32) -> u32;
@@ -1239,6 +1254,11 @@ impl Toolkit for Dom {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // Composed, not read: the CSS generic families plus the bundled `document.fonts`
+            // faces. A browser lists local fonts only through `queryLocalFonts()` — Chromium
+            // only, asynchronous, behind a permission prompt — so the list is what CSS can
+            // name for certain (docs/fonts.md).
+            Cap::FontList => Support::Emulated,
             // An inline `cursor` style per element (docs/cursor.md); a coarse pointer never shows it.
             Cap::Cursor => Support::Native,
             // A statement about the toolkit, not about the current window: web-dom can always
@@ -2309,6 +2329,57 @@ impl Toolkit for Dom {
         };
     }
 
+    /// The shim's list (docs/fonts.md): CSS generic families with synthesized faces (a browser
+    /// synthesizes bold and italic for any family) plus each bundled `FontFace`, read by the
+    /// same grow-and-retry protocol as `env`.
+    fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
+        let mut cap = 4096usize;
+        let text = loop {
+            let mut buf = vec![0u8; cap];
+            let n = unsafe { day_dom_fonts(buf.as_mut_ptr(), buf.len()) };
+            if n > cap {
+                cap = n;
+                continue;
+            }
+            if n == cap {
+                cap *= 2;
+                continue;
+            }
+            buf.truncate(n);
+            break String::from_utf8_lossy(&buf).into_owned();
+        };
+        day_spec::parse_font_list(&text)
+    }
+
+    /// `CanvasRenderingContext2D.measureText` with the CSS font the replay draws in
+    /// (docs/fonts.md).
+    fn measure_text(
+        &mut self,
+        text: &str,
+        size: f64,
+        font: &day_spec::CanvasFont,
+    ) -> Option<day_spec::TextMetrics> {
+        let family = font.family_str();
+        let mut out = [0.0f64; 3];
+        unsafe {
+            day_dom_canvas_measure_text(
+                text.as_ptr(),
+                text.len(),
+                size,
+                u32::from(font.css_weight()),
+                u32::from(font.italic),
+                family.as_ptr(),
+                family.len(),
+                out.as_mut_ptr(),
+            )
+        };
+        Some(day_spec::TextMetrics {
+            width: out[0],
+            height: out[1],
+            ascent: out[2],
+        })
+    }
+
     fn ui_idle(&mut self) -> bool {
         true
     }
@@ -3191,9 +3262,12 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                 size,
                 color,
                 anchor,
+                font,
             } => {
                 let off = strs.len() as f64;
                 strs.extend_from_slice(text.as_bytes());
+                let fam_off = strs.len() as f64;
+                strs.extend_from_slice(font.family_str().as_bytes());
                 buf.extend([
                     2.0,
                     pack_color(*color),
@@ -3206,6 +3280,11 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                     at.y,
                     off,
                     text.len() as f64,
+                    // The font (docs/fonts.md): CSS weight (0 = default), italic, family bytes.
+                    f64::from(font.css_weight()),
+                    f64::from(u8::from(font.italic)),
+                    fam_off,
+                    font.family_str().len() as f64,
                 ]);
             }
             DrawOp::Save => buf.push(3.0),

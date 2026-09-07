@@ -20,6 +20,11 @@ public class DayCanvasView extends View {
     private int sCap = 0, sJoin = 0;
     private float sMiter = 10f, sPhase = 0f;
     private float[] sDash = null;
+    // A decoded kind-19 record (font), applied to the NEXT text record only (docs/fonts.md).
+    private boolean fontPending = false;
+    private int fWeight = 0;
+    private boolean fItalic = false;
+    private String fFamily = "";
 
     public DayCanvasView(Context c) { super(c); }
 
@@ -113,17 +118,28 @@ public class DayCanvasView extends View {
                 case 5: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g);
                         cv.drawArc(new RectF(a, b, a+c, b+d), e, f, false, paint); break;
                 case 6: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawLine(a, b, c, d, paint); break;
-                case 7: {
+                case 7: { // text at (a,b); e=size, f=anchor (0 top-leading / 1 centered)
                     String t = ti < texts.length ? texts[ti++] : "";
                     paint.setStyle(Paint.Style.FILL);
                     paint.setTextSize(e);
-                    float x = a, y = b;
+                    paint.setTypeface(fontPending ? DayBridge.canvasTypeface(fFamily, fWeight, fItalic) : null);
+                    // drawText takes the BASELINE; both anchors position the line box
+                    // (ascent + descent, Skia-style: ascent negative), the box measureText reports.
+                    Paint.FontMetrics fm = paint.getFontMetrics();
+                    float x = a, y = b - fm.ascent;
                     if (f > 0.5f) {
                         x -= paint.measureText(t) / 2f;
-                        y += (paint.getFontMetrics().descent - paint.getFontMetrics().ascent) / 2f
-                                - paint.getFontMetrics().descent;
+                        y = b - (fm.ascent + fm.descent) / 2f;
                     }
                     cv.drawText(t, x, y, paint);
+                    paint.setTypeface(null);
+                    break;
+                }
+                case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+                    fFamily = ti < texts.length ? texts[ti++] : "";
+                    fWeight = (int) a;
+                    fItalic = b > 0.5f;
+                    fontPending = true;
                     break;
                 }
                 case 8: cv.save(); break;
@@ -269,8 +285,10 @@ public class DayCanvasView extends View {
                     break;
                 }
             }
-            // A style record applies to ONE stroke, so anything else clears it.
+            // A style record applies to ONE stroke, so anything else clears it; a font record
+            // likewise applies to one text.
             if (k != 18) stylePending = false;
+            if (k != 19) fontPending = false;
         }
         cv.restore();
     }

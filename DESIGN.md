@@ -790,6 +790,8 @@ app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator
 
 // drawing (§11, docs/shapes.md)
 canvas(draw_fn)
+    d.text(s, at, TextStyle { size, color, anchor, font })   // one line, in a CanvasFont (docs/fonts.md)
+font_families()   measure_text(s, size, &font)    // the platform font list (Cap::FontList), text metrics
 rectangle()  rounded_rectangle(r)  circle()  capsule()  ellipse()  arc(start, sweep)
 line(a, b)  polygon(points)        // unit-point kinds over the existing Line/Polygon ops
     .fill(color) / .fill_linear(g) / .fill_radial(g) / .stroke(color, w)
@@ -1283,7 +1285,8 @@ pub trait Toolkit: Sized + 'static {
 
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
-    // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck)
+    // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
+    // …, Cursor, FontList)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1399,6 +1402,8 @@ pub trait Toolkit: Sized + 'static {
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13
     fn read_a11y(&self, h) -> A11ySnapshot { … }                      // the a11y_audit's native read
     fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11
+    fn font_families(&mut self) -> Vec<FontFamilyInfo> { … }          // the platform font list (Cap::FontList, docs/fonts.md)
+    fn measure_text(&mut self, text, size, font: &CanvasFont) -> Option<TextMetrics> { … } // canvas text metrics
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14, docs/window-image.md
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> { … } // + titlebar/status bar
     fn ui_idle(&mut self) -> bool { true }                            // transitions settled? (screenshots)
@@ -2053,6 +2058,14 @@ made native nav containers possible without a scaffold migration.
 > fractional placement via `.at(fx, fy, fw, fh)`, and `shape_group` / `shape_group_fn` — many
 > shape descriptions flattened into ONE canvas leaf ([docs/shapes.md](docs/shapes.md) §3.6; Day Skies' weather
 > glyphs and range bars are the reference consumers).
+>
+> **2026-09 — canvas fonts.** `DrawOp::Text` carries a `CanvasFont` (family, weight, slant) and
+> the wire gained `OpCode::SetFont`; both anchors now position the line box on every backend
+> (five backends drew `Leading` at the baseline before). GTK moved from cairo's toy text API to
+> PangoCairo as this section always prescribed, and XAML text rotates with the CTM. Two
+> defaulted duties arrived with it — `font_families()` (`Cap::FontList`) and `measure_text()` —
+> so a drawing app can offer the platform's font list and frame its text
+> ([docs/fonts.md](docs/fonts.md); Day Sketch's Text node is the reference consumer).
 
 ```rust
 pub fn gauge(value: Signal<f64>) -> impl Piece {
@@ -2060,7 +2073,8 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
         let r = Rect::from_size(size).inset(8.0);
         d.stroke(arc_path(r, 135.0, 270.0), Color::rgba(0.5, 0.5, 0.55, 0.35), 6.0);
         d.stroke(arc_path(r, 135.0, 270.0 * value.get() / 100.0), Color::hex(0x2F6FDE), 6.0);
-        d.text(&format!("{:.0}", value.get()), r.center(), TextAnchor::Center, Font::Title);
+        d.text(&format!("{:.0}", value.get()), r.center(),
+               TextStyle { size: 22.0, color: Color::hex(0x2F6FDE), anchor: TextAnchor::Centered, ..Default::default() });
     })
     .frame(120.0, 120.0)
     .a11y(|a| a.role(Role::Meter))
@@ -2081,7 +2095,10 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
   Day never rasterizes text. Per-toolkit shaping engines are pinned in the design because the
   defaults are traps: **PangoCairo** on GTK (cairo's "toy" text API has no shaping or BiDi),
   CoreText on apple targets, `QPainter::drawText` (harfbuzz underneath) on Qt,
-  `android.graphics.Canvas.drawText` (minikin), DirectWrite via the XAML shim.
+  `android.graphics.Canvas.drawText` (minikin), a `TextBlock` in the XAML shim. The op carries a
+  `CanvasFont` — a family from the platform list (`font_families()`, [docs/fonts.md](docs/fonts.md)),
+  a weight, a slant — at an absolute size, and `measure_text()` answers the line box the anchors
+  position, from the same engine.
 - Pointer/key events opt in: `.on_pointer(f)`. Accessibility of canvas content: MVP = the canvas
   node is one a11y element (label/value/role as above); **virtual child elements**
   (`UIAccessibilityElement` / `AccessibilityNodeProvider` / … ) are specified as a post-MVP

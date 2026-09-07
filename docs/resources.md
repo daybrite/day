@@ -128,6 +128,9 @@ opener once via `day_core::set_resource_opener`; absent that, the default mmap-f
 
 ## Fonts: `Font::custom(res::fonts::family, pt)` (§18.4)
 
+Bundled families also appear in `day::font_families()` and draw on a canvas through
+`CanvasFont` — see [docs/fonts.md](fonts.md).
+
 `resource/fonts/*.{ttf,otf}` are referenced by the **family name** embedded in the file's sfnt `name`
 table, never by file name. One invariant makes the name resolve everywhere without a side
 table. `day build` parses the name table (`day_spec::fonts::parse_font_names`, a ~100-line

@@ -21,7 +21,7 @@ SwiftUI-like terseness where it doesn't. The rule, in priority order:
    fields at the call site. This is the closest Rust gets to named arguments:
 
    ```rust
-   d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::Centered });
+   d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::Centered, ..Default::default() });
    ```
 
    This is already the house style at the spec boundary (`NavProps { title, split }`,

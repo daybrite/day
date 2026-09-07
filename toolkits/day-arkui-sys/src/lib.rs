@@ -244,6 +244,22 @@ unsafe extern "C" {
 
     /// Release a PNG buffer returned by [`day_ark_snapshot_png`]. Safe to call with null.
     pub fn day_ark_snapshot_free(p: *mut c_void);
+
+    // Canvas fonts (docs/fonts.md).
+    /// The font manager's families and faces in Day's font-list text. Returns 1 with a heap
+    /// string in `*out` (release with [`day_ark_string_free`]), else 0.
+    pub fn day_ark_font_families(out: *mut *mut c_char, out_len: *mut usize) -> i32;
+    /// Release a string returned by [`day_ark_font_families`]. Safe to call with null.
+    pub fn day_ark_string_free(p: *mut c_void);
+    /// Measure one line of canvas text; `out` (3 doubles) receives width, height, ascent.
+    pub fn day_ark_measure_text(
+        text: *const c_char,
+        size: f64,
+        weight: i32,
+        italic: i32,
+        family: *const c_char,
+        out: *mut f64,
+    ) -> i32;
 }
 
 /// Parity test for the event-kind wire table: shim.cpp's `DAY_K_*` defines must mirror
