@@ -3105,7 +3105,9 @@ with an outline hint). Normative: [docs/icons.md](docs/icons.md).
 #### `day sign`
 
 Per-format truth as designed: `.app`/`.dmg` = `codesign` + `notarytool` + `stapler`; `.apk` =
-`apksigner`; `.aab` = Gradle signingConfig; ios = App Store Connect API-key signing; windows =
+`apksigner`; `.aab` = Gradle signingConfig; ios = App Store Connect API-key signing, exporting
+manually over an installed App Store profile when one covers the app id (an API key cannot use
+Xcode's cloud-managed distribution certificate); windows =
 self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
 variable degrades that section to the dev tier LOUDLY (ad-hoc / debug keystore / self-signed),
 it never fails the pack; `day sign --check` reports readiness without printing any secret.

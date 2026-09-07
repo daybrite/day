@@ -799,11 +799,55 @@ pub(crate) struct InstalledProfile {
     pub path: PathBuf,
 }
 
+/// An installed App Store distribution profile that covers a given app id: what a manual
+/// `-exportArchive` names, with the certificate it lists (`pack/ios.rs`).
+pub(crate) struct InstalledStoreProfile {
+    pub name: String,
+    pub uuid: String,
+    /// SHA-1 fingerprint of the profile's first certificate — the `signingCertificate` an
+    /// ExportOptions plist takes, which picks that one identity out of a keychain holding several.
+    pub cert_sha1: String,
+}
+
 /// The installed development profile whose app id matches `app_id`. Profiles are CMS signed, so
-/// `security cms -D` does the decoding rather than a plist parse.
+/// `security cms -D` does the decoding rather than a plist parse. An App Store profile for the
+/// same id is skipped: it provisions no devices, so a device build signed with it will not
+/// install (`installed_store_profile` is where a pack finds it).
 pub(crate) fn installed_profile(app_id: &str) -> Option<InstalledProfile> {
-    let dir = dirs_home()?.join("Library/MobileDevice/Provisioning Profiles");
-    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+    decoded_profiles(app_id)
+        .into_iter()
+        .find(|(_, text)| !is_store_profile(text))
+        .map(|(path, text)| InstalledProfile {
+            name: profile_string(&text, "Name"),
+            path,
+        })
+}
+
+/// The installed App Store profile whose app id matches `app_id`, with its signing certificate's
+/// fingerprint (`None` when the fingerprint cannot be read — the export then stays automatic).
+pub(crate) fn installed_store_profile(app_id: &str) -> Option<InstalledStoreProfile> {
+    let (path, text) = decoded_profiles(app_id)
+        .into_iter()
+        .find(|(_, text)| is_store_profile(text))?;
+    let cert_sha1 = profile_cert_sha1(&path)?;
+    Some(InstalledStoreProfile {
+        name: profile_string(&text, "Name"),
+        uuid: profile_string(&text, "UUID"),
+        cert_sha1,
+    })
+}
+
+/// Every installed profile whose `application-identifier` names `app_id`, decoded.
+fn decoded_profiles(app_id: &str) -> Vec<(PathBuf, String)> {
+    let mut found = Vec::new();
+    let Some(dir) = dirs_home().map(|h| h.join("Library/MobileDevice/Provisioning Profiles"))
+    else {
+        return found;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return found;
+    };
+    for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("mobileprovision") {
             continue;
@@ -818,38 +862,95 @@ pub(crate) fn installed_profile(app_id: &str) -> Option<InstalledProfile> {
         if !out.status.success() {
             continue;
         }
-        let text = String::from_utf8_lossy(&out.stdout);
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
         // `<key>application-identifier</key><string>TEAMID.app.bundle.id</string>`
-        let Some(after) = text.split("application-identifier").nth(1) else {
-            continue;
-        };
-        let Some(value) = after
-            .split("<string>")
+        let Some(value) = text
+            .split("application-identifier")
             .nth(1)
+            .and_then(|a| a.split("<string>").nth(1))
             .and_then(|v| v.split("</string>").next())
         else {
             continue;
         };
-        let value = value.trim();
-        if let Some((team, id)) = value.split_once('.')
-            && id == app_id
+        if value
+            .trim()
+            .split_once('.')
+            .is_some_and(|(_, id)| id == app_id)
         {
-            let name = text
-                .split("<key>Name</key>")
-                .nth(1)
-                .and_then(|v| v.split("<string>").nth(1))
-                .and_then(|v| v.split("</string>").next())
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let _ = team;
-            return Some(InstalledProfile {
-                name,
-                path: path.clone(),
-            });
+            found.push((path, text));
         }
     }
-    None
+    found
+}
+
+/// An App Store profile provisions no devices and is not an enterprise (all-devices) profile.
+fn is_store_profile(text: &str) -> bool {
+    !text.contains("<key>ProvisionedDevices</key>")
+        && !text.contains("<key>ProvisionsAllDevices</key>")
+}
+
+/// The string value of a top-level `key` in a decoded profile plist.
+fn profile_string(text: &str, key: &str) -> String {
+    text.split(&format!("<key>{key}</key>"))
+        .nth(1)
+        .and_then(|v| v.split("<string>").nth(1))
+        .and_then(|v| v.split("</string>").next())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// SHA-1 fingerprint of a profile's first developer certificate, via the same decode the device
+/// signing path uses (`security cms` → `plutil` → `openssl x509`).
+fn profile_cert_sha1(profile: &Path) -> Option<String> {
+    let tmp = std::env::temp_dir().join("day-ios-export");
+    std::fs::create_dir_all(&tmp).ok()?;
+    let plist = tmp.join("profile.plist");
+    let ok = Command::new("security")
+        .args(["cms", "-D", "-i"])
+        .arg(profile)
+        .arg("-o")
+        .arg(&plist)
+        .status()
+        .ok()?
+        .success();
+    if !ok {
+        return None;
+    }
+    let b64 = Command::new("plutil")
+        .args(["-extract", "DeveloperCertificates.0", "raw", "-o", "-"])
+        .arg(&plist)
+        .output()
+        .ok()?;
+    if !b64.status.success() {
+        return None;
+    }
+    let der = tmp.join("signer.der");
+    let decoded = Command::new("base64")
+        .arg("-d")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            use std::io::Write;
+            if let Some(mut stdin) = c.stdin.take() {
+                stdin.write_all(&b64.stdout)?;
+            }
+            c.wait_with_output()
+        })
+        .ok()?;
+    std::fs::write(&der, &decoded.stdout).ok()?;
+    let fp = Command::new("openssl")
+        .args(["x509", "-inform", "DER", "-in"])
+        .arg(&der)
+        .args(["-noout", "-fingerprint", "-sha1"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&fp.stdout)
+        .split('=')
+        .nth(1)
+        .map(|v| v.trim().replace(':', ""))
+        .filter(|v| !v.is_empty())
 }
 
 fn dirs_home() -> Option<std::path::PathBuf> {

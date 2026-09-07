@@ -151,9 +151,29 @@ pub fn pack(
     run_tool(&mut cmd, "xcodebuild archive").map_err(PackError::Sign)?;
 
     // --- export (.ipa) -------------------------------------------------------
+    // Manual over an installed App Store profile when there is one: an AUTOMATIC export asks
+    // Xcode's cloud-managed signing for the distribution certificate, which an App Manager
+    // API key is not allowed to use ("Cloud signing permission error", then "No profiles for
+    // '<id>' were found" even with one installed). A profile the developer created and
+    // installed, with its certificate in the keychain, exports without that service.
+    let store_profile = crate::mobile::installed_store_profile(&project.manifest.app.id);
+    if let Some(p) = &store_profile {
+        status(
+            "Signing",
+            &format!("manual export with {} ({})", p.name, p.uuid),
+        );
+    }
     let export_plist = build_dir.join("ExportOptions.plist");
-    std::fs::write(&export_plist, export_options(&method, &team))
-        .map_err(|e| PackError::Other(e.to_string()))?;
+    std::fs::write(
+        &export_plist,
+        export_options(
+            &method,
+            &team,
+            &project.manifest.app.id,
+            store_profile.as_ref(),
+        ),
+    )
+    .map_err(|e| PackError::Other(e.to_string()))?;
     let export_dir = build_dir.join("export");
     let _ = std::fs::remove_dir_all(&export_dir);
     status("Packing", &format!("xcodebuild -exportArchive ({method})"));
@@ -209,16 +229,34 @@ fn resolve_field(raw: Option<&String>, what: &str) -> Result<Option<String>, Pac
     }
 }
 
-/// ExportOptions for automatic signing; Xcode ≥15.4 names ("app-store-connect", "release-testing").
-pub(crate) fn export_options(method: &str, team: &str) -> String {
+/// ExportOptions; Xcode ≥15.4 method names ("app-store-connect", "release-testing"). Automatic
+/// signing, or manual over an installed App Store `profile` for `app_id` (its UUID and the
+/// SHA-1 of its certificate, which names one identity even when the keychain holds several).
+pub(crate) fn export_options(
+    method: &str,
+    team: &str,
+    app_id: &str,
+    profile: Option<&crate::mobile::InstalledStoreProfile>,
+) -> String {
+    let signing = match profile {
+        Some(p) => format!(
+            r#"  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>{}</string>
+  <key>provisioningProfiles</key><dict>
+    <key>{app_id}</key><string>{}</string>
+  </dict>
+"#,
+            p.cert_sha1, p.uuid
+        ),
+        None => "  <key>signingStyle</key><string>automatic</string>\n".to_string(),
+    };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>method</key><string>{method}</string>
   <key>teamID</key><string>{team}</string>
-  <key>signingStyle</key><string>automatic</string>
-  <key>uploadSymbols</key><true/>
+{signing}  <key>uploadSymbols</key><true/>
   <key>destination</key><string>export</string>
 </dict></plist>
 "#
@@ -415,10 +453,33 @@ mod tests {
 
     #[test]
     fn export_options_plist_shape() {
-        let plist = export_options("app-store-connect", "TEAM123");
+        let plist = export_options("app-store-connect", "TEAM123", "dev.example.app", None);
         assert!(plist.contains("<key>method</key><string>app-store-connect</string>"));
         assert!(plist.contains("<key>teamID</key><string>TEAM123</string>"));
         assert!(plist.contains("<key>signingStyle</key><string>automatic</string>"));
+        assert!(!plist.contains("provisioningProfiles"));
+    }
+
+    #[test]
+    fn export_options_manual_over_installed_profile() {
+        let profile = crate::mobile::InstalledStoreProfile {
+            name: "Example AppStore".into(),
+            uuid: "f33f4b74-2104-48e9-808c-ed82515fa918".into(),
+            cert_sha1: "0FD8A837309AC6BC2675F014736B8BE4E9AEF17C".into(),
+        };
+        let plist = export_options(
+            "app-store-connect",
+            "TEAM123",
+            "dev.example.app",
+            Some(&profile),
+        );
+        assert!(plist.contains("<key>signingStyle</key><string>manual</string>"));
+        assert!(plist.contains(
+            "<key>signingCertificate</key><string>0FD8A837309AC6BC2675F014736B8BE4E9AEF17C</string>"
+        ));
+        assert!(plist.contains(
+            "<key>dev.example.app</key><string>f33f4b74-2104-48e9-808c-ed82515fa918</string>"
+        ));
     }
 
     #[test]
