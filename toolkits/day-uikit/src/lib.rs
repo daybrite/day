@@ -5942,13 +5942,13 @@ mod imp {
                 | Cursor::Alias
                 | Cursor::Grab
                 | Cursor::Grabbing => {
-                    let Some(p) = preview() else { return None };
+                    let p = preview()?;
                     let effect: Retained<UIPointerEffect> =
                         Retained::into_super(UIPointerHighlightEffect::effectWithPreview(&p));
                     unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
                 }
                 Cursor::Move => {
-                    let Some(p) = preview() else { return None };
+                    let p = preview()?;
                     let effect: Retained<UIPointerEffect> =
                         Retained::into_super(UIPointerLiftEffect::effectWithPreview(&p));
                     unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
@@ -7614,33 +7614,8 @@ mod imp {
                     if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>() {
                         // A `.tabSidebar` host has no `NavState` — it is not a navigation stack — so
                         // this is handled before that lookup.
-                        let i = *i;
-                        let hp = ptr_of(h);
-                        let found = NAV_TABS.with(|m| {
-                            let m = m.borrow();
-                            let t = m.get(&hp)?;
-                            Some((t.tabbar.clone(), t.tabs.get(i).cloned(), t.vcs.len()))
-                        });
-                        if let Some((tabbar, tab, pages)) = found {
-                            NAV_TABS.with(|m| {
-                                if let Some(t) = m.borrow().get(&hp) {
-                                    t.suppress.set(true);
-                                }
-                            });
-                            match tab {
-                                // `setSelectedTab`, not `setSelectedIndex`: the tab is the
-                                // identity now, and an index only ever meant "the nth ROOT tab".
-                                Some(tab) => unsafe { tabbar.setSelectedTab(Some(&tab)) },
-                                // No tabs means the pre-`UITab` shape (`nav_tabs_sync_classic`),
-                                // where the index IS the address.
-                                None if i < pages => unsafe { tabbar.setSelectedIndex(i) },
-                                None => {}
-                            }
-                            NAV_TABS.with(|m| {
-                                if let Some(t) = m.borrow().get(&hp) {
-                                    t.suppress.set(false);
-                                }
-                            });
+                        if NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(h))) {
+                            tabs_select_when_settled(ptr_of(h), *i, 0);
                             return;
                         }
                     }
@@ -9531,19 +9506,30 @@ mod imp {
         }
 
         fn ui_idle(&mut self) -> bool {
-            let active = MODAL_BUSY.with(|c| c.get())
-                || MODAL_QUEUE.with(|q| !q.borrow().is_empty())
-                || topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some())
-                // A nav push/pop animates on its UINavigationController, which topmost_vc()
-                // (presented modals only) never reaches — so without this a scripted screenshot
-                // taken right after `navigate` catches the outgoing page (or a mid-slide frame),
-                // the way the iOS gallery captures did. Any registered nav host with a live
-                // transition coordinator counts as still-settling.
-                || NAV_STATE.with(|m| {
-                    m.borrow()
-                        .values()
-                        .any(|s| s.active_nav().transitionCoordinator().is_some())
-                });
+            let modal =
+                MODAL_BUSY.with(|c| c.get()) || MODAL_QUEUE.with(|q| !q.borrow().is_empty());
+            let top = topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some());
+            // A nav push/pop animates on its UINavigationController, which topmost_vc()
+            // (presented modals only) never reaches — so without this a scripted screenshot
+            // taken right after `navigate` catches the outgoing page (or a mid-slide frame),
+            // the way the iOS gallery captures did. Any registered nav host with a live
+            // transition coordinator counts as still-settling.
+            let nav = NAV_STATE.with(|m| {
+                m.borrow().iter().find_map(|(h, s)| {
+                    let nav = s.active_nav();
+                    nav.transitionCoordinator().is_some().then(|| {
+                        (
+                            *h,
+                            nav.viewIfLoaded().is_some_and(|v| v.window().is_some()),
+                            nav.viewControllers().count(),
+                        )
+                    })
+                })
+            });
+            let active = modal || top || nav.is_some();
+            if *DIAG_NAV && active {
+                log::debug!("DAYDIAG ui_idle busy modal={modal} top={top} nav={nav:x?}");
+            }
             if active {
                 UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
                 return false;
@@ -9643,6 +9629,61 @@ mod imp {
     /// never captures the outgoing page before the incoming one has begun to slide in.
     fn note_ui_transition() {
         UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
+    }
+
+    /// Switch a tabs host's selection once no ON-SCREEN navigation stack has a transition in
+    /// flight. Switching tabs hides the outgoing tab's stack, and a push or pop still
+    /// animating there never completes once its view has left the window: the transition
+    /// coordinator stays alive, the popped page stays on the stack, and `ui_idle` reports a
+    /// UI that never settles — a walkthrough's every later screenshot failed "still settling"
+    /// on one variant in eight (Day-Tradr's back-then-switch on an iOS 27 iPhone). The
+    /// selection already moved in Day's tree; only the native switch waits, bounded so a
+    /// coordinator that never clears still gets its switch.
+    fn tabs_select_when_settled(hp: usize, i: usize, attempt: u32) {
+        let in_flight = NAV_STATE.with(|m| {
+            m.borrow().values().any(|s| {
+                let nav = s.active_nav();
+                unsafe { nav.transitionCoordinator() }.is_some()
+                    && unsafe { nav.viewIfLoaded() }.is_some_and(|v| v.window().is_some())
+            })
+        });
+        if in_flight && attempt < 120 {
+            if *DIAG_NAV && attempt == 0 {
+                log::debug!("DAYDIAG tabs select {i} waits for a stack transition");
+            }
+            // Plain data across the turn (a main-thread-only controller cannot).
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                day_spec::ffi_guard::contain((), || tabs_select_when_settled(hp, i, attempt + 1));
+            });
+            return;
+        }
+        let found = NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let t = m.get(&hp)?;
+            Some((t.tabbar.clone(), t.tabs.get(i).cloned(), t.vcs.len()))
+        });
+        let Some((tabbar, tab, pages)) = found else {
+            return;
+        };
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&hp) {
+                t.suppress.set(true);
+            }
+        });
+        match tab {
+            // `setSelectedTab`, not `setSelectedIndex`: the tab is the identity now, and an
+            // index only ever meant "the nth ROOT tab".
+            Some(tab) => unsafe { tabbar.setSelectedTab(Some(&tab)) },
+            // No tabs means the pre-`UITab` shape (`nav_tabs_sync_classic`), where the index
+            // IS the address.
+            None if i < pages => unsafe { tabbar.setSelectedIndex(i) },
+            None => {}
+        }
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&hp) {
+                t.suppress.set(false);
+            }
+        });
     }
 
     fn modal_after_idle(f: impl FnOnce() + 'static) {

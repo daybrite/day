@@ -269,7 +269,7 @@ sidebar become two renderings of ONE list of tabs, which is Day's model exactly,
 `.tabSidebar` is built to consume. The array still works, but the controller has to infer
 everything from view controllers, and the sidebar-side affordances have no tab to hang on.
 
-Three things this backend learned the hard way:
+Five things this backend learned the hard way:
 
 - **A `UITab` is a model object with an identity, not a per-render descriptor.** Its provider hands
   UIKit a view controller and UIKit then owns that controller as the tab's. This host re-syncs on
@@ -286,6 +286,12 @@ Three things this backend learned the hard way:
   instead ([docs/vectors.md](vectors.md)): thumbnailing here downsamples the catalog's bitmap
   rendition and throws away the vector representation that put it there. Day-Showcase's Grids
   tabs were the last 48pt holdouts (2026-09-05).
+- **A tab switch waits for the visible stack's transition.** Switching tabs hides the outgoing
+  tab's navigation controller, and a pop still animating there never finishes once its view has
+  left the window: the transition coordinator stays alive, the popped page stays on the stack,
+  and every later screenshot reports the UI still settling (Day-Tradr's back-then-switch on
+  iOS 27, one walkthrough variant in eight). The selection moves in Day's tree at once; the
+  native switch is deferred a few runloop turns until no on-screen stack is transitioning.
 - **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
   `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
   every other two-way control here — without it, installing the tabs reported a selection the user
