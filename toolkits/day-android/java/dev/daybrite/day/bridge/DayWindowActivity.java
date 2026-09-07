@@ -19,6 +19,9 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
 
     long node;
     private boolean started = false;
+    /** Set by DayBridge.closeWindow, which reports the close itself; onDestroy then stays quiet
+     *  rather than confirming the same close a second time. */
+    boolean closeReported = false;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -108,9 +111,10 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onDestroy() {
         if (node != 0) {
             ACTIVE.remove(node);
-            // A real close (back gesture, recents swipe, closeWindow): confirm to day,
-            // which tears the subtree down. A config-change recreation is NOT a close.
-            if (isFinishing() && DayBridge.started) {
+            // A real close (back gesture, recents swipe): confirm to day, which tears the
+            // subtree down. A config-change recreation is NOT a close, and a closeWindow
+            // already confirmed its own.
+            if (isFinishing() && DayBridge.started && !closeReported) {
                 DayBridge.nativeOnEvent(node, DayBridge.K_WINDOW_CLOSED, 0, null);
             }
         }

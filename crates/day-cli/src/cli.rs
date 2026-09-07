@@ -831,6 +831,8 @@ pub enum DevicesCmd {
         /// Pick the device by NAME PREFIX instead of by id: `--device "iPad Pro"` takes the
         /// first iPad Pro the machine has. What CI wants — runner images retire exact device
         /// names every few months, and a pinned one starts failing the day the image moves.
+        /// A `*` stands for any run of characters and the newest model wins, so
+        /// `--device "iPhone * Pro Max"` is the largest iPhone whatever its model year.
         #[arg(long, value_name = "NAME", conflicts_with = "id")]
         device: Option<String>,
         /// Narrow `--device` to an OS version: `--os "iOS 26"` takes the newest 26.x installed.

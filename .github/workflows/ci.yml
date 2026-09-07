@@ -790,8 +790,12 @@ jobs:
       - name: Boot an iOS Simulator
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
+          # The largest iPhone the image has (a Pro Max), newest first: its captures are the
+          # 6.9-inch size App Store Connect takes for iPhone screenshots — a plain "^iPhone"
+          # landed on a 6.3-inch model.
           UDID=$(xcrun simctl list devices available --json \
-            | jq -r '[.devices[] | .[] | select(.name | test("^iPhone"))][0].udid')
+            | jq -r '[.devices[] | .[] | select(.name | test("^iPhone .* Pro Max$"))]
+                     | sort_by(.name) | reverse | .[0].udid')
           echo "booting $UDID"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b

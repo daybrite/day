@@ -78,10 +78,16 @@ public final class DayBridge {
         c.startActivity(i);
     }
 
-    /** Close a secondary window (docs/windows.md): finish its activity; onDestroy confirms. */
+    /** Close a secondary window (docs/windows.md): finish its activity and confirm the close
+     *  to day NOW. finish() tears the activity down asynchronously, and while its onDestroy was
+     *  still pending day kept the window in its registry — a re-open in that gap (a walkthrough's
+     *  second Preferences, a second later) focused the dying activity and showed nothing. */
     public static void closeWindow(long node) {
         DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
-        if (a != null) a.finish();
+        if (a == null) return;
+        a.closeReported = true;
+        a.finish();
+        if (started) nativeOnEvent(node, K_WINDOW_CLOSED, 0, null);
     }
 
     /** Bring a secondary window's task to the front. */

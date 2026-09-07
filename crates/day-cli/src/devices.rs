@@ -450,14 +450,17 @@ fn sims_from_simctl(parsed: &Value) -> Vec<Sim> {
 ///
 /// `device` matches as a NAME PREFIX and `os` as a MAJOR VERSION taking the newest point release
 /// installed, because runner images rotate both: an exact "iPhone 15" on "iOS 26.2" starts failing
-/// the day the image moves, and the failure looks like a broken app rather than a stale pin. An
-/// unmatched request is an error listing what the machine does have — silently taking some other
-/// device would capture the wrong form factor under this profile's name.
+/// the day the image moves, and the failure looks like a broken app rather than a stale pin. A
+/// `*` in the prefix stands for any run of characters, so `iPhone * Pro Max` names the largest
+/// iPhone the image carries whatever its model year; among several matches on the same runtime
+/// the highest model number wins. An unmatched request is an error listing what the machine
+/// does have — silently taking some other device would capture the wrong form factor under this
+/// profile's name.
 fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, String), CliError> {
     let sims = simulators()?;
     let mut best: Option<(String, String, String)> = None;
     for (name, udid, runtime) in &sims {
-        if !name.starts_with(device) {
+        if !device_matches(device, name) {
             continue;
         }
         if let Some(want) = os
@@ -465,10 +468,12 @@ fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, 
         {
             continue;
         }
-        // Newest runtime wins, so `os=iOS 26` lands on the highest 26.x present.
-        let better = best
-            .as_ref()
-            .is_none_or(|(_, _, r)| runtime.as_str() > r.as_str());
+        // Newest runtime wins, so `os=iOS 26` lands on the highest 26.x present; on one runtime,
+        // the newest model.
+        let better = best.as_ref().is_none_or(|(_, n, r)| {
+            runtime.as_str() > r.as_str()
+                || (runtime.as_str() == r.as_str() && model_number(name) > model_number(n))
+        });
         if better {
             best = Some((udid.clone(), name.clone(), runtime.clone()));
         }
@@ -504,6 +509,35 @@ fn resolve_simulator(device: &str, os: Option<&str>) -> Result<(String, String, 
             listed.join("\n  ")
         ))
     })
+}
+
+/// Does simulator `name` match the profile `pattern`: a prefix whose `*` segments stand for any
+/// run of characters (`iPhone * Pro Max` matches "iPhone 17 Pro Max", `iPad Pro` matches
+/// "iPad Pro 13-inch (M4)")?
+fn device_matches(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let Some(first) = parts.next() else {
+        return true;
+    };
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    for part in parts {
+        let Some(at) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[at + part.len()..];
+    }
+    true
+}
+
+/// The first number in a simulator name ("iPhone 17 Pro Max" → 17), the model generation the
+/// tie-break between two matches on one runtime prefers; a name without one sorts first.
+fn model_number(name: &str) -> u32 {
+    name.split(|c: char| !c.is_ascii_digit())
+        .find(|s| !s.is_empty())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Does runtime `have` ("iOS 26.5") satisfy `want` ("iOS 26", "iOS 26.5", "26")? Compared by
@@ -2090,6 +2124,20 @@ fn ohos() -> Report {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn device_pattern_prefix_and_wildcards() {
+        use super::{device_matches, model_number};
+        assert!(device_matches("iPhone", "iPhone 17 Pro"));
+        assert!(device_matches("iPad Pro", "iPad Pro 13-inch (M4)"));
+        assert!(device_matches("iPhone * Pro Max", "iPhone 17 Pro Max"));
+        assert!(!device_matches("iPhone * Pro Max", "iPhone 17 Pro"));
+        assert!(!device_matches("iPhone * Pro Max", "iPad Pro 13-inch (M4)"));
+        assert!(device_matches("iPhone *", "iPhone 17"));
+        assert_eq!(model_number("iPhone 17 Pro Max"), 17);
+        assert_eq!(model_number("iPad Pro 13-inch (M4)"), 13);
+        assert_eq!(model_number("iPhone SE"), 0);
+    }
+
     use super::*;
     use std::collections::BTreeMap;
 
