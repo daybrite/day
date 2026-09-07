@@ -112,7 +112,9 @@ build/day/store/android-mdc/fastlane/{Appfile,Fastfile,metadata/android/…}
 
 Two lanes each. `validate` asks the store to check the build and the listing and rolls back;
 `upload` sends it. Neither submits for review or releases to users: iOS uploads a build, Android
-uploads to the internal track as an unreleased draft. iOS has a third lane, `release`, which
+uploads to the internal track as an unreleased draft. Each has a third lane, `release`: on Android
+it uploads to the production track as a completed release, which is Play's submission, and the
+rollout starts when Google's review passes; on iOS it
 uploads, waits for App Store Connect to process the build, and submits the version for review
 with export compliance answered as exempt; the release itself still waits for the Release button
 in App Store Connect. `DAY_IPA` names the artifact outright, which is how the release workflow

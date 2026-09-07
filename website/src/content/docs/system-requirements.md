@@ -303,7 +303,7 @@ project's platform configuration. They are unrelated to what your development ma
 |---|---|
 | `macos-appkit` | macOS 13 |
 | `ios-uikit` | iOS 16 |
-| `android-mdc` | API level 24 (Android 7.0), compiled against API 35 |
+| `android-mdc` | API level 24 (Android 7.0), compiled against API 37 |
 | `harmony-arkui` | API level 18 |
 | `windows-xaml` | Windows 10 or 11 |
 | `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |

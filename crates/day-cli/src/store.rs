@@ -584,6 +584,21 @@ platform :android do
       skip_upload_apk: true,
     )
   end
+
+  desc "Upload the .aab + listing to the production track and submit it: Google reviews it, then rolls it out."
+  # Play has no separate submit step: a completed production release is the submission, and
+  # the rollout starts when Google's review passes. The first bundle of a new app still has to
+  # be uploaded through the Play Console by hand before the API will take one.
+  lane :release do
+    supply(
+      aab: day_aab,
+      json_key: day_json_key,
+      metadata_path: File.expand_path("metadata/android", __dir__),
+      track: "production",
+      release_status: "completed",
+      skip_upload_apk: true,
+    )
+  end
 end
 "##
     .to_string()

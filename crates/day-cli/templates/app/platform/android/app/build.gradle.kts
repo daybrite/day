@@ -54,11 +54,11 @@ val daySigning = Properties().apply {
 android {
     // Day.toml [app] id, conveyed by `day build` (see dayRequired above).
     namespace = dayRequired("namespace")
-    compileSdk = 35
+    compileSdk = 37
     defaultConfig {
         applicationId = dayRequired("applicationId")
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 37
         versionCode = dayRequired("versionCode").toInt()
         // The app label — Day.toml [app] title, resolved per target (an [app.android] override
         // wins); the manifest references it as ${dayTitle}.
